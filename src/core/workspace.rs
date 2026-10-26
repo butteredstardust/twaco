@@ -244,35 +244,52 @@ pub(crate) fn unread_folders(solution: &Solution) -> Vec<(String, usize)> {
         .map(|project| solution.project_root(project))
         .collect();
     let mut found = Vec::new();
+    let mut judged = std::collections::BTreeSet::new();
     for project in &solution.projects {
         let root = solution.project_root(project);
-        if !project.collections.is_empty() || root == solution.root {
+        // Two projects may share a root; one look is enough.
+        if !project.collections.is_empty() || root == solution.root || !judged.insert(root.clone())
+        {
             continue;
         }
         let Ok(entries) = std::fs::read_dir(&root) else {
             continue;
         };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let name = entry.file_name().to_string_lossy().into_owned();
-            let is_dir = entry.file_type().is_ok_and(|kind| kind.is_dir());
-            if !is_dir
-                || name.starts_with('.')
-                || KNOWN_COLLECTIONS.contains(&name.as_str())
-                || path == src
-                || path == dist
-                || roots.iter().any(|other| other.starts_with(&path))
-            {
-                continue;
-            }
-            let (mut paths, mut failures) = (Vec::new(), Vec::new());
-            collect_xml(&path, &mut paths, &mut failures);
-            let entities = paths
+        let candidates: Vec<PathBuf> = entries
+            .flatten()
+            .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+            .map(|entry| entry.path())
+            .filter(|path| {
+                let name = path.file_name().unwrap_or_default().to_string_lossy();
+                // A folder discovery reads, in any case on a case-insensitive disk, and what
+                // every walk skips (build output, dependencies) are not judged.
+                !name.starts_with('.')
+                    && !KNOWN_COLLECTIONS
+                        .iter()
+                        .any(|known| known.eq_ignore_ascii_case(&name))
+                    && !SKIPPED_DIRS.contains(&name.as_ref())
+                    && *path != src
+                    && *path != dist
+                    && !roots.iter().any(|other| other.starts_with(path))
+            })
+            .collect();
+        if candidates.is_empty() {
+            continue;
+        }
+        // The repository walk honours .gitignore, so an ignored export folder is not judged.
+        let tree = walk_repository(&root);
+        for folder in candidates {
+            let entities = tree
+                .files
                 .iter()
+                .filter(|file| {
+                    file.starts_with(&folder)
+                        && file.extension().is_some_and(|extension| extension == "xml")
+                })
                 .filter(|file| std::fs::read(file).is_ok_and(|bytes| entity::parse(&bytes).is_ok()))
                 .count();
             if entities > 0 {
-                found.push((solution.relative(&path), entities));
+                found.push((solution.relative(&folder), entities));
             }
         }
     }
@@ -1043,7 +1060,8 @@ mod tests {
         std::fs::write(
             root.join("twaco.toml"),
             "[solution]\nsrc = \"P-SC/src\"\ndist = \"P-SC/dist\"\n\n\
-             [[project]]\nname = \"P\"\nroot = \"P-SC\"\n",
+             [[project]]\nname = \"P\"\nroot = \"P-SC\"\n\n\
+             [[project]]\nname = \"Q\"\nroot = \"P-SC\"\n",
         )
         .unwrap();
         let entity = |collection: &str, tag: &str, name: &str| {
@@ -1059,16 +1077,40 @@ mod tests {
             ("P-SC/src", entity("Things", "Thing", "P.Fragment")),
             ("P-SC/.twaco", entity("Things", "Thing", "P.Backup")),
             ("P-SC/notes", "<notes/>".to_string()),
+            // Ignored by git, a dependency folder, and a collection in another case.
+            ("P-SC/exported", entity("Things", "Thing", "P.Exported")),
+            (
+                "P-SC/node_modules/x",
+                entity("Things", "Thing", "P.Dependency"),
+            ),
+            (
+                "P-SC/thingshapes",
+                entity("ThingShapes", "ThingShape", "P.Cased"),
+            ),
         ] {
             std::fs::create_dir_all(root.join(folder)).unwrap();
             std::fs::write(root.join(folder).join("e.xml"), xml).unwrap();
         }
+        std::fs::write(root.join("P-SC/.gitignore"), "exported/\n").unwrap();
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
         let names: Vec<_> = entities(&solution)
             .into_iter()
             .map(|file| file.info.name)
             .collect();
-        assert_eq!(names, ["P.G"]);
+        assert!(names.contains(&"P.G".to_string()), "{names:?}");
+        // Once, though two projects share the root.
         assert_eq!(unread_folders(&solution), [("P-SC/Thinsg".to_string(), 1)]);
+        let gate = super::super::check::run(&solution)
+            .gates
+            .into_iter()
+            .find(|gate| gate.name == "project")
+            .unwrap();
+        let unread: Vec<_> = gate
+            .findings
+            .iter()
+            .filter(|finding| finding.rule == "unread-folder")
+            .map(|finding| finding.file.as_str())
+            .collect();
+        assert_eq!(unread, ["P-SC/Thinsg"]);
     }
 }

@@ -195,7 +195,7 @@ fn check_tags(file: &str, src: &[u8], vocabularies: &Vocabularies) -> Vec<Proble
     // Nearly every entity has `tags=""`; only one with a value is worth reading.
     let tagged = src
         .windows(7)
-        .position(|window| window == b" tags=\"")
+        .position(|window| window[0].is_ascii_whitespace() && &window[1..] == b"tags=\"")
         .is_some_and(|at| src.get(at + 7) != Some(&b'"'));
     if !tagged {
         return Vec::new();

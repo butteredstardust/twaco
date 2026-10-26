@@ -2105,3 +2105,134 @@ fn ai_edits_keep_compact_sparse_and_commented_files_well_formed() {
         "the only namespace",
     );
 }
+
+/// Removing from a compact one-line file takes only the element, and from a CRLF file the whole
+/// line with its CRLF, so neither loses markup nor keeps a stray CR.
+#[test]
+fn ai_removals_keep_compact_and_crlf_files_intact() {
+    let (_dir, solution) = fixture();
+    std::fs::create_dir_all(solution.root.join("app/MCPNamespaces")).unwrap();
+    let tool = |name: &str| {
+        format!("<MCPTool name=\"{name}\" serviceName=\"S\" serviceProvider=\"Elsewhere.T\" serviceProviderType=\"Thing\" description=\"D\"/>")
+    };
+    std::fs::write(
+        solution.root.join("app/MCPNamespaces/Acme.Orders.Compact_NS.xml"),
+        format!(
+            "<?xml version=\"1.0\"?>\n<Entities><MCPNamespaces><MCPNamespace name=\"Acme.Orders.Compact_NS\" projectName=\"Acme.Orders\"><MCPTools>{}{}</MCPTools></MCPNamespace></MCPNamespaces></Entities>\n",
+            tool("a"),
+            tool("b")
+        ),
+    )
+    .unwrap();
+    run(
+        &solution,
+        "Acme.Orders.Compact_NS",
+        Action::McpRemove { name: "a".into() },
+    );
+    assert_eq!(
+        file(&solution, "MCPNamespaces", "Acme.Orders.Compact_NS"),
+        format!(
+            "<?xml version=\"1.0\"?>\n<Entities><MCPNamespaces><MCPNamespace name=\"Acme.Orders.Compact_NS\" projectName=\"Acme.Orders\"><MCPTools>{}</MCPTools></MCPNamespace></MCPNamespaces></Entities>\n",
+            tool("b")
+        )
+    );
+
+    let crlf = |tools: &[&str]| {
+        let lines: String = tools
+            .iter()
+            .map(|name| format!("                {}\r\n", tool(name)))
+            .collect();
+        format!(
+            "<Entities>\r\n    <MCPNamespaces>\r\n        <MCPNamespace name=\"Acme.Orders.Crlf_NS\" projectName=\"Acme.Orders\">\r\n            <MCPTools>\r\n{lines}            </MCPTools>\r\n        </MCPNamespace>\r\n    </MCPNamespaces>\r\n</Entities>\r\n"
+        )
+    };
+    std::fs::write(
+        solution
+            .root
+            .join("app/MCPNamespaces/Acme.Orders.Crlf_NS.xml"),
+        crlf(&["a", "b"]),
+    )
+    .unwrap();
+    run(
+        &solution,
+        "Acme.Orders.Crlf_NS",
+        Action::McpRemove { name: "a".into() },
+    );
+    assert_eq!(
+        file(&solution, "MCPNamespaces", "Acme.Orders.Crlf_NS"),
+        crlf(&["b"])
+    );
+}
+
+/// A new section keeps the order `new` writes, a control character never reaches a CDATA
+/// section, and an item named twice is refused.
+#[test]
+fn ai_edits_keep_section_order_and_refuse_bad_text_and_repeats() {
+    let (_dir, solution) = fixture();
+    std::fs::write(
+        solution.root.join("app/Things/Acme.Orders.Manager.xml"),
+        "<Entities><Things><Thing name=\"Acme.Orders.Manager\" projectName=\"Acme.Orders\" thingTemplate=\"GenericThing\"><ThingShape><ServiceDefinitions><ServiceDefinition name=\"GetOrders\" description=\"Lists the open orders\"><ResultType baseType=\"STRING\" name=\"result\"/></ServiceDefinition></ServiceDefinitions></ThingShape></Thing></Things></Entities>",
+    )
+    .unwrap();
+    std::fs::create_dir_all(solution.root.join("app/MCPNamespaces")).unwrap();
+    // No ConfigurationTables, only prompts: tools go before them.
+    std::fs::write(
+        solution.root.join("app/MCPNamespaces/Acme.Orders.Prompts_NS.xml"),
+        "<Entities>\n    <MCPNamespaces>\n        <MCPNamespace name=\"Acme.Orders.Prompts_NS\" projectName=\"Acme.Orders\">\n            <MCPPrompts>\n                <MCPPrompt name=\"p\" description=\"P\" content=\"{}\"/>\n            </MCPPrompts>\n        </MCPNamespace>\n    </MCPNamespaces>\n</Entities>\n",
+    )
+    .unwrap();
+    run(
+        &solution,
+        "Acme.Orders.Prompts_NS",
+        Action::McpAdd {
+            kind: "tool".into(),
+            spec: "t=Acme.Orders.Manager.GetOrders".into(),
+            describe: None,
+        },
+    );
+    let text = file(&solution, "MCPNamespaces", "Acme.Orders.Prompts_NS");
+    let tools = text.find("<MCPTools>").expect("tools written");
+    let prompts = text.find("<MCPPrompts>").unwrap();
+    assert!(tools < prompts, "{text}");
+    assert!(
+        text.contains("            <MCPTools>") && text.contains("\n            <MCPPrompts>"),
+        "{text}"
+    );
+
+    new(&solution, Kind::AiAgent, "Acme.Orders.Agent", |r| {
+        r.namespaces = vec!["Acme.Orders.Prompts_NS=t".into()];
+    });
+    let refused = |entity: &str, action: Action, wanted: &str| {
+        let error = plan_of(&solution, entity, action).unwrap_err().to_string();
+        assert!(error.contains(wanted), "{wanted}: {error}");
+    };
+    refused(
+        "Acme.Orders.Agent",
+        Action::AgentSet(AgentChange {
+            instructions: Some("ring\u{7}".into()),
+            ..AgentChange::default()
+        }),
+        "U+0007",
+    );
+    refused(
+        "Acme.Orders.Agent",
+        Action::AgentAllow {
+            spec: "Acme.Orders.Prompts_NS=p,p".into(),
+        },
+        "item p is listed more than once",
+    );
+    refused(
+        "Acme.Orders.Agent",
+        Action::AgentDisallow {
+            spec: "Acme.Orders.Prompts_NS=t,t".into(),
+        },
+        "item t is listed more than once",
+    );
+    let mut request = NewRequest::blank(Kind::AiAgent, "Acme.Orders.Other_Agent");
+    request.namespaces = vec!["AgentUtilities".into()];
+    request.agent_description = Some("bell\u{7}".into());
+    let error = entity::new::plan(&solution, &request)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("U+0007"), "{error}");
+}

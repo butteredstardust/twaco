@@ -698,18 +698,38 @@ fn remove_child(doc: &Doc, section: usize, element: usize) -> Result<Vec<u8>, Ed
     let after = &doc.src[span.end..inner.end];
     if before.iter().all(u8::is_ascii_whitespace) && after.iter().all(u8::is_ascii_whitespace) {
         let name = String::from_utf8_lossy(doc.tokens[section].name.of(&doc.src)).into_owned();
-        let body = if OPEN_WHEN_EMPTY.contains(&name.as_str()) {
-            format!("\n{}", doc.indent_of(section))
+        // An indent is only the whitespace a line opens with; a compact file has none.
+        let indent = doc.indent_of(section);
+        let indent = if indent.chars().all(|c| c == ' ' || c == '\t') {
+            indent
+        } else {
+            String::new()
+        };
+        let body = if OPEN_WHEN_EMPTY.contains(&name.as_str()) && !indent.is_empty() {
+            format!("\n{indent}")
         } else {
             String::new()
         };
         return splice_one(&doc.src, inner, body);
     }
-    let line = doc.src[..span.start]
+    // On a line of its own the element goes with its whole line, line ending included (so a
+    // CRLF file keeps no stray CR); sharing a line with other markup, it goes alone.
+    let line_start = doc.src[..span.start]
         .iter()
         .rposition(|byte| *byte == b'\n')
-        .unwrap_or(span.start);
-    splice_one(&doc.src, Span::new(line, span.end), Vec::new())
+        .map_or(0, |at| at + 1);
+    let line_end = doc.src[span.end..]
+        .iter()
+        .position(|byte| *byte == b'\n')
+        .map(|at| span.end + at);
+    let alone = doc.src[line_start..span.start]
+        .iter()
+        .all(|byte| *byte == b' ' || *byte == b'\t')
+        && line_end.is_some_and(|end| doc.src[span.end..end].iter().all(u8::is_ascii_whitespace));
+    match line_end {
+        Some(end) if alone => splice_one(&doc.src, Span::new(line_start, end + 1), Vec::new()),
+        _ => splice_one(&doc.src, span, Vec::new()),
+    }
 }
 
 // ---------------------------------------------------------------------------------------------

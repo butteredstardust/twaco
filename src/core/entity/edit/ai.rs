@@ -161,7 +161,29 @@ pub(super) fn mcp_add(
                 )
                 .collect();
             let block = format!("\n            <{section}>{xml}\n            </{section}>");
-            insert_after(doc, &earlier, &block, 12)?
+            let later = SECTIONS
+                .iter()
+                .map(|(name, _)| *name)
+                .skip_while(|name| *name != section)
+                .skip(1)
+                .find_map(|name| child(doc, doc.entity, name));
+            match later {
+                // Before the first later section, so the order is the one new writes.
+                Some(next)
+                    if !earlier
+                        .iter()
+                        .any(|name| child(doc, doc.entity, name).is_some()) =>
+                {
+                    // Written where the next section starts, which already has its indent, so
+                    // the block drops its own and gives the next section the indent back.
+                    let lead = indent(doc, next);
+                    let block = reindent_block(&block, 12, &lead);
+                    let at = doc.tokens[next].span.start;
+                    let text = format!("{}\n{lead}", block.trim_start());
+                    Edit::new(Span::new(at, at), text.into_bytes())
+                }
+                _ => insert_after(doc, &earlier, &block, 12)?,
+            }
         }
     };
     plan.summary = format!("add {kind} {}", item.name());
@@ -361,6 +383,7 @@ pub(super) fn agent_disallow(doc: &Doc, spec: &str, plan: &mut Plan) -> Result<(
             "agent disallow {spec:?} has an empty item; write Namespace=item,item, or Namespace alone"
         )));
     }
+    ai::unique("item", names.iter().copied())?;
     for name in names {
         let before = allowed.tools.len() + allowed.resources.len() + allowed.prompts.len();
         for names in [
@@ -401,11 +424,8 @@ pub(super) fn taxonomy_add(
     doc.require(&["AIAgents"], "agent taxonomy add changes an AIAgent")?;
     let known = Known::read(solution);
     let (kind, name, aliases) = ai::taxonomy_spec(&known, spec)?;
-    if [name.as_str(), aliases.as_str()]
-        .iter()
-        .any(|value| value.contains("]]>"))
-    {
-        return Err(invalid("a taxonomy row cannot hold `]]>`"));
+    for value in [name.as_str(), aliases.as_str()] {
+        ai::cdata_value(value)?;
     }
     let rows = table_rows(doc, "TaxonomyConfiguration")?;
     for row in scan::child_tags(&doc.tokens, &doc.src, "Row", rows) {
@@ -590,9 +610,7 @@ pub(super) fn agent_set(
         let Some(value) = value else {
             continue;
         };
-        if value.contains("]]>") {
-            return Err(invalid(format!("the {word} cannot hold `]]>`")));
-        }
+        ai::cdata_value(value).map_err(|error| invalid(format!("the {word}: {error}")))?;
         let prompt =
             prompt.ok_or_else(|| invalid(format!("{} has no SystemPrompt", doc.label())))?;
         let element = doc.only_child(prompt, tag)?;

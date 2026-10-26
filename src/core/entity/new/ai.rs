@@ -132,7 +132,13 @@ fn service_spec(known: &Known, flag: &str, spec: &str) -> Result<ServiceSpec, Ne
     let entities = entity_map(&known.model);
     let mut description = String::new();
     if let Some(entity) = entities.get(&(collection, provider)).copied() {
-        if !declares_service(entity, service, &entities, &mut BTreeSet::new()) {
+        if !declares_service(
+            entity,
+            service,
+            &entities,
+            known.platform.as_ref(),
+            &mut BTreeSet::new(),
+        ) {
             return Err(NewError::Unknown(format!(
                 "{} {provider} has no service {service}, nor does anything it inherits",
                 word_of(collection)
@@ -272,7 +278,10 @@ fn uri_segment(text: &str) -> String {
     encode_path_segment(text)
 }
 
-fn unique<'s>(kind: &str, names: impl IntoIterator<Item = &'s str>) -> Result<(), NewError> {
+pub(crate) fn unique<'s>(
+    kind: &str,
+    names: impl IntoIterator<Item = &'s str>,
+) -> Result<(), NewError> {
     let mut seen = BTreeSet::new();
     for name in names {
         if !seen.insert(name) {
@@ -563,6 +572,9 @@ pub(crate) fn allowed(solution: &Solution, spec: &str) -> Result<Allowed, NewErr
             "--namespace {spec:?} has an empty item; write Namespace=item,item"
         )));
     }
+    if let Some(names) = &names {
+        unique("item", names.iter().copied())?;
+    }
     let mut out = Allowed {
         namespace: namespace.to_string(),
         tools: Vec::new(),
@@ -703,6 +715,19 @@ pub(crate) fn taxonomy_row(kind: &str, name: &str, aliases: &str) -> String {
     )
 }
 
+/// Refuse what a CDATA section cannot hold: its own terminator, or a character XML cannot hold.
+pub(crate) fn cdata_value(value: &str) -> Result<(), NewError> {
+    if value.contains("]]>") {
+        return Err(NewError::Invalid(
+            "CDATA-bound values cannot contain `]]>`".into(),
+        ));
+    }
+    match crate::core::scan::illegal_xml_char(value) {
+        Some(illegal) => Err(illegal.into()),
+        None => Ok(()),
+    }
+}
+
 /// Refuse a resolver that is not a Thing implementing the HierarchyResolver ThingShape.
 pub(crate) fn check_resolver(known: &Known, resolver: &str) -> Result<(), NewError> {
     let entities = entity_map(&known.model);
@@ -798,11 +823,7 @@ pub(super) fn agent_xml(
     )
     .chain(resolver)
     {
-        if value.contains("]]>") {
-            return Err(NewError::Invalid(
-                "CDATA-bound values cannot contain `]]>`".into(),
-            ));
-        }
+        cdata_value(value)?;
     }
     let display_name = request.display_name.as_deref().unwrap_or(&request.name);
     let rows: String = taxonomy

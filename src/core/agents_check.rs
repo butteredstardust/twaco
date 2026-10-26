@@ -188,6 +188,7 @@ fn check_provider(
         entity.unwrap(),
         &reference.service,
         entities,
+        platform,
         &mut BTreeSet::new(),
     ) {
         report.problems.push(problem(
@@ -351,10 +352,14 @@ pub(crate) fn entity_map(model: &Model) -> BTreeMap<(&str, &str), &types::Entity
         .collect()
 }
 
+/// Whether `entity` or what it inherits declares `service`. A template or shape outside the
+/// repository is answered from the platform cache; without the cache, or one the cache does not
+/// list, the chain is open and the service is taken as declared rather than refused.
 pub(crate) fn declares_service(
     entity: &types::Entity,
     service: &str,
     entities: &BTreeMap<(&str, &str), &types::Entity>,
+    platform: Option<&types::Platform>,
     seen: &mut BTreeSet<(String, String)>,
 ) -> bool {
     let key = (entity.collection.clone(), entity.name.clone());
@@ -368,16 +373,28 @@ pub(crate) fn declares_service(
     {
         return true;
     }
-    entity
+    let parents = entity
         .template
-        .as_ref()
-        .and_then(|name| entities.get(&("ThingTemplates", name.as_str())).copied())
-        .is_some_and(|parent| declares_service(parent, service, entities, seen))
-        || entity
-            .shapes
-            .iter()
-            .filter_map(|name| entities.get(&("ThingShapes", name.as_str())).copied())
-            .any(|shape| declares_service(shape, service, entities, seen))
+        .iter()
+        .map(|name| ("ThingTemplates", name))
+        .chain(entity.shapes.iter().map(|name| ("ThingShapes", name)));
+    for (collection, name) in parents {
+        if let Some(parent) = entities.get(&(collection, name.as_str())).copied() {
+            if declares_service(parent, service, entities, platform, seen) {
+                return true;
+            }
+            continue;
+        }
+        let known = platform.and_then(|platform| match collection {
+            "ThingTemplates" => platform.templates.get(name),
+            _ => platform.shapes.get(name),
+        });
+        match known {
+            Some(meta) if !meta.services.contains_key(service) => {}
+            _ => return true,
+        }
+    }
+    false
 }
 
 pub(crate) fn implements_shape(
@@ -526,6 +543,29 @@ mod tests {
         );
         assert_eq!(report.examined, 2);
         assert!(report.problems.is_empty(), "{:?}", report.problems);
+    }
+
+    #[test]
+    fn a_service_inherited_from_a_platform_template_is_judged_by_the_platform_cache() {
+        let namespace = r#"<Entities><MCPNamespaces><MCPNamespace name="P.N" projectName="P"><MCPTools><MCPTool name="props" serviceName="GetPropertyValues" serviceProvider="P.Pump" serviceProviderType="Thing"/><MCPTool name="nope" serviceName="Nope" serviceProvider="P.Pump" serviceProviderType="Thing"/></MCPTools></MCPNamespace></MCPNamespaces></Entities>"#;
+        let pump = r#"<Entities><Things><Thing name="P.Pump" projectName="P" thingTemplate="GenericThing"/></Things></Entities>"#;
+        let files = [
+            ("MCPNamespaces/P.N.xml", namespace),
+            ("Things/P.Pump.xml", pump),
+        ];
+        // Without a cache the chain is open: nothing is judged.
+        assert!(run(&files, false).problems.is_empty());
+        // With one, a service GenericThing has passes and one it lacks does not.
+        let cache = r#"{"templates":{"GenericThing":{"services":{"GetPropertyValues":{"result":{"baseType":"INFOTABLE"}}}}}}"#;
+        let with_cache = [files[0], files[1], (".twaco/platform.json", cache)];
+        let rules: Vec<_> = run(&with_cache, false)
+            .problems
+            .into_iter()
+            .map(|problem| (problem.rule, problem.message))
+            .collect();
+        assert_eq!(rules.len(), 1, "{rules:?}");
+        assert_eq!(rules[0].0, "missing-service");
+        assert!(rules[0].1.contains("P.Pump.Nope"), "{rules:?}");
     }
 
     #[test]

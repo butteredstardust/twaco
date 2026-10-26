@@ -1432,7 +1432,19 @@ mod tests {
 
     #[test]
     fn run_keeps_the_public_validation_and_content_gate_results() {
-        let (_dir, _root, solution) = live_solution();
+        let (_dir, root, solution) = live_solution();
+        // Something for each gate to find, so equal answers mean something.
+        std::fs::create_dir_all(root.join("Mashups")).unwrap();
+        std::fs::write(
+            root.join("Mashups/P.M.xml"),
+            "<Entities><Mashups><Mashup name=\"P.M\" projectName=\"P\"><mashupContent><![CDATA[{\"UI\":{\"Type\":\"mashup\",\"Properties\":{\"Id\":\"mashup-root\"},\"Widgets\":[{\"Properties\":{\"Type\":\"label\",\"Id\":\"label-1\"},\"Widgets\":[]}]},\"Data\":{},\"Events\":[],\"DataBindings\":[{\"SourceArea\":\"UI\",\"SourceId\":\"label-1\",\"SourceDetails\":\"\",\"PropertyMaps\":[{\"SourceProperty\":\"Nope\",\"TargetProperty\":\"Text\"}],\"TargetArea\":\"UI\",\"TargetId\":\"label-1\",\"TargetSection\":\"\"}]}]]></mashupContent></Mashup></Mashups></Entities>",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("Things/P.Copy.xml"),
+            std::fs::read(root.join("Things/P.T.xml")).unwrap(),
+        )
+        .unwrap();
         let report = run(&solution);
         let names: Vec<&str> = report.gates.iter().map(|gate| gate.name.as_str()).collect();
         assert_eq!(names, BUILT_IN_GATES);
@@ -1457,6 +1469,7 @@ mod tests {
                 .into_iter()
                 .map(|problem| (problem.file, problem.rule.to_string(), problem.message))
                 .collect();
+        assert!(!project.is_empty(), "the copy is a duplicate and misnamed");
         assert_eq!(project, expected_project);
 
         let content: Vec<(String, String, String)> = report
@@ -1480,6 +1493,7 @@ mod tests {
                 .into_iter()
                 .map(|(file, problem)| (file, problem.rule, problem.message))
                 .collect();
+        assert!(!content.is_empty(), "the label has no property Nope");
         assert_eq!(content, expected_content);
     }
 

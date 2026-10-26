@@ -20,11 +20,13 @@ All notable changes to twaco are recorded here. The format follows
   `impact <Thing> --member <service>` names the namespace whose tool calls it and the agent that
   uses that namespace.
 - A new `check` gate, `ai references`, finds what breaks an agent: a tool calling a service its
-  provider does not declare, a provider or taxonomy type under the solution's own projects that
-  the repository lacks, a namespace an agent references that is not there, an allowed tool,
-  resource or prompt the namespace does not define, a resolver that does not implement
-  `HierarchyResolver`, and an MCP File resource or skill whose file the `[repositories]` mirror
-  does not hold, which makes the import refuse the namespace.
+  provider, what that inherits, or the platform cache for a platform template does not declare;
+  a provider of the wrong kind; a namespace an agent references that is not there; an allowed
+  tool, resource or prompt the namespace does not define; a taxonomy type of the wrong kind; a
+  resolver that does not implement `HierarchyResolver`; and an MCP File resource or skill whose
+  file the `[repositories]` mirror does not hold, which makes the import refuse the namespace. A
+  provider, taxonomy type or resolver under the solution's own projects that the repository
+  lacks is a note, since another project may share the prefix.
 - `new mcp-namespace` (tools, service and file resources, prompts) and `new ai-agent`
   (namespaces and what it may use from each, skills, hierarchy resolver, taxonomy rows, system
   prompt), with MCP `entity_new` kinds `mcp-namespace` and `ai-agent`. Each reference is checked
