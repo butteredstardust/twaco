@@ -2,15 +2,11 @@ $ twaco unused --min-confidence structural --collection Things
 exit: 0
 
 --- stdout
-unused: 3 of 6 entities are not reached from any entry point (at structural confidence or stronger)
-  entry points  1 a mashup, 2 kept by [unused] keep, 1 runs on events
+unused: 1 of 6 entities are not reached from any entry point (at structural confidence or stronger)
+  entry points  1 a mashup, 2 kept by [unused] keep, 1 runs on events, 3 used by being present
 
   Things/Acme.Orders.Audit  (Acme.Orders)
-      still named by Things/Acme.Orders.Manager (itself unreached)
-  Things/Acme.Orders.Lines_DT  (Acme.Orders)
-      still named by Things/Acme.Orders.Manager (itself unreached)
-  Things/Acme.Orders.Manager  (Acme.Orders)
-      named by Mashups/Acme.Orders.Dashboard, by a reference weaker than structural
+      named by Things/Acme.Orders.Manager, by a reference weaker than structural
 
 advisory: nothing is deleted, and a name in this list may be used from outside
 limits: an entity used only from outside this repository (a REST client, a connected system) looks unused; list it under [unused] keep

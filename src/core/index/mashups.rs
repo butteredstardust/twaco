@@ -118,6 +118,13 @@ impl Builder<'_> {
                     continue;
                 }
             };
+            if let Some(master) = value
+                .pointer("/UI/Properties/Master")
+                .and_then(Value::as_str)
+                .filter(|master| !master.is_empty())
+            {
+                self.link(from, "Mashups", master, EdgeKind::MasterMashup, None, None);
+            }
             let mut bound = Vec::new();
             bindings(&value, &mut bound);
             for (entity_type, name, service) in bound {

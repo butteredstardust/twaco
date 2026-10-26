@@ -37,6 +37,13 @@ All notable changes to twaco are recorded here. The format follows
   and undoing an edit gives back the same bytes. Removing a namespace item takes it out of every
   agent that allows it and says to push those agents first, because the import refuses a
   namespace that drops an item an agent on the server still allows.
+- The reference index reads more structure: a Thing's or template's value stream, a data
+  table's or stream's DataShape, a Network's Things, a Menu's mashups, a mashup's master, and the
+  users and groups in a group or an organization. `impact` on a value stream lists the Things
+  logging to it, on a group the organizations it belongs to. `unused` treats Networks, Menus, AI
+  agents, MCP namespaces, groups and organizations as entry points, since the platform uses them
+  by their being there, so a Thing in a hierarchy, or one whose service an agent's tool calls, is
+  no longer reported.
 
 ### Changed
 

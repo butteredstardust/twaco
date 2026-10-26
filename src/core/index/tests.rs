@@ -1131,7 +1131,9 @@ fn the_bundled_repository_wires_its_things_together() {
         chain,
         [
             ("Things/Acme.Orders.Manager", 1),
-            ("Mashups/Acme.Orders.Dashboard", 2)
+            ("Mashups/Acme.Orders.Dashboard", 2),
+            // The plant Network holds the Manager.
+            ("Networks/Acme.Orders.Plant", 2)
         ]
     );
     assert_eq!(who[1].path.len(), 2);

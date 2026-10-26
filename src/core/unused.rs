@@ -2,8 +2,9 @@
 //!
 //! An entity is reported when no chain of references leads to it from an **entry point**: the
 //! things a deploy runs (`twaco.toml`), every mashup, anything that runs on events (it declares
-//! subscriptions, inherits something that does, or is a Timer or Scheduler), and whatever
-//! `[unused] keep` names. The answer is advisory. A REST client, a connected system or a person
+//! subscriptions, inherits something that does, or is a Timer or Scheduler), what the platform
+//! uses by its being there (Networks, Menus, AI agents and MCP namespaces, groups and
+//! organizations), and whatever `[unused] keep` names. The answer is advisory. A REST client, a connected system or a person
 //! with a bookmark may use an entity the repository never mentions, so nothing here deletes
 //! anything, and `keep` is how a solution says "this one is used from outside".
 //!
@@ -76,6 +77,17 @@ fn kept(patterns: &[String], key: &EntityKey) -> bool {
     })
 }
 
+/// Collections the platform uses by an entity's being there, so what they name is in use: a
+/// Network's Things, a Menu's mashups, an agent's namespaces and the services their tools call.
+const PRESENT: &[&str] = &[
+    "Networks",
+    "Menus",
+    "AIAgents",
+    "MCPNamespaces",
+    "Groups",
+    "Organizations",
+];
+
 pub fn run(solution: &Solution, request: &Request) -> Report {
     let index = Index::build(solution);
     let keep = &solution.unused.keep;
@@ -89,6 +101,12 @@ pub fn run(solution: &Solution, request: &Request) -> Report {
     for (key, _) in index.entities() {
         if key.collection() == "Mashups" {
             groups.entry("a mashup").or_default().push(key.clone());
+        }
+        if PRESENT.contains(&key.collection()) {
+            groups
+                .entry("used by being present")
+                .or_default()
+                .push(key.clone());
         }
         if index.runs_on_events(key) {
             groups
@@ -451,9 +469,9 @@ mod tests {
             any.len() <= resolved.len() && resolved.len() < structural.len(),
             "{any:?} {resolved:?} {structural:?}"
         );
-        // The mashup binds the Manager only by a resolved reference, so structurally it is unreached.
-        assert!(structural.contains(&"Things/Acme.Orders.Manager".to_string()));
-        assert!(!resolved.contains(&"Things/Acme.Orders.Manager".to_string()));
+        // The Manager names the Audit only from a script, so structurally the Audit is unreached.
+        assert!(structural.contains(&"Things/Acme.Orders.Audit".to_string()));
+        assert!(!resolved.contains(&"Things/Acme.Orders.Audit".to_string()));
     }
 
     #[test]
@@ -465,31 +483,27 @@ mod tests {
                 collection: Some("Things".into()),
             },
         );
-        let manager = report
-            .unused
-            .iter()
-            .find(|item| item.entity == "Things/Acme.Orders.Manager")
-            .expect("the mashup binds it only by a resolved reference");
-        // The mashup is an entry point, so it is reached; only its reference is too weak.
-        assert!(manager.named_by_unreached.is_empty(), "{manager:?}");
-        assert_eq!(manager.named_weakly_by, ["Mashups/Acme.Orders.Dashboard"]);
+        // The plant Network names the Manager structurally, and a Network is used by being
+        // there, so the Manager is reached.
+        assert!(
+            !report
+                .unused
+                .iter()
+                .any(|item| item.entity == "Things/Acme.Orders.Manager"),
+            "{:?}",
+            report.unused
+        );
+        // The Manager names the Audit only from a script: reached, but too weakly.
         let audit = report
             .unused
             .iter()
             .find(|item| item.entity == "Things/Acme.Orders.Audit")
             .unwrap();
-        assert_eq!(
-            audit.named_by_unreached,
-            ["Things/Acme.Orders.Manager"],
-            "the Manager is itself unreached here"
-        );
+        assert!(audit.named_by_unreached.is_empty(), "{audit:?}");
+        assert_eq!(audit.named_weakly_by, ["Things/Acme.Orders.Manager"]);
         let text = render_text(&report, false);
         assert!(
             text.contains("by a reference weaker than structural"),
-            "{text}"
-        );
-        assert!(
-            text.contains("still named by Things/Acme.Orders.Manager (itself unreached)"),
             "{text}"
         );
     }

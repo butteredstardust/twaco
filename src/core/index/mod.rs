@@ -16,6 +16,7 @@ mod agents;
 mod build;
 mod deploy;
 pub(crate) mod inherit;
+mod links;
 pub(crate) mod mashups;
 mod query;
 mod scripts;
@@ -97,6 +98,16 @@ pub enum EdgeKind {
     AgentNamespace,
     /// An AI agent configuration reference.
     AgentConfig,
+    /// A Thing's or template's value stream.
+    ValueStream,
+    /// A Network connection's Thing, at either end.
+    NetworkNode,
+    /// A menu item opening a mashup.
+    MenuItem,
+    /// A user or group belonging to a group, or to an organization's unit.
+    Member,
+    /// A mashup's master.
+    MasterMashup,
 }
 
 impl EdgeKind {
@@ -111,7 +122,12 @@ impl EdgeKind {
             | EdgeKind::McpTool
             | EdgeKind::McpFile
             | EdgeKind::AgentNamespace
-            | EdgeKind::AgentConfig => Confidence::Structural,
+            | EdgeKind::AgentConfig
+            | EdgeKind::ValueStream
+            | EdgeKind::NetworkNode
+            | EdgeKind::MenuItem
+            | EdgeKind::Member
+            | EdgeKind::MasterMashup => Confidence::Structural,
             EdgeKind::ScriptReference | EdgeKind::MashupBinding => Confidence::Resolved,
             EdgeKind::ScriptMention | EdgeKind::MashupMention => Confidence::Review,
         }
@@ -141,6 +157,11 @@ impl EdgeKind {
             EdgeKind::McpFile => "mcp_file",
             EdgeKind::AgentNamespace => "agent_namespace",
             EdgeKind::AgentConfig => "agent_config",
+            EdgeKind::ValueStream => "value_stream",
+            EdgeKind::NetworkNode => "network_node",
+            EdgeKind::MenuItem => "menu_item",
+            EdgeKind::Member => "member",
+            EdgeKind::MasterMashup => "master_mashup",
         }
     }
 }

@@ -705,7 +705,11 @@ mod tests {
             .find(|shape| shape.name == "Acme.Orders.OrderLine_DS")
             .unwrap();
         assert_eq!(line.fields.len(), 4);
-        assert_eq!(line.used_by, ["Things/Acme.Orders.Manager"]);
+        // The data table is built on it, as well as the Manager typing a result by it.
+        assert_eq!(
+            line.used_by,
+            ["Things/Acme.Orders.Lines_DT", "Things/Acme.Orders.Manager"]
+        );
     }
 
     #[test]

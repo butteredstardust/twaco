@@ -17,6 +17,13 @@ exit: 0
       "members": []
     },
     {
+      "label": "Networks/Acme.Orders.Plant",
+      "project": "Acme.Orders",
+      "depth": 2,
+      "confidence": "structural",
+      "members": []
+    },
+    {
       "label": "Mashups/Acme.Orders.Dashboard",
       "project": "Acme.Orders",
       "depth": 2,
@@ -25,7 +32,7 @@ exit: 0
     }
   ],
   "counts": {
-    "structural": 1,
+    "structural": 2,
     "resolved": 1,
     "review": 0
   },

@@ -155,12 +155,12 @@ exit: 0
       ],
       "implemented_by": [],
       "referred_to_by": {
-        "structural": 0,
+        "structural": 1,
         "resolved": 1,
         "review": 0
       },
       "refers_to": {
-        "structural": 0,
+        "structural": 1,
         "resolved": 0,
         "review": 0
       },
@@ -179,7 +179,7 @@ exit: 0
       ],
       "implemented_by": [],
       "referred_to_by": {
-        "structural": 0,
+        "structural": 1,
         "resolved": 1,
         "review": 0
       },
@@ -203,7 +203,7 @@ exit: 0
       ],
       "implemented_by": [],
       "referred_to_by": {
-        "structural": 0,
+        "structural": 1,
         "resolved": 0,
         "review": 0
       },
@@ -245,6 +245,7 @@ exit: 0
       "project": "Acme.Orders",
       "base": null,
       "used_by": [
+        "Things/Acme.Orders.Lines_DT",
         "Things/Acme.Orders.Manager"
       ],
       "field_count": 4

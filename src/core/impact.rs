@@ -674,14 +674,15 @@ mod tests {
             labels,
             [
                 "Things/Acme.Orders.Manager",
-                "Mashups/Acme.Orders.Dashboard"
+                "Mashups/Acme.Orders.Dashboard",
+                "Networks/Acme.Orders.Plant"
             ]
         );
         assert_eq!(
             report.counts,
             Counts {
                 structural: 0,
-                resolved: 2,
+                resolved: 3,
                 review: 0
             }
         );
@@ -699,7 +700,7 @@ mod tests {
             "{text}"
         );
         assert!(
-            text.contains("2 resolved") && text.contains("Acme.Orders (deploy 1)"),
+            text.contains("3 resolved") && text.contains("Acme.Orders (deploy 1)"),
             "{text}"
         );
         assert!(
@@ -900,14 +901,15 @@ mod tests {
     fn a_template_is_inherited_by_what_names_it_and_a_summary_leaves_the_chains_out_of_json() {
         let report = ask("Base_TT", None, Confidence::Review);
         assert_eq!(report.inherited_by, ["Things/Acme.Orders.Manager"]);
-        assert_eq!(report.counts.structural, 1);
+        // The Manager, and the plant Network holding it.
+        assert_eq!(report.counts.structural, 2);
         let compact = report.to_json(false);
         assert!(compact["dependents"][0].get("path").is_none(), "{compact}");
         assert_eq!(
             compact["dependents"][0]["label"],
             "Things/Acme.Orders.Manager"
         );
-        assert_eq!(compact["counts"]["structural"], 1);
+        assert_eq!(compact["counts"]["structural"], 2);
         assert_eq!(compact["complete"], true);
         let full = report.to_json(true);
         assert_eq!(full["dependents"][0]["path"][0]["kind"], "template");
