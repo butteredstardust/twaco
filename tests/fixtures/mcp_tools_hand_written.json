@@ -1478,7 +1478,16 @@
             "media_set",
             "menu_item_add",
             "menu_item_remove",
-            "state_set"
+            "state_set",
+            "mcp_add",
+            "mcp_remove",
+            "agent_allow",
+            "agent_disallow",
+            "agent_taxonomy_add",
+            "agent_taxonomy_remove",
+            "agent_skill_add",
+            "agent_skill_remove",
+            "agent_set"
           ]
         },
         "entity": {
@@ -1554,7 +1563,9 @@
         "params": {
           "description": "service_add: parameters in declaration order, each `name:TYPE[:DataShape]`.",
           "type": "array",
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         },
         "returns": {
           "description": "service_add: the result `TYPE[:DataShape]`; absent means NOTHING.",
@@ -1664,6 +1675,34 @@
           "items": {
             "type": "string"
           }
+        },
+        "item_kind": {
+          "description": "mcp_add: tool, service-resource, file-resource or prompt.",
+          "type": "string"
+        },
+        "spec": {
+          "description": "mcp_add: `name=Provider.Service`, `name=Repository:/path` or `name=text`; agent_allow and\nagent_disallow: `Namespace` or `Namespace=item,item`; agent_taxonomy_add:\n`TemplateOrShape[=alias, alias]`; agent_skill_add and agent_skill_remove:\n`Repository:/path`. mcp_remove and agent_taxonomy_remove take `name`; mcp_add takes the\nitem's `description`.",
+          "type": "string"
+        },
+        "resolver": {
+          "description": "agent_set: the HierarchyResolver Thing; empty clears it.",
+          "type": "string"
+        },
+        "instructions": {
+          "description": "agent_set: the system prompt's instructions.",
+          "type": "string"
+        },
+        "instructions_file": {
+          "description": "agent_set: a file holding the instructions.",
+          "type": "string"
+        },
+        "agent_description": {
+          "description": "agent_set: the description the assistant routes questions by.",
+          "type": "string"
+        },
+        "display_name": {
+          "description": "agent_set: the name the assistant shows.",
+          "type": "string"
         },
         "dry_run": {
           "type": "boolean",

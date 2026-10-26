@@ -21,7 +21,7 @@ use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-mod ai;
+pub(crate) mod ai;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
@@ -1898,9 +1898,29 @@ mod tests {
             "--describe y names no tool",
         );
         refused(
-            blank_namespace,
+            blank_namespace.clone(),
             &|r| r.tools = vec!["x=ThingShape:Acme.Orders.Manager.GetOrders".into()],
             "is a Thing in the repository, not a ThingShape",
+        );
+        for escape in [
+            "x=Files:/../outside.md",
+            "x=..:/a.md",
+            "x=Files:\\Windows\\a",
+            "x=Files:/a//b",
+        ] {
+            refused(
+                blank_namespace.clone(),
+                &|r| r.file_resources = vec![escape.into()],
+                "must be name=Repository:/path",
+            );
+        }
+        refused(
+            blank_namespace,
+            &|r| {
+                r.tools = vec!["x=Acme.Orders.Manager.GetOrders".into()];
+                r.prompts = vec!["x=Say hello".into()];
+            },
+            "x is listed more than once",
         );
         let blank_agent = request(Kind::AiAgent, "Acme.Orders.Other_Agent");
         refused(
@@ -1917,6 +1937,19 @@ mod tests {
             blank_agent.clone(),
             &|r| r.namespaces = vec!["Elsewhere_NS".into()],
             "no MCPNamespace Elsewhere_NS",
+        );
+        refused(
+            blank_agent.clone(),
+            &|r| r.namespaces = vec!["Acme.Orders.Tools_NS=open_orders,,status".into()],
+            "has an empty item",
+        );
+        refused(
+            blank_agent.clone(),
+            &|r| {
+                r.namespaces = vec!["AgentUtilities".into()];
+                r.skills = vec!["SharedSkillsRepository:/../escape".into()];
+            },
+            "inside the repository",
         );
         refused(
             blank_agent,

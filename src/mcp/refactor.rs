@@ -170,7 +170,7 @@ pub(crate) fn entity_edit_tool(
     solution: &Solution,
     arguments: EntityEditRequest,
 ) -> Result<Value, ToolError> {
-    use crate::core::entity::edit::{Action, Property, Request, Service, StyleChange};
+    use crate::core::entity::edit::{Action, AgentChange, Property, Request, Service, StyleChange};
     use crate::mcp::requests::common::Absent;
     let text = |value: &Absent<String>| value.as_ref().cloned();
     let need = |value: &Absent<String>, what: &str| -> Result<String, ToolError> {
@@ -279,6 +279,39 @@ pub(crate) fn entity_edit_tool(
             state_type: need(&arguments.state_type, "state_type")?,
             states: arguments.state.items().to_vec(),
         },
+        EntityEditAction::McpAdd => Action::McpAdd {
+            kind: need(&arguments.item_kind, "item_kind")?,
+            spec: need(&arguments.spec, "spec")?,
+            describe: text(&arguments.description),
+        },
+        EntityEditAction::McpRemove => Action::McpRemove {
+            name: need(&arguments.name, "name")?,
+        },
+        EntityEditAction::AgentAllow => Action::AgentAllow {
+            spec: need(&arguments.spec, "spec")?,
+        },
+        EntityEditAction::AgentDisallow => Action::AgentDisallow {
+            spec: need(&arguments.spec, "spec")?,
+        },
+        EntityEditAction::AgentTaxonomyAdd => Action::AgentTaxonomyAdd {
+            spec: need(&arguments.spec, "spec")?,
+        },
+        EntityEditAction::AgentTaxonomyRemove => Action::AgentTaxonomyRemove {
+            name: need(&arguments.name, "name")?,
+        },
+        EntityEditAction::AgentSkillAdd => Action::AgentSkillAdd {
+            spec: need(&arguments.spec, "spec")?,
+        },
+        EntityEditAction::AgentSkillRemove => Action::AgentSkillRemove {
+            spec: need(&arguments.spec, "spec")?,
+        },
+        EntityEditAction::AgentSet => Action::AgentSet(AgentChange {
+            resolver: arguments.resolver.as_ref().cloned(),
+            instructions: arguments.instructions.as_ref().cloned(),
+            instructions_file: arguments.instructions_file.as_ref().map(Into::into),
+            agent_description: arguments.agent_description.as_ref().cloned(),
+            display_name: arguments.display_name.as_ref().cloned(),
+        }),
     };
     let dry_run = arguments.dry_run;
     let request = commands::entity_edit::EditRequest {

@@ -2,6 +2,7 @@
 
 use super::agents::{self, collection, Agent, Namespace, ServiceReference};
 use super::config::Solution;
+use super::entity::new::ai::repository_name;
 use super::types::{self, Member, Model};
 use super::workspace;
 use std::collections::{BTreeMap, BTreeSet};
@@ -13,6 +14,9 @@ pub(crate) const GATE: &str = "ai references";
 pub(crate) struct Report {
     pub(crate) examined: usize,
     pub(crate) problems: Vec<Problem>,
+    /// What looks renamed or deleted but cannot be proven so: a name under one of the
+    /// solution's projects that the repository lacks may still be another project's.
+    pub(crate) notes: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -98,6 +102,17 @@ pub(crate) fn run_in(
                 let Some(root) = solution.repositories_root() else {
                     continue;
                 };
+                if !repository_name(&reference.repository) {
+                    report.problems.push(problem(
+                        file,
+                        "invalid-path",
+                        format!(
+                            "{} names the repository {:?}, which is not one folder name",
+                            resource.name, reference.repository
+                        ),
+                    ));
+                    continue;
+                }
                 let folder = root.join(&reference.repository);
                 if folder.is_dir() && !file_in(&folder, &reference.path) {
                     report.problems.push(problem(
@@ -149,10 +164,9 @@ fn check_provider(
         if platform_has(platform, collection, &reference.provider) {
             return;
         }
-        if own_name(solution, &reference.provider)
-            || entities
-                .keys()
-                .any(|(_, name)| *name == reference.provider.as_str())
+        if entities
+            .keys()
+            .any(|(_, name)| *name == reference.provider.as_str())
         {
             report.problems.push(problem(
                 file,
@@ -161,6 +175,11 @@ fn check_provider(
                     "{} names {} as a {}, but that provider is not present",
                     reference.name, reference.provider, reference.provider_type
                 ),
+            ));
+        } else if own_name(solution, &reference.provider) {
+            report.notes.push(format!(
+                "{file}: {} calls {}.{}, which the repository does not hold; renamed or deleted?",
+                reference.name, reference.provider, reference.service
             ));
         }
         return;
@@ -265,20 +284,16 @@ fn check_agent(
             && !platform_has(platform, collection, name)
             && own_name(solution, name)
         {
-            report.problems.push(problem(
-                file,
-                "missing-taxonomy-type",
-                format!("{kind} {name} is not in the repository or platform cache"),
+            report.notes.push(format!(
+                "{file}: taxonomy {kind} {name} is not in the repository or platform cache; renamed or deleted?"
             ));
         }
     }
     for resolver in &agent.resolvers {
         let Some(entity) = entities.get(&("Things", resolver.as_str())).copied() else {
             if own_name(solution, resolver) {
-                report.problems.push(problem(
-                    file,
-                    "missing-resolver",
-                    format!("Thing {resolver} is not in the repository"),
+                report.notes.push(format!(
+                    "{file}: resolver Thing {resolver} is not in the repository; renamed or deleted?"
                 ));
             }
             continue;
@@ -293,6 +308,17 @@ fn check_agent(
     }
     if let Some(root) = solution.repositories_root() {
         for skill in &agent.skills {
+            if !repository_name(&skill.repository) {
+                report.problems.push(problem(
+                    file,
+                    "invalid-path",
+                    format!(
+                        "skill {} names the repository {:?}, which is not one folder name",
+                        skill.path, skill.repository
+                    ),
+                ));
+                continue;
+            }
             let folder = root.join(&skill.repository);
             if folder.is_dir()
                 && !file_in(
@@ -377,8 +403,8 @@ pub(crate) fn implements_shape(
         .is_some_and(|template| implements_shape(template, wanted, entities, seen))
 }
 
-/// A name under one of the solution's own projects belongs in the repository, so its absence is
-/// a rename or a deletion; any other name may be another solution's, and is not judged.
+/// A name under one of the solution's own projects most likely belongs in the repository, so
+/// its absence is worth a note; another project may share the prefix, so it is never a finding.
 fn own_name(solution: &Solution, name: &str) -> bool {
     solution
         .projects
@@ -451,7 +477,7 @@ mod tests {
     #[test]
     fn reports_each_ai_reference_rule() {
         let namespace = r#"<Entities><MCPNamespaces><MCPNamespace name="P.N" projectName="P"><MCPTools><MCPTool name="wrong-provider" serviceName="Nope" serviceProvider="P.Template" serviceProviderType="Thing"/><MCPTool name="missing-service" serviceName="Nope" serviceProvider="P.Provider" serviceProviderType="Thing"/></MCPTools><MCPResources><MCPResource name="file" type="File"><FileDefinition filePath="/lost.md" fileRepository="P.Files"/></MCPResource></MCPResources><MCPPrompts><MCPPrompt name="known"/></MCPPrompts></MCPNamespace></MCPNamespaces></Entities>"#;
-        let agent = r#"<Entities><AIAgents><AIAgent name="P.A" projectName="P"><ConfigurationTables><ConfigurationTable><Rows><Row><entityType>ThingTemplate</entityType><entityTypeName>P.Shape</entityTypeName><resolverThingName>P.Resolver</resolverThingName></Row><Row><entityType>ThingShape</entityType><entityTypeName>P.Missing</entityTypeName><resolverThingName>P.MissingResolver</resolverThingName></Row></Rows></ConfigurationTable></ConfigurationTables><SkillReferences><SkillReference repositoryName="P.Files" skillPath="/lost-skill"/></SkillReferences><MCPNamespaceReferences><MCPNamespaceReference name="P.N"><AllowedTools><Tool name="nope"/></AllowedTools><AllowedResources><Resource name="nope"/></AllowedResources><AllowedPrompts><Prompt name="nope"/></AllowedPrompts></MCPNamespaceReference><MCPNamespaceReference name="Missing"/></MCPNamespaceReferences></AIAgent></AIAgents></Entities>"#;
+        let agent = r#"<Entities><AIAgents><AIAgent name="P.A" projectName="P"><ConfigurationTables><ConfigurationTable name="TaxonomyConfiguration"><Rows><Row><entityType>ThingTemplate</entityType><entityTypeName>P.Shape</entityTypeName></Row><Row><entityType>ThingShape</entityType><entityTypeName>P.Missing</entityTypeName></Row></Rows></ConfigurationTable><ConfigurationTable name="HierarchyConfiguration"><Rows><Row><resolverThingName>P.Resolver</resolverThingName></Row><Row><resolverThingName>P.MissingResolver</resolverThingName></Row></Rows></ConfigurationTable><ConfigurationTable name="Other"><Rows><Row><entityType>ThingTemplate</entityType><entityTypeName>P.NotTaxonomy</entityTypeName></Row></Rows></ConfigurationTable></ConfigurationTables><SkillReferences><SkillReference repositoryName="P.Files" skillPath="/lost-skill"/></SkillReferences><MCPNamespaceReferences><MCPNamespaceReference name="P.N"><AllowedTools><Tool name="nope"/></AllowedTools><AllowedResources><Resource name="nope"/></AllowedResources><AllowedPrompts><Prompt name="nope"/></AllowedPrompts></MCPNamespaceReference><MCPNamespaceReference name="Missing"/></MCPNamespaceReferences></AIAgent></AIAgents></Entities>"#;
         let report = run(&[
             ("MCPNamespaces/P.N.xml", namespace),
             ("AIAgents/P.A.xml", agent),
@@ -472,20 +498,25 @@ mod tests {
             "missing-service",
             "unknown-namespace",
             "unknown-allowed",
-            "missing-taxonomy-type",
             "taxonomy-type-mismatch",
-            "missing-resolver",
             "resolver-shape",
             "missing-file",
         ] {
             assert!(rules.contains(rule), "{rule}: {rules:?}");
         }
+        // Absent names under the solution's project are notes: another project may share the
+        // prefix. A table other than the agent's own two is not read.
+        let notes = report.notes.join("\n");
+        for absent in ["P.Missing", "P.MissingResolver"] {
+            assert!(notes.contains(absent), "{absent}: {notes}");
+        }
+        assert!(!notes.contains("P.NotTaxonomy") && !rules.contains("missing-taxonomy-type"));
     }
 
     #[test]
     fn leaves_external_and_platform_namespace_references_unchecked_without_mirrors() {
         let namespace = r#"<Entities><MCPNamespaces><MCPNamespace name="P.N" projectName="P"><MCPTools><MCPTool name="external" serviceName="Run" serviceProvider="Elsewhere.T" serviceProviderType="Thing"/></MCPTools></MCPNamespace></MCPNamespaces></Entities>"#;
-        let agent = r#"<Entities><AIAgents><AIAgent name="P.A" projectName="P"><ConfigurationTables><ConfigurationTable><Rows><Row><entityType>ThingTemplate</entityType><entityTypeName>Cell_TT</entityTypeName><resolverThingName>Elsewhere.Resolver</resolverThingName></Row></Rows></ConfigurationTable></ConfigurationTables><MCPNamespaceReferences><MCPNamespaceReference name="P.N"/><MCPNamespaceReference name="AgentUtilities"/></MCPNamespaceReferences></AIAgent></AIAgents></Entities>"#;
+        let agent = r#"<Entities><AIAgents><AIAgent name="P.A" projectName="P"><ConfigurationTables><ConfigurationTable name="TaxonomyConfiguration"><Rows><Row><entityType>ThingTemplate</entityType><entityTypeName>Cell_TT</entityTypeName></Row></Rows></ConfigurationTable><ConfigurationTable name="HierarchyConfiguration"><Rows><Row><resolverThingName>Elsewhere.Resolver</resolverThingName></Row></Rows></ConfigurationTable></ConfigurationTables><MCPNamespaceReferences><MCPNamespaceReference name="P.N"/><MCPNamespaceReference name="AgentUtilities"/></MCPNamespaceReferences></AIAgent></AIAgents></Entities>"#;
         let report = run(
             &[
                 ("MCPNamespaces/P.N.xml", namespace),
@@ -498,20 +529,21 @@ mod tests {
     }
 
     #[test]
-    fn a_provider_named_under_the_solutions_own_project_must_be_in_the_repository() {
-        let namespace = r#"<Entities><MCPNamespaces><MCPNamespace name="P.N" projectName="P"><MCPTools><MCPTool name="renamed" serviceName="Run" serviceProvider="P.Gone" serviceProviderType="Thing"/><MCPTool name="other" serviceName="Run" serviceProvider="Q.Elsewhere" serviceProviderType="Thing"/></MCPTools></MCPNamespace></MCPNamespaces></Entities>"#;
-        let report = run(&[("MCPNamespaces/P.N.xml", namespace)], false);
-        let found: Vec<_> = report
+    fn a_provider_named_under_the_solutions_own_project_but_absent_is_a_note() {
+        let namespace = r#"<Entities><MCPNamespaces><MCPNamespace name="P.N" projectName="P"><MCPTools><MCPTool name="renamed" serviceName="Run" serviceProvider="P.Gone" serviceProviderType="Thing"/><MCPTool name="other" serviceName="Run" serviceProvider="Q.Elsewhere" serviceProviderType="Thing"/></MCPTools><MCPResources><MCPResource name="escape" type="File"><FileDefinition filePath="/x.md" fileRepository="..\\other"/></MCPResource></MCPResources></MCPNamespace></MCPNamespaces></Entities>"#;
+        let report = run(
+            &[("MCPNamespaces/P.N.xml", namespace), ("repos/.keep", "")],
+            true,
+        );
+        assert_eq!(
+            report.notes,
+            ["MCPNamespaces/P.N.xml: renamed calls P.Gone.Run, which the repository does not hold; renamed or deleted?"]
+        );
+        let rules: Vec<_> = report
             .problems
             .iter()
-            .map(|problem| (problem.rule.as_str(), problem.message.as_str()))
+            .map(|problem| problem.rule.as_str())
             .collect();
-        assert_eq!(
-            found,
-            [(
-                "missing-provider",
-                "renamed names P.Gone as a Thing, but that provider is not present"
-            )]
-        );
+        assert_eq!(rules, ["invalid-path"]);
     }
 }

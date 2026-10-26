@@ -677,9 +677,26 @@ sets any of them. `--namespace X` allows everything X defines, `X=a,b` only thos
 `AgentUtilities` gives its standard tools. A new agent can run the platform's agent service and is
 visible to the AI runtime (`AIBootstrapUsers`, `AIBootstrapOrg`), as Composer's agents are.
 
-The import refuses an MCP File resource whose file the file repository does not hold, and a
-namespace that drops a tool or resource an agent on the server still allows: deploy the agent
-without it first. The `ai references` gate of `twaco check` reports what would break an agent.
+Change them later with the same specs; each edit writes what `new` would have written:
+
+```sh
+twaco mcp-namespace add Acme.Orders.Tools_NS tool late_orders=Acme.Orders.Manager.GetLate --apply
+twaco mcp-namespace remove Acme.Orders.Tools_NS status --apply
+twaco agent allow Acme.Orders.Agent Acme.Orders.Tools_NS=late_orders --apply
+twaco agent disallow Acme.Orders.Agent AgentUtilities --apply
+twaco agent taxonomy add Acme.Orders.Agent "Acme.Orders.Line_TT=line, lines" --apply
+twaco agent skill remove Acme.Orders.Agent SharedSkillsRepository:/orders --apply
+twaco agent set Acme.Orders.Agent --resolver Acme.Orders.Resolver --instructions-file agent.md --apply
+```
+
+The import refuses an MCP File resource whose file the file repository does not hold, an agent
+that allows an item its namespace does not define, and a namespace that drops an item an agent on
+the server still allows. So add to a namespace before allowing it, and to drop an item push the
+agents first: `mcp-namespace remove` takes the item out of every agent that allows it and says
+which, then `twaco entity push <agent> --apply` before the namespace. The `ai references` gate
+of `twaco check` reports what would break an agent. MCP `entity_edit` takes the same changes as
+`mcp_add`, `mcp_remove`, `agent_allow`, `agent_disallow`, `agent_taxonomy_add`,
+`agent_taxonomy_remove`, `agent_skill_add`, `agent_skill_remove` and `agent_set`.
 
 ## Changing entities
 

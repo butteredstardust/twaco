@@ -223,6 +223,10 @@ fn dispatch(command: Command) -> u8 {
         Command::Media(media) => run(|solution| entity_edit_cmd(solution, media.edit())),
         Command::Menu(menu) => run(|solution| entity_edit_cmd(solution, menu.edit())),
         Command::State(state) => run(|solution| entity_edit_cmd(solution, state.edit())),
+        Command::McpNamespace(namespace) => {
+            run(|solution| entity_edit_cmd(solution, namespace.edit()))
+        }
+        Command::Agent(agent) => run(|solution| entity_edit_cmd(solution, agent.edit())),
         Command::Network(network) => run(|solution| network_cmd(solution, &network)),
         Command::New(New::BuildingBlock(block)) => {
             run(|solution| new_building_block_cmd(solution, &block))

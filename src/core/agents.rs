@@ -114,7 +114,16 @@ pub(crate) fn agent(src: &[u8]) -> Result<Agent, String> {
         reference.prompts = named_children(&tokens, src, "Prompt", at);
         out.namespaces.push(reference);
     }
-    for row in tags(&tokens, src, "Row") {
+    // Only the agent's own two tables: another table's rows could hold columns of these names.
+    let rows_of = |table: &str| -> Vec<usize> {
+        tags(&tokens, src, "ConfigurationTable")
+            .into_iter()
+            .filter(|&at| attribute(&tokens[at], src, "name").as_deref() == Some(table))
+            .flat_map(|at| scan::child_tags(&tokens, src, "Rows", at))
+            .flat_map(|rows| scan::child_tags(&tokens, src, "Row", rows))
+            .collect()
+    };
+    for row in rows_of("TaxonomyConfiguration") {
         let kind = child_text(&tokens, src, "entityType", row);
         let name = child_text(&tokens, src, "entityTypeName", row);
         if let (Some(kind), Some(name)) = (kind, name) {
@@ -122,6 +131,8 @@ pub(crate) fn agent(src: &[u8]) -> Result<Agent, String> {
                 out.taxonomy.push((kind, name));
             }
         }
+    }
+    for row in rows_of("HierarchyConfiguration") {
         if let Some(name) =
             child_text(&tokens, src, "resolverThingName", row).filter(|name| !name.is_empty())
         {
@@ -188,7 +199,12 @@ fn named_children(tokens: &[Token], src: &[u8], name: &str, parent: usize) -> Ve
         .collect()
 }
 
-fn child_text(tokens: &[Token], src: &[u8], name: &str, parent: usize) -> Option<String> {
+pub(crate) fn child_text(
+    tokens: &[Token],
+    src: &[u8],
+    name: &str,
+    parent: usize,
+) -> Option<String> {
     let at = children(tokens, src, name, parent).into_iter().next()?;
     let end = scan::element_end_in(tokens, src, at)?;
     let mut text = String::new();

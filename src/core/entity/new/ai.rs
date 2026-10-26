@@ -33,13 +33,13 @@ const AGENT_UTILITIES_TOOLS: &[&str] = &[
 ];
 
 /// What the repository and the platform cache know, read once per request.
-struct Known {
+pub(crate) struct Known {
     model: Model,
     platform: Option<Platform>,
 }
 
 impl Known {
-    fn read(solution: &Solution) -> Self {
+    pub(crate) fn read(solution: &Solution) -> Self {
         Known {
             model: types::load_model(solution).0,
             platform: types::cached_platform(solution),
@@ -84,7 +84,7 @@ fn word_of(collection: &str) -> &'static str {
 
 /// `name=Provider.Service`, the provider optionally prefixed `Thing:`, `ThingTemplate:` or
 /// `ThingShape:`.
-struct ServiceSpec {
+pub(crate) struct ServiceSpec {
     name: String,
     provider: String,
     provider_type: &'static str,
@@ -185,7 +185,7 @@ fn own_description(
 }
 
 /// `name=Repository:/path`.
-struct FileSpec {
+pub(crate) struct FileSpec {
     name: String,
     repository: String,
     path: String,
@@ -199,15 +199,37 @@ fn file_spec(spec: &str) -> Result<FileSpec, NewError> {
     };
     let (name, target) = spec.split_once('=').ok_or_else(shape)?;
     let (repository, path) = target.split_once(':').ok_or_else(shape)?;
-    let path = path.trim_start_matches('/');
-    if name.is_empty() || repository.is_empty() || path.is_empty() {
+    if name.is_empty() || !repository_name(repository) {
         return Err(shape());
     }
+    let path = repository_path(path).ok_or_else(shape)?;
     Ok(FileSpec {
         name: name.to_string(),
         repository: repository.to_string(),
-        path: format!("/{path}"),
+        path,
     })
+}
+
+/// A FileRepository name that names one folder of the `[repositories]` mirror.
+pub(crate) fn repository_name(name: &str) -> bool {
+    !name.is_empty() && name != "." && name != ".." && !name.contains(['/', '\\', ':'])
+}
+
+/// A path inside a file repository as `/a/b`, or none when it would leave it: `..`, `.`,
+/// an empty step, a backslash or a drive.
+pub(crate) fn repository_path(path: &str) -> Option<String> {
+    let path = path.trim_start_matches('/').trim_end_matches('/');
+    if path.is_empty() || path.contains(['\\', ':']) {
+        return None;
+    }
+    let steps: Vec<&str> = path.split('/').collect();
+    if steps
+        .iter()
+        .any(|step| step.is_empty() || *step == "." || *step == "..")
+    {
+        return None;
+    }
+    Some(format!("/{}", steps.join("/")))
 }
 
 fn mime_type(path: &str) -> &'static str {
@@ -259,39 +281,184 @@ fn unique<'s>(kind: &str, names: impl IntoIterator<Item = &'s str>) -> Result<()
     Ok(())
 }
 
-/// The namespace file `new mcp-namespace` writes.
-pub(super) fn namespace_xml(
-    solution: &Solution,
-    request: &NewRequest,
-    project: &str,
-) -> Result<String, NewError> {
-    let known = Known::read(solution);
-    let tools = request
-        .tools
-        .iter()
-        .map(|spec| service_spec(&known, "--tool", spec))
-        .collect::<Result<Vec<_>, _>>()?;
-    let services = request
-        .service_resources
-        .iter()
-        .map(|spec| service_spec(&known, "--service-resource", spec))
-        .collect::<Result<Vec<_>, _>>()?;
-    let files = request
-        .file_resources
-        .iter()
-        .map(|spec| file_spec(spec))
-        .collect::<Result<Vec<_>, _>>()?;
-    let prompts = request
-        .prompts
-        .iter()
-        .map(|spec| {
-            spec.split_once('=')
-                .filter(|(name, text)| !name.is_empty() && !text.is_empty())
-                .ok_or_else(|| NewError::Invalid(format!("--prompt {spec:?} must be name=text")))
+/// One tool, resource or prompt of a namespace.
+pub(crate) enum Item {
+    Tool(ServiceSpec),
+    ServiceResource(ServiceSpec),
+    FileResource(FileSpec),
+    Prompt { name: String, text: String },
+}
+
+impl Item {
+    /// Read one `--tool`, `--service-resource`, `--file-resource` or `--prompt` value; `kind`
+    /// is the flag's name without its dashes.
+    pub(crate) fn parse(known: &Known, kind: &str, spec: &str) -> Result<Item, NewError> {
+        Ok(match kind {
+            "tool" => Item::Tool(service_spec(known, "--tool", spec)?),
+            "service-resource" => {
+                Item::ServiceResource(service_spec(known, "--service-resource", spec)?)
+            }
+            "file-resource" => Item::FileResource(file_spec(spec)?),
+            "prompt" => {
+                let (name, text) = spec
+                    .split_once('=')
+                    .filter(|(name, text)| !name.is_empty() && !text.is_empty())
+                    .ok_or_else(|| {
+                        NewError::Invalid(format!("--prompt {spec:?} must be name=text"))
+                    })?;
+                Item::Prompt {
+                    name: name.to_string(),
+                    text: text.to_string(),
+                }
+            }
+            other => {
+                return Err(NewError::Invalid(format!(
+                    "{other} is not tool, service-resource, file-resource or prompt"
+                )))
+            }
         })
-        .collect::<Result<Vec<_>, _>>()?;
+    }
+
+    pub(crate) fn name(&self) -> &str {
+        match self {
+            Item::Tool(spec) | Item::ServiceResource(spec) => &spec.name,
+            Item::FileResource(file) => &file.name,
+            Item::Prompt { name, .. } => name,
+        }
+    }
+
+    /// The section that holds it, in the order a namespace writes them.
+    pub(crate) fn section(&self) -> &'static str {
+        match self {
+            Item::Tool(_) => "MCPTools",
+            Item::ServiceResource(_) | Item::FileResource(_) => "MCPResources",
+            Item::Prompt { .. } => "MCPPrompts",
+        }
+    }
+
+    fn default_description(&self) -> &str {
+        match self {
+            Item::Tool(spec) | Item::ServiceResource(spec) => &spec.description,
+            Item::FileResource(file) => file.path.rsplit('/').next().unwrap_or_default(),
+            Item::Prompt { text, .. } => text,
+        }
+    }
+
+    /// The description it is written with: `given`, else its default. The server refuses an
+    /// empty one.
+    pub(crate) fn description(&self, given: Option<&str>) -> Result<String, NewError> {
+        let text = given.unwrap_or(self.default_description()).trim();
+        if text.is_empty() {
+            return Err(NewError::Invalid(format!(
+                "{} has no description, which ThingWorx requires; give --describe {}=text",
+                self.name(),
+                self.name()
+            )));
+        }
+        Ok(text.to_string())
+    }
+
+    /// Refuse a File resource the `[repositories]` mirror says is missing: the import would.
+    pub(crate) fn check_mirror(&self, solution: &Solution) -> Result<(), NewError> {
+        let Item::FileResource(file) = self else {
+            return Ok(());
+        };
+        if let Some(root) = solution.repositories_root() {
+            let folder = root.join(&file.repository);
+            if folder.is_dir() && !folder.join(file.path.trim_start_matches('/')).is_file() {
+                return Err(NewError::Unknown(format!(
+                    "{} has no {} in its [repositories] mirror; the import refuses a File resource whose file is missing",
+                    file.repository, file.path
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    /// Its element, as a line of its own at the 16-space depth a new namespace writes it.
+    pub(crate) fn xml(&self, namespace: &str, description: &str) -> Result<String, NewError> {
+        let namespace = uri_segment(namespace);
+        let description = escape(description)?;
+        Ok(match self {
+            Item::Tool(tool) => format!(
+                "\n                <MCPTool\n                 _meta=\"{}\"\n                 description=\"{description}\"\n                 name=\"{}\"\n                 serviceName=\"{}\"\n                 serviceProvider=\"{}\"\n                 serviceProviderType=\"{}\"\n                 title=\"\"></MCPTool>",
+                escape(&serde_json::json!({ "serviceName": tool.service }).to_string())?,
+                escape(&tool.name)?,
+                escape(&tool.service)?,
+                escape(&tool.provider)?,
+                tool.provider_type
+            ),
+            Item::ServiceResource(resource) => {
+                let uri = format!(
+                    "twx://MCPNamespaces/{namespace}/Resources/{}/{}/Services/{}",
+                    resource.provider_type,
+                    uri_segment(&resource.provider),
+                    uri_segment(&resource.service)
+                );
+                format!(
+                    "\n                <MCPResource\n                 _meta=\"{{}}\"\n                 annotation.audience=\"\"\n                 description=\"{description}\"\n                 mimeType=\"\"\n                 name=\"{}\"\n                 title=\"\"\n                 type=\"Service\"\n                 uri=\"{}\">\n                    <ServiceDefinition\n                     serviceName=\"{}\"\n                     serviceProvider=\"{}\"\n                     serviceProviderType=\"{}\"></ServiceDefinition>\n                </MCPResource>",
+                    escape(&resource.name)?,
+                    escape(&uri)?,
+                    escape(&resource.service)?,
+                    escape(&resource.provider)?,
+                    resource.provider_type
+                )
+            }
+            Item::FileResource(file) => {
+                let path: Vec<String> = file
+                    .path
+                    .trim_start_matches('/')
+                    .split('/')
+                    .map(uri_segment)
+                    .collect();
+                let uri = format!(
+                    "twx://MCPNamespaces/{namespace}/Resources/{}/Filepath/{}",
+                    uri_segment(&file.repository),
+                    path.join("/")
+                );
+                format!(
+                    "\n                <MCPResource\n                 _meta=\"{{}}\"\n                 annotation.audience=\"\"\n                 description=\"{description}\"\n                 mimeType=\"{}\"\n                 name=\"{}\"\n                 title=\"\"\n                 type=\"File\"\n                 uri=\"{}\">\n                    <FileDefinition\n                     filePath=\"{}\"\n                     fileRepository=\"{}\"></FileDefinition>\n                </MCPResource>",
+                    mime_type(&file.path),
+                    escape(&file.name)?,
+                    escape(&uri)?,
+                    escape(&file.path)?,
+                    escape(&file.repository)?
+                )
+            }
+            Item::Prompt { name, text } => {
+                let content = serde_json::json!({ "text": text }).to_string();
+                let arguments: String = placeholders(text)
+                    .iter()
+                    .map(|argument| {
+                        Ok(format!(
+                            "\n                        <MCPPromptArgument\n                         description=\"{}\"\n                         name=\"{}\"\n                         required=\"true\"\n                         title=\"\"></MCPPromptArgument>",
+                            escape(argument)?,
+                            escape(argument)?
+                        ))
+                    })
+                    .collect::<Result<_, NewError>>()?;
+                let arguments = if arguments.is_empty() {
+                    "\n                    <MCPPromptArguments></MCPPromptArguments>".to_string()
+                } else {
+                    format!("\n                    <MCPPromptArguments>{arguments}\n                    </MCPPromptArguments>")
+                };
+                format!(
+                    "\n                <MCPPrompt\n                 _meta=\"{{}}\"\n                 content=\"{}\"\n                 description=\"{description}\"\n                 name=\"{}\"\n                 role=\"user\"\n                 title=\"\">{arguments}\n                </MCPPrompt>",
+                    escape(&content)?,
+                    escape(name)?
+                )
+            }
+        })
+    }
+}
+
+/// `--describe name=text` values by name; each must name one of `items`.
+pub(crate) fn descriptions<'s>(
+    describe: &'s [String],
+    items: &[Item],
+) -> Result<BTreeMap<&'s str, &'s str>, NewError> {
     let mut described = BTreeMap::new();
-    for spec in &request.describe {
+    for spec in describe {
         let (name, text) = spec
             .split_once('=')
             .filter(|(name, text)| !name.is_empty() && !text.trim().is_empty())
@@ -302,145 +469,59 @@ pub(super) fn namespace_xml(
             )));
         }
     }
-    let defined: BTreeSet<&str> = tools
-        .iter()
-        .map(|tool| tool.name.as_str())
-        .chain(services.iter().map(|resource| resource.name.as_str()))
-        .chain(files.iter().map(|file| file.name.as_str()))
-        .chain(prompts.iter().map(|(name, _)| *name))
-        .collect();
-    if let Some(name) = described.keys().find(|name| !defined.contains(*name)) {
+    if let Some(name) = described
+        .keys()
+        .find(|name| !items.iter().any(|item| item.name() == **name))
+    {
         return Err(NewError::Invalid(format!(
             "--describe {name} names no tool, resource or prompt of this namespace"
         )));
     }
-    // The server refuses a tool, resource, prompt or prompt argument without a description.
-    let description = |name: &str, default: &str| -> Result<String, NewError> {
-        let text = described.get(name).copied().unwrap_or(default).trim();
-        if text.is_empty() {
-            return Err(NewError::Invalid(format!(
-                "{name} has no description, which ThingWorx requires; give --describe {name}=text"
-            )));
+    Ok(described)
+}
+
+/// The namespace file `new mcp-namespace` writes.
+pub(super) fn namespace_xml(
+    solution: &Solution,
+    request: &NewRequest,
+    project: &str,
+) -> Result<String, NewError> {
+    let known = Known::read(solution);
+    let mut items = Vec::new();
+    for (kind, specs) in [
+        ("tool", &request.tools),
+        ("service-resource", &request.service_resources),
+        ("file-resource", &request.file_resources),
+        ("prompt", &request.prompts),
+    ] {
+        for spec in specs {
+            items.push(Item::parse(&known, kind, spec)?);
         }
-        Ok(text.to_string())
-    };
-    if tools.is_empty() && services.is_empty() && files.is_empty() && prompts.is_empty() {
+    }
+    if items.is_empty() {
         return Err(NewError::Invalid(
             "mcp-namespace needs at least one --tool, --service-resource, --file-resource or --prompt"
                 .into(),
         ));
     }
-    unique("tool", tools.iter().map(|tool| tool.name.as_str()))?;
-    unique(
-        "resource",
-        services
-            .iter()
-            .map(|resource| resource.name.as_str())
-            .chain(files.iter().map(|file| file.name.as_str())),
-    )?;
-    unique("prompt", prompts.iter().map(|(name, _)| *name))?;
-    for file in &files {
-        if let Some(root) = solution.repositories_root() {
-            let folder = root.join(&file.repository);
-            if folder.is_dir() && !folder.join(file.path.trim_start_matches('/')).is_file() {
-                return Err(NewError::Unknown(format!(
-                    "{} has no {} in its [repositories] mirror; the import refuses a File resource whose file is missing",
-                    file.repository, file.path
-                )));
-            }
-        }
+    // One name per item across kinds, so an agent's allowed list says which it means.
+    unique("tool, resource or prompt", items.iter().map(Item::name))?;
+    let described = descriptions(&request.describe, &items)?;
+    for item in &items {
+        item.check_mirror(solution)?;
     }
-
-    let namespace = uri_segment(&request.name);
     let mut body = common_tail(&[])?;
-    if !tools.is_empty() {
-        body.push_str("\n            <MCPTools>");
-        for tool in &tools {
+    for section in ["MCPTools", "MCPResources", "MCPPrompts"] {
+        let mut written = String::new();
+        for item in items.iter().filter(|item| item.section() == section) {
+            let description = item.description(described.get(item.name()).copied())?;
+            written.push_str(&item.xml(&request.name, &description)?);
+        }
+        if !written.is_empty() {
             body.push_str(&format!(
-                "\n                <MCPTool\n                 _meta=\"{}\"\n                 description=\"{}\"\n                 name=\"{}\"\n                 serviceName=\"{}\"\n                 serviceProvider=\"{}\"\n                 serviceProviderType=\"{}\"\n                 title=\"\"></MCPTool>",
-                escape(&serde_json::json!({ "serviceName": tool.service }).to_string())?,
-                escape(&description(&tool.name, &tool.description)?)?,
-                escape(&tool.name)?,
-                escape(&tool.service)?,
-                escape(&tool.provider)?,
-                tool.provider_type
+                "\n            <{section}>{written}\n            </{section}>"
             ));
         }
-        body.push_str("\n            </MCPTools>");
-    }
-    if !services.is_empty() || !files.is_empty() {
-        body.push_str("\n            <MCPResources>");
-        for resource in &services {
-            let uri = format!(
-                "twx://MCPNamespaces/{namespace}/Resources/{}/{}/Services/{}",
-                resource.provider_type,
-                uri_segment(&resource.provider),
-                uri_segment(&resource.service)
-            );
-            body.push_str(&format!(
-                "\n                <MCPResource\n                 _meta=\"{{}}\"\n                 annotation.audience=\"\"\n                 description=\"{}\"\n                 mimeType=\"\"\n                 name=\"{}\"\n                 title=\"\"\n                 type=\"Service\"\n                 uri=\"{}\">\n                    <ServiceDefinition\n                     serviceName=\"{}\"\n                     serviceProvider=\"{}\"\n                     serviceProviderType=\"{}\"></ServiceDefinition>\n                </MCPResource>",
-                escape(&description(&resource.name, &resource.description)?)?,
-                escape(&resource.name)?,
-                escape(&uri)?,
-                escape(&resource.service)?,
-                escape(&resource.provider)?,
-                resource.provider_type
-            ));
-        }
-        for file in &files {
-            let path: Vec<String> = file
-                .path
-                .trim_start_matches('/')
-                .split('/')
-                .map(uri_segment)
-                .collect();
-            let uri = format!(
-                "twx://MCPNamespaces/{namespace}/Resources/{}/Filepath/{}",
-                uri_segment(&file.repository),
-                path.join("/")
-            );
-            body.push_str(&format!(
-                "\n                <MCPResource\n                 _meta=\"{{}}\"\n                 annotation.audience=\"\"\n                 description=\"{}\"\n                 mimeType=\"{}\"\n                 name=\"{}\"\n                 title=\"\"\n                 type=\"File\"\n                 uri=\"{}\">\n                    <FileDefinition\n                     filePath=\"{}\"\n                     fileRepository=\"{}\"></FileDefinition>\n                </MCPResource>",
-                escape(&description(
-                    &file.name,
-                    file.path.rsplit('/').next().unwrap_or_default()
-                )?)?,
-                mime_type(&file.path),
-                escape(&file.name)?,
-                escape(&uri)?,
-                escape(&file.path)?,
-                escape(&file.repository)?
-            ));
-        }
-        body.push_str("\n            </MCPResources>");
-    }
-    if !prompts.is_empty() {
-        body.push_str("\n            <MCPPrompts>");
-        for (name, text) in &prompts {
-            let content = serde_json::json!({ "text": text }).to_string();
-            let arguments: String = placeholders(text)
-                .iter()
-                .map(|argument| {
-                    Ok(format!(
-                        "\n                        <MCPPromptArgument\n                         description=\"{}\"\n                         name=\"{}\"\n                         required=\"true\"\n                         title=\"\"></MCPPromptArgument>",
-                        escape(argument)?,
-                        escape(argument)?
-                    ))
-                })
-                .collect::<Result<_, NewError>>()?;
-            let arguments = if arguments.is_empty() {
-                "\n                    <MCPPromptArguments></MCPPromptArguments>".to_string()
-            } else {
-                format!("\n                    <MCPPromptArguments>{arguments}\n                    </MCPPromptArguments>")
-            };
-            body.push_str(&format!(
-                "\n                <MCPPrompt\n                 _meta=\"{{}}\"\n                 content=\"{}\"\n                 description=\"{}\"\n                 name=\"{}\"\n                 role=\"user\"\n                 title=\"\">{arguments}\n                </MCPPrompt>",
-                escape(&content)?,
-                escape(&description(name, text)?)?,
-                escape(name)?
-            ));
-        }
-        body.push_str("\n            </MCPPrompts>");
     }
     Ok(format!(
         "{}        <MCPNamespace\n         description=\"{}\"\n         documentationContent=\"\"\n         enabled=\"true\"\n         homeMashup=\"\"\n         name=\"{}\"\n         projectName=\"{}\"\n         tags=\"\">\n{body}\n        </MCPNamespace>\n{}",
@@ -453,14 +534,14 @@ pub(super) fn namespace_xml(
 }
 
 /// What an agent is allowed from one namespace, each name sorted into its kind.
-struct Allowed {
-    namespace: String,
-    tools: Vec<String>,
-    resources: Vec<String>,
-    prompts: Vec<String>,
+pub(crate) struct Allowed {
+    pub(crate) namespace: String,
+    pub(crate) tools: Vec<String>,
+    pub(crate) resources: Vec<String>,
+    pub(crate) prompts: Vec<String>,
 }
 
-fn allowed(solution: &Solution, spec: &str) -> Result<Allowed, NewError> {
+pub(crate) fn allowed(solution: &Solution, spec: &str) -> Result<Allowed, NewError> {
     let (namespace, items) = match spec.split_once('=') {
         Some((namespace, items)) => (namespace, Some(items)),
         None => (spec, None),
@@ -470,13 +551,15 @@ fn allowed(solution: &Solution, spec: &str) -> Result<Allowed, NewError> {
             "--namespace {spec:?} must be Namespace or Namespace=item,item"
         )));
     }
-    let names: Option<Vec<&str>> = items.map(|items| {
-        items
-            .split(',')
-            .map(str::trim)
-            .filter(|item| !item.is_empty())
-            .collect()
-    });
+    let names: Option<Vec<&str>> = items.map(|items| items.split(',').map(str::trim).collect());
+    if names
+        .as_ref()
+        .is_some_and(|names| names.iter().any(|name| name.is_empty()))
+    {
+        return Err(NewError::Invalid(format!(
+            "--namespace {spec:?} has an empty item; write Namespace=item,item"
+        )));
+    }
     let mut out = Allowed {
         namespace: namespace.to_string(),
         tools: Vec::new(),
@@ -534,6 +617,15 @@ fn allowed(solution: &Solution, spec: &str) -> Result<Allowed, NewError> {
         }
         Some(names) => {
             for name in names {
+                let kinds = [&tools, &resources, &prompts]
+                    .iter()
+                    .filter(|defined| defined.contains(&name))
+                    .count();
+                if kinds > 1 {
+                    return Err(NewError::Invalid(format!(
+                        "MCPNamespace {namespace} has more than one kind of item named {name}; give each kind its own name"
+                    )));
+                }
                 if tools.contains(&name) {
                     out.tools.push(name.to_string());
                 } else if resources.contains(&name) {
@@ -552,20 +644,22 @@ fn allowed(solution: &Solution, spec: &str) -> Result<Allowed, NewError> {
 }
 
 /// `Repository:/path`.
-fn skill_spec(spec: &str) -> Result<(String, String), NewError> {
+pub(crate) fn skill_spec(spec: &str) -> Result<(String, String), NewError> {
     spec.split_once(':')
-        .filter(|(repository, path)| !repository.is_empty() && !path.trim_matches('/').is_empty())
-        .map(|(repository, path)| {
-            (
-                repository.to_string(),
-                format!("/{}", path.trim_matches('/')),
-            )
+        .filter(|(repository, _)| repository_name(repository))
+        .and_then(|(repository, path)| Some((repository.to_string(), repository_path(path)?)))
+        .ok_or_else(|| {
+            NewError::Invalid(format!(
+                "--skill {spec:?} must be Repository:/path, inside the repository"
+            ))
         })
-        .ok_or_else(|| NewError::Invalid(format!("--skill {spec:?} must be Repository:/path")))
 }
 
 /// `TemplateOrShape` or `TemplateOrShape=alias, alias`.
-fn taxonomy_spec(known: &Known, spec: &str) -> Result<(&'static str, String, String), NewError> {
+pub(crate) fn taxonomy_spec(
+    known: &Known,
+    spec: &str,
+) -> Result<(&'static str, String, String), NewError> {
     let (name, aliases) = spec.split_once('=').unwrap_or((spec, ""));
     if name.is_empty() {
         return Err(NewError::Invalid(format!(
@@ -597,13 +691,28 @@ const TAXONOMY_TABLE: &str = "                <ConfigurationTable\n             
 
 const HIERARCHY_TABLE: &str = "                <ConfigurationTable\n                 dataShapeName=\"\"\n                 description=\"Hierarchy configuration for this agent: HierarchyResolver ThingShape implementing Thing which intends to contain.\"\n                 isMultiRow=\"false\"\n                 name=\"HierarchyConfiguration\"\n                 ordinal=\"1\">\n                    <DataShape>\n                        <FieldDefinitions>\n                            <FieldDefinition\n                             aspect.thingShape=\"HierarchyResolver\"\n                             baseType=\"THINGNAME\"\n                             description=\"Thing with HierarchyResolver ThingShape.\"\n                             name=\"resolverThingName\"\n                             ordinal=\"1\"></FieldDefinition>\n                        </FieldDefinitions>\n                    </DataShape>\n";
 
-fn taxonomy_row(kind: &str, name: &str, aliases: &str) -> String {
+pub(crate) fn taxonomy_row(kind: &str, name: &str, aliases: &str) -> String {
     format!(
         "\n                        <Row>\n                            <alias>{}</alias>\n                            <entityType>{}</entityType>\n                            <entityTypeName>{}</entityTypeName>\n                            <identityProperties>\n                                <infoTable>\n                                    <DataShape>\n                                        <FieldDefinitions>\n                                            <FieldDefinition\n                                             baseType=\"STRING\"\n                                             description=\"Match mode applied to this property's value\"\n                                             name=\"match\"\n                                             ordinal=\"2\"></FieldDefinition>\n                                            <FieldDefinition\n                                             aspect.isPrimaryKey=\"true\"\n                                             baseType=\"STRING\"\n                                             description=\"Property name on the Thing (use &quot;name&quot; for the entity name)\"\n                                             name=\"name\"\n                                             ordinal=\"1\"></FieldDefinition>\n                                        </FieldDefinitions>\n                                    </DataShape>\n                                    <Rows>\n                                        <Row>\n                                            <match><![CDATA[normalizedContains]]></match>\n                                            <name><![CDATA[name]]></name>\n                                        </Row>\n                                    </Rows>\n                                </infoTable>\n                            </identityProperties>\n                        </Row>",
         cdata(aliases),
         cdata(kind),
         cdata(name)
     )
+}
+
+/// Refuse a resolver that is not a Thing implementing the HierarchyResolver ThingShape.
+pub(crate) fn check_resolver(known: &Known, resolver: &str) -> Result<(), NewError> {
+    let entities = entity_map(&known.model);
+    let thing = entities
+        .get(&("Things", resolver))
+        .copied()
+        .ok_or_else(|| NewError::Unknown(format!("no Thing {resolver} in the solution")))?;
+    if !implements_shape(thing, "HierarchyResolver", &entities, &mut BTreeSet::new()) {
+        return Err(NewError::Invalid(format!(
+            "Thing {resolver} does not implement the HierarchyResolver ThingShape"
+        )));
+    }
+    Ok(())
 }
 
 /// The agent file `new ai-agent` writes.
@@ -659,16 +768,7 @@ pub(super) fn agent_xml(
     )?;
     let resolver = request.resolver.as_deref().filter(|name| !name.is_empty());
     if let Some(resolver) = resolver {
-        let entities = entity_map(&known.model);
-        let thing = entities
-            .get(&("Things", resolver))
-            .copied()
-            .ok_or_else(|| NewError::Unknown(format!("no Thing {resolver} in the solution")))?;
-        if !implements_shape(thing, "HierarchyResolver", &entities, &mut BTreeSet::new()) {
-            return Err(NewError::Invalid(format!(
-                "Thing {resolver} does not implement the HierarchyResolver ThingShape"
-            )));
-        }
+        check_resolver(&known, resolver)?;
     }
     let instructions = match (&request.instructions, &request.instructions_file) {
         (Some(_), Some(_)) => {

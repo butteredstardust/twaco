@@ -31,6 +31,12 @@ All notable changes to twaco are recorded here. The format follows
   as the `ai references` gate checks it, and the files are the platform's 10.2 export, so a
   first deploy reads back as kept. ThingWorx refuses a tool, resource or prompt without a
   description: a tool takes its service's, a prompt its text, and `--describe` sets any.
+- `mcp-namespace add|remove`, `agent allow|disallow`, `agent taxonomy add|remove`,
+  `agent skill add|remove` and `agent set` (resolver, instructions, routing description, display
+  name), and the matching MCP `entity_edit` actions. Each writes what `new` would have written,
+  and undoing an edit gives back the same bytes. Removing a namespace item takes it out of every
+  agent that allows it and says to push those agents first, because the import refuses a
+  namespace that drops an item an agent on the server still allows.
 
 ### Changed
 

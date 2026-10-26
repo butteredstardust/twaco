@@ -194,6 +194,7 @@ fn ai_references(
 ) -> GateResult {
     let checked = agents_check::run_in(solution, discovered, model);
     let mut result = GateResult::passed(agents_check::GATE, checked.examined);
+    result.prose = checked.notes;
     result.findings = checked
         .problems
         .into_iter()

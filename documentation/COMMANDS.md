@@ -294,6 +294,26 @@ menu item add <Menu> <Title>=<Mashup> [--default] [--before <Title>] [--apply] [
 menu item remove <Menu> <Title> [--apply] [--json]
                             add or remove a mashup item, keeping the effective menu in step;
                             plan unless --apply
+mcp-namespace add <Namespace> tool|service-resource|file-resource|prompt <spec> [--description <text>]
+    [--apply] [--json]
+                            add a tool, resource or prompt, written as new mcp-namespace writes it;
+                            plan unless --apply
+mcp-namespace remove <Namespace> <name> [--apply] [--json]
+                            remove a tool, resource or prompt and every agent's permission to use
+                            it; push those agents before the namespace; plan unless --apply
+agent allow <Agent> <Namespace[=item,...]> [--apply] [--json]
+                            let the agent use a namespace, or more of it; plan unless --apply
+agent disallow <Agent> <Namespace[=item,...]> [--apply] [--json]
+                            stop the agent using those items, or the whole namespace; plan unless --apply
+agent taxonomy add <Agent> <TemplateOrShape[=alias, alias]> [--apply] [--json]
+agent taxonomy remove <Agent> <TemplateOrShape> [--apply] [--json]
+                            add or remove a taxonomy row; plan unless --apply
+agent skill add|remove <Agent> <Repository:/path> [--apply] [--json]
+                            add or remove a skill folder; plan unless --apply
+agent set <Agent> [--resolver <Thing>] [--instructions <text>|--instructions-file <file>]
+    [--agent-description <text>] [--display-name <text>] [--apply] [--json]
+                            change the resolver (an empty one clears it), the system prompt or the
+                            display name; plan unless --apply
 state set <StateDefinition> --type numeric|string --state <spec>... [--apply] [--json]
                             replace a StateDefinition's states (the specs of new state);
                             plan unless --apply

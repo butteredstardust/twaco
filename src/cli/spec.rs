@@ -872,6 +872,54 @@ pub(crate) const USAGE: &[Usage] = &[
                               plan unless --apply"#,
     },
     Usage {
+        path: "mcp-namespace add",
+        group: 1,
+        text: r#"  mcp-namespace add <Namespace> tool|service-resource|file-resource|prompt <spec> [--description <text>]
+      [--apply] [--json]
+                              add a tool, resource or prompt, written as new mcp-namespace writes it;
+                              plan unless --apply"#,
+    },
+    Usage {
+        path: "mcp-namespace remove",
+        group: 1,
+        text: r#"  mcp-namespace remove <Namespace> <name> [--apply] [--json]
+                              remove a tool, resource or prompt and every agent's permission to use
+                              it; push those agents before the namespace; plan unless --apply"#,
+    },
+    Usage {
+        path: "agent allow",
+        group: 1,
+        text: r#"  agent allow <Agent> <Namespace[=item,...]> [--apply] [--json]
+                              let the agent use a namespace, or more of it; plan unless --apply"#,
+    },
+    Usage {
+        path: "agent disallow",
+        group: 1,
+        text: r#"  agent disallow <Agent> <Namespace[=item,...]> [--apply] [--json]
+                              stop the agent using those items, or the whole namespace; plan unless --apply"#,
+    },
+    Usage {
+        path: "agent taxonomy",
+        group: 1,
+        text: r#"  agent taxonomy add <Agent> <TemplateOrShape[=alias, alias]> [--apply] [--json]
+  agent taxonomy remove <Agent> <TemplateOrShape> [--apply] [--json]
+                              add or remove a taxonomy row; plan unless --apply"#,
+    },
+    Usage {
+        path: "agent skill",
+        group: 1,
+        text: r#"  agent skill add|remove <Agent> <Repository:/path> [--apply] [--json]
+                              add or remove a skill folder; plan unless --apply"#,
+    },
+    Usage {
+        path: "agent set",
+        group: 1,
+        text: r#"  agent set <Agent> [--resolver <Thing>] [--instructions <text>|--instructions-file <file>]
+      [--agent-description <text>] [--display-name <text>] [--apply] [--json]
+                              change the resolver (an empty one clears it), the system prompt or the
+                              display name; plan unless --apply"#,
+    },
+    Usage {
         path: "state set",
         group: 1,
         text: r#"  state set <StateDefinition> --type numeric|string --state <spec>... [--apply] [--json]

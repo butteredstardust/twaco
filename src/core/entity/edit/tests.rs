@@ -1761,3 +1761,208 @@ fn walk(dir: &Path) -> Vec<PathBuf> {
     }
     out
 }
+
+/// The AI edits write what `new` writes: a namespace and an agent grown one edit at a time are
+/// byte for byte the ones `new` makes from the whole request, and removing each edit again gives
+/// back the file it started from.
+#[test]
+fn ai_edits_write_what_new_writes_and_undo_to_the_same_bytes() {
+    let (_dir, solution) = fixture();
+    std::fs::write(
+        solution.root.join("app/Things/Acme.Orders.Manager.xml"),
+        "<Entities><Things><Thing name=\"Acme.Orders.Manager\" projectName=\"Acme.Orders\" thingTemplate=\"GenericThing\"><ThingShape><ServiceDefinitions><ServiceDefinition name=\"GetOrders\" description=\"Lists the open orders\"><ResultType baseType=\"STRING\" name=\"result\"/></ServiceDefinition></ServiceDefinitions></ThingShape></Thing></Things></Entities>",
+    )
+    .unwrap();
+    std::fs::write(
+        solution.root.join("app/Things/Acme.Orders.Resolver.xml"),
+        "<Entities><Things><Thing name=\"Acme.Orders.Resolver\" projectName=\"Acme.Orders\" thingTemplate=\"GenericThing\"><ImplementedShapes><ImplementedShape name=\"HierarchyResolver\" type=\"ThingShape\"/></ImplementedShapes></Thing></Things></Entities>",
+    )
+    .unwrap();
+    std::fs::write(
+        solution.root.join("app/ThingTemplates/Acme.Orders.Order_TT.xml"),
+        "<Entities><ThingTemplates><ThingTemplate name=\"Acme.Orders.Order_TT\" projectName=\"Acme.Orders\"/></ThingTemplates></Entities>",
+    )
+    .unwrap();
+    let tool = "open_orders=Acme.Orders.Manager.GetOrders";
+    let resource = "orders=Acme.Orders.Manager.GetOrders";
+    let prompt = "status=Summarise order {{order}}";
+
+    // The whole namespace from new, under another name, renamed in text to compare.
+    new(&solution, Kind::McpNamespace, "Acme.Orders.Whole_NS", |r| {
+        r.tools = vec![tool.into()];
+        r.service_resources = vec![resource.into()];
+        r.prompts = vec![prompt.into()];
+    });
+    let whole = file(&solution, "MCPNamespaces", "Acme.Orders.Whole_NS")
+        .replace("Acme.Orders.Whole_NS", "Acme.Orders.Tools_NS");
+    new(&solution, Kind::McpNamespace, "Acme.Orders.Tools_NS", |r| {
+        r.tools = vec![tool.into()];
+    });
+    let start = file(&solution, "MCPNamespaces", "Acme.Orders.Tools_NS");
+    for (kind, spec) in [("service-resource", resource), ("prompt", prompt)] {
+        run(
+            &solution,
+            "Acme.Orders.Tools_NS",
+            Action::McpAdd {
+                kind: kind.into(),
+                spec: spec.into(),
+                describe: None,
+            },
+        );
+    }
+    assert_eq!(
+        file(&solution, "MCPNamespaces", "Acme.Orders.Tools_NS"),
+        whole
+    );
+
+    // The agent likewise: everything at once, or one edit at a time.
+    new(&solution, Kind::AiAgent, "Acme.Orders.Whole_Agent", |r| {
+        r.namespaces = vec![
+            "Acme.Orders.Tools_NS".into(),
+            "AgentUtilities=resolve_entity".into(),
+        ];
+        r.skills = vec!["SharedSkillsRepository:/orders".into()];
+        r.taxonomy = vec!["Acme.Orders.Order_TT=order, orders".into()];
+        r.resolver = Some("Acme.Orders.Resolver".into());
+        r.instructions = Some("Use the order tools.".into());
+        r.display_name = Some("Orders".into());
+    });
+    let whole = file(&solution, "AIAgents", "Acme.Orders.Whole_Agent")
+        .replace("Acme.Orders.Whole_Agent", "Acme.Orders.Agent");
+    new(&solution, Kind::AiAgent, "Acme.Orders.Agent", |r| {
+        r.namespaces = vec!["Acme.Orders.Tools_NS=open_orders".into()];
+    });
+    let bare = file(&solution, "AIAgents", "Acme.Orders.Agent");
+    for action in [
+        Action::AgentAllow {
+            spec: "Acme.Orders.Tools_NS=orders,status".into(),
+        },
+        Action::AgentAllow {
+            spec: "AgentUtilities=resolve_entity".into(),
+        },
+        Action::AgentSkillAdd {
+            spec: "SharedSkillsRepository:/orders".into(),
+        },
+        Action::AgentTaxonomyAdd {
+            spec: "Acme.Orders.Order_TT=order, orders".into(),
+        },
+        Action::AgentSet(AgentChange {
+            resolver: Some("Acme.Orders.Resolver".into()),
+            instructions: Some("Use the order tools.".into()),
+            display_name: Some("Orders".into()),
+            ..AgentChange::default()
+        }),
+    ] {
+        run(&solution, "Acme.Orders.Agent", action);
+    }
+    assert_eq!(file(&solution, "AIAgents", "Acme.Orders.Agent"), whole);
+
+    // Undo: removing what was added gives back the starting bytes. Removing a namespace item
+    // takes it out of every agent that allows it too.
+    let removed = run(
+        &solution,
+        "Acme.Orders.Tools_NS",
+        Action::McpRemove {
+            name: "status".into(),
+        },
+    );
+    assert!(removed
+        .changes
+        .iter()
+        .any(|change| change.entity == "AIAgents/Acme.Orders.Agent"));
+    assert!(removed
+        .changes
+        .iter()
+        .any(|change| change.entity == "AIAgents/Acme.Orders.Whole_Agent"));
+    assert!(removed
+        .warnings
+        .iter()
+        .any(|warning| warning.contains("push the agent before the namespace")));
+    run(
+        &solution,
+        "Acme.Orders.Tools_NS",
+        Action::McpRemove {
+            name: "orders".into(),
+        },
+    );
+    assert_eq!(
+        file(&solution, "MCPNamespaces", "Acme.Orders.Tools_NS"),
+        start
+    );
+    for action in [
+        Action::AgentDisallow {
+            spec: "AgentUtilities".into(),
+        },
+        Action::AgentSkillRemove {
+            spec: "SharedSkillsRepository:/orders".into(),
+        },
+        Action::AgentTaxonomyRemove {
+            name: "Acme.Orders.Order_TT".into(),
+        },
+        Action::AgentSet(AgentChange {
+            resolver: Some(String::new()),
+            instructions: Some(String::new()),
+            display_name: Some("Acme.Orders.Agent".into()),
+            ..AgentChange::default()
+        }),
+    ] {
+        run(&solution, "Acme.Orders.Agent", action);
+    }
+    assert_eq!(file(&solution, "AIAgents", "Acme.Orders.Agent"), bare);
+
+    // Refusals.
+    let refused = |entity: &str, action: Action, wanted: &str| {
+        let error = plan_of(&solution, entity, action).unwrap_err().to_string();
+        assert!(error.contains(wanted), "{wanted}: {error}");
+    };
+    refused(
+        "Acme.Orders.Tools_NS",
+        Action::McpAdd {
+            kind: "prompt".into(),
+            spec: "open_orders=Say hello".into(),
+            describe: None,
+        },
+        "already has a tool, resource or prompt named open_orders",
+    );
+    refused(
+        "Acme.Orders.Tools_NS",
+        Action::McpRemove {
+            name: "nope".into(),
+        },
+        "has no tool, resource or prompt nope",
+    );
+    refused(
+        "Acme.Orders.Agent",
+        Action::AgentAllow {
+            spec: "Acme.Orders.Tools_NS=open_orders".into(),
+        },
+        "already allows all of that",
+    );
+    refused(
+        "Acme.Orders.Agent",
+        Action::AgentDisallow {
+            spec: "Acme.Orders.Tools_NS=status".into(),
+        },
+        "does not allow status",
+    );
+    refused(
+        "Acme.Orders.Agent",
+        Action::AgentSet(AgentChange {
+            resolver: Some("Acme.Orders.Manager".into()),
+            ..AgentChange::default()
+        }),
+        "does not implement the HierarchyResolver",
+    );
+    refused(
+        "Acme.Orders.Agent",
+        Action::AgentSet(AgentChange::default()),
+        "agent set needs",
+    );
+    refused(
+        "Acme.Orders.Manager",
+        Action::AgentSkillAdd {
+            spec: "SharedSkillsRepository:/orders".into(),
+        },
+        "changes an AIAgent",
+    );
+}

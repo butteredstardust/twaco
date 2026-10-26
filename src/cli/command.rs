@@ -65,6 +65,10 @@ pub(crate) enum Command {
     #[command(subcommand)]
     State(super::entity_edit::State),
     #[command(subcommand)]
+    McpNamespace(super::entity_edit::McpNamespace),
+    #[command(subcommand)]
+    Agent(super::entity_edit::Agent),
+    #[command(subcommand)]
     Network(super::network::Network),
     #[command(subcommand)]
     New(super::entity_new::New),
@@ -149,6 +153,17 @@ impl Command {
             Command::Media(_) => "media set",
             Command::Menu(_) => "menu item",
             Command::State(_) => "state set",
+            Command::McpNamespace(namespace) => match namespace {
+                super::entity_edit::McpNamespace::Add(_) => "mcp-namespace add",
+                super::entity_edit::McpNamespace::Remove(_) => "mcp-namespace remove",
+            },
+            Command::Agent(agent) => match agent {
+                super::entity_edit::Agent::Allow(_) => "agent allow",
+                super::entity_edit::Agent::Disallow(_) => "agent disallow",
+                super::entity_edit::Agent::Taxonomy(_) => "agent taxonomy",
+                super::entity_edit::Agent::Skill(_) => "agent skill",
+                super::entity_edit::Agent::Set(_) => "agent set",
+            },
             Command::Network(network) => match network {
                 super::network::Network::List(_) => "network list",
                 super::network::Network::Show(_) => "network show",
@@ -237,6 +252,8 @@ impl Command {
             | Command::Media(_)
             | Command::Menu(_)
             | Command::State(_)
+            | Command::McpNamespace(_)
+            | Command::Agent(_)
             | Command::Network(_)
             | Command::New(_)
             | Command::Mashup(_)

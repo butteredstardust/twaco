@@ -25,6 +25,9 @@ use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
+mod ai;
+pub use ai::AgentChange;
+
 /// A property as `property add` and `property set` give it.
 #[derive(Clone, Debug, Default)]
 pub struct Property {
@@ -133,6 +136,37 @@ pub enum Action {
         state_type: String,
         states: Vec<String>,
     },
+    /// An MCP namespace's tool, service or file resource, or prompt; `kind` is `tool`,
+    /// `service-resource`, `file-resource` or `prompt`.
+    McpAdd {
+        kind: String,
+        spec: String,
+        describe: Option<String>,
+    },
+    McpRemove {
+        name: String,
+    },
+    /// `Namespace` or `Namespace=item,item`.
+    AgentAllow {
+        spec: String,
+    },
+    /// `Namespace` (stop using it) or `Namespace=item,item`.
+    AgentDisallow {
+        spec: String,
+    },
+    AgentTaxonomyAdd {
+        spec: String,
+    },
+    AgentTaxonomyRemove {
+        name: String,
+    },
+    AgentSkillAdd {
+        spec: String,
+    },
+    AgentSkillRemove {
+        spec: String,
+    },
+    AgentSet(AgentChange),
 }
 
 #[derive(Clone, Debug)]
@@ -368,6 +402,19 @@ pub(crate) fn plan(solution: &Solution, request: &Request) -> Result<Plan, EditE
         }
         Action::MenuItemRemove { title } => menu_item_remove(&doc, title, &mut plan)?,
         Action::StateSet { state_type, states } => state_set(&doc, state_type, states, &mut plan)?,
+        Action::McpAdd {
+            kind,
+            spec,
+            describe,
+        } => ai::mcp_add(solution, &doc, kind, spec, describe.as_deref(), &mut plan)?,
+        Action::McpRemove { name } => ai::mcp_remove(&found, &doc, name, &mut plan)?,
+        Action::AgentAllow { spec } => ai::agent_allow(solution, &doc, spec, &mut plan)?,
+        Action::AgentDisallow { spec } => ai::agent_disallow(&doc, spec, &mut plan)?,
+        Action::AgentTaxonomyAdd { spec } => ai::taxonomy_add(solution, &doc, spec, &mut plan)?,
+        Action::AgentTaxonomyRemove { name } => ai::taxonomy_remove(&doc, name, &mut plan)?,
+        Action::AgentSkillAdd { spec } => ai::skill_add(solution, &doc, spec, &mut plan)?,
+        Action::AgentSkillRemove { spec } => ai::skill_remove(&doc, spec, &mut plan)?,
+        Action::AgentSet(change) => ai::agent_set(solution, &doc, change, &mut plan)?,
     }
     Ok(plan)
 }

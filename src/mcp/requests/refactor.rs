@@ -568,6 +568,24 @@ pub(crate) enum EntityEditAction {
     MenuItemRemove,
     #[serde(rename = "state_set")]
     StateSet,
+    #[serde(rename = "mcp_add")]
+    McpAdd,
+    #[serde(rename = "mcp_remove")]
+    McpRemove,
+    #[serde(rename = "agent_allow")]
+    AgentAllow,
+    #[serde(rename = "agent_disallow")]
+    AgentDisallow,
+    #[serde(rename = "agent_taxonomy_add")]
+    AgentTaxonomyAdd,
+    #[serde(rename = "agent_taxonomy_remove")]
+    AgentTaxonomyRemove,
+    #[serde(rename = "agent_skill_add")]
+    AgentSkillAdd,
+    #[serde(rename = "agent_skill_remove")]
+    AgentSkillRemove,
+    #[serde(rename = "agent_set")]
+    AgentSet,
 }
 
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
@@ -706,6 +724,31 @@ pub(crate) struct EntityEditRequest {
     /// state_set: the states in order, each `<comparator><value>=<label>[;style key:value...]`; the last may be `*=<label>`.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) state: Absent<Vec<String>>,
+    /// mcp_add: tool, service-resource, file-resource or prompt.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) item_kind: Absent<String>,
+    /// mcp_add: `name=Provider.Service`, `name=Repository:/path` or `name=text`; agent_allow and
+    /// agent_disallow: `Namespace` or `Namespace=item,item`; agent_taxonomy_add:
+    /// `TemplateOrShape[=alias, alias]`; agent_skill_add and agent_skill_remove:
+    /// `Repository:/path`. mcp_remove and agent_taxonomy_remove take `name`; mcp_add takes the
+    /// item's `description`.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) spec: Absent<String>,
+    /// agent_set: the HierarchyResolver Thing; empty clears it.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) resolver: Absent<String>,
+    /// agent_set: the system prompt's instructions.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) instructions: Absent<String>,
+    /// agent_set: a file holding the instructions.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) instructions_file: Absent<String>,
+    /// agent_set: the description the assistant routes questions by.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) agent_description: Absent<String>,
+    /// agent_set: the name the assistant shows.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) display_name: Absent<String>,
     #[serde(default = "default_true")]
     pub(crate) dry_run: bool,
 }
