@@ -58,6 +58,7 @@ impl Index {
         builder.add_script_edges();
         builder.add_mashup_edges();
         builder.add_deploy_edges();
+        builder.add_agent_edges();
         builder.finish(files)
     }
 }

@@ -13,6 +13,18 @@ All notable changes to twaco are recorded here. The format follows
   other system collections deploy and bundle like the rest. `check`'s project gate names a
   folder under a project root that holds entity documents in no collection folder (a misspelt
   `Thinsg/`, say), which deploy and bundle would otherwise leave out without a word.
+- The reference index reads AI agents and MCP namespaces: a namespace's tools and service
+  resources refer to the service on their Thing, template or shape, a File resource to its file
+  repository, and an agent to its namespaces, hierarchy resolver, taxonomy types and skill
+  repositories. `impact`, `unused` and the other index readers see them as structural, so
+  `impact <Thing> --member <service>` names the namespace whose tool calls it and the agent that
+  uses that namespace.
+- A new `check` gate, `ai references`, finds what breaks an agent: a tool calling a service its
+  provider does not declare, a provider or taxonomy type under the solution's own projects that
+  the repository lacks, a namespace an agent references that is not there, an allowed tool,
+  resource or prompt the namespace does not define, a resolver that does not implement
+  `HierarchyResolver`, and an MCP File resource or skill whose file the `[repositories]` mirror
+  does not hold, which makes the import refuse the namespace.
 
 ### Changed
 

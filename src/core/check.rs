@@ -7,7 +7,7 @@
 use super::child::{credential_values, redact, run_to_completion, strip_credentials};
 use super::config::Solution;
 use super::progress::{self, Progress};
-use super::{bindings, fmt as format_js, network, sync, types, workspace};
+use super::{agents_check, bindings, fmt as format_js, network, sync, types, workspace};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -146,6 +146,7 @@ pub(crate) const BUILT_IN_GATES: &[&str] = &[
     "result shapes",
     "networks",
     "requirements",
+    "ai references",
 ];
 
 /// A built-in gate as the solution wants it: blocking, or advisory when `[gates] advisory`
@@ -176,6 +177,7 @@ pub fn run(solution: &Solution) -> CheckReport {
         result_shapes(solution),
         networks(solution, &discovery),
         requirements(solution, &discovery),
+        ai_references(solution, &discovery, &model),
     ] {
         report.gates.push(as_configured(solution, gate));
     }
@@ -183,6 +185,27 @@ pub fn run(solution: &Solution) -> CheckReport {
         report.gates.push(run_hook(solution, hook));
     }
     report
+}
+
+fn ai_references(
+    solution: &Solution,
+    discovered: &workspace::Discovery,
+    model: &types::Model,
+) -> GateResult {
+    let checked = agents_check::run_in(solution, discovered, model);
+    let mut result = GateResult::passed(agents_check::GATE, checked.examined);
+    result.findings = checked
+        .problems
+        .into_iter()
+        .map(|problem| Finding {
+            gate: agents_check::GATE.to_string(),
+            file: problem.file,
+            line: 0,
+            rule: problem.rule,
+            message: problem.message,
+        })
+        .collect();
+    result
 }
 
 /// The server's own parser, the one gate that needs a server.

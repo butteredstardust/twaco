@@ -2,6 +2,8 @@
 
 pub(crate) mod accumulated;
 pub mod adopt;
+pub(crate) mod agents;
+pub(crate) mod agents_check;
 pub mod appkey;
 pub mod backup;
 pub(crate) mod baseline;

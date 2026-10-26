@@ -12,6 +12,7 @@
 //! The index reads the entity XML, which `twaco check` holds in step with the sidecars. It is built
 //! once per command and never changes.
 
+mod agents;
 mod build;
 mod deploy;
 pub(crate) mod inherit;
@@ -88,6 +89,14 @@ pub enum EdgeKind {
     Deploy,
     /// A project that must be imported before another.
     ProjectDependency,
+    /// An MCP tool or Service resource calling a provider service.
+    McpTool,
+    /// An MCP File resource naming its FileRepository.
+    McpFile,
+    /// An AI agent naming an MCP namespace.
+    AgentNamespace,
+    /// An AI agent configuration reference.
+    AgentConfig,
 }
 
 impl EdgeKind {
@@ -98,7 +107,11 @@ impl EdgeKind {
             | EdgeKind::BaseDataShape
             | EdgeKind::DataShape
             | EdgeKind::Deploy
-            | EdgeKind::ProjectDependency => Confidence::Structural,
+            | EdgeKind::ProjectDependency
+            | EdgeKind::McpTool
+            | EdgeKind::McpFile
+            | EdgeKind::AgentNamespace
+            | EdgeKind::AgentConfig => Confidence::Structural,
             EdgeKind::ScriptReference | EdgeKind::MashupBinding => Confidence::Resolved,
             EdgeKind::ScriptMention | EdgeKind::MashupMention => Confidence::Review,
         }
@@ -124,6 +137,10 @@ impl EdgeKind {
             EdgeKind::MashupMention => "mashup_mention",
             EdgeKind::Deploy => "deploy",
             EdgeKind::ProjectDependency => "project_dependency",
+            EdgeKind::McpTool => "mcp_tool",
+            EdgeKind::McpFile => "mcp_file",
+            EdgeKind::AgentNamespace => "agent_namespace",
+            EdgeKind::AgentConfig => "agent_config",
         }
     }
 }

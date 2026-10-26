@@ -1,6 +1,7 @@
 use super::*;
 use crate::core::catalog;
 use crate::core::config::Solution;
+use petgraph::visit::EdgeRef;
 use std::path::{Path, PathBuf};
 
 fn key(collection: &str, name: &str) -> EntityKey {
@@ -74,6 +75,167 @@ fn data_shape(name: &str, base: &str, fields: &[(&str, Option<&str>)]) -> String
         &base,
         &format!("<FieldDefinitions>{fields}</FieldDefinitions>"),
     )
+}
+
+#[test]
+fn agents_and_namespaces_link_their_declared_references() {
+    let (_dir, root) = scratch("agents");
+    write(&root, "twaco.toml", "[[project]]\nname = \"P\"\n");
+    write(
+        &root,
+        "Things/P.Provider.xml",
+        &entity(
+            "Things",
+            "Thing",
+            "P.Provider",
+            "P",
+            "",
+            &format!(
+                "<ThingShape><ServiceDefinitions>{}</ServiceDefinitions></ThingShape>",
+                service("Run", None, None)
+            ),
+        ),
+    );
+    write(
+        &root,
+        "Things/P.Files.xml",
+        &entity("Things", "Thing", "P.Files", "P", "", ""),
+    );
+    write(
+        &root,
+        "Things/P.Resolver.xml",
+        &entity("Things", "Thing", "P.Resolver", "P", "", ""),
+    );
+    write(
+        &root,
+        "ThingTemplates/P.Template.xml",
+        &entity(
+            "ThingTemplates",
+            "ThingTemplate",
+            "P.Template",
+            "P",
+            "",
+            &format!(
+                "<ServiceDefinitions>{}</ServiceDefinitions>",
+                service("TemplateRun", None, None)
+            ),
+        ),
+    );
+    write(
+        &root,
+        "ThingShapes/P.Shape.xml",
+        &entity("ThingShapes", "ThingShape", "P.Shape", "P", "", ""),
+    );
+    write(
+        &root,
+        "MCPNamespaces/P.Tools.xml",
+        &entity(
+            "MCPNamespaces",
+            "MCPNamespace",
+            "P.Tools",
+            "P",
+            "",
+            r#"<MCPTools><MCPTool name="run" serviceName="Run" serviceProvider="P.Provider" serviceProviderType="Thing"/><MCPTool name="template" serviceName="TemplateRun" serviceProvider="P.Template" serviceProviderType="ThingTemplate"/></MCPTools><MCPResources><MCPResource name="resource" type="Service"><ServiceDefinition serviceName="Run" serviceProvider="P.Provider" serviceProviderType="Thing"/></MCPResource><MCPResource name="manual" type="File"><FileDefinition filePath="/manual.md" fileRepository="P.Files"/></MCPResource></MCPResources>"#,
+        ),
+    );
+    write(
+        &root,
+        "AIAgents/P.Agent.xml",
+        &entity(
+            "AIAgents",
+            "AIAgent",
+            "P.Agent",
+            "P",
+            "",
+            r#"<ConfigurationTables><ConfigurationTable name="TaxonomyConfiguration"><Rows><Row><entityType><![CDATA[ThingShape]]></entityType><entityTypeName><![CDATA[P.Shape]]></entityTypeName></Row></Rows></ConfigurationTable><ConfigurationTable name="HierarchyConfiguration"><Rows><Row><resolverThingName><![CDATA[P.Resolver]]></resolverThingName></Row></Rows></ConfigurationTable></ConfigurationTables><SkillReferences><SkillReference repositoryName="P.Files" skillPath="/skill"/></SkillReferences><MCPNamespaceReferences><MCPNamespaceReference name="P.Tools"/></MCPNamespaceReferences>"#,
+        ),
+    );
+    let solution = Solution::load(&root.join("twaco.toml")).unwrap();
+    let index = Index::build(&solution);
+    let has = |from: &str,
+               to: &str,
+               kind: EdgeKind,
+               from_member: Option<&str>,
+               to_member: Option<&str>| {
+        index.graph.edge_references().any(|edge| {
+            index.graph[edge.source()].label() == from
+                && index.graph[edge.target()].label() == to
+                && edge.weight().kind == kind
+                && edge.weight().from_member.as_deref() == from_member
+                && edge.weight().to_member.as_deref() == to_member
+        })
+    };
+    assert!(has(
+        "MCPNamespaces/P.Tools",
+        "Things/P.Provider",
+        EdgeKind::McpTool,
+        Some("run"),
+        Some("Run")
+    ));
+    assert!(has(
+        "MCPNamespaces/P.Tools",
+        "ThingTemplates/P.Template",
+        EdgeKind::McpTool,
+        Some("template"),
+        Some("TemplateRun")
+    ));
+    assert!(has(
+        "MCPNamespaces/P.Tools",
+        "Things/P.Provider",
+        EdgeKind::McpTool,
+        Some("resource"),
+        Some("Run")
+    ));
+    assert!(has(
+        "MCPNamespaces/P.Tools",
+        "Things/P.Files",
+        EdgeKind::McpFile,
+        Some("manual"),
+        None
+    ));
+    assert!(has(
+        "AIAgents/P.Agent",
+        "MCPNamespaces/P.Tools",
+        EdgeKind::AgentNamespace,
+        None,
+        None
+    ));
+    assert!(has(
+        "AIAgents/P.Agent",
+        "ThingShapes/P.Shape",
+        EdgeKind::AgentConfig,
+        Some("taxonomy"),
+        None
+    ));
+    assert!(has(
+        "AIAgents/P.Agent",
+        "Things/P.Resolver",
+        EdgeKind::AgentConfig,
+        Some("resolver"),
+        None
+    ));
+    assert!(has(
+        "AIAgents/P.Agent",
+        "Things/P.Files",
+        EdgeKind::AgentConfig,
+        Some("skill"),
+        None
+    ));
+    let dependent = index.dependents(
+        &key("Things", "P.Provider"),
+        &DependentOptions {
+            member: Some("Run".to_string()),
+            min: Confidence::Structural,
+            max_depth: Some(2),
+        },
+    );
+    assert_eq!(
+        dependent
+            .iter()
+            .map(|item| (item.label.as_str(), item.depth))
+            .collect::<Vec<_>>(),
+        [("MCPNamespaces/P.Tools", 1), ("AIAgents/P.Agent", 2)]
+    );
 }
 
 /// One project `P` with a template chain, a shape, DataShapes that type services and a base, and
