@@ -23,7 +23,10 @@ impl Index {
     /// Resolve current references to historical contract identities too. These extra nodes
     /// have no source file or outgoing edges: callers still come exclusively from this tree.
     pub(crate) fn with_targets(solution: &Solution, targets: &[EntityKey]) -> Index {
-        let (model, skipped) = types::load_model(solution);
+        // One scan feeds the model, the nodes and the callers that need the files themselves.
+        let discovered = workspace::discover(solution);
+        let files = discovered.entities.clone();
+        let (model, skipped) = types::load_model_from(&discovered);
         let mut builder = Builder {
             solution,
             model,
@@ -35,7 +38,7 @@ impl Index {
             unparsed: Vec::new(),
         };
         builder.add_projects();
-        builder.add_entities();
+        builder.add_entities(discovered);
         for key in targets {
             if builder.entities.contains_key(key) {
                 continue;
@@ -55,7 +58,7 @@ impl Index {
         builder.add_script_edges();
         builder.add_mashup_edges();
         builder.add_deploy_edges();
-        builder.finish()
+        builder.finish(files)
     }
 }
 
@@ -180,8 +183,7 @@ impl Builder<'_> {
             .to_path_buf()
     }
 
-    fn add_entities(&mut self) {
-        let discovered = workspace::discover(self.solution);
+    fn add_entities(&mut self, discovered: workspace::Discovery) {
         for message in &discovered.unreadable {
             self.note_unreadable(message);
         }
@@ -374,6 +376,7 @@ impl Builder<'_> {
                 );
             }
         }
+        self.model = model;
     }
 
     /// The `baseDataShape` a DataShape document declares; the entity model does not keep it.
@@ -390,7 +393,7 @@ impl Builder<'_> {
         (!value.is_empty()).then_some(value)
     }
 
-    fn finish(mut self) -> Index {
+    fn finish(mut self, files: Vec<workspace::EntityFile>) -> Index {
         let deploy_order = match self.solution.deploy_order() {
             Ok(order) => order.iter().map(|project| project.name.clone()).collect(),
             Err(error) => {
@@ -411,6 +414,8 @@ impl Builder<'_> {
             deploy_order,
             unreadable: self.unreadable,
             unparsed: self.unparsed,
+            files,
+            model: self.model,
         }
     }
 }

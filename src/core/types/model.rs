@@ -92,10 +92,14 @@ pub(crate) struct Model {
 }
 
 pub(crate) fn load_model(solution: &Solution) -> (Model, Vec<String>) {
-    let discovered = workspace::discover(solution);
+    load_model_from(&workspace::discover(solution))
+}
+
+/// [`load_model`] over a scan already made.
+pub(crate) fn load_model_from(discovered: &workspace::Discovery) -> (Model, Vec<String>) {
     let mut model = Model::default();
-    let mut skipped = discovered.unreadable;
-    for file in discovered.entities {
+    let mut skipped = discovered.unreadable.clone();
+    for file in &discovered.entities {
         if file.info.collection != "DataShapes"
             && !ENTITY_COLLECTIONS.contains(&file.info.collection.as_str())
         {
@@ -110,7 +114,7 @@ pub(crate) fn load_model(solution: &Solution) -> (Model, Vec<String>) {
         };
         match parse_document(&bytes, &file.info.collection, &file.info.name) {
             Ok(Parsed::Entity(mut entity)) => {
-                entity.project = file.found_under;
+                entity.project = file.found_under.clone();
                 model.entities.push(entity);
             }
             Ok(Parsed::DataShape(shape)) => model.data_shapes.push(shape),

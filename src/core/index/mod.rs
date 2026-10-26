@@ -26,6 +26,7 @@ pub(crate) use query::Dependent;
 pub use query::DependentOptions;
 
 use super::entity::key::EntityKey;
+use super::{types, workspace};
 use petgraph::graph::{DiGraph, NodeIndex};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
@@ -211,6 +212,10 @@ pub struct Index {
     /// `entity/service` of every script the parser refused: its references are known only as
     /// review-level mentions.
     unparsed: Vec<String>,
+    /// The entity files the index was read from, in discovery order.
+    files: Vec<workspace::EntityFile>,
+    /// The entity model the index was read from.
+    model: types::Model,
 }
 
 impl Index {
@@ -233,6 +238,16 @@ impl Index {
     /// The project names in the order they must be imported.
     pub(crate) fn deploy_order(&self) -> &[String] {
         &self.deploy_order
+    }
+
+    /// The entity files this index was read from, so a caller does not scan the tree again.
+    pub(crate) fn files(&self) -> &[workspace::EntityFile] {
+        &self.files
+    }
+
+    /// The entity model this index was read from.
+    pub(crate) fn model(&self) -> &types::Model {
+        &self.model
     }
 
     pub(crate) fn node(&self, key: &EntityKey) -> Option<&Node> {

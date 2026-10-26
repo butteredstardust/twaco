@@ -11,7 +11,7 @@ use super::entity::key::EntityKey;
 use super::index::{EdgeKind, Index};
 use super::mashup;
 use super::scan;
-use super::workspace::{self, WorkspaceError};
+use super::workspace::WorkspaceError;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 use swc_common::{BytePos, Spanned};
@@ -104,7 +104,8 @@ pub fn run(solution: &Solution, given: &str, param: Option<&str>) -> Result<Trac
     }
     let index = Index::build(solution);
     let key = index.resolve(entity).map_err(TraceError::Entity)?;
-    let found = workspace::entities(solution);
+    let found = index.files();
+    let platform = super::types::cached_platform(solution);
     let file_of = |key: &EntityKey| {
         found
             .iter()
@@ -169,7 +170,9 @@ pub fn run(solution: &Solution, given: &str, param: Option<&str>) -> Result<Trac
         let Some(name) = from.strip_prefix("Mashups/") else {
             continue;
         };
-        let Ok(description) = mashup::describe::describe(solution, name) else {
+        let Ok(description) =
+            mashup::describe::describe_in(solution, name, found, index.model(), platform.as_ref())
+        else {
             continue;
         };
         let names: BTreeSet<String> = holders

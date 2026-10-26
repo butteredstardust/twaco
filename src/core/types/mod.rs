@@ -14,7 +14,7 @@ mod write;
 
 pub(crate) use compiler::{check, check_with, CompilerRunner};
 pub(crate) use model::{
-    load_model, DataShape, Entity, Member, Model, Parameter, Service, TypedValue,
+    load_model, load_model_from, DataShape, Entity, Member, Model, Parameter, Service, TypedValue,
 };
 pub use outcome::{check_summary, finding_json, Refresh};
 pub(crate) use outcome::{
