@@ -26,7 +26,7 @@ impl Index {
         // One scan feeds the model, the nodes and the callers that need the files themselves.
         let discovered = workspace::discover(solution);
         let files = discovered.entities.clone();
-        let (model, skipped) = types::load_model_from(&discovered);
+        let (model, skipped) = types::load_model(solution);
         let mut builder = Builder {
             solution,
             model,
@@ -46,6 +46,7 @@ impl Index {
             let at = builder.graph.add_node(Node {
                 kind: NodeKind::Entity(key.clone()),
                 project: String::new(),
+                extension: None,
                 file: None,
                 template: None,
                 shapes: Vec::new(),
@@ -79,6 +80,7 @@ pub(super) struct Builder<'a> {
 /// What the entity model says about one entity, for the node that stands for it.
 #[derive(Default)]
 struct Declared {
+    extension: Option<String>,
     template: Option<String>,
     shapes: Vec<String>,
     services: BTreeSet<String>,
@@ -102,6 +104,7 @@ impl Builder<'_> {
             let at = self.graph.add_node(Node {
                 kind: NodeKind::Project(project.name.clone()),
                 project: project.name.clone(),
+                extension: None,
                 file: None,
                 template: None,
                 shapes: Vec::new(),
@@ -205,6 +208,7 @@ impl Builder<'_> {
             declared.insert(
                 (entity.collection.clone(), entity.name.clone()),
                 Declared {
+                    extension: entity.extension.clone(),
                     template: entity.template.clone(),
                     shapes: entity.shapes.clone(),
                     services,
@@ -240,7 +244,29 @@ impl Builder<'_> {
             let at = self.graph.add_node(Node {
                 kind: NodeKind::Entity(key.clone()),
                 project: file.found_under.clone(),
+                extension: own.extension,
                 file: Some(self.relative(&file.path)),
+                template: own.template,
+                shapes: own.shapes,
+                services: own.services,
+                subscribes: false,
+            });
+            self.entities.insert(key, at);
+        }
+        // Extension declarations deliberately have no workspace file. They participate in the
+        // graph but never enter discovery, which keeps every mutating command away from Java.
+        for ((collection, name), own) in declared {
+            let Ok(key) = EntityKey::new(&collection, &name) else {
+                continue;
+            };
+            if self.entities.contains_key(&key) {
+                continue;
+            }
+            let at = self.graph.add_node(Node {
+                kind: NodeKind::Entity(key.clone()),
+                project: String::new(),
+                extension: own.extension,
+                file: None,
                 template: own.template,
                 shapes: own.shapes,
                 services: own.services,

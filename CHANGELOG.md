@@ -8,6 +8,14 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- `[[extension]] root = "../Acme_Extension"` reads a Java extension's source checkout, which may
+  sit beside the solution: its `metadata.xml`, the services, properties and events its Java
+  annotations declare (with those of superclasses in the same project) and the DataShapes it
+  ships. `impact` on an extension template's service names the solution's Things, scripts and
+  mashups that use it, `catalog` shows its signatures marked `[extension <name>]`, and the mashup
+  binding checks resolve its services. The extension is only read; no command writes to it, and
+  an absent or unreadable one is reported without stopping anything else.
+
 - `javadoc` can read the matching, offline Javadoc packaged in a ThingWorx Extension SDK: pass
   `--sdk`, MCP `sdk`, `TWACO_SDK`, or a local profile's `sdk` path (SDK zip, extracted folder or
   Javadoc jar). Results report the SDK version and jar source without copying PTC files into the

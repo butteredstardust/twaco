@@ -69,6 +69,10 @@ name = "Acme"                 # used for package metadata and AGENTS.md
 src = "src"                   # where sidecars live (default "src")
 dist = "dist"                 # where bundles are written (default "dist")
 
+[[extension]]
+root = "extensions/AcmeKafka"  # Java extension checkout, relative to this solution
+name = "Acme Kafka"            # optional label in catalog and reports
+
 [[project]]
 name = "Acme.Core"            # required: the projectName its entities carry
 root = "core"                 # where its collection folders are (default ".")
@@ -152,6 +156,22 @@ timeout_seconds = 120         # (default 120)
 | `name` | empty | The solution's name: the default package group, and the name AGENTS.md uses. |
 | `src` | `src` | The sidecar root, relative to the solution. Each entity's sidecars are in `<src>/<Entity>/`. |
 | `dist` | `dist` | Where `twaco bundle` writes. |
+
+### `[[extension]]`
+
+One optional read-only Java extension checkout. `root` is required, relative to the solution root,
+and may sit beside it (`root = "../Acme_Extension"`), since twaco only reads it; prefer a relative
+path so the setting works in every clone. `name` is the optional human label shown by `catalog`. twaco reads `configfiles/metadata.xml` (or
+root `metadata.xml`), the matching Java source and DataShapes under `Entities/`. Its ThingTemplates,
+ThingShapes, Resources and declared Things join the offline model for `impact`, `catalog`, types and
+the mashup bindings gate. They are never discovered as workspace entities, so sync, rename, deploy,
+format and every other writing command cannot edit the extension. An absent root, metadata file or
+unreadable Java source is reported as skipped input; unrelated commands still run.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `root` | required | Extension project directory, relative to the solution root. |
+| `name` | `root` | Label shown as `[extension <name>]`. |
 
 ### `[[project]]`
 

@@ -151,6 +151,8 @@ pub struct Report {
     /// `Collection/Name`.
     pub(crate) entity: String,
     pub(crate) project: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) extension: Option<String>,
     pub(crate) member: Option<String>,
     pub(crate) min_confidence: Confidence,
     pub(crate) depth: Option<usize>,
@@ -215,8 +217,10 @@ pub fn run_with(
     let projects = index
         .projects_of(&labels)
         .into_iter()
+        // An extension's entity belongs to no project of the solution.
+        .filter(|(_, name)| !name.is_empty())
         .map(|(place, name)| ProjectAt {
-            deploy_order: (place != usize::MAX).then_some(place + 1),
+            deploy_order: (place != usize::MAX).then(|| place + 1),
             name,
         })
         .collect();
@@ -234,13 +238,14 @@ pub fn run_with(
             index.unparsed_scripts().len()
         ));
     }
-    let project = index
+    let (project, extension) = index
         .node(&key)
-        .map(|node| node.project.clone())
+        .map(|node| (node.project.clone(), node.extension.clone()))
         .unwrap_or_default();
     Ok(Report {
         entity: key.to_string(),
         project,
+        extension,
         member: request.member.clone(),
         min_confidence: request.min,
         depth: request.depth,
@@ -415,7 +420,12 @@ fn line(dependent: &Dependent) -> String {
 pub fn render_text(report: &Report, detail: bool) -> String {
     let mut out = String::new();
     out.push_str(&format!("impact of {}\n", subject(report)));
-    out.push_str(&format!("  project     {}\n", report.project));
+    if !report.project.is_empty() {
+        out.push_str(&format!("  project     {}\n", report.project));
+    }
+    if let Some(extension) = &report.extension {
+        out.push_str(&format!("  source      extension {extension}\n"));
+    }
     if report.dependents.is_empty() {
         out.push_str(&format!(
             "  dependents  none at {} confidence or stronger\n",

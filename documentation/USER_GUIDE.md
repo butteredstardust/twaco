@@ -31,6 +31,16 @@ An entity belongs to the project its own `projectName` names. A file filed under
 project's folder is reported by `check`, because it would otherwise import into the wrong
 project silently.
 
+### Java extensions used by the solution
+
+When a solution calls services supplied by a Java extension, keep its source checkout below the
+solution and add an `[[extension]]` entry in `twaco.toml`. twaco reads the extension metadata and
+Java annotations, including inherited members whose superclass is in that checkout. `impact
+<template> --member <service>`, `catalog` and mashup binding checks then see those services;
+catalog marks them `[extension <name>]`. Extension source is analysis input only: it is never a
+workspace entity, so twaco cannot rename, sync, format, deploy or otherwise write it. See
+[Configuration](CONFIGURATION.md#extension) for the entry and its failure behaviour.
+
 ### Starting from a project that is only on a server
 
 A project built in Composer becomes a repository with one command, run in an empty folder:

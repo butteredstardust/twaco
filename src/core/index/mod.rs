@@ -213,6 +213,8 @@ pub struct Node {
     pub(crate) kind: NodeKind,
     /// The project whose folders hold it, or the project's own name.
     pub(crate) project: String,
+    /// The extension that supplies this read-only entity, if it is not solution source.
+    pub(crate) extension: Option<String>,
     /// The entity's file, relative to the solution root; none for a project.
     pub(crate) file: Option<PathBuf>,
     /// A Thing's `thingTemplate` or a template's `baseThingTemplate`, as written.

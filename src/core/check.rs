@@ -161,7 +161,7 @@ fn as_configured(solution: &Solution, mut gate: GateResult) -> GateResult {
 /// Run every gate the solution declares, built in and configured alike.
 pub fn run(solution: &Solution) -> CheckReport {
     let discovery = workspace::discover(solution);
-    let (model, _) = types::load_model_from(&discovery);
+    let (model, _) = types::load_model(solution);
     let mut report = CheckReport::default();
     for gate in [
         line_endings(solution),

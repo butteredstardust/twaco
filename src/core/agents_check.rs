@@ -483,7 +483,7 @@ mod tests {
         }
         let solution = Solution::load(&dir.path().join("twaco.toml")).unwrap();
         let discovery = workspace::discover(&solution);
-        let (model, _) = types::load_model_from(&discovery);
+        let (model, _) = types::load_model(&solution);
         run_in(&solution, &discovery, &model)
     }
 

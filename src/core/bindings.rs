@@ -55,7 +55,7 @@ pub(crate) const FIELDS_LIMITS: &str =
 #[cfg(test)]
 pub(crate) fn run(solution: &Solution) -> Report {
     let discovery = workspace::discover(solution);
-    let (model, _) = types::load_model_from(&discovery);
+    let (model, _) = types::load_model(solution);
     run_in(solution, &discovery, &model)
 }
 
@@ -70,7 +70,7 @@ pub(crate) fn run_in(
 
 pub(crate) fn unused_fields(solution: &Solution) -> FieldsReport {
     let discovery = workspace::discover(solution);
-    let (model, _) = types::load_model_from(&discovery);
+    let (model, _) = types::load_model(solution);
     unused_fields_in(solution, &discovery, &model)
 }
 

@@ -29,6 +29,9 @@ pub struct Solution {
     /// One entry per ThingWorx project. A single-project repository declares one.
     #[serde(default, rename = "project")]
     pub projects: Vec<Project>,
+    /// Java extension projects whose declared entities are available to this solution.
+    #[serde(default, rename = "extension")]
+    pub(crate) extensions: Vec<Extension>,
     #[serde(default)]
     pub(crate) bundle: Bundle,
     /// Project-specific gates, run by `twaco check` alongside the built-in ones.
@@ -74,6 +77,15 @@ pub struct Solution {
     pub(crate) test: Test,
     #[serde(skip)]
     pub root: PathBuf,
+}
+
+/// A source checkout of a Java ThingWorx extension.  It is read-only input, never workspace
+/// source: its entities inform analysis but no command discovers it as something to edit.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Extension {
+    pub(crate) root: String,
+    pub(crate) name: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -544,6 +556,8 @@ impl Solution {
             }
         }
         check_contained("solution.dist", &self.solution.dist)?;
+        // An extension root is only ever read, so it may sit beside the solution
+        // (`../Acme_Extension`), unlike the paths twaco writes to.
         let mut seen = BTreeSet::new();
         for project in &self.projects {
             if project.name.trim().is_empty() {

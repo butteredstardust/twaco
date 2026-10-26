@@ -170,7 +170,7 @@ impl Coded for DescribeError {
 /// Describe the mashup `name` as the repository has it: its sidecar content when it has one.
 pub fn describe(solution: &Solution, name: &str) -> Result<Description, DescribeError> {
     let discovered = workspace::discover(solution);
-    let (model, _) = types::load_model_from(&discovered);
+    let (model, _) = types::load_model(solution);
     let platform = types::cached_platform(solution);
     describe_in(
         solution,

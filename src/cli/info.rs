@@ -1167,7 +1167,15 @@ pub(crate) fn catalog_cmd(solution: &Solution, args: &Catalog) -> u8 {
             } else {
                 format!("  [{}]", notes.join("; "))
             };
-            println!("{}/{}{}", entity.collection, entity.name, notes);
+            let extension = entity
+                .extension
+                .as_deref()
+                .map(|name| format!(" [extension {name}]"))
+                .unwrap_or_default();
+            println!(
+                "{}/{}{}{}",
+                entity.collection, entity.name, extension, notes
+            );
         }
         for service in &entity.services {
             if args.json.json {
@@ -1184,6 +1192,9 @@ pub(crate) fn catalog_cmd(solution: &Solution, args: &Catalog) -> u8 {
                     "from": service.from,
                     "has_script": service.has_script,
                 });
+                if let Some(extension) = &entity.extension {
+                    line["extension"] = serde_json::json!(extension);
+                }
                 if args.body {
                     line["body"] = serde_json::json!(service.body);
                 }
@@ -1201,7 +1212,9 @@ pub(crate) fn catalog_cmd(solution: &Solution, args: &Catalog) -> u8 {
                     })
                     .collect::<Vec<_>>()
                     .join(", ");
-                let origin = if service.from == "own" {
+                let origin = if let Some(extension) = &entity.extension {
+                    format!("[extension {extension}]")
+                } else if service.from == "own" {
                     "[own]".to_string()
                 } else {
                     format!("[from {}]", service.from)
