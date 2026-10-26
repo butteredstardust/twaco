@@ -4,4 +4,4 @@ exit: 2
 --- stdout
 
 --- stderr
-twaco: GetOrder is still used by Mashups/Acme.Orders.Dashboard, Networks/Acme.Orders.Plant; refusing to remove it (--force does it anyway)
+twaco: GetOrder is still used by Mashups/Acme.Orders.Dashboard; refusing to remove it (--force does it anyway)

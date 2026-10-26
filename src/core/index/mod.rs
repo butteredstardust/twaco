@@ -133,6 +133,22 @@ impl EdgeKind {
         }
     }
 
+    /// A reference to the whole entity that uses none of its members: a value stream, a Network
+    /// node, a membership, a menu item, a master, an agent's configuration, an MCP
+    /// File resource's repository. A question about one member does not follow it.
+    pub(crate) fn names_whole_entity(self) -> bool {
+        matches!(
+            self,
+            EdgeKind::ValueStream
+                | EdgeKind::NetworkNode
+                | EdgeKind::MenuItem
+                | EdgeKind::Member
+                | EdgeKind::MasterMashup
+                | EdgeKind::AgentConfig
+                | EdgeKind::McpFile
+        )
+    }
+
     /// A reference that makes the referrer inherit the members of what it names.
     pub(crate) fn is_inheritance(self) -> bool {
         matches!(

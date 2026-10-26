@@ -72,11 +72,12 @@ fn carried(edge: &Edge, current: &Option<String>) -> Option<String> {
 
 /// Whether following `edge` backwards answers a question about `member` of its target. A
 /// reference that names no member (inheritance, a typed field, a mention, a deploy call) concerns
-/// every member; one that names a member concerns only that one.
+/// every member; one that names a member concerns only that one; one that holds or lists the
+/// whole entity (a Network node, a membership, a menu item) concerns none of its members.
 fn concerns(edge: &Edge, member: &Option<String>) -> bool {
     match (member, &edge.to_member) {
         (None, _) => true,
-        (Some(_), None) => true,
+        (Some(_), None) => !edge.kind.names_whole_entity(),
         (Some(asked), Some(named)) => asked == named,
     }
 }

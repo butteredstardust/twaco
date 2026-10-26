@@ -4,13 +4,12 @@ exit: 0
 --- stdout
 impact of Things/Acme.Orders.Audit.Record
   project     Acme.Orders
-  dependents  3: 0 structural, 3 resolved, 0 review
+  dependents  2: 0 structural, 2 resolved, 0 review
   projects    Acme.Orders (deploy 1)
 
 resolved: a static name in a script or a mashup binding
   Things/Acme.Orders.Manager  (depth 1; GetOrder)
   Mashups/Acme.Orders.Dashboard  (depth 2)
-  Networks/Acme.Orders.Plant  (depth 2)
 
 limits: references built at run time, and anything outside this repository, are not seen
 --- stderr

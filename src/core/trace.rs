@@ -105,7 +105,7 @@ pub fn run(solution: &Solution, given: &str, param: Option<&str>) -> Result<Trac
     let index = Index::build(solution);
     let key = index.resolve(entity).map_err(TraceError::Entity)?;
     let found = index.files();
-    let platform = super::types::cached_platform(solution);
+    let mut platform = None;
     let file_of = |key: &EntityKey| {
         found
             .iter()
@@ -170,6 +170,8 @@ pub fn run(solution: &Solution, given: &str, param: Option<&str>) -> Result<Trac
         let Some(name) = from.strip_prefix("Mashups/") else {
             continue;
         };
+        // Read once, and only when a mashup calls the service.
+        let platform = platform.get_or_insert_with(|| super::types::cached_platform(solution));
         let Ok(description) =
             mashup::describe::describe_in(solution, name, found, index.model(), platform.as_ref())
         else {

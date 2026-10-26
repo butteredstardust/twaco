@@ -1591,8 +1591,7 @@ fn impact_answers_offline_and_read_only_with_the_strength_of_each_reference() {
     assert_eq!(summary["isError"], false, "{summary}");
     let report = &summary["structuredContent"];
     assert_eq!(report["entity"], "Things/Acme.Orders.Audit");
-    // The Manager and the mashup, and the Network holding the Manager.
-    assert_eq!(report["counts"]["resolved"], 3);
+    assert_eq!(report["counts"]["resolved"], 2);
     assert_eq!(report["complete"], true);
     assert!(
         report["dependents"][0].get("path").is_none(),

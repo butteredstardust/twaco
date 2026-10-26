@@ -674,15 +674,14 @@ mod tests {
             labels,
             [
                 "Things/Acme.Orders.Manager",
-                "Mashups/Acme.Orders.Dashboard",
-                "Networks/Acme.Orders.Plant"
+                "Mashups/Acme.Orders.Dashboard"
             ]
         );
         assert_eq!(
             report.counts,
             Counts {
                 structural: 0,
-                resolved: 3,
+                resolved: 2,
                 review: 0
             }
         );
@@ -700,7 +699,7 @@ mod tests {
             "{text}"
         );
         assert!(
-            text.contains("3 resolved") && text.contains("Acme.Orders (deploy 1)"),
+            text.contains("2 resolved") && text.contains("Acme.Orders (deploy 1)"),
             "{text}"
         );
         assert!(

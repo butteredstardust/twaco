@@ -474,7 +474,7 @@ impl Client {
             Some(body.as_slice()),
             Some(timeout),
         );
-        // Cleared once sent, not after the reply is read and parsed.
+        // The transport has sent it and read the reply; clear it before the reply is parsed.
         drop(body);
         let reply = checked(&self.secrets, Method::Post, url.clone(), response?)?;
         if reply.iter().all(u8::is_ascii_whitespace) {
@@ -929,10 +929,6 @@ fn transport(
     transport_with_timeout(secrets, agent, method, url, headers, body, None)
 }
 
-/// Send one request and read the whole answer.
-///
-/// Logs one `debug` event per request: method, scrubbed URL, status, byte counts and duration.
-/// Never log `headers` or a body. `secrets` scrubs the URL and the failure text first.
 /// Counts what is written to it, to size a buffer before anything secret is put in one.
 struct ByteCount(usize);
 
@@ -947,6 +943,10 @@ impl std::io::Write for ByteCount {
     }
 }
 
+/// Send one request and read the whole answer.
+///
+/// Logs one `debug` event per request: method, scrubbed URL, status, byte counts and duration.
+/// Never log `headers` or a body. `secrets` scrubs the URL and the failure text first.
 fn transport_with_timeout(
     secrets: &[Secret],
     agent: &ureq::Agent,

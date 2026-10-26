@@ -402,9 +402,12 @@ pub fn parse_service_ref(text: &str) -> Result<ServiceRef, String> {
     // name, which may itself hold a parenthesis.
     // The name ends at the quote and bracket that close it, not at the last bracket: the
     // arguments may hold an array.
+    // Only a bracket that opens before the call does: one inside the arguments is not the name's.
+    let call = given.find('(').unwrap_or(given.len());
     let name_end = ["[\"", "['"]
         .iter()
         .filter_map(|open| given.find(open).map(|at| (at, &open[1..])))
+        .filter(|(at, _)| *at < call)
         .min_by_key(|(at, _)| *at)
         .and_then(|(at, quote)| {
             let from = at + 2;
@@ -1121,6 +1124,14 @@ mod tests {
         assert_eq!(
             resource("me.GetPropertyValues([x])").member,
             "GetPropertyValues"
+        );
+        assert_eq!(
+            resource(r#"me.GetPropertyValues({ names: ["a"] })"#).member,
+            "GetPropertyValues"
+        );
+        assert_eq!(
+            resource("Things/Acme.Orders.Pump.GetPropertyValues({ a: ['x'] })"),
+            thing
         );
         let me = resource("me.GetPropertyValues");
         assert_eq!((me.classes, me.entity), (vec!["Thing".to_string()], true));

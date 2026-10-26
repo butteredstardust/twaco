@@ -67,8 +67,9 @@ All notable changes to twaco are recorded here. The format follows
   one being left out unseen.
 - `javadoc service` reads a call whose arguments hold an array, such as
   `Resources["InfoTableFunctions"].Sort({ rows: [] })`, and an entity name holding a bracket.
-- The body of a service call, which for `db` carries the database password, is zeroed after it
-  is sent, as the other credential copies already were.
+- twaco's own copy of a service call's body, which for `db` carries the database password, is
+  zeroed once the call returns rather than when the command ends, as its other credential copies
+  already were. Copies inside the HTTP library are outside its reach.
 
 ## [0.1.36] - 2026-10-25
 
