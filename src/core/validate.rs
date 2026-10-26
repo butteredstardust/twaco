@@ -18,8 +18,14 @@ pub(crate) struct Problem {
 }
 
 /// Check every entity in the solution.
+#[cfg(test)]
 pub(crate) fn check(solution: &Solution) -> Vec<Problem> {
     let found = workspace::discover(solution);
+    check_in(solution, &found)
+}
+
+/// [`check`] over a scan already made.
+pub(crate) fn check_in(solution: &Solution, found: &workspace::Discovery) -> Vec<Problem> {
     let mut problems = Vec::new();
 
     // A name claimed by two files: one of them loses on import, silently.

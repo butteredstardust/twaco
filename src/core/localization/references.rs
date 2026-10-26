@@ -42,7 +42,14 @@ pub(crate) struct Report {
     pub(crate) unreferenced: Vec<String>,
 }
 
+#[cfg(test)]
 pub(crate) fn run(solution: &Solution) -> Report {
+    let discovered = workspace::discover(solution);
+    run_in(solution, &discovered)
+}
+
+/// [`run`] over a scan already made.
+pub(crate) fn run_in(solution: &Solution, discovered: &workspace::Discovery) -> Report {
     let mut report = Report::default();
     let shown = |path: &Path| solution.relative(path);
     let found = match discover(&root(solution)) {
@@ -114,7 +121,7 @@ pub(crate) fn run(solution: &Solution) -> Report {
     let mut named: BTreeSet<String> = BTreeSet::new();
     // Every name-like word of every entity and sidecar script, for tokens a script names bare.
     let mut words: BTreeSet<Vec<u8>> = BTreeSet::new();
-    for file in &workspace::discover(solution).entities {
+    for file in &discovered.entities {
         let Ok(bytes) = std::fs::read(&file.path) else {
             // The project gate reports a file it cannot read.
             continue;

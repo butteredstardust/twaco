@@ -7,7 +7,7 @@
 use super::child::{credential_values, redact, run_to_completion, strip_credentials};
 use super::config::Solution;
 use super::progress::{self, Progress};
-use super::{bindings, fmt as format_js, network, sync, workspace};
+use super::{bindings, fmt as format_js, network, sync, types, workspace};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -159,21 +159,23 @@ fn as_configured(solution: &Solution, mut gate: GateResult) -> GateResult {
 
 /// Run every gate the solution declares, built in and configured alike.
 pub fn run(solution: &Solution) -> CheckReport {
+    let discovery = workspace::discover(solution);
+    let (model, _) = types::load_model_from(&discovery);
     let mut report = CheckReport::default();
     for gate in [
         line_endings(solution),
-        sidecars_in_sync(solution),
+        sidecars_in_sync(solution, &discovery),
         formatting(solution),
         script_traps(solution),
         code_order(solution),
-        project_validation(solution),
-        mashup_bindings(solution),
-        mashup_content(solution),
-        contained_mashups(solution),
-        localization_tokens(solution),
+        project_validation(solution, &discovery),
+        mashup_bindings(solution, &discovery, &model),
+        mashup_content(solution, &discovery),
+        contained_mashups(solution, &discovery),
+        localization_tokens(solution, &discovery),
         result_shapes(solution),
-        networks(solution),
-        requirements(solution),
+        networks(solution, &discovery),
+        requirements(solution, &discovery),
     ] {
         report.gates.push(as_configured(solution, gate));
     }
@@ -430,9 +432,8 @@ fn unreadable(gate: &str, file: String, why: impl fmt::Display) -> Finding {
 }
 
 /// Entity documents that disagree with their sidecars.
-fn sidecars_in_sync(solution: &Solution) -> GateResult {
+fn sidecars_in_sync(solution: &Solution, found: &workspace::Discovery) -> GateResult {
     let mut result = GateResult::passed("sidecars", 0);
-    let found = workspace::discover(solution);
     // Entities with a sidecar of any kind. A set, so an entity carrying both services and
     // fields is one thing examined rather than two, and a DataShape is not left out of the
     // count merely because its sidecar is not a services tree.
@@ -839,10 +840,10 @@ fn code_order(solution: &Solution) -> GateResult {
 }
 
 /// Whether the entity files agree with themselves and with each other.
-fn project_validation(solution: &Solution) -> GateResult {
+fn project_validation(solution: &Solution, discovered: &workspace::Discovery) -> GateResult {
     let mut result = GateResult::passed("project", 0);
-    result.examined = workspace::discover(solution).entities.len();
-    for problem in super::validate::check(solution) {
+    result.examined = discovered.entities.len();
+    for problem in super::validate::check_in(solution, discovered) {
         result.findings.push(Finding {
             gate: "project".to_string(),
             file: problem.file,
@@ -855,8 +856,8 @@ fn project_validation(solution: &Solution) -> GateResult {
 }
 
 /// The offline half of `requirements check`, when the solution keeps a requirements.toml.
-fn requirements(solution: &Solution) -> GateResult {
-    requirements_gate(solution, None, &progress::NONE)
+fn requirements(solution: &Solution, discovered: &workspace::Discovery) -> GateResult {
+    requirements_gate_in(solution, discovered, None, &progress::NONE)
 }
 
 /// The requirements gate checked against the server a deploy is about to import into as well,
@@ -883,6 +884,16 @@ fn requirements_gate(
     server: Option<&dyn super::requirements::Remote>,
     progress: &dyn Progress,
 ) -> GateResult {
+    let discovered = workspace::discover(solution);
+    requirements_gate_in(solution, &discovered, server, progress)
+}
+
+fn requirements_gate_in(
+    solution: &Solution,
+    discovered: &workspace::Discovery,
+    server: Option<&dyn super::requirements::Remote>,
+    progress: &dyn Progress,
+) -> GateResult {
     let mut gate = GateResult::passed("requirements", 0);
     if !solution.root.join(super::requirements::FILE).exists() {
         gate.skipped =
@@ -890,7 +901,7 @@ fn requirements_gate(
         return gate;
     }
     let result = super::requirements::load(solution).and_then(|contract| {
-        let collected = super::requirements::collect(solution)?;
+        let collected = super::requirements::collect_in(solution, discovered)?;
         let mut report = super::requirements::offline(&contract, &collected);
         if let Some(remote) = server {
             super::requirements::server_check(&contract, &collected, remote, &mut report, progress);
@@ -925,10 +936,12 @@ fn requirements_gate(
 }
 
 /// Networks are forests on the server: the same Thing may have only one parent.
-fn networks(solution: &Solution) -> GateResult {
-    let entries: Vec<_> = workspace::entities(solution)
-        .into_iter()
+fn networks(solution: &Solution, discovered: &workspace::Discovery) -> GateResult {
+    let entries: Vec<_> = discovered
+        .entities
+        .iter()
         .filter(|entry| entry.info.collection == "Networks")
+        .cloned()
         .collect();
     let mut result = GateResult::passed("networks", entries.len());
     let mut outside = 0usize;
@@ -975,7 +988,7 @@ fn networks(solution: &Solution) -> GateResult {
                 message: format!("{problem:?}"),
             });
         }
-        outside += network::nodes(solution, &model)
+        outside += network::nodes_in(&model, discovered)
             .map(|nodes| {
                 nodes
                     .into_iter()
@@ -993,8 +1006,12 @@ fn networks(solution: &Solution) -> GateResult {
 
 /// Fields and parameters in a mashup are names rather than references in XML, so validate the
 /// JSON only after the project gate has established that it is readable.
-fn mashup_bindings(solution: &Solution) -> GateResult {
-    let checked = bindings::run(solution);
+fn mashup_bindings(
+    solution: &Solution,
+    discovered: &workspace::Discovery,
+    model: &types::Model,
+) -> GateResult {
+    let checked = bindings::run_in(solution, discovered, model);
     let mut result = GateResult::passed(bindings::GATE, checked.examined);
     result.findings = checked
         .problems
@@ -1018,9 +1035,9 @@ fn mashup_bindings(solution: &Solution) -> GateResult {
 
 /// What in a mashup's content ThingWorx would load but not honour: the rules of `twaco mashup
 /// validate`, such as a binding to a property its widget does not have.
-fn mashup_content(solution: &Solution) -> GateResult {
+fn mashup_content(solution: &Solution, discovered: &workspace::Discovery) -> GateResult {
     use super::mashup::validate;
-    let (mashups, problems) = validate::content_problems(solution);
+    let (mashups, problems) = validate::content_problems_in(solution, discovered);
     let mut result = GateResult::passed(validate::GATE, mashups);
     result.findings = problems
         .into_iter()
@@ -1040,8 +1057,8 @@ fn mashup_content(solution: &Solution) -> GateResult {
 
 /// Bindings to parameters a contained mashup's or navigation function's copy lacks, or the mashup
 /// it shows no longer declares: both reach nothing at runtime.
-fn contained_mashups(solution: &Solution) -> GateResult {
-    let checked = super::contained_check::run(solution);
+fn contained_mashups(solution: &Solution, discovered: &workspace::Discovery) -> GateResult {
+    let checked = super::contained_check::run_in(solution, discovered);
     let mut result = GateResult::passed(super::contained_check::GATE, checked.examined);
     result.findings = checked
         .problems
@@ -1069,8 +1086,8 @@ fn contained_mashups(solution: &Solution) -> GateResult {
 }
 
 /// `[[token]]` references to the solution's own tokens, and the table files that define them.
-fn localization_tokens(solution: &Solution) -> GateResult {
-    let checked = super::localization::references::run(solution);
+fn localization_tokens(solution: &Solution, discovered: &workspace::Discovery) -> GateResult {
+    let checked = super::localization::references::run_in(solution, discovered);
     let mut result = GateResult::passed(super::localization::references::GATE, checked.checked);
     result.findings = checked
         .problems
@@ -1310,7 +1327,8 @@ mod tests {
         )
         .unwrap();
         let mut solution = super::Solution::load(&dir.path().join("twaco.toml")).unwrap();
-        let gate = super::requirements(&solution);
+        let discovery = workspace::discover(&solution);
+        let gate = super::requirements(&solution, &discovery);
         assert!(!gate.blocks());
         assert!(gate
             .skipped
@@ -1336,7 +1354,10 @@ mod tests {
         assert!(!gate.blocks());
         assert!(!gate.findings.is_empty());
         std::fs::write(dir.path().join("requirements.toml"), "bad = true").unwrap();
-        assert!(super::as_configured(&solution, super::requirements(&solution)).blocks());
+        let discovery = workspace::discover(&solution);
+        assert!(
+            super::as_configured(&solution, super::requirements(&solution, &discovery)).blocks()
+        );
     }
     use super::*;
     use crate::core::server::{Method, ScriptCheck, ServerError};
@@ -1374,6 +1395,59 @@ mod tests {
     }
 
     #[test]
+    fn run_keeps_the_public_validation_and_content_gate_results() {
+        let (_dir, _root, solution) = live_solution();
+        let report = run(&solution);
+        let names: Vec<&str> = report.gates.iter().map(|gate| gate.name.as_str()).collect();
+        assert_eq!(names, BUILT_IN_GATES);
+
+        let project: Vec<(String, String, String)> = report
+            .gates
+            .iter()
+            .find(|gate| gate.name == "project")
+            .unwrap()
+            .findings
+            .iter()
+            .map(|finding| {
+                (
+                    finding.file.clone(),
+                    finding.rule.clone(),
+                    finding.message.clone(),
+                )
+            })
+            .collect();
+        let expected_project: Vec<(String, String, String)> =
+            super::super::validate::check(&solution)
+                .into_iter()
+                .map(|problem| (problem.file, problem.rule.to_string(), problem.message))
+                .collect();
+        assert_eq!(project, expected_project);
+
+        let content: Vec<(String, String, String)> = report
+            .gates
+            .iter()
+            .find(|gate| gate.name == super::super::mashup::validate::GATE)
+            .unwrap()
+            .findings
+            .iter()
+            .map(|finding| {
+                (
+                    finding.file.clone(),
+                    finding.rule.clone(),
+                    finding.message.clone(),
+                )
+            })
+            .collect();
+        let expected_content: Vec<(String, String, String)> =
+            super::super::mashup::validate::content_problems(&solution)
+                .1
+                .into_iter()
+                .map(|(file, problem)| (file, problem.rule, problem.message))
+                .collect();
+        assert_eq!(content, expected_content);
+    }
+
+    #[test]
     fn stale_accumulated_shape_is_a_sidecar_finding_and_a_settled_one_is_not() {
         let (_dir, root, solution) = live_solution();
         std::fs::create_dir_all(root.join("DataShapes")).unwrap();
@@ -1385,7 +1459,8 @@ mod tests {
         };
         let path = root.join("Things/P.Rows.xml");
         std::fs::write(&path, table(old)).unwrap();
-        let stale = sidecars_in_sync(&solution);
+        let discovery = workspace::discover(&solution);
+        let stale = sidecars_in_sync(&solution, &discovery);
         assert!(stale
             .findings
             .iter()
@@ -1397,7 +1472,8 @@ mod tests {
             table(&super::super::accumulated::accumulated_json(&fields)),
         )
         .unwrap();
-        let settled = sidecars_in_sync(&solution);
+        let discovery = workspace::discover(&solution);
+        let settled = sidecars_in_sync(&solution, &discovery);
         assert!(
             !settled
                 .findings
@@ -1889,12 +1965,14 @@ mod tests {
             format!("<Entities><Mashups><Mashup name=\"P.M\" projectName=\"P\"><mashupContent><![CDATA[{content}]]></mashupContent></Mashup></Mashups></Entities>")
         };
         std::fs::write(root.join("Mashups/P.M.xml"), mashup("Data")).unwrap();
-        let clean = mashup_content(&solution);
+        let discovery = workspace::discover(&solution);
+        let clean = mashup_content(&solution, &discovery);
         assert!(clean.findings.is_empty(), "{:?}", clean.findings);
         assert_eq!(clean.examined, 1);
 
         std::fs::write(root.join("Mashups/P.M.xml"), mashup("Dta")).unwrap();
-        let found = mashup_content(&solution);
+        let discovery = workspace::discover(&solution);
+        let found = mashup_content(&solution, &discovery);
         assert_eq!(found.findings.len(), 1);
         assert_eq!(found.findings[0].rule, "unknown-property");
         assert_eq!(found.findings[0].file, "Mashups/P.M.xml");
@@ -1909,7 +1987,8 @@ mod tests {
             .replace("&quot;P.M&quot;", "\"P.M\"")
             .replace("&quot;P&quot;", "\"P\"");
         std::fs::write(root.join("Mashups/P.M.xml"), as_text).unwrap();
-        assert_eq!(mashup_content(&solution).findings.len(), 1);
+        let discovery = workspace::discover(&solution);
+        assert_eq!(mashup_content(&solution, &discovery).findings.len(), 1);
 
         // Placeholders a new or untouched mashup has are not judged.
         for placeholder in [
@@ -1922,7 +2001,8 @@ mod tests {
                 format!("<Entities><Mashups><Mashup name=\"P.M\" projectName=\"P\">{placeholder}</Mashup></Mashups></Entities>"),
             )
             .unwrap();
-            let gate = mashup_content(&solution);
+            let discovery = workspace::discover(&solution);
+            let gate = mashup_content(&solution, &discovery);
             assert!(
                 gate.findings.is_empty(),
                 "{placeholder}: {:?}",

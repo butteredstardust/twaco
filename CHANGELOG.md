@@ -12,7 +12,9 @@ All notable changes to twaco are recorded here. The format follows
   `mashup describe` reuse what it read rather than reading every entity again for each mashup.
   On a 228-entity solution with 12 projects, `trace` fell from about 2.7 s to 0.22 s, `docs`
   from 0.64 s to 0.28 s, `unused` from 0.43 s to 0.22 s and `mashup describe` from 0.23 s to
-  0.12 s. The answers are unchanged.
+  0.12 s. `check` reads the solution once for all its gates rather than about nine times, and
+  went from about 1.2 s to 0.64 s; `mashup validate` reads it once rather than twice. The
+  answers are unchanged.
 
 ### Fixed
 

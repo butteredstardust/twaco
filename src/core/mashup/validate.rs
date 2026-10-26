@@ -40,16 +40,27 @@ pub fn validate(
     solution: &Solution,
     name: Option<&str>,
 ) -> Result<Vec<MashupReport>, ValidateError> {
-    let files: Vec<_> = workspace::discover(solution)
+    let discovered = workspace::discover(solution);
+    validate_in(solution, name, &discovered)
+}
+
+/// [`validate`] over a scan already made.
+pub(crate) fn validate_in(
+    solution: &Solution,
+    name: Option<&str>,
+    discovered: &workspace::Discovery,
+) -> Result<Vec<MashupReport>, ValidateError> {
+    let files: Vec<_> = discovered
         .entities
-        .into_iter()
+        .iter()
         .filter(|file| file.info.collection == "Mashups")
         .filter(|file| name.is_none_or(|name| file.info.name == name))
+        .cloned()
         .collect();
     if let (Some(name), true) = (name, files.is_empty()) {
         return Err(ValidateError::Unknown(name.to_string()));
     }
-    let drift = contained_check::run(solution);
+    let drift = contained_check::run_in(solution, discovered);
     let mut reports = Vec::new();
     for file in files {
         let relative = file
@@ -84,11 +95,22 @@ pub(crate) const GATE: &str = "mashup content";
 
 /// The content rules over every mashup, for the `check` gate: each mashup's file and its
 /// problems. The contained-mashup rules are their own gate, so they are not repeated here.
+#[cfg(test)]
 pub(crate) fn content_problems(solution: &Solution) -> (usize, Vec<(String, Problem)>) {
-    let files: Vec<_> = workspace::discover(solution)
+    let discovered = workspace::discover(solution);
+    content_problems_in(solution, &discovered)
+}
+
+/// [`content_problems`] over a scan already made.
+pub(crate) fn content_problems_in(
+    solution: &Solution,
+    discovered: &workspace::Discovery,
+) -> (usize, Vec<(String, Problem)>) {
+    let files: Vec<_> = discovered
         .entities
-        .into_iter()
+        .iter()
         .filter(|file| file.info.collection == "Mashups")
+        .cloned()
         .collect();
     let mut found = Vec::new();
     for file in &files {
