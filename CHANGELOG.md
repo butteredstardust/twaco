@@ -14,6 +14,16 @@ All notable changes to twaco are recorded here. The format follows
   from 0.64 s to 0.28 s, `unused` from 0.43 s to 0.22 s and `mashup describe` from 0.23 s to
   0.12 s. The answers are unchanged.
 
+### Fixed
+
+- `search --modified-since` checks the order of every dated row, not only those before the
+  cut, so a server that ignores the order is refused instead of a newer change behind an older
+  one being left out unseen.
+- `javadoc service` reads a call whose arguments hold an array, such as
+  `Resources["InfoTableFunctions"].Sort({ rows: [] })`, and an entity name holding a bracket.
+- The body of a service call, which for `db` carries the database password, is zeroed after it
+  is sent, as the other credential copies already were.
+
 ## [0.1.36] - 2026-10-25
 
 ### Added
@@ -45,8 +55,9 @@ All notable changes to twaco are recorded here. The format follows
 - `logs level` is a subcommand of `logs` rather than a first operand named `level`. `--sublogger`,
   `--reset` and `--apply` belong to it alone, so `logs <log> --reset` is a usage error from the
   parser, and any option before `level` (`--profile` and `--log` included) is refused instead of
-  being dropped: write `logs level <log> --profile <name>`. `logs --help` now shows reading only;
-  `logs level --help` shows the level usage.
+  being dropped: write `logs level <log> --profile <name>`. `--json`, which `logs level` accepted
+  and ignored, is refused. `logs --help` now shows reading only; `logs level --help` shows the
+  level usage.
 - A tab, line feed or carriage return in a value twaco writes into an attribute is written as a
   character reference, so a server's XML parser reads it back as given instead of as a space.
 
