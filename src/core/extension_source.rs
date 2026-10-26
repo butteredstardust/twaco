@@ -216,10 +216,14 @@ fn inherited_members(
         .parent
         .as_ref()
         .and_then(|parent| {
+            if classes.contains_key(parent) {
+                return Some(parent.clone());
+            }
+            let short = parent.rsplit('.').next();
             classes
-                .iter()
-                .find(|(name, _)| name.rsplit('.').next() == Some(parent))
-                .map(|(name, _)| name.clone())
+                .keys()
+                .find(|name| name.rsplit('.').next() == short)
+                .cloned()
         })
         .map(|parent| inherited_members(&parent, classes, seen))
         .transpose()?
@@ -231,14 +235,27 @@ fn inherited_members(
 
 pub(crate) fn parse_java(source: &str) -> Result<JavaClass, String> {
     let text = strip_comments(source)?;
-    let class_at =
-        word_at(&mask_strings(&text), "class").ok_or_else(|| "no class declaration".to_string())?;
+    // Positions are found in `masked`, so nothing quoted is taken for code, and read from `text`.
+    let masked = mask_strings(&text);
+    let class_at = word_at(&masked, "class").ok_or_else(|| "no class declaration".to_string())?;
     let before = &text[..class_at];
-    let after = &text[class_at + 5..];
+    let after = &masked[class_at + 5..];
     let class_name = next_word(after).ok_or_else(|| "class has no name".to_string())?;
-    let parent = after
-        .find("extends")
-        .and_then(|at| next_word(&after[at + 7..]));
+    let name_end = class_at + 5 + (after.len() - after.trim_start().len()) + class_name.len();
+    let open_body = masked[name_end..]
+        .find('{')
+        .map(|n| name_end + n)
+        .ok_or("class has no body")?;
+    let close_body = matching(&masked, open_body, '{', '}').ok_or("unbalanced class body")?;
+    // `class C<T extends B> extends P`: the type parameters are not the superclass.
+    let mut header = masked[name_end..open_body].trim_start();
+    if header.starts_with('<') {
+        let close = matching(header, 0, '<', '>').ok_or("unbalanced type parameters")?;
+        header = &header[close + 1..];
+    }
+    let parent = word_at(header, "extends")
+        .and_then(|at| next_word(&header[at + 7..]))
+        .map(|parent| resolve(&parent, &masked[..class_at]));
     let mut out = JavaClass {
         parent,
         ..Default::default()
@@ -276,60 +293,77 @@ pub(crate) fn parse_java(source: &str) -> Result<JavaClass, String> {
             _ => {}
         }
     }
-    let mut offset = class_at + class_name.len();
-    while let Some(relative) = text[offset..].find("@ThingworxServiceDefinition") {
-        let start = offset + relative;
-        let service = annotation_at(&text, start)?;
-        let end = start + service.end;
-        let declaration = text[end..]
-            .find("public ")
-            .or_else(|| text[end..].find("protected "))
-            .map(|n| end + n)
-            .ok_or("service has no method declaration")?;
-        let open = text[declaration..]
-            .find('(')
-            .map(|n| declaration + n)
-            .ok_or("service has no parameter list")?;
-        let close = matching(&text, open, '(', ')').ok_or("unbalanced service parameters")?;
-        let method_start = text[close..]
-            .find('{')
-            .map(|n| close + n)
-            .ok_or("service has no method body")?;
-        let block = &text[end..method_start];
-        validate_annotations(block)?;
-        let name = string_arg(&service.args, "name")
-            .unwrap_or_else(|| method_name(&text[declaration..open]).unwrap_or_default());
-        if name.is_empty() {
-            return Err("service has no name".to_string());
+    // Only annotations directly in the class body: a nested class's members are not its own.
+    let bytes = masked.as_bytes();
+    let mut depth = 0usize;
+    let mut at = open_body + 1;
+    while at < close_body {
+        match bytes[at] {
+            b'{' => depth += 1,
+            b'}' => depth = depth.saturating_sub(1),
+            b'@' if depth == 0 => {
+                let service = annotation_at(&text, at)?;
+                let end = at + service.end;
+                if service.name != "ThingworxServiceDefinition" {
+                    at = end;
+                    continue;
+                }
+                let declaration = masked[end..]
+                    .find("public ")
+                    .or_else(|| masked[end..].find("protected "))
+                    .map(|n| end + n)
+                    .ok_or("service has no method declaration")?;
+                let open = masked[declaration..]
+                    .find('(')
+                    .map(|n| declaration + n)
+                    .ok_or("service has no parameter list")?;
+                let close =
+                    matching(&masked, open, '(', ')').ok_or("unbalanced service parameters")?;
+                let method_start = masked[close..]
+                    .find('{')
+                    .map(|n| close + n)
+                    .ok_or("service has no method body")?;
+                let block = &text[end..method_start];
+                validate_annotations(block)?;
+                let name = string_arg(&service.args, "name")
+                    .unwrap_or_else(|| method_name(&text[declaration..open]).unwrap_or_default());
+                if name.is_empty() {
+                    return Err("service has no name".to_string());
+                }
+                let result = annotations(block)
+                    .into_iter()
+                    .find(|a| a.name == "ThingworxServiceResult")
+                    .map(|a| value(&a.args))
+                    .unwrap_or(TypedValue {
+                        base_type: "NOTHING".to_string(),
+                        data_shape: None,
+                    });
+                let parameter_text = &text[open + 1..close];
+                validate_annotations(parameter_text)?;
+                let parameters = annotations(parameter_text)
+                    .into_iter()
+                    .filter(|a| a.name == "ThingworxServiceParameter")
+                    .map(|a| Parameter {
+                        name: string_arg(&a.args, "name").unwrap_or_default(),
+                        description: string_arg(&a.args, "description").unwrap_or_default(),
+                        value: value(&a.args),
+                        required: false,
+                        default: None,
+                    })
+                    .collect();
+                out.members.push(Member::Service(Service {
+                    name,
+                    description: string_arg(&service.args, "description").unwrap_or_default(),
+                    parameters,
+                    result,
+                }));
+                // The method body's brace is counted next.
+                at = method_start;
+                continue;
+            }
+            _ => {}
         }
-        let result = annotations(block)
-            .into_iter()
-            .find(|a| a.name == "ThingworxServiceResult")
-            .map(|a| value(&a.args))
-            .unwrap_or(TypedValue {
-                base_type: "NOTHING".to_string(),
-                data_shape: None,
-            });
-        let parameter_text = &text[open + 1..close];
-        validate_annotations(parameter_text)?;
-        let parameters = annotations(parameter_text)
-            .into_iter()
-            .filter(|a| a.name == "ThingworxServiceParameter")
-            .map(|a| Parameter {
-                name: string_arg(&a.args, "name").unwrap_or_default(),
-                description: string_arg(&a.args, "description").unwrap_or_default(),
-                value: value(&a.args),
-                required: false,
-                default: None,
-            })
-            .collect();
-        out.members.push(Member::Service(Service {
-            name,
-            description: string_arg(&service.args, "description").unwrap_or_default(),
-            parameters,
-            result,
-        }));
-        offset = method_start + 1;
+        at += 1;
     }
     out.members.sort_by(|a, b| a.name().cmp(b.name()));
     out.events.sort();
@@ -343,9 +377,10 @@ struct Annotation {
     end: usize,
 }
 fn annotations(text: &str) -> Vec<Annotation> {
+    let masked = mask_strings(text);
     let mut out = Vec::new();
     let mut at = 0;
-    while let Some(n) = text[at..].find('@') {
+    while let Some(n) = masked[at..].find('@') {
         let start = at + n;
         match annotation_at(text, start) {
             Ok(a) => {
@@ -358,8 +393,9 @@ fn annotations(text: &str) -> Vec<Annotation> {
     out
 }
 fn validate_annotations(text: &str) -> Result<(), String> {
+    let masked = mask_strings(text);
     let mut at = 0;
-    while let Some(found) = text[at..].find('@') {
+    while let Some(found) = masked[at..].find('@') {
         let start = at + found;
         let annotation = annotation_at(text, start)?;
         at = start + annotation.end;
@@ -368,10 +404,19 @@ fn validate_annotations(text: &str) -> Result<(), String> {
 }
 fn annotation_at(text: &str, start: usize) -> Result<Annotation, String> {
     let tail = &text[start + 1..];
-    let name = next_word(tail).ok_or("annotation has no name")?;
-    let name_end = start + 1 + name.len();
+    let written = next_word(tail).ok_or("annotation has no name")?;
+    let name_end = start + 1 + written.len();
+    // `@com.thingworx...ThingworxServiceDefinition` is the short name written in full.
+    let name = written.rsplit('.').next().unwrap_or(&written).to_string();
     let rest = &text[name_end..];
-    let open = rest.find('(').ok_or("annotation has no arguments")?;
+    if !rest.trim_start().starts_with('(') {
+        return Ok(Annotation {
+            name,
+            args: String::new(),
+            end: name_end - start,
+        });
+    }
+    let open = rest.find('(').expect("the arguments open after the name");
     let close = matching(rest, open, '(', ')').ok_or("unbalanced annotation")?;
     Ok(Annotation {
         name,
@@ -385,6 +430,25 @@ fn word_at(text: &str, word: &str) -> Option<usize> {
         (good(text[..at].chars().next_back()) && good(text[at + word.len()..].chars().next()))
             .then_some(at)
     })
+}
+/// A superclass as written, qualified: in full already, by its import, or by the package.
+fn resolve(parent: &str, preamble: &str) -> String {
+    if parent.contains('.') {
+        return parent.to_string();
+    }
+    let statement = |keyword: &'static str| {
+        preamble
+            .split(';')
+            .filter_map(move |part| part.trim().strip_prefix(keyword).map(str::trim))
+    };
+    let suffix = format!(".{parent}");
+    if let Some(import) = statement("import ").find(|import| import.ends_with(&suffix)) {
+        return import.to_string();
+    }
+    match statement("package ").next() {
+        Some(package) => format!("{package}.{parent}"),
+        None => parent.to_string(),
+    }
 }
 fn next_word(text: &str) -> Option<String> {
     let word: String = text
@@ -592,7 +656,7 @@ mod tests {
             @ThingworxPropertyDefinitions(properties = { @ThingworxPropertyDefinition(name = "Status", baseType = "STRING") })
             @ThingworxBaseTemplateDefinition(name = "GenericThing")
             class Child extends Parent {
-              @ThingworxServiceDefinition(name = "Send", description = "quotes \\" and )")
+              @ThingworxServiceDefinition(name = "Send", description = "quotes \" and )")
               @ThingworxServiceResult(name = "result", baseType = "INFOTABLE", aspects = {"dataShape:Rows"})
               public InfoTable Send(@ThingworxServiceParameter(name = "row", baseType = "INFOTABLE", aspects = {"dataShape:Rows"}) InfoTable row) { return null; }
             }"#;
@@ -612,6 +676,73 @@ mod tests {
         };
         assert_eq!(send.parameters[0].value.data_shape.as_deref(), Some("Rows"));
         assert_eq!(send.result.data_shape.as_deref(), Some("Rows"));
+    }
+
+    fn services(parsed: &JavaClass) -> Vec<&str> {
+        parsed.members.iter().map(|member| member.name()).collect()
+    }
+
+    #[test]
+    fn quoted_annotations_nested_classes_and_type_bounds_are_not_the_class_s() {
+        let java = r#"
+            package com.acme.child;
+            import com.acme.base.Base;
+            @Deprecated
+            public class Sender<T extends Other> extends Base implements Runnable {
+              static final String MARKER = "@ThingworxServiceDefinition(name = \"Bogus\")";
+              @Override
+              public void run() { if (true) { } }
+              @com.thingworx.metadata.annotations.ThingworxServiceDefinition(name = "Real")
+              public void Real() {}
+              static class Helper {
+                @ThingworxServiceDefinition(name = "Internal")
+                public void Internal() {}
+              }
+            }
+            class Later {
+              @ThingworxServiceDefinition(name = "Elsewhere")
+              public void Elsewhere() {}
+            }"#;
+        let parsed = parse_java(java).unwrap();
+        assert_eq!(services(&parsed), ["Real"]);
+        assert_eq!(parsed.parent.as_deref(), Some("com.acme.base.Base"));
+
+        let bare = parse_java("package com.acme;\nclass C<T extends B> extends P {}").unwrap();
+        assert_eq!(bare.parent.as_deref(), Some("com.acme.P"));
+        let none = parse_java("class C<T extends B> {}").unwrap();
+        assert_eq!(none.parent, None);
+    }
+
+    #[test]
+    fn a_superclass_named_in_full_or_by_import_gives_its_members() {
+        let root = tempfile::tempdir().unwrap();
+        let java = root.path().join("src/main/java/com/acme");
+        fs::create_dir_all(java.join("base")).unwrap();
+        fs::write(
+            java.join("base/Base.java"),
+            "package com.acme.base;\npublic class Base {\n@ThingworxServiceDefinition(name = \"Ping\")\npublic void Ping() {}\n}",
+        )
+        .unwrap();
+        fs::write(
+            java.join("Full.java"),
+            "package com.acme;\npublic class Full extends com.acme.base.Base {}",
+        )
+        .unwrap();
+        fs::write(
+            java.join("Imported.java"),
+            "package com.acme;\nimport com.acme.base.Base;\npublic class Imported extends Base {}",
+        )
+        .unwrap();
+        for class in ["com.acme.Full", "com.acme.Imported"] {
+            let mut classes = BTreeMap::new();
+            load_class(root.path(), class, &mut classes).unwrap();
+            let members = inherited_members(class, &classes, &mut BTreeSet::new()).unwrap();
+            assert_eq!(
+                members.iter().map(|m| m.name()).collect::<Vec<_>>(),
+                ["Ping"],
+                "{class}"
+            );
+        }
     }
 
     #[test]
