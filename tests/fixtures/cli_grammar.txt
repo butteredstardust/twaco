@@ -627,10 +627,11 @@ help:
 |       --version <10.1>        another release; --limit <n>; --refresh; --json
 |       --profile <name>        the server whose version to read (default: default)
 |   javadoc search <name>       search ThingWorx Platform Java API classes and members
-|       --limit <n>; --refresh; --json
-|   javadoc class <Name|pkg.Name>  read a class as Markdown; --member <name>; --refresh; --json
+|       --limit <n>; --sdk <path>; --refresh; --json
+|   javadoc class <Name|pkg.Name>  read a class as Markdown; --member <name>; --sdk <path>; --refresh; --json
 |   javadoc service <ref>       one service as a script names it: 'Resources["X"].Y', Things/T.Y,
-|                               me.Y or Class.Y; looks in the classes it extends; --refresh; --json
+|                               me.Y or Class.Y; looks in the classes it extends; --sdk <path>; --refresh; --json
+|       --profile <name>        SDK from this profile when --sdk and TWACO_SDK are unset; --refresh is ignored for an SDK
 | 
 |   --project <name>            narrow to one project of the solution
 |   --profile <name>            the server profile (default: default)
@@ -5467,6 +5468,18 @@ arg --member
     other: -
     given twice: ArgumentConflict
     given bare: InvalidValue
+arg --profile
+    action: Set
+    value_name: name
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 arg --refresh
     action: SetTrue
     value_name: -
@@ -5478,6 +5491,18 @@ arg --refresh
     index: -
     other: -
     given twice: accepted
+arg --sdk
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 arg <action>
     action: Set
     value_name: action
@@ -5500,11 +5525,13 @@ arg <operands>
     other: -
 help:
 |   javadoc search <name>       search ThingWorx Platform Java API classes and members
-|       --limit <n>; --refresh; --json
-|   javadoc class <Name|pkg.Name>  read a class as Markdown; --member <name>; --refresh; --json
+|       --limit <n>; --sdk <path>; --refresh; --json
+|   javadoc class <Name|pkg.Name>  read a class as Markdown; --member <name>; --sdk <path>; --refresh; --json
 |   javadoc service <ref>       one service as a script names it: 'Resources["X"].Y', Things/T.Y,
-|                               me.Y or Class.Y; looks in the classes it extends; --refresh; --json
+|                               me.Y or Class.Y; looks in the classes it extends; --sdk <path>; --refresh; --json
+|       --profile <name>        SDK from this profile when --sdk and TWACO_SDK are unset; --refresh is ignored for an SDK
 | 
+|   --profile <name>            the server profile (default: default)
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
 

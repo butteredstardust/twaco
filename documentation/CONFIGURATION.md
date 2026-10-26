@@ -572,9 +572,14 @@ app_key = "..."                           # optional; see below
 database_password = "..."                 # any other key, for ${profile:key} placeholders
 allow_test_users = true                   # a test server: users seed and twaco test may act on it
 test_password = "..."                     # the password of every [[test.user]]
+sdk = "C:/ThingWorx/Extension-SDK"          # optional: Extension SDK Javadoc for `twaco javadoc`
 ```
 
 Commands use the profile `default` unless given `--profile <name>`, or `profile` over MCP.
+`twaco javadoc` uses a profile's optional `sdk` only after an explicit `--sdk` (or MCP `sdk`)
+and `TWACO_SDK`; it may name the SDK download zip, an extracted SDK folder, or the
+`thingworx-javadocs-*.jar` itself. The jar is read in place and is never copied into twaco's
+cache or the repository.
 Environment variables override a profile's fields, or replace the file entirely:
 `TWACO_URL`, `TWACO_USERNAME`, `TWACO_PASSWORD` and `TWACO_APP_KEY` (or the `TWX_` spellings).
 

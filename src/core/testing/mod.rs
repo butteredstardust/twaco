@@ -52,6 +52,7 @@ pub(crate) fn as_user(profile: &Profile, user: &str) -> Result<Profile, TestErro
         username: user.to_string(),
         password: test_password(profile)?.into(),
         app_key: None,
+        sdk: None,
         // Kept so the client scrubs the test password (and the rest) from every message.
         extra: profile.extra.clone(),
     })

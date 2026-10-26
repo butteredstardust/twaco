@@ -310,6 +310,12 @@ pub(crate) struct JavadocRequest {
     pub(crate) limit: u64,
     #[serde(default)]
     pub(crate) refresh: bool,
+    /// An Extension SDK zip, extracted folder, or Javadoc jar. It is read locally and never cached.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) sdk: Absent<String>,
+    /// Profile whose sdk is used when sdk and TWACO_SDK are unset.
+    #[serde(default = "default_profile")]
+    pub(crate) profile: String,
 }
 
 fn default_javadoc_limit() -> u64 {

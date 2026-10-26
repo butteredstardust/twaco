@@ -41,6 +41,7 @@ fn profile(extra: BTreeMap<String, toml::Value>) -> Profile {
         username: "user".into(),
         password: "password".into(),
         app_key: None,
+        sdk: None,
         extra,
     }
 }

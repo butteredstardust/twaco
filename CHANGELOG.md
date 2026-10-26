@@ -8,6 +8,10 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- `javadoc` can read the matching, offline Javadoc packaged in a ThingWorx Extension SDK: pass
+  `--sdk`, MCP `sdk`, `TWACO_SDK`, or a local profile's `sdk` path (SDK zip, extracted folder or
+  Javadoc jar). Results report the SDK version and jar source without copying PTC files into the
+  repository or cache.
 - Discovery reads every collection a ThingWorx export can hold, so a project's ThingGroups,
   NotificationDefinitions, DataTags, Roles, PermissionGroups, ScriptFunctionLibraries and the
   other system collections deploy and bundle like the rest. `check`'s project gate names a

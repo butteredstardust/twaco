@@ -1129,6 +1129,7 @@ mod tests {
             username: "user".to_string(),
             password: password.into(),
             app_key: Some(app_key.into()),
+            sdk: None,
             extra: Default::default(),
         };
         let secrets = secrets_of(&profile_for(String::new()));
@@ -1242,6 +1243,7 @@ mod tests {
             username: "u".to_string(),
             password: "p".into(),
             app_key: None,
+            sdk: None,
             extra: Default::default(),
         };
         assert!(secrets_of(&profile)
@@ -1339,6 +1341,7 @@ mod tests {
             username: "user".to_string(),
             password: "pass".into(),
             app_key: None,
+            sdk: None,
             extra: Default::default(),
         });
         let error = client
@@ -1375,6 +1378,7 @@ mod tests {
             username: "user".to_string(),
             password: "pass".into(),
             app_key: None,
+            sdk: None,
             extra: Default::default(),
         });
         let error = client
@@ -1437,6 +1441,7 @@ mod tests {
             username: "user".to_string(),
             password: "pass".into(),
             app_key: None,
+            sdk: None,
             extra: Default::default(),
         })
     }
@@ -1447,6 +1452,7 @@ mod tests {
             username: "user".to_string(),
             password: password.into(),
             app_key: app_key.map(Secret::from),
+            sdk: None,
             extra: Default::default(),
         }
     }
@@ -1580,6 +1586,7 @@ mod tests {
             username: "user".to_string(),
             password: password.into(),
             app_key: Some(app_key.into()),
+            sdk: None,
             extra: Default::default(),
         });
         let error = client

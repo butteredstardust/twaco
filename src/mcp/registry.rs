@@ -821,9 +821,9 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             info::help_page_tool,
         )
         .with_output::<outputs::HelpPageResult>(),
-        bare_tool::<info_requests::JavadocRequest>(
+        root_tool::<info_requests::JavadocRequest>(
             "javadoc",
-            "Search or read the ThingWorx Platform API 10.1.0 Javadoc as Markdown. search ranks class and member simple names exact, prefix, then contains. class gives the class description and method summaries; member gives every overload with parameters, returns and throws. service takes a service as a script or path names it (Resources[\"InfoTableFunctions\"].Sort, Things/Name.Service, me.Service, Class.member), finds the class that declares it, looking in the classes it extends, and returns every overload. Useful for the Java methods of objects scripts call and Resource service parameter descriptions.",
+            "Search or read ThingWorx Platform API Javadoc as Markdown. sdk can name an Extension SDK zip, extracted folder, or Javadoc jar; otherwise TWACO_SDK, then the named profile's sdk, then the public 10.1.0 site is used. refresh is ignored for an SDK. search ranks class and member simple names exact, prefix, then contains. class gives the class description and method summaries; member gives every overload with parameters, returns and throws. service takes a service as a script or path names it (Resources[\"InfoTableFunctions\"].Sort, Things/Name.Service, me.Service, Class.member), finds the class that declares it, looking in the classes it extends, and returns every overload.",
             true,
             info::javadoc_tool,
         )

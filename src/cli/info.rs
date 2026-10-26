@@ -428,6 +428,8 @@ pub(crate) fn help_cmd(parsed: &Help) -> u8 {
 #[derive(Debug, clap::Args)]
 #[group(skip)]
 pub(crate) struct Javadoc {
+    #[arg(long = "sdk", value_name = "path")]
+    pub(crate) sdk: Option<PathBuf>,
     #[arg(long = "member", value_name = "name")]
     pub(crate) member: Option<String>,
     #[arg(long = "limit", value_name = "n")]
@@ -436,6 +438,8 @@ pub(crate) struct Javadoc {
     pub(crate) refresh: bool,
     #[command(flatten)]
     pub(crate) json: Json,
+    #[command(flatten)]
+    pub(crate) profile: Profile,
     /// What to do; clap refuses any other word, with the ones it takes.
     #[arg(id = "action", value_name = "action", value_enum)]
     pub(crate) action: Option<JavadocVerb>,
@@ -455,7 +459,7 @@ pub(crate) enum JavadocVerb {
 /// docs.
 /// Read-only and usable outside a solution; downloads go to the user's cache.
 pub(crate) fn javadoc_cmd(parsed: &Javadoc) -> u8 {
-    use twaco::core::{help, javadoc};
+    use twaco::core::javadoc;
     let (Some(action), rest) = (parsed.action, parsed.operands.as_slice()) else {
         eprintln!(
             "{} javadoc needs `search <name>`, `class <Name>` or `service <ref>`",
@@ -485,24 +489,22 @@ pub(crate) fn javadoc_cmd(parsed: &Javadoc) -> u8 {
         eprintln!("{} javadoc: --member is only for `class`", style::prefix());
         return FAILED;
     }
-    let cache = match javadoc::cache_root() {
-        Ok(cache) => cache,
+    let source = match javadoc_source(parsed) {
+        Ok(source) => source,
         Err(error) => {
             eprintln!("{} javadoc: {error}", style::prefix());
             return FAILED;
         }
     };
-    let web = help::Web::new(javadoc::BASE);
-    let refresh = parsed.refresh;
-    let fetch = |path: &str| javadoc::cached(&web, &cache, path, refresh);
+    let fetch = |path: &str| source.fetch(path);
     if action == JavadocVerb::Service {
-        return match javadoc::read_service(&fetch, &rest.join(" ")) {
+        return match javadoc::read_service_at(&fetch, &rest.join(" "), &|path| source.url(path)) {
             Ok(found) => {
                 if parsed.json.json {
                     println!(
                         "{}",
                         serde_json::json!({
-                            "version": javadoc::VERSION, "asked": found.asked,
+                            "version": source.version(), "asked": found.asked,
                             "declared_in": found.declared_in, "inherited": found.inherited,
                             "title": found.reading.title, "path": found.reading.path,
                             "url": found.reading.url, "methods": found.reading.methods,
@@ -514,7 +516,9 @@ pub(crate) fn javadoc_cmd(parsed: &Javadoc) -> u8 {
                     let inherited = if found.inherited { ", inherited" } else { "" };
                     eprintln!(
                         "{} is declared in {}{inherited}; from {}",
-                        found.asked, found.declared_in, found.reading.url
+                        found.asked,
+                        found.declared_in,
+                        source.display(&found.reading.path)
                     );
                     if let Some(note) = &found.note {
                         eprintln!("note: {note}");
@@ -574,7 +578,7 @@ pub(crate) fn javadoc_cmd(parsed: &Javadoc) -> u8 {
                         serde_json::json!({
                             "kind": if hit.kind == javadoc::Kind::Class { "class" } else { "member" },
                             "package": hit.package, "class": hit.class, "label": hit.label,
-                            "path": hit.path, "url": hit.url, "rank": hit.rank,
+                            "path": hit.path, "url": source.url(&hit.path), "rank": hit.rank,
                         })
                     );
                 } else {
@@ -584,7 +588,7 @@ pub(crate) fn javadoc_cmd(parsed: &Javadoc) -> u8 {
             eprintln!(
                 "{} result(s) from the ThingWorx Platform API {} Javadoc",
                 hits.len(),
-                javadoc::VERSION
+                source.version()
             );
             OK
         }
@@ -614,20 +618,21 @@ pub(crate) fn javadoc_cmd(parsed: &Javadoc) -> u8 {
                 }
             };
             match fetch(&path).map_err(|e| e.to_string()).and_then(|html| {
-                javadoc::read(&html, &class, parsed.member.as_deref()).map_err(|e| e.to_string())
+                javadoc::read_at(&html, &class, parsed.member.as_deref(), source.url(&path))
+                    .map_err(|e| e.to_string())
             }) {
                 Ok(read) => {
                     if parsed.json.json {
                         println!(
                             "{}",
                             serde_json::json!({
-                                "version": javadoc::VERSION, "title": read.title, "path": read.path,
+                                "version": source.version(), "title": read.title, "path": read.path,
                                 "url": read.url, "methods": read.methods, "markdown": read.markdown,
                             })
                         );
                     } else {
                         println!("{}", read.markdown);
-                        eprintln!("from {}", read.url);
+                        eprintln!("from {}", source.display(&read.path));
                     }
                     OK
                 }
@@ -638,6 +643,31 @@ pub(crate) fn javadoc_cmd(parsed: &Javadoc) -> u8 {
             }
         }
     }
+}
+
+fn javadoc_source(parsed: &Javadoc) -> Result<twaco::core::javadoc::Source, String> {
+    use twaco::core::javadoc;
+    let environment = std::env::var_os("TWACO_SDK").map(PathBuf::from);
+    let mut configured_profile = None;
+    let here = std::env::current_dir().map_err(|error| error.to_string())?;
+    if let Ok(solution) = Solution::discover(&here) {
+        match profile::load(&solution.root, parsed.profile.name()) {
+            Ok(profile) => {
+                if let Some(path) = profile.sdk() {
+                    configured_profile = Some(path.to_path_buf());
+                }
+            }
+            Err(profile::ProfileError::Missing { .. }) => {}
+            Err(error) => return Err(error.to_string()),
+        }
+    }
+    javadoc::Source::configured(
+        parsed.sdk.as_deref(),
+        environment.as_deref(),
+        configured_profile.as_deref(),
+        parsed.profile.name(),
+        parsed.refresh,
+    )
 }
 
 /// `twaco settings [<Subsystem> [<Table>]] [--search <text>] [--json]`.

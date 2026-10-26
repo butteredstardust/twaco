@@ -654,10 +654,11 @@ help page <page>            read a help page as Markdown; --section <heading>
     --version <10.1>        another release; --limit <n>; --refresh; --json
     --profile <name>        the server whose version to read (default: default)
 javadoc search <name>       search ThingWorx Platform Java API classes and members
-    --limit <n>; --refresh; --json
-javadoc class <Name|pkg.Name>  read a class as Markdown; --member <name>; --refresh; --json
+    --limit <n>; --sdk <path>; --refresh; --json
+javadoc class <Name|pkg.Name>  read a class as Markdown; --member <name>; --sdk <path>; --refresh; --json
 javadoc service <ref>       one service as a script names it: 'Resources["X"].Y', Things/T.Y,
-                            me.Y or Class.Y; looks in the classes it extends; --refresh; --json
+                            me.Y or Class.Y; looks in the classes it extends; --sdk <path>; --refresh; --json
+    --profile <name>        SDK from this profile when --sdk and TWACO_SDK are unset; --refresh is ignored for an SDK
 ```
 
 ## Shared

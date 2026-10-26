@@ -1257,6 +1257,15 @@ confirms each is gone.
 
 ## Running and observing
 
+### Platform Java API reference
+
+`twaco javadoc search`, `class` and `service` search the public API documentation. By default
+they use the cached public 10.1 documentation. To read the matching documentation shipped with a
+ThingWorx Extension SDK offline, pass `--sdk <path>`, set `TWACO_SDK`, or set `sdk = "..."` in the
+selected local server profile. A path may be the SDK zip, its extracted folder, or its
+`thingworx-javadocs-*.jar`; the jar is read in place and `--refresh` does not apply. JSON results
+keep a `jar:file:` URL and report the SDK version.
+
 - **`twaco call <Thing> <Service> '<json>'`** calls a service now. A service can write, and
   twaco cannot tell which do, so know what it does first. `--with-logs` then shows what the
   call wrote to ScriptLog and ApplicationLog, waiting up to 3 seconds for them. A target
