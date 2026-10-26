@@ -15,6 +15,11 @@ All notable changes to twaco are recorded here. The format follows
   mashups that use it, `catalog` shows its signatures marked `[extension <name>]`, and the mashup
   binding checks resolve its services. The extension is only read; no command writes to it, and
   an absent or unreadable one is reported without stopping anything else.
+- `twaco ext check [<root>]` (MCP `ext_check`) checks a Java extension project in its own folder,
+  offline and without a solution: classes `metadata.xml` names that the source lacks, an undeclared
+  `thingPackage`, JarResources files that are not there and are not the jar the build makes,
+  widget files, `packageVersion` against `extension.properties`, duplicate services, properties
+  or events, and base types; notes for what it cannot prove. It exits non-zero on a finding.
 
 - `javadoc` can read the matching, offline Javadoc packaged in a ThingWorx Extension SDK: pass
   `--sdk`, MCP `sdk`, `TWACO_SDK`, or a local profile's `sdk` path (SDK zip, extracted folder or

@@ -976,6 +976,27 @@ pub(crate) fn package_tool(
     Ok(json!({ "ok": true, "out": relative, "bytes": outcome.bytes, "detail": detail }))
 }
 
+/// A Java extension project's metadata against its source, offline.
+pub(crate) fn ext_check_tool(
+    root: &std::path::Path,
+    arguments: tool::ExtCheckRequest,
+) -> Result<Value, ToolError> {
+    let folder = match arguments.root.as_ref() {
+        Some(given) if !given.trim().is_empty() => root.join(given),
+        _ => root.to_path_buf(),
+    };
+    let report = crate::core::ext_check::check(&folder);
+    let mut value = serde_json::to_value(&report).expect("a report serialises");
+    value["ok"] = json!(true);
+    value["passed"] = json!(report.findings.is_empty());
+    value["summary"] = json!(format!(
+        "{} finding(s); {} class(es) read",
+        report.findings.len(),
+        report.classes
+    ));
+    Ok(value)
+}
+
 /// The server's subsystem settings, read-only, secrets hidden.
 pub(crate) fn extensions_tool(
     solution: &Solution,

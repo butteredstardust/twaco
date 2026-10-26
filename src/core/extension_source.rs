@@ -137,7 +137,7 @@ fn metadata_entries(bytes: &[u8]) -> Result<Vec<MetadataEntry>, String> {
             scan::attribute(bytes, token, name)
                 .ok()
                 .flatten()
-                .map(|span| String::from_utf8_lossy(span.of(bytes)).into_owned())
+                .map(|span| scan::decode_entities(&String::from_utf8_lossy(span.of(bytes))))
         };
         if tag == "ThingPackage" {
             if let (Some(name), Some(class)) = (attr("name"), attr("className")) {
@@ -161,7 +161,7 @@ fn metadata_entries(bytes: &[u8]) -> Result<Vec<MetadataEntry>, String> {
     Ok(raw)
 }
 
-fn java_path(root: &Path, class: &str) -> Option<PathBuf> {
+pub(crate) fn java_path(root: &Path, class: &str) -> Option<PathBuf> {
     let relative = PathBuf::from(class.replace('.', "/")).with_extension("java");
     [
         root.join("src/main/java").join(&relative),
@@ -193,12 +193,12 @@ fn collect_xml(
 }
 
 #[derive(Clone, Default)]
-struct JavaClass {
-    parent: Option<String>,
-    members: Vec<Member>,
-    template: Option<String>,
-    shapes: Vec<String>,
-    events: Vec<(String, Option<String>)>,
+pub(crate) struct JavaClass {
+    pub(crate) parent: Option<String>,
+    pub(crate) members: Vec<Member>,
+    pub(crate) template: Option<String>,
+    pub(crate) shapes: Vec<String>,
+    pub(crate) events: Vec<(String, Option<String>)>,
 }
 
 fn inherited_members(
@@ -229,9 +229,10 @@ fn inherited_members(
     Ok(out)
 }
 
-fn parse_java(source: &str) -> Result<JavaClass, String> {
+pub(crate) fn parse_java(source: &str) -> Result<JavaClass, String> {
     let text = strip_comments(source)?;
-    let class_at = word_at(&text, "class").ok_or_else(|| "no class declaration".to_string())?;
+    let class_at =
+        word_at(&mask_strings(&text), "class").ok_or_else(|| "no class declaration".to_string())?;
     let before = &text[..class_at];
     let after = &text[class_at + 5..];
     let class_name = next_word(after).ok_or_else(|| "class has no name".to_string())?;
@@ -424,9 +425,57 @@ fn matching(text: &str, open: usize, left: char, right: char) -> Option<usize> {
     }
     None
 }
+/// The string value of `key = "..."`, spaced or not (`key="..."`), as a whole word.
 fn string_arg(args: &str, key: &str) -> Option<String> {
-    let at = args.find(&format!("{key} ="))? + key.len() + 1;
-    quoted(&args[at..])
+    let masked = mask_strings(args);
+    let mut from = 0;
+    while let Some(found) = masked[from..].find(key) {
+        let at = from + found;
+        from = at + key.len();
+        let before = masked[..at].chars().next_back();
+        if before.is_some_and(|c| c.is_alphanumeric() || c == '_') {
+            continue;
+        }
+        let rest = masked[from..].trim_start();
+        if let Some(value) = rest.strip_prefix('=') {
+            let skipped = masked.len() - value.len();
+            return quoted(&args[skipped..]);
+        }
+    }
+    None
+}
+
+/// `text` with the inside of every string and character literal blanked to spaces, byte for
+/// byte, so a search for code finds none of the text quoted in it.
+pub(crate) fn mask_strings(text: &str) -> String {
+    let mut out = Vec::with_capacity(text.len());
+    let mut quote = None;
+    let mut escape = false;
+    for &byte in text.as_bytes() {
+        match quote {
+            Some(q) => {
+                if escape {
+                    escape = false;
+                    out.push(b' ');
+                } else if byte == b'\\' {
+                    escape = true;
+                    out.push(b' ');
+                } else if byte == q {
+                    quote = None;
+                    out.push(byte);
+                } else {
+                    out.push(b' ');
+                }
+            }
+            None => {
+                if byte == b'"' || byte == b'\'' {
+                    quote = Some(byte);
+                }
+                out.push(byte);
+            }
+        }
+    }
+    String::from_utf8(out).expect("only ASCII bytes replace bytes inside literals")
 }
 fn quoted(text: &str) -> Option<String> {
     let start = text.find('\"')? + 1;

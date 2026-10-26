@@ -695,6 +695,13 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             content::extensions_tool,
         )
         .with_output::<outputs::ExtensionsResult>(),
+        root_tool::<content_requests::ExtCheckRequest>(
+            "ext_check",
+            "Check a Java ThingWorx extension project offline, before it is built or uploaded: metadata.xml against the Java source (classes it names, ThingTemplates' thingPackage), the jars JarResources lists, each Widget's ide and runtime files, packageVersion against extension.properties, duplicate services, properties or events (inherited ones included), and base types. Notes say what may be fine but cannot be proven (a class only in a jar, a DataShape from elsewhere, a class nothing declares). Needs no solution or server; root is the project folder.",
+            true,
+            content::ext_check_tool,
+        )
+        .with_output::<outputs::ExtCheckResult>(),
         solution_progress_tool::<content_requests::ExtensionWriteRequest>(
             "extension_write",
             "Import an extension package zip of the solution, or remove an installed package. A dry run unless dry_run is false: an import is then only validated by the server, which installs nothing. A removal is refused while the package is in use.",
@@ -965,6 +972,7 @@ pub(crate) const GROUPS: &[(&str, &[&str])] = &[
             "users_write",
             "appkey",
             "extensions",
+            "ext_check",
             "extension_write",
             "settings",
         ],

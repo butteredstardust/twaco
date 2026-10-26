@@ -590,6 +590,42 @@ pub(crate) struct Ext {
     pub(crate) operands: Vec<String>,
 }
 
+/// `twaco ext check [<root>]`: a Java extension project's metadata against its source.
+pub(crate) fn ext_check_cmd(args: &Ext) -> u8 {
+    let root = match args.operands.as_slice() {
+        [_] => std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")),
+        [_, root] => std::path::PathBuf::from(root),
+        _ => {
+            eprintln!(
+                "{} ext check takes at most one <root>",
+                super::style::prefix()
+            );
+            return FAILED;
+        }
+    };
+    if args.apply.apply {
+        eprintln!(
+            "{} ext check only reads; --apply has nothing to do",
+            super::style::prefix()
+        );
+        return FAILED;
+    }
+    let report = twaco::core::ext_check::check(&root);
+    if args.json.json {
+        println!(
+            "{}",
+            serde_json::to_string(&report).expect("a report serialises")
+        );
+    } else {
+        print!("{}", twaco::core::ext_check::render(&report));
+    }
+    if report.findings.is_empty() {
+        OK
+    } else {
+        FAILED
+    }
+}
+
 /// `twaco ext list | show | import | remove`: the server's extension packages.
 pub(crate) fn ext_cmd(solution: &Solution, args: &Ext) -> u8 {
     use twaco::core::commands::extensions::{self as command, ExtensionAction, ExtensionRequest};

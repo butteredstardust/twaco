@@ -271,7 +271,7 @@ fn invalid(why: impl std::fmt::Display) -> EditError {
 }
 
 /// The base types a property may have. Anything else is refused rather than written.
-const BASE_TYPES: [&str; 28] = [
+pub(crate) const BASE_TYPES: [&str; 28] = [
     "ANYSCALAR",
     "BASETYPENAME",
     "BLOB",

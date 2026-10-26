@@ -924,6 +924,21 @@ pub(crate) struct HelpPageResult {
     notes: Option<Vec<String>>,
 }
 
+/// A Java extension project's findings, offline.
+#[derive(Serialize, JsonSchema)]
+pub(crate) struct ExtCheckResult {
+    ok: bool,
+    /// No finding.
+    passed: bool,
+    summary: String,
+    package: Option<String>,
+    version: Option<String>,
+    classes: usize,
+    /// Each with file, line (0: the whole file), rule and message.
+    findings: Vec<Value>,
+    notes: Vec<String>,
+}
+
 /// search answers with `results`; class with the class's page.
 #[derive(Serialize, JsonSchema)]
 pub(crate) struct JavadocResult {

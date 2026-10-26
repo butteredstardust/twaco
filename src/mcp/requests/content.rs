@@ -247,6 +247,16 @@ pub(crate) enum ExtensionsAction {
     Show,
 }
 
+/// `ext_check`: a Java extension project's folder.
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ExtCheckRequest {
+    /// The extension project's folder, absolute or relative to the solution; omit for the
+    /// solution folder itself.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) root: Absent<String>,
+}
+
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ExtensionsRequest {

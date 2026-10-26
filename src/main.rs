@@ -21,7 +21,9 @@ mod cli;
 use clap::FromArgMatches as _;
 use cli::appkey::appkey_cmd;
 use cli::command::Command;
-use cli::content::{export_cmd, ext_cmd, import_cmd, package_cmd, repo_cmd, search_cmd};
+use cli::content::{
+    export_cmd, ext_check_cmd, ext_cmd, import_cmd, package_cmd, repo_cmd, search_cmd,
+};
 use cli::data::{
     call, config_table, datatable_copy_cmd, db_clean_cmd, db_cmd, logs_cmd, Datatable, Db,
 };
@@ -204,6 +206,10 @@ fn dispatch(command: Command) -> u8 {
             run(|solution| localization_cmd(solution, &localization))
         }
         Command::Repo(repo) => run(|solution| repo_cmd(solution, &repo)),
+        // An extension project is not a solution: `ext check` needs no twaco.toml.
+        Command::Ext(ext) if ext.operands.first().map(String::as_str) == Some("check") => {
+            ext_check_cmd(&ext)
+        }
         Command::Ext(ext) => run(|solution| ext_cmd(solution, &ext)),
         Command::Requirements(command) => {
             run(|solution| cli::requirements::requirements_cmd(solution, &command))

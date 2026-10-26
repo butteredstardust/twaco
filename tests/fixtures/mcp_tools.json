@@ -7334,6 +7334,76 @@
     }
   },
   {
+    "name": "ext_check",
+    "description": "Check a Java ThingWorx extension project offline, before it is built or uploaded: metadata.xml against the Java source (classes it names, ThingTemplates' thingPackage), the jars JarResources lists, each Widget's ide and runtime files, packageVersion against extension.properties, duplicate services, properties or events (inherited ones included), and base types. Notes say what may be fine but cannot be proven (a class only in a jar, a DataShape from elsewhere, a class nothing declares). Needs no solution or server; root is the project folder.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "root": {
+          "description": "The extension project's folder, absolute or relative to the solution; omit for the\nsolution folder itself.",
+          "type": "string"
+        }
+      },
+      "description": "`ext_check`: a Java extension project's folder.",
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "ok",
+        "passed",
+        "summary",
+        "classes",
+        "findings",
+        "notes"
+      ],
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "passed": {
+          "description": "No finding.",
+          "type": "boolean"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "package": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "classes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "findings": {
+          "description": "Each with file, line (0: the whole file), rule and message.",
+          "type": "array",
+          "items": true
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "description": "A Java extension project's findings, offline.",
+      "type": "object"
+    }
+  },
+  {
     "name": "extension_write",
     "description": "Import an extension package zip of the solution, or remove an installed package. A dry run unless dry_run is false: an import is then only validated by the server, which installs nothing. A removal is refused while the package is in use.",
     "inputSchema": {

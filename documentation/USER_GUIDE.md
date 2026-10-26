@@ -33,13 +33,31 @@ project silently.
 
 ### Java extensions used by the solution
 
-When a solution calls services supplied by a Java extension, keep its source checkout below the
-solution and add an `[[extension]]` entry in `twaco.toml`. twaco reads the extension metadata and
+When a solution calls services supplied by a Java extension, add an `[[extension]]` entry in
+`twaco.toml` naming its source checkout, which may sit beside the solution
+(`root = "../Acme_Extension"`). twaco reads the extension metadata and
 Java annotations, including inherited members whose superclass is in that checkout. `impact
 <template> --member <service>`, `catalog` and mashup binding checks then see those services;
 catalog marks them `[extension <name>]`. Extension source is analysis input only: it is never a
 workspace entity, so twaco cannot rename, sync, format, deploy or otherwise write it. See
 [Configuration](CONFIGURATION.md#extension) for the entry and its failure behaviour.
+
+In the extension's own folder, which needs no `twaco.toml`, `twaco ext check` (MCP `ext_check`)
+reads it as the ThingWorx Eclipse plugin's builder did, before Gradle builds it or the server
+refuses it:
+
+```sh
+twaco ext check                       # this folder
+twaco ext check ../Acme_Extension --json
+```
+
+It reports a class `metadata.xml` names that the source lacks, a ThingTemplate whose
+`thingPackage` is not declared, a JarResources file that is in neither `lib/` nor `twx-lib/` and
+is not the jar the build makes, a Widget missing its `ide.js` or `runtime.js`, a `packageVersion`
+that `extension.properties` contradicts, two services, properties or events of one name (inherited
+ones included) and a base type ThingWorx does not have. Notes say what may be fine but cannot be
+proven: a class only in a jar, a DataShape the extension does not ship, a class with ThingWorx
+members that nothing declares. It exits non-zero when it finds something.
 
 ### Starting from a project that is only on a server
 

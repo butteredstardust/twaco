@@ -31,6 +31,7 @@ pub mod doctor;
 pub(crate) mod duration;
 pub mod entity;
 pub mod export;
+pub mod ext_check;
 pub(crate) mod extension_source;
 pub(crate) mod extensions;
 pub(crate) mod fmt;

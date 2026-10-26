@@ -1416,7 +1416,9 @@ pub(crate) const USAGE: &[Usage] = &[
         text: r#"  ext list [--json]           the server's extension packages
   ext show <package>          one package: its extensions, and which are in use
   ext import <zip>            validate a package on the server; --apply installs it
-  ext remove <package>        plan removing a package (refused while in use); --apply removes it"#,
+  ext remove <package>        plan removing a package (refused while in use); --apply removes it
+  ext check [<root>] [--json] a Java extension project, offline: metadata.xml against the Java
+                              source, its jars, widgets and version; needs no solution"#,
     },
     Usage {
         path: "search",

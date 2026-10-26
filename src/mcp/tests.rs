@@ -1189,6 +1189,7 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
             "appkey",
             "test",
             "extensions",
+            "ext_check",
             "extension_write",
             "bundle",
             "search",
