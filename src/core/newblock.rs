@@ -44,6 +44,15 @@ const ENTRY_POINT: &str = include_str!("newblock/templates/Thing.EntryPoint.xml"
 const MANAGER: &str = include_str!("newblock/templates/Thing.Manager.xml");
 const MAX_FILE_NAME_CHARS: usize = 200;
 
+/// The entry point's description value. An empty one is written empty: the server keeps the
+/// whitespace a CDATA section around nothing would hold as no value, so the first deploy would
+/// read back as not kept.
+const DESCRIPTION_VALUE_BLOCK: &str = "                    <Value>
+                    <![CDATA[
+                    @@DESCRIPTION_TEXT@@
+                    ]]>
+                    </Value>";
+
 /// What the Manager template lists as its implemented shape; removed when there is no management shape.
 const MANAGER_SHAPE_BLOCK: &str = "            <ImplementedShapes>\n                <ImplementedShape\n                 name=\"@@NAME@@.Management_TS\"\n                 type=\"ThingShape\"></ImplementedShape>\n            </ImplementedShapes>";
 
@@ -439,6 +448,19 @@ pub(crate) fn plan(solution: &Solution, request: &Request) -> Result<Plan, NewBl
         );
         replaced
     };
+    let entry_point_template = if request.description.is_empty() {
+        let replaced = ENTRY_POINT.replace(
+            DESCRIPTION_VALUE_BLOCK,
+            "                    <Value></Value>",
+        );
+        assert_ne!(
+            replaced, ENTRY_POINT,
+            "the entry point template holds the description"
+        );
+        replaced
+    } else {
+        ENTRY_POINT.to_string()
+    };
     let mut entities: Vec<(&str, String, &str)> = vec![
         ("Projects", request.name.clone(), PROJECT),
         (
@@ -460,7 +482,7 @@ pub(crate) fn plan(solution: &Solution, request: &Request) -> Result<Plan, NewBl
         (
             "Things",
             format!("{}.EntryPoint", request.name),
-            ENTRY_POINT,
+            &entry_point_template,
         ),
         ("ThingTemplates", format!("{}.Manager_TT", request.name), ""),
     ];

@@ -534,6 +534,9 @@ impl Solution {
         })?;
         solution.root = path.parent().unwrap_or(Path::new(".")).to_path_buf();
         solution.validate(path)?;
+        solution
+            .server_owned
+            .push(super::server_owned::Rule::entry_point_state());
         Ok(solution)
     }
 

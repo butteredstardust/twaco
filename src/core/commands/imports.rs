@@ -98,7 +98,11 @@ where
             effects: Effects::new(Access::None, server),
         }),
         ImportAction::SourceControl { repository, path } => {
-            if !solution.server_owned_for(&request.profile).is_empty() {
+            if solution
+                .server_owned_for(&request.profile)
+                .iter()
+                .any(|rule| !rule.built_in)
+            {
                 notices
                     .push("source-control import does not preserve server-owned parts".to_string());
             }

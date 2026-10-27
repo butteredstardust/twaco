@@ -311,7 +311,8 @@ fn server_owned_advice(
 ) -> Vec<Item> {
     let mut items = Vec::new();
     let rules = solution.server_owned_for(profile_name);
-    for (i, rule) in rules.iter().enumerate() {
+    // twaco's own rules apply wherever they match, and matching nothing is no mistake.
+    for (i, rule) in rules.iter().filter(|rule| !rule.built_in).enumerate() {
         let matched: Vec<_> = entities
             .iter()
             .filter(|e| rule.matches(&e.info.collection, &e.info.name))

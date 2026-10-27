@@ -961,3 +961,29 @@ fn preserving_every_part_from_the_same_content_is_the_identity_over_the_corpus()
         );
     }
 }
+
+/// A building block's lifecycle state on its entry point is the server's: the repository's
+/// `Not Configured` neither differs from the framework's `Configured` nor replaces it.
+#[test]
+fn an_entry_point_owns_its_lifecycle_state_on_the_server() {
+    let state = |value: &str| {
+        format!(
+            "<Entities><Things><Thing name=\"Acme.EntryPoint\"><ThingProperties><componentDeploymentState><Value><![CDATA[{value}]]></Value></componentDeploymentState><componentVersion><Value>1.0.0</Value></componentVersion></ThingProperties></Thing></Things></Entities>"
+        )
+        .into_bytes()
+    };
+    let rules = [Rule::entry_point_state()];
+    let owned = parts(&rules, "Things", "Acme.EntryPoint");
+    assert_eq!(
+        labels(&owned),
+        ["property-values:componentDeploymentState,deployComponentStatus,migrateComponentStatus,upgradeComponentStatus"]
+    );
+    assert!(parts(&rules, "Things", "Acme.Manager").is_empty());
+    let hash = |bytes: &[u8]| normalise::hash_with_parts(bytes, &owned).unwrap();
+    assert_eq!(hash(&state("Not Configured")), hash(&state("Configured")));
+    // The version is the repository's.
+    let other_version = String::from_utf8(state("Configured"))
+        .unwrap()
+        .replace("1.0.0", "1.0.1");
+    assert_ne!(hash(&state("Configured")), hash(other_version.as_bytes()));
+}
