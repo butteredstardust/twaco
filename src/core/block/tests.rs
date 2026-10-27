@@ -75,7 +75,9 @@ fn a_block_is_read_from_its_entry_point_and_project() {
     let error = find(&solution, "Other").unwrap_err();
     assert_eq!(
         error,
-        "no building block is named Other; the solution's are Acme.Orders"
+        FindError::Unknown(
+            "no building block is named Other; the solution's are Acme.Orders".to_string()
+        )
     );
 }
 

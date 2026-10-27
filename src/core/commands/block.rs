@@ -9,9 +9,9 @@ use crate::core::{lock, profile, transaction};
 
 #[derive(Debug, thiserror::Error)]
 pub enum BlockCommandError {
-    /// No block of that name.
+    /// No one block of that name.
     #[error("{0}")]
-    Unknown(String),
+    Find(block::FindError),
     /// The change cannot be made: the files or the version given.
     #[error("{0}")]
     Invalid(String),
@@ -26,7 +26,7 @@ pub enum BlockCommandError {
 impl Coded for BlockCommandError {
     fn code(&self) -> ErrorCode {
         match self {
-            Self::Unknown(_) => ErrorCode::UnknownEntity,
+            Self::Find(error) => error.code(),
             Self::Invalid(_) => ErrorCode::InvalidArguments,
             Self::Lock(error) => error.code(),
             Self::Config(error) => error.code(),
@@ -40,7 +40,7 @@ fn plan(
     name: &str,
     change: &VersionChange,
 ) -> Result<VersionPlan, BlockCommandError> {
-    block::find(solution, name).map_err(BlockCommandError::Unknown)?;
+    block::find(solution, name).map_err(BlockCommandError::Find)?;
     block::plan_version(solution, name, change).map_err(BlockCommandError::Invalid)
 }
 
@@ -98,5 +98,7 @@ mod tests {
         let error = version(&solution, "Nope", &change, true, &mut Notices::default()).unwrap_err();
         assert!(matches!(error, BlockCommandError::Lock(_)), "{error}");
         drop(held);
+        let ambiguous = BlockCommandError::Find(block::FindError::Ambiguous("two".to_string()));
+        assert_eq!(ambiguous.code(), ErrorCode::Ambiguous);
     }
 }

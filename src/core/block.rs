@@ -101,8 +101,27 @@ pub fn blocks(solution: &Solution) -> Vec<Block> {
     out
 }
 
+/// Why [`find`] found no one block.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum FindError {
+    #[error("{0}")]
+    Unknown(String),
+    /// The name is the end of more than one block's.
+    #[error("{0}")]
+    Ambiguous(String),
+}
+
+impl super::codes::Coded for FindError {
+    fn code(&self) -> super::codes::ErrorCode {
+        match self {
+            Self::Unknown(_) => super::codes::ErrorCode::UnknownEntity,
+            Self::Ambiguous(_) => super::codes::ErrorCode::Ambiguous,
+        }
+    }
+}
+
 /// The block named `name`, or one whose name ends with `.name`.
-pub fn find(solution: &Solution, name: &str) -> Result<Block, String> {
+pub fn find(solution: &Solution, name: &str) -> Result<Block, FindError> {
     let all = blocks(solution);
     if let Some(block) = all.iter().find(|block| block.name == name) {
         return Ok(block.clone());
@@ -114,17 +133,17 @@ pub fn find(solution: &Solution, name: &str) -> Result<Block, String> {
         .collect();
     match matching.as_slice() {
         [one] => Ok((*one).clone()),
-        [] if all.is_empty() => Err(format!(
+        [] if all.is_empty() => Err(FindError::Unknown(format!(
             "the solution has no building block (a project with its <project>.EntryPoint Thing); {name} is not one"
-        )),
-        [] => Err(format!(
+        ))),
+        [] => Err(FindError::Unknown(format!(
             "no building block is named {name}; the solution's are {}",
             names(&all)
-        )),
-        _ => Err(format!(
+        ))),
+        _ => Err(FindError::Ambiguous(format!(
             "{name} could be {}; name one in full",
             names(&matching.into_iter().cloned().collect::<Vec<_>>())
-        )),
+        ))),
     }
 }
 
@@ -496,7 +515,7 @@ pub fn plan_version(
     name: &str,
     change: &VersionChange,
 ) -> Result<VersionPlan, String> {
-    let block = find(solution, name)?;
+    let block = find(solution, name).map_err(|error| error.to_string())?;
     let project_path = block.project_path.clone().ok_or_else(|| {
         format!(
             "{} has no Projects/{}.xml in the repository; its version is kept there and on the entry point",

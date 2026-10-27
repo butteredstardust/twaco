@@ -23,7 +23,7 @@ pub(crate) fn block_tool(solution: &Solution, request: BlockRequest) -> Result<V
         }
         BlockAction::Show => {
             let name = super::required_text(&request.block, "block")?;
-            let found = block::find(solution, name).map_err(ToolError::invalid)?;
+            let found = block::find(solution, name).map_err(ToolError::coded)?;
             let mut value = json!({ "block": found });
             if let Some((remote, server)) = &server_view {
                 let compared = block::compare(vec![found.clone()], server).remove(0);
