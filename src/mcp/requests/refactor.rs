@@ -374,6 +374,10 @@ pub(crate) enum EntityNewKind {
     Theme,
     #[serde(rename = "network")]
     Network,
+    #[serde(rename = "mcp-namespace")]
+    McpNamespace,
+    #[serde(rename = "ai-agent")]
+    AiAgent,
 }
 
 impl From<EntityNewKind> for crate::core::entity::new::Kind {
@@ -396,6 +400,8 @@ impl From<EntityNewKind> for crate::core::entity::new::Kind {
             EntityNewKind::Menu => Self::Menu,
             EntityNewKind::Theme => Self::Theme,
             EntityNewKind::Network => Self::Network,
+            EntityNewKind::McpNamespace => Self::McpNamespace,
+            EntityNewKind::AiAgent => Self::AiAgent,
         }
     }
 }
@@ -403,7 +409,7 @@ impl From<EntityNewKind> for crate::core::entity::new::Kind {
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct EntityNewRequest {
-    /// `project`, `group`, `thing`, `thing-template`, `thing-shape`, `data-shape`, `timer`, `scheduler`, `data-table`, `stream`, `value-stream`, `media`, `style`, `state`, `menu`, `theme`, or `network`.
+    /// `project`, `group`, `thing`, `thing-template`, `thing-shape`, `data-shape`, `timer`, `scheduler`, `data-table`, `stream`, `value-stream`, `media`, `style`, `state`, `menu`, `theme`, `network`, `mcp-namespace` or `ai-agent`.
     pub(crate) kind: EntityNewKind,
     /// The entity name.
     pub(crate) name: String,
@@ -481,6 +487,47 @@ pub(crate) struct EntityNewRequest {
     pub(crate) from: Absent<String>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) prop: Absent<Vec<String>>,
+    /// mcp-namespace: `name=Provider.Service` tools; prefix the provider `Thing:`,
+    /// `ThingTemplate:` or `ThingShape:` to name one outside the solution.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) tool: Absent<Vec<String>>,
+    /// mcp-namespace: `name=Provider.Service` service resources.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) service_resource: Absent<Vec<String>>,
+    /// mcp-namespace: `name=Repository:/path` file resources.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) file_resource: Absent<Vec<String>>,
+    /// mcp-namespace: `name=text` prompts; `{{argument}}` placeholders become arguments.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) prompt: Absent<Vec<String>>,
+    /// mcp-namespace: `name=text` descriptions; a tool or service resource defaults to its
+    /// service's description, a prompt to its text. ThingWorx refuses an empty one.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) describe: Absent<Vec<String>>,
+    /// ai-agent: `Namespace` (everything it defines) or `Namespace=item,item`.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) namespace: Absent<Vec<String>>,
+    /// ai-agent: `Repository:/path` skill folders holding a SKILL.md.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) skill: Absent<Vec<String>>,
+    /// ai-agent: the Thing implementing HierarchyResolver.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) resolver: Absent<String>,
+    /// ai-agent: `TemplateOrShape` or `TemplateOrShape=alias, alias` taxonomy rows.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) taxonomy: Absent<Vec<String>>,
+    /// ai-agent: the system prompt's instructions.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) instructions: Absent<String>,
+    /// ai-agent: a file holding the instructions.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) instructions_file: Absent<String>,
+    /// ai-agent: the description the assistant routes questions by.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) agent_description: Absent<String>,
+    /// ai-agent: the name the assistant shows (default: the entity name).
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) display_name: Absent<String>,
     #[serde(default = "default_true")]
     pub(crate) dry_run: bool,
 }
@@ -521,6 +568,24 @@ pub(crate) enum EntityEditAction {
     MenuItemRemove,
     #[serde(rename = "state_set")]
     StateSet,
+    #[serde(rename = "mcp_add")]
+    McpAdd,
+    #[serde(rename = "mcp_remove")]
+    McpRemove,
+    #[serde(rename = "agent_allow")]
+    AgentAllow,
+    #[serde(rename = "agent_disallow")]
+    AgentDisallow,
+    #[serde(rename = "agent_taxonomy_add")]
+    AgentTaxonomyAdd,
+    #[serde(rename = "agent_taxonomy_remove")]
+    AgentTaxonomyRemove,
+    #[serde(rename = "agent_skill_add")]
+    AgentSkillAdd,
+    #[serde(rename = "agent_skill_remove")]
+    AgentSkillRemove,
+    #[serde(rename = "agent_set")]
+    AgentSet,
 }
 
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
@@ -659,6 +724,31 @@ pub(crate) struct EntityEditRequest {
     /// state_set: the states in order, each `<comparator><value>=<label>[;style key:value...]`; the last may be `*=<label>`.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) state: Absent<Vec<String>>,
+    /// mcp_add: tool, service-resource, file-resource or prompt.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) item_kind: Absent<String>,
+    /// mcp_add: `name=Provider.Service`, `name=Repository:/path` or `name=text`; agent_allow and
+    /// agent_disallow: `Namespace` or `Namespace=item,item`; agent_taxonomy_add:
+    /// `TemplateOrShape[=alias, alias]`; agent_skill_add and agent_skill_remove:
+    /// `Repository:/path`. mcp_remove and agent_taxonomy_remove take `name`; mcp_add takes the
+    /// item's `description`.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) spec: Absent<String>,
+    /// agent_set: the HierarchyResolver Thing; empty clears it.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) resolver: Absent<String>,
+    /// agent_set: the system prompt's instructions.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) instructions: Absent<String>,
+    /// agent_set: a file holding the instructions.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) instructions_file: Absent<String>,
+    /// agent_set: the description the assistant routes questions by.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) agent_description: Absent<String>,
+    /// agent_set: the name the assistant shows.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) display_name: Absent<String>,
     #[serde(default = "default_true")]
     pub(crate) dry_run: bool,
 }

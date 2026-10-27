@@ -17,6 +17,13 @@ pub trait Remote: push::Remote + Sync {
         parameters: &Value,
         timeout: Duration,
     ) -> Result<Option<Value>, ServerError>;
+    /// The names of every entity of `collection` on the server.
+    fn list_entity_names(&self, collection: &str) -> Result<Vec<String>, ServerError> {
+        Err(ServerError::InvalidResponse {
+            url: collection.to_string(),
+            why: "this server connection cannot list a collection".to_string(),
+        })
+    }
 }
 
 impl Remote for Client {
@@ -32,6 +39,10 @@ impl Remote for Client {
         timeout: Duration,
     ) -> Result<Option<Value>, ServerError> {
         Client::call_service(self, target, service, parameters, timeout)
+    }
+
+    fn list_entity_names(&self, collection: &str) -> Result<Vec<String>, ServerError> {
+        Client::list_entity_names(self, collection)
     }
 }
 

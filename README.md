@@ -140,6 +140,7 @@ until `--apply`; `sync` and `deploy` take them to the server.
 | Timer, Scheduler | `new timer`, `new scheduler` | the entity's XML | `timer set`, `scheduler set` | `entity delete` |
 | Style, theme, state, menu, media | `new style`, `new theme`, `new state`, `new menu`, `new media` | the entity's XML | `style set`, `state set`, `menu item add\|remove`, `media set` | `entity delete` |
 | Network (asset hierarchy) | `new network`, `network import` | `network list`, `network show` | `network add`, `network move` | `network remove` (connections, never the Things) |
+| AI agent, MCP namespace | `new ai-agent`, `new mcp-namespace` | `impact`, `check` (`ai references`) | `mcp-namespace add\|remove`, `agent allow\|disallow`, `agent taxonomy`, `agent skill`, `agent set` | `entity delete` |
 | Building block | `new building-block` | `projects`, `docs` | `rename prefix` | `entity delete` of its entities |
 | Permissions | `permissions init` (drafts `permissions.toml` from the entities) | `permissions audit`, `permissions diff` | `permissions apply`, then `permissions push` | drop it from the policy, then `apply` and `push` |
 | Localization token | `localization new`, `localization set` | `localization status` | `localization set`, `localization push` | `localization remove` |
@@ -264,7 +265,7 @@ claude mcp add twaco -- twaco mcp           # Claude Code, from the solution's r
 Any MCP client works: run `twaco mcp` with the solution as its working directory, or set
 `TWACO_ROOT`. Tools that write to the server default to `dry_run: true`, and results are
 summaries unless the agent asks for detail, so a large solution stays affordable in context.
-The 81 tool definitions together take about 143 KB of an agent's context (93 KB for a client
+The 85 tool definitions together take about 154 KB of an agent's context (101 KB for a client
 without output schemas); `twaco mcp --tools core,entity` (or `TWACO_MCP_TOOLS`) serves only the
 groups it needs (`core`, `entity`, `refactor`, `mashup`, `permissions`, `data`, `server`,
 `reference`). `core` alone, the everyday loop, is about 35 KB. See

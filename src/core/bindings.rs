@@ -52,17 +52,40 @@ pub(crate) const FIELDS_LIMITS: &str =
 
 /// Check all managed project mashups. Invalid mashup JSON belongs to the project gate, so it is
 /// intentionally not repeated here.
+#[cfg(test)]
 pub(crate) fn run(solution: &Solution) -> Report {
-    analyse(solution).0
+    let discovery = workspace::discover(solution);
+    let (model, _) = types::load_model(solution);
+    run_in(solution, &discovery, &model)
+}
+
+/// [`run`] over a scan and model already made.
+pub(crate) fn run_in(
+    solution: &Solution,
+    discovery: &workspace::Discovery,
+    model: &Model,
+) -> Report {
+    analyse_in(solution, discovery, model).0
 }
 
 pub(crate) fn unused_fields(solution: &Solution) -> FieldsReport {
-    let (_, usage) = analyse(solution);
+    let discovery = workspace::discover(solution);
+    let (model, _) = types::load_model(solution);
+    unused_fields_in(solution, &discovery, &model)
+}
+
+/// [`unused_fields`] over a scan and model already made.
+pub(crate) fn unused_fields_in(
+    solution: &Solution,
+    discovery: &workspace::Discovery,
+    model: &Model,
+) -> FieldsReport {
+    let (_, usage) = analyse_in(solution, discovery, model);
     // A field a mashup names anywhere counts as used: a grid's column settings, an expression, a
     // binding from another service. Scripts do not count: the service that fills a field always
     // names it, so every field would look used.
     let mut named = HashSet::new();
-    for file in workspace::discover(solution)
+    for file in discovery
         .entities
         .iter()
         .filter(|file| file.info.collection == "Mashups")
@@ -116,13 +139,15 @@ struct SeenShape {
     whole: bool,
 }
 
-fn analyse(solution: &Solution) -> (Report, FieldUsage) {
-    let (model, _) = types::load_model(solution);
+fn analyse_in(
+    solution: &Solution,
+    discovery: &workspace::Discovery,
+    model: &Model,
+) -> (Report, FieldUsage) {
     let platform = types::cached_platform(solution);
     let cache_missing = platform.is_none();
-    let resolver = Resolver::new(&model, platform.as_ref());
+    let resolver = Resolver::new(model, platform.as_ref());
     let model = &resolver;
-    let discovery = workspace::discover(solution);
     let mut report = Report {
         problems: Vec::new(),
         examined: 0,
@@ -134,7 +159,7 @@ fn analyse(solution: &Solution) -> (Report, FieldUsage) {
     let mut usage = FieldUsage::default();
     for file in discovery
         .entities
-        .into_iter()
+        .iter()
         .filter(|file| file.info.collection == "Mashups")
     {
         let Ok(bytes) = std::fs::read(&file.path) else {

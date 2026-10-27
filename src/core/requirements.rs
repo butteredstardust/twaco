@@ -257,6 +257,14 @@ impl Collected {
 /// Collect only the configured source trees. A repository-defined name is never external.
 pub(crate) fn collect(solution: &Solution) -> Result<Collected, Error> {
     let found = workspace::discover(solution);
+    collect_in(solution, &found)
+}
+
+/// [`collect`] over a scan already made.
+pub(crate) fn collect_in(
+    solution: &Solution,
+    found: &workspace::Discovery,
+) -> Result<Collected, Error> {
     if !found.unreadable.is_empty() {
         return Err(Error(format!(
             "requirements collection: {}; fix unreadable entity files and retry",
@@ -270,7 +278,7 @@ pub(crate) fn collect(solution: &Solution) -> Result<Collected, Error> {
         .collect();
     let mut out = Collected::default();
     let mut exported = Collected::default();
-    for file in found.entities {
+    for file in &found.entities {
         let from = format!("{}/{}", file.info.collection, file.info.name);
         let bytes = std::fs::read(&file.path).map_err(|error| {
             Error(format!(

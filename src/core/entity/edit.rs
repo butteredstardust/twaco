@@ -25,6 +25,9 @@ use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
+mod ai;
+pub use ai::AgentChange;
+
 /// A property as `property add` and `property set` give it.
 #[derive(Clone, Debug, Default)]
 pub struct Property {
@@ -133,6 +136,37 @@ pub enum Action {
         state_type: String,
         states: Vec<String>,
     },
+    /// An MCP namespace's tool, service or file resource, or prompt; `kind` is `tool`,
+    /// `service-resource`, `file-resource` or `prompt`.
+    McpAdd {
+        kind: String,
+        spec: String,
+        describe: Option<String>,
+    },
+    McpRemove {
+        name: String,
+    },
+    /// `Namespace` or `Namespace=item,item`.
+    AgentAllow {
+        spec: String,
+    },
+    /// `Namespace` (stop using it) or `Namespace=item,item`.
+    AgentDisallow {
+        spec: String,
+    },
+    AgentTaxonomyAdd {
+        spec: String,
+    },
+    AgentTaxonomyRemove {
+        name: String,
+    },
+    AgentSkillAdd {
+        spec: String,
+    },
+    AgentSkillRemove {
+        spec: String,
+    },
+    AgentSet(AgentChange),
 }
 
 #[derive(Clone, Debug)]
@@ -237,7 +271,7 @@ fn invalid(why: impl std::fmt::Display) -> EditError {
 }
 
 /// The base types a property may have. Anything else is refused rather than written.
-const BASE_TYPES: [&str; 28] = [
+pub(crate) const BASE_TYPES: [&str; 28] = [
     "ANYSCALAR",
     "BASETYPENAME",
     "BLOB",
@@ -286,6 +320,35 @@ const MEMBER_HOSTS: [&str; 3] = ["Things", "ThingTemplates", "ThingShapes"];
 // Planning and applying
 
 /// Plan an edit; nothing is written.
+/// `src`, the export of AI agent `name`, with none of the items `dropped` names allowed, per
+/// namespace; `None` when it allows none of them. Deploy imports this before namespaces that
+/// drop the items, which the server refuses while an agent on it allows one.
+pub(crate) fn agent_without_allowances(
+    name: &str,
+    src: Vec<u8>,
+    dropped: &BTreeMap<String, crate::core::agents::Items>,
+) -> Result<Option<Vec<u8>>, EditError> {
+    let file = EntityFile {
+        path: PathBuf::from(format!("AIAgents/{name}")),
+        info: entity::EntityInfo {
+            collection: "AIAgents".to_string(),
+            name: name.to_string(),
+            project: String::new(),
+        },
+        found_under: String::new(),
+    };
+    let mut current = src;
+    let mut changed = false;
+    for (namespace, items) in dropped {
+        let doc = Doc::parse(file.clone(), current.clone())?;
+        if let Some(edited) = ai::without_allowances(&doc, namespace, items)? {
+            current = edited;
+            changed = true;
+        }
+    }
+    Ok(changed.then_some(current))
+}
+
 pub(crate) fn plan(solution: &Solution, request: &Request) -> Result<Plan, EditError> {
     let found = workspace::entities(solution);
     let file = workspace::resolve(&found, &request.entity)
@@ -368,6 +431,19 @@ pub(crate) fn plan(solution: &Solution, request: &Request) -> Result<Plan, EditE
         }
         Action::MenuItemRemove { title } => menu_item_remove(&doc, title, &mut plan)?,
         Action::StateSet { state_type, states } => state_set(&doc, state_type, states, &mut plan)?,
+        Action::McpAdd {
+            kind,
+            spec,
+            describe,
+        } => ai::mcp_add(solution, &doc, kind, spec, describe.as_deref(), &mut plan)?,
+        Action::McpRemove { name } => ai::mcp_remove(&found, &doc, name, &mut plan)?,
+        Action::AgentAllow { spec } => ai::agent_allow(solution, &doc, spec, &mut plan)?,
+        Action::AgentDisallow { spec } => ai::agent_disallow(&doc, spec, &mut plan)?,
+        Action::AgentTaxonomyAdd { spec } => ai::taxonomy_add(solution, &doc, spec, &mut plan)?,
+        Action::AgentTaxonomyRemove { name } => ai::taxonomy_remove(&doc, name, &mut plan)?,
+        Action::AgentSkillAdd { spec } => ai::skill_add(solution, &doc, spec, &mut plan)?,
+        Action::AgentSkillRemove { spec } => ai::skill_remove(&doc, spec, &mut plan)?,
+        Action::AgentSet(change) => ai::agent_set(solution, &doc, change, &mut plan)?,
     }
     Ok(plan)
 }
@@ -651,18 +727,38 @@ fn remove_child(doc: &Doc, section: usize, element: usize) -> Result<Vec<u8>, Ed
     let after = &doc.src[span.end..inner.end];
     if before.iter().all(u8::is_ascii_whitespace) && after.iter().all(u8::is_ascii_whitespace) {
         let name = String::from_utf8_lossy(doc.tokens[section].name.of(&doc.src)).into_owned();
-        let body = if OPEN_WHEN_EMPTY.contains(&name.as_str()) {
-            format!("\n{}", doc.indent_of(section))
+        // An indent is only the whitespace a line opens with; a compact file has none.
+        let indent = doc.indent_of(section);
+        let indent = if indent.chars().all(|c| c == ' ' || c == '\t') {
+            indent
+        } else {
+            String::new()
+        };
+        let body = if OPEN_WHEN_EMPTY.contains(&name.as_str()) && !indent.is_empty() {
+            format!("\n{indent}")
         } else {
             String::new()
         };
         return splice_one(&doc.src, inner, body);
     }
-    let line = doc.src[..span.start]
+    // On a line of its own the element goes with its whole line, line ending included (so a
+    // CRLF file keeps no stray CR); sharing a line with other markup, it goes alone.
+    let line_start = doc.src[..span.start]
         .iter()
         .rposition(|byte| *byte == b'\n')
-        .unwrap_or(span.start);
-    splice_one(&doc.src, Span::new(line, span.end), Vec::new())
+        .map_or(0, |at| at + 1);
+    let line_end = doc.src[span.end..]
+        .iter()
+        .position(|byte| *byte == b'\n')
+        .map(|at| span.end + at);
+    let alone = doc.src[line_start..span.start]
+        .iter()
+        .all(|byte| *byte == b' ' || *byte == b'\t')
+        && line_end.is_some_and(|end| doc.src[span.end..end].iter().all(u8::is_ascii_whitespace));
+    match line_end {
+        Some(end) if alone => splice_one(&doc.src, Span::new(line_start, end + 1), Vec::new()),
+        _ => splice_one(&doc.src, span, Vec::new()),
+    }
 }
 
 // ---------------------------------------------------------------------------------------------

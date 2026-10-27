@@ -169,11 +169,32 @@ impl Coded for DescribeError {
 
 /// Describe the mashup `name` as the repository has it: its sidecar content when it has one.
 pub fn describe(solution: &Solution, name: &str) -> Result<Description, DescribeError> {
-    let entity = workspace::entities(solution)
-        .into_iter()
+    let discovered = workspace::discover(solution);
+    let (model, _) = types::load_model(solution);
+    let platform = types::cached_platform(solution);
+    describe_in(
+        solution,
+        name,
+        &discovered.entities,
+        &model,
+        platform.as_ref(),
+    )
+}
+
+/// [`describe`] over files, a model and platform types already read, for a caller that
+/// describes many mashups.
+pub(crate) fn describe_in(
+    solution: &Solution,
+    name: &str,
+    files: &[workspace::EntityFile],
+    model: &types::Model,
+    platform: Option<&types::Platform>,
+) -> Result<Description, DescribeError> {
+    let entity = files
+        .iter()
         .find(|e| e.info.collection == "Mashups" && e.info.name == name)
         .ok_or_else(|| DescribeError::Unknown(name.to_string()))?;
-    let dir = workspace::mashup_dir(solution, &entity);
+    let dir = workspace::mashup_dir(solution, entity);
     let bytes = std::fs::read(&entity.path).map_err(|error| {
         DescribeError::Unreadable(format!("{}: {error}", entity.path.display()))
     })?;
@@ -191,9 +212,7 @@ pub fn describe(solution: &Solution, name: &str) -> Result<Description, Describe
     };
     let value: Value = serde_json::from_str(&content)
         .map_err(|error| DescribeError::Unreadable(format!("{name}: {error}")))?;
-    let (model, _) = types::load_model(solution);
-    let platform = types::cached_platform(solution);
-    let resolver = bindings::Resolver::new(&model, platform.as_ref());
+    let resolver = bindings::Resolver::new(model, platform);
     let file = entity
         .path
         .strip_prefix(&solution.root)

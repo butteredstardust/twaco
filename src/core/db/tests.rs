@@ -42,6 +42,7 @@ fn profile(password: Option<&str>) -> Profile {
         username: "api".into(),
         password: "api-secret".into(),
         app_key: None,
+        sdk: None,
         extra,
     }
 }

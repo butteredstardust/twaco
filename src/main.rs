@@ -21,7 +21,10 @@ mod cli;
 use clap::FromArgMatches as _;
 use cli::appkey::appkey_cmd;
 use cli::command::Command;
-use cli::content::{export_cmd, ext_cmd, import_cmd, package_cmd, repo_cmd, search_cmd};
+use cli::content::{
+    export_cmd, ext_add_cmd, ext_check_cmd, ext_cmd, ext_intellij_cmd, ext_new_cmd, import_cmd,
+    package_cmd, repo_cmd, search_cmd,
+};
 use cli::data::{
     call, config_table, datatable_copy_cmd, db_clean_cmd, db_cmd, logs_cmd, Datatable, Db,
 };
@@ -204,6 +207,19 @@ fn dispatch(command: Command) -> u8 {
             run(|solution| localization_cmd(solution, &localization))
         }
         Command::Repo(repo) => run(|solution| repo_cmd(solution, &repo)),
+        // An extension project is not a solution: `ext check` needs no twaco.toml.
+        Command::Ext(ext) if ext.operands.first().map(String::as_str) == Some("check") => {
+            ext_check_cmd(&ext)
+        }
+        Command::Ext(ext) if ext.operands.first().map(String::as_str) == Some("new") => {
+            ext_new_cmd(&ext)
+        }
+        Command::Ext(ext) if ext.operands.first().map(String::as_str) == Some("add") => {
+            ext_add_cmd(&ext)
+        }
+        Command::Ext(ext) if ext.operands.first().map(String::as_str) == Some("intellij") => {
+            ext_intellij_cmd(&ext)
+        }
         Command::Ext(ext) => run(|solution| ext_cmd(solution, &ext)),
         Command::Requirements(command) => {
             run(|solution| cli::requirements::requirements_cmd(solution, &command))
@@ -223,6 +239,10 @@ fn dispatch(command: Command) -> u8 {
         Command::Media(media) => run(|solution| entity_edit_cmd(solution, media.edit())),
         Command::Menu(menu) => run(|solution| entity_edit_cmd(solution, menu.edit())),
         Command::State(state) => run(|solution| entity_edit_cmd(solution, state.edit())),
+        Command::McpNamespace(namespace) => {
+            run(|solution| entity_edit_cmd(solution, namespace.edit()))
+        }
+        Command::Agent(agent) => run(|solution| entity_edit_cmd(solution, agent.edit())),
         Command::Network(network) => run(|solution| network_cmd(solution, &network)),
         Command::New(New::BuildingBlock(block)) => {
             run(|solution| new_building_block_cmd(solution, &block))

@@ -40,11 +40,12 @@ fn shown_mashup(properties: &Value) -> Option<&str> {
     .filter(|name| !name.is_empty())
 }
 
-pub(crate) fn run(solution: &Solution) -> Report {
-    let mashups: Vec<_> = workspace::discover(solution)
+pub(crate) fn run_in(solution: &Solution, discovered: &workspace::Discovery) -> Report {
+    let mashups: Vec<_> = discovered
         .entities
-        .into_iter()
+        .iter()
         .filter(|file| file.info.collection == "Mashups")
+        .cloned()
         .collect();
     let mut declared: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     let mut contents = Vec::new();

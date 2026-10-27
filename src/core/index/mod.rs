@@ -12,9 +12,11 @@
 //! The index reads the entity XML, which `twaco check` holds in step with the sidecars. It is built
 //! once per command and never changes.
 
+mod agents;
 mod build;
 mod deploy;
 pub(crate) mod inherit;
+mod links;
 pub(crate) mod mashups;
 mod query;
 mod scripts;
@@ -26,6 +28,7 @@ pub(crate) use query::Dependent;
 pub use query::DependentOptions;
 
 use super::entity::key::EntityKey;
+use super::{types, workspace};
 use petgraph::graph::{DiGraph, NodeIndex};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
@@ -87,6 +90,24 @@ pub enum EdgeKind {
     Deploy,
     /// A project that must be imported before another.
     ProjectDependency,
+    /// An MCP tool or Service resource calling a provider service.
+    McpTool,
+    /// An MCP File resource naming its FileRepository.
+    McpFile,
+    /// An AI agent naming an MCP namespace.
+    AgentNamespace,
+    /// An AI agent configuration reference.
+    AgentConfig,
+    /// A Thing's or template's value stream.
+    ValueStream,
+    /// A Network connection's Thing, at either end.
+    NetworkNode,
+    /// A menu item opening a mashup.
+    MenuItem,
+    /// A member of a group, an organization's unit or a ThingGroup.
+    Member,
+    /// A mashup's master.
+    MasterMashup,
 }
 
 impl EdgeKind {
@@ -97,10 +118,35 @@ impl EdgeKind {
             | EdgeKind::BaseDataShape
             | EdgeKind::DataShape
             | EdgeKind::Deploy
-            | EdgeKind::ProjectDependency => Confidence::Structural,
+            | EdgeKind::ProjectDependency
+            | EdgeKind::McpTool
+            | EdgeKind::McpFile
+            | EdgeKind::AgentNamespace
+            | EdgeKind::AgentConfig
+            | EdgeKind::ValueStream
+            | EdgeKind::NetworkNode
+            | EdgeKind::MenuItem
+            | EdgeKind::Member
+            | EdgeKind::MasterMashup => Confidence::Structural,
             EdgeKind::ScriptReference | EdgeKind::MashupBinding => Confidence::Resolved,
             EdgeKind::ScriptMention | EdgeKind::MashupMention => Confidence::Review,
         }
+    }
+
+    /// A reference to the whole entity that uses none of its members: a value stream, a Network
+    /// node, a membership, a menu item, a master, an agent's configuration, an MCP
+    /// File resource's repository. A question about one member does not follow it.
+    pub(crate) fn names_whole_entity(self) -> bool {
+        matches!(
+            self,
+            EdgeKind::ValueStream
+                | EdgeKind::NetworkNode
+                | EdgeKind::MenuItem
+                | EdgeKind::Member
+                | EdgeKind::MasterMashup
+                | EdgeKind::AgentConfig
+                | EdgeKind::McpFile
+        )
     }
 
     /// A reference that makes the referrer inherit the members of what it names.
@@ -123,6 +169,15 @@ impl EdgeKind {
             EdgeKind::MashupMention => "mashup_mention",
             EdgeKind::Deploy => "deploy",
             EdgeKind::ProjectDependency => "project_dependency",
+            EdgeKind::McpTool => "mcp_tool",
+            EdgeKind::McpFile => "mcp_file",
+            EdgeKind::AgentNamespace => "agent_namespace",
+            EdgeKind::AgentConfig => "agent_config",
+            EdgeKind::ValueStream => "value_stream",
+            EdgeKind::NetworkNode => "network_node",
+            EdgeKind::MenuItem => "menu_item",
+            EdgeKind::Member => "member",
+            EdgeKind::MasterMashup => "master_mashup",
         }
     }
 }
@@ -158,6 +213,8 @@ pub struct Node {
     pub(crate) kind: NodeKind,
     /// The project whose folders hold it, or the project's own name.
     pub(crate) project: String,
+    /// The extension that supplies this read-only entity, if it is not solution source.
+    pub(crate) extension: Option<String>,
     /// The entity's file, relative to the solution root; none for a project.
     pub(crate) file: Option<PathBuf>,
     /// A Thing's `thingTemplate` or a template's `baseThingTemplate`, as written.
@@ -211,6 +268,10 @@ pub struct Index {
     /// `entity/service` of every script the parser refused: its references are known only as
     /// review-level mentions.
     unparsed: Vec<String>,
+    /// The entity files the index was read from, in discovery order.
+    files: Vec<workspace::EntityFile>,
+    /// The entity model the index was read from.
+    model: types::Model,
 }
 
 impl Index {
@@ -233,6 +294,16 @@ impl Index {
     /// The project names in the order they must be imported.
     pub(crate) fn deploy_order(&self) -> &[String] {
         &self.deploy_order
+    }
+
+    /// The entity files this index was read from, so a caller does not scan the tree again.
+    pub(crate) fn files(&self) -> &[workspace::EntityFile] {
+        &self.files
+    }
+
+    /// The entity model this index was read from.
+    pub(crate) fn model(&self) -> &types::Model {
+        &self.model
     }
 
     pub(crate) fn node(&self, key: &EntityKey) -> Option<&Node> {

@@ -6,6 +6,120 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `[[extension]] root = "../Acme_Extension"` reads a Java extension's source checkout, which may
+  sit beside the solution: its `metadata.xml`, the services, properties and events its Java
+  annotations declare (with those of superclasses in the same project) and the DataShapes it
+  ships. `impact` on an extension template's service names the solution's Things, scripts and
+  mashups that use it, `catalog` shows its signatures marked `[extension <name>]`, and the mashup
+  binding checks resolve its services. The extension is only read; no command writes to it, and
+  an absent or unreadable one is reported without stopping anything else.
+- `twaco ext check [<root>]` (MCP `ext_check`) checks a Java extension project in its own folder,
+  offline and without a solution: classes `metadata.xml` names that the source lacks, an undeclared
+  `thingPackage`, JarResources files that are not there and are not the jar the build makes,
+  widget files, `packageVersion` against `extension.properties`, duplicate services, properties
+  or events, and base types; notes for what it cannot prove. It exits non-zero on a finding.
+- `twaco ext new <name>` and `twaco ext add thing-template|thing-shape|resource|widget|jar <name>`
+  (MCP `ext_new`, `ext_add`) lay out a Java extension project (Gradle build that makes the
+  importable zip, metadata.xml, the Extension SDK's jars in `twx-lib/`) and add to one: the Java
+  class or widget files with their metadata.xml entry, which keeps its formatting. A plan unless
+  `--apply`; an applied run ends with `ext check`.
+- `twaco ext deploy [<extension>]` (MCP `ext_deploy`) builds one of the solution's
+  `[[extension]]` projects, has the server validate the package it makes and, with `--apply`,
+  installs it and confirms the server lists what its metadata.xml declares. `--bump
+  patch|minor|major` raises `packageVersion` first, since the server skips a version it has, and
+  puts it back if the build fails, or the install fails and the server lacks the new version;
+  an upgrade queued for the server's restart is reported as queued.
+- `twaco ext intellij` installs IntelliJ IDEA live templates for the ThingWorx extension
+  annotations (service, parameter, properties, events, subscriptions, configuration table,
+  logger) and External Tools for `ext check`, `ext add` and `ext deploy`; the files are also in
+  `editors/intellij/`.
+
+- `javadoc` can read the matching, offline Javadoc packaged in a ThingWorx Extension SDK: pass
+  `--sdk`, MCP `sdk`, `TWACO_SDK`, or a local profile's `sdk` path (SDK zip, extracted folder or
+  Javadoc jar). Results report the SDK version and jar source without copying PTC files into the
+  repository or cache.
+- Discovery reads every collection a ThingWorx export can hold, so a project's ThingGroups,
+  NotificationDefinitions, DataTags, Roles, PermissionGroups, ScriptFunctionLibraries and the
+  other system collections deploy and bundle like the rest. `check`'s project gate names a
+  folder under a project root that holds entity documents in no collection folder (a misspelt
+  `Thinsg/`, say), which deploy and bundle would otherwise leave out without a word.
+- The reference index reads AI agents and MCP namespaces: a namespace's tools and service
+  resources refer to the service on their Thing, template or shape, a File resource to its file
+  repository, and an agent to its namespaces, hierarchy resolver, taxonomy types and skill
+  repositories. `impact`, `unused` and the other index readers see them as structural, so
+  `impact <Thing> --member <service>` names the namespace whose tool calls it and the agent that
+  uses that namespace.
+- A new `check` gate, `ai references`, finds what breaks an agent: a tool calling a service its
+  provider, what that inherits, or the platform cache for a platform template does not declare;
+  a provider of the wrong kind; a namespace an agent references that is not there; an allowed
+  tool, resource or prompt the namespace does not define; a taxonomy type of the wrong kind; a
+  resolver that does not implement `HierarchyResolver`; and an MCP File resource or skill whose
+  file the `[repositories]` mirror does not hold, which makes the import refuse the namespace. A
+  provider, taxonomy type or resolver under the solution's own projects that the repository
+  lacks is a note, since another project may share the prefix.
+- `new mcp-namespace` (tools, service and file resources, prompts) and `new ai-agent`
+  (namespaces and what it may use from each, skills, hierarchy resolver, taxonomy rows, system
+  prompt), with MCP `entity_new` kinds `mcp-namespace` and `ai-agent`. Each reference is checked
+  as the `ai references` gate checks it, and the files are the platform's 10.2 export, so a
+  first deploy reads back as kept. ThingWorx refuses a tool, resource or prompt without a
+  description: a tool takes its service's, a prompt its text, and `--describe` sets any.
+- `mcp-namespace add|remove`, `agent allow|disallow`, `agent taxonomy add|remove`,
+  `agent skill add|remove` and `agent set` (resolver, instructions, routing description, display
+  name), and the matching MCP `entity_edit` actions. Each writes what `new` would have written,
+  and undoing an edit gives back the same bytes. Removing a namespace item takes it out of every
+  agent that allows it, because the import refuses a namespace that drops an item an agent on
+  the server still allows.
+- `deploy` removes a namespace item an agent allows in one run. Before the first import it
+  imports each deployed agent whose server copy allows an item a deployed namespace drops as
+  that copy without those allowances, then the bundles as usual; the plan says so for each agent
+  (MCP `agents_narrowed_first`, items by kind). If the bundle that writes the agent does not
+  import, the server's own copy is put back; when a namespace it was narrowed for did import, it
+  stays narrowed, which is what that namespace allows, and the baseline records it. An agent on
+  the server outside the deploy that allows a dropped item refuses the deploy before anything is
+  sent, naming the agent and the items.
+- The reference index reads more structure: a Thing's or template's value stream, a data
+  table's or stream's DataShape, a Network's Things, a Menu's mashups, a mashup's master, and the
+  users and groups in a group or an organization. `impact` on a value stream lists the Things
+  logging to it, on a group the organizations it belongs to. `unused` treats Networks, Menus, AI
+  agents, MCP namespaces, groups and organizations as entry points, since the platform uses them
+  by their being there, so a Thing in a hierarchy, or one whose service an agent's tool calls, is
+  no longer reported.
+- ThingGroups are read into the index too: `impact` on a Thing names the ThingGroups that hold it,
+  and `unused` treats a ThingGroup as an entry point.
+- `check`'s project gate reads an entity's model tags: a tag that is not `Vocabulary:Term`, and
+  a term that a fixed vocabulary of the solution does not have. A vocabulary the solution does
+  not define is the platform's or another solution's and is not judged.
+
+### Changed
+
+- The reference index reads the solution once instead of twice, and `trace`, `docs` and
+  `mashup describe` reuse what it read rather than reading every entity again for each mashup.
+  On a 228-entity solution with 12 projects, `trace` fell from about 2.7 s to 0.22 s, `docs`
+  from 0.64 s to 0.28 s, `unused` from 0.43 s to 0.22 s and `mashup describe` from 0.23 s to
+  0.12 s. `check` reads the solution once for all its gates rather than about nine times, and
+  went from about 1.2 s to 0.64 s; `mashup validate` reads it once rather than twice. The
+  answers are unchanged.
+
+### Fixed
+
+- The AI agent reader no longer panics on a self-closed empty value, such as `<entityType/>`,
+  which the Exporter writes where a file export writes an empty pair of tags.
+- `ext import --apply` (MCP `extension_write`) reads the server's install report, not only its
+  validation: an upgrade the server queues for its next restart is reported as queued rather
+  than as an HTTP 406 error, a refused install says why in one line rather than as a cut-off JSON
+  reply, and a version the server has already is refused up front, since the server skips it
+  while answering success.
+- `search --modified-since` checks the order of every dated row, not only those before the
+  cut, so a server that ignores the order is refused instead of a newer change behind an older
+  one being left out unseen.
+- `javadoc service` reads a call whose arguments hold an array, such as
+  `Resources["InfoTableFunctions"].Sort({ rows: [] })`, and an entity name holding a bracket.
+- twaco's own copy of a service call's body, which for `db` carries the database password, is
+  zeroed once the call returns rather than when the command ends, as its other credential copies
+  already were. Copies inside the HTTP library are outside its reach.
+
 ## [0.1.36] - 2026-10-25
 
 ### Added
@@ -37,8 +151,9 @@ All notable changes to twaco are recorded here. The format follows
 - `logs level` is a subcommand of `logs` rather than a first operand named `level`. `--sublogger`,
   `--reset` and `--apply` belong to it alone, so `logs <log> --reset` is a usage error from the
   parser, and any option before `level` (`--profile` and `--log` included) is refused instead of
-  being dropped: write `logs level <log> --profile <name>`. `logs --help` now shows reading only;
-  `logs level --help` shows the level usage.
+  being dropped: write `logs level <log> --profile <name>`. `--json`, which `logs level` accepted
+  and ignored, is refused. `logs --help` now shows reading only; `logs level --help` shows the
+  level usage.
 - A tab, line feed or carriage return in a value twaco writes into an attribute is written as a
   character reference, so a server's XML parser reads it back as given instead of as a space.
 
@@ -71,8 +186,8 @@ All notable changes to twaco are recorded here. The format follows
 ### Fixed
 
 - `bundle` no longer follows a linked folder under a collection, which bundled entities from
-  outside the solution; it now walks exactly as entity discovery does, so a linked file is left
-  out as `deploy` leaves it out, and `check` names it.
+  outside the solution; it now walks exactly as entity discovery does, so a link under a
+  collection makes it refuse, as `deploy` refuses, and `check` names the link.
 - `move` refuses a service sidecar folder that is or holds a link rather than deleting the files behind
   it, and removing emptied folders never enters a link.
 

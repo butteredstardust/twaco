@@ -13,7 +13,6 @@ use super::catalog::{self, CatalogService};
 use super::config::Solution;
 use super::entity::key::EntityKey;
 use super::index::{Confidence, EdgeKind, Index, Unreadable};
-use super::types;
 use serde::Serialize;
 use std::collections::BTreeMap;
 
@@ -133,7 +132,7 @@ pub fn build(solution: &Solution) -> Document {
                     .collect()
             })
             .unwrap_or_default();
-    let (model, _) = types::load_model(solution);
+    let model = index.model();
 
     let order = index.deploy_order();
     let projects = solution
@@ -706,7 +705,11 @@ mod tests {
             .find(|shape| shape.name == "Acme.Orders.OrderLine_DS")
             .unwrap();
         assert_eq!(line.fields.len(), 4);
-        assert_eq!(line.used_by, ["Things/Acme.Orders.Manager"]);
+        // The data table is built on it, as well as the Manager typing a result by it.
+        assert_eq!(
+            line.used_by,
+            ["Things/Acme.Orders.Lines_DT", "Things/Acme.Orders.Manager"]
+        );
     }
 
     #[test]

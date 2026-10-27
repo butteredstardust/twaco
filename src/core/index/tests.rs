@@ -1,6 +1,7 @@
 use super::*;
 use crate::core::catalog;
 use crate::core::config::Solution;
+use petgraph::visit::EdgeRef;
 use std::path::{Path, PathBuf};
 
 fn key(collection: &str, name: &str) -> EntityKey {
@@ -74,6 +75,167 @@ fn data_shape(name: &str, base: &str, fields: &[(&str, Option<&str>)]) -> String
         &base,
         &format!("<FieldDefinitions>{fields}</FieldDefinitions>"),
     )
+}
+
+#[test]
+fn agents_and_namespaces_link_their_declared_references() {
+    let (_dir, root) = scratch("agents");
+    write(&root, "twaco.toml", "[[project]]\nname = \"P\"\n");
+    write(
+        &root,
+        "Things/P.Provider.xml",
+        &entity(
+            "Things",
+            "Thing",
+            "P.Provider",
+            "P",
+            "",
+            &format!(
+                "<ThingShape><ServiceDefinitions>{}</ServiceDefinitions></ThingShape>",
+                service("Run", None, None)
+            ),
+        ),
+    );
+    write(
+        &root,
+        "Things/P.Files.xml",
+        &entity("Things", "Thing", "P.Files", "P", "", ""),
+    );
+    write(
+        &root,
+        "Things/P.Resolver.xml",
+        &entity("Things", "Thing", "P.Resolver", "P", "", ""),
+    );
+    write(
+        &root,
+        "ThingTemplates/P.Template.xml",
+        &entity(
+            "ThingTemplates",
+            "ThingTemplate",
+            "P.Template",
+            "P",
+            "",
+            &format!(
+                "<ServiceDefinitions>{}</ServiceDefinitions>",
+                service("TemplateRun", None, None)
+            ),
+        ),
+    );
+    write(
+        &root,
+        "ThingShapes/P.Shape.xml",
+        &entity("ThingShapes", "ThingShape", "P.Shape", "P", "", ""),
+    );
+    write(
+        &root,
+        "MCPNamespaces/P.Tools.xml",
+        &entity(
+            "MCPNamespaces",
+            "MCPNamespace",
+            "P.Tools",
+            "P",
+            "",
+            r#"<MCPTools><MCPTool name="run" serviceName="Run" serviceProvider="P.Provider" serviceProviderType="Thing"/><MCPTool name="template" serviceName="TemplateRun" serviceProvider="P.Template" serviceProviderType="ThingTemplate"/></MCPTools><MCPResources><MCPResource name="resource" type="Service"><ServiceDefinition serviceName="Run" serviceProvider="P.Provider" serviceProviderType="Thing"/></MCPResource><MCPResource name="manual" type="File"><FileDefinition filePath="/manual.md" fileRepository="P.Files"/></MCPResource></MCPResources>"#,
+        ),
+    );
+    write(
+        &root,
+        "AIAgents/P.Agent.xml",
+        &entity(
+            "AIAgents",
+            "AIAgent",
+            "P.Agent",
+            "P",
+            "",
+            r#"<ConfigurationTables><ConfigurationTable name="TaxonomyConfiguration"><Rows><Row><entityType><![CDATA[ThingShape]]></entityType><entityTypeName><![CDATA[P.Shape]]></entityTypeName></Row></Rows></ConfigurationTable><ConfigurationTable name="HierarchyConfiguration"><Rows><Row><resolverThingName><![CDATA[P.Resolver]]></resolverThingName></Row></Rows></ConfigurationTable></ConfigurationTables><SkillReferences><SkillReference repositoryName="P.Files" skillPath="/skill"/></SkillReferences><MCPNamespaceReferences><MCPNamespaceReference name="P.Tools"/></MCPNamespaceReferences>"#,
+        ),
+    );
+    let solution = Solution::load(&root.join("twaco.toml")).unwrap();
+    let index = Index::build(&solution);
+    let has = |from: &str,
+               to: &str,
+               kind: EdgeKind,
+               from_member: Option<&str>,
+               to_member: Option<&str>| {
+        index.graph.edge_references().any(|edge| {
+            index.graph[edge.source()].label() == from
+                && index.graph[edge.target()].label() == to
+                && edge.weight().kind == kind
+                && edge.weight().from_member.as_deref() == from_member
+                && edge.weight().to_member.as_deref() == to_member
+        })
+    };
+    assert!(has(
+        "MCPNamespaces/P.Tools",
+        "Things/P.Provider",
+        EdgeKind::McpTool,
+        Some("run"),
+        Some("Run")
+    ));
+    assert!(has(
+        "MCPNamespaces/P.Tools",
+        "ThingTemplates/P.Template",
+        EdgeKind::McpTool,
+        Some("template"),
+        Some("TemplateRun")
+    ));
+    assert!(has(
+        "MCPNamespaces/P.Tools",
+        "Things/P.Provider",
+        EdgeKind::McpTool,
+        Some("resource"),
+        Some("Run")
+    ));
+    assert!(has(
+        "MCPNamespaces/P.Tools",
+        "Things/P.Files",
+        EdgeKind::McpFile,
+        Some("manual"),
+        None
+    ));
+    assert!(has(
+        "AIAgents/P.Agent",
+        "MCPNamespaces/P.Tools",
+        EdgeKind::AgentNamespace,
+        None,
+        None
+    ));
+    assert!(has(
+        "AIAgents/P.Agent",
+        "ThingShapes/P.Shape",
+        EdgeKind::AgentConfig,
+        Some("taxonomy"),
+        None
+    ));
+    assert!(has(
+        "AIAgents/P.Agent",
+        "Things/P.Resolver",
+        EdgeKind::AgentConfig,
+        Some("resolver"),
+        None
+    ));
+    assert!(has(
+        "AIAgents/P.Agent",
+        "Things/P.Files",
+        EdgeKind::AgentConfig,
+        Some("skill"),
+        None
+    ));
+    let dependent = index.dependents(
+        &key("Things", "P.Provider"),
+        &DependentOptions {
+            member: Some("Run".to_string()),
+            min: Confidence::Structural,
+            max_depth: Some(2),
+        },
+    );
+    assert_eq!(
+        dependent
+            .iter()
+            .map(|item| (item.label.as_str(), item.depth))
+            .collect::<Vec<_>>(),
+        [("MCPNamespaces/P.Tools", 1), ("AIAgents/P.Agent", 2)]
+    );
 }
 
 /// One project `P` with a template chain, a shape, DataShapes that type services and a base, and
@@ -1207,4 +1369,174 @@ fn an_exported_data_section_binds_each_service_it_lists_and_only_those() {
     };
     assert_eq!(asked("Run"), ["Mashups/P.Panel"]);
     assert!(asked("Other").is_empty(), "{:?}", asked("Other"));
+}
+
+#[test]
+fn value_streams_data_things_networks_menus_masters_and_members_are_structural() {
+    let (_dir, root) = scratch("links");
+    write(&root, "twaco.toml", "[[project]]\nname = \"P\"\n");
+    let thing = |name: &str, attributes: &str, body: &str| {
+        entity("Things", "Thing", name, "P", attributes, body)
+    };
+    write(
+        &root,
+        "Things/P.Log.xml",
+        &thing("P.Log", " thingTemplate=\"ValueStream\"", ""),
+    );
+    write(
+        &root,
+        "Things/P.Asset.xml",
+        &thing("P.Asset", " valueStream=\"P.Log\"", ""),
+    );
+    write(
+        &root,
+        "ThingTemplates/P.Asset_TT.xml",
+        &entity(
+            "ThingTemplates",
+            "ThingTemplate",
+            "P.Asset_TT",
+            "P",
+            " valueStream=\"P.Log\"",
+            "",
+        ),
+    );
+    write(
+        &root,
+        "DataShapes/P.Row.xml",
+        &entity("DataShapes", "DataShape", "P.Row", "P", "", ""),
+    );
+    write(
+        &root,
+        "Things/P.Rows.xml",
+        &thing(
+            "P.Rows",
+            " thingTemplate=\"DataTable\"",
+            r#"<ConfigurationTables><ConfigurationTable name="Settings"><Rows><Row><dataShape><![CDATA[P.Row]]></dataShape></Row></Rows></ConfigurationTable></ConfigurationTables>"#,
+        ),
+    );
+    write(
+        &root,
+        "Networks/P.Plant.xml",
+        &entity(
+            "Networks",
+            "Network",
+            "P.Plant",
+            "P",
+            "",
+            r#"<Connections><Connection from="" to="P.Asset" type="Child"/><Connection from="P.Asset" to="P.Rows" type="Child"/></Connections>"#,
+        ),
+    );
+    write(
+        &root,
+        "Mashups/P.Home.xml",
+        &entity(
+            "Mashups",
+            "Mashup",
+            "P.Home",
+            "P",
+            "",
+            r#"<mashupContent><![CDATA[{"UI":{"Properties":{"Master":"P.Frame"}}}]]></mashupContent>"#,
+        ),
+    );
+    write(
+        &root,
+        "Mashups/P.Frame.xml",
+        &entity(
+            "Mashups",
+            "Mashup",
+            "P.Frame",
+            "P",
+            "",
+            r#"<mashupContent><![CDATA[{"UI":{"Properties":{}}}]]></mashupContent>"#,
+        ),
+    );
+    write(
+        &root,
+        "Menus/P.Main.xml",
+        &entity(
+            "Menus",
+            "Menu",
+            "P.Main",
+            "P",
+            "",
+            r#"<MenuItems><MenuItem linkType="Mashup" linkDestination="P.Home" title="Home"/><MenuItem linkType="Hyperlink" linkDestination="P.Frame" title="Web"/></MenuItems>"#,
+        ),
+    );
+    write(
+        &root,
+        "Users/P.Ann.xml",
+        &entity("Users", "User", "P.Ann", "P", "", ""),
+    );
+    write(
+        &root,
+        "Groups/P.Viewers.xml",
+        &entity(
+            "Groups",
+            "Group",
+            "P.Viewers",
+            "P",
+            "",
+            r#"<Members><Members><Member name="P.Ann" type="User"/></Members></Members>"#,
+        ),
+    );
+    write(
+        &root,
+        "Organizations/P.Org.xml",
+        &entity(
+            "Organizations",
+            "Organization",
+            "P.Org",
+            "P",
+            "",
+            r#"<OrganizationalUnits><OrganizationalUnit name="Root"><Members><Members><Member name="P.Viewers" type="Group"/></Members></Members></OrganizationalUnit></OrganizationalUnits>"#,
+        ),
+    );
+    write(
+        &root,
+        "ThingGroups/P.Site.xml",
+        &entity(
+            "ThingGroups",
+            "ThingGroup",
+            "P.Site",
+            "P",
+            "",
+            r#"<Members><Member name="P.Asset" type="Thing"/><Member name="P.Line" type="ThingGroup"/></Members>"#,
+        ),
+    );
+    write(
+        &root,
+        "ThingGroups/P.Line.xml",
+        &entity("ThingGroups", "ThingGroup", "P.Line", "P", "", ""),
+    );
+    let solution = Solution::load(&root.join("twaco.toml")).unwrap();
+    let index = Index::build(&solution);
+    let has = |from: &str, to: &str, kind: EdgeKind| {
+        index.graph.edge_references().any(|edge| {
+            index.graph[edge.source()].label() == from
+                && index.graph[edge.target()].label() == to
+                && edge.weight().kind == kind
+        })
+    };
+    for (from, to, kind) in [
+        ("Things/P.Asset", "Things/P.Log", EdgeKind::ValueStream),
+        (
+            "ThingTemplates/P.Asset_TT",
+            "Things/P.Log",
+            EdgeKind::ValueStream,
+        ),
+        ("Things/P.Rows", "DataShapes/P.Row", EdgeKind::DataShape),
+        ("Networks/P.Plant", "Things/P.Asset", EdgeKind::NetworkNode),
+        ("Networks/P.Plant", "Things/P.Rows", EdgeKind::NetworkNode),
+        ("Menus/P.Main", "Mashups/P.Home", EdgeKind::MenuItem),
+        ("Mashups/P.Home", "Mashups/P.Frame", EdgeKind::MasterMashup),
+        ("Groups/P.Viewers", "Users/P.Ann", EdgeKind::Member),
+        ("Organizations/P.Org", "Groups/P.Viewers", EdgeKind::Member),
+        ("ThingGroups/P.Site", "Things/P.Asset", EdgeKind::Member),
+        ("ThingGroups/P.Site", "ThingGroups/P.Line", EdgeKind::Member),
+    ] {
+        assert!(has(from, to, kind), "{from} -> {to} ({kind:?})");
+        assert_eq!(kind.confidence(), Confidence::Structural);
+    }
+    // A hyperlink item opens a URL, not the mashup it happens to name.
+    assert!(!has("Menus/P.Main", "Mashups/P.Frame", EdgeKind::MenuItem));
 }

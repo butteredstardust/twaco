@@ -1,7 +1,7 @@
 == twaco
 usage: twaco <command>
 settings: version disable-help-subcommand subcommand-required arg-required-else-help
-subcommands: adopt appkey bundle call catalog check completions config-table contract copy datatable db deploy docs doctor entity export ext extract fmt guide handoff help impact import init javadoc localization logs mashup mcp media menu move network new package permissions projects rename repo reproject requirements retemplate scheduler search settings state style sync test thing timer trace types unused update users widgets
+subcommands: adopt agent appkey bundle call catalog check completions config-table contract copy datatable db deploy docs doctor entity export ext extract fmt guide handoff help impact import init javadoc localization logs mashup mcp mcp-namespace media menu move network new package permissions projects rename repo reproject requirements retemplate scheduler search settings state style sync test thing timer trace types unused update users widgets
 arg --help
     action: Help
     value_name: -
@@ -302,6 +302,26 @@ help:
 |   menu item remove <Menu> <Title> [--apply] [--json]
 |                               add or remove a mashup item, keeping the effective menu in step;
 |                               plan unless --apply
+|   mcp-namespace add <Namespace> tool|service-resource|file-resource|prompt <spec> [--description <text>]
+|       [--apply] [--json]
+|                               add a tool, resource or prompt, written as new mcp-namespace writes it;
+|                               plan unless --apply
+|   mcp-namespace remove <Namespace> <name> [--apply] [--json]
+|                               remove a tool, resource or prompt and every agent's permission to use
+|                               it; push those agents before the namespace; plan unless --apply
+|   agent allow <Agent> <Namespace[=item,...]> [--apply] [--json]
+|                               let the agent use a namespace, or more of it; plan unless --apply
+|   agent disallow <Agent> <Namespace[=item,...]> [--apply] [--json]
+|                               stop the agent using those items, or the whole namespace; plan unless --apply
+|   agent taxonomy add <Agent> <TemplateOrShape[=alias, alias]> [--apply] [--json]
+|   agent taxonomy remove <Agent> <TemplateOrShape> [--apply] [--json]
+|                               add or remove a taxonomy row; plan unless --apply
+|   agent skill add|remove <Agent> <Repository:/path> [--apply] [--json]
+|                               add or remove a skill folder; plan unless --apply
+|   agent set <Agent> [--resolver <Thing>] [--instructions <text>|--instructions-file <file>]
+|       [--agent-description <text>] [--display-name <text>] [--apply] [--json]
+|                               change the resolver (an empty one clears it), the system prompt or the
+|                               display name; plan unless --apply
 |   state set <StateDefinition> --type numeric|string --state <spec>... [--apply] [--json]
 |                               replace a StateDefinition's states (the specs of new state);
 |                               plan unless --apply
@@ -352,6 +372,24 @@ help:
 |                               create a StyleTheme; plan unless --apply
 |   new network <name> [--project <name>] [--description <text>] [--apply] [--json]
 |                               create an empty Network entity; plan unless --apply
+|   new mcp-namespace <name> [--tool name=Provider.Service]... [--service-resource name=Provider.Service]...
+|       [--file-resource name=Repository:/path]... [--prompt name=text]... [--describe name=text]...
+|       [--project <name>] [--description <text>] [--apply] [--json]
+|                               create an MCP namespace of tools, resources and prompts; plan unless --apply
+|       --tool                  a tool calling a service; prefix the provider Thing:, ThingTemplate: or
+|                               ThingShape: to name one outside the solution; the service's description
+|                               becomes the tool's
+|       --prompt                {{argument}} placeholders in the text become required arguments
+|       --describe              a tool's, resource's or prompt's description, which ThingWorx requires;
+|                               by default a tool's is its service's, a prompt's its text
+|   new ai-agent <name> --namespace <Namespace[=item,...]>... [--skill Repository:/path]...
+|       [--resolver <Thing>] [--taxonomy <TemplateOrShape[=alias, alias]>]... [--instructions <text>|
+|       --instructions-file <file>] [--agent-description <text>] [--display-name <text>]
+|       [--project <name>] [--description <text>] [--apply] [--json]
+|                               create an AI agent; plan unless --apply
+|       --namespace             everything the namespace defines, or the tools, resources and prompts
+|                               named; AgentUtilities, the platform's, gives its standard tools
+|       --agent-description     what the assistant routes questions to the agent by
 |   network list [--json]       list repository Networks and their hierarchy counts
 |   network show <Network> [<Thing>] [--depth <n>] [--server] [--profile <name>] [--json]
 |                               a Network's hierarchy as a tree: each Thing's template, things outside
@@ -555,6 +593,24 @@ help:
 |   ext show <package>          one package: its extensions, and which are in use
 |   ext import <zip>            validate a package on the server; --apply installs it
 |   ext remove <package>        plan removing a package (refused while in use); --apply removes it
+|   ext check [<root>] [--json] a Java extension project, offline: metadata.xml against the Java
+|                               source, its jars, widgets and version; needs no solution
+|   ext new <name> [--dir <dir>] [--package <java.package>] [--vendor <text>]
+|       [--package-version <x.y.z>] [--min-thingworx <x.y.z>] [--description <text>] [--sdk <path>]
+|                               lay out a Java extension project: Gradle build, metadata.xml and
+|                               the SDK's jars in twx-lib/ (--sdk or TWACO_SDK); plan unless --apply
+|   ext add thing-template|thing-shape|resource|widget|jar <name> [--dir <root>]
+|       [--package <java.package>] [--base-template <ThingTemplate>] [--description <text>]
+|                               add a Java class or widget files, or copy a jar into lib/, with its
+|                               metadata.xml entry; plan unless --apply
+|   ext deploy [<extension>] [--bump patch|minor|major] [--no-build]
+|                               build an [[extension]] and have the server validate its package;
+|                               --apply installs it and confirms what metadata.xml declares
+|       --bump                  raise packageVersion first: the server skips a version it has
+|       --no-build              send the newest package zip under build/ or zip/ as it is
+|   ext intellij [--dir <config>]
+|                               put the ThingWorx live templates and twaco External Tools into the
+|                               newest IntelliJ IDEA configuration (or --dir); plan unless --apply
 |   search [<text>] [--type <T>[,<T>]] [--project P] [--limit <n>] [--json]
 |                               the server's entity search (Composer's Spotlight): text
 |                               in a name or description, or a pattern with *
@@ -589,10 +645,11 @@ help:
 |       --version <10.1>        another release; --limit <n>; --refresh; --json
 |       --profile <name>        the server whose version to read (default: default)
 |   javadoc search <name>       search ThingWorx Platform Java API classes and members
-|       --limit <n>; --refresh; --json
-|   javadoc class <Name|pkg.Name>  read a class as Markdown; --member <name>; --refresh; --json
+|       --limit <n>; --sdk <path>; --refresh; --json
+|   javadoc class <Name|pkg.Name>  read a class as Markdown; --member <name>; --sdk <path>; --refresh; --json
 |   javadoc service <ref>       one service as a script names it: 'Resources["X"].Y', Things/T.Y,
-|                               me.Y or Class.Y; looks in the classes it extends; --refresh; --json
+|                               me.Y or Class.Y; looks in the classes it extends; --sdk <path>; --refresh; --json
+|       --profile <name>        SDK from this profile when --sdk and TWACO_SDK are unset; --refresh is ignored for an SDK
 | 
 |   --project <name>            narrow to one project of the solution
 |   --profile <name>            the server profile (default: default)
@@ -760,6 +817,490 @@ help:
 |       --base <file|handoff|git rev>  collaborator's starting point; --only ui|backend
 |       --take theirs:<name>,ours:<name>  resolve conflicts (theirs:ui takes every UI one)
 |       --entity <name>; --detail; --json; --fail-on-revert; --suggest-base
+| 
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
+== twaco agent
+usage: twaco agent <command>
+settings: disable-version-flag disable-help-subcommand subcommand-required arg-required-else-help
+subcommands: allow disallow set skill taxonomy
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+help:
+| usage: twaco agent <command>
+| 
+|   agent allow <Agent> <Namespace[=item,...]> [--apply] [--json]
+|                               let the agent use a namespace, or more of it; plan unless --apply
+|   agent disallow <Agent> <Namespace[=item,...]> [--apply] [--json]
+|                               stop the agent using those items, or the whole namespace; plan unless --apply
+|   agent taxonomy add <Agent> <TemplateOrShape[=alias, alias]> [--apply] [--json]
+|   agent taxonomy remove <Agent> <TemplateOrShape> [--apply] [--json]
+|                               add or remove a taxonomy row; plan unless --apply
+|   agent skill add|remove <Agent> <Repository:/path> [--apply] [--json]
+|                               add or remove a skill folder; plan unless --apply
+|   agent set <Agent> [--resolver <Thing>] [--instructions <text>|--instructions-file <file>]
+|       [--agent-description <text>] [--display-name <text>] [--apply] [--json]
+|                               change the resolver (an empty one clears it), the system prompt or the
+|                               display name; plan unless --apply
+| 
+|   --project <name>            narrow to one project of the solution
+|   --profile <name>            the server profile (default: default)
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
+== twaco agent allow
+usage: twaco agent allow <Agent> <Namespace[=item,...]> [--apply] [--json]
+settings: disable-version-flag disable-help-subcommand
+subcommands: 
+arg --apply
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+arg --json
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg <operands>
+    action: Append
+    value_name: operand
+    num_args: 0..
+    allow_hyphen_values: no
+    allow_negative_numbers: yes
+    required: no
+    default: -
+    index: 1
+    other: -
+help:
+|   agent allow <Agent> <Namespace[=item,...]> [--apply] [--json]
+|                               let the agent use a namespace, or more of it; plan unless --apply
+| 
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
+== twaco agent disallow
+usage: twaco agent disallow <Agent> <Namespace[=item,...]> [--apply] [--json]
+settings: disable-version-flag disable-help-subcommand
+subcommands: 
+arg --apply
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+arg --json
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg <operands>
+    action: Append
+    value_name: operand
+    num_args: 0..
+    allow_hyphen_values: no
+    allow_negative_numbers: yes
+    required: no
+    default: -
+    index: 1
+    other: -
+help:
+|   agent disallow <Agent> <Namespace[=item,...]> [--apply] [--json]
+|                               stop the agent using those items, or the whole namespace; plan unless --apply
+| 
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
+== twaco agent set
+usage: twaco agent set <Agent> [--resolver <Thing>] [--instructions <text>|--instructions-file <file>]
+settings: disable-version-flag disable-help-subcommand
+subcommands: 
+arg --agent-description
+    action: Set
+    value_name: text
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --apply
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --display-name
+    action: Set
+    value_name: text
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+arg --instructions
+    action: Set
+    value_name: text
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --instructions-file
+    action: Set
+    value_name: file
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --json
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --resolver
+    action: Set
+    value_name: Thing
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg <operands>
+    action: Append
+    value_name: operand
+    num_args: 0..
+    allow_hyphen_values: no
+    allow_negative_numbers: yes
+    required: no
+    default: -
+    index: 1
+    other: -
+help:
+|   agent set <Agent> [--resolver <Thing>] [--instructions <text>|--instructions-file <file>]
+|       [--agent-description <text>] [--display-name <text>] [--apply] [--json]
+|                               change the resolver (an empty one clears it), the system prompt or the
+|                               display name; plan unless --apply
+| 
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
+== twaco agent skill
+usage: twaco agent skill add|remove <Agent> <Repository:/path> [--apply] [--json]
+settings: disable-version-flag disable-help-subcommand
+subcommands: 
+arg --apply
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+arg --json
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg <operands>
+    action: Append
+    value_name: operand
+    num_args: 0..
+    allow_hyphen_values: no
+    allow_negative_numbers: yes
+    required: no
+    default: -
+    index: 1
+    other: -
+help:
+|   agent skill add|remove <Agent> <Repository:/path> [--apply] [--json]
+|                               add or remove a skill folder; plan unless --apply
+| 
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
+== twaco agent taxonomy
+usage: twaco agent taxonomy add <Agent> <TemplateOrShape[=alias, alias]> [--apply] [--json]
+settings: disable-version-flag disable-help-subcommand
+subcommands: 
+arg --apply
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+arg --json
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg <operands>
+    action: Append
+    value_name: operand
+    num_args: 0..
+    allow_hyphen_values: no
+    allow_negative_numbers: yes
+    required: no
+    default: -
+    index: 1
+    other: -
+help:
+|   agent taxonomy add <Agent> <TemplateOrShape[=alias, alias]> [--apply] [--json]
+|   agent taxonomy remove <Agent> <TemplateOrShape> [--apply] [--json]
+|                               add or remove a taxonomy row; plan unless --apply
 | 
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
@@ -3926,6 +4467,54 @@ arg --apply
     index: -
     other: -
     given twice: accepted
+arg --base-template
+    action: Set
+    value_name: ThingTemplate
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --bump
+    action: Set
+    value_name: patch|minor|major
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --description
+    action: Set
+    value_name: text
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --dir
+    action: Set
+    value_name: dir
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 arg --help
     action: Help
     value_name: -
@@ -3971,9 +4560,80 @@ arg --log-file
     other: -
     given twice: ArgumentConflict
     given bare: InvalidValue
+arg --min-thingworx
+    action: Set
+    value_name: x.y.z
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --no-build
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --package
+    action: Set
+    value_name: java.package
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --package-version
+    action: Set
+    value_name: x.y.z
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 arg --profile
     action: Set
     value_name: name
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --sdk
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --vendor
+    action: Set
+    value_name: text
     num_args: 1
     allow_hyphen_values: yes
     allow_negative_numbers: no
@@ -3998,6 +4658,24 @@ help:
 |   ext show <package>          one package: its extensions, and which are in use
 |   ext import <zip>            validate a package on the server; --apply installs it
 |   ext remove <package>        plan removing a package (refused while in use); --apply removes it
+|   ext check [<root>] [--json] a Java extension project, offline: metadata.xml against the Java
+|                               source, its jars, widgets and version; needs no solution
+|   ext new <name> [--dir <dir>] [--package <java.package>] [--vendor <text>]
+|       [--package-version <x.y.z>] [--min-thingworx <x.y.z>] [--description <text>] [--sdk <path>]
+|                               lay out a Java extension project: Gradle build, metadata.xml and
+|                               the SDK's jars in twx-lib/ (--sdk or TWACO_SDK); plan unless --apply
+|   ext add thing-template|thing-shape|resource|widget|jar <name> [--dir <root>]
+|       [--package <java.package>] [--base-template <ThingTemplate>] [--description <text>]
+|                               add a Java class or widget files, or copy a jar into lib/, with its
+|                               metadata.xml entry; plan unless --apply
+|   ext deploy [<extension>] [--bump patch|minor|major] [--no-build]
+|                               build an [[extension]] and have the server validate its package;
+|                               --apply installs it and confirms what metadata.xml declares
+|       --bump                  raise packageVersion first: the server skips a version it has
+|       --no-build              send the newest package zip under build/ or zip/ as it is
+|   ext intellij [--dir <config>]
+|                               put the ThingWorx live templates and twaco External Tools into the
+|                               newest IntelliJ IDEA configuration (or --dir); plan unless --apply
 | 
 |   --profile <name>            the server profile (default: default)
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
@@ -4945,6 +5623,18 @@ arg --member
     other: -
     given twice: ArgumentConflict
     given bare: InvalidValue
+arg --profile
+    action: Set
+    value_name: name
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 arg --refresh
     action: SetTrue
     value_name: -
@@ -4956,6 +5646,18 @@ arg --refresh
     index: -
     other: -
     given twice: accepted
+arg --sdk
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 arg <action>
     action: Set
     value_name: action
@@ -4978,11 +5680,13 @@ arg <operands>
     other: -
 help:
 |   javadoc search <name>       search ThingWorx Platform Java API classes and members
-|       --limit <n>; --refresh; --json
-|   javadoc class <Name|pkg.Name>  read a class as Markdown; --member <name>; --refresh; --json
+|       --limit <n>; --sdk <path>; --refresh; --json
+|   javadoc class <Name|pkg.Name>  read a class as Markdown; --member <name>; --sdk <path>; --refresh; --json
 |   javadoc service <ref>       one service as a script names it: 'Resources["X"].Y', Things/T.Y,
-|                               me.Y or Class.Y; looks in the classes it extends; --refresh; --json
+|                               me.Y or Class.Y; looks in the classes it extends; --sdk <path>; --refresh; --json
+|       --profile <name>        SDK from this profile when --sdk and TWACO_SDK are unset; --refresh is ignored for an SDK
 | 
+|   --profile <name>            the server profile (default: default)
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
 
@@ -7307,6 +8011,205 @@ help:
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
 
+== twaco mcp-namespace
+usage: twaco mcp-namespace <command>
+settings: disable-version-flag disable-help-subcommand subcommand-required arg-required-else-help
+subcommands: add remove
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+help:
+| usage: twaco mcp-namespace <command>
+| 
+|   mcp-namespace add <Namespace> tool|service-resource|file-resource|prompt <spec> [--description <text>]
+|       [--apply] [--json]
+|                               add a tool, resource or prompt, written as new mcp-namespace writes it;
+|                               plan unless --apply
+|   mcp-namespace remove <Namespace> <name> [--apply] [--json]
+|                               remove a tool, resource or prompt and every agent's permission to use
+|                               it; push those agents before the namespace; plan unless --apply
+| 
+|   --project <name>            narrow to one project of the solution
+|   --profile <name>            the server profile (default: default)
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
+== twaco mcp-namespace add
+usage: twaco mcp-namespace add <Namespace> tool|service-resource|file-resource|prompt <spec> [--description <text>]
+settings: disable-version-flag disable-help-subcommand
+subcommands: 
+arg --apply
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --description
+    action: Set
+    value_name: text
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+arg --json
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg <operands>
+    action: Append
+    value_name: operand
+    num_args: 0..
+    allow_hyphen_values: no
+    allow_negative_numbers: yes
+    required: no
+    default: -
+    index: 1
+    other: -
+help:
+|   mcp-namespace add <Namespace> tool|service-resource|file-resource|prompt <spec> [--description <text>]
+|       [--apply] [--json]
+|                               add a tool, resource or prompt, written as new mcp-namespace writes it;
+|                               plan unless --apply
+| 
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
+== twaco mcp-namespace remove
+usage: twaco mcp-namespace remove <Namespace> <name> [--apply] [--json]
+settings: disable-version-flag disable-help-subcommand
+subcommands: 
+arg --apply
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+arg --json
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg <operands>
+    action: Append
+    value_name: operand
+    num_args: 0..
+    allow_hyphen_values: no
+    allow_negative_numbers: yes
+    required: no
+    default: -
+    index: 1
+    other: -
+help:
+|   mcp-namespace remove <Namespace> <name> [--apply] [--json]
+|                               remove a tool, resource or prompt and every agent's permission to use
+|                               it; push those agents before the namespace; plan unless --apply
+| 
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
 == twaco media
 usage: twaco media <command>
 settings: disable-version-flag disable-help-subcommand subcommand-required arg-required-else-help
@@ -8613,7 +9516,7 @@ help:
 == twaco new
 usage: twaco new <command>
 settings: disable-version-flag disable-help-subcommand subcommand-required arg-required-else-help
-subcommands: building-block data-shape data-table group media menu network project scheduler state stream style theme thing thing-shape thing-template timer value-stream
+subcommands: ai-agent building-block data-shape data-table group mcp-namespace media menu network project scheduler state stream style theme thing thing-shape thing-template timer value-stream
 arg --help
     action: Help
     value_name: -
@@ -8689,9 +9592,231 @@ help:
 |                               create a StyleTheme; plan unless --apply
 |   new network <name> [--project <name>] [--description <text>] [--apply] [--json]
 |                               create an empty Network entity; plan unless --apply
+|   new mcp-namespace <name> [--tool name=Provider.Service]... [--service-resource name=Provider.Service]...
+|       [--file-resource name=Repository:/path]... [--prompt name=text]... [--describe name=text]...
+|       [--project <name>] [--description <text>] [--apply] [--json]
+|                               create an MCP namespace of tools, resources and prompts; plan unless --apply
+|       --tool                  a tool calling a service; prefix the provider Thing:, ThingTemplate: or
+|                               ThingShape: to name one outside the solution; the service's description
+|                               becomes the tool's
+|       --prompt                {{argument}} placeholders in the text become required arguments
+|       --describe              a tool's, resource's or prompt's description, which ThingWorx requires;
+|                               by default a tool's is its service's, a prompt's its text
+|   new ai-agent <name> --namespace <Namespace[=item,...]>... [--skill Repository:/path]...
+|       [--resolver <Thing>] [--taxonomy <TemplateOrShape[=alias, alias]>]... [--instructions <text>|
+|       --instructions-file <file>] [--agent-description <text>] [--display-name <text>]
+|       [--project <name>] [--description <text>] [--apply] [--json]
+|                               create an AI agent; plan unless --apply
+|       --namespace             everything the namespace defines, or the tools, resources and prompts
+|                               named; AgentUtilities, the platform's, gives its standard tools
+|       --agent-description     what the assistant routes questions to the agent by
 | 
 |   --project <name>            narrow to one project of the solution
 |   --profile <name>            the server profile (default: default)
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
+== twaco new ai-agent
+usage: twaco new ai-agent <name> --namespace <Namespace[=item,...]>... [--skill Repository:/path]...
+settings: disable-version-flag disable-help-subcommand
+subcommands: 
+arg --agent-description
+    action: Set
+    value_name: text
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --apply
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --description
+    action: Set
+    value_name: text
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --display-name
+    action: Set
+    value_name: text
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+arg --instructions
+    action: Set
+    value_name: text
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --instructions-file
+    action: Set
+    value_name: file
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --json
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --namespace
+    action: Append
+    value_name: Namespace[=item,...]
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: accepted
+    given bare: InvalidValue
+arg --project
+    action: Set
+    value_name: name
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --resolver
+    action: Set
+    value_name: Thing
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --skill
+    action: Append
+    value_name: Repository:/path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: accepted
+    given bare: InvalidValue
+arg --taxonomy
+    action: Append
+    value_name: TemplateOrShape[=aliases]
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: accepted
+    given bare: InvalidValue
+arg <operands>
+    action: Append
+    value_name: operand
+    num_args: 0..
+    allow_hyphen_values: no
+    allow_negative_numbers: yes
+    required: no
+    default: -
+    index: 1
+    other: -
+help:
+|   new ai-agent <name> --namespace <Namespace[=item,...]>... [--skill Repository:/path]...
+|       [--resolver <Thing>] [--taxonomy <TemplateOrShape[=alias, alias]>]... [--instructions <text>|
+|       --instructions-file <file>] [--agent-description <text>] [--display-name <text>]
+|       [--project <name>] [--description <text>] [--apply] [--json]
+|                               create an AI agent; plan unless --apply
+|       --namespace             everything the namespace defines, or the tools, resources and prompts
+|                               named; AgentUtilities, the platform's, gives its standard tools
+|       --agent-description     what the assistant routes questions to the agent by
+| 
+|   --project <name>            narrow to one project of the solution
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
 
@@ -9238,6 +10363,176 @@ arg <operands>
 help:
 |   new group <name> [--project <name>] [--description <text>] [--apply] [--json]
 |                               create a ThingWorx Group without members as a repository file; plan unless --apply
+| 
+|   --project <name>            narrow to one project of the solution
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
+== twaco new mcp-namespace
+usage: twaco new mcp-namespace <name> [--tool name=Provider.Service]... [--service-resource name=Provider.Service]...
+settings: disable-version-flag disable-help-subcommand
+subcommands: 
+arg --apply
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --describe
+    action: Append
+    value_name: name=text
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: accepted
+    given bare: InvalidValue
+arg --description
+    action: Set
+    value_name: text
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --file-resource
+    action: Append
+    value_name: name=Repository:/path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: accepted
+    given bare: InvalidValue
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+arg --json
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --project
+    action: Set
+    value_name: name
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --prompt
+    action: Append
+    value_name: name=text
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: accepted
+    given bare: InvalidValue
+arg --service-resource
+    action: Append
+    value_name: name=Provider.Service
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: accepted
+    given bare: InvalidValue
+arg --tool
+    action: Append
+    value_name: name=Provider.Service
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: accepted
+    given bare: InvalidValue
+arg <operands>
+    action: Append
+    value_name: operand
+    num_args: 0..
+    allow_hyphen_values: no
+    allow_negative_numbers: yes
+    required: no
+    default: -
+    index: 1
+    other: -
+help:
+|   new mcp-namespace <name> [--tool name=Provider.Service]... [--service-resource name=Provider.Service]...
+|       [--file-resource name=Repository:/path]... [--prompt name=text]... [--describe name=text]...
+|       [--project <name>] [--description <text>] [--apply] [--json]
+|                               create an MCP namespace of tools, resources and prompts; plan unless --apply
+|       --tool                  a tool calling a service; prefix the provider Thing:, ThingTemplate: or
+|                               ThingShape: to name one outside the solution; the service's description
+|                               becomes the tool's
+|       --prompt                {{argument}} placeholders in the text become required arguments
+|       --describe              a tool's, resource's or prompt's description, which ThingWorx requires;
+|                               by default a tool's is its service's, a prompt's its text
 | 
 |   --project <name>            narrow to one project of the solution
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)

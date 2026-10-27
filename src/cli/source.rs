@@ -814,7 +814,8 @@ fn deploy_json(
                 "imported": report.imported, "kept": report.kept.len(), "backup": backup,
                 "calls": report.calls.iter().map(|c| json!({"project": c.project, "call": c.call.to_string(), "skipped": c.skipped})).collect::<Vec<_>>(),
                 "localization": localization.map(|l| l.tables.iter().map(|t| json!({"table": t.table, "create": t.create, "set": t.set.len(), "imported": l.applied})).collect::<Vec<_>>()),
-                "network_connections": report.network_changes.iter().map(|n| json!({"name": n.name, "adds": n.adds, "moves": n.moves, "removes": n.removes})).collect::<Vec<_>>() }),
+                "network_connections": report.network_changes.iter().map(|n| json!({"name": n.name, "adds": n.adds, "moves": n.moves, "removes": n.removes})).collect::<Vec<_>>(),
+                "agents_narrowed_first": report.agents_narrowed.iter().map(agent_narrowing_json).collect::<Vec<_>>() }),
                 OK,
             )
         }
@@ -862,6 +863,31 @@ fn print_deploy_localization(pushed: &twaco::core::localization::Pushed) {
     }
 }
 
+fn agent_narrowing_json(narrowing: &deploy::AgentNarrowing) -> serde_json::Value {
+    serde_json::json!({
+        "agent": format!("AIAgents/{}", narrowing.name),
+        "project": narrowing.project,
+        "dropped": narrowing.dropped.iter().map(|d| serde_json::json!({"namespace": d.namespace, "tools": d.tools, "resources": d.resources, "prompts": d.prompts})).collect::<Vec<_>>(),
+    })
+}
+
+/// Agents imported before the bundles without what the namespaces drop.
+fn print_agent_narrowings(narrowings: &[deploy::AgentNarrowing], apply: bool) {
+    for narrowing in narrowings {
+        let dropped = narrowing
+            .dropped
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join("; ");
+        println!(
+            "  AIAgents/{}: {} first without {dropped}, which the server refuses to remove from a namespace while an agent allows it",
+            narrowing.name,
+            if apply { "imported" } else { "would import" }
+        );
+    }
+}
+
 fn print_network_changes(changes: &[deploy::NetworkChange]) {
     for change in changes {
         let mut line = format!(
@@ -886,6 +912,7 @@ fn print_deploy_report(report: &deploy::Report, apply: bool, force: bool) {
         report.scripts_checked
     );
     print_network_changes(&report.network_changes);
+    print_agent_narrowings(&report.agents_narrowed, apply);
     for plan in &report.plans {
         let label = format!("{}/{}", plan.collection, plan.name);
         if !plan.server_owned.is_empty() {

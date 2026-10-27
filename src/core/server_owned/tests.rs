@@ -417,6 +417,7 @@ fn deploy_plans_allow_owned_drift_refuse_source_drift_and_preserve_bundle_values
         username: "Acme.User".into(),
         password: "fixture".into(),
         app_key: None,
+        sdk: None,
         extra: BTreeMap::new(),
     };
     let report = deploy::run(

@@ -67,6 +67,8 @@ pub(crate) const COLLECTION_ORDER: &[&str] = &[
     "StateDefinitions",
     "ExtensionPackages",
     "Organizations",
+    "Roles",
+    "PermissionGroups",
     "Menus",
     "ThingGroups",
     "Resources",

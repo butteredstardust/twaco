@@ -13,8 +13,10 @@ mod render;
 mod write;
 
 pub(crate) use compiler::{check, check_with, CompilerRunner};
+#[cfg(test)]
+pub(crate) use model::load_model_from;
 pub(crate) use model::{
-    load_model, DataShape, Entity, Member, Model, Parameter, Service, TypedValue,
+    load_model, DataShape, Entity, Member, Model, Parameter, Property, Service, TypedValue,
 };
 pub use outcome::{check_summary, finding_json, Refresh};
 pub(crate) use outcome::{

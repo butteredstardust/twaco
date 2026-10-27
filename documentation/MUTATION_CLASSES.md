@@ -45,7 +45,7 @@ when the command is asked to write. A local output named by an option is include
 | `requirements init` | read-only | single-file atomic | new `requirements.toml` | Creation is atomic and refuses an existing file; inspect it and use requirements check. | `core/commands/requirements.rs: execute_init` |
 | `requirements check` | read-only | read-only | none; optional server reads | Retry freely. Server read errors block. | `core/commands/requirements.rs: execute_check` |
 | `bundle` | read-only | single-file atomic | generated bundle and optional handoff | The generated bundle is old or new; an applied handoff is available as a base. Retry freely. | `core/commands/bundle.rs: execute` |
-| `deploy` | read-only | server-partial | server, baseline, backups, localization tables | Read back reported imports and baseline; use the plan and backups before retrying. A localization failure after the imports says so; `localization push --apply` retries the tables. | `core/commands/deploy.rs: execute` |
+| `deploy` | read-only | server-partial | server, baseline, backups, localization tables | Read back reported imports and baseline; use the plan and backups before retrying An agent imported first without allowances its namespaces drop is put back when its bundle fails to import. A localization failure after the imports says so; `localization push --apply` retries the tables. | `core/commands/deploy.rs: execute` |
 | `call` | server-partial | server-partial | service effects | Inspect the service's effects and logs before retrying. | `core/commands/call.rs: execute` |
 | `logs` | read-only | read-only | none | Retry freely. | `cli/data.rs: logs_cmd` |
 | `logs level` | read-only | server-partial | server log level | Read the current level and use the printed undo before retrying. | `core/commands/logs.rs: execute` |
@@ -87,6 +87,11 @@ when the command is asked to write. A local output named by an option is include
 | `docs` | read-only | single-file atomic | named output file | The output is old or new; retry freely. | `cli/info.rs: docs_cmd` |
 | `ext list` | read-only | read-only | none | Retry freely. | `cli/content.rs: ext_cmd` |
 | `ext show` | read-only | read-only | none | Retry freely. | `cli/content.rs: ext_cmd` |
+| `ext check` | read-only | read-only | none | Reads an extension project's files only; retry freely. | `cli/content.rs: ext_check_cmd` |
+| `ext new` | read-only | multi-file atomic | extension project files | Writes the new project's files into a missing or empty folder and removes them again on a failure (in-process only). Retry. | `core/ext_new.rs: Plan::apply` |
+| `ext add` | read-only | multi-file atomic | extension project files | Writes the new class or widget files, then replaces metadata.xml whole, refused if it changed since it was read; a failure removes the new files again (in-process only). Retry. | `core/ext_new.rs: Plan::apply` |
+| `ext deploy` | read-only | server-partial | extension project files, server extension | Runs the build and, with --bump, rewrites packageVersion, put back if the build fails or the install fails and the package list lacks the new version (kept when the server may have it); the install is one upload. Check `ext list` before retrying. | `core/ext_deploy.rs: deploy` |
+| `ext intellij` | read-only | best-effort batch | IntelliJ configuration files | Writes two files into the IntelliJ configuration folder, one after the other; retry. | `core/intellij.rs: Install::apply` |
 | `ext import` | read-only | server-partial | server extension | Check installed extensions before retrying. | `cli/content.rs: ext_cmd` |
 | `ext remove` | read-only | server-partial | server extension | Check installed extensions before retrying. | `cli/content.rs: ext_cmd` |
 | `repo list` | read-only | read-only | none | Retry freely. | `cli/content.rs: repo_cmd` |
@@ -142,6 +147,8 @@ when the command is asked to write. A local output named by an option is include
 | `new menu` | read-only | multi-file atomic | entity XML | The entity XML is created in a journaled transaction; a file that appeared since the plan is refused. Retry. | `core/commands/entity_new.rs: execute` |
 | `new theme` | read-only | multi-file atomic | entity XML | The entity XML is created in a journaled transaction; a file that appeared since the plan is refused. Retry. | `core/commands/entity_new.rs: execute` |
 | `new network` | read-only | multi-file atomic | entity XML | The entity XML is created in a journaled transaction; a file that appeared since the plan is refused. Retry. | `core/commands/entity_new.rs: execute` |
+| `new mcp-namespace` | read-only | multi-file atomic | entity XML | The entity XML is created in a journaled transaction; a file that appeared since the plan is refused. Retry. | `core/commands/entity_new.rs: execute` |
+| `new ai-agent` | read-only | multi-file atomic | entity XML | The entity XML is created in a journaled transaction; a file that appeared since the plan is refused. Retry. | `core/commands/entity_new.rs: execute` |
 | `network list` | read-only | read-only | none | Retry freely. | `core/network.rs: parse` |
 | `network show` | read-only | read-only | none | Retry freely. | `core/network.rs: show` |
 | `network diff` | read-only | read-only | server | Retry freely. | `core/commands/network.rs: server_diff` |
@@ -159,6 +166,13 @@ when the command is asked to write. A local output named by an option is include
 | `style set` | read-only | multi-file atomic | entity XML | Every file is rewritten in one journaled transaction, or none is; a file edited since the plan read it is refused. Retry. | `core/commands/entity_edit.rs: execute` |
 | `media set` | read-only | multi-file atomic | entity XML | Every file is rewritten in one journaled transaction, or none is; a file edited since the plan read it is refused. Retry. | `core/commands/entity_edit.rs: execute` |
 | `menu item` | read-only | multi-file atomic | entity XML | Every file is rewritten in one journaled transaction, or none is; a file edited since the plan read it is refused. Retry. | `core/commands/entity_edit.rs: execute` |
+| `mcp-namespace add` | read-only | multi-file atomic | entity XML | Every file is rewritten in one journaled transaction, or none is; a file edited since the plan read it is refused. Retry. | `core/commands/entity_edit.rs: execute` |
+| `mcp-namespace remove` | read-only | multi-file atomic | entity XML | Every file is rewritten in one journaled transaction, or none is; a file edited since the plan read it is refused. Retry. | `core/commands/entity_edit.rs: execute` |
+| `agent allow` | read-only | multi-file atomic | entity XML | Every file is rewritten in one journaled transaction, or none is; a file edited since the plan read it is refused. Retry. | `core/commands/entity_edit.rs: execute` |
+| `agent disallow` | read-only | multi-file atomic | entity XML | Every file is rewritten in one journaled transaction, or none is; a file edited since the plan read it is refused. Retry. | `core/commands/entity_edit.rs: execute` |
+| `agent taxonomy` | read-only | multi-file atomic | entity XML | Every file is rewritten in one journaled transaction, or none is; a file edited since the plan read it is refused. Retry. | `core/commands/entity_edit.rs: execute` |
+| `agent skill` | read-only | multi-file atomic | entity XML | Every file is rewritten in one journaled transaction, or none is; a file edited since the plan read it is refused. Retry. | `core/commands/entity_edit.rs: execute` |
+| `agent set` | read-only | multi-file atomic | entity XML | Every file is rewritten in one journaled transaction, or none is; a file edited since the plan read it is refused. Retry. | `core/commands/entity_edit.rs: execute` |
 | `state set` | read-only | multi-file atomic | entity XML | Every file is rewritten in one journaled transaction, or none is; a file edited since the plan read it is refused. Retry. | `core/commands/entity_edit.rs: execute` |
 | `retemplate` | read-only | single-file atomic | one entity XML | The entity is old or new; retry freely. | `core/commands/retemplate.rs: execute` |
 | `mashup describe` | read-only | read-only | none | Retry freely. | `core/mashup_describe.rs: describe` |
@@ -216,7 +230,7 @@ when the command is asked to write. A local output named by an option is include
 | `db_query` | server-partial | server-partial | temporary server Thing | Run `db_clean` if temporary cleanup failed. | `core/commands/db.rs: execute` |
 | `datatable_copy` | read-only | server-partial | target DataTable | Read the target back before retrying. | `core/commands/datatable_copy.rs: execute` |
 | `db_clean` | read-only | server-partial | temporary server Things | List remaining temporary Things before retrying. | `core/commands/db.rs: execute` |
-| `deploy` | read-only | server-partial | server, baseline, backups, localization tables | Read back imports and baseline; use plan and backups before retrying. A localization failure after the imports says so; `localization_write` push retries the tables. | `core/commands/deploy.rs: execute` |
+| `deploy` | read-only | server-partial | server, baseline, backups, localization tables | Read back imports and baseline; use plan and backups before retrying An agent imported first without allowances its namespaces drop is put back when its bundle fails to import. A localization failure after the imports says so; `localization_write` push retries the tables. | `core/commands/deploy.rs: execute` |
 | `adopt_report` | read-only | read-only | none | Retry freely. | `mcp/refactor.rs: adopt_tool` |
 | `adopt_apply` | multi-file atomic | multi-file atomic | entities, sidecars, declarations | Unlike the CLI form, this tool applies directly. Every entity and sidecar write happened or none did; a crash is finished or undone by the next command that takes the workspace lock. Retry. | `core/commands/adopt.rs: execute` |
 | `handoff` | read-only | best-effort batch | `.twaco/handoffs` copies and metadata | List retries freely; a record plan writes nothing, and an applied record can be retried with a new name. | `core/commands/handoff.rs: execute` |
@@ -248,6 +262,10 @@ when the command is asked to write. A local output named by an option is include
 | `repo` | read-only | read-only | none | Retry freely. | `mcp/content.rs: repo_tool` |
 | `repo_write` | read-only | server-partial | server repository or local pull | Inspect copied paths before retrying. | `core/commands/repo.rs: execute` |
 | `extensions` | read-only | read-only | none | Retry freely. | `mcp/content.rs: extensions_tool` |
+| `ext_check` | read-only | read-only | none | Reads an extension project's files only; retry freely. | `mcp/content.rs: ext_check_tool` |
+| `ext_new` | read-only | multi-file atomic | extension project files | Writes the new project's files into a missing or empty folder and removes them again on a failure (in-process only). Retry. | `core/ext_new.rs: Plan::apply` |
+| `ext_add` | read-only | multi-file atomic | extension project files | Writes the new class or widget files, then replaces metadata.xml whole, refused if it changed since it was read; a failure removes the new files again (in-process only). Retry. | `core/ext_new.rs: Plan::apply` |
+| `ext_deploy` | read-only | server-partial | extension project files, server extension | Runs the build and, with bump, rewrites packageVersion, put back if the build or install fails; the install is one upload. Check `extensions` before retrying. | `core/ext_deploy.rs: deploy` |
 | `extension_write` | read-only | server-partial | server extension | Check installed extensions before retrying. | `core/commands/extensions.rs: execute` |
 | `bundle` | read-only | single-file atomic | generated bundle | The generated bundle is old or new; retry freely. | `core/commands/bundle.rs: execute` |
 | `search` | read-only | read-only | none | Retry freely. | `mcp/content.rs: search_tool` |

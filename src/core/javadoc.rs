@@ -7,6 +7,8 @@
 use scraper::{ElementRef, Html, Selector};
 use serde_json::Value;
 use std::collections::BTreeSet;
+use std::fs::File;
+use std::io::{Cursor, Read};
 use std::path::{Path, PathBuf};
 
 use super::help::{self, Fetch};
@@ -15,6 +17,278 @@ pub const BASE: &str = "https://support.ptc.com/help/thingworx_hc/javadoc";
 pub const VERSION: &str = "10.1.0";
 pub const TYPE_INDEX: &str = "type-search-index.js";
 pub const MEMBER_INDEX: &str = "member-search-index.js";
+
+/// Where Javadoc pages are read from. SDK files are read in place: their contents never enter
+/// the cache or the repository.
+pub enum Source {
+    Web {
+        web: help::Web,
+        cache: PathBuf,
+        refresh: bool,
+    },
+    Sdk(Sdk),
+}
+
+impl Source {
+    /// Pick the first configured SDK path, or the public cached Javadoc when none is set.
+    pub fn configured(
+        flag: Option<&Path>,
+        environment: Option<&Path>,
+        profile: Option<&Path>,
+        profile_name: &str,
+        refresh: bool,
+    ) -> Result<Self, String> {
+        if let Some(path) = flag {
+            return Self::sdk(path, "--sdk");
+        }
+        if let Some(path) = environment {
+            return Self::sdk(path, "TWACO_SDK");
+        }
+        if let Some(path) = profile {
+            return Self::sdk(path, &format!("profile {profile_name}"));
+        }
+        Ok(Self::web(cache_root()?, refresh))
+    }
+
+    pub fn web(cache: PathBuf, refresh: bool) -> Self {
+        Self::Web {
+            web: help::Web::new(BASE),
+            cache,
+            refresh,
+        }
+    }
+
+    pub fn sdk(path: &Path, configured_by: &str) -> Result<Self, String> {
+        Sdk::open(path, configured_by).map(Self::Sdk)
+    }
+
+    pub fn fetch(&self, path: &str) -> Result<Vec<u8>, help::HelpError> {
+        match self {
+            Self::Web {
+                web,
+                cache,
+                refresh,
+            } => cached(web, cache, path, *refresh),
+            Self::Sdk(sdk) => sdk.read(path).map_err(help::HelpError::Invalid),
+        }
+    }
+
+    pub fn version(&self) -> &str {
+        match self {
+            Self::Web { .. } => VERSION,
+            Self::Sdk(sdk) => &sdk.version,
+        }
+    }
+
+    pub fn url(&self, path: &str) -> String {
+        match self {
+            Self::Web { .. } => document_url(path),
+            Self::Sdk(sdk) => sdk.url(path),
+        }
+    }
+
+    pub fn display(&self, path: &str) -> String {
+        match self {
+            Self::Web { .. } => self.url(path),
+            Self::Sdk(sdk) => format!("{}!{path}", sdk.display),
+        }
+    }
+}
+
+/// A Javadoc jar, either on disk or held only while reading an SDK archive.
+pub struct Sdk {
+    jar: Jar,
+    display: String,
+    version: String,
+}
+
+enum Jar {
+    File(PathBuf),
+    Memory(Vec<u8>),
+}
+
+impl Sdk {
+    fn open(path: &Path, configured_by: &str) -> Result<Self, String> {
+        if !path.exists() {
+            return Err(format!(
+                "SDK path {} from {configured_by} does not exist",
+                path.display()
+            ));
+        }
+        if path.is_dir() {
+            let jar = find_jar(path).ok_or_else(|| no_jar(path, configured_by))?;
+            return Self::from_file(jar, configured_by);
+        }
+        if path
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("jar"))
+        {
+            return Self::from_file(path.to_path_buf(), configured_by);
+        }
+        if path
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("zip"))
+        {
+            let file = File::open(path).map_err(|error| {
+                format!(
+                    "cannot read SDK path {} from {configured_by}: {error}",
+                    path.display()
+                )
+            })?;
+            let mut outer = zip::ZipArchive::new(file).map_err(|error| {
+                format!(
+                    "{} from {configured_by} is not an SDK zip: {error}",
+                    path.display()
+                )
+            })?;
+            let name = (0..outer.len())
+                .filter_map(|index| {
+                    outer
+                        .by_index(index)
+                        .ok()
+                        .and_then(|entry| entry.name().ok().map(|name| name.to_string()))
+                })
+                .find(|name| is_jar_name(name) && !name.contains('/'))
+                .ok_or_else(|| no_jar(path, configured_by))?;
+            let mut entry = outer.by_name(&name).map_err(|error| {
+                format!(
+                    "cannot read {name} in SDK path {} from {configured_by}: {error}",
+                    path.display()
+                )
+            })?;
+            let mut bytes = Vec::new();
+            entry.read_to_end(&mut bytes).map_err(|error| {
+                format!(
+                    "cannot read {name} in SDK path {} from {configured_by}: {error}",
+                    path.display()
+                )
+            })?;
+            return Self::from_jar(
+                Jar::Memory(bytes),
+                format!("{}!{name}", path.display()),
+                &name,
+                path,
+                configured_by,
+            );
+        }
+        Err(no_jar(path, configured_by))
+    }
+
+    fn from_file(path: PathBuf, configured_by: &str) -> Result<Self, String> {
+        let name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or_default();
+        Self::from_jar(
+            Jar::File(path.clone()),
+            path.display().to_string(),
+            name,
+            &path,
+            configured_by,
+        )
+    }
+
+    fn from_jar(
+        jar: Jar,
+        display: String,
+        name: &str,
+        configured_path: &Path,
+        configured_by: &str,
+    ) -> Result<Self, String> {
+        let result = Self {
+            jar,
+            display,
+            version: jar_version(name).unwrap_or_else(|| "SDK".to_string()),
+        };
+        result.open_archive().map_err(|error| {
+            format!(
+                "SDK path {} from {configured_by} has an unreadable Javadoc jar: {error}",
+                configured_path.display()
+            )
+        })?;
+        Ok(result)
+    }
+
+    fn open_archive(&self) -> Result<zip::ZipArchive<Box<dyn ReadSeek + '_>>, String> {
+        let reader: Box<dyn ReadSeek + '_> = match &self.jar {
+            Jar::File(path) => Box::new(File::open(path).map_err(|error| error.to_string())?),
+            Jar::Memory(bytes) => Box::new(Cursor::new(bytes.as_slice())),
+        };
+        zip::ZipArchive::new(reader).map_err(|error| error.to_string())
+    }
+
+    fn read(&self, path: &str) -> Result<Vec<u8>, String> {
+        let mut archive = self.open_archive()?;
+        let mut entry = archive
+            .by_name(path)
+            .map_err(|_| format!("{} has no {path}", self.display))?;
+        let mut bytes = Vec::new();
+        entry
+            .read_to_end(&mut bytes)
+            .map_err(|error| format!("cannot read {path} in {}: {error}", self.display))?;
+        Ok(bytes)
+    }
+
+    fn url(&self, path: &str) -> String {
+        let path = path.replace('\\', "/");
+        let display = self.display.replace('\\', "/");
+        format!("jar:file:///{}!/{path}", display.trim_start_matches('/'))
+    }
+}
+
+trait ReadSeek: Read + std::io::Seek {}
+impl<T: Read + std::io::Seek> ReadSeek for T {}
+
+fn is_jar_name(name: &str) -> bool {
+    name.strip_prefix("thingworx-javadocs-")
+        .is_some_and(|rest| rest.ends_with(".jar"))
+}
+
+fn jar_version(name: &str) -> Option<String> {
+    is_jar_name(name).then(|| {
+        name.strip_prefix("thingworx-javadocs-")?
+            .split("-b")
+            .next()
+            .filter(|version| !version.is_empty())
+            .map(str::to_string)
+    })?
+}
+
+fn no_jar(path: &Path, configured_by: &str) -> String {
+    format!(
+        "SDK path {} from {configured_by} has no thingworx-javadocs-*.jar",
+        path.display()
+    )
+}
+
+fn find_jar(folder: &Path) -> Option<PathBuf> {
+    let mut candidates = Vec::new();
+    for entry in std::fs::read_dir(folder).ok()?.flatten() {
+        let path = entry.path();
+        if path.is_file()
+            && path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(is_jar_name)
+        {
+            candidates.push(path);
+        } else if path.is_dir() {
+            for nested in std::fs::read_dir(path).ok()?.flatten() {
+                let nested = nested.path();
+                if nested.is_file()
+                    && nested
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .is_some_and(is_jar_name)
+                {
+                    candidates.push(nested);
+                }
+            }
+        }
+    }
+    candidates.sort();
+    candidates.into_iter().next()
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Class {
@@ -400,7 +674,22 @@ pub fn parse_service_ref(text: &str) -> Result<ServiceRef, String> {
         .unwrap_or(given);
     // A call's arguments say nothing about which service it is. They start after the entity's
     // name, which may itself hold a parenthesis.
-    let name_end = given.rfind(']').unwrap_or(0);
+    // The name ends at the quote and bracket that close it, not at the last bracket: the
+    // arguments may hold an array.
+    // Only a bracket that opens before the call does: one inside the arguments is not the name's.
+    let call = given.find('(').unwrap_or(given.len());
+    let name_end = ["[\"", "['"]
+        .iter()
+        .filter_map(|open| given.find(open).map(|at| (at, &open[1..])))
+        .filter(|(at, _)| *at < call)
+        .min_by_key(|(at, _)| *at)
+        .and_then(|(at, quote)| {
+            let from = at + 2;
+            given[from..]
+                .find(&format!("{quote}]"))
+                .map(|end| from + end + 2)
+        })
+        .unwrap_or(0);
     let given = match given[name_end..].find('(') {
         Some(open) if given.ends_with(')') => given[..name_end + open].trim_end(),
         _ => given,
@@ -631,6 +920,15 @@ pub fn read_service(
     fetch: &dyn Fn(&str) -> Result<Vec<u8>, help::HelpError>,
     reference: &str,
 ) -> Result<ServiceReading, ServiceError> {
+    read_service_at(fetch, reference, &document_url)
+}
+
+/// Like [`read_service`], with links resolved against the source that supplied each page.
+pub fn read_service_at(
+    fetch: &dyn Fn(&str) -> Result<Vec<u8>, help::HelpError>,
+    reference: &str,
+    source: &dyn Fn(&str) -> String,
+) -> Result<ServiceReading, ServiceError> {
     let wanted = parse_service_ref(reference).map_err(ServiceError::Invalid)?;
     let types = fetch(TYPE_INDEX).map_err(ServiceError::Fetch)?;
     let members = fetch(MEMBER_INDEX).map_err(ServiceError::Fetch)?;
@@ -657,8 +955,9 @@ pub fn read_service(
                 fetch(&class_path(declaring).map_err(ServiceError::Data)?)
                     .map_err(ServiceError::Fetch)?
             };
-            let reading =
-                read(&html, declaring, Some(&wanted.member)).map_err(ServiceError::Read)?;
+            let path = class_path(declaring).map_err(ServiceError::Data)?;
+            let reading = read_at(&html, declaring, Some(&wanted.member), source(&path))
+                .map_err(ServiceError::Read)?;
             let note = (!missing.is_empty()).then(|| {
                 format!(
                     "the Javadoc has no class {}; this is the member every {} has",
@@ -688,7 +987,17 @@ pub fn read_service(
 /// Render a class overview, or every overload of one member, from generated Javadoc HTML.
 pub fn read(html: &[u8], class: &Class, member: Option<&str>) -> Result<Reading, ReadError> {
     let path = class_path(class).map_err(ReadError::NotAPage)?;
-    let source = document_url(&path);
+    read_at(html, class, member, document_url(&path))
+}
+
+/// Render a generated class page whose links should resolve against `source`.
+pub fn read_at(
+    html: &[u8],
+    class: &Class,
+    member: Option<&str>,
+    source: String,
+) -> Result<Reading, ReadError> {
+    let path = class_path(class).map_err(ReadError::NotAPage)?;
     let document = Html::parse_document(&String::from_utf8_lossy(html));
     let description_selector =
         Selector::parse("section#class-description .block").expect("a valid selector");
@@ -945,6 +1254,7 @@ fn unwrap_code_links(markdown: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write;
 
     #[test]
     fn the_index_skips_its_navigation_entry() {
@@ -969,6 +1279,108 @@ mod tests {
 
     fn index() -> Index {
         Index::parse(TYPES, MEMBERS).unwrap()
+    }
+
+    fn sdk_jar() -> Vec<u8> {
+        let mut archive = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+        for (name, bytes) in [
+            (TYPE_INDEX, TYPES.as_bytes()),
+            (MEMBER_INDEX, MEMBERS.as_bytes()),
+            (
+                "com/thingworx/resources/queries/InfoTableFunctions.html",
+                include_bytes!("../../tests/fixtures/InfoTableFunctions.html") as &[u8],
+            ),
+        ] {
+            archive.start_file(name, options).unwrap();
+            archive.write_all(bytes).unwrap();
+        }
+        archive.finish().unwrap().into_inner()
+    }
+
+    #[test]
+    fn sdk_jar_folder_and_sdk_zip_read_search_class_and_service_offline() {
+        let temporary = tempfile::tempdir().unwrap();
+        let jar_name = "thingworx-javadocs-10.2.0-b64.jar";
+        let jar = temporary.path().join(jar_name);
+        std::fs::write(&jar, sdk_jar()).unwrap();
+        let folder = temporary.path().join("sdk");
+        std::fs::create_dir(&folder).unwrap();
+        std::fs::copy(&jar, folder.join(jar_name)).unwrap();
+        let outer = temporary.path().join("sdk.zip");
+        let mut archive = zip::ZipWriter::new(File::create(&outer).unwrap());
+        archive
+            .start_file(jar_name, zip::write::SimpleFileOptions::default())
+            .unwrap();
+        archive.write_all(&sdk_jar()).unwrap();
+        archive.finish().unwrap();
+
+        for path in [&jar, &folder, &outer] {
+            let source = Source::sdk(path, "--sdk").unwrap();
+            assert_eq!(source.version(), "10.2.0");
+            let fetch = |path: &str| source.fetch(path);
+            let types = fetch(TYPE_INDEX).unwrap();
+            let members = fetch(MEMBER_INDEX).unwrap();
+            let index = Index::parse(
+                &String::from_utf8_lossy(&types),
+                &String::from_utf8_lossy(&members),
+            )
+            .unwrap();
+            assert!(!search(&index, "Sort", 10).is_empty());
+            let class = find_class(&index, "InfoTableFunctions").unwrap();
+            let path = class_path(&class).unwrap();
+            let class_read =
+                read_at(&fetch(&path).unwrap(), &class, None, source.url(&path)).unwrap();
+            assert!(class_read.methods > 0);
+            assert!(class_read.url.starts_with("jar:file:///"));
+            let service =
+                read_service_at(&fetch, r#"Resources["InfoTableFunctions"].Sort"#, &|path| {
+                    source.url(path)
+                })
+                .unwrap();
+            assert_eq!(
+                service.declared_in,
+                "com.thingworx.resources.queries.InfoTableFunctions"
+            );
+        }
+    }
+
+    #[test]
+    fn an_invalid_sdk_path_names_its_configuration_source() {
+        let path = Path::new("not-an-sdk");
+        let Err(error) = Source::sdk(path, "TWACO_SDK") else {
+            panic!("a missing SDK path resolved");
+        };
+        assert!(error.contains("not-an-sdk"), "{error}");
+        assert!(error.contains("TWACO_SDK"), "{error}");
+    }
+
+    #[test]
+    fn configured_sdk_paths_take_flag_then_environment_then_profile() {
+        let temporary = tempfile::tempdir().unwrap();
+        let paths = [
+            temporary.path().join("thingworx-javadocs-10.2.0-b1.jar"),
+            temporary.path().join("thingworx-javadocs-10.3.0-b1.jar"),
+            temporary.path().join("thingworx-javadocs-10.4.0-b1.jar"),
+        ];
+        for path in &paths {
+            std::fs::write(path, sdk_jar()).unwrap();
+        }
+        let source = Source::configured(
+            Some(&paths[0]),
+            Some(&paths[1]),
+            Some(&paths[2]),
+            "default",
+            false,
+        )
+        .unwrap();
+        assert_eq!(source.version(), "10.2.0");
+        let source =
+            Source::configured(None, Some(&paths[1]), Some(&paths[2]), "default", false).unwrap();
+        assert_eq!(source.version(), "10.3.0");
+        let source = Source::configured(None, None, Some(&paths[2]), "default", false).unwrap();
+        assert_eq!(source.version(), "10.4.0");
     }
 
     #[test]
@@ -1079,6 +1491,7 @@ mod tests {
         for given in [
             r#"Resources["InfoTableFunctions"].Sort"#,
             "Resources['InfoTableFunctions'].Sort({ t: rows, sortColumn: 'a' });",
+            r#"Resources["InfoTableFunctions"].Sort({ rows: [], keys: ["a"] })"#,
             "Resources/InfoTableFunctions.Sort",
             "resources/InfoTableFunctions/Services/Sort",
         ] {
@@ -1103,6 +1516,20 @@ mod tests {
         );
         let odd = resource(r#"Things["Pump (1)"].GetPropertyValues()"#);
         assert_eq!(odd.shown, "Things/Pump (1).GetPropertyValues");
+        let bracketed = resource(r#"Things["Pump [2]"].GetPropertyValues({ a: [1] })"#);
+        assert_eq!(bracketed.shown, "Things/Pump [2].GetPropertyValues");
+        assert_eq!(
+            resource("me.GetPropertyValues([x])").member,
+            "GetPropertyValues"
+        );
+        assert_eq!(
+            resource(r#"me.GetPropertyValues({ names: ["a"] })"#).member,
+            "GetPropertyValues"
+        );
+        assert_eq!(
+            resource("Things/Acme.Orders.Pump.GetPropertyValues({ a: ['x'] })"),
+            thing
+        );
         let me = resource("me.GetPropertyValues");
         assert_eq!((me.classes, me.entity), (vec!["Thing".to_string()], true));
         let class = resource("com.thingworx.types.InfoTable.getRowCount");

@@ -511,6 +511,18 @@ pub(crate) fn escape_attribute(value: &str) -> Result<String, IllegalXmlChar> {
     Ok(out)
 }
 
+/// The first character of `value` no XML 1.0 document can hold, as [`escape_attribute`] refuses
+/// it: for text written where no reference can stand in for it, such as CDATA.
+pub(crate) fn illegal_xml_char(value: &str) -> Option<IllegalXmlChar> {
+    value
+        .chars()
+        .find(|c| !xml_char(*c))
+        .map(|found| IllegalXmlChar {
+            value: value.to_string(),
+            found,
+        })
+}
+
 /// Whether XML 1.0 can hold `c` (its `Char` production). Rust strings hold no surrogates.
 fn xml_char(c: char) -> bool {
     matches!(c, '\t' | '\n' | '\r' | '\u{20}'..='\u{D7FF}' | '\u{E000}'..='\u{FFFD}' | '\u{10000}'..)

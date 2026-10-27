@@ -2,6 +2,8 @@
 
 pub(crate) mod accumulated;
 pub mod adopt;
+pub(crate) mod agents;
+pub(crate) mod agents_check;
 pub mod appkey;
 pub mod backup;
 pub(crate) mod baseline;
@@ -29,6 +31,10 @@ pub mod doctor;
 pub(crate) mod duration;
 pub mod entity;
 pub mod export;
+pub mod ext_check;
+pub mod ext_deploy;
+pub mod ext_new;
+pub(crate) mod extension_source;
 pub(crate) mod extensions;
 pub(crate) mod fmt;
 pub(crate) mod git;
@@ -41,6 +47,7 @@ pub mod imports;
 pub mod index;
 pub mod init;
 pub mod init_server;
+pub mod intellij;
 pub mod javadoc;
 pub mod layout;
 pub(crate) mod ledger;

@@ -281,6 +281,26 @@ usage: twaco <command>
   menu item remove <Menu> <Title> [--apply] [--json]
                               add or remove a mashup item, keeping the effective menu in step;
                               plan unless --apply
+  mcp-namespace add <Namespace> tool|service-resource|file-resource|prompt <spec> [--description <text>]
+      [--apply] [--json]
+                              add a tool, resource or prompt, written as new mcp-namespace writes it;
+                              plan unless --apply
+  mcp-namespace remove <Namespace> <name> [--apply] [--json]
+                              remove a tool, resource or prompt and every agent's permission to use
+                              it; push those agents before the namespace; plan unless --apply
+  agent allow <Agent> <Namespace[=item,...]> [--apply] [--json]
+                              let the agent use a namespace, or more of it; plan unless --apply
+  agent disallow <Agent> <Namespace[=item,...]> [--apply] [--json]
+                              stop the agent using those items, or the whole namespace; plan unless --apply
+  agent taxonomy add <Agent> <TemplateOrShape[=alias, alias]> [--apply] [--json]
+  agent taxonomy remove <Agent> <TemplateOrShape> [--apply] [--json]
+                              add or remove a taxonomy row; plan unless --apply
+  agent skill add|remove <Agent> <Repository:/path> [--apply] [--json]
+                              add or remove a skill folder; plan unless --apply
+  agent set <Agent> [--resolver <Thing>] [--instructions <text>|--instructions-file <file>]
+      [--agent-description <text>] [--display-name <text>] [--apply] [--json]
+                              change the resolver (an empty one clears it), the system prompt or the
+                              display name; plan unless --apply
   state set <StateDefinition> --type numeric|string --state <spec>... [--apply] [--json]
                               replace a StateDefinition's states (the specs of new state);
                               plan unless --apply
@@ -331,6 +351,24 @@ usage: twaco <command>
                               create a StyleTheme; plan unless --apply
   new network <name> [--project <name>] [--description <text>] [--apply] [--json]
                               create an empty Network entity; plan unless --apply
+  new mcp-namespace <name> [--tool name=Provider.Service]... [--service-resource name=Provider.Service]...
+      [--file-resource name=Repository:/path]... [--prompt name=text]... [--describe name=text]...
+      [--project <name>] [--description <text>] [--apply] [--json]
+                              create an MCP namespace of tools, resources and prompts; plan unless --apply
+      --tool                  a tool calling a service; prefix the provider Thing:, ThingTemplate: or
+                              ThingShape: to name one outside the solution; the service's description
+                              becomes the tool's
+      --prompt                {{argument}} placeholders in the text become required arguments
+      --describe              a tool's, resource's or prompt's description, which ThingWorx requires;
+                              by default a tool's is its service's, a prompt's its text
+  new ai-agent <name> --namespace <Namespace[=item,...]>... [--skill Repository:/path]...
+      [--resolver <Thing>] [--taxonomy <TemplateOrShape[=alias, alias]>]... [--instructions <text>|
+      --instructions-file <file>] [--agent-description <text>] [--display-name <text>]
+      [--project <name>] [--description <text>] [--apply] [--json]
+                              create an AI agent; plan unless --apply
+      --namespace             everything the namespace defines, or the tools, resources and prompts
+                              named; AgentUtilities, the platform's, gives its standard tools
+      --agent-description     what the assistant routes questions to the agent by
   network list [--json]       list repository Networks and their hierarchy counts
   network show <Network> [<Thing>] [--depth <n>] [--server] [--profile <name>] [--json]
                               a Network's hierarchy as a tree: each Thing's template, things outside
@@ -534,6 +572,24 @@ usage: twaco <command>
   ext show <package>          one package: its extensions, and which are in use
   ext import <zip>            validate a package on the server; --apply installs it
   ext remove <package>        plan removing a package (refused while in use); --apply removes it
+  ext check [<root>] [--json] a Java extension project, offline: metadata.xml against the Java
+                              source, its jars, widgets and version; needs no solution
+  ext new <name> [--dir <dir>] [--package <java.package>] [--vendor <text>]
+      [--package-version <x.y.z>] [--min-thingworx <x.y.z>] [--description <text>] [--sdk <path>]
+                              lay out a Java extension project: Gradle build, metadata.xml and
+                              the SDK's jars in twx-lib/ (--sdk or TWACO_SDK); plan unless --apply
+  ext add thing-template|thing-shape|resource|widget|jar <name> [--dir <root>]
+      [--package <java.package>] [--base-template <ThingTemplate>] [--description <text>]
+                              add a Java class or widget files, or copy a jar into lib/, with its
+                              metadata.xml entry; plan unless --apply
+  ext deploy [<extension>] [--bump patch|minor|major] [--no-build]
+                              build an [[extension]] and have the server validate its package;
+                              --apply installs it and confirms what metadata.xml declares
+      --bump                  raise packageVersion first: the server skips a version it has
+      --no-build              send the newest package zip under build/ or zip/ as it is
+  ext intellij [--dir <config>]
+                              put the ThingWorx live templates and twaco External Tools into the
+                              newest IntelliJ IDEA configuration (or --dir); plan unless --apply
   search [<text>] [--type <T>[,<T>]] [--project P] [--limit <n>] [--json]
                               the server's entity search (Composer's Spotlight): text
                               in a name or description, or a pattern with *
@@ -568,10 +624,11 @@ usage: twaco <command>
       --version <10.1>        another release; --limit <n>; --refresh; --json
       --profile <name>        the server whose version to read (default: default)
   javadoc search <name>       search ThingWorx Platform Java API classes and members
-      --limit <n>; --refresh; --json
-  javadoc class <Name|pkg.Name>  read a class as Markdown; --member <name>; --refresh; --json
+      --limit <n>; --sdk <path>; --refresh; --json
+  javadoc class <Name|pkg.Name>  read a class as Markdown; --member <name>; --sdk <path>; --refresh; --json
   javadoc service <ref>       one service as a script names it: 'Resources["X"].Y', Things/T.Y,
-                              me.Y or Class.Y; looks in the classes it extends; --refresh; --json
+                              me.Y or Class.Y; looks in the classes it extends; --sdk <path>; --refresh; --json
+      --profile <name>        SDK from this profile when --sdk and TWACO_SDK are unset; --refresh is ignored for an SDK
 
   --project <name>            narrow to one project of the solution
   --profile <name>            the server profile (default: default)

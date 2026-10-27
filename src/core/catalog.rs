@@ -42,6 +42,8 @@ pub struct CatalogEntity {
     pub collection: String,
     pub name: String,
     pub project: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extension: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub inherits: Vec<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -106,6 +108,7 @@ pub(crate) fn inheritance(solution: &Solution) -> (Vec<CatalogEntity>, Vec<Strin
             collection: key.collection().to_string(),
             name: key.name().to_string(),
             project: node.project.clone(),
+            extension: None,
             inherits: index.inheritance_names(key),
             implemented_by: if key.collection() == "ThingShapes" {
                 index.implementers(key, None)
@@ -215,6 +218,7 @@ pub fn build(solution: &Solution, query: Query<'_>) -> Result<Catalog, CatalogEr
             collection: entity.collection.clone(),
             name: entity.name.clone(),
             project: entity.project.clone(),
+            extension: entity.extension.clone(),
             inherits,
             implemented_by,
             services,

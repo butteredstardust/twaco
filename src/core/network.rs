@@ -572,10 +572,20 @@ pub fn forest(network: &Network) -> Forest {
 
 /// Join declared nodes to repository Things without treating server-only Things as defects.
 pub fn nodes(solution: &Solution, network: &Network) -> Result<Vec<Node>, NetworkError> {
-    let things: HashMap<_, _> = workspace::entities(solution)
-        .into_iter()
+    let discovered = workspace::discover(solution);
+    nodes_in(network, &discovered)
+}
+
+/// [`nodes`] over a scan already made.
+pub(crate) fn nodes_in(
+    network: &Network,
+    discovered: &workspace::Discovery,
+) -> Result<Vec<Node>, NetworkError> {
+    let things: HashMap<_, _> = discovered
+        .entities
+        .iter()
         .filter(|entry| entry.info.collection == "Things")
-        .map(|entry| (entry.info.name.clone(), entry))
+        .map(|entry| (entry.info.name.clone(), entry.clone()))
         .collect();
     let forest = forest(network);
     let mut seen = BTreeSet::new();

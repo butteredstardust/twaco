@@ -1,0 +1,179 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Entities
+ majorVersion="10"
+ minorVersion="1"
+ universal="password">
+    <AIAgents>
+        <AIAgent
+         agentType="ReAct"
+         description=""
+         displayName="Acme.Orders.Agent"
+         documentationContent=""
+         enabled="true"
+         homeMashup=""
+         name="Acme.Orders.Agent"
+         projectName="Acme.Orders"
+         tags="">
+            <avatar></avatar>
+            <DesignTimePermissions>
+                <Create></Create>
+                <Read></Read>
+                <Update></Update>
+                <Delete></Delete>
+                <Metadata></Metadata>
+            </DesignTimePermissions>
+            <RunTimePermissions>
+                <Permissions
+                 resourceName="GetAIAgentDefinitionWithSkills">
+                    <PropertyRead></PropertyRead>
+                    <EventInvoke></EventInvoke>
+                    <PropertyWrite></PropertyWrite>
+                    <EventSubscribe></EventSubscribe>
+                    <ServiceInvoke>
+                        <Principal
+                         isPermitted="true"
+                         name="AIBootstrapUsers"
+                         type="Group"></Principal>
+                    </ServiceInvoke>
+                </Permissions>
+            </RunTimePermissions>
+            <VisibilityPermissions>
+                <Visibility>
+                    <Principal
+                     isPermitted="true"
+                     name="AIBootstrapOrg"
+                     type="Organization"></Principal>
+                </Visibility>
+            </VisibilityPermissions>
+            <ConfigurationTableDefinitions></ConfigurationTableDefinitions>
+            <ConfigurationTables>
+                <ConfigurationTable
+                 dataShapeName=""
+                 description="Taxonomy configuration for this agent: one row per resolvable type (ThingTemplate / ThingShape)."
+                 isMultiRow="true"
+                 name="TaxonomyConfiguration"
+                 ordinal="1">
+                    <DataShape>
+                        <FieldDefinitions>
+                            <FieldDefinition
+                             aspect.friendlyName="Aliases (comma-separated)"
+                             baseType="STRING"
+                             description="Comma-separated user-facing aliases/synonyms for this type (e.g. &quot;stacker, stacking robots&quot;)."
+                             name="alias"
+                             ordinal="3"></FieldDefinition>
+                            <FieldDefinition
+                             aspect.defaultValue="ThingTemplate"
+                             aspect.friendlyName="Entity Type"
+                             aspect.selectOptions="ThingTemplate:ThingTemplate|ThingShape:ThingShape"
+                             baseType="STRING"
+                             description="Whether this entry resolves to a ThingTemplate or a ThingShape."
+                             name="entityType"
+                             ordinal="1"></FieldDefinition>
+                            <FieldDefinition
+                             aspect.friendlyName="Entity Type Name"
+                             baseType="STRING"
+                             description="The ThingTemplate / ThingShape name this entry resolves to (e.g. PTC.ROBO.Stacker-eu)."
+                             name="entityTypeName"
+                             ordinal="2"></FieldDefinition>
+                            <FieldDefinition
+                             aspect.dataShape="TaxonomyIdentityProperty"
+                             aspect.friendlyName="Identity Properties"
+                             baseType="INFOTABLE"
+                             description="Ordered identity properties used to match a specific instance during entity resolution."
+                             name="identityProperties"
+                             ordinal="4"></FieldDefinition>
+                        </FieldDefinitions>
+                    </DataShape>
+                    <Rows>
+                        <Row>
+                            <alias><![CDATA[order, orders]]></alias>
+                            <entityType><![CDATA[ThingTemplate]]></entityType>
+                            <entityTypeName><![CDATA[Acme.Orders.Order_TT]]></entityTypeName>
+                            <identityProperties>
+                                <infoTable>
+                                    <DataShape>
+                                        <FieldDefinitions>
+                                            <FieldDefinition
+                                             baseType="STRING"
+                                             description="Match mode applied to this property's value"
+                                             name="match"
+                                             ordinal="2"></FieldDefinition>
+                                            <FieldDefinition
+                                             aspect.isPrimaryKey="true"
+                                             baseType="STRING"
+                                             description="Property name on the Thing (use &quot;name&quot; for the entity name)"
+                                             name="name"
+                                             ordinal="1"></FieldDefinition>
+                                        </FieldDefinitions>
+                                    </DataShape>
+                                    <Rows>
+                                        <Row>
+                                            <match><![CDATA[normalizedContains]]></match>
+                                            <name><![CDATA[name]]></name>
+                                        </Row>
+                                    </Rows>
+                                </infoTable>
+                            </identityProperties>
+                        </Row>
+                    </Rows>
+                </ConfigurationTable>
+                <ConfigurationTable
+                 dataShapeName=""
+                 description="Hierarchy configuration for this agent: HierarchyResolver ThingShape implementing Thing which intends to contain."
+                 isMultiRow="false"
+                 name="HierarchyConfiguration"
+                 ordinal="1">
+                    <DataShape>
+                        <FieldDefinitions>
+                            <FieldDefinition
+                             aspect.thingShape="HierarchyResolver"
+                             baseType="THINGNAME"
+                             description="Thing with HierarchyResolver ThingShape."
+                             name="resolverThingName"
+                             ordinal="1"></FieldDefinition>
+                        </FieldDefinitions>
+                    </DataShape>
+                    <Rows>
+                        <Row>
+                            <resolverThingName><![CDATA[Acme.Orders.Resolver]]></resolverThingName>
+                        </Row>
+                    </Rows>
+                </ConfigurationTable>
+            </ConfigurationTables>
+            <SystemPrompt>
+                <AgentDescription><![CDATA[Answers questions about orders]]></AgentDescription>
+                <AgentInstructions><![CDATA[Use the order tools.]]></AgentInstructions>
+            </SystemPrompt>
+            <SkillReferences>
+                <SkillReference
+                 repositoryName="SharedSkillsRepository"
+                 skillPath="/orders"></SkillReference>
+            </SkillReferences>
+            <MCPNamespaceReferences>
+                <MCPNamespaceReference
+                 name="Acme.Orders.Tools_NS">
+                    <AllowedTools>
+                        <Tool
+                         name="open_orders"></Tool>
+                    </AllowedTools>
+                    <AllowedResources>
+                        <Resource
+                         name="manual"></Resource>
+                    </AllowedResources>
+                    <AllowedPrompts>
+                        <Prompt
+                         name="status"></Prompt>
+                    </AllowedPrompts>
+                </MCPNamespaceReference>
+                <MCPNamespaceReference
+                 name="AgentUtilities">
+                    <AllowedTools>
+                        <Tool
+                         name="resolve_entity"></Tool>
+                    </AllowedTools>
+                </MCPNamespaceReference>
+            </MCPNamespaceReferences>
+            <ExternalMCPServerConfigurations></ExternalMCPServerConfigurations>
+        </AIAgent>
+    </AIAgents>
+</Entities>

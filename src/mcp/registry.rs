@@ -94,6 +94,7 @@ const OPEN_WORLD: &[&str] = &[
     "test",
     "extensions",
     "extension_write",
+    "ext_deploy",
     "impact",
     "search",
     "entity_get",
@@ -125,6 +126,8 @@ const ADDITIVE: &[&str] = &[
     "mashup_new",
     "permissions_init",
     "requirements_init",
+    "ext_new",
+    "ext_add",
 ];
 
 /// Writing tools that, called again with the same arguments, change nothing more.
@@ -695,6 +698,34 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             content::extensions_tool,
         )
         .with_output::<outputs::ExtensionsResult>(),
+        root_tool::<content_requests::ExtCheckRequest>(
+            "ext_check",
+            "Check a Java ThingWorx extension project offline, before it is built or uploaded: metadata.xml against the Java source (classes it names, ThingTemplates' thingPackage), the jars JarResources lists, each Widget's ide and runtime files, packageVersion against extension.properties, duplicate services, properties or events (inherited ones included), and base types. Notes say what may be fine but cannot be proven (a class only in a jar, a DataShape from elsewhere, a class nothing declares). Needs no solution or server; root is the project folder.",
+            true,
+            content::ext_check_tool,
+        )
+        .with_output::<outputs::ExtCheckResult>(),
+        root_tool::<content_requests::ExtNewRequest>(
+            "ext_new",
+            "Lay out a new Java ThingWorx extension project, as the Eclipse plugin's project wizard did: settings.gradle, a build.gradle that makes the importable zip (build/distributions/<name>.zip), extension.properties, configfiles/metadata.xml, .gitignore, the Java package folder and, given an Extension SDK (sdk, or TWACO_SDK), its jars in twx-lib/. The folder must be inside the solution, and missing or empty. A dry run unless dry_run is false; applied, ext_check's report is returned.",
+            false,
+            content::ext_new_tool,
+        )
+        .with_output::<outputs::ExtScaffoldResult>(),
+        root_tool::<content_requests::ExtAddRequest>(
+            "ext_add",
+            "Add to a Java ThingWorx extension project: a thing-template (Java class extending Thing with its base template, plus its ThingPackage), a thing-shape or resource (Java class), a widget (ui/<name>/ ide and runtime JS and CSS) or a jar (copied into lib/), each with its metadata.xml entry; the first Java class also lists the jar the build makes. metadata.xml keeps its formatting. The project and a jar must be inside the solution. A dry run unless dry_run is false; applied, ext_check's report is returned.",
+            false,
+            content::ext_add_tool,
+        )
+        .with_output::<outputs::ExtScaffoldResult>(),
+        solution_progress_tool::<content_requests::ExtDeployRequest>(
+            "ext_deploy",
+            "Deploy one of the solution's Java extensions (an [[extension]] in twaco.toml): ext_check it, run its Gradle wrapper, Gradle or Ant build, find the package zip under build/ or zip/, and have the server validate it; with dry_run false install it and confirm the server lists every entity its metadata.xml declares. The server skips a version it has, so a change needs bump (patch, minor or major), which writes the raised packageVersion into metadata.xml and extension.properties and puts it back if the build or install fails. An upgrade of a package with Java code is queued by the server for its next restart, and is reported as queued.",
+            false,
+            content::ext_deploy_tool,
+        )
+        .with_output::<outputs::ExtDeployResult>(),
         solution_progress_tool::<content_requests::ExtensionWriteRequest>(
             "extension_write",
             "Import an extension package zip of the solution, or remove an installed package. A dry run unless dry_run is false: an import is then only validated by the server, which installs nothing. A removal is refused while the package is in use.",
@@ -821,9 +852,9 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             info::help_page_tool,
         )
         .with_output::<outputs::HelpPageResult>(),
-        bare_tool::<info_requests::JavadocRequest>(
+        root_tool::<info_requests::JavadocRequest>(
             "javadoc",
-            "Search or read the ThingWorx Platform API 10.1.0 Javadoc as Markdown. search ranks class and member simple names exact, prefix, then contains. class gives the class description and method summaries; member gives every overload with parameters, returns and throws. service takes a service as a script or path names it (Resources[\"InfoTableFunctions\"].Sort, Things/Name.Service, me.Service, Class.member), finds the class that declares it, looking in the classes it extends, and returns every overload. Useful for the Java methods of objects scripts call and Resource service parameter descriptions.",
+            "Search or read ThingWorx Platform API Javadoc as Markdown. sdk can name an Extension SDK zip, extracted folder, or Javadoc jar; otherwise TWACO_SDK, then the named profile's sdk, then the public 10.1.0 site is used. refresh is ignored for an SDK. search ranks class and member simple names exact, prefix, then contains. class gives the class description and method summaries; member gives every overload with parameters, returns and throws. service takes a service as a script or path names it (Resources[\"InfoTableFunctions\"].Sort, Things/Name.Service, me.Service, Class.member), finds the class that declares it, looking in the classes it extends, and returns every overload.",
             true,
             info::javadoc_tool,
         )
@@ -965,6 +996,10 @@ pub(crate) const GROUPS: &[(&str, &[&str])] = &[
             "users_write",
             "appkey",
             "extensions",
+            "ext_check",
+            "ext_new",
+            "ext_add",
+            "ext_deploy",
             "extension_write",
             "settings",
         ],

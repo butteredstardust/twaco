@@ -69,6 +69,10 @@ name = "Acme"                 # used for package metadata and AGENTS.md
 src = "src"                   # where sidecars live (default "src")
 dist = "dist"                 # where bundles are written (default "dist")
 
+[[extension]]
+root = "extensions/AcmeKafka"  # Java extension checkout, relative to this solution
+name = "Acme Kafka"            # optional label in catalog and reports
+
 [[project]]
 name = "Acme.Core"            # required: the projectName its entities carry
 root = "core"                 # where its collection folders are (default ".")
@@ -152,6 +156,22 @@ timeout_seconds = 120         # (default 120)
 | `name` | empty | The solution's name: the default package group, and the name AGENTS.md uses. |
 | `src` | `src` | The sidecar root, relative to the solution. Each entity's sidecars are in `<src>/<Entity>/`. |
 | `dist` | `dist` | Where `twaco bundle` writes. |
+
+### `[[extension]]`
+
+One optional read-only Java extension checkout. `root` is required, relative to the solution root,
+and may sit beside it (`root = "../Acme_Extension"`), since twaco only reads it; prefer a relative
+path so the setting works in every clone. `name` is the optional human label shown by `catalog`. twaco reads `configfiles/metadata.xml` (or
+root `metadata.xml`), the matching Java source and DataShapes under `Entities/`. Its ThingTemplates,
+ThingShapes, Resources and declared Things join the offline model for `impact`, `catalog`, types and
+the mashup bindings gate. They are never discovered as workspace entities, so sync, rename, deploy,
+format and every other writing command cannot edit the extension. An absent root, metadata file or
+unreadable Java source is reported as skipped input; unrelated commands still run.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `root` | required | Extension project directory, relative to the solution root. |
+| `name` | `root` | Label shown as `[extension <name>]`. |
 
 ### `[[project]]`
 
@@ -303,7 +323,7 @@ layout once.
 `advisory` names built-in gates whose findings are reported (as `warn`) without failing
 `check` or blocking `deploy`: `line endings`, `sidecars`, `formatting`, `script traps`,
 `code order`, `project`, `mashup bindings`, `mashup content`, `contained mashups`, `localization tokens`,
-`result shapes`, `networks`, `requirements`. The live parse is not among them: `deploy` always has the server
+`result shapes`, `networks`, `requirements`, `ai references`. The live parse is not among them: `deploy` always has the server
 parse every script, and stops on a script it refuses. It is for a solution adopting twaco over code written
 before those gates existed; take a gate off the list once its findings are fixed. A gate that
 cannot run still fails, and a name that is not a gate is refused.
@@ -572,9 +592,14 @@ app_key = "..."                           # optional; see below
 database_password = "..."                 # any other key, for ${profile:key} placeholders
 allow_test_users = true                   # a test server: users seed and twaco test may act on it
 test_password = "..."                     # the password of every [[test.user]]
+sdk = "C:/ThingWorx/Extension-SDK"          # optional: Extension SDK Javadoc for `twaco javadoc`
 ```
 
 Commands use the profile `default` unless given `--profile <name>`, or `profile` over MCP.
+`twaco javadoc` uses a profile's optional `sdk` only after an explicit `--sdk` (or MCP `sdk`)
+and `TWACO_SDK`; it may name the SDK download zip, an extracted SDK folder, or the
+`thingworx-javadocs-*.jar` itself. The jar is read in place and is never copied into twaco's
+cache or the repository.
 Environment variables override a profile's fields, or replace the file entirely:
 `TWACO_URL`, `TWACO_USERNAME`, `TWACO_PASSWORD` and `TWACO_APP_KEY` (or the `TWX_` spellings).
 

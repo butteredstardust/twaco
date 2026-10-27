@@ -1761,3 +1761,478 @@ fn walk(dir: &Path) -> Vec<PathBuf> {
     }
     out
 }
+
+/// The AI edits write what `new` writes: a namespace and an agent grown one edit at a time are
+/// byte for byte the ones `new` makes from the whole request, and removing each edit again gives
+/// back the file it started from.
+#[test]
+fn ai_edits_write_what_new_writes_and_undo_to_the_same_bytes() {
+    let (_dir, solution) = fixture();
+    std::fs::write(
+        solution.root.join("app/Things/Acme.Orders.Manager.xml"),
+        "<Entities><Things><Thing name=\"Acme.Orders.Manager\" projectName=\"Acme.Orders\" thingTemplate=\"GenericThing\"><ThingShape><ServiceDefinitions><ServiceDefinition name=\"GetOrders\" description=\"Lists the open orders\"><ResultType baseType=\"STRING\" name=\"result\"/></ServiceDefinition></ServiceDefinitions></ThingShape></Thing></Things></Entities>",
+    )
+    .unwrap();
+    std::fs::write(
+        solution.root.join("app/Things/Acme.Orders.Resolver.xml"),
+        "<Entities><Things><Thing name=\"Acme.Orders.Resolver\" projectName=\"Acme.Orders\" thingTemplate=\"GenericThing\"><ImplementedShapes><ImplementedShape name=\"HierarchyResolver\" type=\"ThingShape\"/></ImplementedShapes></Thing></Things></Entities>",
+    )
+    .unwrap();
+    std::fs::write(
+        solution.root.join("app/ThingTemplates/Acme.Orders.Order_TT.xml"),
+        "<Entities><ThingTemplates><ThingTemplate name=\"Acme.Orders.Order_TT\" projectName=\"Acme.Orders\"/></ThingTemplates></Entities>",
+    )
+    .unwrap();
+    let tool = "open_orders=Acme.Orders.Manager.GetOrders";
+    let resource = "orders=Acme.Orders.Manager.GetOrders";
+    let prompt = "status=Summarise order {{order}}";
+
+    // The whole namespace from new, under another name, renamed in text to compare.
+    new(&solution, Kind::McpNamespace, "Acme.Orders.Whole_NS", |r| {
+        r.tools = vec![tool.into()];
+        r.service_resources = vec![resource.into()];
+        r.prompts = vec![prompt.into()];
+    });
+    let whole = file(&solution, "MCPNamespaces", "Acme.Orders.Whole_NS")
+        .replace("Acme.Orders.Whole_NS", "Acme.Orders.Tools_NS");
+    new(&solution, Kind::McpNamespace, "Acme.Orders.Tools_NS", |r| {
+        r.tools = vec![tool.into()];
+    });
+    let start = file(&solution, "MCPNamespaces", "Acme.Orders.Tools_NS");
+    for (kind, spec) in [("service-resource", resource), ("prompt", prompt)] {
+        run(
+            &solution,
+            "Acme.Orders.Tools_NS",
+            Action::McpAdd {
+                kind: kind.into(),
+                spec: spec.into(),
+                describe: None,
+            },
+        );
+    }
+    assert_eq!(
+        file(&solution, "MCPNamespaces", "Acme.Orders.Tools_NS"),
+        whole
+    );
+
+    // The agent likewise: everything at once, or one edit at a time.
+    new(&solution, Kind::AiAgent, "Acme.Orders.Whole_Agent", |r| {
+        r.namespaces = vec![
+            "Acme.Orders.Tools_NS".into(),
+            "AgentUtilities=resolve_entity".into(),
+        ];
+        r.skills = vec!["SharedSkillsRepository:/orders".into()];
+        r.taxonomy = vec!["Acme.Orders.Order_TT=order, orders".into()];
+        r.resolver = Some("Acme.Orders.Resolver".into());
+        r.instructions = Some("Use the order tools.".into());
+        r.display_name = Some("Orders".into());
+    });
+    let whole = file(&solution, "AIAgents", "Acme.Orders.Whole_Agent")
+        .replace("Acme.Orders.Whole_Agent", "Acme.Orders.Agent");
+    new(&solution, Kind::AiAgent, "Acme.Orders.Agent", |r| {
+        r.namespaces = vec!["Acme.Orders.Tools_NS=open_orders".into()];
+    });
+    let bare = file(&solution, "AIAgents", "Acme.Orders.Agent");
+    for action in [
+        Action::AgentAllow {
+            spec: "Acme.Orders.Tools_NS=orders,status".into(),
+        },
+        Action::AgentAllow {
+            spec: "AgentUtilities=resolve_entity".into(),
+        },
+        Action::AgentSkillAdd {
+            spec: "SharedSkillsRepository:/orders".into(),
+        },
+        Action::AgentTaxonomyAdd {
+            spec: "Acme.Orders.Order_TT=order, orders".into(),
+        },
+        Action::AgentSet(AgentChange {
+            resolver: Some("Acme.Orders.Resolver".into()),
+            instructions: Some("Use the order tools.".into()),
+            display_name: Some("Orders".into()),
+            ..AgentChange::default()
+        }),
+    ] {
+        run(&solution, "Acme.Orders.Agent", action);
+    }
+    assert_eq!(file(&solution, "AIAgents", "Acme.Orders.Agent"), whole);
+
+    // Undo: removing what was added gives back the starting bytes. Removing a namespace item
+    // takes it out of every agent that allows it too.
+    let removed = run(
+        &solution,
+        "Acme.Orders.Tools_NS",
+        Action::McpRemove {
+            name: "status".into(),
+        },
+    );
+    assert!(removed
+        .changes
+        .iter()
+        .any(|change| change.entity == "AIAgents/Acme.Orders.Agent"));
+    assert!(removed
+        .changes
+        .iter()
+        .any(|change| change.entity == "AIAgents/Acme.Orders.Whole_Agent"));
+    assert!(removed
+        .warnings
+        .iter()
+        .any(|warning| warning.contains("push the agent before the namespace")));
+    run(
+        &solution,
+        "Acme.Orders.Tools_NS",
+        Action::McpRemove {
+            name: "orders".into(),
+        },
+    );
+    assert_eq!(
+        file(&solution, "MCPNamespaces", "Acme.Orders.Tools_NS"),
+        start
+    );
+    for action in [
+        Action::AgentDisallow {
+            spec: "AgentUtilities".into(),
+        },
+        Action::AgentSkillRemove {
+            spec: "SharedSkillsRepository:/orders".into(),
+        },
+        Action::AgentTaxonomyRemove {
+            name: "Acme.Orders.Order_TT".into(),
+        },
+        Action::AgentSet(AgentChange {
+            resolver: Some(String::new()),
+            instructions: Some(String::new()),
+            display_name: Some("Acme.Orders.Agent".into()),
+            ..AgentChange::default()
+        }),
+    ] {
+        run(&solution, "Acme.Orders.Agent", action);
+    }
+    assert_eq!(file(&solution, "AIAgents", "Acme.Orders.Agent"), bare);
+
+    // Refusals.
+    let refused = |entity: &str, action: Action, wanted: &str| {
+        let error = plan_of(&solution, entity, action).unwrap_err().to_string();
+        assert!(error.contains(wanted), "{wanted}: {error}");
+    };
+    refused(
+        "Acme.Orders.Tools_NS",
+        Action::McpAdd {
+            kind: "prompt".into(),
+            spec: "open_orders=Say hello".into(),
+            describe: None,
+        },
+        "already has a tool, resource or prompt named open_orders",
+    );
+    refused(
+        "Acme.Orders.Tools_NS",
+        Action::McpRemove {
+            name: "nope".into(),
+        },
+        "has no tool, resource or prompt nope",
+    );
+    refused(
+        "Acme.Orders.Agent",
+        Action::AgentAllow {
+            spec: "Acme.Orders.Tools_NS=open_orders".into(),
+        },
+        "already allows all of that",
+    );
+    refused(
+        "Acme.Orders.Agent",
+        Action::AgentDisallow {
+            spec: "Acme.Orders.Tools_NS=status".into(),
+        },
+        "does not allow status",
+    );
+    refused(
+        "Acme.Orders.Agent",
+        Action::AgentSet(AgentChange {
+            resolver: Some("Acme.Orders.Manager".into()),
+            ..AgentChange::default()
+        }),
+        "does not implement the HierarchyResolver",
+    );
+    refused(
+        "Acme.Orders.Agent",
+        Action::AgentSet(AgentChange::default()),
+        "agent set needs",
+    );
+    refused(
+        "Acme.Orders.Manager",
+        Action::AgentSkillAdd {
+            spec: "SharedSkillsRepository:/orders".into(),
+        },
+        "changes an AIAgent",
+    );
+}
+
+/// Files twaco did not write: a compact one-line export, a section holding only a comment, and
+/// an agent with none of its optional containers all take an edit and stay well-formed.
+#[test]
+fn ai_edits_keep_compact_sparse_and_commented_files_well_formed() {
+    let (_dir, solution) = fixture();
+    std::fs::write(
+        solution.root.join("app/Things/Acme.Orders.Manager.xml"),
+        "<Entities><Things><Thing name=\"Acme.Orders.Manager\" projectName=\"Acme.Orders\" thingTemplate=\"GenericThing\"><ThingShape><ServiceDefinitions><ServiceDefinition name=\"GetOrders\" description=\"Lists the open orders\"><ResultType baseType=\"STRING\" name=\"result\"/></ServiceDefinition></ServiceDefinitions></ThingShape></Thing></Things></Entities>",
+    )
+    .unwrap();
+    std::fs::create_dir_all(solution.root.join("app/MCPNamespaces")).unwrap();
+    std::fs::create_dir_all(solution.root.join("app/AIAgents")).unwrap();
+    let well_formed = |collection: &str, name: &str| {
+        let text = file(&solution, collection, name);
+        let tokens =
+            scan::tokenize(text.as_bytes()).unwrap_or_else(|error| panic!("{error}: {text}"));
+        assert!(
+            crate::core::sidecar::entity_element(&tokens, text.as_bytes()).is_some(),
+            "{text}"
+        );
+        text
+    };
+
+    // One line, with an existing section: the item goes in without dragging markup along.
+    std::fs::write(
+        solution.root.join("app/MCPNamespaces/Acme.Orders.Compact_NS.xml"),
+        "<Entities><MCPNamespaces><MCPNamespace name=\"Acme.Orders.Compact_NS\" projectName=\"Acme.Orders\"><ConfigurationTables/><MCPTools><MCPTool name=\"a\" serviceName=\"GetOrders\" serviceProvider=\"Acme.Orders.Manager\" serviceProviderType=\"Thing\" description=\"A\"/></MCPTools></MCPNamespace></MCPNamespaces></Entities>",
+    )
+    .unwrap();
+    run(
+        &solution,
+        "Acme.Orders.Compact_NS",
+        Action::McpAdd {
+            kind: "tool".into(),
+            spec: "b=Acme.Orders.Manager.GetOrders".into(),
+            describe: None,
+        },
+    );
+    let compact = well_formed("MCPNamespaces", "Acme.Orders.Compact_NS");
+    assert_eq!(compact.matches("<Entities>").count(), 1, "{compact}");
+    assert!(compact.contains("name=\"b\""), "{compact}");
+
+    // A section holding only a comment keeps it.
+    std::fs::write(
+        solution.root.join("app/MCPNamespaces/Acme.Orders.Noted_NS.xml"),
+        "<Entities>\n    <MCPNamespaces>\n        <MCPNamespace name=\"Acme.Orders.Noted_NS\" projectName=\"Acme.Orders\">\n            <MCPTools><!-- kept --></MCPTools>\n        </MCPNamespace>\n    </MCPNamespaces>\n</Entities>\n",
+    )
+    .unwrap();
+    run(
+        &solution,
+        "Acme.Orders.Noted_NS",
+        Action::McpAdd {
+            kind: "tool".into(),
+            spec: "a=Acme.Orders.Manager.GetOrders".into(),
+            describe: None,
+        },
+    );
+    let noted = well_formed("MCPNamespaces", "Acme.Orders.Noted_NS");
+    assert!(
+        noted.contains("<!-- kept -->") && noted.contains("name=\"a\""),
+        "{noted}"
+    );
+
+    // No ConfigurationTables: a new section goes in as the entity's last child.
+    std::fs::write(
+        solution.root.join("app/MCPNamespaces/Acme.Orders.Bare_NS.xml"),
+        "<Entities>\n    <MCPNamespaces>\n        <MCPNamespace name=\"Acme.Orders.Bare_NS\" projectName=\"Acme.Orders\">\n        </MCPNamespace>\n    </MCPNamespaces>\n</Entities>\n",
+    )
+    .unwrap();
+    run(
+        &solution,
+        "Acme.Orders.Bare_NS",
+        Action::McpAdd {
+            kind: "prompt".into(),
+            spec: "status=Summarise order {{order}}".into(),
+            describe: None,
+        },
+    );
+    assert!(well_formed("MCPNamespaces", "Acme.Orders.Bare_NS").contains("<MCPPrompts>"));
+
+    // An agent with no references, prompt or skills yet gets the containers it needs.
+    std::fs::write(
+        solution.root.join("app/AIAgents/Acme.Orders.Sparse_Agent.xml"),
+        "<Entities>\n    <AIAgents>\n        <AIAgent name=\"Acme.Orders.Sparse_Agent\" projectName=\"Acme.Orders\" displayName=\"Sparse\">\n        </AIAgent>\n    </AIAgents>\n</Entities>\n",
+    )
+    .unwrap();
+    for action in [
+        Action::AgentAllow {
+            spec: "Acme.Orders.Compact_NS=b".into(),
+        },
+        Action::AgentSkillAdd {
+            spec: "SharedSkillsRepository:/orders".into(),
+        },
+    ] {
+        run(&solution, "Acme.Orders.Sparse_Agent", action);
+    }
+    let sparse = well_formed("AIAgents", "Acme.Orders.Sparse_Agent");
+    assert!(
+        sparse.contains("<MCPNamespaceReferences>") && sparse.contains("<SkillReferences>"),
+        "{sparse}"
+    );
+
+    // Refusals: a path Windows would read as `..`, an empty item, and the last namespace.
+    let refused = |entity: &str, action: Action, wanted: &str| {
+        let error = plan_of(&solution, entity, action).unwrap_err().to_string();
+        assert!(error.contains(wanted), "{wanted}: {error}");
+    };
+    refused(
+        "Acme.Orders.Compact_NS",
+        Action::McpAdd {
+            kind: "file-resource".into(),
+            spec: "x=Files:/.. /outside.md".into(),
+            describe: None,
+        },
+        "must be name=Repository:/path",
+    );
+    refused(
+        "Acme.Orders.Sparse_Agent",
+        Action::AgentSkillAdd {
+            spec: "Files.:/orders".into(),
+        },
+        "inside the repository",
+    );
+    refused(
+        "Acme.Orders.Sparse_Agent",
+        Action::AgentDisallow {
+            spec: "Acme.Orders.Compact_NS=".into(),
+        },
+        "has an empty item",
+    );
+    refused(
+        "Acme.Orders.Sparse_Agent",
+        Action::AgentDisallow {
+            spec: "Acme.Orders.Compact_NS".into(),
+        },
+        "the only namespace",
+    );
+}
+
+/// Removing from a compact one-line file takes only the element, and from a CRLF file the whole
+/// line with its CRLF, so neither loses markup nor keeps a stray CR.
+#[test]
+fn ai_removals_keep_compact_and_crlf_files_intact() {
+    let (_dir, solution) = fixture();
+    std::fs::create_dir_all(solution.root.join("app/MCPNamespaces")).unwrap();
+    let tool = |name: &str| {
+        format!("<MCPTool name=\"{name}\" serviceName=\"S\" serviceProvider=\"Elsewhere.T\" serviceProviderType=\"Thing\" description=\"D\"/>")
+    };
+    std::fs::write(
+        solution.root.join("app/MCPNamespaces/Acme.Orders.Compact_NS.xml"),
+        format!(
+            "<?xml version=\"1.0\"?>\n<Entities><MCPNamespaces><MCPNamespace name=\"Acme.Orders.Compact_NS\" projectName=\"Acme.Orders\"><MCPTools>{}{}</MCPTools></MCPNamespace></MCPNamespaces></Entities>\n",
+            tool("a"),
+            tool("b")
+        ),
+    )
+    .unwrap();
+    run(
+        &solution,
+        "Acme.Orders.Compact_NS",
+        Action::McpRemove { name: "a".into() },
+    );
+    assert_eq!(
+        file(&solution, "MCPNamespaces", "Acme.Orders.Compact_NS"),
+        format!(
+            "<?xml version=\"1.0\"?>\n<Entities><MCPNamespaces><MCPNamespace name=\"Acme.Orders.Compact_NS\" projectName=\"Acme.Orders\"><MCPTools>{}</MCPTools></MCPNamespace></MCPNamespaces></Entities>\n",
+            tool("b")
+        )
+    );
+
+    let crlf = |tools: &[&str]| {
+        let lines: String = tools
+            .iter()
+            .map(|name| format!("                {}\r\n", tool(name)))
+            .collect();
+        format!(
+            "<Entities>\r\n    <MCPNamespaces>\r\n        <MCPNamespace name=\"Acme.Orders.Crlf_NS\" projectName=\"Acme.Orders\">\r\n            <MCPTools>\r\n{lines}            </MCPTools>\r\n        </MCPNamespace>\r\n    </MCPNamespaces>\r\n</Entities>\r\n"
+        )
+    };
+    std::fs::write(
+        solution
+            .root
+            .join("app/MCPNamespaces/Acme.Orders.Crlf_NS.xml"),
+        crlf(&["a", "b"]),
+    )
+    .unwrap();
+    run(
+        &solution,
+        "Acme.Orders.Crlf_NS",
+        Action::McpRemove { name: "a".into() },
+    );
+    assert_eq!(
+        file(&solution, "MCPNamespaces", "Acme.Orders.Crlf_NS"),
+        crlf(&["b"])
+    );
+}
+
+/// A new section keeps the order `new` writes, a control character never reaches a CDATA
+/// section, and an item named twice is refused.
+#[test]
+fn ai_edits_keep_section_order_and_refuse_bad_text_and_repeats() {
+    let (_dir, solution) = fixture();
+    std::fs::write(
+        solution.root.join("app/Things/Acme.Orders.Manager.xml"),
+        "<Entities><Things><Thing name=\"Acme.Orders.Manager\" projectName=\"Acme.Orders\" thingTemplate=\"GenericThing\"><ThingShape><ServiceDefinitions><ServiceDefinition name=\"GetOrders\" description=\"Lists the open orders\"><ResultType baseType=\"STRING\" name=\"result\"/></ServiceDefinition></ServiceDefinitions></ThingShape></Thing></Things></Entities>",
+    )
+    .unwrap();
+    std::fs::create_dir_all(solution.root.join("app/MCPNamespaces")).unwrap();
+    // No ConfigurationTables, only prompts: tools go before them.
+    std::fs::write(
+        solution.root.join("app/MCPNamespaces/Acme.Orders.Prompts_NS.xml"),
+        "<Entities>\n    <MCPNamespaces>\n        <MCPNamespace name=\"Acme.Orders.Prompts_NS\" projectName=\"Acme.Orders\">\n            <MCPPrompts>\n                <MCPPrompt name=\"p\" description=\"P\" content=\"{}\"/>\n            </MCPPrompts>\n        </MCPNamespace>\n    </MCPNamespaces>\n</Entities>\n",
+    )
+    .unwrap();
+    run(
+        &solution,
+        "Acme.Orders.Prompts_NS",
+        Action::McpAdd {
+            kind: "tool".into(),
+            spec: "t=Acme.Orders.Manager.GetOrders".into(),
+            describe: None,
+        },
+    );
+    let text = file(&solution, "MCPNamespaces", "Acme.Orders.Prompts_NS");
+    let tools = text.find("<MCPTools>").expect("tools written");
+    let prompts = text.find("<MCPPrompts>").unwrap();
+    assert!(tools < prompts, "{text}");
+    assert!(
+        text.contains("            <MCPTools>") && text.contains("\n            <MCPPrompts>"),
+        "{text}"
+    );
+
+    new(&solution, Kind::AiAgent, "Acme.Orders.Agent", |r| {
+        r.namespaces = vec!["Acme.Orders.Prompts_NS=t".into()];
+    });
+    let refused = |entity: &str, action: Action, wanted: &str| {
+        let error = plan_of(&solution, entity, action).unwrap_err().to_string();
+        assert!(error.contains(wanted), "{wanted}: {error}");
+    };
+    refused(
+        "Acme.Orders.Agent",
+        Action::AgentSet(AgentChange {
+            instructions: Some("ring\u{7}".into()),
+            ..AgentChange::default()
+        }),
+        "U+0007",
+    );
+    refused(
+        "Acme.Orders.Agent",
+        Action::AgentAllow {
+            spec: "Acme.Orders.Prompts_NS=p,p".into(),
+        },
+        "item p is listed more than once",
+    );
+    refused(
+        "Acme.Orders.Agent",
+        Action::AgentDisallow {
+            spec: "Acme.Orders.Prompts_NS=t,t".into(),
+        },
+        "item t is listed more than once",
+    );
+    let mut request = NewRequest::blank(Kind::AiAgent, "Acme.Orders.Other_Agent");
+    request.namespaces = vec!["AgentUtilities".into()];
+    request.agent_description = Some("bell\u{7}".into());
+    let error = entity::new::plan(&solution, &request)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("U+0007"), "{error}");
+}

@@ -7,6 +7,7 @@
 use super::codes::{Coded, ErrorCode};
 use super::{bundle, config, sidecar, workspace};
 
+mod ai_order;
 mod calls;
 mod error;
 mod model;
@@ -14,6 +15,7 @@ mod plan;
 mod remote;
 mod run;
 
+pub use ai_order::{AgentNarrowing, DroppedItems};
 pub use error::DeployError;
 pub(crate) use model::{
     Entity, NotKept, ParseFailure, PlanOptions, PlannedCall, ProjectBundle, Script, ServiceCall,
@@ -33,9 +35,11 @@ impl Coded for DeployError {
             | Self::Server { .. }
             | Self::UnknownPlaceholder { .. }
             | Self::PlaceholderNotText { .. } => ErrorCode::InvalidData,
-            Self::ParseUnavailable { source, .. } | Self::Import { source, .. } => source.code(),
+            Self::ParseUnavailable { source, .. }
+            | Self::Import { source, .. }
+            | Self::Narrowing { source, .. } => source.code(),
             Self::ParseFailed(_) => ErrorCode::GateFailed,
-            Self::Conflicts(_) => ErrorCode::ServerConflict,
+            Self::Conflicts(_) | Self::AgentsOutside(_) => ErrorCode::ServerConflict,
             Self::Call { .. } => ErrorCode::ServerError,
             Self::NotKept(_) => ErrorCode::NotVerified,
             Self::AfterImport { source, .. } => source.code(),

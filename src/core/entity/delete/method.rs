@@ -31,7 +31,8 @@ impl fmt::Display for Method {
 /// The delete route is an explicit allow-list. Verified ThingWorx EntityServices metadata
 /// reports one STRING input named `name` for every listed service: DeleteThing,
 /// DeleteThingTemplate, DeleteThingShape, DeleteMediaEntity, DeleteGroup, DeleteOrganization,
-/// DeleteProject and DeleteUser. Collections listed as REST use Composer's verified route.
+/// DeleteProject and DeleteUser. Collections listed as REST use Composer's verified route;
+/// Roles and PermissionGroups were checked against a 10.2 server the same way.
 pub(crate) fn method_for(collection: &str) -> Option<Method> {
     let service = match collection {
         "Things" => Some("DeleteThing"),
@@ -70,6 +71,8 @@ pub(crate) fn method_for(collection: &str) -> Option<Method> {
         | "StyleDefinitions"
         | "StyleThemes"
         | "ThingGroups"
+        | "Roles"
+        | "PermissionGroups"
         | "Timers"
         | "ValueStreams"
         | "Widgets"

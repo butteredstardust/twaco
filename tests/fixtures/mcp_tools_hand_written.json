@@ -1139,36 +1139,270 @@
     "name": "entity_new",
     "description": "Create a ThingWorx entity as a repository XML file: Projects, Groups, common Things, data Things, media, styles, states, menus, themes, and Networks. A new Project also appends its project declaration to twaco.toml. DataShape and DataTable creation also writes their managed sidecar. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
     "inputSchema": {
-      "required": ["kind", "name"],
+      "required": [
+        "kind",
+        "name"
+      ],
       "additionalProperties": false,
       "type": "object",
       "properties": {
-        "kind": {"description": "`project`, `group`, `thing`, `thing-template`, `thing-shape`, `data-shape`, `timer`, `scheduler`, `data-table`, `stream`, `value-stream`, `media`, `style`, `state`, `menu`, `theme`, or `network`.", "type": "string", "enum": ["project", "group", "thing", "thing-template", "thing-shape", "data-shape", "timer", "scheduler", "data-table", "stream", "value-stream", "media", "style", "state", "menu", "theme", "network"]},
-        "name": {"description": "The entity name.", "type": "string"},
-        "project": {"type": "string"},
-        "description": {"type": "string"},
-        "depends_on": {"type": "array", "items": {"type": "string"}},
-        "visibility": {"type": "array", "items": {"type": "string"}},
-        "template": {"type": "string"},
-        "shape": {"type": "array", "items": {"type": "string"}},
-        "value_stream": {"type": "string"},
-        "base": {"type": "string"},
-        "field": {"type": "array", "items": {"type": "string"}},
-        "every": {"type": "string"},
-        "cron": {"type": "string"},
-        "run_as": {"type": "string"},
-        "disabled": {"type": "boolean", "default": false},
-        "then": {"type": "string"},
-        "script": {"type": "string"},
-        "data_shape": {"type": "string"}, "index": {"type": "array", "items": {"type": "string"}}, "file": {"type": "string"},
-        "background": {"type": "string"}, "foreground": {"type": "string"}, "secondary_background": {"type": "string"}, "line_color": {"type": "string"}, "line_style": {"type": "string"}, "line_thickness": {"type": "string"},
-        "bold": {"type": "boolean", "default": false}, "italic": {"type": "boolean", "default": false}, "underline": {"type": "boolean", "default": false},
-        "text_size": {"type": "string"}, "image": {"type": "string"}, "display_string": {"type": "string"}, "type": {"type": "string"},
-        "state": {"type": "array", "items": {"type": "string"}}, "item": {"type": "array", "items": {"type": "string"}}, "default": {"type": "boolean", "default": false}, "label": {"type": "string"}, "from": {"type": "string"}, "prop": {"type": "array", "items": {"type": "string"}},
-        "dry_run": {"type": "boolean", "default": true}
+        "kind": {
+          "description": "`project`, `group`, `thing`, `thing-template`, `thing-shape`, `data-shape`, `timer`, `scheduler`, `data-table`, `stream`, `value-stream`, `media`, `style`, `state`, `menu`, `theme`, `network`, `mcp-namespace` or `ai-agent`.",
+          "type": "string",
+          "enum": [
+            "project",
+            "group",
+            "thing",
+            "thing-template",
+            "thing-shape",
+            "data-shape",
+            "timer",
+            "scheduler",
+            "data-table",
+            "stream",
+            "value-stream",
+            "media",
+            "style",
+            "state",
+            "menu",
+            "theme",
+            "network",
+            "mcp-namespace",
+            "ai-agent"
+          ]
+        },
+        "name": {
+          "description": "The entity name.",
+          "type": "string"
+        },
+        "project": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "depends_on": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "visibility": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "template": {
+          "type": "string"
+        },
+        "shape": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "value_stream": {
+          "type": "string"
+        },
+        "base": {
+          "type": "string"
+        },
+        "field": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "every": {
+          "type": "string"
+        },
+        "cron": {
+          "type": "string"
+        },
+        "run_as": {
+          "type": "string"
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "then": {
+          "type": "string"
+        },
+        "script": {
+          "type": "string"
+        },
+        "data_shape": {
+          "type": "string"
+        },
+        "index": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "file": {
+          "type": "string"
+        },
+        "background": {
+          "type": "string"
+        },
+        "foreground": {
+          "type": "string"
+        },
+        "secondary_background": {
+          "type": "string"
+        },
+        "line_color": {
+          "type": "string"
+        },
+        "line_style": {
+          "type": "string"
+        },
+        "line_thickness": {
+          "type": "string"
+        },
+        "bold": {
+          "type": "boolean",
+          "default": false
+        },
+        "italic": {
+          "type": "boolean",
+          "default": false
+        },
+        "underline": {
+          "type": "boolean",
+          "default": false
+        },
+        "text_size": {
+          "type": "string"
+        },
+        "image": {
+          "type": "string"
+        },
+        "display_string": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "state": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "item": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "default": {
+          "type": "boolean",
+          "default": false
+        },
+        "label": {
+          "type": "string"
+        },
+        "from": {
+          "type": "string"
+        },
+        "prop": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "tool": {
+          "description": "mcp-namespace: `name=Provider.Service` tools; prefix the provider `Thing:`,\n`ThingTemplate:` or `ThingShape:` to name one outside the solution.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "service_resource": {
+          "description": "mcp-namespace: `name=Provider.Service` service resources.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "file_resource": {
+          "description": "mcp-namespace: `name=Repository:/path` file resources.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "prompt": {
+          "description": "mcp-namespace: `name=text` prompts; `{{argument}}` placeholders become arguments.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "describe": {
+          "description": "mcp-namespace: `name=text` descriptions; a tool or service resource defaults to its\nservice's description, a prompt to its text. ThingWorx refuses an empty one.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "namespace": {
+          "description": "ai-agent: `Namespace` (everything it defines) or `Namespace=item,item`.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "skill": {
+          "description": "ai-agent: `Repository:/path` skill folders holding a SKILL.md.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "resolver": {
+          "description": "ai-agent: the Thing implementing HierarchyResolver.",
+          "type": "string"
+        },
+        "taxonomy": {
+          "description": "ai-agent: `TemplateOrShape` or `TemplateOrShape=alias, alias` taxonomy rows.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "instructions": {
+          "description": "ai-agent: the system prompt's instructions.",
+          "type": "string"
+        },
+        "instructions_file": {
+          "description": "ai-agent: a file holding the instructions.",
+          "type": "string"
+        },
+        "agent_description": {
+          "description": "ai-agent: the description the assistant routes questions by.",
+          "type": "string"
+        },
+        "display_name": {
+          "description": "ai-agent: the name the assistant shows (default: the entity name).",
+          "type": "string"
+        },
+        "dry_run": {
+          "type": "boolean",
+          "default": true
+        }
       }
     },
-    "annotations": { "readOnlyHint": false, "openWorldHint": false, "destructiveHint": false, "idempotentHint": false }
+    "annotations": {
+      "readOnlyHint": false,
+      "openWorldHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false
+    }
   },
   {
     "name": "network",
@@ -1244,7 +1478,16 @@
             "media_set",
             "menu_item_add",
             "menu_item_remove",
-            "state_set"
+            "state_set",
+            "mcp_add",
+            "mcp_remove",
+            "agent_allow",
+            "agent_disallow",
+            "agent_taxonomy_add",
+            "agent_taxonomy_remove",
+            "agent_skill_add",
+            "agent_skill_remove",
+            "agent_set"
           ]
         },
         "entity": {
@@ -1320,7 +1563,9 @@
         "params": {
           "description": "service_add: parameters in declaration order, each `name:TYPE[:DataShape]`.",
           "type": "array",
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         },
         "returns": {
           "description": "service_add: the result `TYPE[:DataShape]`; absent means NOTHING.",
@@ -1430,6 +1675,34 @@
           "items": {
             "type": "string"
           }
+        },
+        "item_kind": {
+          "description": "mcp_add: tool, service-resource, file-resource or prompt.",
+          "type": "string"
+        },
+        "spec": {
+          "description": "mcp_add: `name=Provider.Service`, `name=Repository:/path` or `name=text`; agent_allow and\nagent_disallow: `Namespace` or `Namespace=item,item`; agent_taxonomy_add:\n`TemplateOrShape[=alias, alias]`; agent_skill_add and agent_skill_remove:\n`Repository:/path`. mcp_remove and agent_taxonomy_remove take `name`; mcp_add takes the\nitem's `description`.",
+          "type": "string"
+        },
+        "resolver": {
+          "description": "agent_set: the HierarchyResolver Thing; empty clears it.",
+          "type": "string"
+        },
+        "instructions": {
+          "description": "agent_set: the system prompt's instructions.",
+          "type": "string"
+        },
+        "instructions_file": {
+          "description": "agent_set: a file holding the instructions.",
+          "type": "string"
+        },
+        "agent_description": {
+          "description": "agent_set: the description the assistant routes questions by.",
+          "type": "string"
+        },
+        "display_name": {
+          "description": "agent_set: the name the assistant shows.",
+          "type": "string"
         },
         "dry_run": {
           "type": "boolean",
@@ -3167,8 +3440,13 @@
   },
   {
     "name": "javadoc",
-    "description": "Search or read the ThingWorx Platform API 10.1.0 Javadoc as Markdown. search ranks class and member simple names exact, prefix, then contains. class gives the class description and method summaries; member gives every overload with parameters, returns and throws. service takes a service as a script or path names it (Resources[\"InfoTableFunctions\"].Sort, Things/Name.Service, me.Service, Class.member), finds the class that declares it, looking in the classes it extends, and returns every overload. Useful for the Java methods of objects scripts call and Resource service parameter descriptions.",
+    "description": "Search or read ThingWorx Platform API Javadoc as Markdown. sdk can name an Extension SDK zip, extracted folder, or Javadoc jar; otherwise TWACO_SDK, then the named profile's sdk, then the public 10.1.0 site is used. refresh is ignored for an SDK. search ranks class and member simple names exact, prefix, then contains. class gives the class description and method summaries; member gives every overload with parameters, returns and throws. service takes a service as a script or path names it (Resources[\"InfoTableFunctions\"].Sort, Things/Name.Service, me.Service, Class.member), finds the class that declares it, looking in the classes it extends, and returns every overload.",
     "inputSchema": {
+      "required": [
+        "action",
+        "name"
+      ],
+      "additionalProperties": false,
       "type": "object",
       "properties": {
         "action": {
@@ -3180,28 +3458,32 @@
           ]
         },
         "name": {
-          "type": "string",
-          "description": "search: a name; class: a simple or qualified class name; service: a service as a script or path names it (Resources[\"InfoTableFunctions\"].Sort, Things/Name.Service, me.Service, Class.member)."
+          "description": "search: a name; class: a simple or qualified class name; service: a service as a script or path names it (Resources[\"InfoTableFunctions\"].Sort, Things/Name.Service, me.Service, Class.member).",
+          "type": "string"
         },
         "member": {
-          "type": "string",
-          "description": "class: return full details for every overload of this member."
+          "description": "class: return full details for every overload of this member.",
+          "type": "string"
         },
         "limit": {
           "type": "integer",
-          "minimum": 1,
-          "default": 10
+          "default": 10,
+          "minimum": 1
         },
         "refresh": {
           "type": "boolean",
           "default": false
+        },
+        "sdk": {
+          "description": "An Extension SDK zip, extracted folder, or Javadoc jar. It is read locally and never cached.",
+          "type": "string"
+        },
+        "profile": {
+          "description": "Profile whose sdk is used when sdk and TWACO_SDK are unset.",
+          "type": "string",
+          "default": "default"
         }
-      },
-      "required": [
-        "action",
-        "name"
-      ],
-      "additionalProperties": false
+      }
     },
     "annotations": {
       "readOnlyHint": true,

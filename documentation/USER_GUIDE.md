@@ -31,6 +31,80 @@ An entity belongs to the project its own `projectName` names. A file filed under
 project's folder is reported by `check`, because it would otherwise import into the wrong
 project silently.
 
+### Java extensions used by the solution
+
+When a solution calls services supplied by a Java extension, add an `[[extension]]` entry in
+`twaco.toml` naming its source checkout, which may sit beside the solution
+(`root = "../Acme_Extension"`). twaco reads the extension metadata and
+Java annotations, including inherited members whose superclass is in that checkout. `impact
+<template> --member <service>`, `catalog` and mashup binding checks then see those services;
+catalog marks them `[extension <name>]`. Extension source is analysis input only: it is never a
+workspace entity, so twaco cannot rename, sync, format, deploy or otherwise write it. See
+[Configuration](CONFIGURATION.md#extension) for the entry and its failure behaviour.
+
+In the extension's own folder, which needs no `twaco.toml`, `twaco ext check` (MCP `ext_check`)
+reads it as the ThingWorx Eclipse plugin's builder did, before Gradle builds it or the server
+refuses it:
+
+```sh
+twaco ext check                       # this folder
+twaco ext check ../Acme_Extension --json
+```
+
+It reports a class `metadata.xml` names that the source lacks, a ThingTemplate whose
+`thingPackage` is not declared, a JarResources file that is in neither `lib/` nor `twx-lib/` and
+is not the jar the build makes, a Widget missing its `ide.js` or `runtime.js`, a `packageVersion`
+that `extension.properties` contradicts, two services, properties or events of one name (inherited
+ones included) and a base type ThingWorx does not have. Notes say what may be fine but cannot be
+proven: a class only in a jar, a DataShape the extension does not ship, a class with ThingWorx
+members that nothing declares. It exits non-zero when it finds something.
+
+`twaco ext new` and `twaco ext add` (MCP `ext_new`, `ext_add`) do what the plugin's wizards did,
+as a plan until `--apply`:
+
+```sh
+twaco ext new Acme_Pumps --vendor Acme --sdk ~/sdk/ThingWorx-Extension-SDK-10-2-0.zip --apply
+cd Acme_Pumps
+twaco ext add thing-template Acme.Pump_TT --base-template GenericThing --apply
+twaco ext add thing-shape Acme.Valve_TS --apply
+twaco ext add widget gauge --apply
+twaco ext add jar ../vendor/client-1.2.jar --apply
+gradle build                          # build/distributions/Acme_Pumps.zip
+```
+
+`ext new` writes the Gradle build, `extension.properties`, `configfiles/metadata.xml`, a
+`.gitignore` that keeps `build/` and `twx-lib/` out of git, the Java package folder and the SDK's
+jars in `twx-lib/` (from `--sdk` or `TWACO_SDK`). The package version lives only in metadata.xml,
+and the build reads it from there. `ext add` writes the Java class (a template extends `Thing`
+under its base template and gets a ThingPackage) or the widget's `ide` and `runtime` JS and CSS,
+or copies the jar into `lib/`, and adds the metadata.xml entry without reformatting the file; the
+first Java class also lists the jar the build makes. Each applied run ends with `ext check`.
+
+From the solution, `twaco ext deploy` (MCP `ext_deploy`) sends an `[[extension]]` to the server:
+
+```sh
+twaco ext deploy                      # check, build, and have the server validate the package
+twaco ext deploy Acme --apply         # install it, then confirm the server lists its entities
+twaco ext deploy --bump patch --apply # the server has this version: raise it, build, install
+```
+
+It runs `ext check`, then the project's build (its Gradle wrapper, else Gradle, else Ant;
+`--no-build` skips it), takes the newest package zip under `build/` or `zip/` and makes sure it
+holds the package and version metadata.xml declares. The server skips a version it has, so
+deploying a change needs `--bump`, which on `--apply` writes the raised `packageVersion` into
+metadata.xml (and `extension.properties` when that names one) and puts it back if the build
+fails, or if the install fails and the server's package list lacks the new version. Upgrading a package with Java code, the server queues it for its next restart
+and twaco says so; a removed Java extension cannot be installed again until that restart.
+
+In IntelliJ IDEA, `twaco ext intellij --apply` adds a **ThingWorx** live template group and a
+**twaco** External Tools group to the newest IntelliJ configuration (or `--dir <config>`); restart
+IntelliJ to load them. The templates write the annotations twaco reads: `twxservice` (definition,
+result and method), `twxparam`, `twxprops` and `twxprop`, `twxevents`, `twxsubs`, `twxconfig` and
+`twxlog`, with the base type picked from a list. The tools run `ext check` (its findings link to
+their lines), `ext add` for each kind (asking for the name; `ext add jar` on the selected jar) and
+`ext deploy`, whose working directory you set to the solution that names the extension. The same
+files are under `editors/intellij/` for importing by hand.
+
 ### Starting from a project that is only on a server
 
 A project built in Composer becomes a repository with one command, run in an empty folder:
@@ -120,13 +194,14 @@ without it, each gate gives a summary.
 | formatting | a script is not as the built-in formatter writes it (`twaco fmt` fixes it) |
 | script traps | a script uses something the ThingWorx Rhino engine punishes (see below) |
 | code order | a service's main code is below its helper functions |
-| project | the entity files disagree with themselves or each other: a file named for another entity, two files for one entity, a misfiled or project-less entity, a service declared without its implementation or the reverse, a mashup whose JSON does not parse |
+| project | the entity files disagree with themselves or each other: a file named for another entity, two files for one entity, a misfiled or project-less entity, a service declared without its implementation or the reverse, a mashup whose JSON does not parse, a folder under a project root holding entity documents in no collection folder, which deploy and bundle would leave out, or a model tag that is not `Vocabulary:Term` or names a term a fixed vocabulary of the solution lacks |
 | mashup bindings | a repository-resolved mashup service, result field or parameter is not declared; unresolved platform and inherited DataShape details are left unchecked |
 | mashup content | what `twaco mashup validate` finds in a mashup's content: a binding to a property, event or service its widget or data source does not have, a binding in the wrong direction, mixed container layouts. Widgets outside the catalogue (extensions) are not judged |
 | contained mashups | a binding to a contained mashup's or navigation function's parameter that its copy of the parameters lacks (the value is dropped) or that the mashup it shows no longer declares; `twaco mashup param set <mashup> <parameter>` refreshes every copy; a stale copy nothing binds is only counted |
 | localization tokens | an entity names a `[[token]]` under one of the solution's token prefixes that no Default table file holds (the label would show the raw text), a language table holds a token Default lacks, a token is in one table twice, or a table file cannot be read. Tokens outside the prefixes are the platform's or an extension's and are not checked. Notes, which never fail it: per language table, the solution's tokens it lacks (they show the Default text), and Default tokens no entity names as `[[token]]` or as a bare name |
 | result shapes | a service's script builds its result with `CreateInfoTableFromDataShape` from another DataShape than its definition declares, named by a literal or a `const` holding one (a mashup bound to the declared shape finds other fields). A name computed at run time is not checked |
 | requirements | `requirements.toml` exists and a collected dependency is undeclared or its version is declared lower; skipped when absent. Runs offline; list `requirements` in `[gates] advisory` to report without blocking |
+| ai references | an MCP namespace tool or service resource calls a service its Thing, template or shape, what they inherit, or (for a platform template or shape) the platform cache does not declare, or names a provider of the wrong kind; an AI agent references an MCP namespace that is neither in the repository nor `AgentUtilities`, allows a tool, resource or prompt its namespace does not define, names a taxonomy type of the wrong kind, or a hierarchy resolver that does not implement `HierarchyResolver`; an MCP File resource or a skill names a file the `[repositories]` mirror of that file repository does not hold (the import refuses such a namespace). A provider, taxonomy type or resolver under one of the solution's projects that the repository lacks is a note, which does not fail the run: another project may share the prefix. Names outside the solution's projects may be another solution's and are not judged |
 | your hooks | a `[[check]]` command fails ([Configuration](CONFIGURATION.md#check-your-own-gates)) |
 | live parse | with `--live` or `[gates] live`: the server's own parser rejects a script |
 
@@ -650,6 +725,56 @@ platform template (such as `GenericThing`), with the row project or the Network 
 it, missing Things need `--outside`. Refusals write nothing; an applied import creates all Things
 and changes the Network in one transaction. MCP exposes the same read operations as `network` and
 the edits and import as `network_write` (`dry_run` defaults to true).
+
+## AI agents and MCP namespaces
+
+ThingWorx 10.2 agents answer from an MCP namespace's tools (each one a service), resources (a
+service or a file in a file repository) and prompts. twaco creates both as repository files,
+checks what they name, and reads them into the index, so `impact <Thing> --member <service>`
+names the namespace whose tool calls the service and the agent that uses that namespace.
+
+```sh
+twaco new mcp-namespace Acme.Orders.Tools_NS --tool open_orders=Acme.Orders.Manager.GetOrders \
+  --file-resource manual=Acme.Orders.Files:/Manuals/orders.md --describe "manual=The order manual" \
+  --prompt "status=Summarise order {{order}}" --apply
+twaco new ai-agent Acme.Orders.Agent --namespace Acme.Orders.Tools_NS --namespace AgentUtilities \
+  --taxonomy "Acme.Orders.Order_TT=order, orders" --resolver Acme.Orders.Resolver \
+  --skill SharedSkillsRepository:/orders --agent-description "Answers questions about orders" \
+  --instructions-file agent.md --apply
+```
+
+A tool or service resource must name a service its Thing, template or shape declares or
+inherits; prefix the provider `Thing:`, `ThingTemplate:` or `ThingShape:` to name one outside the
+solution. ThingWorx refuses a tool, resource, prompt or prompt argument without a description: a
+tool takes its service's, a prompt its text and an argument its name, and `--describe name=text`
+sets any of them. `--namespace X` allows everything X defines, `X=a,b` only those; the platform's
+`AgentUtilities` gives its standard tools. A new agent can run the platform's agent service and is
+visible to the AI runtime (`AIBootstrapUsers`, `AIBootstrapOrg`), as Composer's agents are.
+
+Change them later with the same specs; each edit writes what `new` would have written:
+
+```sh
+twaco mcp-namespace add Acme.Orders.Tools_NS tool late_orders=Acme.Orders.Manager.GetLate --apply
+twaco mcp-namespace remove Acme.Orders.Tools_NS status --apply
+twaco agent allow Acme.Orders.Agent Acme.Orders.Tools_NS=late_orders --apply
+twaco agent disallow Acme.Orders.Agent AgentUtilities --apply
+twaco agent taxonomy add Acme.Orders.Agent "Acme.Orders.Line_TT=line, lines" --apply
+twaco agent skill remove Acme.Orders.Agent SharedSkillsRepository:/orders --apply
+twaco agent set Acme.Orders.Agent --resolver Acme.Orders.Resolver --instructions-file agent.md --apply
+```
+
+The import refuses an MCP File resource whose file the file repository does not hold, an agent
+that allows an item its namespace does not define, and a namespace that drops an item an agent on
+the server still allows. `mcp-namespace remove` takes the item out of every agent in the
+solution that allows it, and `twaco deploy` orders the rest: before the first import it imports
+each deployed agent whose server copy allows a dropped item without that allowance, and the plan
+says so. Pushing one entity at a time, push the agents first: `twaco entity push <agent> --apply`
+before the namespace. An agent on the server outside the deploy that allows a dropped item
+refuses the deploy before anything is sent, naming the agent and the items: deploy it too, or
+stop it allowing them first. The
+`ai references` gate of `twaco check` reports what would break an agent. MCP `entity_edit` takes the same changes as
+`mcp_add`, `mcp_remove`, `agent_allow`, `agent_disallow`, `agent_taxonomy_add`,
+`agent_taxonomy_remove`, `agent_skill_add`, `agent_skill_remove` and `agent_set`.
 
 ## Changing entities
 
@@ -1209,6 +1334,15 @@ names twaco generates (`ZZ.Twaco.Sql.` and eight hex digits), only on `Database`
 confirms each is gone.
 
 ## Running and observing
+
+### Platform Java API reference
+
+`twaco javadoc search`, `class` and `service` search the public API documentation. By default
+they use the cached public 10.1 documentation. To read the matching documentation shipped with a
+ThingWorx Extension SDK offline, pass `--sdk <path>`, set `TWACO_SDK`, or set `sdk = "..."` in the
+selected local server profile. A path may be the SDK zip, its extracted folder, or its
+`thingworx-javadocs-*.jar`; the jar is read in place and `--refresh` does not apply. JSON results
+keep a `jar:file:` URL and report the SDK version.
 
 - **`twaco call <Thing> <Service> '<json>'`** calls a service now. A service can write, and
   twaco cannot tell which do, so know what it does first. `--with-logs` then shows what the

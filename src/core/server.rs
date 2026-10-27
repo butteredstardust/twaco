@@ -391,9 +391,24 @@ impl Client {
             Some(&body),
             Some(Duration::from_secs(600)),
         )?;
+        // A refused or queued install answers 406 with the same report as a success, which
+        // says why.
+        if response.status == 406 {
+            // Scrubbed as an error body is: the report's messages are printed.
+            let text = scrub(&self.secrets, &String::from_utf8_lossy(&response.body));
+            if let Ok(mut report) = serde_json::from_str::<serde_json::Value>(&text) {
+                if report.get("rows").is_some() {
+                    scrub_strings(&self.secrets, &mut report);
+                    return Ok(report);
+                }
+            }
+        }
         let reply = checked(&self.secrets, Method::Post, url.clone(), response)?;
-        serde_json::from_slice(&reply)
-            .map_err(|error| self.invalid_response(&url, error.to_string()))
+        let text = scrub(&self.secrets, &String::from_utf8_lossy(&reply));
+        let mut report: serde_json::Value = serde_json::from_str(&text)
+            .map_err(|error| self.invalid_response(&url, error.to_string()))?;
+        scrub_strings(&self.secrets, &mut report);
+        Ok(report)
     }
 
     /// Ask ThingWorx's Rhino parser to validate one service body.
@@ -450,7 +465,13 @@ impl Client {
             target.url_path(),
             encode_path_segment(service)
         );
-        let body = serde_json::to_vec(parameters).expect("JSON values always serialise");
+        // The parameters can carry a credential (`db`'s EncryptPropertyValue), so the body is
+        // sized up front, as a serialised copy that grows would leave earlier buffers behind,
+        // and zeroed on drop.
+        let mut sizer = ByteCount(0);
+        serde_json::to_writer(&mut sizer, parameters).expect("JSON values always serialise");
+        let mut body = zeroize::Zeroizing::new(Vec::with_capacity(sizer.0));
+        serde_json::to_writer(&mut *body, parameters).expect("JSON values always serialise");
         let authorization = self.authorization();
         let headers = [
             ("Accept", "application/json"),
@@ -465,10 +486,12 @@ impl Client {
             Method::Post,
             &url,
             &headers,
-            Some(&body),
+            Some(body.as_slice()),
             Some(timeout),
-        )?;
-        let reply = checked(&self.secrets, Method::Post, url.clone(), response)?;
+        );
+        // The transport has sent it and read the reply; clear it before the reply is parsed.
+        drop(body);
+        let reply = checked(&self.secrets, Method::Post, url.clone(), response?)?;
         if reply.iter().all(u8::is_ascii_whitespace) {
             return Ok(None);
         }
@@ -768,6 +791,29 @@ fn user_password(profile: &Profile) -> Secret {
     pair
 }
 
+/// Every string in `value` scrubbed, keys too: a secret written with JSON escapes such as
+/// `a` passes the scrub of the raw text and only shows once it is parsed.
+fn scrub_strings(secrets: &[Secret], value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::String(text) => *text = scrub(secrets, text),
+        serde_json::Value::Array(items) => {
+            for item in items {
+                scrub_strings(secrets, item);
+            }
+        }
+        serde_json::Value::Object(fields) => {
+            *fields = std::mem::take(fields)
+                .into_iter()
+                .map(|(key, mut item)| {
+                    scrub_strings(secrets, &mut item);
+                    (scrub(secrets, &key), item)
+                })
+                .collect();
+        }
+        _ => {}
+    }
+}
+
 /// `text` with every secret replaced by `<redacted>`. A long secret is replaced wherever it
 /// occurs; a short one only as a whole word, because replacing `pass` inside `bypass` would
 /// mangle the message without protecting anything.
@@ -919,6 +965,20 @@ fn transport(
     body: Option<&[u8]>,
 ) -> Result<Response, ServerError> {
     transport_with_timeout(secrets, agent, method, url, headers, body, None)
+}
+
+/// Counts what is written to it, to size a buffer before anything secret is put in one.
+struct ByteCount(usize);
+
+impl std::io::Write for ByteCount {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0 += bytes.len();
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
 }
 
 /// Send one request and read the whole answer.
@@ -1107,6 +1167,7 @@ mod tests {
             username: "user".to_string(),
             password: password.into(),
             app_key: Some(app_key.into()),
+            sdk: None,
             extra: Default::default(),
         };
         let secrets = secrets_of(&profile_for(String::new()));
@@ -1220,6 +1281,7 @@ mod tests {
             username: "u".to_string(),
             password: "p".into(),
             app_key: None,
+            sdk: None,
             extra: Default::default(),
         };
         assert!(secrets_of(&profile)
@@ -1317,6 +1379,7 @@ mod tests {
             username: "user".to_string(),
             password: "pass".into(),
             app_key: None,
+            sdk: None,
             extra: Default::default(),
         });
         let error = client
@@ -1353,6 +1416,7 @@ mod tests {
             username: "user".to_string(),
             password: "pass".into(),
             app_key: None,
+            sdk: None,
             extra: Default::default(),
         });
         let error = client
@@ -1409,12 +1473,52 @@ mod tests {
         (format!("http://{address}/Thingworx/"), handle)
     }
 
+    /// A refused install answers 406 with its report, which is read, and scrubbed like any error.
+    #[test]
+    fn an_upload_406_report_is_read_and_scrubbed() {
+        let (url, server) = serve_once(
+            "406 Not Acceptable",
+            r#"{"rows":[{"install":{"rows":[{"extensionReportStatus":1,"reportMessage":"user pass refused"}]}}]}"#,
+        );
+        let report = client_for(url)
+            .upload_extension("p.zip", b"zip", false)
+            .unwrap();
+        server.join().unwrap();
+        assert_eq!(
+            report["rows"][0]["install"]["rows"][0]["reportMessage"],
+            "user <redacted> refused"
+        );
+        // Written with a JSON escape, the secret only shows once parsed.
+        let (url, server) = serve_once(
+            "200 OK",
+            r#"{"rows":[{"install":{"rows":[{"extensionReportStatus":0,"reportMessage":"user pass ok"}]}}]}"#,
+        );
+        let report = client_for(url)
+            .upload_extension("p.zip", b"zip", false)
+            .unwrap();
+        server.join().unwrap();
+        assert_eq!(
+            report["rows"][0]["install"]["rows"][0]["reportMessage"],
+            "user <redacted> ok"
+        );
+        let (url, server) = serve_once("406 Not Acceptable", "not a report");
+        let error = client_for(url)
+            .upload_extension("p.zip", b"zip", false)
+            .unwrap_err();
+        server.join().unwrap();
+        assert!(
+            matches!(error, ServerError::Http { status: 406, .. }),
+            "{error}"
+        );
+    }
+
     fn client_for(url: String) -> Client {
         Client::new(Profile {
             url,
             username: "user".to_string(),
             password: "pass".into(),
             app_key: None,
+            sdk: None,
             extra: Default::default(),
         })
     }
@@ -1425,6 +1529,7 @@ mod tests {
             username: "user".to_string(),
             password: password.into(),
             app_key: app_key.map(Secret::from),
+            sdk: None,
             extra: Default::default(),
         }
     }
@@ -1558,6 +1663,7 @@ mod tests {
             username: "user".to_string(),
             password: password.into(),
             app_key: Some(app_key.into()),
+            sdk: None,
             extra: Default::default(),
         });
         let error = client
@@ -1789,6 +1895,23 @@ Content-Type: text/xml\r\n\
                 "{line}"
             );
         }
+    }
+
+    #[test]
+    fn a_service_body_is_sized_exactly_so_it_never_moves_while_written() {
+        let parameters = serde_json::json!({ "data": "db-secret", "rows": [1, "é", null] });
+        let mut sizer = ByteCount(0);
+        serde_json::to_writer(&mut sizer, &parameters).unwrap();
+        let mut body = Vec::with_capacity(sizer.0);
+        let start = body.as_ptr();
+        serde_json::to_writer(&mut body, &parameters).unwrap();
+        assert_eq!(body.len(), sizer.0);
+        assert_eq!(
+            body.as_ptr(),
+            start,
+            "a reallocation would leave a copy behind"
+        );
+        assert_eq!(body, serde_json::to_vec(&parameters).unwrap());
     }
 
     #[test]

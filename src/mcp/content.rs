@@ -976,6 +976,112 @@ pub(crate) fn package_tool(
     Ok(json!({ "ok": true, "out": relative, "bytes": outcome.bytes, "detail": detail }))
 }
 
+/// A Java extension project's metadata against its source, offline.
+pub(crate) fn ext_check_tool(
+    root: &std::path::Path,
+    arguments: tool::ExtCheckRequest,
+) -> Result<Value, ToolError> {
+    let folder = match arguments.root.as_ref() {
+        Some(given) if !given.trim().is_empty() => root.join(given),
+        _ => root.to_path_buf(),
+    };
+    let report = crate::core::ext_check::check(&folder);
+    let mut value = serde_json::to_value(&report).expect("a report serialises");
+    value["ok"] = json!(true);
+    value["passed"] = json!(report.findings.is_empty());
+    value["summary"] = json!(format!(
+        "{} finding(s); {} class(es) read",
+        report.findings.len(),
+        report.classes
+    ));
+    Ok(value)
+}
+
+pub(crate) fn ext_new_tool(
+    root: &std::path::Path,
+    arguments: tool::ExtNewRequest,
+) -> Result<Value, ToolError> {
+    // Written inside the solution only: an agent's writes stay where its tools are pointed.
+    let folder = match arguments.folder.as_ref() {
+        Some(given) if !given.trim().is_empty() => super::out_path_in(root, given, true)?,
+        _ => super::out_path_in(root, &arguments.name, true)?,
+    };
+    let sdk = arguments
+        .sdk
+        .as_ref()
+        .map(|sdk| root.join(sdk))
+        .or_else(|| std::env::var_os("TWACO_SDK").map(std::path::PathBuf::from));
+    let plan = crate::core::ext_new::new_extension(
+        &folder,
+        &crate::core::ext_new::NewOptions {
+            name: &arguments.name,
+            package: arguments.package.as_deref(),
+            vendor: arguments.vendor.as_deref(),
+            version: arguments.package_version.as_deref(),
+            min_thingworx: arguments.min_thingworx.as_deref(),
+            description: arguments.description.as_deref(),
+            sdk: sdk.as_deref(),
+        },
+    )
+    .map_err(ToolError::invalid)?;
+    scaffold_result(plan, arguments.dry_run)
+}
+
+pub(crate) fn ext_add_tool(
+    root: &std::path::Path,
+    arguments: tool::ExtAddRequest,
+) -> Result<Value, ToolError> {
+    use crate::core::ext_new::Kind;
+    let folder = match arguments.root.as_ref() {
+        Some(given) if !given.trim().is_empty() => super::in_path_in(root, given)?,
+        _ => root.to_path_buf(),
+    };
+    let kind = match arguments.kind {
+        tool::ExtAddKind::ThingTemplate => Kind::ThingTemplate,
+        tool::ExtAddKind::ThingShape => Kind::ThingShape,
+        tool::ExtAddKind::Resource => Kind::Resource,
+        tool::ExtAddKind::Widget => Kind::Widget,
+        tool::ExtAddKind::Jar => Kind::Jar,
+    };
+    // A jar is read from inside the solution, as every other path here.
+    let name = if kind == Kind::Jar {
+        super::in_path_in(root, &arguments.name)?
+            .to_string_lossy()
+            .into_owned()
+    } else {
+        arguments.name.clone()
+    };
+    let plan = crate::core::ext_new::add(
+        &folder,
+        &crate::core::ext_new::AddOptions {
+            kind,
+            name: &name,
+            package: arguments.package.as_deref(),
+            base: arguments.base.as_deref(),
+            description: arguments.description.as_deref(),
+        },
+    )
+    .map_err(ToolError::invalid)?;
+    scaffold_result(plan, arguments.dry_run)
+}
+
+fn scaffold_result(plan: crate::core::ext_new::Plan, dry_run: bool) -> Result<Value, ToolError> {
+    if !dry_run {
+        plan.apply()
+            .map_err(|error| ToolError::with(ErrorCode::IoError, error))?;
+    }
+    let mut value = serde_json::to_value(&plan).expect("a plan serialises");
+    value["ok"] = json!(true);
+    value["dry_run"] = json!(dry_run);
+    value["applied"] = json!(!dry_run);
+    value["root"] = json!(plan.root.display().to_string());
+    if !dry_run {
+        let check = crate::core::ext_check::check(&plan.root);
+        value["check"] = serde_json::to_value(&check).expect("a report serialises");
+    }
+    Ok(value)
+}
+
 /// The server's subsystem settings, read-only, secrets hidden.
 pub(crate) fn extensions_tool(
     solution: &Solution,
@@ -1032,6 +1138,31 @@ pub(crate) fn extensions_tool(
 }
 
 /// Import or remove an extension package, a plan unless dry_run is false.
+pub(crate) fn ext_deploy_tool(
+    solution: &Solution,
+    arguments: tool::ExtDeployRequest,
+    progress: &dyn Progress,
+) -> Result<Value, ToolError> {
+    use crate::core::ext_deploy::{self, Bump, DeployRequest};
+    let request = DeployRequest {
+        target: arguments.extension.as_ref().cloned(),
+        profile: arguments.profile.clone(),
+        build: arguments.build,
+        bump: arguments.bump.as_ref().map(|bump| match bump {
+            tool::ExtBump::Patch => Bump::Patch,
+            tool::ExtBump::Minor => Bump::Minor,
+            tool::ExtBump::Major => Bump::Major,
+        }),
+        apply: !arguments.dry_run,
+    };
+    let deployed = ext_deploy::deploy(solution, &request, server::Client::new, progress)
+        .map_err(ToolError::invalid)?;
+    let mut value = serde_json::to_value(&deployed).expect("a deploy report serialises");
+    value["ok"] = json!(deployed.missing.is_empty());
+    value["dry_run"] = json!(arguments.dry_run);
+    Ok(value)
+}
+
 pub(crate) fn extension_write_tool(
     solution: &Solution,
     arguments: tool::ExtensionWriteRequest,
@@ -1088,7 +1219,7 @@ pub(crate) fn extension_write_tool(
                 "dry_run": dry_run,
                 "change": imported.plan,
                 "applied": imported.applied,
-                "note": if imported.applied { "installed; the package list shows it" } else { "the server validated it and installed nothing; pass dry_run: false" },
+                "note": if imported.queued { "queued: the server installs it at its next restart" } else if imported.applied { "installed; the package list shows it" } else { "the server validated it and installed nothing; pass dry_run: false" },
             });
             add_notices(&mut result, &notices);
             Ok(result)

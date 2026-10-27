@@ -57,6 +57,8 @@ pub(crate) struct Entity {
     pub(crate) name: String,
     pub(crate) collection: String,
     pub(crate) project: String,
+    /// The configured extension that supplies this entity, when it is not solution source.
+    pub(crate) extension: Option<String>,
     pub(crate) template: Option<String>,
     pub(crate) shapes: Vec<String>,
     pub(crate) members: Vec<Member>,
@@ -92,10 +94,40 @@ pub(crate) struct Model {
 }
 
 pub(crate) fn load_model(solution: &Solution) -> (Model, Vec<String>) {
-    let discovered = workspace::discover(solution);
+    let (mut model, mut skipped) = load_model_from(&workspace::discover(solution));
+    let (extensions, shapes, extension_skipped) = super::super::extension_source::load(solution);
+    // A solution export always wins over a configured extension. Earlier extension entries win.
+    for entity in extensions {
+        if !model
+            .entities
+            .iter()
+            .any(|present| present.collection == entity.collection && present.name == entity.name)
+        {
+            model.entities.push(entity);
+        }
+    }
+    for shape in shapes {
+        if !model
+            .data_shapes
+            .iter()
+            .any(|present| present.name == shape.name)
+        {
+            model.data_shapes.push(shape);
+        }
+    }
+    skipped.extend(extension_skipped);
+    model
+        .entities
+        .sort_by(|a, b| (&a.name, &a.collection).cmp(&(&b.name, &b.collection)));
+    model.data_shapes.sort_by(|a, b| a.name.cmp(&b.name));
+    (model, skipped)
+}
+
+/// [`load_model`] over a scan already made.
+pub(crate) fn load_model_from(discovered: &workspace::Discovery) -> (Model, Vec<String>) {
     let mut model = Model::default();
-    let mut skipped = discovered.unreadable;
-    for file in discovered.entities {
+    let mut skipped = discovered.unreadable.clone();
+    for file in &discovered.entities {
         if file.info.collection != "DataShapes"
             && !ENTITY_COLLECTIONS.contains(&file.info.collection.as_str())
         {
@@ -110,7 +142,7 @@ pub(crate) fn load_model(solution: &Solution) -> (Model, Vec<String>) {
         };
         match parse_document(&bytes, &file.info.collection, &file.info.name) {
             Ok(Parsed::Entity(mut entity)) => {
-                entity.project = file.found_under;
+                entity.project = file.found_under.clone();
                 model.entities.push(entity);
             }
             Ok(Parsed::DataShape(shape)) => model.data_shapes.push(shape),
@@ -269,6 +301,7 @@ pub(super) fn parse_document(
         name,
         collection: collection.to_string(),
         project: String::new(),
+        extension: None,
         template,
         shapes,
         members,

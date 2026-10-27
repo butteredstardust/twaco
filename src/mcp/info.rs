@@ -402,18 +402,20 @@ pub(crate) fn help_page_tool(
 
 /// Search or read the fixed-version Java API docs. It needs no solution and contacts only the
 /// Javadoc site, never a ThingWorx server.
-pub(crate) fn javadoc_tool(arguments: tool::JavadocRequest) -> Result<Value, ToolError> {
+pub(crate) fn javadoc_tool(
+    root: &Path,
+    arguments: tool::JavadocRequest,
+) -> Result<Value, ToolError> {
     let action = arguments.action;
     let name = nonempty(&arguments.name, "name")?;
-    let refresh = arguments.refresh;
-    let cache = javadoc::cache_root().map_err(|why| ToolError::with(ErrorCode::IoError, why))?;
-    let web = help::Web::new(javadoc::BASE);
-    let fetch = |path: &str| javadoc::cached(&web, &cache, path, refresh);
+    let source = javadoc_source(root, &arguments)?;
+    let fetch = |path: &str| source.fetch(path);
     if action == tool::JavadocAction::Service {
         if arguments.member.is_some() {
             return Err(ToolError::invalid("`member` is only for action class"));
         }
-        let found = javadoc::read_service(&fetch, name).map_err(ToolError::coded)?;
+        let found = javadoc::read_service_at(&fetch, name, &|path| source.url(path))
+            .map_err(ToolError::coded)?;
         let mut result = json!({
             "ok": true,
             "summary": format!(
@@ -423,7 +425,7 @@ pub(crate) fn javadoc_tool(arguments: tool::JavadocRequest) -> Result<Value, Too
                 found.declared_in,
                 if found.inherited { ", which it inherits" } else { "" }
             ),
-            "version": javadoc::VERSION,
+            "version": source.version(),
             "asked": found.asked,
             "declared_in": found.declared_in,
             "inherited": found.inherited,
@@ -455,11 +457,11 @@ pub(crate) fn javadoc_tool(arguments: tool::JavadocRequest) -> Result<Value, Too
             json!({
                 "ok": true,
                 "summary": format!("{} matching Java API class(es) and member(s)", hits.len()),
-                "version": javadoc::VERSION,
+            "version": source.version(),
                 "results": hits.iter().map(|hit| json!({
                     "kind": if hit.kind == javadoc::Kind::Class { "class" } else { "member" },
                     "display": hit.display(), "package": hit.package, "class": hit.class,
-                    "label": hit.label, "path": hit.path, "url": hit.url,
+                    "label": hit.label, "path": hit.path, "url": source.url(&hit.path),
                 })).collect::<Vec<_>>(),
             })
         }
@@ -473,12 +475,17 @@ pub(crate) fn javadoc_tool(arguments: tool::JavadocRequest) -> Result<Value, Too
             let path = javadoc::class_path(&class)
                 .map_err(|why| ToolError::with(ErrorCode::InvalidData, why))?;
             let html = fetch(&path).map_err(ToolError::coded)?;
-            let read = javadoc::read(&html, &class, arguments.member.as_deref())
-                .map_err(ToolError::coded)?;
+            let read = javadoc::read_at(
+                &html,
+                &class,
+                arguments.member.as_deref(),
+                source.url(&path),
+            )
+            .map_err(ToolError::coded)?;
             json!({
                 "ok": true,
                 "summary": format!("{} method overload(s) documented for {}", read.methods, read.title),
-                "version": javadoc::VERSION,
+                "version": source.version(),
                 "title": read.title,
                 "path": read.path,
                 "url": read.url,
@@ -487,4 +494,33 @@ pub(crate) fn javadoc_tool(arguments: tool::JavadocRequest) -> Result<Value, Too
         }
     };
     Ok(result)
+}
+
+fn javadoc_source(
+    root: &Path,
+    arguments: &tool::JavadocRequest,
+) -> Result<javadoc::Source, ToolError> {
+    let environment = std::env::var_os("TWACO_SDK").map(std::path::PathBuf::from);
+    let mut configured_profile = None;
+    match Solution::discover(root) {
+        Ok(solution) => match crate::core::profile::load(&solution.root, &arguments.profile) {
+            Ok(profile) => {
+                if let Some(path) = profile.sdk.as_deref() {
+                    configured_profile = Some(path.to_path_buf());
+                }
+            }
+            Err(crate::core::profile::ProfileError::Missing { .. }) => {}
+            Err(error) => return Err(ToolError::coded(error)),
+        },
+        Err(crate::core::config::ConfigError::NotFound { .. }) => {}
+        Err(error) => return Err(ToolError::coded(error)),
+    }
+    javadoc::Source::configured(
+        arguments.sdk.as_ref().map(std::path::Path::new),
+        environment.as_deref(),
+        configured_profile.as_deref(),
+        &arguments.profile,
+        arguments.refresh,
+    )
+    .map_err(ToolError::invalid)
 }

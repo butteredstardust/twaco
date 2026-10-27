@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use twaco::core::commands::{self, Mode};
 use twaco::core::config::Solution;
 use twaco::core::entity;
-use twaco::core::entity::edit::{Action, Property, Request, Service, StyleChange};
+use twaco::core::entity::edit::{Action, AgentChange, Property, Request, Service, StyleChange};
 
 /// `twaco thing property|service|subscription|shape`.
 #[derive(Debug, clap::Subcommand)]
@@ -663,4 +663,179 @@ fn menu_item(args: &MenuItem) -> Result<(String, Action), String> {
         other => return Err(format!("menu item {other}: say add or remove")),
     };
     Ok((entity.clone(), action))
+}
+
+/// `twaco mcp-namespace add|remove`.
+#[derive(Debug, clap::Subcommand)]
+pub(crate) enum McpNamespace {
+    Add(McpNamespaceAdd),
+    Remove(McpNamespaceRemove),
+}
+
+/// `twaco mcp-namespace add <Namespace> tool|service-resource|file-resource|prompt <spec>`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct McpNamespaceAdd {
+    #[arg(long = "description", value_name = "text")]
+    pub(crate) description: Option<String>,
+    #[command(flatten)]
+    pub(crate) apply: Apply,
+    #[command(flatten)]
+    pub(crate) json: Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
+/// `twaco mcp-namespace remove <Namespace> <name>`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct McpNamespaceRemove {
+    #[command(flatten)]
+    pub(crate) apply: Apply,
+    #[command(flatten)]
+    pub(crate) json: Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
+impl McpNamespace {
+    /// The edit the line asks for.
+    pub(crate) fn edit(&self) -> Edit {
+        match self {
+            McpNamespace::Add(args) => {
+                let found = match args.operands.as_slice() {
+                    [entity, kind, spec] => Ok((
+                        entity.clone(),
+                        Action::McpAdd {
+                            kind: kind.clone(),
+                            spec: spec.clone(),
+                            describe: args.description.clone(),
+                        },
+                    )),
+                    _ => Err("mcp-namespace add needs <Namespace> <tool|service-resource|file-resource|prompt> <spec>".to_string()),
+                };
+                Edit::new(found, &args.apply, &args.json)
+            }
+            McpNamespace::Remove(args) => {
+                let found = match args.operands.as_slice() {
+                    [entity, name] => {
+                        Ok((entity.clone(), Action::McpRemove { name: name.clone() }))
+                    }
+                    _ => Err("mcp-namespace remove needs <Namespace> <name>".to_string()),
+                };
+                Edit::new(found, &args.apply, &args.json)
+            }
+        }
+    }
+}
+
+/// `twaco agent allow|disallow|taxonomy|skill|set`.
+#[derive(Debug, clap::Subcommand)]
+pub(crate) enum Agent {
+    Allow(AgentOperands),
+    Disallow(AgentOperands),
+    Taxonomy(AgentOperands),
+    Skill(AgentOperands),
+    Set(AgentSet),
+}
+
+/// The agent commands that take operands only.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct AgentOperands {
+    #[command(flatten)]
+    pub(crate) apply: Apply,
+    #[command(flatten)]
+    pub(crate) json: Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
+/// `twaco agent set <Agent> [--resolver <Thing>] [--instructions <text>|--instructions-file <file>]
+/// [--agent-description <text>] [--display-name <text>]`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct AgentSet {
+    #[arg(long = "resolver", value_name = "Thing")]
+    pub(crate) resolver: Option<String>,
+    #[arg(long = "instructions", value_name = "text")]
+    pub(crate) instructions: Option<String>,
+    #[arg(long = "instructions-file", value_name = "file")]
+    pub(crate) instructions_file: Option<PathBuf>,
+    #[arg(long = "agent-description", value_name = "text")]
+    pub(crate) agent_description: Option<String>,
+    #[arg(long = "display-name", value_name = "text")]
+    pub(crate) display_name: Option<String>,
+    #[command(flatten)]
+    pub(crate) apply: Apply,
+    #[command(flatten)]
+    pub(crate) json: Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
+impl Agent {
+    /// The edit the line asks for.
+    pub(crate) fn edit(&self) -> Edit {
+        match self {
+            Agent::Allow(args) | Agent::Disallow(args) => {
+                let allow = matches!(self, Agent::Allow(_));
+                let found = match args.operands.as_slice() {
+                    [entity, spec] => Ok((
+                        entity.clone(),
+                        if allow {
+                            Action::AgentAllow { spec: spec.clone() }
+                        } else {
+                            Action::AgentDisallow { spec: spec.clone() }
+                        },
+                    )),
+                    _ => Err(format!(
+                        "agent {} needs <Agent> <Namespace[=item,...]>",
+                        if allow { "allow" } else { "disallow" }
+                    )),
+                };
+                Edit::new(found, &args.apply, &args.json)
+            }
+            Agent::Taxonomy(args) | Agent::Skill(args) => {
+                let taxonomy = matches!(self, Agent::Taxonomy(_));
+                let found = match args.operands.as_slice() {
+                    [action, entity, value] => {
+                        let value = value.clone();
+                        match (taxonomy, action.as_str()) {
+                            (true, "add") => Ok(Action::AgentTaxonomyAdd { spec: value }),
+                            (true, "remove") => Ok(Action::AgentTaxonomyRemove { name: value }),
+                            (false, "add") => Ok(Action::AgentSkillAdd { spec: value }),
+                            (false, "remove") => Ok(Action::AgentSkillRemove { spec: value }),
+                            (_, other) => Err(format!("{other}: say add or remove")),
+                        }
+                        .map(|action| (entity.clone(), action))
+                    }
+                    _ if taxonomy => Err(
+                        "agent taxonomy needs <add|remove> <Agent> <TemplateOrShape[=aliases]>"
+                            .to_string(),
+                    ),
+                    _ => {
+                        Err("agent skill needs <add|remove> <Agent> <Repository:/path>".to_string())
+                    }
+                };
+                Edit::new(found, &args.apply, &args.json)
+            }
+            Agent::Set(args) => {
+                let found = match args.operands.as_slice() {
+                    [entity] => Ok((
+                        entity.clone(),
+                        Action::AgentSet(AgentChange {
+                            resolver: args.resolver.clone(),
+                            instructions: args.instructions.clone(),
+                            instructions_file: args.instructions_file.clone(),
+                            agent_description: args.agent_description.clone(),
+                            display_name: args.display_name.clone(),
+                        }),
+                    )),
+                    _ => Err("agent set needs one <Agent>".to_string()),
+                };
+                Edit::new(found, &args.apply, &args.json)
+            }
+        }
+    }
 }

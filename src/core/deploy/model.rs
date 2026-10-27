@@ -87,6 +87,9 @@ pub struct Report {
     /// Network connection replacements an import will make. Removing a server connection is
     /// called out because importing a Network replaces its complete hierarchy.
     pub network_changes: Vec<NetworkChange>,
+    /// Agents imported first without allowances the deploy's namespaces drop, which the server
+    /// refuses while an agent on it allows them.
+    pub agents_narrowed: Vec<super::AgentNarrowing>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

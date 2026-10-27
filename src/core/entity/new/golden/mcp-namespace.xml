@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Entities
+ majorVersion="10"
+ minorVersion="1"
+ universal="password">
+    <MCPNamespaces>
+        <MCPNamespace
+         description="Order tools"
+         documentationContent=""
+         enabled="true"
+         homeMashup=""
+         name="Acme.Orders.Tools_NS"
+         projectName="Acme.Orders"
+         tags="">
+            <avatar></avatar>
+            <DesignTimePermissions>
+                <Create></Create>
+                <Read></Read>
+                <Update></Update>
+                <Delete></Delete>
+                <Metadata></Metadata>
+            </DesignTimePermissions>
+            <RunTimePermissions></RunTimePermissions>
+            <VisibilityPermissions>
+                <Visibility></Visibility>
+            </VisibilityPermissions>
+            <ConfigurationTableDefinitions></ConfigurationTableDefinitions>
+            <ConfigurationTables></ConfigurationTables>
+            <MCPTools>
+                <MCPTool
+                 _meta="{&quot;serviceName&quot;:&quot;GetOrders&quot;}"
+                 description="Lists the open orders"
+                 name="open_orders"
+                 serviceName="GetOrders"
+                 serviceProvider="Acme.Orders.Manager"
+                 serviceProviderType="Thing"
+                 title=""></MCPTool>
+            </MCPTools>
+            <MCPResources>
+                <MCPResource
+                 _meta="{}"
+                 annotation.audience=""
+                 description="Lists the open orders"
+                 mimeType=""
+                 name="orders"
+                 title=""
+                 type="Service"
+                 uri="twx://MCPNamespaces/Acme.Orders.Tools_NS/Resources/Thing/Acme.Orders.Manager/Services/GetOrders">
+                    <ServiceDefinition
+                     serviceName="GetOrders"
+                     serviceProvider="Acme.Orders.Manager"
+                     serviceProviderType="Thing"></ServiceDefinition>
+                </MCPResource>
+                <MCPResource
+                 _meta="{}"
+                 annotation.audience=""
+                 description="The order handling manual"
+                 mimeType="text/markdown"
+                 name="manual"
+                 title=""
+                 type="File"
+                 uri="twx://MCPNamespaces/Acme.Orders.Tools_NS/Resources/Acme.Orders.Files/Filepath/Manuals/orders.md">
+                    <FileDefinition
+                     filePath="/Manuals/orders.md"
+                     fileRepository="Acme.Orders.Files"></FileDefinition>
+                </MCPResource>
+            </MCPResources>
+            <MCPPrompts>
+                <MCPPrompt
+                 _meta="{}"
+                 content="{&quot;text&quot;:&quot;Summarise order {{order}} for {{customer}}&quot;}"
+                 description="Summarise order {{order}} for {{customer}}"
+                 name="status"
+                 role="user"
+                 title="">
+                    <MCPPromptArguments>
+                        <MCPPromptArgument
+                         description="order"
+                         name="order"
+                         required="true"
+                         title=""></MCPPromptArgument>
+                        <MCPPromptArgument
+                         description="customer"
+                         name="customer"
+                         required="true"
+                         title=""></MCPPromptArgument>
+                    </MCPPromptArguments>
+                </MCPPrompt>
+            </MCPPrompts>
+        </MCPNamespace>
+    </MCPNamespaces>
+</Entities>

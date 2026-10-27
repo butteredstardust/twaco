@@ -21,6 +21,8 @@ use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
+pub(crate) mod ai;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
     Project,
@@ -40,6 +42,8 @@ pub enum Kind {
     Menu,
     Theme,
     Network,
+    McpNamespace,
+    AiAgent,
 }
 
 impl Kind {
@@ -62,6 +66,8 @@ impl Kind {
             "menu" => Self::Menu,
             "theme" => Self::Theme,
             "network" => Self::Network,
+            "mcp-namespace" => Self::McpNamespace,
+            "ai-agent" => Self::AiAgent,
             _ => return None,
         })
     }
@@ -85,6 +91,8 @@ impl Kind {
             Self::Menu => "menu",
             Self::Theme => "theme",
             Self::Network => "network",
+            Self::McpNamespace => "mcp-namespace",
+            Self::AiAgent => "ai-agent",
         }
     }
 
@@ -107,6 +115,8 @@ impl Kind {
             Self::Menu => "Menus",
             Self::Theme => "StyleThemes",
             Self::Network => "Networks",
+            Self::McpNamespace => "MCPNamespaces",
+            Self::AiAgent => "AIAgents",
         }
     }
 }
@@ -152,6 +162,23 @@ pub struct NewRequest {
     pub from: Option<String>,
     pub props: Vec<String>,
     pub depends_on: Vec<String>,
+    /// mcp-namespace: `name=Provider.Service` tools, service and file resources, `name=text` prompts.
+    pub tools: Vec<String>,
+    pub service_resources: Vec<String>,
+    pub file_resources: Vec<String>,
+    pub prompts: Vec<String>,
+    /// mcp-namespace: `name=text` descriptions for its tools, resources and prompts.
+    pub describe: Vec<String>,
+    /// ai-agent: `Namespace[=item,...]`, `Repository:/path` skills, the hierarchy resolver,
+    /// `TemplateOrShape[=aliases]` taxonomy rows and the system prompt.
+    pub namespaces: Vec<String>,
+    pub skills: Vec<String>,
+    pub resolver: Option<String>,
+    pub taxonomy: Vec<String>,
+    pub instructions: Option<String>,
+    pub instructions_file: Option<PathBuf>,
+    pub agent_description: Option<String>,
+    pub display_name: Option<String>,
     pub(crate) theme_content: Option<String>,
 }
 
@@ -198,6 +225,19 @@ impl NewRequest {
             from: None,
             props: Vec::new(),
             depends_on: Vec::new(),
+            tools: Vec::new(),
+            service_resources: Vec::new(),
+            file_resources: Vec::new(),
+            prompts: Vec::new(),
+            describe: Vec::new(),
+            namespaces: Vec::new(),
+            skills: Vec::new(),
+            resolver: None,
+            taxonomy: Vec::new(),
+            instructions: None,
+            instructions_file: None,
+            agent_description: None,
+            display_name: None,
             theme_content: None,
         }
     }
@@ -1083,6 +1123,7 @@ fn make_xml(
             &format!("            <content>{}</content>", cdata(&render_state_content(request))),
         )?,
         Kind::Menu => menu_xml(request, project)?,
+        Kind::McpNamespace | Kind::AiAgent => unreachable!("written by entity::new::ai"),
         Kind::Theme => plain_entity(
             "StyleThemes",
             "StyleTheme",
@@ -1371,16 +1412,20 @@ pub(crate) fn plan(solution: &Solution, request: &NewRequest) -> Result<Plan, Ne
             ));
         }
     }
-    let entity = make_xml(
-        solution,
-        &rendered,
-        &project_name,
-        &visibility,
-        &fields,
-        duration,
-        cron.as_deref(),
-        script.as_deref(),
-    )?
+    let entity = match request.kind {
+        Kind::McpNamespace => ai::namespace_xml(solution, &rendered, &project_name)?,
+        Kind::AiAgent => ai::agent_xml(solution, &rendered, &project_name)?,
+        _ => make_xml(
+            solution,
+            &rendered,
+            &project_name,
+            &visibility,
+            &fields,
+            duration,
+            cron.as_deref(),
+            script.as_deref(),
+        )?,
+    }
     .into_bytes();
     let sidecars = if request.kind == Kind::DataShape {
         vec![(
@@ -1596,6 +1641,19 @@ mod tests {
             from: None,
             props: Vec::new(),
             depends_on: Vec::new(),
+            tools: Vec::new(),
+            service_resources: Vec::new(),
+            file_resources: Vec::new(),
+            prompts: Vec::new(),
+            describe: Vec::new(),
+            namespaces: Vec::new(),
+            skills: Vec::new(),
+            resolver: None,
+            taxonomy: Vec::new(),
+            instructions: None,
+            instructions_file: None,
+            agent_description: None,
+            display_name: None,
             theme_content: None,
         }
     }
@@ -1750,6 +1808,157 @@ mod tests {
         ] {
             assert_golden(name, &plan(&solution, &request).unwrap().entity);
         }
+    }
+
+    #[test]
+    fn ai_kinds_have_goldens_the_ai_gate_accepts_and_refuse_what_the_server_would() {
+        let (_dir, solution) = fixture();
+        std::fs::write(
+            solution.root.join("app/Things/Acme.Orders.Manager.xml"),
+            "<Entities><Things><Thing name=\"Acme.Orders.Manager\" projectName=\"Acme.Orders\" thingTemplate=\"GenericThing\"><ThingShape><ServiceDefinitions><ServiceDefinition name=\"GetOrders\" description=\"Lists the open orders\"><ResultType baseType=\"STRING\" name=\"result\"/></ServiceDefinition><ServiceDefinition name=\"Silent\"><ResultType baseType=\"STRING\" name=\"result\"/></ServiceDefinition></ServiceDefinitions></ThingShape></Thing></Things></Entities>",
+        )
+        .unwrap();
+        std::fs::write(
+            solution.root.join("app/Things/Acme.Orders.Resolver.xml"),
+            "<Entities><Things><Thing name=\"Acme.Orders.Resolver\" projectName=\"Acme.Orders\" thingTemplate=\"GenericThing\"><ImplementedShapes><ImplementedShape name=\"HierarchyResolver\" type=\"ThingShape\"/></ImplementedShapes></Thing></Things></Entities>",
+        )
+        .unwrap();
+        std::fs::write(
+            solution.root.join("app/ThingTemplates/Acme.Orders.Order_TT.xml"),
+            "<Entities><ThingTemplates><ThingTemplate name=\"Acme.Orders.Order_TT\" projectName=\"Acme.Orders\" baseThingTemplate=\"GenericThing\"/></ThingTemplates></Entities>",
+        )
+        .unwrap();
+
+        let mut namespace = request(Kind::McpNamespace, "Acme.Orders.Tools_NS");
+        namespace.description = "Order tools".into();
+        namespace.tools = vec!["open_orders=Acme.Orders.Manager.GetOrders".into()];
+        namespace.service_resources = vec!["orders=Thing:Acme.Orders.Manager.GetOrders".into()];
+        namespace.file_resources = vec!["manual=Acme.Orders.Files:/Manuals/orders.md".into()];
+        namespace.prompts = vec!["status=Summarise order {{order}} for {{customer}}".into()];
+        namespace.describe = vec!["manual=The order handling manual".into()];
+        let planned = plan(&solution, &namespace).unwrap();
+        assert_golden("mcp-namespace", &planned.entity);
+        let parsed = crate::core::agents::namespace(&planned.entity).unwrap();
+        assert_eq!(parsed.tools[0].service, "GetOrders");
+        assert_eq!(parsed.resources.len(), 2);
+        std::fs::create_dir_all(planned.entity_path.parent().unwrap()).unwrap();
+        std::fs::write(&planned.entity_path, &planned.entity).unwrap();
+
+        let mut agent = request(Kind::AiAgent, "Acme.Orders.Agent");
+        agent.namespaces = vec![
+            "Acme.Orders.Tools_NS=open_orders,manual,status".into(),
+            "AgentUtilities=resolve_entity".into(),
+        ];
+        agent.skills = vec!["SharedSkillsRepository:/orders".into()];
+        agent.resolver = Some("Acme.Orders.Resolver".into());
+        agent.taxonomy = vec!["Acme.Orders.Order_TT=order, orders".into()];
+        agent.agent_description = Some("Answers questions about orders".into());
+        agent.instructions = Some("Use the order tools.".into());
+        let planned = plan(&solution, &agent).unwrap();
+        assert_golden("ai-agent", &planned.entity);
+        std::fs::create_dir_all(planned.entity_path.parent().unwrap()).unwrap();
+        std::fs::write(&planned.entity_path, &planned.entity).unwrap();
+        let discovered = workspace::discover(&solution);
+        let (model, _) = types::load_model_from(&discovered);
+        let report = crate::core::agents_check::run_in(&solution, &discovered, &model);
+        assert!(report.problems.is_empty(), "{:?}", report.problems);
+
+        let refused = |mut request: NewRequest, change: &dyn Fn(&mut NewRequest), wanted: &str| {
+            change(&mut request);
+            let error = plan(&solution, &request).unwrap_err().to_string();
+            assert!(error.contains(wanted), "{wanted}: {error}");
+        };
+        let blank_namespace = request(Kind::McpNamespace, "Acme.Orders.Other_NS");
+        refused(
+            blank_namespace.clone(),
+            &|_| {},
+            "needs at least one --tool",
+        );
+        refused(
+            blank_namespace.clone(),
+            &|r| r.tools = vec!["x=Acme.Orders.Manager.Nope".into()],
+            "has no service Nope",
+        );
+        refused(
+            blank_namespace.clone(),
+            &|r| r.tools = vec!["x=Acme.Orders.Missing.Run".into()],
+            "write Thing:Acme.Orders.Missing.Run",
+        );
+        refused(
+            blank_namespace.clone(),
+            &|r| r.tools = vec!["x=Acme.Orders.Manager.Silent".into()],
+            "give --describe x=text",
+        );
+        refused(
+            blank_namespace.clone(),
+            &|r| {
+                r.tools = vec!["x=Acme.Orders.Manager.GetOrders".into()];
+                r.describe = vec!["y=text".into()];
+            },
+            "--describe y names no tool",
+        );
+        refused(
+            blank_namespace.clone(),
+            &|r| r.tools = vec!["x=ThingShape:Acme.Orders.Manager.GetOrders".into()],
+            "is a Thing in the repository, not a ThingShape",
+        );
+        for escape in [
+            "x=Files:/../outside.md",
+            "x=..:/a.md",
+            "x=Files:\\Windows\\a",
+            "x=Files:/a//b",
+        ] {
+            refused(
+                blank_namespace.clone(),
+                &|r| r.file_resources = vec![escape.into()],
+                "must be name=Repository:/path",
+            );
+        }
+        refused(
+            blank_namespace,
+            &|r| {
+                r.tools = vec!["x=Acme.Orders.Manager.GetOrders".into()];
+                r.prompts = vec!["x=Say hello".into()];
+            },
+            "x is listed more than once",
+        );
+        let blank_agent = request(Kind::AiAgent, "Acme.Orders.Other_Agent");
+        refused(
+            blank_agent.clone(),
+            &|_| {},
+            "needs at least one --namespace",
+        );
+        refused(
+            blank_agent.clone(),
+            &|r| r.namespaces = vec!["Acme.Orders.Tools_NS=nope".into()],
+            "has no tool, resource or prompt nope",
+        );
+        refused(
+            blank_agent.clone(),
+            &|r| r.namespaces = vec!["Elsewhere_NS".into()],
+            "no MCPNamespace Elsewhere_NS",
+        );
+        refused(
+            blank_agent.clone(),
+            &|r| r.namespaces = vec!["Acme.Orders.Tools_NS=open_orders,,status".into()],
+            "has an empty item",
+        );
+        refused(
+            blank_agent.clone(),
+            &|r| {
+                r.namespaces = vec!["AgentUtilities".into()];
+                r.skills = vec!["SharedSkillsRepository:/../escape".into()];
+            },
+            "inside the repository",
+        );
+        refused(
+            blank_agent,
+            &|r| {
+                r.namespaces = vec!["AgentUtilities".into()];
+                r.resolver = Some("Acme.Orders.Manager".into());
+            },
+            "does not implement the HierarchyResolver",
+        );
     }
 
     #[test]

@@ -20,6 +20,9 @@ pub struct Profile {
     pub(crate) password: Secret,
     #[serde(default, alias = "appKey")]
     pub(crate) app_key: Option<Secret>,
+    /// An optional local ThingWorx Extension SDK, used for its matching Javadoc.
+    #[serde(default)]
+    pub(crate) sdk: Option<PathBuf>,
     /// Project-specific secrets and values. They remain outside committed solution config.
     #[serde(flatten)]
     pub(crate) extra: BTreeMap<String, toml::Value>,
@@ -133,12 +136,18 @@ impl fmt::Debug for Profile {
             .field("username", &"<redacted>")
             .field("password", &"<redacted>")
             .field("app_key", &self.app_key.as_ref().map(|_| "<redacted>"))
+            .field("sdk", &self.sdk)
             .field("extra", &self.extra.keys().collect::<Vec<_>>())
             .finish()
     }
 }
 
 impl Profile {
+    /// The optional Extension SDK path kept in this local profile.
+    pub fn sdk(&self) -> Option<&Path> {
+        self.sdk.as_deref()
+    }
+
     /// Look up a placeholder value, including the standard profile fields.
     pub(crate) fn value(&self, key: &str) -> Option<toml::Value> {
         match key {
@@ -495,6 +504,7 @@ fn load_from(
     // and an error return drops whatever was read so far.
     let mut values = BTreeMap::<&'static str, Secret>::new();
     let mut extra = BTreeMap::<String, toml::Value>::new();
+    let mut sdk = None;
     let mut source = "environment".to_string();
     if let Some(path) = selected {
         warn_if_shared(path);
@@ -516,6 +526,7 @@ fn load_from(
         if let Some(app_key) = profile.app_key.take() {
             values.insert("app_key", app_key);
         }
+        sdk = profile.sdk.take();
         extra = std::mem::take(&mut profile.extra);
         source = path.display().to_string();
     }
@@ -576,6 +587,7 @@ fn load_from(
         username: field("username").expect("checked above").take(),
         password: field("password").expect("checked above"),
         app_key: field("app_key"),
+        sdk,
         extra,
     })
 }
@@ -770,6 +782,7 @@ mod tests {
                 username: format!("user-{password}"),
                 password: password.into(),
                 app_key: Some(format!("key-{password}").into()),
+                sdk: None,
                 extra,
             };
             for shown in [format!("{profile:?}"), format!("{profile:#?}")] {

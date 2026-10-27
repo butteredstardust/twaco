@@ -2661,6 +2661,14 @@
           ],
           "items": true
         },
+        "agents_narrowed_first": {
+          "description": "Agents imported before the bundles without the items the deploy's namespaces drop.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
         "backup": {
           "type": [
             "string",
@@ -3528,7 +3536,7 @@
       "type": "object",
       "properties": {
         "kind": {
-          "description": "`project`, `group`, `thing`, `thing-template`, `thing-shape`, `data-shape`, `timer`, `scheduler`, `data-table`, `stream`, `value-stream`, `media`, `style`, `state`, `menu`, `theme`, or `network`.",
+          "description": "`project`, `group`, `thing`, `thing-template`, `thing-shape`, `data-shape`, `timer`, `scheduler`, `data-table`, `stream`, `value-stream`, `media`, `style`, `state`, `menu`, `theme`, `network`, `mcp-namespace` or `ai-agent`.",
           "type": "string",
           "enum": [
             "project",
@@ -3547,7 +3555,9 @@
             "state",
             "menu",
             "theme",
-            "network"
+            "network",
+            "mcp-namespace",
+            "ai-agent"
           ]
         },
         "name": {
@@ -3693,6 +3703,82 @@
           "items": {
             "type": "string"
           }
+        },
+        "tool": {
+          "description": "mcp-namespace: `name=Provider.Service` tools; prefix the provider `Thing:`,\n`ThingTemplate:` or `ThingShape:` to name one outside the solution.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "service_resource": {
+          "description": "mcp-namespace: `name=Provider.Service` service resources.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "file_resource": {
+          "description": "mcp-namespace: `name=Repository:/path` file resources.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "prompt": {
+          "description": "mcp-namespace: `name=text` prompts; `{{argument}}` placeholders become arguments.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "describe": {
+          "description": "mcp-namespace: `name=text` descriptions; a tool or service resource defaults to its\nservice's description, a prompt to its text. ThingWorx refuses an empty one.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "namespace": {
+          "description": "ai-agent: `Namespace` (everything it defines) or `Namespace=item,item`.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "skill": {
+          "description": "ai-agent: `Repository:/path` skill folders holding a SKILL.md.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "resolver": {
+          "description": "ai-agent: the Thing implementing HierarchyResolver.",
+          "type": "string"
+        },
+        "taxonomy": {
+          "description": "ai-agent: `TemplateOrShape` or `TemplateOrShape=alias, alias` taxonomy rows.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "instructions": {
+          "description": "ai-agent: the system prompt's instructions.",
+          "type": "string"
+        },
+        "instructions_file": {
+          "description": "ai-agent: a file holding the instructions.",
+          "type": "string"
+        },
+        "agent_description": {
+          "description": "ai-agent: the description the assistant routes questions by.",
+          "type": "string"
+        },
+        "display_name": {
+          "description": "ai-agent: the name the assistant shows (default: the entity name).",
+          "type": "string"
         },
         "dry_run": {
           "type": "boolean",
@@ -4146,7 +4232,16 @@
             "media_set",
             "menu_item_add",
             "menu_item_remove",
-            "state_set"
+            "state_set",
+            "mcp_add",
+            "mcp_remove",
+            "agent_allow",
+            "agent_disallow",
+            "agent_taxonomy_add",
+            "agent_taxonomy_remove",
+            "agent_skill_add",
+            "agent_skill_remove",
+            "agent_set"
           ]
         },
         "entity": {
@@ -4334,6 +4429,34 @@
           "items": {
             "type": "string"
           }
+        },
+        "item_kind": {
+          "description": "mcp_add: tool, service-resource, file-resource or prompt.",
+          "type": "string"
+        },
+        "spec": {
+          "description": "mcp_add: `name=Provider.Service`, `name=Repository:/path` or `name=text`; agent_allow and\nagent_disallow: `Namespace` or `Namespace=item,item`; agent_taxonomy_add:\n`TemplateOrShape[=alias, alias]`; agent_skill_add and agent_skill_remove:\n`Repository:/path`. mcp_remove and agent_taxonomy_remove take `name`; mcp_add takes the\nitem's `description`.",
+          "type": "string"
+        },
+        "resolver": {
+          "description": "agent_set: the HierarchyResolver Thing; empty clears it.",
+          "type": "string"
+        },
+        "instructions": {
+          "description": "agent_set: the system prompt's instructions.",
+          "type": "string"
+        },
+        "instructions_file": {
+          "description": "agent_set: a file holding the instructions.",
+          "type": "string"
+        },
+        "agent_description": {
+          "description": "agent_set: the description the assistant routes questions by.",
+          "type": "string"
+        },
+        "display_name": {
+          "description": "agent_set: the name the assistant shows.",
+          "type": "string"
         },
         "dry_run": {
           "type": "boolean",
@@ -7219,6 +7342,405 @@
     }
   },
   {
+    "name": "ext_check",
+    "description": "Check a Java ThingWorx extension project offline, before it is built or uploaded: metadata.xml against the Java source (classes it names, ThingTemplates' thingPackage), the jars JarResources lists, each Widget's ide and runtime files, packageVersion against extension.properties, duplicate services, properties or events (inherited ones included), and base types. Notes say what may be fine but cannot be proven (a class only in a jar, a DataShape from elsewhere, a class nothing declares). Needs no solution or server; root is the project folder.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "root": {
+          "description": "The extension project's folder, absolute or relative to the solution; omit for the\nsolution folder itself.",
+          "type": "string"
+        }
+      },
+      "description": "`ext_check`: a Java extension project's folder.",
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "ok",
+        "passed",
+        "summary",
+        "classes",
+        "findings",
+        "notes"
+      ],
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "passed": {
+          "description": "No finding.",
+          "type": "boolean"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "package": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "classes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "findings": {
+          "description": "Each with file, line (0: the whole file), rule and message.",
+          "type": "array",
+          "items": true
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "description": "A Java extension project's findings, offline.",
+      "type": "object"
+    }
+  },
+  {
+    "name": "ext_new",
+    "description": "Lay out a new Java ThingWorx extension project, as the Eclipse plugin's project wizard did: settings.gradle, a build.gradle that makes the importable zip (build/distributions/<name>.zip), extension.properties, configfiles/metadata.xml, .gitignore, the Java package folder and, given an Extension SDK (sdk, or TWACO_SDK), its jars in twx-lib/. The folder must be inside the solution, and missing or empty. A dry run unless dry_run is false; applied, ext_check's report is returned.",
+    "inputSchema": {
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false,
+      "description": "`ext_new`: a new Java extension project.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "The extension package's name.",
+          "type": "string"
+        },
+        "folder": {
+          "description": "The folder to create, relative to the solution and inside it; default: the name.",
+          "type": "string"
+        },
+        "package": {
+          "description": "The Java package; default com.<vendor>.<name>.",
+          "type": "string"
+        },
+        "vendor": {
+          "type": "string"
+        },
+        "package_version": {
+          "description": "Default 1.0.0.",
+          "type": "string"
+        },
+        "min_thingworx": {
+          "description": "Default 10.0.0.",
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "sdk": {
+          "description": "The Extension SDK zip or folder whose jars go into twx-lib/; default TWACO_SDK.",
+          "type": "string"
+        },
+        "dry_run": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "openWorldHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "ok",
+        "dry_run",
+        "applied",
+        "root",
+        "summary",
+        "files",
+        "notes"
+      ],
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "applied": {
+          "type": "boolean"
+        },
+        "root": {
+          "description": "The extension project's folder.",
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "files": {
+          "description": "Each with path and action (create, or update for metadata.xml).",
+          "type": "array",
+          "items": true
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "check": {
+          "description": "When applied: ext_check's report on the result."
+        }
+      },
+      "description": "The files `ext_new` or `ext_add` writes, or wrote.",
+      "type": "object"
+    }
+  },
+  {
+    "name": "ext_add",
+    "description": "Add to a Java ThingWorx extension project: a thing-template (Java class extending Thing with its base template, plus its ThingPackage), a thing-shape or resource (Java class), a widget (ui/<name>/ ide and runtime JS and CSS) or a jar (copied into lib/), each with its metadata.xml entry; the first Java class also lists the jar the build makes. metadata.xml keeps its formatting. The project and a jar must be inside the solution. A dry run unless dry_run is false; applied, ext_check's report is returned.",
+    "inputSchema": {
+      "required": [
+        "kind",
+        "name"
+      ],
+      "additionalProperties": false,
+      "description": "`ext_add`: one thing added to a Java extension project.",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "thing-template",
+            "thing-shape",
+            "resource",
+            "widget",
+            "jar"
+          ]
+        },
+        "name": {
+          "description": "The entity or widget name; for a jar, the file to copy into lib/, relative to the\nsolution and inside it.",
+          "type": "string"
+        },
+        "root": {
+          "description": "The extension project's folder, relative to the solution and inside it; omit for the\nsolution folder itself.",
+          "type": "string"
+        },
+        "package": {
+          "description": "thing-template, thing-shape, resource: the Java package; default the one metadata.xml's\nclasses use.",
+          "type": "string"
+        },
+        "base": {
+          "description": "thing-template: its base template; default GenericThing.",
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "dry_run": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "openWorldHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "ok",
+        "dry_run",
+        "applied",
+        "root",
+        "summary",
+        "files",
+        "notes"
+      ],
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "applied": {
+          "type": "boolean"
+        },
+        "root": {
+          "description": "The extension project's folder.",
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "files": {
+          "description": "Each with path and action (create, or update for metadata.xml).",
+          "type": "array",
+          "items": true
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "check": {
+          "description": "When applied: ext_check's report on the result."
+        }
+      },
+      "description": "The files `ext_new` or `ext_add` writes, or wrote.",
+      "type": "object"
+    }
+  },
+  {
+    "name": "ext_deploy",
+    "description": "Deploy one of the solution's Java extensions (an [[extension]] in twaco.toml): ext_check it, run its Gradle wrapper, Gradle or Ant build, find the package zip under build/ or zip/, and have the server validate it; with dry_run false install it and confirm the server lists every entity its metadata.xml declares. The server skips a version it has, so a change needs bump (patch, minor or major), which writes the raised packageVersion into metadata.xml and extension.properties and puts it back if the build or install fails. An upgrade of a package with Java code is queued by the server for its next restart, and is reported as queued.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "extension": {
+          "description": "An [[extension]] entry's name or root; omit when there is one.",
+          "type": "string"
+        },
+        "bump": {
+          "description": "Raise packageVersion first (written only when dry_run is false); the server skips a\nversion it has.",
+          "type": "string",
+          "enum": [
+            "patch",
+            "minor",
+            "major"
+          ]
+        },
+        "build": {
+          "description": "Run the project's Gradle or Ant build first; false sends the newest package zip it has.",
+          "type": "boolean",
+          "default": true
+        },
+        "dry_run": {
+          "type": "boolean",
+          "default": true
+        },
+        "profile": {
+          "description": "Server profile name.",
+          "type": "string",
+          "default": "default"
+        }
+      },
+      "description": "`ext_deploy`: build one of the solution's Java extensions and validate or install it.",
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "openWorldHint": true,
+      "destructiveHint": true,
+      "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "ok",
+        "dry_run",
+        "extension",
+        "root",
+        "package",
+        "version",
+        "zip",
+        "plan",
+        "validated",
+        "applied",
+        "queued",
+        "missing"
+      ],
+      "properties": {
+        "ok": {
+          "description": "False when the installed package does not list an entity metadata.xml declares.",
+          "type": "boolean"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "extension": {
+          "description": "The [[extension]] entry, and its folder relative to the solution.",
+          "type": "string"
+        },
+        "root": {
+          "type": "string"
+        },
+        "package": {
+          "type": "string"
+        },
+        "version": {
+          "description": "The version sent: the bumped one once applied.",
+          "type": "string"
+        },
+        "installed": {
+          "description": "The server's version, when it has the package.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "bump": {
+          "description": "`x.y.z -> x.y.z'`: done when applied, else what dry_run false would do.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "build": {
+          "description": "The build command run.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "zip": {
+          "description": "The package zip, relative to the solution.",
+          "type": "string"
+        },
+        "plan": {
+          "type": "string"
+        },
+        "validated": {
+          "description": "Whether the server validated the zip; not while it carries the installed version.",
+          "type": "boolean"
+        },
+        "applied": {
+          "type": "boolean"
+        },
+        "queued": {
+          "description": "Installed at the server's next restart.",
+          "type": "boolean"
+        },
+        "missing": {
+          "description": "Entities metadata.xml declares that the installed package does not list.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "description": "What `ext_deploy` built and sent.",
+      "type": "object"
+    }
+  },
+  {
     "name": "extension_write",
     "description": "Import an extension package zip of the solution, or remove an installed package. A dry run unless dry_run is false: an import is then only validated by the server, which installs nothing. A removal is refused while the package is in use.",
     "inputSchema": {
@@ -9073,7 +9595,7 @@
   },
   {
     "name": "javadoc",
-    "description": "Search or read the ThingWorx Platform API 10.1.0 Javadoc as Markdown. search ranks class and member simple names exact, prefix, then contains. class gives the class description and method summaries; member gives every overload with parameters, returns and throws. service takes a service as a script or path names it (Resources[\"InfoTableFunctions\"].Sort, Things/Name.Service, me.Service, Class.member), finds the class that declares it, looking in the classes it extends, and returns every overload. Useful for the Java methods of objects scripts call and Resource service parameter descriptions.",
+    "description": "Search or read ThingWorx Platform API Javadoc as Markdown. sdk can name an Extension SDK zip, extracted folder, or Javadoc jar; otherwise TWACO_SDK, then the named profile's sdk, then the public 10.1.0 site is used. refresh is ignored for an SDK. search ranks class and member simple names exact, prefix, then contains. class gives the class description and method summaries; member gives every overload with parameters, returns and throws. service takes a service as a script or path names it (Resources[\"InfoTableFunctions\"].Sort, Things/Name.Service, me.Service, Class.member), finds the class that declares it, looking in the classes it extends, and returns every overload.",
     "inputSchema": {
       "required": [
         "action",
@@ -9106,6 +9628,15 @@
         "refresh": {
           "type": "boolean",
           "default": false
+        },
+        "sdk": {
+          "description": "An Extension SDK zip, extracted folder, or Javadoc jar. It is read locally and never cached.",
+          "type": "string"
+        },
+        "profile": {
+          "description": "Profile whose sdk is used when sdk and TWACO_SDK are unset.",
+          "type": "string",
+          "default": "default"
         }
       }
     },

@@ -247,6 +247,16 @@ pub(crate) enum ExtensionsAction {
     Show,
 }
 
+/// `ext_check`: a Java extension project's folder.
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ExtCheckRequest {
+    /// The extension project's folder, absolute or relative to the solution; omit for the
+    /// solution folder itself.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) root: Absent<String>,
+}
+
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ExtensionsRequest {
@@ -270,6 +280,105 @@ pub(crate) enum ExtensionWriteAction {
     Import,
     #[serde(rename = "remove")]
     Remove,
+}
+
+/// `ext_new`: a new Java extension project.
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ExtNewRequest {
+    /// The extension package's name.
+    pub(crate) name: String,
+    /// The folder to create, relative to the solution and inside it; default: the name.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) folder: Absent<String>,
+    /// The Java package; default com.<vendor>.<name>.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) package: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) vendor: Absent<String>,
+    /// Default 1.0.0.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) package_version: Absent<String>,
+    /// Default 10.0.0.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) min_thingworx: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) description: Absent<String>,
+    /// The Extension SDK zip or folder whose jars go into twx-lib/; default TWACO_SDK.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) sdk: Absent<String>,
+    #[serde(default = "default_true")]
+    pub(crate) dry_run: bool,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
+pub(crate) enum ExtAddKind {
+    #[serde(rename = "thing-template")]
+    ThingTemplate,
+    #[serde(rename = "thing-shape")]
+    ThingShape,
+    #[serde(rename = "resource")]
+    Resource,
+    #[serde(rename = "widget")]
+    Widget,
+    #[serde(rename = "jar")]
+    Jar,
+}
+
+/// `ext_add`: one thing added to a Java extension project.
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ExtAddRequest {
+    pub(crate) kind: ExtAddKind,
+    /// The entity or widget name; for a jar, the file to copy into lib/, relative to the
+    /// solution and inside it.
+    pub(crate) name: String,
+    /// The extension project's folder, relative to the solution and inside it; omit for the
+    /// solution folder itself.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) root: Absent<String>,
+    /// thing-template, thing-shape, resource: the Java package; default the one metadata.xml's
+    /// classes use.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) package: Absent<String>,
+    /// thing-template: its base template; default GenericThing.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) base: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) description: Absent<String>,
+    #[serde(default = "default_true")]
+    pub(crate) dry_run: bool,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
+pub(crate) enum ExtBump {
+    #[serde(rename = "patch")]
+    Patch,
+    #[serde(rename = "minor")]
+    Minor,
+    #[serde(rename = "major")]
+    Major,
+}
+
+/// `ext_deploy`: build one of the solution's Java extensions and validate or install it.
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ExtDeployRequest {
+    /// An [[extension]] entry's name or root; omit when there is one.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) extension: Absent<String>,
+    /// Raise packageVersion first (written only when dry_run is false); the server skips a
+    /// version it has.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) bump: Absent<ExtBump>,
+    /// Run the project's Gradle or Ant build first; false sends the newest package zip it has.
+    #[serde(default = "default_true")]
+    pub(crate) build: bool,
+    #[serde(default = "default_true")]
+    pub(crate) dry_run: bool,
+    /// Server profile name.
+    #[serde(default = "default_profile")]
+    pub(crate) profile: String,
 }
 
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
