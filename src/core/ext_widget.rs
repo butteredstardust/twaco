@@ -23,9 +23,10 @@ pub(crate) struct NpmProject {
 }
 
 /// The project at `root`, when it is a package.json widget project: a package.json, and nothing
-/// of a Java project beside it: no Gradle or Ant build, no `configfiles/`, and no metadata.xml
-/// naming a package (the template's own metadata.xml leaves the name empty). A Java project may
-/// keep a package.json for its tooling.
+/// of a Java project beside it (no Gradle or Ant build, no `configfiles/`). It is one when
+/// package.json has a `build` script, which a gulp project that keeps its metadata.xml at the
+/// root has too, or when no metadata.xml names a package (the webpack template's own leaves the
+/// name empty). A project that keeps a package.json only for its tooling is not one.
 pub(crate) fn read(root: &Path) -> Option<Result<NpmProject, String>> {
     let text = std::fs::read_to_string(root.join("package.json")).ok()?;
     let java = [
@@ -37,7 +38,10 @@ pub(crate) fn read(root: &Path) -> Option<Result<NpmProject, String>> {
     ]
     .iter()
     .any(|marker| root.join(marker).exists());
-    if java || names_a_package(&root.join("metadata.xml")) {
+    let builds = serde_json::from_str::<Value>(&text)
+        .ok()
+        .is_some_and(|json| json.pointer("/scripts/build").is_some_and(Value::is_string));
+    if java || (!builds && names_a_package(&root.join("metadata.xml"))) {
         return None;
     }
     Some(parse(&text).map(|(package, version)| NpmProject {
@@ -45,6 +49,24 @@ pub(crate) fn read(root: &Path) -> Option<Result<NpmProject, String>> {
         version,
         runner: runner(root),
     }))
+}
+
+/// The package name and version a root metadata.xml gives, when one names a package: a gulp
+/// project copies it into its zip, so it must agree with package.json.
+pub(crate) fn root_metadata(root: &Path) -> Option<(String, String)> {
+    let bytes = std::fs::read(root.join("metadata.xml")).ok()?;
+    let declared = super::ext_check::declarations(&bytes).ok()?;
+    let package = declared
+        .iter()
+        .find(|item| item.tag == "ExtensionPackage" && !item.name.is_empty())?;
+    Some((
+        package.name.clone(),
+        package
+            .attributes
+            .get("packageVersion")
+            .cloned()
+            .unwrap_or_default(),
+    ))
 }
 
 fn names_a_package(metadata: &Path) -> bool {
@@ -182,6 +204,27 @@ pub(crate) fn check(root: &Path) -> Report {
                     "version",
                     format!("version {version:?} is not major.minor.patch"),
                 ));
+            }
+            if let Some((name, declared)) = root_metadata(root) {
+                if name != package {
+                    report.findings.push(Finding {
+                        file: "metadata.xml".into(),
+                        line: 0,
+                        rule: "package-name",
+                        message: format!(
+                            "metadata.xml names the package {name}, package.json {package}"
+                        ),
+                    });
+                } else if declared != version {
+                    report.findings.push(Finding {
+                        file: "metadata.xml".into(),
+                        line: 0,
+                        rule: "version-mismatch",
+                        message: format!(
+                            "packageVersion {declared:?}, but package.json says {version}; a build that copies metadata.xml ships {declared:?}"
+                        ),
+                    });
+                }
             }
             report.package = Some(package);
             report.version = Some(version);

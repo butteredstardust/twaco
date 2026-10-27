@@ -327,7 +327,14 @@ fn show_version([major, minor, patch]: [u64; 3]) -> String {
 fn write_version(root: &Path, identity: &Identity, version: &str) -> Result<(), String> {
     match &identity.source {
         Source::Metadata(path) => set_version(root, path, version),
-        Source::PackageJson => super::ext_widget::set_version(root, version),
+        Source::PackageJson => {
+            // A root metadata.xml the build copies keeps the same version, written first so
+            // that a failure leaves package.json, which names the project's version, unchanged.
+            if super::ext_widget::root_metadata(root).is_some() {
+                set_version(root, "metadata.xml", version)?;
+            }
+            super::ext_widget::set_version(root, version)
+        }
     }
 }
 

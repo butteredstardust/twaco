@@ -135,6 +135,34 @@ fn the_version_is_written_in_place_and_nothing_else_moves() {
 }
 
 #[test]
+fn a_gulp_project_keeping_its_metadata_at_the_root_is_one_and_its_versions_must_agree() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::fs::write(
+        root.join("package.json"),
+        r#"{"packageName": "heat", "version": "1.1.4", "scripts": {"build": "gulp"}}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("metadata.xml"),
+        r#"<Entities><ExtensionPackages><ExtensionPackage name="heat" packageVersion="1.0.0"/></ExtensionPackages></Entities>"#,
+    )
+    .unwrap();
+    assert_eq!(read(root).unwrap().unwrap().package, "heat");
+    let findings = check(root).findings;
+    assert_eq!(findings.len(), 1, "{findings:?}");
+    assert_eq!(findings[0].rule, "version-mismatch");
+
+    // Without a build script, a package.json beside a real metadata.xml is only tooling.
+    std::fs::write(
+        root.join("package.json"),
+        r#"{"name": "lint", "version": "0.0.1"}"#,
+    )
+    .unwrap();
+    assert!(read(root).is_none());
+}
+
+#[test]
 fn check_names_what_a_build_needs() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();

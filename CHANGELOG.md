@@ -22,8 +22,10 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Changed
 
-- `ext deploy` builds, bumps and checks package.json widget projects too, the template's own
-  included: the version is package.json's, and the zip is under `zip/`. A zip missing a file its
+- `ext deploy` builds, bumps and checks package.json widget projects too, the webpack template's
+  and gulp projects that keep metadata.xml at the root included: the version is package.json's
+  (a root metadata.xml is bumped with it, and `ext check` reports one that disagrees), and the zip
+  is under `zip/`. A zip missing a file its
   metadata.xml names is refused before it is sent.
 - `ext new` adds the Gradle wrapper to a new Java project when Gradle is installed, so it builds
   with `gradlew build` anywhere.
