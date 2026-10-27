@@ -37,7 +37,8 @@ pub(crate) fn read(root: &Path) -> Option<Result<NpmProject, String>> {
         "configfiles",
     ]
     .iter()
-    .any(|marker| root.join(marker).exists());
+    .any(|marker| root.join(marker).exists())
+        || super::ext_build::has_java(&root.join("src"));
     let builds = serde_json::from_str::<Value>(&text)
         .ok()
         .is_some_and(|json| json.pointer("/scripts/build").is_some_and(Value::is_string));
@@ -53,20 +54,24 @@ pub(crate) fn read(root: &Path) -> Option<Result<NpmProject, String>> {
 
 /// The package name and version a root metadata.xml gives, when one names a package: a gulp
 /// project copies it into its zip, so it must agree with package.json.
-pub(crate) fn root_metadata(root: &Path) -> Option<(String, String)> {
+/// `Some(Err)` when the file is there but cannot be read as metadata.
+pub(crate) fn root_metadata(root: &Path) -> Option<Result<(String, String), String>> {
     let bytes = std::fs::read(root.join("metadata.xml")).ok()?;
-    let declared = super::ext_check::declarations(&bytes).ok()?;
+    let declared = match super::ext_check::declarations(&bytes) {
+        Ok(declared) => declared,
+        Err(why) => return Some(Err(why)),
+    };
     let package = declared
         .iter()
         .find(|item| item.tag == "ExtensionPackage" && !item.name.is_empty())?;
-    Some((
+    Some(Ok((
         package.name.clone(),
         package
             .attributes
             .get("packageVersion")
             .cloned()
             .unwrap_or_default(),
-    ))
+    )))
 }
 
 fn names_a_package(metadata: &Path) -> bool {
@@ -205,8 +210,14 @@ pub(crate) fn check(root: &Path) -> Report {
                     format!("version {version:?} is not major.minor.patch"),
                 ));
             }
-            if let Some((name, declared)) = root_metadata(root) {
-                if name != package {
+            match root_metadata(root) {
+                Some(Err(why)) => report.findings.push(Finding {
+                    file: "metadata.xml".into(),
+                    line: 0,
+                    rule: "metadata-unreadable",
+                    message: format!("not well-formed XML, and the build may copy it: {why}"),
+                }),
+                Some(Ok((name, _))) if name != package => {
                     report.findings.push(Finding {
                         file: "metadata.xml".into(),
                         line: 0,
@@ -215,7 +226,8 @@ pub(crate) fn check(root: &Path) -> Report {
                             "metadata.xml names the package {name}, package.json {package}"
                         ),
                     });
-                } else if declared != version {
+                }
+                Some(Ok((_, declared))) if declared != version => {
                     report.findings.push(Finding {
                         file: "metadata.xml".into(),
                         line: 0,
@@ -225,6 +237,7 @@ pub(crate) fn check(root: &Path) -> Report {
                         ),
                     });
                 }
+                _ => {}
             }
             report.package = Some(package);
             report.version = Some(version);

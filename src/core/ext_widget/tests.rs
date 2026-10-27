@@ -153,6 +153,22 @@ fn a_gulp_project_keeping_its_metadata_at_the_root_is_one_and_its_versions_must_
     assert_eq!(findings.len(), 1, "{findings:?}");
     assert_eq!(findings[0].rule, "version-mismatch");
 
+    std::fs::write(root.join("metadata.xml"), "<Entities><Broken").unwrap();
+    let findings = check(root).findings;
+    assert_eq!(findings[0].rule, "metadata-unreadable", "{findings:?}");
+
+    // Java sources make a Java project, whatever its package.json builds.
+    let java = root.join("src/main/java/acme/A.java");
+    std::fs::create_dir_all(java.parent().unwrap()).unwrap();
+    std::fs::write(&java, "class A {}").unwrap();
+    assert!(read(root).is_none());
+    std::fs::remove_dir_all(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("metadata.xml"),
+        r#"<Entities><ExtensionPackages><ExtensionPackage name="heat" packageVersion="1.0.0"/></ExtensionPackages></Entities>"#,
+    )
+    .unwrap();
+
     // Without a build script, a package.json beside a real metadata.xml is only tooling.
     std::fs::write(
         root.join("package.json"),

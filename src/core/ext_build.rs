@@ -210,7 +210,7 @@ pub(crate) fn run_build(root: &Path) -> Result<Option<Vec<String>>, String> {
         done.push(match run(root, runner, &["run", "build"]) {
             // webpack 4 hashes with MD4, which Node 17 and later refuse unless OpenSSL's legacy
             // provider is on: the template's older projects build again with it.
-            Err(error) if error.contains("ERR_OSSL_EVP_UNSUPPORTED") => {
+            Err(error) if error.contains(OPENSSL_REFUSED) => {
                 let options = match std::env::var("NODE_OPTIONS") {
                     Ok(given) if !given.trim().is_empty() => {
                         format!("{given} {LEGACY_OPENSSL}")
@@ -263,7 +263,7 @@ pub(crate) fn run_build(root: &Path) -> Result<Option<Vec<String>>, String> {
     Ok(Some(vec![run(root, &tool, args)?]))
 }
 
-fn has_java(dir: &Path) -> bool {
+pub(crate) fn has_java(dir: &Path) -> bool {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return false;
     };
@@ -286,6 +286,8 @@ pub fn gradle_wrapper(root: &Path) -> Result<String, String> {
 /// Run `tool args` in `root`; the command as shown, or its output's end when it fails.
 /// The Node option that lets webpack 4's MD4 hashing run on Node 17 and later.
 const LEGACY_OPENSSL: &str = "--openssl-legacy-provider";
+/// What Node says when it refuses MD4.
+const OPENSSL_REFUSED: &str = "ERR_OSSL_EVP_UNSUPPORTED";
 
 fn run(root: &Path, tool: &str, args: &[&str]) -> Result<String, String> {
     run_with(root, tool, args, None)
@@ -342,7 +344,11 @@ fn run_with(
         .collect();
     if !status.success() {
         let lines: Vec<String> = text.lines().map(masked).collect();
-        let tail = lines[lines.len().saturating_sub(30)..].join("\n");
+        let mut tail = lines[lines.len().saturating_sub(30)..].join("\n");
+        // The retry for an old webpack looks for this, which long diagnostics can push out.
+        if text.contains(OPENSSL_REFUSED) && !tail.contains(OPENSSL_REFUSED) {
+            tail.push_str(&format!("\n(earlier in the output: {OPENSSL_REFUSED})"));
+        }
         return Err(format!("{shown} failed:\n{tail}"));
     }
     Ok(shown)

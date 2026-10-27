@@ -328,12 +328,24 @@ fn write_version(root: &Path, identity: &Identity, version: &str) -> Result<(), 
     match &identity.source {
         Source::Metadata(path) => set_version(root, path, version),
         Source::PackageJson => {
-            // A root metadata.xml the build copies keeps the same version, written first so
-            // that a failure leaves package.json, which names the project's version, unchanged.
-            if super::ext_widget::root_metadata(root).is_some() {
-                set_version(root, "metadata.xml", version)?;
-            }
-            super::ext_widget::set_version(root, version)
+            // A root metadata.xml the build copies keeps the same version: both files or neither.
+            let metadata = root.join("metadata.xml");
+            let before = match super::ext_widget::root_metadata(root) {
+                Some(Ok(_)) => {
+                    let bytes = std::fs::read(&metadata)
+                        .map_err(|error| format!("metadata.xml: {error}"))?;
+                    set_version(root, "metadata.xml", version)?;
+                    Some(bytes)
+                }
+                _ => None,
+            };
+            super::ext_widget::set_version(root, version).map_err(|error| match &before {
+                Some(bytes) => match super::ext_new::replace_whole(&metadata, bytes) {
+                    Ok(()) => error,
+                    Err(why) => format!("{error}; and putting metadata.xml back failed: {why}"),
+                },
+                None => error,
+            })
         }
     }
 }
