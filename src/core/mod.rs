@@ -9,6 +9,7 @@ pub mod backup;
 pub(crate) mod baseline;
 pub(crate) mod basetype;
 pub(crate) mod bindings;
+pub mod block;
 pub mod bundle;
 pub mod catalog;
 pub mod check;

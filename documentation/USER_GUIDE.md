@@ -605,6 +605,30 @@ matches what the framework itself produced (the tests hold it against server exp
 exists is overwritten. Not created: the component permission helper (the framework builds it on the
 server), and the `ui` and `test` types. Then `twaco check`, commit and `twaco deploy`.
 
+## Building blocks on a server
+
+```sh
+twaco block list --server                      # each block beside the framework's version and state
+twaco block show Acme.Orders --server          # one block, and the parameters DeployComponent takes
+twaco block version Acme.Orders --bump minor   # componentVersion and packageVersion together
+twaco block version Acme.Orders 2.0.0 --apply
+```
+
+A building block is a project with a `<project>.EntryPoint` Thing that carries the framework's
+component properties. `block list` and `block show` read them from the repository: type, version,
+display name, entry point, manager, organization and groups, permission helper and the blocks it
+depends on. With `--server` they add the Solution Framework's view (`GetBuildingBlockList` and
+`PTC.Base.Manager.GetComponentDeploymentOrder`): its version, its state (`Configured`,
+`Not Configured`, `Error`) and its place in the deploy order, with a note when the version differs
+or the framework has not run the block's deploy step; `show` adds the parameters the entry point's
+`GetComponentDeployConfigurationParameters` lists. `block version` writes the entry point's
+`componentVersion` and the Project's `packageVersion` and nothing else, both or neither; a bump is
+refused while the two disagree, and a version given writes both.
+
+The entry point's lifecycle state (`componentDeploymentState` and its deploy, upgrade and migrate
+status tables) is the server's: deploys keep the server's values and comparisons leave them out, so
+a block the framework configured stays configured and its entry point is not reported as changed.
+
 ## Creating entities
 
 `twaco new` creates the common 10.1 entity exports in a project and plans unless `--apply` is

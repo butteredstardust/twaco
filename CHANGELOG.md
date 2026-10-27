@@ -6,6 +6,17 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `twaco block list | show <block> [--server]` (MCP `block`): the solution's Solution Framework
+  building blocks from the repository (type, version, entry point, manager, organization and
+  groups, permission helper, dependencies) and, with `--server`, the framework's version, state
+  and deploy order for each, with a note when the version differs or the block is not configured;
+  `show --server` adds the parameters its `DeployComponent` takes.
+- `twaco block version <block> (<x.y.z> | --bump patch|minor|major)` (MCP `block_version`) writes
+  the entry point's `componentVersion` and the Project's `packageVersion` together; plan unless
+  `--apply`.
+
 ### Changed
 
 - `check` accepts a service implemented with no local definition when an ancestor defines it: a

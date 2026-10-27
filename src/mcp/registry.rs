@@ -1,13 +1,14 @@
 use super::outputs;
 use super::requests::common::{parse, schema, NoArguments};
 use super::requests::{
-    content as content_requests, data as data_requests, entity as entity_requests,
-    info as info_requests, init as init_requests, network as network_requests,
-    refactor as refactor_requests, requirements as requirements_requests,
-    source as source_requests,
+    block as block_requests, content as content_requests, data as data_requests,
+    entity as entity_requests, info as info_requests, init as init_requests,
+    network as network_requests, refactor as refactor_requests,
+    requirements as requirements_requests, source as source_requests,
 };
 use super::{
-    content, data, entity, info, init, network, refactor, requirements, source, Protocol, ToolError,
+    block, content, data, entity, info, init, network, refactor, requirements, source, Protocol,
+    ToolError,
 };
 use crate::core::config::Solution;
 use crate::core::progress::Progress;
@@ -108,6 +109,7 @@ const OPEN_WORLD: &[&str] = &[
     "call",
     "network",
     "network_write",
+    "block",
 ];
 
 /// Writing tools whose changes only add or regenerate: they create files that did not exist,
@@ -503,6 +505,20 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             true,
             network::network_tool,
         ).with_output::<outputs::NetworkResult>(),
+        solution_tool::<block_requests::BlockRequest>(
+            "block",
+            "List the solution's Solution Framework building blocks (each a project with a <project>.EntryPoint Thing), or show one: type, version, display name, entry point, manager, organization, groups, permission helper, dependencies. With server true, also the framework's view from the server: its version, state (Configured, Not Configured, Error) and deploy order, notes on what differs, and for show the parameters DeployComponent takes. Read-only.",
+            true,
+            block::block_tool,
+        )
+        .with_output::<outputs::BlockResult>(),
+        solution_tool::<block_requests::BlockVersionRequest>(
+            "block_version",
+            "Raise (bump patch, minor or major) or set a building block's version: the entry point's componentVersion and the Project's packageVersion, together and nothing else. A bump is refused while the two disagree; set writes both. A dry run unless dry_run is false; an apply takes the workspace lock and writes both files or neither.",
+            false,
+            block::block_version_tool,
+        )
+        .with_output::<outputs::BlockVersionResult>(),
         solution_tool::<network_requests::NetworkWriteRequest>(
             "network_write",
             "Add, move or remove a Network connection, import an RFC 4180 asset CSV, or pull server connections into the repository. An import can create Things from repository or platform templates. A dry run unless dry_run is false; apply writes every created Thing and the Network XML in one transaction.",
@@ -924,6 +940,8 @@ pub(crate) const GROUPS: &[(&str, &[&str])] = &[
             "network_write",
             "entity_edit",
             "new_building_block",
+            "block",
+            "block_version",
             "export",
             "import",
             "package",

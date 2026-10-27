@@ -1,5 +1,6 @@
 //! MCP request objects and the schemas published for them.
 
+pub(crate) mod block;
 pub(crate) mod common;
 pub(crate) mod content;
 pub(crate) mod data;

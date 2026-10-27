@@ -85,6 +85,9 @@ when the command is asked to write. A local output named by an option is include
 | `trace` | read-only | read-only | none | Retry freely. | `core/trace.rs: run` |
 | `unused` | read-only | read-only | none | Retry freely. | `core/unused.rs: run` |
 | `docs` | read-only | single-file atomic | named output file | The output is old or new; retry freely. | `cli/info.rs: docs_cmd` |
+| `block list` | read-only | read-only | none | Reads the repository and, with --server, the server; retry freely. | `cli/block.rs: block_cmd` |
+| `block show` | read-only | read-only | none | Reads the repository and, with --server, the server; retry freely. | `cli/block.rs: block_cmd` |
+| `block version` | read-only | multi-file atomic | the Project and entry point files | Writes both files or neither, refused if either changed since it was read; retry. | `core/commands/block.rs: version` |
 | `ext list` | read-only | read-only | none | Retry freely. | `cli/content.rs: ext_cmd` |
 | `ext show` | read-only | read-only | none | Retry freely. | `cli/content.rs: ext_cmd` |
 | `ext check` | read-only | read-only | none | Reads an extension project's files only; retry freely. | `cli/content.rs: ext_check_cmd` |
@@ -261,6 +264,8 @@ when the command is asked to write. A local output named by an option is include
 | `log_level` | read-only | server-partial | server log level | Read the current level and use the undo before retrying. | `core/commands/logs.rs: execute` |
 | `repo` | read-only | read-only | none | Retry freely. | `mcp/content.rs: repo_tool` |
 | `repo_write` | read-only | server-partial | server repository or local pull | Inspect copied paths before retrying. | `core/commands/repo.rs: execute` |
+| `block` | read-only | read-only | none | Reads the repository and, with server, the server; retry freely. | `mcp/block.rs: block_tool` |
+| `block_version` | read-only | multi-file atomic | the Project and entry point files | Writes both files or neither, refused if either changed since it was read; retry. | `core/commands/block.rs: version` |
 | `extensions` | read-only | read-only | none | Retry freely. | `mcp/content.rs: extensions_tool` |
 | `ext_check` | read-only | read-only | none | Reads an extension project's files only; retry freely. | `mcp/content.rs: ext_check_tool` |
 | `ext_new` | read-only | multi-file atomic | extension project files | Writes the new project's files into a missing or empty folder and removes them again on a failure (in-process only). Retry. | `core/ext_new.rs: Plan::apply` |

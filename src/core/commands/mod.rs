@@ -2,6 +2,7 @@
 
 pub mod adopt;
 pub mod appkey;
+pub mod block;
 pub mod bundle;
 pub mod call;
 pub mod carry;

@@ -207,6 +207,7 @@ fn dispatch(command: Command) -> u8 {
             run(|solution| localization_cmd(solution, &localization))
         }
         Command::Repo(repo) => run(|solution| repo_cmd(solution, &repo)),
+        Command::Block(block) => run(|solution| cli::block::block_cmd(solution, &block)),
         // An extension project is not a solution: `ext check` needs no twaco.toml.
         Command::Ext(ext) if ext.operands.first().map(String::as_str) == Some("check") => {
             ext_check_cmd(&ext)
