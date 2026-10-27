@@ -359,20 +359,56 @@ fn run_with(
     Ok(shown)
 }
 
-/// A build's output line with what looks like a credential after `=` or `:` hidden: a registry
-/// token in an npm error, a password a script echoes.
+/// A build's output line with what looks like a credential hidden: the user and password of a
+/// URL (`https://user:secret@host`), and whatever follows `=` or `:` after a word such as token,
+/// password, secret or authorization (a registry token in an npm error, a header, an echo).
 fn masked(line: &str) -> String {
+    let line = without_url_credentials(line);
     let lower = line.to_ascii_lowercase();
-    let marker = ["_authtoken", "_auth", "token", "password", "secret"]
-        .iter()
-        .find_map(|word| lower.find(word).map(|at| at + word.len()));
+    let marker = [
+        "_authtoken",
+        "_auth",
+        "authorization",
+        "bearer",
+        "token",
+        "password",
+        "passwd",
+        "secret",
+        "api_key",
+        "apikey",
+    ]
+    .iter()
+    .filter_map(|word| lower.find(word).map(|at| at + word.len()))
+    .min();
     let Some(at) = marker else {
-        return line.to_string();
+        return line;
     };
-    match line[at..].find(['=', ':']) {
+    match line[at..].find(['=', ':', ' ']) {
         Some(offset) => format!("{}<hidden>", &line[..at + offset + 1]),
-        None => line.to_string(),
+        None => line,
     }
+}
+
+/// `line` with each URL's `user:password@` replaced by `<hidden>@`.
+fn without_url_credentials(line: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    let mut rest = line;
+    while let Some(at) = rest.find("://") {
+        let (head, tail) = rest.split_at(at + 3);
+        out.push_str(head);
+        let authority_end = tail
+            .find(|c: char| c == '/' || c.is_whitespace() || c == '"' || c == '\'')
+            .unwrap_or(tail.len());
+        match tail[..authority_end].rfind('@') {
+            Some(user_end) => {
+                out.push_str("<hidden>");
+                rest = &tail[user_end..];
+            }
+            None => rest = tail,
+        }
+    }
+    out.push_str(rest);
+    out
 }
 
 /// The last 64 KiB a build writes to one stream, read as it runs so a long build neither

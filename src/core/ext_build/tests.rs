@@ -136,6 +136,18 @@ fn a_credential_in_build_output_is_hidden() {
     );
     assert_eq!(masked("password: hunter2"), "password:<hidden>");
     assert_eq!(masked("BUILD FAILED"), "BUILD FAILED");
+    assert_eq!(
+        masked("Authorization: Bearer abc.def"),
+        "Authorization:<hidden>"
+    );
+    assert_eq!(
+        masked("fetch https://bob:s3cret@registry.example/pkg failed"),
+        "fetch https://<hidden>@registry.example/pkg failed"
+    );
+    assert_eq!(
+        masked("see https://registry.example/pkg"),
+        "see https://registry.example/pkg"
+    );
 }
 
 #[test]
