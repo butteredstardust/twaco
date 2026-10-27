@@ -6,6 +6,24 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- `check` accepts a service implemented with no local definition when an ancestor defines it: a
+  template or shape of the solution or of an `[[extension]]`, or one in the platform cache
+  (`twaco types --platform`), such as the Solution Framework's `DeployComponent` or a platform
+  template's resolver services. Only a definition found counts; the rest still need
+  `[validate] inherited_overrides`.
+
+### Fixed
+
+- A building block's lifecycle state on its entry point (`componentDeploymentState` and the
+  deploy, upgrade and migrate status tables of every `Things/*.EntryPoint`) is the server's: an
+  import keeps the server's values and comparisons leave them out. Before, every deploy reset a
+  configured block to `Not Configured`, and once the Solution Framework had configured it, the
+  next deploy refused its entry point as changed on the server.
+- `new building-block` with no description writes an empty value, which the first deploy reads
+  back as kept, rather than a whitespace one the server does not keep.
+
 ## [0.1.37] - 2026-10-27
 
 ### Added

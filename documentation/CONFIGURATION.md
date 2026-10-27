@@ -227,6 +227,10 @@ entities = ["Things/Acme.Sample*"]
 parts = ["property-values:speed,temperature"]
 ```
 
+twaco adds one rule of its own: every `Things/*.EntryPoint` owns
+`property-values:componentDeploymentState,deployComponentStatus,migrateComponentStatus,upgradeComponentStatus`,
+a Solution Framework building block's lifecycle state, which the framework writes on the server.
+
 Both lists are required and nonempty. Entity patterns use a known collection and a name;
 `*` matches within the name, and other glob syntax is refused. Matching rules are combined.
 Unknown kinds, malformed selectors and unknown keys stop configuration loading.
@@ -330,9 +334,13 @@ cannot run still fails, and a name that is not a gate is refused.
 
 ### `[validate]`
 
-`inherited_overrides` lists `Entity.Service` names that implement locally a service whose
-definition comes from a shape or template; a bare `Service` allows it on every entity. That is legitimate, and impossible to tell from a
-mistake without being told, so `check` reports each one until it is listed here.
+A service implemented with no definition of its own is legitimate when its definition comes from a
+shape or template. `check` accepts it when it finds that definition: on a template or shape of the
+solution or of a configured `[[extension]]` the entity inherits from, or in the platform cache that
+`twaco types --platform` fills from the server (the Solution Framework's `DeployComponent` on
+`PTC.Base` templates, for example). An incomplete chain or a missing cache proves nothing, so the
+finding stays. `inherited_overrides` lists the others, as `Entity.Service` names; a bare `Service`
+allows it on every entity.
 
 ### `[unused]`
 
