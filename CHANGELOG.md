@@ -6,6 +6,33 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `twaco ext new <name> --widget` (MCP `ext_new` with `widget`) lays out a widget extension
+  project as the ThingWorx widget template does: package.json (`packageName`, `version`,
+  `author`, `minimumThingWorxVersion`), TypeScript IDE and runtime widgets on
+  `typescriptwebpacksupport`, and an esbuild `build.mjs` that writes `zip/<name>-prod-v<version>.zip`
+  with a generated metadata.xml. Verified on ThingWorx 10.2: the widget is listed and edited in the
+  mashup builder and renders at runtime.
+- `twaco ext build [<root>]` (MCP `ext_build`) builds an extension project's zip, with npm, yarn
+  or pnpm, its Gradle wrapper, Gradle or Ant, or packs one that has no build itself, and reports
+  its widgets and entities and any file its metadata.xml names that the zip lacks.
+
+### Changed
+
+- `ext deploy` builds, bumps and checks package.json widget projects too, the template's own
+  included: the version is package.json's, and the zip is under `zip/`. A zip missing a file its
+  metadata.xml names is refused before it is sent.
+- `ext new` adds the Gradle wrapper to a new Java project when Gradle is installed, so it builds
+  with `gradlew build` anywhere.
+- `ext check` checks a package.json widget project's package.json and entry points.
+
+### Fixed
+
+- twaco runs Gradle with `--no-daemon` and stops waiting for a build's output soon after the build
+  itself ends: a Gradle daemon left running held the output open, so `ext new` (adding the
+  wrapper) never returned to a caller reading its output.
+
 ## [0.1.38] - 2026-10-27
 
 ### Added

@@ -608,8 +608,15 @@ help:
 |                               source, its jars, widgets and version; needs no solution
 |   ext new <name> [--dir <dir>] [--package <java.package>] [--vendor <text>]
 |       [--package-version <x.y.z>] [--min-thingworx <x.y.z>] [--description <text>] [--sdk <path>]
-|                               lay out a Java extension project: Gradle build, metadata.xml and
-|                               the SDK's jars in twx-lib/ (--sdk or TWACO_SDK); plan unless --apply
+|                               lay out a Java extension project: Gradle build and its wrapper,
+|                               metadata.xml and the SDK's jars in twx-lib/ (--sdk or TWACO_SDK);
+|                               plan unless --apply
+|   ext new <name> --widget [--dir <dir>] [--vendor <text>] [--package-version <x.y.z>]
+|       [--min-thingworx <x.y.z>] [--description <text>]
+|                               lay out a widget extension project: package.json, TypeScript IDE and
+|                               runtime widgets on typescriptwebpacksupport, an esbuild build script
+|   ext build [<root>] [--json] build an extension project's zip (npm run build, its Gradle wrapper,
+|                               Gradle or Ant; twaco packs one with no build) and check what it holds
 |   ext add thing-template|thing-shape|resource|widget|jar <name> [--dir <root>]
 |       [--package <java.package>] [--base-template <ThingTemplate>] [--description <text>]
 |                               add a Java class or widget files, or copy a jar into lib/, with its
@@ -4787,6 +4794,17 @@ arg --vendor
     other: -
     given twice: ArgumentConflict
     given bare: InvalidValue
+arg --widget
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
 arg <operands>
     action: Append
     value_name: operand
@@ -4806,8 +4824,15 @@ help:
 |                               source, its jars, widgets and version; needs no solution
 |   ext new <name> [--dir <dir>] [--package <java.package>] [--vendor <text>]
 |       [--package-version <x.y.z>] [--min-thingworx <x.y.z>] [--description <text>] [--sdk <path>]
-|                               lay out a Java extension project: Gradle build, metadata.xml and
-|                               the SDK's jars in twx-lib/ (--sdk or TWACO_SDK); plan unless --apply
+|                               lay out a Java extension project: Gradle build and its wrapper,
+|                               metadata.xml and the SDK's jars in twx-lib/ (--sdk or TWACO_SDK);
+|                               plan unless --apply
+|   ext new <name> --widget [--dir <dir>] [--vendor <text>] [--package-version <x.y.z>]
+|       [--min-thingworx <x.y.z>] [--description <text>]
+|                               lay out a widget extension project: package.json, TypeScript IDE and
+|                               runtime widgets on typescriptwebpacksupport, an esbuild build script
+|   ext build [<root>] [--json] build an extension project's zip (npm run build, its Gradle wrapper,
+|                               Gradle or Ant; twaco packs one with no build) and check what it holds
 |   ext add thing-template|thing-shape|resource|widget|jar <name> [--dir <root>]
 |       [--package <java.package>] [--base-template <ThingTemplate>] [--description <text>]
 |                               add a Java class or widget files, or copy a jar into lib/, with its

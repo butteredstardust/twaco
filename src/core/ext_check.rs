@@ -56,6 +56,9 @@ const CLASS_TAGS: &[&str] = &[
 
 /// Check the extension project at `root`.
 pub fn check(root: &Path) -> Report {
+    if super::ext_widget::read(root).is_some() {
+        return super::ext_widget::check(root);
+    }
     let mut report = Report::default();
     let Some(metadata) = [
         root.join("configfiles/metadata.xml"),

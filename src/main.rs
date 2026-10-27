@@ -212,6 +212,9 @@ fn dispatch(command: Command) -> u8 {
         Command::Ext(ext) if ext.operands.first().map(String::as_str) == Some("check") => {
             ext_check_cmd(&ext)
         }
+        Command::Ext(ext) if ext.operands.first().map(String::as_str) == Some("build") => {
+            cli::content::ext_build_cmd(&ext)
+        }
         Command::Ext(ext) if ext.operands.first().map(String::as_str) == Some("new") => {
             ext_new_cmd(&ext)
         }

@@ -7601,8 +7601,88 @@
     }
   },
   {
+    "name": "ext_build",
+    "description": "Build a ThingWorx extension project's package zip and read it back: a package.json widget project runs its build script (installing its dependencies the first time), a Java project its Gradle wrapper, Gradle or Ant (Gradle with --no-daemon), and a project with neither a build nor Java sources is packed by twaco (metadata.xml, ui/, Entities/, Localization/, lib/*.jar under lib/common/). Returns the zip, its package and version, the widgets and entities its metadata.xml declares, and files it names that the zip lacks. ext_check runs first. The project must be inside the solution.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "root": {
+          "description": "The extension project's folder, relative to the solution and inside it; omit for the\nsolution folder itself.",
+          "type": "string"
+        }
+      },
+      "description": "`ext_build`: an extension project's folder.",
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "openWorldHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "ok",
+        "passed",
+        "package",
+        "version",
+        "build",
+        "zip",
+        "widgets",
+        "entities",
+        "problems"
+      ],
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "passed": {
+          "description": "The zip holds every file its metadata.xml names.",
+          "type": "boolean"
+        },
+        "package": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "build": {
+          "description": "The commands run, or \"packed by twaco\".",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "zip": {
+          "type": "string"
+        },
+        "widgets": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "entities": {
+          "description": "Each as \"<Collection tag> <name>\".",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "problems": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "description": "What ext_build made: the commands run, the zip, what its metadata.xml declares.",
+      "type": "object"
+    }
+  },
+  {
     "name": "ext_new",
-    "description": "Lay out a new Java ThingWorx extension project, as the Eclipse plugin's project wizard did: settings.gradle, a build.gradle that makes the importable zip (build/distributions/<name>.zip), extension.properties, configfiles/metadata.xml, .gitignore, the Java package folder and, given an Extension SDK (sdk, or TWACO_SDK), its jars in twx-lib/. The folder must be inside the solution, and missing or empty. A dry run unless dry_run is false; applied, ext_check's report is returned.",
+    "description": "Lay out a new ThingWorx extension project. Java (default), as the Eclipse plugin's project wizard did: settings.gradle, a build.gradle that makes the importable zip (build/distributions/<name>.zip), extension.properties, configfiles/metadata.xml, .gitignore, the Java package folder, given an Extension SDK (sdk, or TWACO_SDK) its jars in twx-lib/, and when applied the Gradle wrapper (with Gradle installed). widget: a package.json widget project as the ThingWorx widget template lays it out: TypeScript IDE and runtime widgets on typescriptwebpacksupport and an esbuild script that writes zip/<name>-prod-v<version>.zip. The folder must be inside the solution, and missing or empty. A dry run unless dry_run is false; applied, ext_check's report is returned.",
     "inputSchema": {
       "required": [
         "name"
@@ -7640,6 +7720,11 @@
         "sdk": {
           "description": "The Extension SDK zip or folder whose jars go into twx-lib/; default TWACO_SDK.",
           "type": "string"
+        },
+        "widget": {
+          "description": "A package.json widget project (TypeScript widgets, esbuild) rather than a Java one;\npackage and sdk do not apply, and min_thingworx defaults to 9.0.0.",
+          "type": "boolean",
+          "default": false
         },
         "dry_run": {
           "type": "boolean",
@@ -7693,6 +7778,19 @@
         },
         "check": {
           "description": "When applied: ext_check's report on the result."
+        },
+        "wrapper": {
+          "description": "When applied to a Gradle project: the wrapper command run, or why it was not added.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "wrapper_error": {
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "description": "The files `ext_new` or `ext_add` writes, or wrote.",
@@ -7792,6 +7890,19 @@
         },
         "check": {
           "description": "When applied: ext_check's report on the result."
+        },
+        "wrapper": {
+          "description": "When applied to a Gradle project: the wrapper command run, or why it was not added.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "wrapper_error": {
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "description": "The files `ext_new` or `ext_add` writes, or wrote.",

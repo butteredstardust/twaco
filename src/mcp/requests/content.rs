@@ -307,8 +307,22 @@ pub(crate) struct ExtNewRequest {
     /// The Extension SDK zip or folder whose jars go into twx-lib/; default TWACO_SDK.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) sdk: Absent<String>,
+    /// A package.json widget project (TypeScript widgets, esbuild) rather than a Java one;
+    /// package and sdk do not apply, and min_thingworx defaults to 9.0.0.
+    #[serde(default)]
+    pub(crate) widget: bool,
     #[serde(default = "default_true")]
     pub(crate) dry_run: bool,
+}
+
+/// `ext_build`: an extension project's folder.
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ExtBuildRequest {
+    /// The extension project's folder, relative to the solution and inside it; omit for the
+    /// solution folder itself.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) root: Absent<String>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]

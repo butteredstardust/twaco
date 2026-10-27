@@ -1192,6 +1192,7 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
             "test",
             "extensions",
             "ext_check",
+            "ext_build",
             "ext_new",
             "ext_add",
             "ext_deploy",

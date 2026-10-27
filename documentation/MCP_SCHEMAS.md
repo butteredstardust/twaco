@@ -51,7 +51,7 @@ schema allows and the tool still refuses (an empty text, `give file or sql`) is 
 
 ## Output schemas
 
-`mcp/outputs.rs` describes the successful result of every tool, all 87. The types describe the JSON
+`mcp/outputs.rs` describes the successful result of every tool, all 88. The types describe the JSON
 the adapters return; they do not build it. A member every result has is required, anything a result
 has only sometimes (one action's members, a plan's or an applied run's, a detail asked for) is
 optional, and the objects stay open so that `notices` and `duration_ms` are not refused. They are

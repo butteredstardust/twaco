@@ -1006,23 +1006,34 @@ pub(crate) fn ext_new_tool(
         Some(given) if !given.trim().is_empty() => super::out_path_in(root, given, true)?,
         _ => super::out_path_in(root, &arguments.name, true)?,
     };
+    if arguments.widget && (arguments.package.is_some() || arguments.sdk.is_some()) {
+        return Err(ToolError::invalid(
+            "a widget project has no Java package or SDK: leave out package and sdk",
+        ));
+    }
     let sdk = arguments
         .sdk
         .as_ref()
         .map(|sdk| root.join(sdk))
         .or_else(|| std::env::var_os("TWACO_SDK").map(std::path::PathBuf::from));
-    let plan = crate::core::ext_new::new_extension(
-        &folder,
-        &crate::core::ext_new::NewOptions {
-            name: &arguments.name,
-            package: arguments.package.as_deref(),
-            vendor: arguments.vendor.as_deref(),
-            version: arguments.package_version.as_deref(),
-            min_thingworx: arguments.min_thingworx.as_deref(),
-            description: arguments.description.as_deref(),
-            sdk: sdk.as_deref(),
+    let options = crate::core::ext_new::NewOptions {
+        name: &arguments.name,
+        package: arguments.package.as_deref(),
+        vendor: arguments.vendor.as_deref(),
+        version: arguments.package_version.as_deref(),
+        min_thingworx: arguments.min_thingworx.as_deref(),
+        description: arguments.description.as_deref(),
+        sdk: if arguments.widget {
+            None
+        } else {
+            sdk.as_deref()
         },
-    )
+    };
+    let plan = if arguments.widget {
+        crate::core::ext_widget::new_widget(&folder, &options)
+    } else {
+        crate::core::ext_new::new_extension(&folder, &options)
+    }
     .map_err(ToolError::invalid)?;
     scaffold_result(plan, arguments.dry_run)
 }
@@ -1076,9 +1087,43 @@ fn scaffold_result(plan: crate::core::ext_new::Plan, dry_run: bool) -> Result<Va
     value["applied"] = json!(!dry_run);
     value["root"] = json!(plan.root.display().to_string());
     if !dry_run {
+        // A new Gradle project gets its wrapper, so it builds where Gradle is not installed.
+        if plan.files.iter().any(|write| write.path == "build.gradle")
+            && !plan.root.join("gradlew").exists()
+        {
+            match crate::core::ext_build::gradle_wrapper(&plan.root) {
+                Ok(command) => value["wrapper"] = json!(command),
+                Err(error) => value["wrapper_error"] = json!(error),
+            }
+        }
         let check = crate::core::ext_check::check(&plan.root);
         value["check"] = serde_json::to_value(&check).expect("a report serialises");
     }
+    Ok(value)
+}
+
+/// Build an extension project's package zip and read back what it holds.
+pub(crate) fn ext_build_tool(
+    root: &std::path::Path,
+    arguments: tool::ExtBuildRequest,
+) -> Result<Value, ToolError> {
+    let (folder, shown) = match arguments.root.as_ref() {
+        Some(given) if !given.trim().is_empty() => (super::in_path_in(root, given)?, given.clone()),
+        _ => (root.to_path_buf(), ".".to_string()),
+    };
+    let check = crate::core::ext_check::check(&folder);
+    if !check.findings.is_empty() {
+        return Err(ToolError::invalid(format!(
+            "ext check finds {} problem(s); fix them first:\n{}",
+            check.findings.len(),
+            crate::core::ext_check::render(&check).trim_end()
+        )));
+    }
+    let built = crate::core::ext_build::build(&folder, &shown)
+        .map_err(|error| ToolError::with(ErrorCode::ServerError, error))?;
+    let mut value = serde_json::to_value(&built).expect("a build serialises");
+    value["ok"] = json!(true);
+    value["passed"] = json!(built.problems.is_empty());
     Ok(value)
 }
 

@@ -464,7 +464,7 @@ pub fn add(root: &Path, options: &AddOptions) -> Result<Plan, String> {
     })
 }
 
-fn create(path: &str, text: String) -> Write {
+pub(crate) fn create(path: &str, text: String) -> Write {
     Write {
         path: path.to_string(),
         action: "create",
