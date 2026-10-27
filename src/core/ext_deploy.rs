@@ -509,7 +509,9 @@ fn package_zip(
         if made.version == version {
             return Ok(path);
         }
-        other_versions.push(made.version);
+        if !other_versions.contains(&made.version) {
+            other_versions.push(made.version);
+        }
     }
     Err(if other_versions.is_empty() {
         format!("no zip of {package} under {shown_root}/build or {shown_root}/zip")
@@ -551,11 +553,13 @@ mod tests {
     use std::cell::RefCell;
     use std::io::Write as _;
 
-    /// A server with packages: an install puts the zip's version in, or queues it.
+    /// A server with packages: an install puts the zip's version in, or queues it. With `fail`,
+    /// the install answers an error, after taking the package when `fail` is `Some(true)`.
     struct Fake {
         installed: RefCell<Vec<(String, String)>>,
         listed: Vec<&'static str>,
         queue: bool,
+        fail: Option<bool>,
         uploads: RefCell<Vec<bool>>,
     }
 
@@ -582,11 +586,18 @@ mod tests {
             let mut rows =
                 vec![json!({ "validate": { "rows": [{ "extensionReportStatus": 0 }] } })];
             if !validate {
-                if !self.queue {
+                if !self.queue && self.fail != Some(false) {
                     let made = extensions::inspect(zip).unwrap();
                     let mut installed = self.installed.borrow_mut();
                     installed.retain(|(n, _)| *n != made.name);
                     installed.push((made.name, made.version));
+                }
+                if self.fail.is_some() {
+                    return Err(ServerError::Transport {
+                        method: crate::core::server::Method::Post,
+                        url: "http://example.invalid/".to_string(),
+                        why: "connection reset".to_string(),
+                    });
                 }
                 let status = if self.queue { 3 } else { 0 };
                 rows.push(json!({ "install": { "rows": [{ "extensionReportStatus": status }] } }));
@@ -605,6 +616,7 @@ mod tests {
             ),
             listed: listed.to_vec(),
             queue: false,
+            fail: None,
             uploads: RefCell::new(Vec::new()),
         }
     }
@@ -763,6 +775,78 @@ mod tests {
                 .unwrap()
                 .contains("\"1.2.1\"")
         );
+    }
+
+    #[test]
+    fn a_failed_install_puts_the_bump_back_only_when_the_server_lacks_it() {
+        let (_guard, solution, extension) = setup("1.0.0", "1.0.1");
+        let metadata = extension.join("configfiles/metadata.xml");
+        let mut server = fake(&[("Acme", "1.0.0")], &[]);
+        server.fail = Some(false);
+        let error = run(&solution, &server, &request(Some(Bump::Patch), true)).unwrap_err();
+        assert!(error.contains("connection reset"), "{error}");
+        assert!(error.contains("packageVersion is 1.0.0 again"), "{error}");
+        assert!(std::fs::read_to_string(&metadata)
+            .unwrap()
+            .contains("\"1.0.0\""));
+
+        let mut server = fake(&[("Acme", "1.0.0")], &[]);
+        server.fail = Some(true);
+        let error = run(&solution, &server, &request(Some(Bump::Patch), true)).unwrap_err();
+        assert!(
+            error.contains("the server has Acme 1.0.1; packageVersion stays"),
+            "{error}"
+        );
+        assert!(std::fs::read_to_string(&metadata)
+            .unwrap()
+            .contains("\"1.0.1\""));
+    }
+
+    #[test]
+    fn a_bump_rewrites_only_the_package_version_key() {
+        let (_guard, _solution, extension) = setup("1.0.0", "1.0.0");
+        let properties = extension.join("extension.properties");
+        std::fs::write(
+            &properties,
+            "package_version_note=keep
+  package_version : 1.0.0
+project_vendor=v
+",
+        )
+        .unwrap();
+        set_version(&extension, "configfiles/metadata.xml", "1.0.1").unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&properties).unwrap(),
+            "package_version_note=keep
+package_version=1.0.1
+project_vendor=v
+"
+        );
+    }
+
+    #[test]
+    fn the_zip_is_at_the_version_sent_and_build_distributions_comes_first() {
+        let (_guard, _solution, extension) = setup("1.0.0", "1.0.0");
+        let elsewhere = extension.join("zip");
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        std::fs::copy(
+            extension.join("build/distributions/Acme.zip"),
+            elsewhere.join("Acme.zip"),
+        )
+        .unwrap();
+        let found = package_zip(&extension, "Acme", "Acme", "1.0.0").unwrap();
+        assert!(
+            found.starts_with(extension.join("build/distributions")),
+            "{found:?}"
+        );
+
+        let error = package_zip(&extension, "Acme", "Acme", "1.0.1").unwrap_err();
+        assert!(
+            error.contains("no zip of Acme 1.0.1 under Acme/build or Acme/zip, only 1.0.0:"),
+            "{error}"
+        );
+        let error = package_zip(&extension, "Acme", "Other", "1.0.0").unwrap_err();
+        assert_eq!(error, "no zip of Other under Acme/build or Acme/zip");
     }
 
     #[test]
