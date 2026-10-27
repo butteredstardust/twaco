@@ -158,6 +158,11 @@ pub(crate) fn run_with_progress(
     if !conflicts.is_empty() && !force {
         return Err(DeployError::Conflicts(conflicts));
     }
+    let interim = super::ai_order::plan(remote, projects)?;
+    report.agents_narrowed = interim
+        .iter()
+        .map(|interim| interim.narrowing.clone())
+        .collect();
     if !apply {
         return Ok(report);
     }
@@ -211,6 +216,19 @@ pub(crate) fn run_with_progress(
     // A failed import stops the projects after it, but the ones before it are on the server by
     // then. They are still read back and recorded, so a partial deploy does not later look like
     // someone else's change to entities this deploy wrote.
+    let mut narrowed = Vec::new();
+    for interim in &interim {
+        if let Err(source) = remote.import(&interim.file_name(), &interim.narrowed) {
+            return Err(DeployError::Narrowing {
+                agent: interim.narrowing.name.clone(),
+                source,
+                put_back: super::ai_order::put_back(remote, &narrowed),
+            });
+        }
+        tracing::info!(agent = %interim.narrowing.name, "deploy: agent narrowed");
+        narrowed.push(interim);
+    }
+
     let mut import_failure = None;
     let import_phase = progress::phase(progress, "importing", Some(projects.len() as u64));
     for (project, bytes) in projects.iter().zip(&outgoing) {
@@ -224,10 +242,18 @@ pub(crate) fn run_with_progress(
             }
             Err(source) => {
                 tracing::info!(project = %project.project, "deploy: project import failed");
+                // An agent whose bundle did not import goes back as it was, so the server is
+                // not left with allowances taken out for a namespace change that did not happen.
+                let not_written: Vec<&super::ai_order::Interim> = narrowed
+                    .iter()
+                    .copied()
+                    .filter(|interim| !report.imported.contains(&interim.narrowing.project))
+                    .collect();
                 import_failure = Some(DeployError::Import {
                     project: project.project.clone(),
                     source,
                     imported: report.imported.clone(),
+                    put_back: super::ai_order::put_back(remote, &not_written),
                 });
                 break;
             }

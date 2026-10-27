@@ -2661,6 +2661,14 @@
           ],
           "items": true
         },
+        "agents_narrowed_first": {
+          "description": "Agents imported before the bundles without the items the deploy's namespaces drop.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
         "backup": {
           "type": [
             "string",

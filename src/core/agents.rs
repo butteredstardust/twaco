@@ -2,12 +2,64 @@
 
 use super::scan::{self, Kind, Token};
 use super::sidecar;
+use std::collections::BTreeSet;
 
 #[derive(Debug, Default)]
 pub(crate) struct Namespace {
     pub(crate) tools: Vec<ServiceReference>,
     pub(crate) resources: Vec<Resource>,
     pub(crate) prompts: Vec<String>,
+}
+
+/// Item names by kind: a tool, a resource and a prompt may share a name.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub(crate) struct Items {
+    pub(crate) tools: BTreeSet<String>,
+    pub(crate) resources: BTreeSet<String>,
+    pub(crate) prompts: BTreeSet<String>,
+}
+
+impl Items {
+    pub(crate) fn is_empty(&self) -> bool {
+        self.tools.is_empty() && self.resources.is_empty() && self.prompts.is_empty()
+    }
+
+    /// What `self` has and `other` lacks.
+    pub(crate) fn without(&self, other: &Items) -> Items {
+        let minus = |a: &BTreeSet<String>, b: &BTreeSet<String>| a.difference(b).cloned().collect();
+        Items {
+            tools: minus(&self.tools, &other.tools),
+            resources: minus(&self.resources, &other.resources),
+            prompts: minus(&self.prompts, &other.prompts),
+        }
+    }
+
+    pub(crate) fn names(&self) -> impl Iterator<Item = &String> {
+        self.tools
+            .iter()
+            .chain(&self.resources)
+            .chain(&self.prompts)
+    }
+}
+
+impl Namespace {
+    pub(crate) fn items(&self) -> Items {
+        Items {
+            tools: self.tools.iter().map(|tool| tool.name.clone()).collect(),
+            resources: self.resources.iter().map(|r| r.name.clone()).collect(),
+            prompts: self.prompts.iter().cloned().collect(),
+        }
+    }
+}
+
+impl NamespaceReference {
+    pub(crate) fn items(&self) -> Items {
+        Items {
+            tools: self.tools.iter().cloned().collect(),
+            resources: self.resources.iter().cloned().collect(),
+            prompts: self.prompts.iter().cloned().collect(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -208,7 +260,8 @@ pub(crate) fn child_text(
     let at = children(tokens, src, name, parent).into_iter().next()?;
     let end = scan::element_end_in(tokens, src, at)?;
     let mut text = String::new();
-    for token in &tokens[at + 1..end] {
+    // A self-closing element ends where it starts, and holds nothing.
+    for token in tokens.get(at + 1..end).unwrap_or_default() {
         match token.kind {
             Kind::Cdata => text.push_str(&String::from_utf8_lossy(token.inner.of(src))),
             Kind::Text => text.push_str(&scan::decode_entities(&String::from_utf8_lossy(
@@ -218,4 +271,17 @@ pub(crate) fn child_text(
         }
     }
     Some(text.trim().to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The Exporter writes an empty value self-closed, where a file export writes `<x></x>`.
+    #[test]
+    fn a_self_closed_taxonomy_value_reads_as_empty() {
+        let src = br#"<Entities><AIAgents><AIAgent name="A"><ConfigurationTables><ConfigurationTable name="TaxonomyConfiguration"><Rows><Row><entityType/><entityTypeName>T</entityTypeName></Row><Row><entityType>Thing</entityType><entityTypeName>P</entityTypeName></Row></Rows></ConfigurationTable></ConfigurationTables></AIAgent></AIAgents></Entities>"#;
+        let agent = agent(src).unwrap();
+        assert_eq!(agent.taxonomy, [("Thing".to_string(), "P".to_string())]);
+    }
 }

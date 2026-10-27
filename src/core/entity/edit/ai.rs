@@ -243,11 +243,35 @@ pub(super) fn mcp_remove(
         let changed = write_allowance(&agent, &allowed)?;
         plan.changes.push(agent.change(changed));
         plan.warnings.push(format!(
-            "{} no longer allows {name}; the server refuses a namespace that drops an item an agent on it allows, so push the agent before the namespace",
+            "{} no longer allows {name}; the server refuses a namespace that drops an item an agent on it allows: `twaco deploy` imports the agent without it first, and with `entity push`, push the agent before the namespace",
             agent.label()
         ));
     }
     Ok(())
+}
+
+/// `doc`, an agent, with none of `dropped`'s items allowed from `namespace`; `None` when it
+/// allows none of them.
+pub(super) fn without_allowances(
+    doc: &Doc,
+    namespace: &str,
+    dropped: &crate::core::agents::Items,
+) -> Result<Option<Vec<u8>>, EditError> {
+    let Some(mut allowed) = allowance(doc, namespace)? else {
+        return Ok(None);
+    };
+    let before = allowed.tools.len() + allowed.resources.len() + allowed.prompts.len();
+    allowed.tools.retain(|name| !dropped.tools.contains(name));
+    allowed
+        .resources
+        .retain(|name| !dropped.resources.contains(name));
+    allowed
+        .prompts
+        .retain(|name| !dropped.prompts.contains(name));
+    if allowed.tools.len() + allowed.resources.len() + allowed.prompts.len() == before {
+        return Ok(None);
+    }
+    write_allowance(doc, &allowed).map(Some)
 }
 
 /// The agent's `MCPNamespaceReference` to `namespace`, as names.

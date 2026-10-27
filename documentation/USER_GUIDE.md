@@ -765,10 +765,13 @@ twaco agent set Acme.Orders.Agent --resolver Acme.Orders.Resolver --instructions
 
 The import refuses an MCP File resource whose file the file repository does not hold, an agent
 that allows an item its namespace does not define, and a namespace that drops an item an agent on
-the server still allows. So add to a namespace before allowing it, and to drop an item push the
-agents first: `mcp-namespace remove` takes the item out of every agent that allows it and says
-which, then `twaco entity push <agent> --apply` before the namespace. The `ai references` gate
-of `twaco check` reports what would break an agent. MCP `entity_edit` takes the same changes as
+the server still allows. `mcp-namespace remove` takes the item out of every agent in the
+solution that allows it, and `twaco deploy` orders the rest: before the first import it imports
+each deployed agent whose server copy allows a dropped item without that allowance, and the plan
+says so. Pushing one entity at a time, push the agents first: `twaco entity push <agent> --apply`
+before the namespace. An agent on the server that is not in the deploy still blocks the
+namespace: the import answers HTTP 406, and the server's ErrorLog names the item. The
+`ai references` gate of `twaco check` reports what would break an agent. MCP `entity_edit` takes the same changes as
 `mcp_add`, `mcp_remove`, `agent_allow`, `agent_disallow`, `agent_taxonomy_add`,
 `agent_taxonomy_remove`, `agent_skill_add`, `agent_skill_remove` and `agent_set`.
 

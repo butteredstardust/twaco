@@ -69,8 +69,13 @@ All notable changes to twaco are recorded here. The format follows
   `agent skill add|remove` and `agent set` (resolver, instructions, routing description, display
   name), and the matching MCP `entity_edit` actions. Each writes what `new` would have written,
   and undoing an edit gives back the same bytes. Removing a namespace item takes it out of every
-  agent that allows it and says to push those agents first, because the import refuses a
-  namespace that drops an item an agent on the server still allows.
+  agent that allows it, because the import refuses a namespace that drops an item an agent on
+  the server still allows.
+- `deploy` removes a namespace item an agent allows in one run. Before the first import it
+  imports each deployed agent whose server copy allows an item a deployed namespace drops as
+  that copy without those allowances, then the bundles as usual; the plan says so for each agent
+  (MCP `agents_narrowed_first`). If the bundle that writes the agent does not import, the
+  server's own copy is put back.
 - The reference index reads more structure: a Thing's or template's value stream, a data
   table's or stream's DataShape, a Network's Things, a Menu's mashups, a mashup's master, and the
   users and groups in a group or an organization. `impact` on a value stream lists the Things
@@ -96,6 +101,8 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Fixed
 
+- The AI agent reader no longer panics on a self-closed empty value, such as `<entityType/>`,
+  which the Exporter writes where a file export writes an empty pair of tags.
 - `ext import --apply` (MCP `extension_write`) reads the server's install report, not only its
   validation: an upgrade the server queues for its next restart is reported as queued rather
   than as an HTTP 406 error, a refused install says why in one line rather than as a cut-off JSON

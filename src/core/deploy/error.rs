@@ -28,6 +28,15 @@ pub enum DeployError {
         project: String,
         source: ServerError,
         imported: Vec<String>,
+        /// What happened to each agent narrowed before the imports and put back after this one.
+        put_back: Box<[String]>,
+    },
+    /// An agent's import without the allowances the deploy's namespaces drop failed, before any
+    /// project imported.
+    Narrowing {
+        agent: String,
+        source: ServerError,
+        put_back: Box<[String]>,
     },
     UnknownPlaceholder {
         project: String,
@@ -79,10 +88,23 @@ impl fmt::Display for DeployError {
             DeployError::Conflicts(conflicts) => {
                 write!(f, "{} entity conflict(s) refuse this deploy", conflicts.len())
             }
-            DeployError::Import { project, source, imported } => {
+            DeployError::Import { project, source, imported, put_back } => {
                 write!(f, "project {project} import failed: {source}")?;
                 if !imported.is_empty() {
                     write!(f, "; already imported and recorded: {}", imported.join(", "))?;
+                }
+                for note in put_back {
+                    write!(f, "; {note}")?;
+                }
+                Ok(())
+            }
+            DeployError::Narrowing { agent, source, put_back } => {
+                write!(
+                    f,
+                    "AIAgents/{agent}: importing it without the allowances this deploy's namespaces drop failed: {source}; no project was imported"
+                )?;
+                for note in put_back {
+                    write!(f, "; {note}")?;
                 }
                 Ok(())
             }

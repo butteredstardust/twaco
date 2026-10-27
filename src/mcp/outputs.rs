@@ -298,6 +298,8 @@ pub(crate) struct DeployResult {
     entities: Option<Value>,
     calls: Option<Vec<Value>>,
     network_connections: Option<Vec<Value>>,
+    /// Agents imported before the bundles without the items the deploy's namespaces drop.
+    agents_narrowed_first: Option<Vec<Value>>,
     backup: Option<String>,
     imported: Option<Value>,
     kept: Option<u64>,

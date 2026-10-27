@@ -1100,6 +1100,15 @@ mod tests {
                 project: text(),
                 source: http(),
                 imported: vec![],
+                put_back: Box::default(),
+            },
+            ErrorCode::ServerError,
+        );
+        is(
+            DeployError::Narrowing {
+                agent: text(),
+                source: http(),
+                put_back: Box::default(),
             },
             ErrorCode::ServerError,
         );

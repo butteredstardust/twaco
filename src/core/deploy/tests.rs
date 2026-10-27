@@ -102,6 +102,8 @@ impl BaselineStore for MemoryBaseline {
 struct Fake {
     held: Mutex<BTreeMap<(String, String), Vec<u8>>>,
     imports: Mutex<Vec<String>>,
+    /// Each import's file name and the document it sent.
+    sent: Mutex<Vec<(String, Vec<u8>)>>,
     events: Mutex<Vec<String>>,
     calls: Mutex<Vec<(String, String, Value, Duration)>>,
     import_values: BTreeMap<String, Vec<Entity>>,
@@ -132,12 +134,20 @@ impl push::Remote for Fake {
         Ok(self.held.lock().unwrap().get(&key).cloned())
     }
 
-    fn import(&self, file_name: &str, _: &[u8]) -> Result<(), ServerError> {
+    fn export_owned(&self, key: &EntityKey) -> Result<Option<Vec<u8>>, ServerError> {
+        self.fetch(key)
+    }
+
+    fn import(&self, file_name: &str, xml: &[u8]) -> Result<(), ServerError> {
         self.events
             .lock()
             .unwrap()
             .push(format!("import:{file_name}"));
         self.imports.lock().unwrap().push(file_name.to_string());
+        self.sent
+            .lock()
+            .unwrap()
+            .push((file_name.to_string(), xml.to_vec()));
         if self.fail_import.as_deref() == Some(file_name) {
             return Err(ServerError::Rejected {
                 url: "http://server/Importer".to_string(),
@@ -989,4 +999,143 @@ fn only_and_changed_since_are_two_ways_of_choosing_and_are_refused_together() {
         error.contains("--only") && error.contains("--changed-since"),
         "{error}"
     );
+}
+
+fn namespace_entity(tools: &[&str]) -> Entity {
+    let tools: String = tools
+        .iter()
+        .map(|tool| {
+            format!(
+                "<MCPTool name=\"{tool}\" description=\"d\" serviceName=\"S\" serviceProvider=\"T\" serviceProviderType=\"Thing\"/>"
+            )
+        })
+        .collect();
+    Entity {
+        server_owned: Vec::new(),
+        collection: "MCPNamespaces".to_string(),
+        name: "N".to_string(),
+        bytes: format!(
+            "<Entities><MCPNamespaces><MCPNamespace name=\"N\" projectName=\"P\"><MCPTools>{tools}</MCPTools></MCPNamespace></MCPNamespaces></Entities>"
+        )
+        .into_bytes(),
+    }
+}
+
+fn agent_entity(tools: &[&str]) -> Entity {
+    let tools: String = tools
+        .iter()
+        .map(|tool| format!("<Tool name=\"{tool}\"></Tool>"))
+        .collect();
+    Entity {
+        server_owned: Vec::new(),
+        collection: "AIAgents".to_string(),
+        name: "A".to_string(),
+        bytes: format!(
+            "<Entities><AIAgents><AIAgent name=\"A\" projectName=\"P\"><MCPNamespaceReferences><MCPNamespaceReference name=\"N\"><AllowedTools>{tools}</AllowedTools></MCPNamespaceReference></MCPNamespaceReferences></AIAgent></AIAgents></Entities>"
+        )
+        .into_bytes(),
+    }
+}
+
+/// The server holds namespace N with `keep` and `gone` and agent A allowing both; the
+/// repository drops `gone` from both.
+fn dropping_an_allowed_tool() -> (Fake, [ProjectBundle; 1]) {
+    let (namespace, agent) = (namespace_entity(&["keep"]), agent_entity(&["keep"]));
+    let held = BTreeMap::from([
+        (
+            ("MCPNamespaces".to_string(), "N".to_string()),
+            namespace_entity(&["keep", "gone"]).bytes,
+        ),
+        (
+            ("AIAgents".to_string(), "A".to_string()),
+            agent_entity(&["keep", "gone"]).bytes,
+        ),
+    ]);
+    let remote = Fake {
+        held: Mutex::new(held),
+        import_values: BTreeMap::from([(
+            "P.xml".to_string(),
+            vec![namespace.clone(), agent.clone()],
+        )]),
+        ..Fake::default()
+    };
+    (remote, [project("P", vec![namespace, agent], vec![])])
+}
+
+#[test]
+fn an_agent_stops_allowing_what_its_namespace_drops_before_the_bundle_imports() {
+    let (remote, projects) = dropping_an_allowed_tool();
+    let planned = run_test(&remote, &MemoryBaseline::default(), &projects, false, true).unwrap();
+    assert_eq!(
+        planned.agents_narrowed,
+        [AgentNarrowing {
+            name: "A".to_string(),
+            project: "P".to_string(),
+            dropped: vec![("N".to_string(), vec!["gone".to_string()])],
+        }]
+    );
+    assert!(
+        remote.imports.lock().unwrap().is_empty(),
+        "a plan imports nothing"
+    );
+
+    let report = run_test(&remote, &MemoryBaseline::default(), &projects, true, true).unwrap();
+    assert_eq!(report.agents_narrowed.len(), 1);
+    let sent = remote.sent.lock().unwrap();
+    let names: Vec<&str> = sent.iter().map(|(name, _)| name.as_str()).collect();
+    assert_eq!(names, ["A.xml", "P.xml"]);
+    let narrowed = String::from_utf8_lossy(&sent[0].1);
+    assert!(narrowed.contains("name=\"keep\""), "{narrowed}");
+    assert!(!narrowed.contains("name=\"gone\""), "{narrowed}");
+}
+
+#[test]
+fn a_failed_bundle_puts_the_narrowed_agent_back() {
+    let (mut remote, projects) = dropping_an_allowed_tool();
+    remote.fail_import = Some("P.xml".to_string());
+    let original = agent_entity(&["keep", "gone"]).bytes;
+    let error = run_test(&remote, &MemoryBaseline::default(), &projects, true, true).unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .ends_with("; AIAgents/A was put back as the server had it"),
+        "{error}"
+    );
+    let sent = remote.sent.lock().unwrap();
+    let names: Vec<&str> = sent.iter().map(|(name, _)| name.as_str()).collect();
+    assert_eq!(names, ["A.xml", "P.xml", "A.xml"]);
+    assert_eq!(sent[2].1, original);
+}
+
+#[test]
+fn a_failed_narrowing_imports_no_project() {
+    let (mut remote, projects) = dropping_an_allowed_tool();
+    remote.fail_import = Some("A.xml".to_string());
+    let error = run_test(&remote, &MemoryBaseline::default(), &projects, true, true).unwrap_err();
+    assert!(
+        matches!(&error, DeployError::Narrowing { agent, put_back, .. } if agent == "A" && put_back.is_empty()),
+        "{error}"
+    );
+    assert_eq!(remote.imports.lock().unwrap().as_slice(), ["A.xml"]);
+}
+
+#[test]
+fn a_namespace_that_only_adds_narrows_no_agent() {
+    let (namespace, agent) = (namespace_entity(&["keep", "new"]), agent_entity(&["new"]));
+    let remote = Fake {
+        held: Mutex::new(BTreeMap::from([
+            (
+                ("MCPNamespaces".to_string(), "N".to_string()),
+                namespace_entity(&["keep"]).bytes,
+            ),
+            (
+                ("AIAgents".to_string(), "A".to_string()),
+                agent_entity(&["keep"]).bytes,
+            ),
+        ])),
+        ..Fake::default()
+    };
+    let projects = [project("P", vec![namespace, agent], vec![])];
+    let planned = run_test(&remote, &MemoryBaseline::default(), &projects, false, true).unwrap();
+    assert!(planned.agents_narrowed.is_empty());
 }

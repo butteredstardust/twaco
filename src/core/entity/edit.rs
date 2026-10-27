@@ -320,6 +320,35 @@ const MEMBER_HOSTS: [&str; 3] = ["Things", "ThingTemplates", "ThingShapes"];
 // Planning and applying
 
 /// Plan an edit; nothing is written.
+/// `src`, the export of AI agent `name`, with none of the items `dropped` names allowed, per
+/// namespace; `None` when it allows none of them. Deploy imports this before namespaces that
+/// drop the items, which the server refuses while an agent on it allows one.
+pub(crate) fn agent_without_allowances(
+    name: &str,
+    src: Vec<u8>,
+    dropped: &BTreeMap<String, crate::core::agents::Items>,
+) -> Result<Option<Vec<u8>>, EditError> {
+    let file = EntityFile {
+        path: PathBuf::from(format!("AIAgents/{name}")),
+        info: entity::EntityInfo {
+            collection: "AIAgents".to_string(),
+            name: name.to_string(),
+            project: String::new(),
+        },
+        found_under: String::new(),
+    };
+    let mut current = src;
+    let mut changed = false;
+    for (namespace, items) in dropped {
+        let doc = Doc::parse(file.clone(), current.clone())?;
+        if let Some(edited) = ai::without_allowances(&doc, namespace, items)? {
+            current = edited;
+            changed = true;
+        }
+    }
+    Ok(changed.then_some(current))
+}
+
 pub(crate) fn plan(solution: &Solution, request: &Request) -> Result<Plan, EditError> {
     let found = workspace::entities(solution);
     let file = workspace::resolve(&found, &request.entity)

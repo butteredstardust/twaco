@@ -385,6 +385,7 @@ pub(crate) fn deploy_tool(
                 "entities": plans(&report),
                 "calls": calls(&report),
                 "network_connections": network_changes(&report.network_changes),
+                "agents_narrowed_first": report.agents_narrowed.iter().map(agent_narrowing).collect::<Vec<_>>(),
                 "server_owned": report.plans.iter().filter(|p| !p.server_owned.is_empty() || !p.cleared.is_empty()).map(|p| json!({"entity": format!("{}/{}", p.collection, p.name), "parts": p.server_owned, "clears": p.cleared})).collect::<Vec<_>>(),
             });
             for (key, values) in crate::core::bundle::notes_by_kind(&notes) {
@@ -471,6 +472,15 @@ pub(crate) fn deploy_tool(
     };
     add_notices(&mut value, &notices);
     Ok(value)
+}
+
+/// An agent imported before the bundles without what the deploy's namespaces drop.
+fn agent_narrowing(narrowing: &deploy::AgentNarrowing) -> Value {
+    json!({
+        "agent": format!("AIAgents/{}", narrowing.name),
+        "project": narrowing.project,
+        "dropped": narrowing.dropped.iter().map(|(namespace, items)| json!({"namespace": namespace, "items": items})).collect::<Vec<_>>(),
+    })
 }
 
 fn network_changes(changes: &[deploy::NetworkChange]) -> Vec<Value> {
