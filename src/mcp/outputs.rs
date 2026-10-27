@@ -1000,6 +1000,26 @@ pub(crate) struct ExtScaffoldResult {
     notes: Vec<String>,
     /// When applied: ext_check's report on the result.
     check: Option<Value>,
+    /// When applied to a Gradle project: the wrapper command run, or why it was not added.
+    wrapper: Option<String>,
+    wrapper_error: Option<String>,
+}
+
+/// What ext_build made: the commands run, the zip, what its metadata.xml declares.
+#[derive(Serialize, JsonSchema)]
+pub(crate) struct ExtBuildResult {
+    ok: bool,
+    /// The zip holds every file its metadata.xml names.
+    passed: bool,
+    package: String,
+    version: String,
+    /// The commands run, or "packed by twaco".
+    build: Vec<String>,
+    zip: String,
+    widgets: Vec<String>,
+    /// Each as "<Collection tag> <name>".
+    entities: Vec<String>,
+    problems: Vec<String>,
 }
 
 /// A Java extension project's findings, offline.

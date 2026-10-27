@@ -1,12 +1,13 @@
-//! `ext deploy`: build one of the solution's Java extensions, then have the server validate the
+//! `ext deploy`: build one of the solution's extensions, then have the server validate the
 //! package it makes, or install it and list what its metadata.xml declares.
 //!
 //! The server skips a package version it has, so a change goes up under a higher version:
-//! `--bump` raises it in metadata.xml (and `extension.properties`, when that names one) before
-//! the build. An upgrade of a package with Java code is queued by the server for its next
-//! restart, and is reported so.
+//! `--bump` raises it where the project keeps it before the build: metadata.xml (and
+//! `extension.properties`, when that names one), or a widget project's package.json. An upgrade
+//! of a package with Java code is queued by the server for its next restart, and is reported so.
 
 use super::config::Solution;
+use super::ext_build::{self, Identity, Source};
 use super::ext_check;
 use super::extensions::{self, Remote};
 use super::profile;
@@ -14,7 +15,6 @@ use super::progress::{self, Progress};
 use super::scan::{self, Kind};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
-use std::time::SystemTime;
 
 /// Which part of `x.y.z` `--bump` raises.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -65,7 +65,7 @@ pub struct Deployed {
     pub installed: Option<String>,
     /// `x.y.z -> x.y.z'`, done when applied, else what --apply would do.
     pub bump: Option<String>,
-    /// The build command run, when one was.
+    /// The build commands run, `packed by twaco`, or none with --no-build.
     pub build: Option<String>,
     /// The package zip, relative to the solution.
     pub zip: String,
@@ -103,7 +103,14 @@ where
             ext_check::render(&check).trim_end()
         ));
     }
-    let (metadata_path, package, local) = package_version(&root)?;
+    let identity = ext_build::identity(&root)?;
+    let (package, local) = (identity.package.clone(), identity.version.clone());
+    let version_file = identity.file().to_string();
+    // What the project calls its version, for messages.
+    let key = match identity.source {
+        Source::Metadata(_) => "packageVersion",
+        Source::PackageJson => "version",
+    };
     let profile = profile::load(&solution.root, &request.profile).map_err(|e| e.to_string())?;
     let remote = open(profile);
     let installed = {
@@ -116,7 +123,7 @@ where
     .find(|p| p.name == package)
     .map(|p| p.version);
     let local_parts = parse_version(&local)
-        .ok_or_else(|| format!("{metadata_path}: packageVersion {local:?} is not x.y.z"))?;
+        .ok_or_else(|| format!("{version_file}: version {local:?} is not x.y.z"))?;
     let installed_parts = installed.as_deref().and_then(parse_version);
     let too_large = || format!("packageVersion {local} cannot be raised further");
     let wanted = match (request.bump, installed_parts) {
@@ -139,10 +146,29 @@ where
         (None, _) => None,
     };
     let bump = wanted.map(|parts| format!("{local} -> {}", show_version(parts)));
+    // npm writes the new version into the lock file as it builds; it goes back with package.json.
+    // Each lock file as it was, or `None` when there was none: one the failed attempt created
+    // goes again.
+    let locks: Vec<(PathBuf, Option<Vec<u8>>)> = match identity.source {
+        Source::PackageJson => [
+            "package-lock.json",
+            "npm-shrinkwrap.json",
+            "yarn.lock",
+            "pnpm-lock.yaml",
+        ]
+        .into_iter()
+        .map(|name| {
+            let path = root.join(name);
+            let bytes = std::fs::read(&path).ok();
+            (path, bytes)
+        })
+        .collect(),
+        Source::Metadata(_) => Vec::new(),
+    };
     let sending = match wanted {
         Some(parts) if request.apply => {
             let version = show_version(parts);
-            set_version(&root, &metadata_path, &version)?;
+            write_version(&root, &identity, &version)?;
             version
         }
         _ => local.clone(),
@@ -153,25 +179,44 @@ where
         if !bumped {
             return error;
         }
-        match set_version(&root, &metadata_path, &local) {
-            Ok(()) => format!("{error}\n(packageVersion is {local} again)"),
+        for (path, before) in &locks {
+            match (before, std::fs::read(path).ok()) {
+                (Some(bytes), now) if now.as_ref() != Some(bytes) => {
+                    let _ = super::ext_new::replace_whole(path, bytes);
+                }
+                (None, Some(_)) => {
+                    let _ = std::fs::remove_file(path);
+                }
+                _ => {}
+            }
+        }
+        match write_version(&root, &identity, &local) {
+            Ok(()) => format!("{error}\n({key} is {local} again)"),
             Err(why) => {
-                format!("{error}\n(and putting packageVersion back to {local} failed: {why})")
+                format!("{error}\n(and putting {key} back to {local} failed: {why})")
             }
         }
     };
     let build = if request.build {
         let _phase = progress::phase(progress, "building the extension", Some(1));
-        let command = run_build(&root).map_err(undo)?;
+        let commands = ext_build::make(&root, &identity).map_err(undo)?;
         progress.advance(1);
-        Some(command)
+        Some(commands.join(" && "))
     } else {
         None
     };
-    let zip_path = package_zip(&root, &shown_root, &package, &sending).map_err(undo)?;
+    let zip_path = ext_build::package_zip(&root, &shown_root, &package, &sending).map_err(undo)?;
     let zip = std::fs::read(&zip_path)
         .map_err(|error| undo(format!("cannot read {}: {error}", zip_path.display())))?;
     let made = extensions::inspect(&zip).map_err(|e| undo(e.to_string()))?;
+    let contents = ext_build::contents(&zip).map_err(undo)?;
+    if !contents.problems.is_empty() {
+        return Err(undo(format!(
+            "{} is incomplete: {}",
+            solution.relative(&zip_path),
+            contents.problems.join("; ")
+        )));
+    }
     if made.name != package || made.version != sending {
         return Err(undo(format!(
             "{} holds {} {}, not {package} {sending}",
@@ -229,12 +274,10 @@ where
                     {
                         undo(error)
                     }
-                    Ok(_) => format!(
-                        "{error}\n(the server has {package} {sending}; packageVersion stays)"
-                    ),
+                    Ok(_) => format!("{error}\n(the server has {package} {sending}; {key} stays)"),
                     Err(_) => format!(
                 "{error}\n(the server could not be asked whether it has {package} {sending}; \
-                         packageVersion stays {sending})"
+                         {key} stays {sending})"
             ),
                 }
             })?;
@@ -248,7 +291,8 @@ where
             .iter()
             .filter_map(|row| row.get("name").and_then(serde_json::Value::as_str))
             .collect();
-        deployed.missing = declared_names(&root)?
+        deployed.missing = contents
+            .declared
             .into_iter()
             .filter(|name| !listed.contains(&name.as_str()))
             .collect();
@@ -284,45 +328,6 @@ fn target(solution: &Solution, wanted: Option<&str>) -> Result<(String, PathBuf)
     }
 }
 
-/// metadata.xml's path, the ExtensionPackage's name and its packageVersion.
-fn package_version(root: &Path) -> Result<(String, String, String), String> {
-    let (path, bytes) = metadata(root)?;
-    let declared = ext_check::declarations(&bytes).map_err(|why| format!("{path}: {why}"))?;
-    let package = declared
-        .iter()
-        .find(|entry| entry.tag == "ExtensionPackage")
-        .ok_or_else(|| format!("{path} has no ExtensionPackage"))?;
-    let version = package
-        .attributes
-        .get("packageVersion")
-        .cloned()
-        .ok_or_else(|| format!("{path}: the ExtensionPackage has no packageVersion"))?;
-    Ok((path, package.name.clone(), version))
-}
-
-fn metadata(root: &Path) -> Result<(String, Vec<u8>), String> {
-    ["configfiles/metadata.xml", "metadata.xml"]
-        .into_iter()
-        .find_map(|path| {
-            std::fs::read(root.join(path))
-                .ok()
-                .map(|bytes| (path.to_string(), bytes))
-        })
-        .ok_or_else(|| format!("{} has no metadata.xml", root.display()))
-}
-
-/// The entity names metadata.xml declares, which the server's package lists once installed.
-fn declared_names(root: &Path) -> Result<Vec<String>, String> {
-    let (path, bytes) = metadata(root)?;
-    Ok(ext_check::declarations(&bytes)
-        .map_err(|why| format!("{path}: {why}"))?
-        .into_iter()
-        .filter(|entry| !matches!(entry.tag.as_str(), "ExtensionPackage" | "JarResources"))
-        .map(|entry| entry.name)
-        .filter(|name| !name.is_empty())
-        .collect())
-}
-
 fn parse_version(text: &str) -> Option<[u64; 3]> {
     let mut parts = text.split('.').map(|part| part.parse::<u64>().ok());
     let version = [parts.next()??, parts.next()??, parts.next()??];
@@ -331,6 +336,33 @@ fn parse_version(text: &str) -> Option<[u64; 3]> {
 
 fn show_version([major, minor, patch]: [u64; 3]) -> String {
     format!("{major}.{minor}.{patch}")
+}
+
+/// Write `version` where the project keeps it.
+fn write_version(root: &Path, identity: &Identity, version: &str) -> Result<(), String> {
+    match &identity.source {
+        Source::Metadata(path) => set_version(root, path, version),
+        Source::PackageJson => {
+            // A root metadata.xml the build copies keeps the same version: both files or neither.
+            let metadata = root.join("metadata.xml");
+            let before = match super::ext_widget::root_metadata(root) {
+                Some(Ok(_)) => {
+                    let bytes = std::fs::read(&metadata)
+                        .map_err(|error| format!("metadata.xml: {error}"))?;
+                    set_version(root, "metadata.xml", version)?;
+                    Some(bytes)
+                }
+                _ => None,
+            };
+            super::ext_widget::set_version(root, version).map_err(|error| match &before {
+                Some(bytes) => match super::ext_new::replace_whole(&metadata, bytes) {
+                    Ok(()) => error,
+                    Err(why) => format!("{error}; and putting metadata.xml back failed: {why}"),
+                },
+                None => error,
+            })
+        }
+    }
 }
 
 /// Write `version` as metadata.xml's packageVersion, and as `extension.properties`'s
@@ -408,164 +440,6 @@ fn properties_with_version(text: &[u8], version: &str) -> Option<Vec<u8>> {
 
 fn replace(path: &Path, bytes: &[u8]) -> Result<(), String> {
     super::ext_new::replace_whole(path, bytes)
-}
-
-/// The project's build: its Gradle wrapper, else Gradle, else Ant. The command, as run.
-fn run_build(root: &Path) -> Result<String, String> {
-    let wrapper = if cfg!(windows) {
-        "gradlew.bat"
-    } else {
-        "gradlew"
-    };
-    let (tool, args): (String, &[&str]) = if root.join(wrapper).is_file() {
-        (
-            root.join(wrapper).to_string_lossy().into_owned(),
-            &["build"],
-        )
-    } else if root.join("build.gradle").is_file() || root.join("build.gradle.kts").is_file() {
-        ("gradle".to_string(), &["build"])
-    } else if root.join("build-extension.xml").is_file() {
-        ("ant".to_string(), &["-f", "build-extension.xml"])
-    } else if root.join("build.xml").is_file() {
-        ("ant".to_string(), &[])
-    } else {
-        return Err(format!(
-            "{} has no Gradle or Ant build: build the zip yourself and pass --no-build",
-            root.display()
-        ));
-    };
-    // On Windows gradle and ant are batch files, which only cmd runs; a checked-out gradlew
-    // may have lost its execute bit, which sh does not need.
-    let mut command = if cfg!(windows) {
-        let mut command = std::process::Command::new("cmd");
-        command.arg("/C").arg(&tool);
-        command
-    } else if tool.ends_with(wrapper) {
-        let mut command = std::process::Command::new("sh");
-        command.arg(&tool);
-        command
-    } else {
-        std::process::Command::new(&tool)
-    };
-    let shown = format!("{tool} {}", args.join(" ")).trim_end().to_string();
-    let mut child = command
-        .args(args)
-        .current_dir(root)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .map_err(|error| format!("cannot run {shown}: {error}"))?;
-    let stdout = child.stdout.take().map(tail_of);
-    let stderr = child.stderr.take().map(tail_of);
-    let status = child
-        .wait()
-        .map_err(|error| format!("{shown} did not finish: {error}"))?;
-    let text: String = [stdout, stderr]
-        .into_iter()
-        .flatten()
-        .map(|reader| reader.join().unwrap_or_default())
-        .collect();
-    if !status.success() {
-        let lines: Vec<&str> = text.lines().collect();
-        let tail = lines[lines.len().saturating_sub(30)..].join("\n");
-        return Err(format!("{shown} failed:\n{tail}"));
-    }
-    Ok(shown)
-}
-
-/// The last 64 KiB a build writes to one stream, read as it runs so a long build neither
-/// blocks on a full pipe nor fills memory.
-fn tail_of(mut stream: impl std::io::Read + Send + 'static) -> std::thread::JoinHandle<String> {
-    std::thread::spawn(move || {
-        const KEEP: usize = 64 * 1024;
-        let mut kept = std::collections::VecDeque::with_capacity(KEEP);
-        let mut buffer = [0u8; 8192];
-        while let Ok(read) = stream.read(&mut buffer) {
-            if read == 0 {
-                break;
-            }
-            kept.extend(&buffer[..read]);
-            let excess = kept.len().saturating_sub(KEEP);
-            kept.drain(..excess);
-        }
-        String::from_utf8_lossy(kept.make_contiguous()).into_owned()
-    })
-}
-
-/// The package zip that holds `package` at `version`: under `build/distributions/` first, where
-/// the Gradle and Ant templates put it, then elsewhere under `build/`, then under `zip/`; the
-/// newest in the first place that has one. A build that had nothing to do leaves the zip it made
-/// before, so its age proves nothing.
-fn package_zip(
-    root: &Path,
-    shown_root: &str,
-    package: &str,
-    version: &str,
-) -> Result<PathBuf, String> {
-    let distributions = root.join("build/distributions");
-    let mut found = Vec::new();
-    for dir in ["build", "zip"] {
-        collect_zips(&root.join(dir), 3, &mut found);
-    }
-    let place = |path: &Path| {
-        if path.starts_with(&distributions) {
-            0
-        } else if path.starts_with(root.join("build")) {
-            1
-        } else {
-            2
-        }
-    };
-    found.sort_by_key(|(path, modified)| (place(path), std::cmp::Reverse(*modified)));
-    let mut other_versions = Vec::new();
-    for (path, _) in found {
-        let Some(made) = std::fs::read(&path)
-            .ok()
-            .and_then(|zip| extensions::inspect(&zip).ok())
-        else {
-            continue;
-        };
-        if made.name != package {
-            continue;
-        }
-        if made.version == version {
-            return Ok(path);
-        }
-        if !other_versions.contains(&made.version) {
-            other_versions.push(made.version);
-        }
-    }
-    Err(if other_versions.is_empty() {
-        format!("no zip of {package} under {shown_root}/build or {shown_root}/zip")
-    } else {
-        format!(
-            "no zip of {package} {version} under {shown_root}/build or {shown_root}/zip, only {}: \
-             build it again, or leave out --no-build",
-            other_versions.join(", ")
-        )
-    })
-}
-
-fn collect_zips(dir: &Path, depth: usize, out: &mut Vec<(PathBuf, SystemTime)>) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            if depth > 0 {
-                collect_zips(&path, depth - 1, out);
-            }
-        } else if path
-            .extension()
-            .is_some_and(|extension| extension.eq_ignore_ascii_case("zip"))
-        {
-            if let Ok(modified) = entry.metadata().and_then(|m| m.modified()) {
-                out.push((path, modified));
-            }
-        }
-    }
 }
 
 #[cfg(test)]
@@ -704,6 +578,13 @@ mod tests {
             .unwrap();
         zip.write_all(METADATA.replace("VERSION", version).as_bytes())
             .unwrap();
+        for file in ["gauge.ide.js", "gauge.runtime.js"] {
+            zip.start_file(
+                format!("ui/gauge/{file}"),
+                zip::write::SimpleFileOptions::default(),
+            )
+            .unwrap();
+        }
         zip.finish().unwrap();
     }
 
@@ -880,18 +761,18 @@ project_vendor=v
             elsewhere.join("Acme.zip"),
         )
         .unwrap();
-        let found = package_zip(&extension, "Acme", "Acme", "1.0.0").unwrap();
+        let found = ext_build::package_zip(&extension, "Acme", "Acme", "1.0.0").unwrap();
         assert!(
             found.starts_with(extension.join("build/distributions")),
             "{found:?}"
         );
 
-        let error = package_zip(&extension, "Acme", "Acme", "1.0.1").unwrap_err();
+        let error = ext_build::package_zip(&extension, "Acme", "Acme", "1.0.1").unwrap_err();
         assert!(
             error.contains("no zip of Acme 1.0.1 under Acme/build or Acme/zip, only 1.0.0:"),
             "{error}"
         );
-        let error = package_zip(&extension, "Acme", "Other", "1.0.0").unwrap_err();
+        let error = ext_build::package_zip(&extension, "Acme", "Other", "1.0.0").unwrap_err();
         assert_eq!(error, "no zip of Other under Acme/build or Acme/zip");
     }
 

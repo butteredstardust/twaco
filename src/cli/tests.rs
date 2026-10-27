@@ -251,10 +251,11 @@ fn mutation_classes_hold_cli_plans_and_workspace_writes() {
         if let Ok((_, _, flags)) = route(&args) {
             // `export` has one routed flag list, but only its source-control form uses
             // --apply; entity, collection and project write their requested local output.
+            // `ext build` shares `ext`'s flags but refuses --apply: it runs the project's build.
             if flags.iter().any(|flag| flag == "--apply")
                 && !matches!(
                     command,
-                    "export entity" | "export collection" | "export project"
+                    "export entity" | "export collection" | "export project" | "ext build"
                 )
             {
                 assert_eq!(

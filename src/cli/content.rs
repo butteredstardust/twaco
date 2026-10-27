@@ -619,6 +619,9 @@ pub(crate) struct ExtScaffold {
     /// deploy: send the newest package zip without building.
     #[arg(long = "no-build")]
     pub(crate) no_build: bool,
+    /// new: a package.json widget project rather than a Java one.
+    #[arg(long = "widget")]
+    pub(crate) widget: bool,
 }
 
 impl ExtScaffold {
@@ -635,6 +638,7 @@ impl ExtScaffold {
             ("--base-template", self.base.is_some()),
             ("--bump", self.bump.is_some()),
             ("--no-build", self.no_build),
+            ("--widget", self.widget),
         ]
         .into_iter()
         .filter_map(|(flag, given)| given.then_some(flag))
@@ -718,21 +722,32 @@ pub(crate) fn ext_intellij_cmd(args: &Ext) -> u8 {
     OK
 }
 
-/// `twaco ext new <name>`: lay out a Java extension project.
+/// `twaco ext new <name> [--widget]`: lay out a Java or a widget extension project.
 pub(crate) fn ext_new_cmd(args: &Ext) -> u8 {
-    let flags = [
-        "--dir",
-        "--package",
-        "--vendor",
-        "--package-version",
-        "--min-thingworx",
-        "--description",
-        "--sdk",
-    ];
+    let flags: &[&str] = if args.scaffold.widget {
+        &[
+            "--widget",
+            "--dir",
+            "--vendor",
+            "--package-version",
+            "--min-thingworx",
+            "--description",
+        ]
+    } else {
+        &[
+            "--dir",
+            "--package",
+            "--vendor",
+            "--package-version",
+            "--min-thingworx",
+            "--description",
+            "--sdk",
+        ]
+    };
     if !local_only(args, "new") {
         return FAILED;
     }
-    if !scaffold_flags_fit(args, "new", &flags) {
+    if !scaffold_flags_fit(args, "new", flags) {
         return FAILED;
     }
     let [_, name] = args.operands.as_slice() else {
@@ -748,18 +763,24 @@ pub(crate) fn ext_new_cmd(args: &Ext) -> u8 {
         .sdk
         .clone()
         .or_else(|| std::env::var_os("TWACO_SDK").map(std::path::PathBuf::from));
-    let plan = twaco::core::ext_new::new_extension(
-        &root,
-        &twaco::core::ext_new::NewOptions {
-            name,
-            package: scaffold.package.as_deref(),
-            vendor: scaffold.vendor.as_deref(),
-            version: scaffold.package_version.as_deref(),
-            min_thingworx: scaffold.min_thingworx.as_deref(),
-            description: scaffold.description.as_deref(),
-            sdk: sdk.as_deref(),
+    let options = twaco::core::ext_new::NewOptions {
+        name,
+        package: scaffold.package.as_deref(),
+        vendor: scaffold.vendor.as_deref(),
+        version: scaffold.package_version.as_deref(),
+        min_thingworx: scaffold.min_thingworx.as_deref(),
+        description: scaffold.description.as_deref(),
+        sdk: if scaffold.widget {
+            None
+        } else {
+            sdk.as_deref()
         },
-    );
+    };
+    let plan = if scaffold.widget {
+        twaco::core::ext_widget::new_widget(&root, &options)
+    } else {
+        twaco::core::ext_new::new_extension(&root, &options)
+    };
     finish_scaffold(args, plan)
 }
 
@@ -828,6 +849,11 @@ fn finish_scaffold(args: &Ext, plan: Result<twaco::core::ext_new::Plan, String>)
             return FAILED;
         }
     }
+    // A new Gradle project gets its wrapper, so it builds where Gradle is not installed.
+    let wrapper = (applied
+        && plan.files.iter().any(|write| write.path == "build.gradle")
+        && !plan.root.join("gradlew").exists())
+    .then(|| twaco::core::ext_build::gradle_wrapper(&plan.root));
     let check = applied.then(|| twaco::core::ext_check::check(&plan.root));
     if args.json.json {
         let mut value = serde_json::to_value(&plan).expect("a plan serialises");
@@ -835,6 +861,11 @@ fn finish_scaffold(args: &Ext, plan: Result<twaco::core::ext_new::Plan, String>)
         value["applied"] = serde_json::json!(applied);
         if let Some(check) = &check {
             value["check"] = serde_json::to_value(check).expect("a report serialises");
+        }
+        match &wrapper {
+            Some(Ok(command)) => value["wrapper"] = serde_json::json!(command),
+            Some(Err(error)) => value["wrapper_error"] = serde_json::json!(error),
+            None => {}
         }
         println!("{value}");
         return OK;
@@ -857,7 +888,18 @@ fn finish_scaffold(args: &Ext, plan: Result<twaco::core::ext_new::Plan, String>)
         println!("  create twx-lib/: {libraries} jar(s) from the Extension SDK");
     }
     for note in &plan.notes {
+        if matches!(wrapper, Some(Ok(_))) && note.contains("gradle wrapper") {
+            continue;
+        }
         println!("note: {note}");
+    }
+    match &wrapper {
+        Some(Ok(command)) => println!("ran {command}: the project builds with gradlew build"),
+        Some(Err(error)) => println!(
+            "note: the Gradle wrapper was not added ({}); run `gradle wrapper` once",
+            error.lines().next().unwrap_or_default()
+        ),
+        None => {}
     }
     match check {
         Some(check) if !check.findings.is_empty() => {
@@ -867,6 +909,72 @@ fn finish_scaffold(args: &Ext, plan: Result<twaco::core::ext_new::Plan, String>)
         None => println!("run again with --apply to write it"),
     }
     OK
+}
+
+/// `twaco ext build [<root>]`: an extension project's package zip, and what it holds.
+pub(crate) fn ext_build_cmd(args: &Ext) -> u8 {
+    if !local_only(args, "build") || !scaffold_flags_fit(args, "build", &[]) {
+        return FAILED;
+    }
+    let (root, shown) = match args.operands.as_slice() {
+        [_] => (
+            std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")),
+            ".".to_string(),
+        ),
+        [_, root] => (std::path::PathBuf::from(root), root.clone()),
+        _ => {
+            eprintln!("{} ext build takes at most one <root>", style::prefix());
+            return FAILED;
+        }
+    };
+    if args.apply.apply {
+        eprintln!(
+            "{} ext build writes only the project's own build output; --apply has nothing to do",
+            style::prefix()
+        );
+        return FAILED;
+    }
+    let check = twaco::core::ext_check::check(&root);
+    if !check.findings.is_empty() {
+        print!("{}", twaco::core::ext_check::render(&check));
+        eprintln!(
+            "{} ext check finds problems; fix them first",
+            style::prefix()
+        );
+        return FAILED;
+    }
+    let built = match twaco::core::ext_build::build(&root, &shown) {
+        Ok(built) => built,
+        Err(error) => {
+            eprintln!("{} {error}", style::prefix());
+            return FAILED;
+        }
+    };
+    if args.json.json {
+        println!(
+            "{}",
+            serde_json::to_string(&built).expect("a build serialises")
+        );
+    } else {
+        for command in &built.build {
+            println!("ran {command}");
+        }
+        println!("{} {} -> {}", built.package, built.version, built.zip);
+        if !built.widgets.is_empty() {
+            println!("  widgets: {}", built.widgets.join(", "));
+        }
+        for entity in &built.entities {
+            println!("  {entity}");
+        }
+        for problem in &built.problems {
+            println!("{} {problem}", style::warn("problem:"));
+        }
+    }
+    if built.problems.is_empty() {
+        OK
+    } else {
+        FAILED
+    }
 }
 
 /// `twaco ext check [<root>]`: a Java extension project's metadata against its source.
@@ -1141,7 +1249,7 @@ fn print_deployed(deployed: &twaco::core::ext_deploy::Deployed) {
     println!("  package: {}", deployed.zip);
     if let Some(bump) = &deployed.bump {
         println!(
-            "  packageVersion: {bump}{}",
+            "  version: {bump}{}",
             if deployed.applied {
                 ""
             } else {

@@ -110,6 +110,7 @@ const OPEN_WORLD: &[&str] = &[
     "network",
     "network_write",
     "block",
+    "ext_build",
 ];
 
 /// Writing tools whose changes only add or regenerate: they create files that did not exist,
@@ -721,9 +722,16 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             content::ext_check_tool,
         )
         .with_output::<outputs::ExtCheckResult>(),
+        root_tool::<content_requests::ExtBuildRequest>(
+            "ext_build",
+            "Build a ThingWorx extension project's package zip and read it back: a package.json widget project runs its build script (installing its dependencies the first time), a Java project its Gradle wrapper, Gradle or Ant (Gradle with --no-daemon), and a project with neither a build nor Java sources is packed by twaco (metadata.xml, ui/, Entities/, Localization/, lib/*.jar under lib/common/). Returns the zip, its package and version, the widgets and entities its metadata.xml declares, and files it names that the zip lacks. ext_check runs first. The project must be inside the solution.",
+            false,
+            content::ext_build_tool,
+        )
+        .with_output::<outputs::ExtBuildResult>(),
         root_tool::<content_requests::ExtNewRequest>(
             "ext_new",
-            "Lay out a new Java ThingWorx extension project, as the Eclipse plugin's project wizard did: settings.gradle, a build.gradle that makes the importable zip (build/distributions/<name>.zip), extension.properties, configfiles/metadata.xml, .gitignore, the Java package folder and, given an Extension SDK (sdk, or TWACO_SDK), its jars in twx-lib/. The folder must be inside the solution, and missing or empty. A dry run unless dry_run is false; applied, ext_check's report is returned.",
+            "Lay out a new ThingWorx extension project. Java (default), as the Eclipse plugin's project wizard did: settings.gradle, a build.gradle that makes the importable zip (build/distributions/<name>.zip), extension.properties, configfiles/metadata.xml, .gitignore, the Java package folder, given an Extension SDK (sdk, or TWACO_SDK) its jars in twx-lib/, and when applied the Gradle wrapper (with Gradle installed). widget: a package.json widget project as the ThingWorx widget template lays it out: TypeScript IDE and runtime widgets on typescriptwebpacksupport and an esbuild script that writes zip/<name>-prod-v<version>.zip. The folder must be inside the solution, and missing or empty. A dry run unless dry_run is false; applied, ext_check's report is returned.",
             false,
             content::ext_new_tool,
         )
@@ -1015,6 +1023,7 @@ pub(crate) const GROUPS: &[(&str, &[&str])] = &[
             "appkey",
             "extensions",
             "ext_check",
+            "ext_build",
             "ext_new",
             "ext_add",
             "ext_deploy",

@@ -91,6 +91,7 @@ when the command is asked to write. A local output named by an option is include
 | `ext list` | read-only | read-only | none | Retry freely. | `cli/content.rs: ext_cmd` |
 | `ext show` | read-only | read-only | none | Retry freely. | `cli/content.rs: ext_cmd` |
 | `ext check` | read-only | read-only | none | Reads an extension project's files only; retry freely. | `cli/content.rs: ext_check_cmd` |
+| `ext build` | best-effort batch | best-effort batch | the project's build output, node_modules | Runs the project's own build, which writes build/ or zip/ (and installs its dependencies the first time); retry. | `core/ext_build.rs: build` |
 | `ext new` | read-only | multi-file atomic | extension project files | Writes the new project's files into a missing or empty folder and removes them again on a failure (in-process only). Retry. | `core/ext_new.rs: Plan::apply` |
 | `ext add` | read-only | multi-file atomic | extension project files | Writes the new class or widget files, then replaces metadata.xml whole, refused if it changed since it was read; a failure removes the new files again (in-process only). Retry. | `core/ext_new.rs: Plan::apply` |
 | `ext deploy` | read-only | server-partial | extension project files, server extension | Runs the build and, with --bump, rewrites packageVersion, put back if the build fails or the install fails and the package list lacks the new version (kept when the server may have it); the install is one upload. Check `ext list` before retrying. | `core/ext_deploy.rs: deploy` |
@@ -268,6 +269,7 @@ when the command is asked to write. A local output named by an option is include
 | `block_version` | read-only | multi-file atomic | the Project and entry point files | Writes both files or neither, refused if either changed since it was read; retry. | `core/commands/block.rs: version` |
 | `extensions` | read-only | read-only | none | Retry freely. | `mcp/content.rs: extensions_tool` |
 | `ext_check` | read-only | read-only | none | Reads an extension project's files only; retry freely. | `mcp/content.rs: ext_check_tool` |
+| `ext_build` | best-effort batch | best-effort batch | the project's build output, node_modules | Runs the project's own build, which writes build/ or zip/ (and installs its dependencies the first time); retry. | `core/ext_build.rs: build` |
 | `ext_new` | read-only | multi-file atomic | extension project files | Writes the new project's files into a missing or empty folder and removes them again on a failure (in-process only). Retry. | `core/ext_new.rs: Plan::apply` |
 | `ext_add` | read-only | multi-file atomic | extension project files | Writes the new class or widget files, then replaces metadata.xml whole, refused if it changed since it was read; a failure removes the new files again (in-process only). Retry. | `core/ext_new.rs: Plan::apply` |
 | `ext_deploy` | read-only | server-partial | extension project files, server extension | Runs the build and, with bump, rewrites packageVersion, put back if the build or install fails; the install is one upload. Check `extensions` before retrying. | `core/ext_deploy.rs: deploy` |

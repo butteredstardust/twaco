@@ -56,8 +56,23 @@ twaco is a single command-line binary that makes the repository the source of tr
   service against the entities' declarations with TypeScript.
 - **Deploys that refuse to clobber.** `twaco deploy` bundles per project in dependency order,
   has the server parse every script, and refuses when someone changed the server since your
-  last deploy. Every command that writes to a server only plans unless you add `--apply`,
-  except `twaco call`, which runs the service you name.
+  last deploy. It orders what the server is strict about, such as an AI agent that must stop
+  allowing a tool before its MCP namespace drops it. Every command that writes to a server only
+  plans unless you add `--apply`, except `twaco call`, which runs the service you name.
+- **Solution Framework building blocks.** `twaco new building-block` creates one as the
+  framework does, `block list|show --server` sets each beside the framework's version, state and
+  deploy order, and `block version` keeps its two version numbers together. With
+  `[project.deploy] framework = true`, a deploy runs the block's own deploy step as the framework
+  does, skipping a block the framework has configured unless `--redeploy-blocks`, and a block's
+  lifecycle state stays the server's.
+- **Extensions, Java and widgets.** `twaco ext new` lays out a Java extension project with its
+  Gradle build and wrapper, or with `--widget` a TypeScript widget project in the ThingWorx widget
+  template's pattern; `ext add` adds templates, shapes, resources, widgets and jars. `ext check`
+  holds metadata.xml to the source, `ext build` builds any of them (npm, yarn, pnpm, Gradle, Ant,
+  the template's webpack and gulp projects included) and checks the zip, and `ext deploy` builds
+  and installs it (`--bump` raises the version first, which the server needs for a change) and
+  confirms what the server lists. `ext intellij` adds IntelliJ live
+  templates for the extension annotations.
 - **A designer's Composer work, adopted cleanly.** `twaco adopt` compares a Composer export
   with the repository and shows what really changed, ignoring Composer's noise.
 - **The server, from the terminal:** service calls (as a test user, in another language) with
@@ -65,7 +80,8 @@ twaco is a single command-line binary that makes the repository the source of tr
   permissions as policy, localization tables, test users and service tests, application keys,
   file repositories, extensions, exports, imports, configuration tables and subsystem settings.
 - **Knowledge for agents:** verified-live platform quirks, the service catalog, and the
-  ThingWorx help center and Java API docs, searchable from the CLI.
+  ThingWorx help center and Java API docs, searchable from the CLI. The Java API docs read from
+  a local Extension SDK too, offline and at its version.
 - **An MCP server.** `twaco mcp` serves its commands as tools to Claude Code, Codex, Cursor or any
   MCP client, in groups an agent can load on their own. Server writes are dry runs unless
   the agent says otherwise.
@@ -141,7 +157,9 @@ until `--apply`; `sync` and `deploy` take them to the server.
 | Style, theme, state, menu, media | `new style`, `new theme`, `new state`, `new menu`, `new media` | the entity's XML | `style set`, `state set`, `menu item add\|remove`, `media set` | `entity delete` |
 | Network (asset hierarchy) | `new network`, `network import` | `network list`, `network show` | `network add`, `network move` | `network remove` (connections, never the Things) |
 | AI agent, MCP namespace | `new ai-agent`, `new mcp-namespace` | `impact`, `check` (`ai references`) | `mcp-namespace add\|remove`, `agent allow\|disallow`, `agent taxonomy`, `agent skill`, `agent set` | `entity delete` |
-| Building block | `new building-block` | `block list`, `block show`, `projects`, `docs` | `block version`, `rename prefix` | `entity delete` of its entities |
+| Building block | `new building-block` | `block list`, `block show` (`--server`: the framework's state), `projects`, `docs` | `block version`, `rename prefix`; `deploy` runs its deploy step | `entity delete` of its entities |
+| Java extension | `ext new` | `ext check`, `ext list`, `ext show` | `ext add thing-template\|thing-shape\|resource\|widget\|jar`, `ext build`, `ext deploy` | `ext remove` |
+| Widget extension | `ext new --widget` | `ext check`, `ext list`, `ext show` | edit `src/`, then `ext build`, `ext deploy` | `ext remove` |
 | Permissions | `permissions init` (drafts `permissions.toml` from the entities) | `permissions audit`, `permissions diff` | `permissions apply`, then `permissions push` | drop it from the policy, then `apply` and `push` |
 | Localization token | `localization new`, `localization set` | `localization status` | `localization set`, `localization push` | `localization remove` |
 | Test user | `users seed` | `users list` | | `users delete` |
@@ -192,7 +210,10 @@ the checksum of every asset. Or build from source with Rust:
 cargo install --git https://github.com/butteredstardust/twaco
 ```
 
-`twaco types --check` also needs TypeScript (`npm install -g typescript`). Nothing else does.
+`twaco types --check` also needs TypeScript (`npm install -g typescript`). Building extensions
+needs their own tools: Node and npm (or yarn, pnpm) for a widget project, whose first build
+installs the rest, and a JDK for a Java one, with Gradle once to add its wrapper. Nothing else
+does.
 
 ### Updates
 
@@ -265,7 +286,7 @@ claude mcp add twaco -- twaco mcp           # Claude Code, from the solution's r
 Any MCP client works: run `twaco mcp` with the solution as its working directory, or set
 `TWACO_ROOT`. Tools that write to the server default to `dry_run: true`, and results are
 summaries unless the agent asks for detail, so a large solution stays affordable in context.
-The 85 tool definitions together take about 154 KB of an agent's context (101 KB for a client
+The 88 tool definitions together take about 160 KB of an agent's context (104 KB for a client
 without output schemas); `twaco mcp --tools core,entity` (or `TWACO_MCP_TOOLS`) serves only the
 groups it needs (`core`, `entity`, `refactor`, `mashup`, `permissions`, `data`, `server`,
 `reference`). `core` alone, the everyday loop, is about 35 KB. See

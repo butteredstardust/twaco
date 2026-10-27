@@ -51,7 +51,7 @@ Server tools use the same [profiles](CONFIGURATION.md#server-profiles) as the co
 pass `profile` to choose one.
 
 **Fewer tools.** A client keeps every listed tool's definition in the agent's context on every
-turn, and all 87 come to about 157 KB with their output schemas (about 103 KB for a client on a
+turn, and all 88 come to about 160 KB with their output schemas (about 104 KB for a client on a
 revision before `2025-06-18`, which gets none). `--tools` (or `TWACO_MCP_TOOLS`) lists and runs only
 the groups named, comma-separated; any other tool is unknown to that server. `core` alone is about
 35 KB (20 KB without output schemas).
@@ -64,7 +64,7 @@ the groups named, comma-separated; any other tool is unknown to that server. `co
 | `mashup` | mashup_new, mashup_templates, mashup_add, mashup_add_contained, mashup_bind, mashup_on, widgets, mashup_param, mashup_recipe, mashup_event, mashup_validate, mashup_describe |
 | `permissions` | permissions, requirements_init, requirements_check, permissions_init, permissions_audit, permissions_apply, permissions_push |
 | `data` | db_run, db_query, datatable_copy, db_clean, config_table, call, test |
-| `server` | init_from_server, logs, log_level, repo, repo_write, localization, localization_write, users, users_write, appkey, extensions, ext_check, ext_new, ext_add, ext_deploy, extension_write, settings |
+| `server` | init_from_server, logs, log_level, repo, repo_write, localization, localization_write, users, users_write, appkey, extensions, ext_check, ext_build, ext_new, ext_add, ext_deploy, extension_write, settings |
 | `reference` | help_search, help_page, javadoc |
 
 ```sh
@@ -199,8 +199,9 @@ in its text block. It has no `structuredContent`, which is kept for results that
 | `users_write` | server | Seed or delete the test users; plan by default |
 | `appkey` | server | Create an application key (plan by default) or show one |
 | `extensions` | no | The server's extension packages |
-| `ext_check` | no | A Java extension project's metadata.xml against its source, offline |
-| `ext_new` | extension folder | Lay out a Java extension project: Gradle build, metadata.xml, SDK jars; dry run by default |
+| `ext_check` | no | A Java extension project's metadata.xml against its source, offline; a widget project's package.json |
+| `ext_build` | workspace | Build an extension project's package zip (npm, Gradle, Ant, or packed by twaco) and check what it holds |
+| `ext_new` | extension folder | Lay out a Java extension project (Gradle build and wrapper, metadata.xml, SDK jars) or, with widget, a package.json widget project; dry run by default |
 | `ext_add` | extension folder | Add a template, shape, resource, widget or jar with its metadata.xml entry; dry run by default |
 | `ext_deploy` | server | Build an [[extension]], validate its package, install it with a version bump; dry run by default |
 | `extension_write` | server | Validate, install or remove an extension package |

@@ -69,7 +69,7 @@ twaco ext add thing-template Acme.Pump_TT --base-template GenericThing --apply
 twaco ext add thing-shape Acme.Valve_TS --apply
 twaco ext add widget gauge --apply
 twaco ext add jar ../vendor/client-1.2.jar --apply
-gradle build                          # build/distributions/Acme_Pumps.zip
+twaco ext build                       # build/distributions/Acme_Pumps.zip, and what it holds
 ```
 
 `ext new` writes the Gradle build, `extension.properties`, `configfiles/metadata.xml`, a
@@ -79,6 +79,40 @@ and the build reads it from there. `ext add` writes the Java class (a template e
 under its base template and gets a ThingPackage) or the widget's `ide` and `runtime` JS and CSS,
 or copies the jar into `lib/`, and adds the metadata.xml entry without reformatting the file; the
 first Java class also lists the jar the build makes. Each applied run ends with `ext check`.
+Applied with Gradle installed, `ext new` also adds the Gradle wrapper (`gradle wrapper`), so the
+project builds with `gradlew build` where Gradle is not.
+
+A widget project follows the ThingWorx widget template (ptc-iot-sharing/ThingworxDemoWebpackWidget):
+package.json is the source of truth and the build writes the package zip under `zip/`.
+
+```sh
+twaco ext new AcmeDial --widget --vendor Acme --apply
+cd AcmeDial
+twaco ext build                       # npm install (the first time), npm run build: zip/AcmeDial-prod-v1.0.0.zip
+```
+
+`ext new --widget` writes `package.json` (`packageName` names the package and its widget;
+`version`, `author`, `description` and `minimumThingWorxVersion` fill the generated metadata.xml),
+TypeScript IDE and runtime widgets in `src/ide/` and `src/runtime/` written with the
+`typescriptwebpacksupport` decorators (`@TWWidgetDefinition`, `@property`, `@event`, `@service`),
+their CSS, `src/static/` (copied beside the bundles) and `Entities/` (shipped in the package), a
+`tsconfig.json`, and `build.mjs`, which bundles `<name>.ide.bundle.js` and `<name>.runtime.bundle.js`
+with esbuild (keeping class names, which the decorators register widgets by), writes metadata.xml
+and zips it all. `npm run buildDev` builds without minifying, with inline source maps; `npm run
+check` type-checks. A project made from the template itself, built by webpack, is read the same way;
+an older one on webpack 4 that Node 17 or later refuses (`ERR_OSSL_EVP_UNSUPPORTED`) is built again with
+`NODE_OPTIONS=--openssl-legacy-provider`. gulp and webpack are the project's own devDependencies: the
+first build installs them. A gulp project that keeps its metadata.xml at the root and copies it into
+the zip is one too, since its package.json has a `build` script: `ext check` reports a
+`packageVersion` that disagrees with package.json's `version`, and `--bump` writes both.
+
+`twaco ext build [<root>]` (MCP `ext_build`) builds any of these: a package.json project's `build`
+script (with npm, yarn or pnpm, as its lock file says, installing its dependencies the first time),
+a Java project's Gradle wrapper, Gradle or Ant (Gradle with `--no-daemon`, so no process is left
+holding twaco's output), and a project with neither a build nor Java sources it packs itself:
+metadata.xml at the root, `ui/`, `Entities/`, `Localization/` and `lib/*.jar` under `lib/common/`.
+It then reads the zip back and lists its widgets and entities, and each file metadata.xml names
+that the zip lacks; it exits non-zero when there is one.
 
 From the solution, `twaco ext deploy` (MCP `ext_deploy`) sends an `[[extension]]` to the server:
 
@@ -88,11 +122,12 @@ twaco ext deploy Acme --apply         # install it, then confirm the server list
 twaco ext deploy --bump patch --apply # the server has this version: raise it, build, install
 ```
 
-It runs `ext check`, then the project's build (its Gradle wrapper, else Gradle, else Ant;
-`--no-build` skips it), takes the newest package zip under `build/` or `zip/` and makes sure it
-holds the package and version metadata.xml declares. The server skips a version it has, so
-deploying a change needs `--bump`, which on `--apply` writes the raised `packageVersion` into
-metadata.xml (and `extension.properties` when that names one) and puts it back if the build
+It runs `ext check`, then the project's build as `ext build` does (`--no-build` skips it), takes
+the newest package zip under `build/` or `zip/` and makes sure it holds the package and version the
+project declares and every file its metadata.xml names. The server skips a version it has, so
+deploying a change needs `--bump`, which on `--apply` writes the raised version where the project
+keeps it (metadata.xml's `packageVersion`, and `extension.properties` when that names one, or a
+widget project's package.json `version`) and puts it back if the build
 fails, or if the install fails and the server's package list lacks the new version. Upgrading a package with Java code, the server queues it for its next restart
 and twaco says so; a removed Java extension cannot be installed again until that restart.
 
