@@ -63,13 +63,15 @@ twaco is a single command-line binary that makes the repository the source of tr
   framework does, `block list|show --server` sets each beside the framework's version, state and
   deploy order, and `block version` keeps its two version numbers together. With
   `[project.deploy] framework = true`, a deploy runs the block's own deploy step as the framework
-  does, and a block's lifecycle state stays the server's.
+  does, skipping a block the framework has configured unless `--redeploy-blocks`, and a block's
+  lifecycle state stays the server's.
 - **Extensions, Java and widgets.** `twaco ext new` lays out a Java extension project with its
   Gradle build and wrapper, or with `--widget` a TypeScript widget project in the ThingWorx widget
   template's pattern; `ext add` adds templates, shapes, resources, widgets and jars. `ext check`
   holds metadata.xml to the source, `ext build` builds any of them (npm, yarn, pnpm, Gradle, Ant,
-  the template's webpack and gulp projects included) and checks the zip, and `ext deploy` bumps
-  the version, installs it and confirms what the server lists. `ext intellij` adds IntelliJ live
+  the template's webpack and gulp projects included) and checks the zip, and `ext deploy` builds
+  and installs it (`--bump` raises the version first, which the server needs for a change) and
+  confirms what the server lists. `ext intellij` adds IntelliJ live
   templates for the extension annotations.
 - **A designer's Composer work, adopted cleanly.** `twaco adopt` compares a Composer export
   with the repository and shows what really changed, ignoring Composer's noise.

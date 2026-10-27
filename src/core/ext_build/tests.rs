@@ -114,6 +114,21 @@ fn files_metadata_names_and_the_zip_lacks_are_problems() {
 }
 
 #[test]
+fn node_refusing_md4_is_seen_however_much_output_follows() {
+    let mut output = b"start ".to_vec();
+    output.extend_from_slice(OPENSSL_REFUSED.as_bytes());
+    output.extend(std::iter::repeat_n(b'x', 200 * 1024));
+    let (text, refused) =
+        tail_of(std::io::Cursor::new(output)).text(std::time::Duration::from_secs(5));
+    assert!(refused);
+    assert!(
+        !text.contains(OPENSSL_REFUSED),
+        "only the last 64 KiB are kept"
+    );
+    assert_eq!(text.len(), 64 * 1024);
+}
+
+#[test]
 fn a_credential_in_build_output_is_hidden() {
     assert_eq!(
         masked("npm ERR! //registry.example/:_authToken=abc123"),

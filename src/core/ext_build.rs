@@ -337,16 +337,21 @@ fn run_with(
         .map_err(|error| format!("{shown} did not finish: {error}"))?;
     // A process the build left running (a daemon) may hold the pipes open for good, so the
     // output is waited for only a little after the build itself ends.
+    let mut refused = false;
     let text: String = [stdout, stderr]
         .into_iter()
         .flatten()
-        .map(|tail| tail.text(std::time::Duration::from_secs(5)))
+        .map(|tail| {
+            let (text, seen) = tail.text(std::time::Duration::from_secs(5));
+            refused |= seen;
+            text
+        })
         .collect();
     if !status.success() {
         let lines: Vec<String> = text.lines().map(masked).collect();
         let mut tail = lines[lines.len().saturating_sub(30)..].join("\n");
         // The retry for an old webpack looks for this, which long diagnostics can push out.
-        if text.contains(OPENSSL_REFUSED) && !tail.contains(OPENSSL_REFUSED) {
+        if refused && !tail.contains(OPENSSL_REFUSED) {
             tail.push_str(&format!("\n(earlier in the output: {OPENSSL_REFUSED})"));
         }
         return Err(format!("{shown} failed:\n{tail}"));
@@ -374,18 +379,23 @@ fn masked(line: &str) -> String {
 /// blocks on a full pipe nor fills memory.
 struct Tail {
     kept: std::sync::Arc<std::sync::Mutex<std::collections::VecDeque<u8>>>,
+    /// Whether [`OPENSSL_REFUSED`] went by, however much output followed it.
+    refused: std::sync::Arc<std::sync::atomic::AtomicBool>,
     ended: std::sync::mpsc::Receiver<()>,
 }
 
 impl Tail {
-    /// What was read, once the stream ends or `grace` passes.
-    fn text(self, grace: std::time::Duration) -> String {
+    /// What was read, once the stream ends or `grace` passes, and whether Node refused MD4.
+    fn text(self, grace: std::time::Duration) -> (String, bool) {
         let _ = self.ended.recv_timeout(grace);
         let mut kept = self
             .kept
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        String::from_utf8_lossy(kept.make_contiguous()).into_owned()
+        (
+            String::from_utf8_lossy(kept.make_contiguous()).into_owned(),
+            self.refused.load(std::sync::atomic::Ordering::Relaxed),
+        )
     }
 }
 
@@ -394,9 +404,12 @@ fn tail_of(mut stream: impl std::io::Read + Send + 'static) -> Tail {
     let kept = std::sync::Arc::new(std::sync::Mutex::new(
         std::collections::VecDeque::with_capacity(KEEP),
     ));
+    let refused = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let (done, ended) = std::sync::mpsc::channel();
     let writer = std::sync::Arc::clone(&kept);
+    let seen = std::sync::Arc::clone(&refused);
     std::thread::spawn(move || {
+        let marker = OPENSSL_REFUSED.as_bytes();
         let mut buffer = [0u8; 8192];
         while let Ok(read) = stream.read(&mut buffer) {
             if read == 0 {
@@ -405,13 +418,26 @@ fn tail_of(mut stream: impl std::io::Read + Send + 'static) -> Tail {
             let mut kept = writer
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
+            // Looked for before the oldest bytes go, with the end of what was kept before, so
+            // the marker is seen even across two reads.
+            let from = kept.len().saturating_sub(marker.len());
             kept.extend(&buffer[..read]);
+            if !seen.load(std::sync::atomic::Ordering::Relaxed) {
+                let recent: Vec<u8> = kept.range(from..).copied().collect();
+                if recent.windows(marker.len()).any(|window| window == marker) {
+                    seen.store(true, std::sync::atomic::Ordering::Relaxed);
+                }
+            }
             let excess = kept.len().saturating_sub(KEEP);
             kept.drain(..excess);
         }
         let _ = done.send(());
     });
-    Tail { kept, ended }
+    Tail {
+        kept,
+        refused,
+        ended,
+    }
 }
 
 /// Pack a project with no build into `build/distributions/<package>.zip`.
