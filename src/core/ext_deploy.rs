@@ -147,14 +147,23 @@ where
     };
     let bump = wanted.map(|parts| format!("{local} -> {}", show_version(parts)));
     // npm writes the new version into the lock file as it builds; it goes back with package.json.
-    let lock = match identity.source {
-        Source::PackageJson => ["package-lock.json", "npm-shrinkwrap.json"]
-            .into_iter()
-            .find_map(|name| {
-                let path = root.join(name);
-                std::fs::read(&path).ok().map(|bytes| (path, bytes))
-            }),
-        Source::Metadata(_) => None,
+    // Each lock file as it was, or `None` when there was none: one the failed attempt created
+    // goes again.
+    let locks: Vec<(PathBuf, Option<Vec<u8>>)> = match identity.source {
+        Source::PackageJson => [
+            "package-lock.json",
+            "npm-shrinkwrap.json",
+            "yarn.lock",
+            "pnpm-lock.yaml",
+        ]
+        .into_iter()
+        .map(|name| {
+            let path = root.join(name);
+            let bytes = std::fs::read(&path).ok();
+            (path, bytes)
+        })
+        .collect(),
+        Source::Metadata(_) => Vec::new(),
     };
     let sending = match wanted {
         Some(parts) if request.apply => {
@@ -170,9 +179,15 @@ where
         if !bumped {
             return error;
         }
-        if let Some((path, bytes)) = &lock {
-            if std::fs::read(path).ok().as_ref() != Some(bytes) {
-                let _ = super::ext_new::replace_whole(path, bytes);
+        for (path, before) in &locks {
+            match (before, std::fs::read(path).ok()) {
+                (Some(bytes), now) if now.as_ref() != Some(bytes) => {
+                    let _ = super::ext_new::replace_whole(path, bytes);
+                }
+                (None, Some(_)) => {
+                    let _ = std::fs::remove_file(path);
+                }
+                _ => {}
             }
         }
         match write_version(&root, &identity, &local) {
