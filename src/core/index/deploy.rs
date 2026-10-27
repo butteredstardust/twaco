@@ -15,15 +15,17 @@ impl Builder<'_> {
                 continue;
             };
             let deploy = &project.deploy;
-            if let Some(thing) = &deploy.entry_point_thing {
+            if let Some((thing, service)) = deploy.hook(&project.name) {
                 self.link(
                     from,
                     "Things",
-                    thing,
+                    &thing,
                     EdgeKind::Deploy,
                     None,
-                    deploy.deploy_service.as_deref(),
+                    Some(&service),
                 );
+            } else if let Some(thing) = &deploy.entry_point_thing {
+                self.link(from, "Things", thing, EdgeKind::Deploy, None, None);
             }
             for call in &deploy.post_import {
                 let (collection, name) = match call.target.as_deref().map(EntityKey::parse) {

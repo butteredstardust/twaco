@@ -1283,7 +1283,9 @@ pub(crate) const USAGE: &[Usage] = &[
       --exclude <entity-or-glob> leave out this Collection/Name selector (repeatable)
       --only-projects <a,b>   include only these projects
       --skip-checks           skip the gates, server requirements too; scripts are still parsed
-      --no-backup             with --force, do not save the server's copies first"#,
+      --no-backup             with --force, do not save the server's copies first
+      --redeploy-blocks       run a building block's DeployComponent ([project.deploy] framework)
+                              even when the Solution Framework has it Configured"#,
     },
     Usage {
         path: "config-table",

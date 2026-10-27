@@ -29,17 +29,24 @@ pub(crate) fn run(
         baselines,
         profile,
         projects,
-        RunOptions { apply, force, only },
+        RunOptions {
+            apply,
+            force,
+            only,
+            redeploy_blocks: false,
+        },
         &progress::NONE,
     )
 }
 
-/// What a deploy run does: send changes, override conflicts, skip post-import services.
+/// What a deploy run does: send changes, override conflicts, skip post-import services, run a
+/// configured building block's deploy step again.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct RunOptions {
     pub(crate) apply: bool,
     pub(crate) force: bool,
     pub(crate) only: bool,
+    pub(crate) redeploy_blocks: bool,
 }
 
 /// Plan or apply all project bundles. Projects must already be in dependency order.
@@ -53,7 +60,12 @@ pub(crate) fn run_with_progress(
     options: RunOptions,
     progress: &dyn Progress,
 ) -> Result<Report, DeployError> {
-    let RunOptions { apply, force, only } = options;
+    let RunOptions {
+        apply,
+        force,
+        only,
+        redeploy_blocks,
+    } = options;
     let mut report = Report {
         projects: projects
             .iter()
@@ -157,6 +169,25 @@ pub(crate) fn run_with_progress(
     );
     if !conflicts.is_empty() && !force {
         return Err(DeployError::Conflicts(conflicts));
+    }
+    for project in projects.iter().filter(|project| project.framework) {
+        let Some(call) = &project.deploy else {
+            continue;
+        };
+        let entry_point = call.target.trim_start_matches("Things/").to_string();
+        let state =
+            super::framework::state(remote, &entry_point).map_err(|error| DeployError::Server {
+                collection: "Things".to_string(),
+                name: entry_point.clone(),
+                why: error.to_string(),
+            })?;
+        report.blocks.push(super::BlockStep {
+            project: project.project.clone(),
+            runs: super::framework::runs(state.as_deref(), redeploy_blocks),
+            entry_point,
+            state,
+            done: false,
+        });
     }
     let interim = super::ai_order::plan(remote, projects)?;
     report.agents_narrowed = interim
@@ -367,8 +398,45 @@ pub(crate) fn run_with_progress(
         let (deploy, post_import) = resolved_calls
             .get(&project.project)
             .expect("every project was resolved before server traffic");
+        // A building block's deploy step is the framework's, not one call.
+        let block_step = deploy.as_ref().filter(|_| project.framework);
+        if let Some(call) = block_step {
+            progress.message(&project.project);
+            let entry_point = call.target.trim_start_matches("Things/");
+            let config = call
+                .parameters
+                .get("deploymentConfig")
+                .cloned()
+                .unwrap_or_else(|| serde_json::json!({}));
+            let outcome = super::framework::run(remote, entry_point, &config, redeploy_blocks);
+            tracing::info!(project = %project.project, ok = outcome.is_ok(), "deploy: block step");
+            progress.advance(1);
+            match outcome {
+                Ok(ran) => {
+                    if let Some(step) = report
+                        .blocks
+                        .iter_mut()
+                        .find(|step| step.project == project.project)
+                    {
+                        step.runs = ran;
+                        step.done = ran;
+                    }
+                }
+                Err(why) => {
+                    call_failure = Some(DeployError::Call {
+                        project: project.project.clone(),
+                        target: call.target.clone(),
+                        service: call.service.clone(),
+                        why: redact_placeholder_values(&why, profile, projects),
+                        imported: report.imported.clone(),
+                    });
+                    break 'projects;
+                }
+            }
+        }
         let calls = deploy
             .iter()
+            .filter(|_| block_step.is_none())
             .chain((!only).then_some(post_import).into_iter().flatten());
         for call in calls {
             progress.message(&project.project);

@@ -814,6 +814,11 @@
           "default": false,
           "description": "Skip the gates, the server requirements check among them. The server's script parse\nduring the deploy still runs."
         },
+        "redeploy_blocks": {
+          "type": "boolean",
+          "default": false,
+          "description": "Run each building block's deploy step ([project.deploy] framework = true) even when the\nSolution Framework has the block Configured."
+        },
         "profile": {
           "type": "string",
           "description": "Server profile name.",

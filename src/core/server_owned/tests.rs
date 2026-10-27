@@ -399,6 +399,7 @@ fn deploy_plans_allow_owned_drift_refuse_source_drift_and_preserve_bundle_values
         scripts: Vec::new(),
         deploy: None,
         post_import: Vec::new(),
+        framework: false,
     }];
     let plans = deploy::decide_all(&fake, &Baseline::default(), &projects).unwrap();
     assert_eq!(plans[0].decision, push::Decision::AlreadyThere);

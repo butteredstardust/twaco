@@ -328,6 +328,8 @@ pub(crate) struct DeployResult {
     network_connections: Option<Vec<Value>>,
     /// Agents imported before the bundles without the items the deploy's namespaces drop.
     agents_narrowed_first: Option<Vec<Value>>,
+    /// Each building block's deploy step: project, entry_point, state before, runs, configured.
+    building_blocks: Option<Vec<Value>>,
     backup: Option<String>,
     imported: Option<Value>,
     kept: Option<u64>,

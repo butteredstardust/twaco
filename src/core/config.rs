@@ -338,6 +338,10 @@ pub(crate) struct ProjectLocalization {
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Deploy {
+    /// The project is a Solution Framework building block: after its import, deploy runs the
+    /// block's deploy step as the framework does (see `deploy::framework`).
+    #[serde(default)]
+    pub(crate) framework: bool,
     #[serde(default)]
     pub(crate) entry_point_thing: Option<String>,
     #[serde(default)]
@@ -346,6 +350,27 @@ pub(crate) struct Deploy {
     pub(crate) deploy_parameters: Option<toml::Table>,
     #[serde(default)]
     pub(crate) post_import: Vec<PostImport>,
+}
+
+/// The service a building block's deploy step calls.
+pub(crate) const DEPLOY_COMPONENT: &str = "DeployComponent";
+
+impl Deploy {
+    /// The project's deploy hook: the Thing and the service to call after its import. A
+    /// building block's defaults to its entry point's `DeployComponent`.
+    pub(crate) fn hook(&self, project: &str) -> Option<(String, String)> {
+        if self.framework {
+            return Some((
+                self.entry_point_thing
+                    .clone()
+                    .unwrap_or_else(|| format!("{project}.EntryPoint")),
+                DEPLOY_COMPONENT.to_string(),
+            ));
+        }
+        self.entry_point_thing
+            .clone()
+            .zip(self.deploy_service.clone())
+    }
 }
 
 /// One configured service to run after the project's deploy service.
@@ -586,6 +611,36 @@ impl Solution {
                         missing: needed.clone(),
                     });
                 }
+            }
+        }
+        for project in &self.projects {
+            let deploy = &project.deploy;
+            if deploy.framework
+                && deploy
+                    .deploy_service
+                    .as_deref()
+                    .is_some_and(|service| service != DEPLOY_COMPONENT)
+            {
+                return Err(ConfigError::Invalid {
+                    path: path.to_path_buf(),
+                    why: format!(
+                        "project {}: [project.deploy] framework = true runs the building block's {DEPLOY_COMPONENT}, so deploy_service may only be that",
+                        project.name
+                    ),
+                });
+            }
+            let not_config = deploy
+                .deploy_parameters
+                .as_ref()
+                .is_some_and(|table| table.keys().any(|key| key != "deploymentConfig"));
+            if deploy.framework && not_config {
+                return Err(ConfigError::Invalid {
+                    path: path.to_path_buf(),
+                    why: format!(
+                        "project {}: with framework = true, deploy_parameters holds only deploymentConfig, the block's deploy parameters",
+                        project.name
+                    ),
+                });
             }
         }
         for check in &self.checks {
@@ -1071,6 +1126,56 @@ name = \"  \"
             ),
             Err(ConfigError::BlankProjectName)
         ));
+    }
+
+    /// A building block's deploy hook is its entry point's DeployComponent unless named.
+    #[test]
+    fn a_framework_deploy_defaults_to_the_entry_point_and_takes_only_deployment_config() {
+        let s = solution(
+            "[[project]]
+name = \"Acme.B\"
+[project.deploy]
+framework = true
+",
+        )
+        .unwrap();
+        assert_eq!(
+            s.projects[0].deploy.hook("Acme.B"),
+            Some((
+                "Acme.B.EntryPoint".to_string(),
+                "DeployComponent".to_string()
+            ))
+        );
+        let refused = |deploy: &str| match solution(&format!(
+            "[[project]]
+name = \"Acme.B\"
+[project.deploy]
+framework = true
+{deploy}"
+        )) {
+            Err(ConfigError::Invalid { why, .. }) => why,
+            other => panic!("{deploy}: {other:?}"),
+        };
+        assert!(refused(
+            "deploy_service = \"Other\"
+"
+        )
+        .contains("may only be that"));
+        assert!(refused(
+            "deploy_parameters = { other = 1 }
+"
+        )
+        .contains("holds only deploymentConfig"));
+        assert!(solution(
+            "[[project]]
+name = \"Acme.B\"
+[project.deploy]
+framework = true
+deploy_service = \"DeployComponent\"
+deploy_parameters = { deploymentConfig = { key = \"${profile:key}\" } }
+"
+        )
+        .is_ok());
     }
 
     #[test]

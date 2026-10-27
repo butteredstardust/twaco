@@ -23,6 +23,8 @@ pub struct DeployRequest {
     pub exclude: Vec<String>,
     pub profile: String,
     pub lock_label: &'static str,
+    /// Run a building block's deploy step even when the framework has it Configured.
+    pub redeploy_blocks: bool,
 }
 
 #[derive(Debug)]
@@ -365,6 +367,7 @@ where
             apply: matches!(request.mode, Mode::Apply),
             force: request.force,
             only: !request.only.is_empty(),
+            redeploy_blocks: request.redeploy_blocks,
         },
         progress,
     ) {
@@ -459,6 +462,7 @@ mod tests {
             scripts: Vec::new(),
             deploy: None,
             post_import: Vec::new(),
+            framework: false,
         };
         let server = NetworkFake(vec![network::ServerConnection {
             connection_type: "Contains".into(),
@@ -508,6 +512,7 @@ mod tests {
             scripts: Vec::new(),
             deploy: None,
             post_import: Vec::new(),
+            framework: false,
         };
         assert_eq!(
             network_changes(&[project], &NoNetwork).unwrap(),
@@ -543,6 +548,7 @@ mod tests {
             exclude: Vec::new(),
             profile: "default".to_string(),
             lock_label: "deploy",
+            redeploy_blocks: false,
         };
         assert!(matches!(
             execute::<crate::core::server::Client, _>(
@@ -593,6 +599,7 @@ mod tests {
             scripts: Vec::new(),
             deploy: None,
             post_import: Vec::new(),
+            framework: false,
         };
         let why = projects_exist(&[bundle("Acme.App")], &Projects(Vec::new())).unwrap_err();
         assert!(why.contains("twaco new project Acme.App"), "{why}");
@@ -793,6 +800,7 @@ name = \"Acme.App\"
             exclude: Vec::new(),
             profile: "default".to_string(),
             lock_label: "deploy",
+            redeploy_blocks: false,
         }
     }
 
@@ -1204,6 +1212,7 @@ minimum = \"1.0.0\"
             exclude: Vec::new(),
             profile: "default".to_string(),
             lock_label: "deploy",
+            redeploy_blocks: false,
         };
         let recorder = Recorder::default();
         let outcome = execute(

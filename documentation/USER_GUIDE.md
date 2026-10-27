@@ -625,6 +625,13 @@ or the framework has not run the block's deploy step; `show` adds the parameters
 `componentVersion` and the Project's `packageVersion` and nothing else, both or neither; a bump is
 refused while the two disagree, and a version given writes both.
 
+With `[project.deploy] framework = true` ([CONFIGURATION.md](CONFIGURATION.md#project)) a
+deploy runs the block's own deploy step as the framework does: its `DeployComponent`, with the
+parameters checked first, and then the state `Configured`, so the Solution Framework page shows the
+block as deployed. A block already `Configured` is left alone unless `--redeploy-blocks` is given.
+A `[project.deploy]` that calls `DeployComponent` itself still works, but leaves the state as it
+was.
+
 The entry point's lifecycle state (`componentDeploymentState` and its deploy, upgrade and migrate
 status tables) is the server's: deploys keep the server's values and comparisons leave them out, so
 a block the framework configured stays configured and its entry point is not reported as changed.

@@ -512,6 +512,8 @@ help:
 |       --only-projects <a,b>   include only these projects
 |       --skip-checks           skip the gates, server requirements too; scripts are still parsed
 |       --no-backup             with --force, do not save the server's copies first
+|       --redeploy-blocks       run a building block's DeployComponent ([project.deploy] framework)
+|                               even when the Solution Framework has it Configured
 |   config-table <thing> [<table>]  one Thing's configuration table on the server; without a
 |                               table, the Thing's tables
 |       --backup <file>         save it (never overwrites a file)
@@ -3338,6 +3340,17 @@ arg --profile
     other: -
     given twice: ArgumentConflict
     given bare: InvalidValue
+arg --redeploy-blocks
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
 arg --skip-checks
     action: SetTrue
     value_name: -
@@ -3359,6 +3372,8 @@ help:
 |       --only-projects <a,b>   include only these projects
 |       --skip-checks           skip the gates, server requirements too; scripts are still parsed
 |       --no-backup             with --force, do not save the server's copies first
+|       --redeploy-blocks       run a building block's DeployComponent ([project.deploy] framework)
+|                               even when the Solution Framework has it Configured
 | 
 |   --profile <name>            the server profile (default: default)
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)

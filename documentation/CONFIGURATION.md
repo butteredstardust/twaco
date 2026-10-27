@@ -190,6 +190,25 @@ its JSON input as a TOML table. Each `[[project.deploy.post_import]]` names one 
 `thing`, `service`, optional `parameters`, and `target` when the host is not a Thing
 (`ThingTemplates/<Name>`, for instance).
 
+`framework = true` makes the project a Solution Framework building block whose deploy step runs as
+the framework's own deploy (`PTC.Base.Manager.InitializeSolution`) runs it for one block, after
+the project imports. `entry_point_thing` defaults to `<project>.EntryPoint` and the service is its
+`DeployComponent`; `deploy_parameters` holds only `deploymentConfig`, the block's deploy
+parameters. When the entry point's `componentDeploymentState` is `Configured` the step is
+skipped (`deploy --redeploy-blocks` runs it anyway). Otherwise the parameters
+`GetComponentDeployConfigurationParameters` marks required must be there, the entry point's
+`ValidateComponentDeployConfigParams` must accept them, and `DeployComponent` must return true;
+then the state becomes `Configured`. A `DeployComponent` that throws leaves it `Error`, one that
+returns false leaves it as it was, and both fail the deploy. A plan reads the state and calls
+none of these services. `InitializeSolution` itself is never called: it deploys every block on the
+server that is not configured.
+
+```toml
+[project.deploy]
+framework = true
+deploy_parameters = { deploymentConfig = { databaseUser = "${profile:database_user}" } }
+```
+
 TOML attaches `[project.deploy]` and `[[project.deploy.post_import]]` to the last `[[project]]`
 written above them, by position. Keep a project's deploy tables directly under that project, and
 add a new `[[project]]` after them, not before: a table written under the wrong project belongs to

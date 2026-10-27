@@ -2545,6 +2545,11 @@
           "type": "boolean",
           "default": false
         },
+        "redeploy_blocks": {
+          "description": "Run each building block's deploy step ([project.deploy] framework = true) even when the\nSolution Framework has the block Configured.",
+          "type": "boolean",
+          "default": false
+        },
         "profile": {
           "description": "Server profile name.",
           "type": "string",
@@ -2663,6 +2668,14 @@
         },
         "agents_narrowed_first": {
           "description": "Agents imported before the bundles without the items the deploy's namespaces drop.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
+        "building_blocks": {
+          "description": "Each building block's deploy step: project, entry_point, state before, runs, configured.",
           "type": [
             "array",
             "null"

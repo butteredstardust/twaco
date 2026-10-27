@@ -13,6 +13,14 @@ All notable changes to twaco are recorded here. The format follows
   groups, permission helper, dependencies) and, with `--server`, the framework's version, state
   and deploy order for each, with a note when the version differs or the block is not configured;
   `show --server` adds the parameters its `DeployComponent` takes.
+- `[project.deploy] framework = true` runs a building block's deploy step as the Solution
+  Framework does: after the import, unless the block is already `Configured` (`deploy
+  --redeploy-blocks`, MCP `redeploy_blocks`, runs it anyway), its entry point's
+  `DeployComponent` with the `deploymentConfig` parameters, which must hold what
+  `GetComponentDeployConfigurationParameters` requires and pass
+  `ValidateComponentDeployConfigParams`; a true result sets `componentDeploymentState` to
+  `Configured`, an exception sets `Error`. The plan says which blocks would run (MCP
+  `building_blocks`) and calls none of these services.
 - `twaco block version <block> (<x.y.z> | --bump patch|minor|major)` (MCP `block_version`) writes
   the entry point's `componentVersion` and the Project's `packageVersion` together; plan unless
   `--apply`.

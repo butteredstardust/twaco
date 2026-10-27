@@ -491,6 +491,8 @@ usage: twaco <command>
       --only-projects <a,b>   include only these projects
       --skip-checks           skip the gates, server requirements too; scripts are still parsed
       --no-backup             with --force, do not save the server's copies first
+      --redeploy-blocks       run a building block's DeployComponent ([project.deploy] framework)
+                              even when the Solution Framework has it Configured
   config-table <thing> [<table>]  one Thing's configuration table on the server; without a
                               table, the Thing's tables
       --backup <file>         save it (never overwrites a file)
