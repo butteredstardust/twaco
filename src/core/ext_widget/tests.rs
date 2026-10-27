@@ -104,13 +104,9 @@ fn a_template_project_is_read_by_its_package_json_rules() {
     assert_eq!(project.package, "demo_ExtensionPackage");
     assert_eq!(project.runner, "yarn");
 
-    // A Java project with a package.json for its tooling stays a Java project.
-    std::fs::create_dir_all(root.join("configfiles")).unwrap();
-    std::fs::write(
-        root.join("configfiles/metadata.xml"),
-        r#"<Entities><ExtensionPackages><ExtensionPackage name="Acme" packageVersion="1.0.0"/></ExtensionPackages></Entities>"#,
-    )
-    .unwrap();
+    // A Java project with a package.json for its tooling stays a Java project, even while its
+    // metadata.xml is broken.
+    std::fs::write(root.join("build.gradle"), "").unwrap();
     assert!(read(root).is_none());
 }
 
@@ -126,6 +122,16 @@ fn the_version_is_written_in_place_and_nothing_else_moves() {
     );
     std::fs::write(dir.path().join("package.json"), "{\"name\": \"x\"}").unwrap();
     assert!(set_version(dir.path(), "1.0.0").is_err());
+    std::fs::write(
+        dir.path().join("package.json"),
+        "{\"\\u0076ersion\": \"1.0.0\"}",
+    )
+    .unwrap();
+    set_version(dir.path(), "1.0.1").unwrap();
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("package.json")).unwrap(),
+        "{\"\\u0076ersion\": \"1.0.1\"}"
+    );
 }
 
 #[test]

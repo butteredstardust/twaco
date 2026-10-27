@@ -201,7 +201,7 @@ in its text block. It has no `structuredContent`, which is kept for results that
 | `extensions` | no | The server's extension packages |
 | `ext_check` | no | A Java extension project's metadata.xml against its source, offline; a widget project's package.json |
 | `ext_build` | workspace | Build an extension project's package zip (npm, Gradle, Ant, or packed by twaco) and check what it holds |
-| `ext_new` | extension folder | Lay out a Java extension project: Gradle build, metadata.xml, SDK jars; dry run by default |
+| `ext_new` | extension folder | Lay out a Java extension project (Gradle build and wrapper, metadata.xml, SDK jars) or, with widget, a package.json widget project; dry run by default |
 | `ext_add` | extension folder | Add a template, shape, resource, widget or jar with its metadata.xml entry; dry run by default |
 | `ext_deploy` | server | Build an [[extension]], validate its package, install it with a version bump; dry run by default |
 | `extension_write` | server | Validate, install or remove an extension package |

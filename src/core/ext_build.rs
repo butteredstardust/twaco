@@ -216,8 +216,9 @@ pub(crate) fn run_build(root: &Path) -> Result<Option<Vec<String>>, String> {
         "gradlew"
     };
     let (tool, args): (String, &[&str]) = if root.join(wrapper).is_file() {
+        // Named from the project folder, where the build runs, not from where twaco was started.
         (
-            root.join(wrapper).to_string_lossy().into_owned(),
+            Path::new(".").join(wrapper).to_string_lossy().into_owned(),
             &["build", "--no-daemon"],
         )
     } else if root.join("build.gradle").is_file() || root.join("build.gradle.kts").is_file() {
@@ -299,11 +300,27 @@ fn run(root: &Path, tool: &str, args: &[&str]) -> Result<String, String> {
         .map(|tail| tail.text(std::time::Duration::from_secs(5)))
         .collect();
     if !status.success() {
-        let lines: Vec<&str> = text.lines().collect();
+        let lines: Vec<String> = text.lines().map(masked).collect();
         let tail = lines[lines.len().saturating_sub(30)..].join("\n");
         return Err(format!("{shown} failed:\n{tail}"));
     }
     Ok(shown)
+}
+
+/// A build's output line with what looks like a credential after `=` or `:` hidden: a registry
+/// token in an npm error, a password a script echoes.
+fn masked(line: &str) -> String {
+    let lower = line.to_ascii_lowercase();
+    let marker = ["_authtoken", "_auth", "token", "password", "secret"]
+        .iter()
+        .find_map(|word| lower.find(word).map(|at| at + word.len()));
+    let Some(at) = marker else {
+        return line.to_string();
+    };
+    match line[at..].find(['=', ':']) {
+        Some(offset) => format!("{}<hidden>", &line[..at + offset + 1]),
+        None => line.to_string(),
+    }
 }
 
 /// The last 64 KiB a build writes to one stream, read as it runs so a long build neither
@@ -353,6 +370,17 @@ fn tail_of(mut stream: impl std::io::Read + Send + 'static) -> Tail {
 /// Pack a project with no build into `build/distributions/<package>.zip`.
 fn pack(root: &Path, identity: &Identity) -> Result<PathBuf, String> {
     use std::io::Write as _;
+    let name = &identity.package;
+    if name.is_empty()
+        || name.starts_with('.')
+        || name
+            .chars()
+            .any(|c| c.is_control() || "/\\:*?\"<>|".contains(c))
+    {
+        return Err(format!(
+            "the ExtensionPackage name {name:?} cannot name a zip file"
+        ));
+    }
     let (_, metadata) = metadata(root)?;
     let mut files: Vec<(String, Vec<u8>)> = vec![("metadata.xml".to_string(), metadata)];
     for folder in ["ui", "Entities", "Localization"] {
@@ -432,13 +460,21 @@ pub(crate) fn package_zip(
     for dir in ["build", "zip"] {
         collect_zips(&root.join(dir), 3, &mut found);
     }
+    // A package.json build writes its zip under zip/; a Java build under build/distributions.
+    let widget = ext_widget::read(root).is_some();
     let place = |path: &Path| {
         if path.starts_with(&distributions) {
-            0
+            if widget {
+                1
+            } else {
+                0
+            }
         } else if path.starts_with(root.join("build")) {
-            1
-        } else {
             2
+        } else if widget {
+            0
+        } else {
+            3
         }
     };
     found.sort_by_key(|(path, modified)| (place(path), std::cmp::Reverse(*modified)));

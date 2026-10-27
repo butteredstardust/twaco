@@ -114,6 +114,49 @@ fn files_metadata_names_and_the_zip_lacks_are_problems() {
 }
 
 #[test]
+fn a_credential_in_build_output_is_hidden() {
+    assert_eq!(
+        masked("npm ERR! //registry.example/:_authToken=abc123"),
+        "npm ERR! //registry.example/:_authToken=<hidden>"
+    );
+    assert_eq!(masked("password: hunter2"), "password:<hidden>");
+    assert_eq!(masked("BUILD FAILED"), "BUILD FAILED");
+}
+
+#[test]
+fn a_package_name_that_is_a_path_is_not_packed() {
+    let dir = plain();
+    let metadata = dir.path().join("metadata.xml");
+    let text = std::fs::read_to_string(&metadata).unwrap();
+    std::fs::write(&metadata, text.replace("name=\"Acme\"", "name=\"../../x\"")).unwrap();
+    let error = build(dir.path(), "acme").unwrap_err();
+    assert!(error.contains("cannot name a zip file"), "{error}");
+}
+
+#[test]
+fn a_widget_project_takes_its_zip_from_zip_before_build() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::fs::write(
+        root.join("package.json"),
+        r#"{"packageName": "Acme", "version": "1.0.0", "scripts": {"build": "x"}}"#,
+    )
+    .unwrap();
+    let zip_with = |path: &Path| {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let mut zip = zip::ZipWriter::new(std::fs::File::create(path).unwrap());
+        zip.start_file("metadata.xml", zip::write::SimpleFileOptions::default())
+            .unwrap();
+        zip.write_all(METADATA.as_bytes()).unwrap();
+        zip.finish().unwrap();
+    };
+    zip_with(&root.join("zip/Acme-prod-v1.0.0.zip"));
+    zip_with(&root.join("build/distributions/Acme.zip"));
+    let found = package_zip(root, "acme", "Acme", "1.0.0").unwrap();
+    assert!(found.ends_with("zip/Acme-prod-v1.0.0.zip"), "{found:?}");
+}
+
+#[test]
 fn a_widget_project_is_identified_by_its_package_json() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(

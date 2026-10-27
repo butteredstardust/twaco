@@ -110,6 +110,7 @@ const OPEN_WORLD: &[&str] = &[
     "network",
     "network_write",
     "block",
+    "ext_build",
 ];
 
 /// Writing tools whose changes only add or regenerate: they create files that did not exist,
@@ -130,7 +131,6 @@ const ADDITIVE: &[&str] = &[
     "requirements_init",
     "ext_new",
     "ext_add",
-    "ext_build",
 ];
 
 /// Writing tools that, called again with the same arguments, change nothing more.

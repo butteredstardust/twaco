@@ -7616,8 +7616,8 @@
     },
     "annotations": {
       "readOnlyHint": false,
-      "openWorldHint": false,
-      "destructiveHint": false,
+      "openWorldHint": true,
+      "destructiveHint": true,
       "idempotentHint": false
     },
     "outputSchema": {

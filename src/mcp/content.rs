@@ -1119,8 +1119,9 @@ pub(crate) fn ext_build_tool(
             crate::core::ext_check::render(&check).trim_end()
         )));
     }
+    // Everything here is local: a build tool that failed, or a zip that is not a package.
     let built = crate::core::ext_build::build(&folder, &shown)
-        .map_err(|error| ToolError::with(ErrorCode::ServerError, error))?;
+        .map_err(|error| ToolError::with(ErrorCode::InvalidData, error))?;
     let mut value = serde_json::to_value(&built).expect("a build serialises");
     value["ok"] = json!(true);
     value["passed"] = json!(built.problems.is_empty());

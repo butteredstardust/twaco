@@ -146,6 +146,16 @@ where
         (None, _) => None,
     };
     let bump = wanted.map(|parts| format!("{local} -> {}", show_version(parts)));
+    // npm writes the new version into the lock file as it builds; it goes back with package.json.
+    let lock = match identity.source {
+        Source::PackageJson => ["package-lock.json", "npm-shrinkwrap.json"]
+            .into_iter()
+            .find_map(|name| {
+                let path = root.join(name);
+                std::fs::read(&path).ok().map(|bytes| (path, bytes))
+            }),
+        Source::Metadata(_) => None,
+    };
     let sending = match wanted {
         Some(parts) if request.apply => {
             let version = show_version(parts);
@@ -159,6 +169,11 @@ where
     let undo = |error: String| -> String {
         if !bumped {
             return error;
+        }
+        if let Some((path, bytes)) = &lock {
+            if std::fs::read(path).ok().as_ref() != Some(bytes) {
+                let _ = super::ext_new::replace_whole(path, bytes);
+            }
         }
         match write_version(&root, &identity, &local) {
             Ok(()) => format!("{error}\n({key} is {local} again)"),

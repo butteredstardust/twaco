@@ -22,13 +22,22 @@ pub(crate) struct NpmProject {
     pub(crate) runner: &'static str,
 }
 
-/// The project at `root`, when it is a package.json widget project: a package.json, and no
-/// metadata.xml naming a package (the template's own metadata.xml leaves the name empty).
+/// The project at `root`, when it is a package.json widget project: a package.json, and nothing
+/// of a Java project beside it: no Gradle or Ant build, no `configfiles/`, and no metadata.xml
+/// naming a package (the template's own metadata.xml leaves the name empty). A Java project may
+/// keep a package.json for its tooling.
 pub(crate) fn read(root: &Path) -> Option<Result<NpmProject, String>> {
     let text = std::fs::read_to_string(root.join("package.json")).ok()?;
-    if names_a_package(&root.join("configfiles/metadata.xml"))
-        || names_a_package(&root.join("metadata.xml"))
-    {
+    let java = [
+        "build.gradle",
+        "build.gradle.kts",
+        "build.xml",
+        "build-extension.xml",
+        "configfiles",
+    ]
+    .iter()
+    .any(|marker| root.join(marker).exists());
+    if java || names_a_package(&root.join("metadata.xml")) {
         return None;
     }
     Some(parse(&text).map(|(package, version)| NpmProject {
@@ -95,14 +104,14 @@ fn top_level_string(text: &str, key: &str) -> Option<(usize, usize)> {
             b'"' => {
                 let start = at + 1;
                 let end = string_end(bytes, start)?;
-                let value = &text[start..end];
                 at = end + 1;
                 if depth != 1 {
                     continue;
                 }
                 let next = text[at..].trim_start();
                 if next.starts_with(':') {
-                    pending = Some(value.to_string());
+                    // A key as JSON reads it: `"\u0076ersion"` is `version`.
+                    pending = serde_json::from_str::<String>(&text[start - 1..=end]).ok();
                 } else if pending.take().as_deref() == Some(key) {
                     return Some((start, end));
                 }
