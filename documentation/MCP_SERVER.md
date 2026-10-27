@@ -51,7 +51,7 @@ Server tools use the same [profiles](CONFIGURATION.md#server-profiles) as the co
 pass `profile` to choose one.
 
 **Fewer tools.** A client keeps every listed tool's definition in the agent's context on every
-turn, and all 85 come to about 154 KB with their output schemas (about 101 KB for a client on a
+turn, and all 87 come to about 157 KB with their output schemas (about 103 KB for a client on a
 revision before `2025-06-18`, which gets none). `--tools` (or `TWACO_MCP_TOOLS`) lists and runs only
 the groups named, comma-separated; any other tool is unknown to that server. `core` alone is about
 35 KB (20 KB without output schemas).
@@ -59,7 +59,7 @@ the groups named, comma-separated; any other tool is unknown to that server. `co
 | Group | Tools |
 | --- | --- |
 | `core` | projects, types, check, status, sync, extract, fmt, push, deploy, bundle, catalog, impact, contract_diff, trace, unused, search, entity_get, docs, doctor, guide |
-| `entity` | entity_pull, entity_delete, entity_restore, entity_carry, entity_new, network, network_write, entity_edit, new_building_block, export, import, package |
+| `entity` | entity_pull, entity_delete, entity_restore, entity_carry, entity_new, network, network_write, entity_edit, new_building_block, block, block_version, export, import, package |
 | `refactor` | rename, move_member, reproject, retemplate, adopt_report, adopt_apply, handoff |
 | `mashup` | mashup_new, mashup_templates, mashup_add, mashup_add_contained, mashup_bind, mashup_on, widgets, mashup_param, mashup_recipe, mashup_event, mashup_validate, mashup_describe |
 | `permissions` | permissions, requirements_init, requirements_check, permissions_init, permissions_audit, permissions_apply, permissions_push |
@@ -161,6 +161,8 @@ in its text block. It has no `structuredContent`, which is kept for results that
 | `move_member` | workspace | Move or copy a service or property between Things, templates and shapes; reports the callers it breaks; plan by default |
 | `reproject` | workspace | Move entities to another project of the solution, naming each reference the move puts outside the deploy order; plan by default |
 | `new_building_block` | workspace | Create a building block as files and register its project, plan by default |
+| `block` | no | The solution's building blocks, or one; with server true the framework's version, state, deploy order and deploy parameters |
+| `block_version` | workspace | Raise or set a block's componentVersion and Project packageVersion together, plan by default |
 | `entity_new` | workspace | Create an entity as a repository XML file (Things, templates, shapes, DataShapes, DataTables, styles, menus, Networks, ...); plan by default |
 | `entity_edit` | workspace | Change an entity as Composer would: properties, script services, subscriptions, shapes, timers, schedulers, styles, states, menus, media; plan by default |
 | `network` | no | List Networks, show an asset hierarchy, or diff repository and server connections |

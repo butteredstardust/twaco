@@ -119,6 +119,10 @@ pub(crate) struct DeployRequest {
     /// during the deploy still runs.
     #[serde(default)]
     pub skip_checks: bool,
+    /// Run each building block's deploy step ([project.deploy] framework = true) even when the
+    /// Solution Framework has the block Configured.
+    #[serde(default)]
+    pub redeploy_blocks: bool,
     /// Server profile name.
     #[serde(default = "default_profile")]
     pub profile: String,

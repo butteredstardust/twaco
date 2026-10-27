@@ -771,3 +771,31 @@ fn a_twaco_toml_that_mixes_line_endings_keeps_every_byte_it_had() {
     // Two CRLF to one bare line feed: the block is written in the file's majority style.
     assert!(planned.config_after[before.len()..].contains("\r\n"));
 }
+
+/// The server keeps no whitespace for an empty description, so none is written.
+#[test]
+fn an_empty_description_is_written_as_no_value() {
+    let fixture = fixture();
+    let planned = plan(
+        &fixture.solution,
+        &Request {
+            description: String::new(),
+            ..standard("Acme.Block")
+        },
+    )
+    .unwrap();
+    let entry_point = &planned
+        .files
+        .iter()
+        .find(|file| file.path.ends_with("Things/Acme.Block.EntryPoint.xml"))
+        .unwrap()
+        .text;
+    let description = entry_point
+        .split("<componentDescription>")
+        .nth(1)
+        .unwrap()
+        .split("</componentDescription>")
+        .next()
+        .unwrap();
+    assert!(description.contains("<Value></Value>"), "{description}");
+}

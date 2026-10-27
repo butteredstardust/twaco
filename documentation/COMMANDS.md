@@ -389,6 +389,15 @@ new ai-agent <name> --namespace <Namespace[=item,...]>... [--skill Repository:/p
 Against a server: what differs, what would be imported, and doing it.
 
 ```text
+block list [--server] [--profile <name>] [--json]
+                            the solution's Solution Framework building blocks: type, version, name;
+                            --server: the framework's version, state and deploy order beside each
+block show <block> [--server] [--profile <name>] [--json]
+                            one block: entry point, manager, organization, groups, permission
+                            helper, dependencies; --server: its state and DeployComponent's parameters
+block version <block> (<x.y.z> | --bump patch|minor|major) [--apply] [--json]
+                            the entry point's componentVersion and the Project's packageVersion,
+                            together; plan unless --apply
 network list [--json]       list repository Networks and their hierarchy counts
 network show <Network> [<Thing>] [--depth <n>] [--server] [--profile <name>] [--json]
                             a Network's hierarchy as a tree: each Thing's template, things outside
@@ -502,6 +511,8 @@ deploy [--apply] [--force] [--json]
     --only-projects <a,b>   include only these projects
     --skip-checks           skip the gates, server requirements too; scripts are still parsed
     --no-backup             with --force, do not save the server's copies first
+    --redeploy-blocks       run a building block's DeployComponent ([project.deploy] framework)
+                            even when the Solution Framework has it Configured
 config-table <thing> [<table>]  one Thing's configuration table on the server; without a
                             table, the Thing's tables
     --backup <file>         save it (never overwrites a file)

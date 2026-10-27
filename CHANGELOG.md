@@ -6,6 +6,43 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `twaco block list | show <block> [--server]` (MCP `block`): the solution's Solution Framework
+  building blocks from the repository (type, version, entry point, manager, organization and
+  groups, permission helper, dependencies) and, with `--server`, the framework's version, state
+  and deploy order for each, with a note when the version differs or the block is not configured;
+  `show --server` adds the parameters its `DeployComponent` takes.
+- `[project.deploy] framework = true` runs a building block's deploy step as the Solution
+  Framework does: after the import, unless the block is already `Configured` (`deploy
+  --redeploy-blocks`, MCP `redeploy_blocks`, runs it anyway), its entry point's
+  `DeployComponent` with the `deploymentConfig` parameters, which must hold what
+  `GetComponentDeployConfigurationParameters` requires and pass
+  `ValidateComponentDeployConfigParams`; a true result sets `componentDeploymentState` to
+  `Configured`, an exception sets `Error`. The plan says which blocks would run (MCP
+  `building_blocks`) and calls none of these services.
+- `twaco block version <block> (<x.y.z> | --bump patch|minor|major)` (MCP `block_version`) writes
+  the entry point's `componentVersion` and the Project's `packageVersion` together; plan unless
+  `--apply`.
+
+### Changed
+
+- `check` accepts a service implemented with no local definition when an ancestor defines it: a
+  template or shape of the solution or of an `[[extension]]`, or one in the platform cache
+  (`twaco types --platform`), such as the Solution Framework's `DeployComponent` or a platform
+  template's resolver services. Only a definition found counts; the rest still need
+  `[validate] inherited_overrides`.
+
+### Fixed
+
+- A building block's lifecycle state on its entry point (`componentDeploymentState` and the
+  deploy, upgrade and migrate status tables of each project's `Things/<project>.EntryPoint`) is the server's: an
+  import keeps the server's values and comparisons leave them out. Before, every deploy reset a
+  configured block to `Not Configured`, and once the Solution Framework had configured it, the
+  next deploy refused its entry point as changed on the server.
+- `new building-block` with no description writes an empty value, which the first deploy reads
+  back as kept, rather than a whitespace one the server does not keep.
+
 ## [0.1.37] - 2026-10-27
 
 ### Added

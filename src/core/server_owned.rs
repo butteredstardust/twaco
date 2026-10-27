@@ -86,7 +86,20 @@ impl Part {
 pub(crate) struct Rule {
     pub(crate) entities: Vec<String>,
     pub(crate) parts: Vec<Part>,
+    /// twaco's own rule rather than one from `twaco.toml`.
+    pub(crate) built_in: bool,
 }
+
+/// The Solution Framework's record of a building block's lifecycle on its entry point Thing:
+/// `InitializeSolution` sets the state after `DeployComponent`, and the status tables follow each
+/// action. The repository's copy says `Not Configured`, so importing it would reset a configured
+/// block, and comparing it would call the framework's own write a change on the server.
+pub(crate) const ENTRY_POINT_STATE: [&str; 4] = [
+    "componentDeploymentState",
+    "deployComponentStatus",
+    "migrateComponentStatus",
+    "upgradeComponentStatus",
+];
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -121,11 +134,31 @@ impl TryFrom<RuleInput> for Rule {
         Ok(Self {
             entities: input.entities,
             parts: input.parts,
+            built_in: false,
         })
     }
 }
 
 impl Rule {
+    /// A building block's entry point owns [`ENTRY_POINT_STATE`] on the server. The framework
+    /// names it `<project>.EntryPoint`, so the rule names exactly that Thing of each project; one
+    /// without those properties has nothing the rule selects.
+    pub(crate) fn entry_point_state<'a>(projects: impl IntoIterator<Item = &'a str>) -> Self {
+        Self {
+            entities: projects
+                .into_iter()
+                .map(|project| format!("Things/{project}.EntryPoint"))
+                .collect(),
+            parts: vec![Part::Properties(
+                ENTRY_POINT_STATE
+                    .iter()
+                    .map(|name| name.to_string())
+                    .collect(),
+            )],
+            built_in: true,
+        }
+    }
+
     pub(crate) fn matches(&self, collection: &str, name: &str) -> bool {
         self.entities
             .iter()

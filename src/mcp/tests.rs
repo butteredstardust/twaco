@@ -1161,6 +1161,8 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
             "new_building_block",
             "entity_new",
             "network",
+            "block",
+            "block_version",
             "network_write",
             "entity_edit",
             "mashup_new",
@@ -1233,6 +1235,7 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
         "new_building_block",
         "entity_new",
         "network_write",
+        "block_version",
         "entity_edit",
         "mashup_new",
         "mashup_add",
@@ -2328,6 +2331,20 @@ fn what_the_offline_tools_return_fits_the_output_schema_they_publish() {
         (
             "localization_write",
             json!({"action": "set", "token": "P.hello", "value": "Hello"}),
+        ),
+        (
+            "new_building_block",
+            json!({"name": "P.Orders", "base_extension": "PTC.Base:1.0.0", "dry_run": false}),
+        ),
+        ("block", json!({"action": "list"})),
+        ("block", json!({"action": "show", "block": "Orders"})),
+        (
+            "block_version",
+            json!({"block": "P.Orders", "bump": "patch"}),
+        ),
+        (
+            "block_version",
+            json!({"block": "P.Orders", "set": "2.0.0", "dry_run": false}),
         ),
     ];
     let mut failures = Vec::new();

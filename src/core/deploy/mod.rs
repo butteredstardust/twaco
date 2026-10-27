@@ -10,6 +10,7 @@ use super::{bundle, config, sidecar, workspace};
 mod ai_order;
 mod calls;
 mod error;
+mod framework;
 mod model;
 mod plan;
 mod remote;
@@ -17,6 +18,7 @@ mod run;
 
 pub use ai_order::{AgentNarrowing, DroppedItems};
 pub use error::DeployError;
+pub use framework::BlockStep;
 pub(crate) use model::{
     Entity, NotKept, ParseFailure, PlanOptions, PlannedCall, ProjectBundle, Script, ServiceCall,
 };

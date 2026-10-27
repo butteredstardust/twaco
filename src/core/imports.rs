@@ -617,6 +617,7 @@ mod tests {
         vec![server_owned::Rule {
             entities: vec![entity.to_string()],
             parts: vec![server_owned::Part::try_from(part.to_string()).unwrap()],
+            built_in: false,
         }]
     }
 

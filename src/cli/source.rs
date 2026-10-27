@@ -605,6 +605,8 @@ pub(crate) struct Deploy {
     pub(crate) only_projects: OnlyProjects,
     #[arg(long = "skip-checks")]
     pub(crate) skip_checks: bool,
+    #[arg(long = "redeploy-blocks")]
+    pub(crate) redeploy_blocks: bool,
     #[arg(long = "no-backup")]
     pub(crate) no_backup: bool,
     #[command(flatten)]
@@ -628,6 +630,7 @@ pub(crate) fn deploy_cmd(solution: &Solution, args: &Deploy) -> u8 {
         exclude: args.exclude.clone(),
         profile: args.profile.name().to_string(),
         lock_label: "deploy",
+        redeploy_blocks: args.redeploy_blocks,
     };
     let mut notices = commands::Notices::default();
     let progress = super::progress::reporter();
@@ -815,7 +818,8 @@ fn deploy_json(
                 "calls": report.calls.iter().map(|c| json!({"project": c.project, "call": c.call.to_string(), "skipped": c.skipped})).collect::<Vec<_>>(),
                 "localization": localization.map(|l| l.tables.iter().map(|t| json!({"table": t.table, "create": t.create, "set": t.set.len(), "imported": l.applied})).collect::<Vec<_>>()),
                 "network_connections": report.network_changes.iter().map(|n| json!({"name": n.name, "adds": n.adds, "moves": n.moves, "removes": n.removes})).collect::<Vec<_>>(),
-                "agents_narrowed_first": report.agents_narrowed.iter().map(agent_narrowing_json).collect::<Vec<_>>() }),
+                "agents_narrowed_first": report.agents_narrowed.iter().map(agent_narrowing_json).collect::<Vec<_>>(),
+                "building_blocks": report.blocks.iter().map(block_step_json).collect::<Vec<_>>() }),
                 OK,
             )
         }
@@ -869,6 +873,39 @@ fn agent_narrowing_json(narrowing: &deploy::AgentNarrowing) -> serde_json::Value
         "project": narrowing.project,
         "dropped": narrowing.dropped.iter().map(|d| serde_json::json!({"namespace": d.namespace, "tools": d.tools, "resources": d.resources, "prompts": d.prompts})).collect::<Vec<_>>(),
     })
+}
+
+fn block_step_json(step: &deploy::BlockStep) -> serde_json::Value {
+    serde_json::json!({
+        "project": step.project, "entry_point": step.entry_point, "state": step.state,
+        "runs": step.runs, "configured": step.done,
+    })
+}
+
+/// Each building block's deploy step: whether DeployComponent runs, and why.
+fn print_block_steps(steps: &[deploy::BlockStep], apply: bool) {
+    for step in steps {
+        let state = step.state.as_deref().unwrap_or("not on the server yet");
+        let line = match (apply, step.runs) {
+            (true, true) => format!(
+                "ran {}.DeployComponent; the block is Configured",
+                step.entry_point
+            ),
+            (true, false) => {
+                "skipped DeployComponent: the block is Configured (--redeploy-blocks runs it)"
+                    .to_string()
+            }
+            (false, true) => format!(
+                "would run {}.DeployComponent as the Solution Framework does ({state})",
+                step.entry_point
+            ),
+            (false, false) => {
+                "would skip DeployComponent: the block is Configured (--redeploy-blocks runs it)"
+                    .to_string()
+            }
+        };
+        println!("project {}: building block: {line}", step.project);
+    }
 }
 
 /// Agents imported before the bundles without what the namespaces drop.
@@ -947,6 +984,7 @@ fn print_deploy_report(report: &deploy::Report, apply: bool, force: bool) {
             println!("project {project}: would import one bundle");
         }
         print_deploy_calls(report, false);
+        print_block_steps(&report.blocks, apply);
         println!("dry run: no import was sent and no baseline was written; pass --apply to deploy");
     } else {
         for project in &report.imported {
@@ -958,6 +996,7 @@ fn print_deploy_report(report: &deploy::Report, apply: bool, force: bool) {
             report.not_kept.len()
         );
         print_deploy_calls(report, true);
+        print_block_steps(&report.blocks, apply);
         for (collection, name) in &report.changed_by_deploy {
             println!("changed by the deploy step: {collection}/{name}");
         }
@@ -971,6 +1010,15 @@ fn print_deploy_report(report: &deploy::Report, apply: bool, force: bool) {
 
 fn print_deploy_calls(report: &deploy::Report, apply: bool) {
     for planned in &report.calls {
+        // A building block's deploy step has its own line.
+        if !planned.is_post_import()
+            && report
+                .blocks
+                .iter()
+                .any(|step| step.project == planned.project)
+        {
+            continue;
+        }
         if planned.skipped {
             println!(
                 "project {}: post-import {} skipped because --only was used",

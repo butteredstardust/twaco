@@ -26,6 +26,8 @@ pub(crate) struct ProjectBundle {
     pub(crate) entities: Vec<Entity>,
     pub(crate) scripts: Vec<Script>,
     pub(crate) deploy: Option<ServiceCall>,
+    /// `deploy` is a building block's deploy step, run as the framework runs it.
+    pub(crate) framework: bool,
     pub(crate) post_import: Vec<ServiceCall>,
 }
 
@@ -90,6 +92,8 @@ pub struct Report {
     /// Agents imported first without allowances the deploy's namespaces drop, which the server
     /// refuses while an agent on it allows them.
     pub agents_narrowed: Vec<super::AgentNarrowing>,
+    /// Each building block's deploy step (`[project.deploy] framework = true`).
+    pub blocks: Vec<super::BlockStep>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -99,6 +103,13 @@ pub struct NetworkChange {
     /// Things the import puts under another parent or connects with another type.
     pub moves: usize,
     pub removes: usize,
+}
+
+impl PlannedCall {
+    /// Whether it runs after the project's deploy service rather than being it.
+    pub fn is_post_import(&self) -> bool {
+        self.post_import
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]

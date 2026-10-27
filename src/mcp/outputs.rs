@@ -95,6 +95,34 @@ pub(crate) struct NetworkResult {
     repository_only: Option<Vec<Value>>,
     different: Option<Vec<Value>>,
 }
+/// list: `blocks`, each the repository's block, or with server true {block, server, notes};
+/// show: `block`, and with server true `server`, `notes` and `deploy_parameters`.
+#[derive(Serialize, JsonSchema)]
+pub(crate) struct BlockResult {
+    blocks: Option<Vec<Value>>,
+    block: Option<Value>,
+    server: Option<Value>,
+    notes: Option<Vec<String>>,
+    /// Each with name, types, description and optional.
+    deploy_parameters: Option<Vec<Value>>,
+    /// Why the entry point could not say its parameters.
+    deploy_parameters_error: Option<String>,
+}
+
+#[derive(Serialize, JsonSchema)]
+pub(crate) struct BlockVersionResult {
+    ok: bool,
+    dry_run: bool,
+    block: String,
+    from: String,
+    to: String,
+    /// The Project's file and the entry point's, relative to the solution.
+    files: Vec<String>,
+    plan: Option<bool>,
+    applied: Option<bool>,
+    notices: Notices,
+}
+
 #[derive(Serialize, JsonSchema)]
 pub(crate) struct NetworkWriteResult {
     dry_run: bool,
@@ -300,6 +328,8 @@ pub(crate) struct DeployResult {
     network_connections: Option<Vec<Value>>,
     /// Agents imported before the bundles without the items the deploy's namespaces drop.
     agents_narrowed_first: Option<Vec<Value>>,
+    /// Each building block's deploy step: project, entry_point, state before, runs, configured.
+    building_blocks: Option<Vec<Value>>,
     backup: Option<String>,
     imported: Option<Value>,
     kept: Option<u64>,

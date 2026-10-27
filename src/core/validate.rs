@@ -6,7 +6,9 @@
 
 use super::config::Solution;
 use super::scan::{self, Kind};
+use super::types::{platform::Platform, Model};
 use super::workspace::{self, EntityFile};
+use std::cell::OnceCell;
 use std::collections::{BTreeMap, BTreeSet};
 
 /// One inconsistency, with the file it is in.
@@ -47,8 +49,12 @@ pub(crate) fn check_in(solution: &Solution, found: &workspace::Discovery) -> Vec
     }
 
     let vocabularies = vocabularies(found);
+    let ancestry = Ancestry {
+        solution,
+        loaded: OnceCell::new(),
+    };
     for entity in &found.entities {
-        problems.extend(check_one(solution, entity, &vocabularies));
+        problems.extend(check_one(solution, entity, &vocabularies, &ancestry));
     }
 
     for problem in &found.unreadable {
@@ -72,10 +78,41 @@ pub(crate) fn check_in(solution: &Solution, found: &workspace::Discovery) -> Vec
     problems
 }
 
+/// Whether an ancestor defines a service an entity implements with no definition of its own: a
+/// template or shape of the solution or of a configured extension, or one the platform cache
+/// holds. Loaded the first time a file needs it; only a definition found counts, so an
+/// incomplete chain or a missing cache leaves the finding standing.
+struct Ancestry<'a> {
+    solution: &'a Solution,
+    loaded: OnceCell<(Model, Option<Platform>)>,
+}
+
+impl Ancestry<'_> {
+    fn defines(&self, collection: &str, name: &str, service: &str) -> bool {
+        let (model, platform) = self.loaded.get_or_init(|| {
+            (
+                super::types::load_model(self.solution).0,
+                super::types::platform::cached(self.solution),
+            )
+        });
+        let Some(entity) = model
+            .entities
+            .iter()
+            .find(|entity| entity.collection == collection && entity.name == name)
+        else {
+            return false;
+        };
+        super::catalog::lookup_service(entity, &model.entities, platform.as_ref(), service)
+            .service
+            .is_some()
+    }
+}
+
 fn check_one(
     solution: &Solution,
     entity: &EntityFile,
     vocabularies: &Vocabularies,
+    ancestry: &Ancestry,
 ) -> Vec<Problem> {
     let mut problems = Vec::new();
     let file = relative(solution, entity);
@@ -139,6 +176,7 @@ fn check_one(
         &entity.info.name,
         &src,
         &solution.validate.inherited_overrides,
+        &|service| ancestry.defines(&entity.info.collection, &entity.info.name, service),
     ));
     if entity.info.collection == "Mashups" {
         problems.extend(check_mashup(&file, &src));
@@ -243,10 +281,17 @@ fn check_tags(file: &str, src: &[u8], vocabularies: &Vocabularies) -> Vec<Proble
 
 /// A service declared without an implementation, or implemented without a declaration.
 ///
-/// The second half is legitimate when the definition is inherited from a shape or template, so
-/// the solution can name the services it knows are overridden that way: `Entity.Service` for
-/// one entity, or a bare `Service` for that service wherever it is implemented.
-fn check_services(file: &str, entity: &str, src: &[u8], allowed: &[String]) -> Vec<Problem> {
+/// The second half is legitimate when the definition is inherited from a shape or template:
+/// `inherited` says whether an ancestor is known to define it, and the solution can name the
+/// others it knows are overridden that way: `Entity.Service` for one entity, or a bare `Service`
+/// for that service wherever it is implemented.
+fn check_services(
+    file: &str,
+    entity: &str,
+    src: &[u8],
+    allowed: &[String],
+    inherited: &dyn Fn(&str) -> bool,
+) -> Vec<Problem> {
     let Ok(extraction) = super::sidecar::extract(src) else {
         return Vec::new();
     };
@@ -271,7 +316,7 @@ fn check_services(file: &str, entity: &str, src: &[u8], allowed: &[String]) -> V
     let unexplained: Vec<&String> = extraction
         .inherited
         .iter()
-        .filter(|name| !listed(name))
+        .filter(|name| !listed(name) && !inherited(name))
         .collect();
     if !unexplained.is_empty() {
         let names: Vec<&str> = unexplained.iter().map(|n| n.as_str()).collect();
@@ -364,7 +409,7 @@ mod tests {
         let src = br#"<Entities><Things><Thing name="Acme.T"><ThingShape><ServiceDefinitions/><ServiceImplementations><ServiceImplementation name="Run" handlerName="Script"><ConfigurationTables><ConfigurationTable name="Script"><Rows><Row><code><![CDATA[1;]]></code></Row></Rows></ConfigurationTable></ConfigurationTables></ServiceImplementation></ServiceImplementations></ThingShape></Thing></Things></Entities>"#;
         let rules = |allowed: &[&str]| -> Vec<&'static str> {
             let allowed: Vec<String> = allowed.iter().map(|a| a.to_string()).collect();
-            check_services("t.xml", "Acme.T", src, &allowed)
+            check_services("t.xml", "Acme.T", src, &allowed, &|_| false)
                 .iter()
                 .map(|p| p.rule)
                 .collect()
@@ -382,6 +427,60 @@ mod tests {
             rules(&["Acme.Other.Run"]),
             ["service-without-definition"],
             "another entity's"
+        );
+    }
+
+    /// An override needs no listing when an ancestor is known to define the service: a template
+    /// of the solution, or one the platform cache holds. An unknown one is still reported.
+    #[test]
+    fn an_override_of_a_known_ancestor_service_needs_no_listing() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("twaco.toml"), "[[project]]\nname = 'P'\n").unwrap();
+        let implementation = |service: &str| {
+            format!(
+                r#"<ServiceImplementations><ServiceImplementation name="{service}" handlerName="Script"><ConfigurationTables><ConfigurationTable name="Script"><Rows><Row><code><![CDATA[1;]]></code></Row></Rows></ConfigurationTable></ConfigurationTables></ServiceImplementation></ServiceImplementations>"#
+            )
+        };
+        for (path, xml) in [
+            (
+                "ThingTemplates/P.Base_TT.xml",
+                r#"<Entities><ThingTemplates><ThingTemplate name="P.Base_TT" projectName="P" baseThingTemplate="PTC.Base.EntryPoint_TT"><ServiceDefinitions><ServiceDefinition name="Local"><ResultType baseType="NOTHING" name="result"/></ServiceDefinition></ServiceDefinitions></ThingTemplate></ThingTemplates></Entities>"#.to_string(),
+            ),
+            (
+                "ThingTemplates/P.EntryPoint_TT.xml",
+                format!(
+                    r#"<Entities><ThingTemplates><ThingTemplate name="P.EntryPoint_TT" projectName="P" baseThingTemplate="P.Base_TT">{}</ThingTemplate></ThingTemplates></Entities>"#,
+                    [implementation("Local"), implementation("DeployComponent"), implementation("Unknown")]
+                        .concat()
+                        .replace("</ServiceImplementations><ServiceImplementations>", "")
+                ),
+            ),
+        ] {
+            let path = dir.path().join(path);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, xml).unwrap();
+        }
+        let solution = Solution::load(&dir.path().join("twaco.toml")).unwrap();
+        let undefined = || -> Vec<String> {
+            check(&solution)
+                .into_iter()
+                .filter(|p| p.rule == "service-without-definition")
+                .map(|p| p.message)
+                .collect()
+        };
+        assert_eq!(
+            undefined(),
+            ["implemented here with no local definition: DeployComponent, Unknown. If these override an inherited service, list them in [validate] inherited_overrides."]
+        );
+        std::fs::create_dir_all(dir.path().join(".twaco")).unwrap();
+        std::fs::write(
+            dir.path().join(".twaco/platform.json"),
+            r#"{"templates":{"PTC.Base.EntryPoint_TT":{"services":{"DeployComponent":{"result":{"baseType":"BOOLEAN"}}}}}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            undefined(),
+            ["implemented here with no local definition: Unknown. If these override an inherited service, list them in [validate] inherited_overrides."]
         );
     }
 

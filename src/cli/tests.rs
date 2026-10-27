@@ -119,6 +119,7 @@ fn usage_paths() -> std::collections::BTreeSet<String> {
         "package",
         "import",
         "ext",
+        "block",
         "repo",
         "localization",
         "help",

@@ -32,6 +32,7 @@ fn project(name: &str, entities: Vec<Entity>, scripts: Vec<Script>) -> ProjectBu
         scripts,
         deploy: None,
         post_import: Vec::new(),
+        framework: false,
     }
 }
 
@@ -114,6 +115,11 @@ struct Fake {
     mismatch: BTreeSet<(String, String)>,
     parse_unreachable: bool,
     checks: Mutex<usize>,
+    /// A building block's entry point on the server: its componentDeploymentState, `None` while
+    /// the server has no such Thing.
+    block_state: Mutex<Option<String>>,
+    /// What a service answers, by service name.
+    replies: BTreeMap<String, Value>,
 }
 
 impl push::Remote for Fake {
@@ -266,6 +272,30 @@ impl Remote for Fake {
             parameters.clone(),
             timeout,
         ));
+        match service {
+            "GetPropertyValues" => {
+                return match self.block_state.lock().unwrap().clone() {
+                    Some(state) => Ok(Some(
+                        serde_json::json!({"rows": [{"componentDeploymentState": state}]}),
+                    )),
+                    None => Err(ServerError::Http {
+                        method: super::super::server::Method::Post,
+                        status: 404,
+                        url: format!("http://server/{target}"),
+                        body: "Entity Not Found".to_string(),
+                    }),
+                };
+            }
+            "SetPropertyValues" => {
+                let state = parameters
+                    .pointer("/values/rows/0/componentDeploymentState")
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
+                *self.block_state.lock().unwrap() = state;
+                return Ok(None);
+            }
+            _ => {}
+        }
         if self.fail_service.as_deref() == Some(service) {
             return Err(ServerError::Rejected {
                 url: format!("http://server/{target}/Services/{service}"),
@@ -278,7 +308,7 @@ impl Remote for Fake {
                 entity.bytes.clone(),
             );
         }
-        Ok(None)
+        Ok(self.replies.get(service).cloned())
     }
 }
 
@@ -944,6 +974,7 @@ fn an_applied_deploy_reports_each_phase_with_its_total() {
             apply: true,
             force: false,
             only: false,
+            redeploy_blocks: false,
         },
         &recorder,
     )
@@ -992,6 +1023,7 @@ fn a_plan_reports_no_import_phase() {
             apply: false,
             force: false,
             only: false,
+            redeploy_blocks: false,
         },
         &recorder,
     )
@@ -1369,4 +1401,194 @@ fn a_namespace_that_only_adds_narrows_no_agent() {
     let projects = [project("P", vec![namespace, agent], vec![])];
     let planned = run_test(&remote, &MemoryBaseline::default(), &projects, false, true).unwrap();
     assert!(planned.agents_narrowed.is_empty());
+}
+
+/// One building block project whose deploy step is the framework's, as plan_bundles makes it.
+fn block_project(config: Value) -> ProjectBundle {
+    ProjectBundle {
+        deploy: Some(ServiceCall {
+            target: "Things/B.EntryPoint".to_string(),
+            service: "DeployComponent".to_string(),
+            parameters: serde_json::json!({ "deploymentConfig": config }),
+        }),
+        framework: true,
+        ..project("B", vec![target("B.EntryPoint", "x();")], vec![])
+    }
+}
+
+fn block_server(state: Option<&str>, deploy_result: bool) -> Fake {
+    let boolean = |value: bool| serde_json::json!({"rows": [{"result": value}]});
+    Fake {
+        block_state: Mutex::new(state.map(str::to_string)),
+        replies: BTreeMap::from([
+            (
+                "GetComponentDeployConfigurationParameters".to_string(),
+                serde_json::json!({"apiKey": {"types": ["STRING"], "description": "The key", "optional": false}, "units": {"types": ["STRING"], "optional": true}}),
+            ),
+            (
+                "ValidateComponentDeployConfigParams".to_string(),
+                boolean(true),
+            ),
+            ("DeployComponent".to_string(), boolean(deploy_result)),
+        ]),
+        import_values: BTreeMap::from([(
+            "B.xml".to_string(),
+            vec![target("B.EntryPoint", "x();")],
+        )]),
+        ..Fake::default()
+    }
+}
+
+fn block_run(
+    remote: &Fake,
+    project: &ProjectBundle,
+    apply: bool,
+    redeploy: bool,
+) -> Result<Report, DeployError> {
+    run_with_progress(
+        remote,
+        &MemoryBaseline::default(),
+        &profile(BTreeMap::new()),
+        std::slice::from_ref(project),
+        RunOptions {
+            apply,
+            force: true,
+            only: false,
+            redeploy_blocks: redeploy,
+        },
+        &super::super::progress::NONE,
+    )
+}
+
+/// The lifecycle services called; reading and writing the state is not one.
+fn services(remote: &Fake) -> Vec<String> {
+    remote
+        .calls
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(_, service, _, _)| service.clone())
+        .filter(|service| !service.ends_with("PropertyValues"))
+        .collect()
+}
+
+#[test]
+fn a_block_is_deployed_as_the_framework_deploys_it_and_then_configured() {
+    let project = block_project(serde_json::json!({"apiKey": "k"}));
+    let remote = block_server(Some("Not Configured"), true);
+    let planned = block_run(&remote, &project, false, false).unwrap();
+    assert_eq!(
+        planned.blocks,
+        [BlockStep {
+            project: "B".to_string(),
+            entry_point: "B.EntryPoint".to_string(),
+            state: Some("Not Configured".to_string()),
+            runs: true,
+            done: false,
+        }]
+    );
+    assert!(
+        services(&remote).is_empty(),
+        "a plan calls no lifecycle service"
+    );
+
+    let report = block_run(&remote, &project, true, false).unwrap();
+    assert!(report.blocks[0].done);
+    assert_eq!(
+        services(&remote),
+        [
+            "GetComponentDeployConfigurationParameters",
+            "ValidateComponentDeployConfigParams",
+            "DeployComponent"
+        ]
+    );
+    let calls = remote.calls.lock().unwrap();
+    let sent = |service: &str| {
+        calls
+            .iter()
+            .find(|(_, called, _, _)| called == service)
+            .map(|(_, _, parameters, _)| parameters.clone())
+            .unwrap()
+    };
+    assert_eq!(
+        sent("ValidateComponentDeployConfigParams"),
+        serde_json::json!({"jsonParams": {"apiKey": "k"}})
+    );
+    assert_eq!(
+        sent("DeployComponent"),
+        serde_json::json!({"deploymentConfig": {"apiKey": "k"}})
+    );
+    drop(calls);
+    assert_eq!(
+        remote.block_state.lock().unwrap().as_deref(),
+        Some("Configured")
+    );
+}
+
+#[test]
+fn a_configured_block_is_left_unless_redeployed() {
+    let project = block_project(serde_json::json!({"apiKey": "k"}));
+    let remote = block_server(Some("Configured"), true);
+    let report = block_run(&remote, &project, true, false).unwrap();
+    assert!(!report.blocks[0].runs && !report.blocks[0].done);
+    assert!(services(&remote).is_empty());
+    assert!(
+        report.calls[0].skipped,
+        "the planned DeployComponent call says it did not run"
+    );
+
+    let report = block_run(&remote, &project, true, true).unwrap();
+    assert!(report.blocks[0].done);
+    assert!(!report.calls[0].skipped);
+    assert!(services(&remote).contains(&"DeployComponent".to_string()));
+}
+
+#[test]
+fn a_missing_required_parameter_stops_the_step_before_deploy_component() {
+    let project = block_project(serde_json::json!({"units": "metric"}));
+    let remote = block_server(Some("Not Configured"), true);
+    let error = block_run(&remote, &project, true, false).unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("B.EntryPoint.DeployComponent needs deploymentConfig apiKey (The key)"),
+        "{error}"
+    );
+    assert!(!services(&remote).contains(&"DeployComponent".to_string()));
+    assert_eq!(
+        remote.block_state.lock().unwrap().as_deref(),
+        Some("Not Configured")
+    );
+}
+
+#[test]
+fn a_deploy_that_returns_false_keeps_the_state_and_one_that_throws_sets_error() {
+    let project = block_project(serde_json::json!({"apiKey": "k"}));
+    let remote = block_server(Some("Not Configured"), false);
+    let error = block_run(&remote, &project, true, false).unwrap_err();
+    assert!(error.to_string().contains("did not return true"), "{error}");
+    assert_eq!(
+        remote.block_state.lock().unwrap().as_deref(),
+        Some("Not Configured")
+    );
+
+    let mut remote = block_server(Some("Not Configured"), true);
+    remote.fail_service = Some("DeployComponent".to_string());
+    let error = block_run(&remote, &project, true, false).unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("the entry point's state is Error"),
+        "{error}"
+    );
+    assert_eq!(remote.block_state.lock().unwrap().as_deref(), Some("Error"));
+}
+
+#[test]
+fn a_new_block_runs_its_step_once_imported() {
+    let project = block_project(serde_json::json!({"apiKey": "k"}));
+    let remote = block_server(None, true);
+    let planned = block_run(&remote, &project, false, false).unwrap();
+    assert_eq!(planned.blocks[0].state, None);
+    assert!(planned.blocks[0].runs);
 }

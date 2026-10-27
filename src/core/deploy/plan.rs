@@ -301,14 +301,13 @@ pub(crate) fn plan_bundles(
             scripts,
             deploy: project
                 .deploy
-                .entry_point_thing
-                .as_ref()
-                .zip(project.deploy.deploy_service.as_ref())
+                .hook(&project.name)
                 .map(|(thing, service)| ServiceCall {
                     target: format!("Things/{thing}"),
-                    service: service.clone(),
+                    service,
                     parameters: toml_parameters(project.deploy.deploy_parameters.as_ref()),
                 }),
+            framework: project.deploy.framework,
             post_import: project
                 .deploy
                 .post_import

@@ -1060,6 +1060,19 @@ pub(crate) const USAGE: &[Usage] = &[
       --agent-description     what the assistant routes questions to the agent by"#,
     },
     Usage {
+        path: "block",
+        group: 2,
+        text: r#"  block list [--server] [--profile <name>] [--json]
+                              the solution's Solution Framework building blocks: type, version, name;
+                              --server: the framework's version, state and deploy order beside each
+  block show <block> [--server] [--profile <name>] [--json]
+                              one block: entry point, manager, organization, groups, permission
+                              helper, dependencies; --server: its state and DeployComponent's parameters
+  block version <block> (<x.y.z> | --bump patch|minor|major) [--apply] [--json]
+                              the entry point's componentVersion and the Project's packageVersion,
+                              together; plan unless --apply"#,
+    },
+    Usage {
         path: "network list",
         group: 2,
         text: r#"  network list [--json]       list repository Networks and their hierarchy counts"#,
@@ -1270,7 +1283,9 @@ pub(crate) const USAGE: &[Usage] = &[
       --exclude <entity-or-glob> leave out this Collection/Name selector (repeatable)
       --only-projects <a,b>   include only these projects
       --skip-checks           skip the gates, server requirements too; scripts are still parsed
-      --no-backup             with --force, do not save the server's copies first"#,
+      --no-backup             with --force, do not save the server's copies first
+      --redeploy-blocks       run a building block's DeployComponent ([project.deploy] framework)
+                              even when the Solution Framework has it Configured"#,
     },
     Usage {
         path: "config-table",

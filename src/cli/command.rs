@@ -44,6 +44,7 @@ pub(crate) enum Command {
     Localization(super::localization::Localization),
     Repo(super::content::Repo),
     Ext(super::content::Ext),
+    Block(super::block::Block),
     Search(super::content::Search),
     Export(super::content::Export),
     Import(super::content::Import),
@@ -131,6 +132,7 @@ impl Command {
             Command::Localization(_) => "localization",
             Command::Repo(_) => "repo",
             Command::Ext(_) => "ext",
+            Command::Block(_) => "block",
             Command::Search(_) => "search",
             Command::Export(_) => "export",
             Command::Import(_) => "import",
@@ -240,6 +242,7 @@ impl Command {
             | Command::Localization(_)
             | Command::Repo(_)
             | Command::Ext(_)
+            | Command::Block(_)
             | Command::Search(_)
             | Command::Export(_)
             | Command::Import(_)
