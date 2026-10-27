@@ -92,8 +92,8 @@ It runs `ext check`, then the project's build (its Gradle wrapper, else Gradle, 
 `--no-build` skips it), takes the newest package zip under `build/` or `zip/` and makes sure it
 holds the package and version metadata.xml declares. The server skips a version it has, so
 deploying a change needs `--bump`, which on `--apply` writes the raised `packageVersion` into
-metadata.xml (and `extension.properties` when that names one) and puts it back if the build or
-install fails. Upgrading a package with Java code, the server queues it for its next restart
+metadata.xml (and `extension.properties` when that names one) and puts it back if the build
+fails, or if the install fails and the server's package list lacks the new version. Upgrading a package with Java code, the server queues it for its next restart
 and twaco says so; a removed Java extension cannot be installed again until that restart.
 
 In IntelliJ IDEA, `twaco ext intellij --apply` adds a **ThingWorx** live template group and a

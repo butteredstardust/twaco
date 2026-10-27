@@ -352,35 +352,58 @@ fn set_version(root: &Path, metadata_path: &str, version: &str) -> Result<(), St
     let mut edited = bytes[..span.start].to_vec();
     edited.extend_from_slice(version.as_bytes());
     edited.extend_from_slice(&bytes[span.end..]);
-    replace(&path, &edited)?;
+    // Read and edit extension.properties before either file is written.
     let properties = root.join("extension.properties");
-    let is_version = |line: &str| {
-        line.split_once(['=', ':'])
-            .is_some_and(|(key, _)| key.trim() == "package_version")
+    let properties_edit = match std::fs::read(&properties) {
+        Ok(text) => properties_with_version(&text, version),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(format!("cannot read {}: {error}", properties.display())),
     };
-    if let Ok(text) = std::fs::read_to_string(&properties) {
-        if text.lines().any(is_version) {
-            let edited: String = text
-                .split_inclusive('\n')
-                .map(|line| {
-                    if is_version(line) {
-                        let ending = &line[line.trim_end_matches(['\r', '\n']).len()..];
-                        format!("package_version={version}{ending}")
-                    } else {
-                        line.to_string()
-                    }
-                })
-                .collect();
-            // Both files or neither.
-            if let Err(error) = replace(&properties, edited.as_bytes()) {
-                return Err(match replace(&path, &bytes) {
-                    Ok(()) => error,
-                    Err(why) => format!("{error}; and putting {metadata_path} back failed: {why}"),
-                });
-            }
+    replace(&path, &edited)?;
+    if let Some(properties_edit) = properties_edit {
+        // Both files or neither.
+        if let Err(error) = replace(&properties, &properties_edit) {
+            return Err(match replace(&path, &bytes) {
+                Ok(()) => error,
+                Err(why) => format!("{error}; and putting {metadata_path} back failed: {why}"),
+            });
         }
     }
     Ok(())
+}
+
+/// `text` with each `package_version` line set to `version`, or `None` when no line names it.
+/// Bytes, not text: a properties file is often ISO-8859-1, and a line may end in CR, LF or CRLF.
+fn properties_with_version(text: &[u8], version: &str) -> Option<Vec<u8>> {
+    let mut out = Vec::with_capacity(text.len() + 8);
+    let mut found = false;
+    let mut rest = text;
+    while !rest.is_empty() {
+        let body = rest
+            .iter()
+            .position(|&byte| byte == b'\r' || byte == b'\n')
+            .unwrap_or(rest.len());
+        let ending = match rest[body..] {
+            [b'\r', b'\n', ..] => 2,
+            [_, ..] => 1,
+            [] => 0,
+        };
+        let line = &rest[..body];
+        let key = line
+            .iter()
+            .position(|&byte| byte == b'=' || byte == b':')
+            .map(|at| line[..at].trim_ascii());
+        if key == Some(b"package_version".as_slice()) {
+            found = true;
+            out.extend_from_slice(b"package_version=");
+            out.extend_from_slice(version.as_bytes());
+        } else {
+            out.extend_from_slice(line);
+        }
+        out.extend_from_slice(&rest[body..body + ending]);
+        rest = &rest[body + ending..];
+    }
+    found.then_some(out)
 }
 
 fn replace(path: &Path, bytes: &[u8]) -> Result<(), String> {
@@ -821,6 +844,29 @@ project_vendor=v
 package_version=1.0.1
 project_vendor=v
 "
+        );
+    }
+
+    #[test]
+    fn properties_keep_their_bytes_and_any_line_ending() {
+        let text = b"project_vendor=\xe9\rpackage_version=1.0.0\r\nx=1\npackage_version_note=a";
+        assert_eq!(
+            properties_with_version(text, "1.0.1").unwrap(),
+            b"project_vendor=\xe9\rpackage_version=1.0.1\r\nx=1\npackage_version_note=a"
+        );
+        assert_eq!(properties_with_version(b"x=1\n", "1.0.1"), None);
+
+        // An unreadable extension.properties stops the bump before metadata.xml is written.
+        let (_guard, _solution, extension) = setup("1.0.0", "1.0.0");
+        let properties = extension.join("extension.properties");
+        std::fs::remove_file(&properties).unwrap();
+        std::fs::create_dir(&properties).unwrap();
+        let error = set_version(&extension, "configfiles/metadata.xml", "1.0.1").unwrap_err();
+        assert!(error.contains("cannot read"), "{error}");
+        assert!(
+            std::fs::read_to_string(extension.join("configfiles/metadata.xml"))
+                .unwrap()
+                .contains("\"1.0.0\"")
         );
     }
 

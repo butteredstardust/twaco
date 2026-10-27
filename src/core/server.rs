@@ -396,15 +396,19 @@ impl Client {
         if response.status == 406 {
             // Scrubbed as an error body is: the report's messages are printed.
             let text = scrub(&self.secrets, &String::from_utf8_lossy(&response.body));
-            if let Ok(report) = serde_json::from_str::<serde_json::Value>(&text) {
+            if let Ok(mut report) = serde_json::from_str::<serde_json::Value>(&text) {
                 if report.get("rows").is_some() {
+                    scrub_strings(&self.secrets, &mut report);
                     return Ok(report);
                 }
             }
         }
         let reply = checked(&self.secrets, Method::Post, url.clone(), response)?;
         let text = scrub(&self.secrets, &String::from_utf8_lossy(&reply));
-        serde_json::from_str(&text).map_err(|error| self.invalid_response(&url, error.to_string()))
+        let mut report: serde_json::Value = serde_json::from_str(&text)
+            .map_err(|error| self.invalid_response(&url, error.to_string()))?;
+        scrub_strings(&self.secrets, &mut report);
+        Ok(report)
     }
 
     /// Ask ThingWorx's Rhino parser to validate one service body.
@@ -785,6 +789,29 @@ fn user_password(profile: &Profile) -> Secret {
     pair.push_str(":");
     pair.push_str(password);
     pair
+}
+
+/// Every string in `value` scrubbed, keys too: a secret written with JSON escapes such as
+/// `a` passes the scrub of the raw text and only shows once it is parsed.
+fn scrub_strings(secrets: &[Secret], value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::String(text) => *text = scrub(secrets, text),
+        serde_json::Value::Array(items) => {
+            for item in items {
+                scrub_strings(secrets, item);
+            }
+        }
+        serde_json::Value::Object(fields) => {
+            *fields = std::mem::take(fields)
+                .into_iter()
+                .map(|(key, mut item)| {
+                    scrub_strings(secrets, &mut item);
+                    (scrub(secrets, &key), item)
+                })
+                .collect();
+        }
+        _ => {}
+    }
 }
 
 /// `text` with every secret replaced by `<redacted>`. A long secret is replaced wherever it
@@ -1460,6 +1487,19 @@ mod tests {
         assert_eq!(
             report["rows"][0]["install"]["rows"][0]["reportMessage"],
             "user <redacted> refused"
+        );
+        // Written with a JSON escape, the secret only shows once parsed.
+        let (url, server) = serve_once(
+            "200 OK",
+            r#"{"rows":[{"install":{"rows":[{"extensionReportStatus":0,"reportMessage":"user pass ok"}]}}]}"#,
+        );
+        let report = client_for(url)
+            .upload_extension("p.zip", b"zip", false)
+            .unwrap();
+        server.join().unwrap();
+        assert_eq!(
+            report["rows"][0]["install"]["rows"][0]["reportMessage"],
+            "user <redacted> ok"
         );
         let (url, server) = serve_once("406 Not Acceptable", "not a report");
         let error = client_for(url)

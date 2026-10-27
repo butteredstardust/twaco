@@ -29,8 +29,8 @@ All notable changes to twaco are recorded here. The format follows
   `[[extension]]` projects, has the server validate the package it makes and, with `--apply`,
   installs it and confirms the server lists what its metadata.xml declares. `--bump
   patch|minor|major` raises `packageVersion` first, since the server skips a version it has, and
-  puts it back if the build or install fails; an upgrade queued for the server's restart is
-  reported as queued.
+  puts it back if the build fails, or the install fails and the server lacks the new version;
+  an upgrade queued for the server's restart is reported as queued.
 - `twaco ext intellij` installs IntelliJ IDEA live templates for the ThingWorx extension
   annotations (service, parameter, properties, events, subscriptions, configuration table,
   logger) and External Tools for `ext check`, `ext add` and `ext deploy`; the files are also in
