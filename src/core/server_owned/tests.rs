@@ -973,8 +973,12 @@ fn an_entry_point_owns_its_lifecycle_state_on_the_server() {
         )
         .into_bytes()
     };
-    let rules = [Rule::entry_point_state()];
+    let rules = [Rule::entry_point_state(["Acme"])];
     let owned = parts(&rules, "Things", "Acme.EntryPoint");
+    assert!(
+        parts(&rules, "Things", "Other.EntryPoint").is_empty(),
+        "only a project's own entry point"
+    );
     assert_eq!(
         labels(&owned),
         ["property-values:componentDeploymentState,deployComponentStatus,migrateComponentStatus,upgradeComponentStatus"]

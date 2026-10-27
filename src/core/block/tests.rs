@@ -46,6 +46,16 @@ fn a_block_is_read_from_its_entry_point_and_project() {
         1,
         "a Thing named *.EntryPoint without componentType is no block"
     );
+    std::fs::write(
+        solution.root.join("plain/Things/Acme.Other.EntryPoint.xml"),
+        "<Entities><Things><Thing name=\"Acme.Other.EntryPoint\" projectName=\"Acme.Plain\"><ThingProperties><componentType><Value>Standard</Value></componentType></ThingProperties></Thing></Things></Entities>",
+    )
+    .unwrap();
+    assert_eq!(
+        blocks(&solution).len(),
+        1,
+        "an entry point outside its own project is no block"
+    );
     let block = &all[0];
     assert_eq!(block.name, "Acme.Orders");
     assert_eq!(block.kind, "Standard");

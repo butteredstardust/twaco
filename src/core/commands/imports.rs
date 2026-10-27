@@ -98,10 +98,12 @@ where
             effects: Effects::new(Access::None, server),
         }),
         ImportAction::SourceControl { repository, path } => {
+            // twaco's own rule matters only where the solution has a building block.
             if solution
                 .server_owned_for(&request.profile)
                 .iter()
                 .any(|rule| !rule.built_in)
+                || !crate::core::block::blocks(solution).is_empty()
             {
                 notices
                     .push("source-control import does not preserve server-owned parts".to_string());

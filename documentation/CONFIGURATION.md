@@ -246,7 +246,7 @@ entities = ["Things/Acme.Sample*"]
 parts = ["property-values:speed,temperature"]
 ```
 
-twaco adds one rule of its own: every `Things/*.EntryPoint` owns
+twaco adds one rule of its own: each project's `Things/<project>.EntryPoint` owns
 `property-values:componentDeploymentState,deployComponentStatus,migrateComponentStatus,upgradeComponentStatus`,
 a Solution Framework building block's lifecycle state, which the framework writes on the server.
 

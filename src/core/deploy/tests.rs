@@ -1532,9 +1532,14 @@ fn a_configured_block_is_left_unless_redeployed() {
     let report = block_run(&remote, &project, true, false).unwrap();
     assert!(!report.blocks[0].runs && !report.blocks[0].done);
     assert!(services(&remote).is_empty());
+    assert!(
+        report.calls[0].skipped,
+        "the planned DeployComponent call says it did not run"
+    );
 
     let report = block_run(&remote, &project, true, true).unwrap();
     assert!(report.blocks[0].done);
+    assert!(!report.calls[0].skipped);
     assert!(services(&remote).contains(&"DeployComponent".to_string()));
 }
 

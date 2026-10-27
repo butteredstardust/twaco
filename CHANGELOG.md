@@ -36,7 +36,7 @@ All notable changes to twaco are recorded here. The format follows
 ### Fixed
 
 - A building block's lifecycle state on its entry point (`componentDeploymentState` and the
-  deploy, upgrade and migrate status tables of every `Things/*.EntryPoint`) is the server's: an
+  deploy, upgrade and migrate status tables of each project's `Things/<project>.EntryPoint`) is the server's: an
   import keeps the server's values and comparisons leave them out. Before, every deploy reset a
   configured block to `Not Configured`, and once the Solution Framework had configured it, the
   next deploy refused its entry point as changed on the server.

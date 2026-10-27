@@ -65,7 +65,8 @@ pub fn blocks(solution: &Solution) -> Vec<Block> {
         let Some(name) = file.info.name.strip_suffix(".EntryPoint") else {
             continue;
         };
-        if name.is_empty() {
+        // The framework's entry point is `<project>.EntryPoint`, in that project.
+        if name.is_empty() || file.info.project != name {
             continue;
         }
         let Ok(src) = std::fs::read(&file.path) else {
@@ -114,7 +115,7 @@ pub fn find(solution: &Solution, name: &str) -> Result<Block, String> {
     match matching.as_slice() {
         [one] => Ok((*one).clone()),
         [] if all.is_empty() => Err(format!(
-            "the solution has no building block (a project with a <project>.EntryPoint Thing); {name} is not one"
+            "the solution has no building block (a project with its <project>.EntryPoint Thing); {name} is not one"
         )),
         [] => Err(format!(
             "no building block is named {name}; the solution's are {}",
@@ -599,14 +600,12 @@ pub(crate) fn apply_version(
     solution: &Solution,
     plan: &VersionPlan,
     lock: &super::lock::WorkspaceLock,
-) -> Result<(), String> {
+) -> Result<(), super::transaction::TransactionError> {
     let mut transaction = super::transaction::Transaction::new(&solution.root, "block version");
     for (path, before, after) in &plan.writes {
-        transaction
-            .replace_file(path, before, after.clone())
-            .map_err(|error| error.to_string())?;
+        transaction.replace_file(path, before, after.clone())?;
     }
-    transaction.apply(lock).map_err(|error| error.to_string())?;
+    transaction.apply(lock)?;
     Ok(())
 }
 

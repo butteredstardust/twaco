@@ -140,12 +140,15 @@ impl TryFrom<RuleInput> for Rule {
 }
 
 impl Rule {
-    /// Every building block's entry point (the framework names it `<block>.EntryPoint`) owns
-    /// [`ENTRY_POINT_STATE`] on the server. A Thing of that name without those properties has
-    /// nothing the rule selects.
-    pub(crate) fn entry_point_state() -> Self {
+    /// A building block's entry point owns [`ENTRY_POINT_STATE`] on the server. The framework
+    /// names it `<project>.EntryPoint`, so the rule names exactly that Thing of each project; one
+    /// without those properties has nothing the rule selects.
+    pub(crate) fn entry_point_state<'a>(projects: impl IntoIterator<Item = &'a str>) -> Self {
         Self {
-            entities: vec!["Things/*.EntryPoint".to_string()],
+            entities: projects
+                .into_iter()
+                .map(|project| format!("Things/{project}.EntryPoint"))
+                .collect(),
             parts: vec![Part::Properties(
                 ENTRY_POINT_STATE
                     .iter()

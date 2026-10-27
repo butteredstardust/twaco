@@ -39,6 +39,18 @@ pub(crate) fn run(
     )
 }
 
+/// Mark a building block's deploy call skipped when its step does not run, so the planned calls
+/// agree with the block's step.
+fn skip_block_call(report: &mut Report, project: &str, skipped: bool) {
+    if let Some(call) = report
+        .calls
+        .iter_mut()
+        .find(|call| call.project == project && !call.post_import)
+    {
+        call.skipped = skipped;
+    }
+}
+
 /// What a deploy run does: send changes, override conflicts, skip post-import services, run a
 /// configured building block's deploy step again.
 #[derive(Clone, Copy, Debug)]
@@ -181,9 +193,11 @@ pub(crate) fn run_with_progress(
                 name: entry_point.clone(),
                 why: error.to_string(),
             })?;
+        let runs = super::framework::runs(state.as_deref(), redeploy_blocks);
+        skip_block_call(&mut report, &project.project, !runs);
         report.blocks.push(super::BlockStep {
             project: project.project.clone(),
-            runs: super::framework::runs(state.as_deref(), redeploy_blocks),
+            runs,
             entry_point,
             state,
             done: false,
@@ -413,6 +427,7 @@ pub(crate) fn run_with_progress(
             progress.advance(1);
             match outcome {
                 Ok(ran) => {
+                    skip_block_call(&mut report, &project.project, !ran);
                     if let Some(step) = report
                         .blocks
                         .iter_mut()

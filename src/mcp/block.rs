@@ -62,7 +62,7 @@ pub(crate) fn block_version_tool(
         !request.dry_run,
         &mut notices,
     )
-    .map_err(ToolError::invalid)?;
+    .map_err(ToolError::coded)?;
     let mut value = json!({
         "ok": true, "dry_run": request.dry_run, "block": plan.block, "from": plan.from,
         "to": plan.to, "files": plan.files,
