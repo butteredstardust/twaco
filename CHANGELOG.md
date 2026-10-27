@@ -74,8 +74,11 @@ All notable changes to twaco are recorded here. The format follows
 - `deploy` removes a namespace item an agent allows in one run. Before the first import it
   imports each deployed agent whose server copy allows an item a deployed namespace drops as
   that copy without those allowances, then the bundles as usual; the plan says so for each agent
-  (MCP `agents_narrowed_first`). If the bundle that writes the agent does not import, the
-  server's own copy is put back.
+  (MCP `agents_narrowed_first`, items by kind). If the bundle that writes the agent does not
+  import, the server's own copy is put back; when a namespace it was narrowed for did import, it
+  stays narrowed, which is what that namespace allows, and the baseline records it. An agent on
+  the server outside the deploy that allows a dropped item refuses the deploy before anything is
+  sent, naming the agent and the items.
 - The reference index reads more structure: a Thing's or template's value stream, a data
   table's or stream's DataShape, a Network's Things, a Menu's mashups, a mashup's master, and the
   users and groups in a group or an organization. `impact` on a value stream lists the Things

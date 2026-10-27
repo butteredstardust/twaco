@@ -162,13 +162,13 @@ where
     };
     let build = if request.build {
         let _phase = progress::phase(progress, "building the extension", Some(1));
-        let command = run_build(&root).map_err(&undo)?;
+        let command = run_build(&root).map_err(undo)?;
         progress.advance(1);
         Some(command)
     } else {
         None
     };
-    let zip_path = package_zip(&root, &shown_root, &package, &sending).map_err(&undo)?;
+    let zip_path = package_zip(&root, &shown_root, &package, &sending).map_err(undo)?;
     let zip = std::fs::read(&zip_path)
         .map_err(|error| undo(format!("cannot read {}: {error}", zip_path.display())))?;
     let made = extensions::inspect(&zip).map_err(|e| undo(e.to_string()))?;

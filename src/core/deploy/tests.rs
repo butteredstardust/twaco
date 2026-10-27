@@ -154,20 +154,84 @@ impl push::Remote for Fake {
                 body: "failed".to_string(),
             });
         }
-        for entity in self.import_values.get(file_name).into_iter().flatten() {
-            let key = (entity.collection.clone(), entity.name.clone());
-            let bytes = if self.mismatch.contains(&key) {
-                super::tests::entity(&entity.name, "server_changed();")
-            } else {
-                entity.bytes.clone()
+        let mut documents: Vec<((String, String), Vec<u8>)> =
+            match self.import_values.get(file_name) {
+                Some(entities) => entities
+                    .iter()
+                    .map(|entity| {
+                        let key = (entity.collection.clone(), entity.name.clone());
+                        let bytes = if self.mismatch.contains(&key) {
+                            super::tests::entity(&entity.name, "server_changed();")
+                        } else {
+                            entity.bytes.clone()
+                        };
+                        (key, bytes)
+                    })
+                    .collect(),
+                // A one-entity document, such as an agent deploy imports on its own.
+                None => super::super::entity::parse(xml)
+                    .map(|info| vec![((info.collection, info.name), xml.to_vec())])
+                    .unwrap_or_default(),
             };
-            self.held.lock().unwrap().insert(key, bytes);
+        // As the server does: namespaces before agents, each checked against what it holds then,
+        // and nothing kept when one is refused.
+        documents.sort_by_key(|((collection, _), _)| collection == "AIAgents");
+        let mut held = self.held.lock().unwrap();
+        let before = held.clone();
+        for (key, bytes) in documents {
+            held.insert(key, bytes);
+            if let Some(why) = ai_refusal(&held) {
+                *held = before;
+                return Err(ServerError::Http {
+                    method: super::super::server::Method::Post,
+                    status: 406,
+                    url: "http://server/Importer".to_string(),
+                    body: why,
+                });
+            }
         }
         Ok(())
     }
 }
 
+/// An agent that allows an item its namespace lacks, which the server refuses either way round.
+fn ai_refusal(held: &BTreeMap<(String, String), Vec<u8>>) -> Option<String> {
+    use super::super::agents;
+    for ((collection, name), bytes) in held {
+        if collection != "AIAgents" {
+            continue;
+        }
+        for reference in agents::agent(bytes).ok()?.namespaces {
+            let key = ("MCPNamespaces".to_string(), reference.name.clone());
+            let Some(namespace) = held.get(&key) else {
+                continue;
+            };
+            let lacks = reference
+                .items()
+                .without(&agents::namespace(namespace).ok()?.items());
+            if !lacks.is_empty() {
+                return Some(format!(
+                    "{name} allows {lacks:?}, which {} lacks",
+                    reference.name
+                ));
+            }
+        }
+    }
+    None
+}
+
 impl Remote for Fake {
+    fn list_entity_names(&self, collection: &str) -> Result<Vec<String>, ServerError> {
+        Ok(self
+            .held
+            .lock()
+            .unwrap()
+            .keys()
+            .filter(|(held, _)| held == collection)
+            .map(|(_, name)| name.clone())
+            .collect())
+    }
+
     fn check_script(&self, script: &str) -> Result<ScriptCheck, ServerError> {
         *self.checks.lock().unwrap() += 1;
         if self.parse_unreachable {
@@ -1001,7 +1065,7 @@ fn only_and_changed_since_are_two_ways_of_choosing_and_are_refused_together() {
     );
 }
 
-fn namespace_entity(tools: &[&str]) -> Entity {
+fn namespace_entity(tools: &[&str], resources: &[&str]) -> Entity {
     let tools: String = tools
         .iter()
         .map(|tool| {
@@ -1010,68 +1074,132 @@ fn namespace_entity(tools: &[&str]) -> Entity {
             )
         })
         .collect();
+    let resources: String = resources
+        .iter()
+        .map(|resource| {
+            format!("<MCPResource name=\"{resource}\" description=\"d\" type=\"Service\"/>")
+        })
+        .collect();
     Entity {
         server_owned: Vec::new(),
         collection: "MCPNamespaces".to_string(),
         name: "N".to_string(),
         bytes: format!(
-            "<Entities><MCPNamespaces><MCPNamespace name=\"N\" projectName=\"P\"><MCPTools>{tools}</MCPTools></MCPNamespace></MCPNamespaces></Entities>"
+            "<Entities><MCPNamespaces><MCPNamespace name=\"N\" projectName=\"P\"><MCPTools>{tools}</MCPTools><MCPResources>{resources}</MCPResources></MCPNamespace></MCPNamespaces></Entities>"
+        )
+        .into_bytes(),
+    }
+}
+
+fn agent_named(name: &str, tools: &[&str], resources: &[&str]) -> Entity {
+    let tools: String = tools
+        .iter()
+        .map(|tool| format!("<Tool name=\"{tool}\"></Tool>"))
+        .collect();
+    let resources: String = resources
+        .iter()
+        .map(|resource| format!("<Resource name=\"{resource}\"></Resource>"))
+        .collect();
+    Entity {
+        server_owned: Vec::new(),
+        collection: "AIAgents".to_string(),
+        name: name.to_string(),
+        bytes: format!(
+            "<Entities><AIAgents><AIAgent name=\"{name}\" projectName=\"P\"><MCPNamespaceReferences><MCPNamespaceReference name=\"N\"><AllowedTools>{tools}</AllowedTools><AllowedResources>{resources}</AllowedResources></MCPNamespaceReference></MCPNamespaceReferences></AIAgent></AIAgents></Entities>"
         )
         .into_bytes(),
     }
 }
 
 fn agent_entity(tools: &[&str]) -> Entity {
-    let tools: String = tools
-        .iter()
-        .map(|tool| format!("<Tool name=\"{tool}\"></Tool>"))
-        .collect();
-    Entity {
-        server_owned: Vec::new(),
-        collection: "AIAgents".to_string(),
-        name: "A".to_string(),
-        bytes: format!(
-            "<Entities><AIAgents><AIAgent name=\"A\" projectName=\"P\"><MCPNamespaceReferences><MCPNamespaceReference name=\"N\"><AllowedTools>{tools}</AllowedTools></MCPNamespaceReference></MCPNamespaceReferences></AIAgent></AIAgents></Entities>"
-        )
-        .into_bytes(),
+    agent_named("A", tools, &[])
+}
+
+type Held = BTreeMap<(String, String), Vec<u8>>;
+
+fn holding(entities: &[Entity]) -> Mutex<Held> {
+    Mutex::new(
+        entities
+            .iter()
+            .map(|entity| {
+                (
+                    (entity.collection.clone(), entity.name.clone()),
+                    entity.bytes.clone(),
+                )
+            })
+            .collect(),
+    )
+}
+
+fn tools_of(remote: &Fake, collection: &str, name: &str) -> Vec<String> {
+    let held = remote.held.lock().unwrap();
+    let bytes = &held[&(collection.to_string(), name.to_string())];
+    if collection == "AIAgents" {
+        super::super::agents::agent(bytes).unwrap().namespaces[0]
+            .tools
+            .clone()
+    } else {
+        super::super::agents::namespace(bytes)
+            .unwrap()
+            .tools
+            .iter()
+            .map(|tool| tool.name.clone())
+            .collect()
     }
 }
 
 /// The server holds namespace N with `keep` and `gone` and agent A allowing both; the
-/// repository drops `gone` from both.
-fn dropping_an_allowed_tool() -> (Fake, [ProjectBundle; 1]) {
-    let (namespace, agent) = (namespace_entity(&["keep"]), agent_entity(&["keep"]));
-    let held = BTreeMap::from([
-        (
-            ("MCPNamespaces".to_string(), "N".to_string()),
-            namespace_entity(&["keep", "gone"]).bytes,
-        ),
-        (
-            ("AIAgents".to_string(), "A".to_string()),
-            agent_entity(&["keep", "gone"]).bytes,
-        ),
-    ]);
+/// repository drops `gone` from both, in one project or in `PN` and `PA`.
+fn dropping_an_allowed_tool(projects: &[&str]) -> (Fake, Vec<ProjectBundle>) {
+    let (namespace, agent) = (namespace_entity(&["keep"], &[]), agent_entity(&["keep"]));
+    let bundles = match projects {
+        [one] => vec![project(one, vec![namespace.clone(), agent.clone()], vec![])],
+        _ => projects
+            .iter()
+            .map(|name| {
+                let entity = if *name == "PN" { &namespace } else { &agent };
+                project(name, vec![entity.clone()], vec![])
+            })
+            .collect(),
+    };
+    let import_values = bundles
+        .iter()
+        .map(|bundle| (bundle.file_name.clone(), bundle.entities.clone()))
+        .collect();
     let remote = Fake {
-        held: Mutex::new(held),
-        import_values: BTreeMap::from([(
-            "P.xml".to_string(),
-            vec![namespace.clone(), agent.clone()],
-        )]),
+        held: holding(&[
+            namespace_entity(&["keep", "gone"], &[]),
+            agent_entity(&["keep", "gone"]),
+        ]),
+        import_values,
         ..Fake::default()
     };
-    (remote, [project("P", vec![namespace, agent], vec![])])
+    (remote, bundles)
+}
+
+#[test]
+fn the_fake_server_refuses_dropping_an_allowed_tool_in_bundle_order() {
+    let (remote, _) = dropping_an_allowed_tool(&["P"]);
+    let error = push::Remote::import(&remote, "P.xml", b"bundle").unwrap_err();
+    assert!(error.to_string().contains("A allows"), "{error}");
+    assert_eq!(tools_of(&remote, "MCPNamespaces", "N"), ["keep", "gone"]);
 }
 
 #[test]
 fn an_agent_stops_allowing_what_its_namespace_drops_before_the_bundle_imports() {
-    let (remote, projects) = dropping_an_allowed_tool();
+    let (remote, projects) = dropping_an_allowed_tool(&["P"]);
     let planned = run_test(&remote, &MemoryBaseline::default(), &projects, false, true).unwrap();
     assert_eq!(
         planned.agents_narrowed,
         [AgentNarrowing {
             name: "A".to_string(),
             project: "P".to_string(),
-            dropped: vec![("N".to_string(), vec!["gone".to_string()])],
+            dropped: vec![DroppedItems {
+                namespace: "N".to_string(),
+                tools: vec!["gone".to_string()],
+                resources: Vec::new(),
+                prompts: Vec::new(),
+            }],
         }]
     );
     assert!(
@@ -1079,21 +1207,33 @@ fn an_agent_stops_allowing_what_its_namespace_drops_before_the_bundle_imports() 
         "a plan imports nothing"
     );
 
-    let report = run_test(&remote, &MemoryBaseline::default(), &projects, true, true).unwrap();
-    assert_eq!(report.agents_narrowed.len(), 1);
-    let sent = remote.sent.lock().unwrap();
-    let names: Vec<&str> = sent.iter().map(|(name, _)| name.as_str()).collect();
-    assert_eq!(names, ["A.xml", "P.xml"]);
-    let narrowed = String::from_utf8_lossy(&sent[0].1);
-    assert!(narrowed.contains("name=\"keep\""), "{narrowed}");
-    assert!(!narrowed.contains("name=\"gone\""), "{narrowed}");
+    run_test(&remote, &MemoryBaseline::default(), &projects, true, true).unwrap();
+    assert_eq!(
+        remote.imports.lock().unwrap().as_slice(),
+        ["A.xml", "P.xml"]
+    );
+    assert_eq!(tools_of(&remote, "MCPNamespaces", "N"), ["keep"]);
+    assert_eq!(tools_of(&remote, "AIAgents", "A"), ["keep"]);
+}
+
+#[test]
+fn either_project_order_deploys() {
+    for order in [["PN", "PA"], ["PA", "PN"]] {
+        let (remote, projects) = dropping_an_allowed_tool(&order);
+        run_test(&remote, &MemoryBaseline::default(), &projects, true, true).unwrap();
+        assert_eq!(
+            tools_of(&remote, "MCPNamespaces", "N"),
+            ["keep"],
+            "{order:?}"
+        );
+        assert_eq!(tools_of(&remote, "AIAgents", "A"), ["keep"], "{order:?}");
+    }
 }
 
 #[test]
 fn a_failed_bundle_puts_the_narrowed_agent_back() {
-    let (mut remote, projects) = dropping_an_allowed_tool();
+    let (mut remote, projects) = dropping_an_allowed_tool(&["P"]);
     remote.fail_import = Some("P.xml".to_string());
-    let original = agent_entity(&["keep", "gone"]).bytes;
     let error = run_test(&remote, &MemoryBaseline::default(), &projects, true, true).unwrap_err();
     assert!(
         error
@@ -1101,15 +1241,52 @@ fn a_failed_bundle_puts_the_narrowed_agent_back() {
             .ends_with("; AIAgents/A was put back as the server had it"),
         "{error}"
     );
-    let sent = remote.sent.lock().unwrap();
-    let names: Vec<&str> = sent.iter().map(|(name, _)| name.as_str()).collect();
-    assert_eq!(names, ["A.xml", "P.xml", "A.xml"]);
-    assert_eq!(sent[2].1, original);
+    assert_eq!(
+        remote.imports.lock().unwrap().as_slice(),
+        ["A.xml", "P.xml", "A.xml"]
+    );
+    assert_eq!(tools_of(&remote, "AIAgents", "A"), ["keep", "gone"]);
+}
+
+#[test]
+fn an_agent_stays_narrowed_once_its_namespace_imported() {
+    let (mut remote, projects) = dropping_an_allowed_tool(&["PN", "PA"]);
+    remote.fail_import = Some("PA.xml".to_string());
+    let baselines = MemoryBaseline::default();
+    let old = normalise::hash_with_parts(&agent_entity(&["keep", "gone"]).bytes, &[]).unwrap();
+    baselines
+        .value
+        .borrow_mut()
+        .set("AIAgents", "A", old.clone(), old.clone());
+    let error = run_test(&remote, &baselines, &projects, true, true).unwrap_err();
+    assert!(
+        error.to_string().ends_with(
+            "; AIAgents/A stays without tool gone from N, which its namespace no longer has; the baseline records that"
+        ),
+        "{error}"
+    );
+    // No put-back, which the server would refuse.
+    assert_eq!(
+        remote.imports.lock().unwrap().as_slice(),
+        ["A.xml", "PN.xml", "PA.xml"]
+    );
+    let narrowed = remote.held.lock().unwrap()[&("AIAgents".to_string(), "A".to_string())].clone();
+    let entry = baselines
+        .value
+        .borrow()
+        .get("AIAgents", "A")
+        .cloned()
+        .unwrap();
+    assert_eq!(entry.local, old);
+    assert_eq!(
+        entry.server,
+        normalise::hash_with_parts(&narrowed, &[]).unwrap()
+    );
 }
 
 #[test]
 fn a_failed_narrowing_imports_no_project() {
-    let (mut remote, projects) = dropping_an_allowed_tool();
+    let (mut remote, projects) = dropping_an_allowed_tool(&["P"]);
     remote.fail_import = Some("A.xml".to_string());
     let error = run_test(&remote, &MemoryBaseline::default(), &projects, true, true).unwrap_err();
     assert!(
@@ -1120,19 +1297,73 @@ fn a_failed_narrowing_imports_no_project() {
 }
 
 #[test]
-fn a_namespace_that_only_adds_narrows_no_agent() {
-    let (namespace, agent) = (namespace_entity(&["keep", "new"]), agent_entity(&["new"]));
+fn an_agent_outside_the_deploy_that_allows_a_dropped_item_refuses_it() {
+    let (remote, projects) = dropping_an_allowed_tool(&["P"]);
+    remote.held.lock().unwrap().insert(
+        ("AIAgents".to_string(), "B".to_string()),
+        agent_named("B", &["gone"], &[]).bytes,
+    );
+    let error = run_test(&remote, &MemoryBaseline::default(), &projects, false, true).unwrap_err();
+    assert!(
+        matches!(&error, DeployError::AgentsOutside(agents) if agents.len() == 1 && agents[0].name == "B"),
+        "{error}"
+    );
+    assert!(
+        error
+            .to_string()
+            .contains("AIAgents/B allows tool gone from N"),
+        "{error}"
+    );
+    assert!(remote.imports.lock().unwrap().is_empty());
+}
+
+#[test]
+fn a_tool_and_a_resource_of_one_name_are_told_apart() {
+    let namespace = namespace_entity(&["keep"], &[]);
+    let agent = agent_named("A", &["keep"], &[]);
     let remote = Fake {
-        held: Mutex::new(BTreeMap::from([
-            (
-                ("MCPNamespaces".to_string(), "N".to_string()),
-                namespace_entity(&["keep"]).bytes,
-            ),
-            (
-                ("AIAgents".to_string(), "A".to_string()),
-                agent_entity(&["keep"]).bytes,
-            ),
-        ])),
+        held: holding(&[
+            namespace_entity(&["keep", "x"], &["x"]),
+            agent_named("A", &["keep", "x"], &["x"]),
+        ]),
+        import_values: BTreeMap::from([(
+            "P.xml".to_string(),
+            vec![namespace.clone(), agent.clone()],
+        )]),
+        ..Fake::default()
+    };
+    let projects = [project("P", vec![namespace, agent], vec![])];
+    let report = run_test(&remote, &MemoryBaseline::default(), &projects, true, true).unwrap();
+    let dropped = &report.agents_narrowed[0].dropped[0];
+    assert_eq!(dropped.tools, ["x"]);
+    assert_eq!(dropped.resources, ["x"]);
+    assert_eq!(dropped.to_string(), "tool x; resource x from N");
+}
+
+#[test]
+fn an_exporter_copy_with_self_closed_tags_is_narrowed() {
+    let exported = b"<Entities><AIAgents><AIAgent name=\"A\"><ConfigurationTables><ConfigurationTable name=\"TaxonomyConfiguration\"><Rows><Row><entityType/></Row></Rows></ConfigurationTable></ConfigurationTables><MCPNamespaceReferences><MCPNamespaceReference name=\"N\"><AllowedTools><Tool name=\"keep\"/><Tool name=\"gone\"/></AllowedTools></MCPNamespaceReference></MCPNamespaceReferences></AIAgent></AIAgents></Entities>";
+    let (remote, projects) = dropping_an_allowed_tool(&["P"]);
+    remote
+        .held
+        .lock()
+        .unwrap()
+        .insert(("AIAgents".to_string(), "A".to_string()), exported.to_vec());
+    run_test(&remote, &MemoryBaseline::default(), &projects, true, true).unwrap();
+    let sent = remote.sent.lock().unwrap();
+    let narrowed = super::super::agents::agent(&sent[0].1).unwrap();
+    assert_eq!(narrowed.namespaces[0].tools, ["keep"]);
+    assert!(String::from_utf8_lossy(&sent[0].1).contains("<entityType/>"));
+}
+
+#[test]
+fn a_namespace_that_only_adds_narrows_no_agent() {
+    let (namespace, agent) = (
+        namespace_entity(&["keep", "new"], &[]),
+        agent_entity(&["new"]),
+    );
+    let remote = Fake {
+        held: holding(&[namespace_entity(&["keep"], &[]), agent_entity(&["keep"])]),
         ..Fake::default()
     };
     let projects = [project("P", vec![namespace, agent], vec![])];

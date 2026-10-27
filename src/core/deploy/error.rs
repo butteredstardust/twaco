@@ -23,6 +23,9 @@ pub enum DeployError {
     },
     ParseFailed(Vec<ParseFailure>),
     Conflicts(Vec<EntityPlan>),
+    /// Agents on the server outside the deploy allow items its namespaces drop, which the
+    /// server refuses.
+    AgentsOutside(Vec<super::AgentNarrowing>),
     /// `imported` are the projects that imported before this one; the baseline records them.
     Import {
         project: String,
@@ -87,6 +90,21 @@ impl fmt::Display for DeployError {
             }
             DeployError::Conflicts(conflicts) => {
                 write!(f, "{} entity conflict(s) refuse this deploy", conflicts.len())
+            }
+            DeployError::AgentsOutside(agents) => {
+                let agents: Vec<String> = agents
+                    .iter()
+                    .map(|agent| {
+                        let dropped: Vec<String> =
+                            agent.dropped.iter().map(ToString::to_string).collect();
+                        format!("AIAgents/{} allows {}", agent.name, dropped.join("; "))
+                    })
+                    .collect();
+                write!(
+                    f,
+                    "this deploy's namespaces drop items that agents outside it allow, which the server refuses: {}; deploy those agents too, or stop them allowing the items first",
+                    agents.join(", ")
+                )
             }
             DeployError::Import { project, source, imported, put_back } => {
                 write!(f, "project {project} import failed: {source}")?;

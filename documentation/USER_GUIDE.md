@@ -769,8 +769,9 @@ the server still allows. `mcp-namespace remove` takes the item out of every agen
 solution that allows it, and `twaco deploy` orders the rest: before the first import it imports
 each deployed agent whose server copy allows a dropped item without that allowance, and the plan
 says so. Pushing one entity at a time, push the agents first: `twaco entity push <agent> --apply`
-before the namespace. An agent on the server that is not in the deploy still blocks the
-namespace: the import answers HTTP 406, and the server's ErrorLog names the item. The
+before the namespace. An agent on the server outside the deploy that allows a dropped item
+refuses the deploy before anything is sent, naming the agent and the items: deploy it too, or
+stop it allowing them first. The
 `ai references` gate of `twaco check` reports what would break an agent. MCP `entity_edit` takes the same changes as
 `mcp_add`, `mcp_remove`, `agent_allow`, `agent_disallow`, `agent_taxonomy_add`,
 `agent_taxonomy_remove`, `agent_skill_add`, `agent_skill_remove` and `agent_set`.

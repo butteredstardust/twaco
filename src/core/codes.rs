@@ -1096,6 +1096,10 @@ mod tests {
         is(DeployError::ParseFailed(vec![]), ErrorCode::GateFailed);
         is(DeployError::Conflicts(vec![]), ErrorCode::ServerConflict);
         is(
+            DeployError::AgentsOutside(vec![]),
+            ErrorCode::ServerConflict,
+        );
+        is(
             DeployError::Import {
                 project: text(),
                 source: http(),

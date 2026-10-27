@@ -479,7 +479,7 @@ fn agent_narrowing(narrowing: &deploy::AgentNarrowing) -> Value {
     json!({
         "agent": format!("AIAgents/{}", narrowing.name),
         "project": narrowing.project,
-        "dropped": narrowing.dropped.iter().map(|(namespace, items)| json!({"namespace": namespace, "items": items})).collect::<Vec<_>>(),
+        "dropped": narrowing.dropped.iter().map(|d| json!({"namespace": d.namespace, "tools": d.tools, "resources": d.resources, "prompts": d.prompts})).collect::<Vec<_>>(),
     })
 }
 

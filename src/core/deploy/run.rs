@@ -242,18 +242,18 @@ pub(crate) fn run_with_progress(
             }
             Err(source) => {
                 tracing::info!(project = %project.project, "deploy: project import failed");
-                // An agent whose bundle did not import goes back as it was, so the server is
-                // not left with allowances taken out for a namespace change that did not happen.
-                let not_written: Vec<&super::ai_order::Interim> = narrowed
-                    .iter()
-                    .copied()
-                    .filter(|interim| !report.imported.contains(&interim.narrowing.project))
-                    .collect();
+                // A narrowed agent whose bundle did not import goes back as it was, unless a
+                // namespace it was narrowed for imported.
                 import_failure = Some(DeployError::Import {
                     project: project.project.clone(),
                     source,
                     imported: report.imported.clone(),
-                    put_back: super::ai_order::put_back(remote, &not_written),
+                    put_back: super::ai_order::after_failed_import(
+                        remote,
+                        &narrowed,
+                        &report.imported,
+                        &mut baseline,
+                    ),
                 });
                 break;
             }

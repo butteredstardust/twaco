@@ -867,7 +867,7 @@ fn agent_narrowing_json(narrowing: &deploy::AgentNarrowing) -> serde_json::Value
     serde_json::json!({
         "agent": format!("AIAgents/{}", narrowing.name),
         "project": narrowing.project,
-        "dropped": narrowing.dropped.iter().map(|(namespace, items)| serde_json::json!({"namespace": namespace, "items": items})).collect::<Vec<_>>(),
+        "dropped": narrowing.dropped.iter().map(|d| serde_json::json!({"namespace": d.namespace, "tools": d.tools, "resources": d.resources, "prompts": d.prompts})).collect::<Vec<_>>(),
     })
 }
 
@@ -877,7 +877,7 @@ fn print_agent_narrowings(narrowings: &[deploy::AgentNarrowing], apply: bool) {
         let dropped = narrowing
             .dropped
             .iter()
-            .map(|(namespace, items)| format!("{} from {namespace}", items.join(", ")))
+            .map(ToString::to_string)
             .collect::<Vec<_>>()
             .join("; ");
         println!(

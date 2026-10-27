@@ -34,11 +34,14 @@ impl Items {
         }
     }
 
-    pub(crate) fn names(&self) -> impl Iterator<Item = &String> {
-        self.tools
-            .iter()
-            .chain(&self.resources)
-            .chain(&self.prompts)
+    /// What `self` and `other` both have.
+    pub(crate) fn both(&self, other: &Items) -> Items {
+        let and = |a: &BTreeSet<String>, b: &BTreeSet<String>| a.intersection(b).cloned().collect();
+        Items {
+            tools: and(&self.tools, &other.tools),
+            resources: and(&self.resources, &other.resources),
+            prompts: and(&self.prompts, &other.prompts),
+        }
     }
 }
 
