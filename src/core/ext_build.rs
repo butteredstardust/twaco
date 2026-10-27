@@ -207,7 +207,32 @@ pub(crate) fn run_build(root: &Path) -> Result<Option<Vec<String>>, String> {
         if !root.join("node_modules").is_dir() {
             done.push(run(root, runner, &["install"])?);
         }
-        done.push(run(root, runner, &["run", "build"])?);
+        done.push(match run(root, runner, &["run", "build"]) {
+            // webpack 4 hashes with MD4, which Node 17 and later refuse unless OpenSSL's legacy
+            // provider is on: the template's older projects build again with it.
+            Err(error) if error.contains("ERR_OSSL_EVP_UNSUPPORTED") => {
+                let options = match std::env::var("NODE_OPTIONS") {
+                    Ok(given) if !given.trim().is_empty() => {
+                        format!("{given} {LEGACY_OPENSSL}")
+                    }
+                    _ => LEGACY_OPENSSL.to_string(),
+                };
+                let again = run_with(
+                    root,
+                    runner,
+                    &["run", "build"],
+                    Some(("NODE_OPTIONS", &options)),
+                )
+                .map_err(|again| {
+                    format!(
+                        "{again}
+(retried with NODE_OPTIONS={LEGACY_OPENSSL}, since the first run stopped on ERR_OSSL_EVP_UNSUPPORTED)"
+                    )
+                })?;
+                format!("{again}, again with NODE_OPTIONS={LEGACY_OPENSSL} (an old webpack)")
+            }
+            other => other?,
+        });
         return Ok(Some(done));
     }
     let wrapper = if cfg!(windows) {
@@ -259,7 +284,20 @@ pub fn gradle_wrapper(root: &Path) -> Result<String, String> {
 }
 
 /// Run `tool args` in `root`; the command as shown, or its output's end when it fails.
+/// The Node option that lets webpack 4's MD4 hashing run on Node 17 and later.
+const LEGACY_OPENSSL: &str = "--openssl-legacy-provider";
+
 fn run(root: &Path, tool: &str, args: &[&str]) -> Result<String, String> {
+    run_with(root, tool, args, None)
+}
+
+/// [`run`], with one environment variable set for the child.
+fn run_with(
+    root: &Path,
+    tool: &str,
+    args: &[&str],
+    env: Option<(&str, &str)>,
+) -> Result<String, String> {
     let wrapper = if cfg!(windows) {
         "gradlew.bat"
     } else {
@@ -279,6 +317,9 @@ fn run(root: &Path, tool: &str, args: &[&str]) -> Result<String, String> {
         std::process::Command::new(tool)
     };
     let shown = format!("{tool} {}", args.join(" ")).trim_end().to_string();
+    if let Some((key, value)) = env {
+        command.env(key, value);
+    }
     let mut child = command
         .args(args)
         .current_dir(root)

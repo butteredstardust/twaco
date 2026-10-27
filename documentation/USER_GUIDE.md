@@ -99,7 +99,10 @@ their CSS, `src/static/` (copied beside the bundles) and `Entities/` (shipped in
 `tsconfig.json`, and `build.mjs`, which bundles `<name>.ide.bundle.js` and `<name>.runtime.bundle.js`
 with esbuild (keeping class names, which the decorators register widgets by), writes metadata.xml
 and zips it all. `npm run buildDev` builds without minifying, with inline source maps; `npm run
-check` type-checks. A project made from the template itself, built by webpack, is read the same way.
+check` type-checks. A project made from the template itself, built by webpack, is read the same way;
+an older one on webpack 4 that Node 17 or later refuses (`ERR_OSSL_EVP_UNSUPPORTED`) is built again with
+`NODE_OPTIONS=--openssl-legacy-provider`. gulp and webpack are the project's own devDependencies: the
+first build installs them.
 
 `twaco ext build [<root>]` (MCP `ext_build`) builds any of these: a package.json project's `build`
 script (with npm, yarn or pnpm, as its lock file says, installing its dependencies the first time),

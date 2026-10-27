@@ -16,7 +16,9 @@ All notable changes to twaco are recorded here. The format follows
   mashup builder and renders at runtime.
 - `twaco ext build [<root>]` (MCP `ext_build`) builds an extension project's zip, with npm, yarn
   or pnpm, its Gradle wrapper, Gradle or Ant, or packs one that has no build itself, and reports
-  its widgets and entities and any file its metadata.xml names that the zip lacks.
+  its widgets and entities and any file its metadata.xml names that the zip lacks. A build that
+  stops on `ERR_OSSL_EVP_UNSUPPORTED` (webpack 4 on Node 17 and later, as in the template's
+  older projects) is run once more with `NODE_OPTIONS=--openssl-legacy-provider`.
 
 ### Changed
 
