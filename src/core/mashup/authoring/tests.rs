@@ -3912,3 +3912,15 @@ fn add_places_a_widget_an_extension_project_defines() {
         "{error}"
     );
 }
+
+#[test]
+fn add_names_an_extension_root_it_cannot_read() {
+    let (_dir, solution) = with_config(
+        "[[project]]\nname = \"Acme\"\nroot = \"acme\"\n[[extension]]\nroot = \"missing\"\n",
+    );
+    let name = "Acme.Orders_MU";
+    let new = plan_new(&solution, &request(name)).unwrap();
+    apply_new(&solution, &new, &lock(&solution)).unwrap();
+    let error = plan_add(&solution, &add_request(name, "acmelabel")).unwrap_err();
+    assert!(error.to_string().contains("(unread: missing: "), "{error}");
+}

@@ -49,6 +49,9 @@ const SKIPPED: [&str; 8] = [
 /// Larger files are bundles, not source.
 const MAX_SOURCE: u64 = 2 * 1024 * 1024;
 
+/// More source files than a widget project has: the root holds something else as well.
+const MAX_FILES: usize = 2000;
+
 /// Every widget the solution's extension projects define, and the source files that could not
 /// be read.
 pub(crate) fn load(solution: &Solution) -> (Vec<Widget>, Vec<String>) {
@@ -56,8 +59,19 @@ pub(crate) fn load(solution: &Solution) -> (Vec<Widget>, Vec<String>) {
     let mut skipped = Vec::new();
     for extension in &solution.extensions {
         let root = solution.root.join(&extension.root);
+        if let Err(error) = std::fs::read_dir(&root) {
+            skipped.push(format!("{}: {error}", solution.relative(&root)));
+            continue;
+        }
         let mut files = Vec::new();
         collect_sources(&root, &mut files);
+        if files.len() > MAX_FILES {
+            skipped.push(format!(
+                "{}: more than {MAX_FILES} source files; point the [[extension]] root at the widget project itself",
+                solution.relative(&root)
+            ));
+            continue;
+        }
         files.sort();
         for file in files {
             match read_file(&file) {
@@ -85,6 +99,9 @@ fn collect_sources(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
         return;
     };
     for entry in entries.flatten() {
+        if out.len() > MAX_FILES {
+            return;
+        }
         let Ok(kind) = entry.file_type() else {
             continue;
         };
@@ -225,6 +242,29 @@ fn literal(expr: &Expr) -> Option<Value> {
             _ => None,
         },
         Expr::Paren(inner) => literal(&inner.expr),
+        // An object or array counts only when every part of it is a literal.
+        Expr::Object(object) => {
+            let mut out = Map::new();
+            for property in &object.props {
+                let PropOrSpread::Prop(prop) = property else {
+                    return None;
+                };
+                let Prop::KeyValue(pair) = &**prop else {
+                    return None;
+                };
+                out.insert(key(&pair.key)?, literal(&pair.value)?);
+            }
+            Some(Value::Object(out))
+        }
+        Expr::Array(array) => array
+            .elems
+            .iter()
+            .map(|element| match element {
+                Some(element) if element.spread.is_none() => literal(&element.expr),
+                _ => None,
+            })
+            .collect::<Option<Vec<_>>>()
+            .map(Value::Array),
         other => string(other).map(Value::from),
     }
 }
@@ -516,6 +556,8 @@ TW.IDE.Widgets.acmegauge = function () {
             properties: {
                 Value: { baseType: 'NUMBER', defaultValue: -1.5, isBindingTarget: true },
                 Title: { baseType: 'STRING', defaultValue: "Gauge" },
+                Options: { baseType: 'JSON', defaultValue: { theme: 'dark', sizes: [1, 2] } },
+                Partly: { baseType: 'JSON', defaultValue: { theme: TW.theme } },
                 Unset: { baseType: 'STRING' },
                 Computed: { baseType: 'STRING', defaultValue: TW.IDE.something() },
                 Locked: { baseType: 'BOOLEAN', isEditable: false, isBindingSource: true }
@@ -537,6 +579,11 @@ TW.IDE.Widgets["other-one"] = function () {};
         assert_eq!(gauge.defaults["Unset"], json!(""));
         assert_eq!(gauge.defaults["Locked"], json!(false));
         assert!(!gauge.defaults.contains_key("Computed"));
+        assert_eq!(
+            gauge.defaults["Options"],
+            json!({"theme": "dark", "sizes": [1, 2]})
+        );
+        assert!(!gauge.defaults.contains_key("Partly"));
         assert_eq!(gauge.defaults["Area"], json!("UI"));
         let value = gauge.property("Value").unwrap();
         assert!(value.target && !value.source);
