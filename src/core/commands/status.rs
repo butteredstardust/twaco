@@ -143,7 +143,35 @@ where
     } else {
         None
     };
-    compare(solution, request, open, progress)
+    let outcome = compare(solution, request, open, progress)?;
+    behind_sidecars(solution, request.project.as_deref(), notices);
+    Ok(outcome)
+}
+
+/// Status compares entity files; a sidecar edited since the last sync is not in them yet, so
+/// say so rather than let "in sync" stand for work the comparison never saw.
+fn behind_sidecars(solution: &Solution, project: Option<&str>, notices: &mut Notices) {
+    let mut entities = workspace::discover(solution).entities;
+    if let Some(project) = project {
+        entities.retain(|entity| entity.found_under == project);
+    }
+    let report = crate::core::workflow::sync(
+        solution,
+        &entities,
+        &[],
+        crate::core::workflow::SyncOptions {
+            check: true,
+            allow_structural: false,
+            relayout: false,
+            named: false,
+        },
+    );
+    if report.changed > 0 {
+        notices.push(format!(
+            "{} entity file(s) are behind their sidecars, which this status does not compare; `twaco sync --all` brings them in",
+            report.changed
+        ));
+    }
 }
 
 /// [`execute`] for a caller that already holds the workspace lock, so what it wrote and the

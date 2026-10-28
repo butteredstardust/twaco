@@ -176,7 +176,7 @@ pub fn run(solution: &Solution) -> CheckReport {
         mashup_content(solution, &discovery),
         contained_mashups(solution, &discovery),
         localization_tokens(solution, &discovery),
-        result_shapes(solution),
+        result_shapes(solution, &model),
         networks(solution, &discovery),
         requirements(solution, &discovery),
         ai_references(solution, &discovery, &model),
@@ -819,8 +819,23 @@ fn script_traps(solution: &Solution) -> GateResult {
 }
 
 /// A service whose script builds its result from another DataShape than it declares.
-fn result_shapes(solution: &Solution) -> GateResult {
+fn result_shapes(solution: &Solution, model: &types::Model) -> GateResult {
     let mut result = GateResult::passed("result shapes", 0);
+    // The fields of each DataShape the repository defines whole; a derived one inherits fields
+    // this model does not hold.
+    let fields_of = |shape: &str| {
+        model
+            .data_shapes
+            .iter()
+            .find(|data_shape| data_shape.name == shape && data_shape.base_data_shape.is_none())
+            .map(|data_shape| {
+                data_shape
+                    .fields
+                    .iter()
+                    .map(|field| field.name.clone())
+                    .collect::<BTreeSet<_>>()
+            })
+    };
     for (path, source) in scripts(solution, &mut result) {
         // A script without a definition is the sidecars gate's to report.
         let Some(definition) = path
@@ -830,7 +845,20 @@ fn result_shapes(solution: &Solution) -> GateResult {
             continue;
         };
         result.examined += 1;
-        for mismatch in super::result_shape::check(&definition, &source.replace("\r\n", "\n")) {
+        let source = source.replace("\r\n", "\n");
+        for unknown in super::result_shape::unknown_fields(&definition, &source, fields_of) {
+            result.findings.push(Finding {
+                gate: "result shapes".to_string(),
+                file: relative(solution, &path),
+                line: unknown.line,
+                rule: "unknown-field".to_string(),
+                message: format!(
+                    "a row of the result sets {}, which {} does not have; ThingWorx drops it",
+                    unknown.field, unknown.shape
+                ),
+            });
+        }
+        for mismatch in super::result_shape::check(&definition, &source) {
             result.findings.push(Finding {
                 gate: "result shapes".to_string(),
                 file: relative(solution, &path),

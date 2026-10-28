@@ -9,7 +9,7 @@
 //! holding one; a name computed at run time says nothing.
 
 use super::scan;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use swc_common::BytePos;
 use swc_ecma_ast::{
     AssignExpr, AssignTarget, CallExpr, Callee, Expr, Lit, MemberProp, Pat, Prop, PropName,
@@ -55,6 +55,49 @@ pub(crate) fn check(definition: &str, script: &str) -> Vec<Mismatch> {
         .collect()
 }
 
+/// A row added to the result with a field its declared DataShape lacks.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct UnknownField {
+    /// The line of the `AddRow` call, from 1.
+    pub(crate) line: usize,
+    pub(crate) shape: String,
+    pub(crate) field: String,
+}
+
+/// The `AddRow({...})` fields, on the infotable that becomes the result, that the declared
+/// DataShape does not have. `fields_of` gives a shape's fields, or `None` when they cannot be
+/// known (a shape outside the repository, or one deriving from another); then nothing is said.
+pub(crate) fn unknown_fields(
+    definition: &str,
+    script: &str,
+    fields_of: impl Fn(&str) -> Option<BTreeSet<String>>,
+) -> Vec<UnknownField> {
+    let Some(declared) = declared_shape(definition) else {
+        return Vec::new();
+    };
+    let Some(fields) = fields_of(&declared) else {
+        return Vec::new();
+    };
+    let Some(found) = builds(script) else {
+        return Vec::new();
+    };
+    let flows_to_result =
+        |target: &str| target == "result" || found.into_result.iter().any(|name| name == target);
+    let mut out = Vec::new();
+    for row in found.rows.iter().filter(|row| flows_to_result(&row.target)) {
+        for field in &row.fields {
+            if !fields.contains(field) {
+                out.push(UnknownField {
+                    line: line_of(script, row.at),
+                    shape: declared.clone(),
+                    field: field.clone(),
+                });
+            }
+        }
+    }
+    out
+}
+
 /// The DataShape an INFOTABLE result declares; none for another type or no shape.
 fn declared_shape(definition: &str) -> Option<String> {
     let src = definition.as_bytes();
@@ -92,6 +135,14 @@ struct Found {
     builds: Vec<Build>,
     /// Variables assigned to `result` as they are: `result = rows;`.
     into_result: Vec<String>,
+    /// `<target>.AddRow({...})` calls whose every key is a plain name.
+    rows: Vec<Row>,
+}
+
+struct Row {
+    target: String,
+    fields: Vec<String>,
+    at: u32,
 }
 
 struct Collector {
@@ -176,6 +227,47 @@ impl Collector {
 }
 
 impl Visit for Collector {
+    fn visit_call_expr(&mut self, call: &CallExpr) {
+        if let Callee::Expr(callee) = &call.callee {
+            if let Expr::Member(member) = &**callee {
+                let adds_row = matches!(&member.prop, MemberProp::Ident(name) if name.sym.as_ref() == "AddRow");
+                if let (true, Expr::Ident(target), Some(first)) =
+                    (adds_row, &*member.obj, call.args.first())
+                {
+                    if let (None, Expr::Object(object)) = (first.spread, &*first.expr) {
+                        // A spread or a computed key could add any field: say nothing then.
+                        let fields: Option<Vec<String>> = object
+                            .props
+                            .iter()
+                            .map(|property| match property {
+                                PropOrSpread::Prop(prop) => match &**prop {
+                                    Prop::KeyValue(pair) => match &pair.key {
+                                        PropName::Ident(ident) => Some(ident.sym.to_string()),
+                                        PropName::Str(key) => {
+                                            Some(key.value.to_atom_lossy().to_string())
+                                        }
+                                        _ => None,
+                                    },
+                                    Prop::Shorthand(ident) => Some(ident.sym.to_string()),
+                                    _ => None,
+                                },
+                                PropOrSpread::Spread(_) => None,
+                            })
+                            .collect();
+                        if let Some(fields) = fields {
+                            self.found.rows.push(Row {
+                                target: target.sym.to_string(),
+                                fields,
+                                at: call.span.lo.0,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        call.visit_children_with(self);
+    }
+
     fn visit_var_declarator(&mut self, declarator: &VarDeclarator) {
         if let (Pat::Ident(name), Some(init)) = (&declarator.name, &declarator.init) {
             let name = name.id.sym.to_string();
@@ -231,6 +323,32 @@ mod tests {
     }
 
     const CREATE: &str = "Resources[\"InfoTableFunctions\"].CreateInfoTableFromDataShape";
+
+    #[test]
+    fn a_row_field_the_declared_shape_lacks_is_found() {
+        let fields = |shape: &str| {
+            (shape == "Acme.Rows_DS")
+                .then(|| BTreeSet::from(["id".to_string(), "name".to_string()]))
+        };
+        let script = format!(
+            "let rows = {CREATE}({{ dataShapeName: \"Acme.Rows_DS\" }});\n\
+             rows.AddRow({{ id: 1, name: \"a\" }});\n\
+             rows.AddRow({{ id: 2, qty: 3 }});\n\
+             other.AddRow({{ nope: 1 }});\n\
+             rows.AddRow({{ ...extra }});\n\
+             result = rows;\n"
+        );
+        assert_eq!(
+            unknown_fields(&definition("Acme.Rows_DS"), &script, fields),
+            vec![UnknownField {
+                line: 3,
+                shape: "Acme.Rows_DS".into(),
+                field: "qty".into(),
+            }]
+        );
+        // Fields that cannot be known say nothing.
+        assert!(unknown_fields(&definition("Acme.Elsewhere_DS"), &script, fields).is_empty());
+    }
 
     #[test]
     fn a_result_built_from_another_shape_is_found() {

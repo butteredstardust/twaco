@@ -21,7 +21,18 @@ All notable changes to twaco are recorded here. The format follows
   adds such a project on import, which made the Project read back not kept (verified on 10.2; a
   base DataShape adds nothing).
 
+- `check` finds a removed DataShape field still in use: the `mashup bindings` gate reports a grid
+  column for a field the result bound to the grid lacks, and the `result shapes` gate a row the
+  script adds to the result with a field the declared DataShape lacks.
+
 ### Changed
+
+- `twaco call` refuses an argument in the service's place (`call Entity.Service limit=3` sent
+  `limit=3` to the server as the service name) and shows the form it meant.
+- `twaco entity status` says when entity files are behind their sidecars, which it does not
+  compare; an edited script or an adopt read as in sync before.
+- `twaco sync` no longer leaves a carriage return from a CRLF script in an LF entity file, and
+  repairs a file a sync left that way; `mashup param add` and `set` keep a CRLF mashup CRLF.
 
 - `twaco doctor` (MCP `doctor`) reports the server's ThingWorx version and warns when it is not
   the version of the widget catalogue (10.2) that mashup add, new and validate judge widgets by.
