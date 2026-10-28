@@ -27,8 +27,12 @@ pub struct AddRequest {
 pub struct AddPlan {
     pub edit: EditPlan,
     pub placed: mashup::edit::Placed,
-    /// The catalogue type, such as `ptcsgrid`.
+    /// The widget's type, such as `ptcsgrid`.
     pub widget: String,
+    /// Composer's label for it, such as `Grid`.
+    pub label: String,
+    /// A function widget, which goes beside the layout.
+    pub function: bool,
 }
 
 /// A contained mashup is a `mashupcontainer` whose public properties mirror the child's
@@ -219,7 +223,7 @@ pub(crate) fn plan_add(
                     format!(" (unread: {})", skipped.join("; "))
                 };
                 return Err(AuthoringError::Invalid(format!(
-                    "{error}; nor does an [[extension]] project of this solution define it{unread}"
+                    "{error}; nor does an [[extension]] project of this solution define it, nor an extension `twaco types --platform` saw installed on the server{unread}"
                 )));
             }
         },
@@ -277,10 +281,18 @@ pub(crate) fn plan_add(
         }
         let value = match widget.defaults.get(name) {
             Some(default) => property_value(name, text, default)?,
-            // An extension widget's property with no literal default: the text is JSON, or a
-            // string when it is not.
+            // An extension widget's property with no literal default: read as its base type,
+            // or as JSON (a string when the text is not JSON) for a structured one.
             None if widget.extension && widget.property(name).is_some() => {
-                serde_json::from_str(text).unwrap_or_else(|_| Value::String(text.to_string()))
+                match widget
+                    .property(name)
+                    .and_then(|contract| contract.base_type.as_deref())
+                    .and_then(extension_widgets::empty_value)
+                {
+                    Some(empty) => property_value(name, text, &empty)?,
+                    None => serde_json::from_str(text)
+                        .unwrap_or_else(|_| Value::String(text.to_string())),
+                }
             }
             None => {
                 return Err(AuthoringError::Invalid(format!(
@@ -313,6 +325,8 @@ pub(crate) fn plan_add(
         edit: finish_edit(loaded, document, "mashup add")?,
         placed,
         widget: widget.type_id.clone(),
+        label: widget.type_display_name.clone(),
+        function: widget.function,
     })
 }
 

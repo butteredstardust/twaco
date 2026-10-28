@@ -11,7 +11,10 @@ All notable changes to twaco are recorded here. The format follows
 - `twaco mashup add` (MCP `mashup_add`) places widgets the solution's `[[extension]]` projects
   define: twaco reads a JavaScript `TW.IDE.Widgets.<type>` definition or a TypeScript
   `@TWWidgetDefinition` class and writes Composer's base properties plus the literal defaults the
-  source declares. `--prop` takes JSON for a property with no default.
+  source declares. `--prop` reads a property with no default as its base type, or as JSON.
+- `twaco types --platform` also caches the mashup builder's code of the extensions installed on
+  the server, and `mashup add` places their widgets offline: web-component widgets
+  (`TW.Widget.widgetWrapper.config`) and `TW.IDE.Widgets` definitions alike.
 
 ### Changed
 

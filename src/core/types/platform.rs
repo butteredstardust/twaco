@@ -22,9 +22,18 @@ pub trait Remote {
         service: &str,
         parameters: &Value,
     ) -> Result<Option<Value>, ServerError>;
+
+    /// A file the web application serves; `None` where this remote cannot serve files.
+    fn web_file(&self, _path: &str) -> Result<Option<Vec<u8>>, ServerError> {
+        Ok(None)
+    }
 }
 
 impl Remote for Client {
+    fn web_file(&self, path: &str) -> Result<Option<Vec<u8>>, ServerError> {
+        self.fetch_web_file(path).map(Some)
+    }
+
     fn call(
         &self,
         target: &ServiceTarget,
@@ -43,6 +52,10 @@ pub(crate) struct Platform {
     pub(crate) shapes: BTreeMap<String, PlatformMeta>,
     #[serde(default)]
     pub(crate) resources: BTreeMap<String, PlatformMeta>,
+    /// The mashup builder's code of every extension installed on the server, as the Builder
+    /// loads it: where `mashup add` finds the widgets those extensions define.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub(crate) extension_widgets: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -263,6 +276,10 @@ pub(crate) fn fetch_platform_with_progress(
         progress.advance(1);
     }
     drop(resource_phase);
+    match extension_widget_code(remote) {
+        Ok(code) => platform.extension_widgets = code.unwrap_or_default(),
+        Err(why) => skipped.push(format!("extension widgets: {why}")),
+    }
 
     let text = format!(
         "{}\n",
@@ -277,6 +294,38 @@ pub(crate) fn fetch_platform_with_progress(
         skipped,
         types,
     })
+}
+
+/// The combined mashup-builder code of the server's extensions: `Builder/index.html` names it in
+/// `COMBINED_EXT_JS`, a file whose name changes with every extension installed.
+fn extension_widget_code(remote: &dyn Remote) -> Result<Option<String>, String> {
+    let Some(page) = remote
+        .web_file("Builder/index.html")
+        .map_err(|e| e.to_string())?
+    else {
+        return Ok(None);
+    };
+    let page = String::from_utf8_lossy(&page);
+    let marker = "COMBINED_EXT_JS='";
+    let Some(start) = page.find(marker).map(|at| at + marker.len()) else {
+        return Err("Builder/index.html names no COMBINED_EXT_JS".to_string());
+    };
+    let Some(length) = page[start..].find('\'') else {
+        return Err("Builder/index.html: COMBINED_EXT_JS is not closed".to_string());
+    };
+    let file = &page[start..start + length];
+    if file.contains("..") || file.starts_with('/') || file.contains(':') {
+        return Err(format!(
+            "Builder/index.html names {file:?} as COMBINED_EXT_JS"
+        ));
+    }
+    let code = remote
+        .web_file(&format!("Builder/{file}"))
+        .map_err(|e| e.to_string())?
+        .unwrap_or_default();
+    String::from_utf8(code)
+        .map(Some)
+        .map_err(|_| format!("Builder/{file} is not UTF-8"))
 }
 
 fn fetch_one(

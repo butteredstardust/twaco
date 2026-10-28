@@ -977,9 +977,15 @@ TypeScript `@TWWidgetDefinition` class in a file that imports `widgetIDESupport`
 `@property` and `@event` members it reads. The widget gets Composer's base properties and every
 literal default the source declares; a default worked out at run time is left for Composer to
 fill when it next opens the mashup. `--prop` sets a property with no default from JSON text, or
-as a string when the text is not JSON. Bindings and events on extension widgets are set in
-Composer. An extension installed on the server without its source in the repository is not
-read.
+as a string when the text is not JSON; a property with a simple base type and no default is
+read as that type, and Composer leaves it unset. Bindings and events on extension widgets are
+set in Composer.
+
+A widget of an extension installed on the server, whose source the repository does not have,
+comes from the platform cache: `twaco types --platform` also saves the mashup builder's combined
+extension code there, and `mashup add` reads its web-component configurations
+(`TW.Widget.widgetWrapper.config`) and `TW.IDE.Widgets` definitions offline. A web-component
+widget also gets `UseTheme`, as Composer gives it.
 
 ### Binding
 

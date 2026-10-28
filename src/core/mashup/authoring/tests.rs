@@ -3924,3 +3924,36 @@ fn add_names_an_extension_root_it_cannot_read() {
     let error = plan_add(&solution, &add_request(name, "acmelabel")).unwrap_err();
     assert!(error.to_string().contains("(unread: missing: "), "{error}");
 }
+
+#[test]
+fn add_places_a_widget_of_an_extension_installed_on_the_server() {
+    let (dir, solution) = one_project();
+    // What `types --platform` caches: the mashup builder's combined extension code.
+    let code = "(function(TW){ const widgetName = 'acmechat'; const config = {\"flags\":{\"name\":\"Acme Chat\"},\"properties\":{\"Limit\":{\"baseType\":\"INTEGER\"},\"Title\":{\"baseType\":\"STRING\",\"defaultValue\":\"Chat\"}}}; TW.Widget.widgetWrapper.config(widgetName, config); }(TW));";
+    write(
+        dir.path(),
+        ".twaco/platform.json",
+        &serde_json::to_string(&json!({ "extension_widgets": code })).unwrap(),
+    );
+    let name = "Acme.Orders_MU";
+    let new = plan_new(&solution, &request(name)).unwrap();
+    apply_new(&solution, &new, &lock(&solution)).unwrap();
+    let mut add = add_request(name, "acmechat");
+    add.properties = vec![("Limit".into(), "20".into())];
+    let plan = plan_add(&solution, &add).unwrap();
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    let assets = workspace::read_mashup(new.content_path.parent().unwrap())
+        .unwrap()
+        .unwrap();
+    let document = mashup::edit::parse(&assets.content).unwrap();
+    let properties = &document.at(&document.find(&plan.placed.id).unwrap().path)["Properties"];
+    assert_eq!(properties["Type"], "acmechat");
+    assert_eq!(properties["Title"], "Chat");
+    // Read as its INTEGER base type, not as text.
+    assert_eq!(properties["Limit"], json!(20));
+    assert_eq!(properties["UseTheme"], json!(true));
+
+    let mut wrong = add_request(name, "acmechat");
+    wrong.properties = vec![("Limit".into(), "many".into())];
+    assert!(plan_add(&solution, &wrong).is_err());
+}

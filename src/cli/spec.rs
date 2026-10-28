@@ -444,7 +444,8 @@ pub(crate) const USAGE: &[Usage] = &[
         path: "types",
         group: 1,
         text: r#"  types [--check [--json]|--platform] [--profile <name>]
-                              generate declarations; --check runs TypeScript once
+                              generate declarations; --check runs TypeScript once; --platform caches
+                              the server's templates, shapes, resources and extension widgets
                               suppress one finding on the line above with
                               // @ts-ignore or // @ts-expect-error
                               [[check]] hook: command = ["twaco", "types", "--check", "--json"]"#,

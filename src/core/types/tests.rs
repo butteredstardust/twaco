@@ -144,6 +144,7 @@ type FakeReplies = BTreeMap<(String, String), Result<Option<Value>, ServerError>
 struct FakeRemote {
     calls: RefCell<Vec<(String, String, Value)>>,
     replies: RefCell<FakeReplies>,
+    web: BTreeMap<String, Vec<u8>>,
 }
 
 impl FakeRemote {
@@ -151,6 +152,7 @@ impl FakeRemote {
         Self {
             calls: RefCell::new(Vec::new()),
             replies: RefCell::new(replies),
+            web: BTreeMap::new(),
         }
     }
 }
@@ -169,6 +171,10 @@ impl Remote for FakeRemote {
             .borrow_mut()
             .remove(&(target.to_string(), service.to_string()))
             .unwrap_or_else(|| panic!("unexpected call {target}.{service}"))
+    }
+
+    fn web_file(&self, path: &str) -> Result<Option<Vec<u8>>, ServerError> {
+        Ok(self.web.get(path).cloned())
     }
 }
 
@@ -767,11 +773,25 @@ fn fetches_solution_platform_dependencies_and_all_resources() {
             ok(metadata(name)),
         );
     }
-    let remote = FakeRemote::new(replies);
+    let mut remote = FakeRemote::new(replies);
+    remote.web.insert(
+        "Builder/index.html".into(),
+        b"<script>\n\tvar COMBINED_EXT_JS='js/CombinedExtensions.1.js';\n</script>".to_vec(),
+    );
+    remote.web.insert(
+        "Builder/js/CombinedExtensions.1.js".into(),
+        b"TW.IDE.Widgets.acme = function () {};".to_vec(),
+    );
     let outcome = fetch_platform(&remote, &solution).unwrap();
     assert_eq!(
         (outcome.templates, outcome.shapes, outcome.resources),
         (2, 1, 2)
+    );
+    assert_eq!(
+        crate::core::types::platform::cached(&solution)
+            .unwrap()
+            .extension_widgets,
+        "TW.IDE.Widgets.acme = function () {};"
     );
     let calls = remote.calls.borrow();
     assert!(calls

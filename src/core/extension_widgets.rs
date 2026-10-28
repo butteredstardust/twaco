@@ -1,21 +1,26 @@
 //! The widgets a solution's own `[[extension]]` projects define, read from their mashup-builder
 //! source, so `mashup add` can place them as Composer would.
 //!
-//! Two forms are read: a JavaScript `TW.IDE.Widgets.<type> = function () { this.widgetProperties
-//! = function () { return {...} } }`, and a TypeScript `@TWWidgetDefinition` class in a file that
-//! imports `widgetIDESupport`. Only literals count: a default worked out at run time is left out,
-//! and Composer fills it when the mashup is next opened.
+//! Three forms are read: a JavaScript `TW.IDE.Widgets.<type> = function () { this.widgetProperties
+//! = function () { return {...} } }`; a web-component widget's configuration, registered with
+//! `TW.Widget.widgetWrapper.config(<type>, {flags, properties, events})`; and a TypeScript
+//! `@TWWidgetDefinition` class in a file that imports `widgetIDESupport`. Only literals count: a
+//! default worked out at run time is left out, and Composer fills it when the mashup is next
+//! opened. A property without a default is not written, as Composer does not write it.
+//!
+//! Widgets of extensions installed on the server come from the platform cache, which
+//! `types --platform` fills with the mashup builder's combined extension code.
 
 use super::config::Solution;
 use super::widgets::{PropertyContract, Widget};
 use serde_json::{Map, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use swc_common::BytePos;
 use swc_ecma_ast::{
-    AssignExpr, AssignTarget, Callee, ClassDecl, ClassMember, Decorator, Expr, Function, Lit,
-    MemberExpr, MemberProp, ObjectLit, Prop, PropName, PropOrSpread, SimpleAssignTarget, Stmt,
-    UnaryOp,
+    AssignExpr, AssignTarget, CallExpr, Callee, ClassDecl, ClassMember, Decorator, Expr, Function,
+    Lit, MemberExpr, MemberProp, ObjectLit, Pat, Prop, PropName, PropOrSpread, SimpleAssignTarget,
+    Stmt, UnaryOp, VarDeclarator,
 };
 use swc_ecma_parser::{lexer::Lexer, EsSyntax, Parser, StringInput, Syntax, TsSyntax};
 use swc_ecma_visit::{Visit, VisitWith};
@@ -52,9 +57,22 @@ const MAX_SOURCE: u64 = 2 * 1024 * 1024;
 /// More source files than a widget project has: the root holds something else as well.
 const MAX_FILES: usize = 2000;
 
-/// Every widget the solution's extension projects define, and the source files that could not
-/// be read.
+/// Every widget the solution's extension projects define, then those of the extensions the
+/// platform cache saw installed on the server, and what could not be read.
 pub(crate) fn load(solution: &Solution) -> (Vec<Widget>, Vec<String>) {
+    let (mut found, mut skipped) = load_projects(solution);
+    if let Some(platform) = super::types::platform::cached(solution) {
+        if !platform.extension_widgets.is_empty() {
+            match read_source(&platform.extension_widgets, false) {
+                Ok(widgets) => found.extend(widgets),
+                Err(why) => skipped.push(format!(".twaco/platform.json extension widgets: {why}")),
+            }
+        }
+    }
+    (found, skipped)
+}
+
+fn load_projects(solution: &Solution) -> (Vec<Widget>, Vec<String>) {
     let mut found = Vec::new();
     let mut skipped = Vec::new();
     for extension in &solution.extensions {
@@ -130,7 +148,7 @@ fn read_file(path: &Path) -> Result<Vec<Widget>, String> {
         if !(text.contains("TWWidgetDefinition") && text.contains("widgetIDESupport")) {
             return Ok(Vec::new());
         }
-    } else if !text.contains("TW.IDE.Widgets") {
+    } else if !text.contains("TW.IDE.Widgets") && !text.contains("widgetWrapper") {
         return Ok(Vec::new());
     }
     read_source(&text, typescript)
@@ -164,9 +182,49 @@ pub(crate) fn read_source(text: &str, typescript: bool) -> Result<Vec<Widget>, S
 #[derive(Default)]
 struct Collector {
     widgets: Vec<Widget>,
+    /// The latest value each `const`/`let`/`var` name was declared with, in source order: a
+    /// wrapper registration names its widget and configuration through them.
+    declared: HashMap<String, Expr>,
+}
+
+impl Collector {
+    fn resolve<'a>(&'a self, expr: &'a Expr) -> &'a Expr {
+        match expr {
+            Expr::Ident(ident) => self.declared.get(ident.sym.as_ref()).unwrap_or(expr),
+            other => other,
+        }
+    }
 }
 
 impl Visit for Collector {
+    fn visit_var_declarator(&mut self, declarator: &VarDeclarator) {
+        if let (Pat::Ident(name), Some(init)) = (&declarator.name, &declarator.init) {
+            self.declared
+                .insert(name.id.sym.to_string(), (**init).clone());
+        }
+        declarator.visit_children_with(self);
+    }
+
+    fn visit_call_expr(&mut self, call: &CallExpr) {
+        if let Callee::Expr(callee) = &call.callee {
+            let registers = member_path(callee)
+                .is_some_and(|path| path == ["TW", "Widget", "widgetWrapper", "config"]);
+            if registers && call.args.len() == 2 {
+                let name = string(self.resolve(&call.args[0].expr));
+                if let (Some(name), Expr::Object(config)) = (name, self.resolve(&call.args[1].expr))
+                {
+                    let mut parts = Parts {
+                        wrapper: true,
+                        ..Parts::default()
+                    };
+                    parts.read_wrapper(config);
+                    self.widgets.push(parts.into_widget(name));
+                }
+            }
+        }
+        call.visit_children_with(self);
+    }
+
     fn visit_assign_expr(&mut self, assign: &AssignExpr) {
         if let Some(type_id) = ide_widget_name(&assign.left) {
             if let Expr::Fn(function) = &*assign.right {
@@ -308,14 +366,14 @@ struct Parts {
     auto_resize: bool,
     properties: Vec<(String, Declared)>,
     events: Vec<String>,
+    /// A web-component widget: Composer themes it as its own PTCS widgets.
+    wrapper: bool,
 }
 
 #[derive(Default)]
 struct Declared {
     base_type: Option<String>,
     default: Option<Value>,
-    /// It names a default, literal or not.
-    defaulted: bool,
     source: bool,
     target: bool,
     editable: bool,
@@ -352,38 +410,52 @@ impl Parts {
                     self.auto_resize = literal(value) == Some(Value::from(true))
                 }
                 "properties" => {
-                    let Expr::Object(properties) = value else {
-                        continue;
-                    };
-                    for (property, declaration) in pairs(properties) {
-                        let Expr::Object(declaration) = declaration else {
-                            continue;
-                        };
-                        let mut declared = Declared {
-                            editable: true,
-                            ..Declared::default()
-                        };
-                        for (field, value) in pairs(declaration) {
-                            let flag = literal(value) == Some(Value::from(true));
-                            match field.as_str() {
-                                "baseType" => declared.base_type = string(value),
-                                "defaultValue" => {
-                                    declared.defaulted = true;
-                                    declared.default = literal(value);
-                                }
-                                "isBindingSource" => declared.source = flag,
-                                "isBindingTarget" => declared.target = flag,
-                                "isEditable" => {
-                                    declared.editable = literal(value) != Some(Value::from(false))
-                                }
-                                _ => {}
-                            }
-                        }
-                        self.properties.push((property, declared));
+                    if let Expr::Object(properties) = value {
+                        self.read_property_map(properties);
                     }
                 }
                 _ => {}
             }
+        }
+    }
+
+    /// A wrapper configuration: `flags` holds the label and auto-resize, `properties` and
+    /// `events` are as an IDE widget's.
+    fn read_wrapper(&mut self, config: &ObjectLit) {
+        for (name, value) in pairs(config) {
+            let Expr::Object(object) = value else {
+                continue;
+            };
+            match name.as_str() {
+                "flags" => self.read_properties(object),
+                "properties" => self.read_property_map(object),
+                "events" => self.events.extend(pairs(object).map(|(name, _)| name)),
+                _ => {}
+            }
+        }
+    }
+
+    fn read_property_map(&mut self, properties: &ObjectLit) {
+        for (property, declaration) in pairs(properties) {
+            let Expr::Object(declaration) = declaration else {
+                continue;
+            };
+            let mut declared = Declared {
+                editable: true,
+                ..Declared::default()
+            };
+            for (field, value) in pairs(declaration) {
+                let flag = literal(value) == Some(Value::from(true));
+                match field.as_str() {
+                    "baseType" => declared.base_type = string(value),
+                    "defaultValue" => declared.default = literal(value),
+                    "isBindingSource" => declared.source = flag,
+                    "isBindingTarget" => declared.target = flag,
+                    "isEditable" => declared.editable = literal(value) != Some(Value::from(false)),
+                    _ => {}
+                }
+            }
+            self.properties.push((property, declared));
         }
     }
 
@@ -392,18 +464,13 @@ impl Parts {
         for (name, value) in dropped() {
             defaults.insert(name.to_string(), value);
         }
+        if self.wrapper {
+            defaults.insert("UseTheme".to_string(), Value::from(true));
+        }
         let mut contracts = BTreeMap::new();
         for (name, declared) in self.properties {
             if let Some(value) = declared.default.clone() {
                 defaults.insert(name.clone(), value);
-            } else if let Some(empty) = (!declared.defaulted)
-                .then_some(declared.base_type.as_deref())
-                .flatten()
-                .and_then(empty_value)
-            {
-                // Untyped otherwise: `--prop` reads its text by this value's JSON type, and
-                // Composer writes the base type's empty value for a property with no default.
-                defaults.insert(name.clone(), empty);
             }
             contracts.insert(
                 name,
@@ -427,8 +494,9 @@ impl Parts {
     }
 }
 
-/// The empty value of a base type whose JSON form is a plain value.
-fn empty_value(base_type: &str) -> Option<Value> {
+/// The empty value of a base type whose JSON form is a plain value: the JSON type `--prop` reads
+/// a property's text as when the widget declares no default.
+pub(crate) fn empty_value(base_type: &str) -> Option<Value> {
     match base_type {
         "STRING" | "TEXT" | "HTML" | "HYPERLINK" | "IMAGELINK" | "MASHUPNAME" | "THINGNAME"
         | "SERVICENAME" | "PROPERTYNAME" | "STYLEDEFINITION" | "STATEDEFINITION"
@@ -527,7 +595,6 @@ fn typescript_widget(class: &ClassDecl) -> Option<Widget> {
                     };
                     if matches!(&**callee, Expr::Ident(ident) if ident.sym.as_ref() == "defaultValue")
                     {
-                        declared.defaulted = true;
                         declared.default = call.args.first().and_then(|arg| literal(&arg.expr));
                     }
                 }
@@ -580,8 +647,9 @@ TW.IDE.Widgets["other-one"] = function () {};
         assert!(gauge.auto_resize);
         assert_eq!(gauge.defaults["Value"], json!(-1.5));
         assert_eq!(gauge.defaults["Title"], json!("Gauge"));
-        assert_eq!(gauge.defaults["Unset"], json!(""));
-        assert_eq!(gauge.defaults["Locked"], json!(false));
+        // Composer writes no value for a property without a default.
+        assert!(!gauge.defaults.contains_key("Unset"));
+        assert!(!gauge.defaults.contains_key("Locked"));
         assert!(!gauge.defaults.contains_key("Computed"));
         assert_eq!(
             gauge.defaults["Options"],
@@ -596,6 +664,40 @@ TW.IDE.Widgets["other-one"] = function () {};
         assert!(locked.source && !locked.editable);
         assert!(gauge.has_event("Changed"));
         assert_eq!(widgets[1].type_display_name, "other-one");
+    }
+
+    /// The shape of the mashup builder's combined extension code: each web-component widget
+    /// registers its configuration, then its IDE function reaches it through a local alias.
+    #[test]
+    fn a_wrapper_configuration_gives_a_themed_widget() {
+        let source = r#"
+// ----BEGIN: extensions/acme-chat/ui/acmechat/acmechat.config.js
+(function(TW) {
+    const widgetName = 'acmechat';
+    const config = {"elementName":"acme-chat","flags":{"name":"Acme Chat","supportsAutoResize":true},"properties":{"CustomClass":{"baseType":"STRING","isBindingSource":true},"Placeholder":{"baseType":"STRING","isBindingTarget":true,"defaultValue":"Ask"},"HistoryMaxItems":{"baseType":"INTEGER","defaultValue":500}},"events":{"Sent":{"src":"Sent"}}};
+    TW.Widget.widgetWrapper = TW.Widget.widgetWrapper || { configs: {} };
+    TW.Widget.widgetWrapper.config(widgetName, config);
+}(TW));
+// ----BEGIN: extensions/acme-chat/ui/acmechat/acmechat.ide.js
+(function(widgetName, isIDE) {
+    const widgets = isIDE ? TW.IDE.Widgets : TW.Runtime.Widgets;
+    widgets[widgetName] = function() {
+        const config = TW.Widget.widgetWrapper.config(widgetName);
+    };
+}('acmechat', true));
+"#;
+        let widgets = read_source(source, false).unwrap();
+        assert_eq!(widgets.len(), 1, "{widgets:?}");
+        let chat = &widgets[0];
+        assert_eq!(chat.type_id, "acmechat");
+        assert_eq!(chat.type_display_name, "Acme Chat");
+        assert!(chat.auto_resize);
+        assert_eq!(chat.defaults["Placeholder"], json!("Ask"));
+        assert_eq!(chat.defaults["HistoryMaxItems"], json!(500));
+        assert_eq!(chat.defaults["UseTheme"], json!(true));
+        assert!(!chat.defaults.contains_key("CustomClass"));
+        assert!(chat.property("CustomClass").unwrap().source);
+        assert!(chat.has_event("Sent"));
     }
 
     #[test]
