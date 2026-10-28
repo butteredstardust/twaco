@@ -1023,6 +1023,55 @@ mod tests {
             "{text}"
         );
         assert_eq!(read_back(&out)["N"].1, "n();");
+
+        // Several services added at once, their scripts indented, into a document laid out
+        // deeper than a new block is built: moving the block re-indents its markup, never the
+        // lines inside a script.
+        let mut sidecars = sidecars_of(src);
+        let first = "if (a) {\n    b();\n}";
+        let second = "for (;;) {\n        deep();\n    }\nreturn;";
+        sidecars.insert("N".into(), new_service("N", first));
+        sidecars.insert("O".into(), new_service("O", second));
+        let (out, _) = sync(src, &sidecars, true, false, false).unwrap();
+        let back = read_back(&out);
+        assert_eq!(back["N"].1, first);
+        assert_eq!(back["O"].1, second);
+        assert_eq!(back["S"].1, "s();");
+    }
+
+    #[test]
+    fn a_service_name_that_markup_would_break_is_refused() {
+        let src = entity("            var a = 1;");
+        let mut sidecars = sidecars_of(&src);
+        sidecars.insert("A<B".into(), new_service("A<B", "x();"));
+        let error = sync(&src, &sidecars, true, false, false).unwrap_err();
+        assert!(
+            error.to_string().contains("the name is not a service name"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn a_new_service_copies_a_script_implementation_never_another_kind() {
+        // A SQL service sorts first, but a new script service is modelled on the script one.
+        let src = text_with("<code><![CDATA[\na();\n]]></code>")
+            .replace(
+                "<ServiceImplementations>",
+                "<ServiceImplementations><ServiceImplementation name=\"A\" handlerName=\"SQLQuery\"><ConfigurationTables><ConfigurationTable name=\"Query\"><Rows><Row><sql><![CDATA[select 1]]></sql></Row></Rows></ConfigurationTable></ConfigurationTables></ServiceImplementation>",
+            )
+            .replace(
+                "<ServiceDefinitions>",
+                "<ServiceDefinitions><ServiceDefinition name=\"A\" description=\"q\"></ServiceDefinition>",
+            )
+            .into_bytes();
+        let mut sidecars = sidecars_of(&src);
+        sidecars.insert("N".into(), new_service("N", "n();"));
+        let (out, _) = sync(&src, &sidecars, true, false, false).unwrap();
+        let text = String::from_utf8(out).unwrap();
+        assert!(
+            text.contains("<ServiceImplementation name=\"N\" handlerName=\"Script\">"),
+            "{text}"
+        );
     }
 
     #[test]
