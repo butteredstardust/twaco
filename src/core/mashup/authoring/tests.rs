@@ -1065,6 +1065,43 @@ fn on(solution: &Solution, event: &str, invoke: &str) -> Result<OnPlan, Authorin
 }
 
 #[test]
+fn unbind_removes_one_property_map_of_an_entry_that_carries_several() {
+    let (dir, solution) = bind_fixture();
+    let binding = bind(
+        &solution,
+        "ui:ptcstextfield-3.Text",
+        "data:Acme.Orders.Manager.SaveOrder.note",
+    )
+    .unwrap();
+    apply_edit(&solution, &binding.edit, &lock(&solution)).unwrap();
+    // Composer writes a second target of the same source into the same entry.
+    rewrite_mashup(dir.path(), "Acme.Orders_MU", |value| {
+        let maps = value["DataBindings"][0]["PropertyMaps"]
+            .as_array_mut()
+            .unwrap();
+        let mut second = maps[0].clone();
+        second["TargetProperty"] = json!("title");
+        maps.push(second);
+    });
+    let unbound = plan_unbind(
+        &solution,
+        &UnbindRequest {
+            mashup: "Acme.Orders_MU".into(),
+            from: "ui:ptcstextfield-3.Text".into(),
+            to: "data:Acme.Orders.Manager.SaveOrder.note".into(),
+        },
+    )
+    .unwrap();
+    let content: Value =
+        serde_json::from_slice(&unbound.edit.sidecars.as_ref().unwrap().content_after).unwrap();
+    let maps = content["DataBindings"][0]["PropertyMaps"]
+        .as_array()
+        .unwrap();
+    assert_eq!(maps.len(), 1, "{content}");
+    assert_eq!(maps[0]["TargetProperty"], "title");
+}
+
+#[test]
 fn remove_unbind_and_off_are_exact_inverses() {
     let (_dir, solution) = bind_fixture();
     let binding = bind(

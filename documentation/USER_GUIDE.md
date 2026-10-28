@@ -1474,9 +1474,11 @@ keep a `jar:file:` URL and report the SDK version.
 - **Can this user call this service:** `twaco access explain ann Things/Acme.Pump01 Reset`
   answers allowed, denied or unknown, with the reasons. The run-time half is the server's own
   check (`CheckPermissionForUser`, the same rule the call would meet), with the grant it found;
-  visibility is the entity's visibility grants against the user's organizations, and a member
-  of Administrators sees everything. Visibility an entity takes from its template is not read,
-  so an entity with none of its own is "unknown", never "allowed". The service is never
+  visibility is the entity's visibility grants against the user's organizations: a member of
+  Administrators and the entity's owner see it whatever they say, and a deny for one of the
+  user's organizations wins over an allow. A grant to an organizational unit is not resolved
+  to its members, and visibility an entity takes from its template is not read: either makes
+  the answer "unknown", never "allowed". The service is never
   invoked, so it is safe for any service; `twaco call --as <test user>` is the way to try one.
 
 ## Server content

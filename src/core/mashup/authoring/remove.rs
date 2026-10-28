@@ -167,7 +167,25 @@ pub(crate) fn plan_unbind(
         matching,
         format!("{} is not bound to {}", request.from, request.to),
     )?;
-    document.bindings_mut().remove(index);
+    // One entry can carry several property maps (Composer's multi-target binding): only the map
+    // for this pair goes, and the entry with it only when no other map is left.
+    let (source, target) = (property(&from), property(&to));
+    let bindings = document.bindings_mut();
+    let emptied = match bindings[index]["PropertyMaps"].as_array_mut() {
+        Some(maps) => {
+            if let Some(at) = maps
+                .iter()
+                .position(|map| map["SourceProperty"] == source && map["TargetProperty"] == target)
+            {
+                maps.remove(at);
+            }
+            maps.is_empty()
+        }
+        None => true,
+    };
+    if emptied {
+        bindings.remove(index);
+    }
     Ok(UnbindPlan {
         edit: finish_edit(loaded, document, "mashup unbind")?,
         from: request.from.clone(),

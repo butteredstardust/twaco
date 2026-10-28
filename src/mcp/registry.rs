@@ -811,7 +811,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         .with_output::<outputs::EntityInspectResult>(),
         solution_tool::<content_requests::AccessExplainRequest>(
             "access_explain",
-            "Whether a user may invoke a service of an entity: verdict allowed, denied or unknown, from the server's own run-time check (CheckPermissionForUser) and visibility through the user's organizations and groups (Administrators see all), with reasons. Visibility an entity takes from its template is not read, so it is unknown rather than allowed. Read-only: the service is never invoked.",
+            "Whether a user may invoke a service of an entity: verdict allowed, denied or unknown, from the server's own run-time check (CheckPermissionForUser) and visibility through the user's organizations and groups (Administrators and the owner see it; a deny for one of the user's organizations wins), with reasons. A grant to an organizational unit, or visibility taken from the template, is not resolved, so it is unknown rather than allowed. Read-only: the service is never invoked.",
             true,
             content::access_explain_tool,
         )

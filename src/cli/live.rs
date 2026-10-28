@@ -136,8 +136,8 @@ pub(crate) fn model_cmd(solution: &Solution, args: &Model) -> u8 {
     };
     let limit = match args.limit.as_deref().map(str::parse::<usize>) {
         None => model_query::DEFAULT_LIMIT,
-        Some(Ok(limit)) => limit,
-        Some(Err(_)) => return fail("model resolve", "--limit takes a number"),
+        Some(Ok(limit)) if limit > 0 => limit,
+        Some(_) => return fail("model resolve", "--limit takes a number from 1"),
     };
     let (collection, name) = match address(entity) {
         Ok(found) => found,

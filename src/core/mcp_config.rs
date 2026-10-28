@@ -1,9 +1,11 @@
 //! `twaco mcp configure`: register twaco's MCP server with a coding assistant.
 //!
 //! Each client keeps its servers in its own file, which belongs to the user: only twaco's own
-//! entry is ever added or replaced, every other byte of the file stays as it was, a changed file
-//! is backed up beside itself first, and a file twaco cannot edit safely is refused rather than
-//! rewritten. An entry that already says what twaco would write is left alone.
+//! entry is ever added or replaced, a changed file is backed up beside itself first, a file that
+//! changed after the plan read it is refused, and a file twaco cannot edit safely is refused
+//! rather than rewritten. An entry that already says what twaco would write is left alone. A
+//! TOML file keeps every other byte; a JSON file keeps its content, key order and line endings,
+//! but is written back indented by two spaces.
 //!
 //! - Codex: `~/.codex/config.toml`, table `[mcp_servers.twaco]` (`command`, `args`, `env`).
 //! - Cursor: `<project>/.cursor/mcp.json`, or `~/.cursor/mcp.json`, key `mcpServers.twaco`.
@@ -126,6 +128,8 @@ pub struct Plan {
     pub entry_text: String,
     /// The whole file after the change; `None` for [`Change::Same`] or no file.
     after: Option<String>,
+    /// The file as the plan read it (`None`: absent), so an apply can refuse a file that changed.
+    before: Option<String>,
     /// A command that registers the entry when twaco does not edit the file itself.
     pub command: Option<String>,
 }
@@ -173,6 +177,7 @@ pub fn plan(
             change: Change::Add,
             entry_text: serde_json::to_string_pretty(&entry.json()).expect("JSON serialises"),
             after: None,
+            before: None,
             command: Some(format!(
                 "claude mcp add --scope user{env} {SERVER} -- {} {}",
                 quote(&entry.command),
@@ -202,6 +207,7 @@ pub fn plan(
             change,
             entry_text,
             after: None,
+            before: existing,
             command: None,
         });
     }
@@ -209,6 +215,7 @@ pub fn plan(
         client,
         scope,
         after: (change != Change::Same).then_some(after),
+        before: existing,
         file: Some(file),
         change,
         entry_text,
@@ -222,6 +229,18 @@ pub fn apply(plan: &Plan) -> Result<Option<PathBuf>, String> {
     let (Some(file), Some(after)) = (&plan.file, &plan.after) else {
         return Ok(None);
     };
+    // The client may have written its file since the plan read it; that edit is not lost.
+    let now = match std::fs::read_to_string(file) {
+        Ok(text) => Some(text),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(format!("{}: {error}", file.display())),
+    };
+    if now != plan.before {
+        return Err(format!(
+            "{} changed after the plan read it; nothing was written, plan again",
+            file.display()
+        ));
+    }
     let dir = file
         .parent()
         .ok_or_else(|| format!("{} has no folder", file.display()))?;
@@ -284,6 +303,15 @@ fn codex(
         preview.to_string().trim().to_string()
     };
 
+    if document
+        .get("mcp_servers")
+        .is_some_and(|servers| !servers.is_table())
+    {
+        return Err(format!(
+            "{}: mcp_servers is not a [mcp_servers] table (an inline table, say); add the twaco entry by hand",
+            file.display()
+        ));
+    }
     let servers = document.entry("mcp_servers").or_insert_with(|| {
         let mut servers = toml_edit::Table::new();
         servers.set_implicit(true);
@@ -525,6 +553,44 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.contains("not plain JSON"), "{error}");
+    }
+
+    #[test]
+    fn a_file_changed_after_the_plan_or_an_inline_table_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let (project, home) = (dir.path().join("p"), dir.path().join("h"));
+        let file = project.join(".mcp.json");
+        let plan = super::plan(
+            Client::ClaudeCode,
+            Scope::Project,
+            &entry(None),
+            &project,
+            &home,
+            false,
+        )
+        .unwrap();
+        std::fs::create_dir_all(&project).unwrap();
+        std::fs::write(&file, "{\"mcpServers\": {\"theirs\": {}}}\n").unwrap();
+        let error = apply(&plan).unwrap_err();
+        assert!(error.contains("changed after the plan"), "{error}");
+        assert_eq!(
+            std::fs::read_to_string(&file).unwrap(),
+            "{\"mcpServers\": {\"theirs\": {}}}\n"
+        );
+
+        let codex = home.join(".codex/config.toml");
+        std::fs::create_dir_all(codex.parent().unwrap()).unwrap();
+        std::fs::write(&codex, "mcp_servers = { other = { command = 'x' } }\n").unwrap();
+        let error = super::plan(
+            Client::Codex,
+            Scope::User,
+            &entry(None),
+            &project,
+            &home,
+            false,
+        )
+        .unwrap_err();
+        assert!(error.contains("not a [mcp_servers] table"), "{error}");
     }
 
     #[test]

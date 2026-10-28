@@ -139,11 +139,51 @@ pub fn explain(
         .iter()
         .filter(|organization| visible_to.contains(organization))
         .collect();
+    // A deny wins over an allow, so denies are judged first; a grant to something other than a
+    // whole organization (an organizational unit) cannot be resolved to its members here, so it
+    // leaves the answer open rather than letting an allow stand.
+    let denied_by: Option<&str> = grants
+        .iter()
+        .filter(|grant| grant["isPermitted"].as_bool() == Some(false))
+        .filter(|grant| grant["type"].as_str() == Some("Organization"))
+        .filter_map(|grant| grant["name"].as_str())
+        .find(|name| {
+            organizations
+                .iter()
+                .any(|organization| organization == name)
+        });
+    let unresolved = grants
+        .iter()
+        .any(|grant| grant["type"].as_str() != Some("Organization"));
+    // The owner of an entity sees it, whatever its visibility says.
+    let owner = remote
+        .call(&target, "GetOwner", &json!({}))
+        .ok()
+        .and_then(|reply| {
+            first(&reply)
+                .and_then(|row| row["result"].as_str())
+                .map(str::to_string)
+        });
     let visibility = if administrator {
         reasons.push(format!(
             "visibility: {user} is in Administrators, who see every entity"
         ));
         Verdict::Allowed
+    } else if owner.as_deref() == Some(user) {
+        reasons.push(format!(
+            "visibility: {user} owns {entity}, and an owner sees it"
+        ));
+        Verdict::Allowed
+    } else if let Some(organization) = denied_by {
+        reasons.push(format!(
+            "visibility: {entity} denies visibility to {organization}, which {user} belongs to"
+        ));
+        Verdict::Denied
+    } else if unresolved {
+        reasons.push(format!(
+            "visibility: {entity} has grants for organizational units, which twaco does not resolve to members"
+        ));
+        Verdict::Unknown
     } else if let Some(organization) = shared.first() {
         reasons.push(format!(
             "visibility: {entity} is visible to {organization}, which {user} belongs to"
@@ -154,12 +194,9 @@ pub fn explain(
             "visibility: {entity} grants none of its own; what its template grants its instances is not read here"
         ));
         Verdict::Unknown
-    } else if grants
-        .iter()
-        .any(|grant| grant["type"].as_str() != Some("Organization"))
-    {
+    } else if owner.is_none() {
         reasons.push(format!(
-            "visibility: {entity} is visible to organizational units twaco does not resolve to members"
+            "visibility: none of {entity}'s organizations has {user}, but its owner could not be read, and an owner sees it"
         ));
         Verdict::Unknown
     } else {
@@ -258,6 +295,10 @@ mod tests {
                 "Things/Acme.T.GetVisibilityPermissionsAsJSON".to_string(),
                 json!({ "Visibility": visible }),
             ),
+            (
+                "Things/Acme.T.GetOwner".to_string(),
+                table(json!([{ "result": "bob" }])),
+            ),
         ]))
     }
 
@@ -288,6 +329,43 @@ mod tests {
         assert_eq!(
             (no_grant.verdict, no_grant.run_time),
             (Verdict::Denied, Verdict::Denied)
+        );
+    }
+
+    #[test]
+    fn a_deny_wins_units_leave_it_open_and_an_owner_sees_it() {
+        let allowed = json!({ "name": "Acme.Org", "type": "Organization", "isPermitted": true });
+        let denied = json!({ "name": "Acme.Org", "type": "Organization", "isPermitted": false });
+        let both = explained(&server(
+            true,
+            &["Acme.Org"],
+            &[],
+            json!([allowed.clone(), denied]),
+        ));
+        assert_eq!(both.visibility, Verdict::Denied, "{:?}", both.reasons);
+
+        let unit =
+            json!({ "name": "Acme.Org:Floor", "type": "OrganizationalUnit", "isPermitted": false });
+        let open = explained(&server(true, &["Acme.Org"], &[], json!([allowed, unit])));
+        assert_eq!(
+            (open.verdict, open.visibility),
+            (Verdict::Unknown, Verdict::Unknown)
+        );
+
+        let mut owned = server(
+            true,
+            &[],
+            &[],
+            json!([{ "name": "Other.Org", "type": "Organization", "isPermitted": true }]),
+        );
+        owned.0.insert(
+            "Things/Acme.T.GetOwner".to_string(),
+            table(json!([{ "result": "ann" }])),
+        );
+        let owner = explained(&owned);
+        assert_eq!(
+            (owner.verdict, owner.visibility),
+            (Verdict::Allowed, Verdict::Allowed)
         );
     }
 
