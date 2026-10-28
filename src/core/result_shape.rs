@@ -147,6 +147,9 @@ struct Row {
 
 struct Collector {
     found: Found,
+    /// How many functions deep the visit is: a helper's parameter may share the name of the
+    /// table that becomes the result, so only rows added outside every function count.
+    depth: usize,
 }
 
 fn builds(script: &str) -> Option<Found> {
@@ -163,6 +166,7 @@ fn builds(script: &str) -> Option<Found> {
     let ast = Parser::new_from(lexer).parse_script().ok()?;
     let mut collector = Collector {
         found: Found::default(),
+        depth: 0,
     };
     ast.visit_with(&mut collector);
     Some(collector.found)
@@ -227,8 +231,20 @@ impl Collector {
 }
 
 impl Visit for Collector {
+    fn visit_function(&mut self, function: &swc_ecma_ast::Function) {
+        self.depth += 1;
+        function.visit_children_with(self);
+        self.depth -= 1;
+    }
+
+    fn visit_arrow_expr(&mut self, arrow: &swc_ecma_ast::ArrowExpr) {
+        self.depth += 1;
+        arrow.visit_children_with(self);
+        self.depth -= 1;
+    }
+
     fn visit_call_expr(&mut self, call: &CallExpr) {
-        if let Callee::Expr(callee) = &call.callee {
+        if let (0, Callee::Expr(callee)) = (self.depth, &call.callee) {
             if let Expr::Member(member) = &**callee {
                 let adds_row = matches!(&member.prop, MemberProp::Ident(name) if name.sym.as_ref() == "AddRow");
                 if let (true, Expr::Ident(target), Some(first)) =
@@ -335,6 +351,8 @@ mod tests {
              rows.AddRow({{ id: 1, name: \"a\" }});\n\
              rows.AddRow({{ id: 2, qty: 3 }});\n\
              other.AddRow({{ nope: 1 }});\n\
+             function helper(rows) {{ rows.AddRow({{ removed: 1 }}); }}\n\
+             const each = (rows) => rows.AddRow({{ removed: 2 }});\n\
              rows.AddRow({{ ...extra }});\n\
              result = rows;\n"
         );

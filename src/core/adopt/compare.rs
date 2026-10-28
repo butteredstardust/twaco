@@ -192,7 +192,7 @@ pub(crate) fn compare_with(
         let unchanged = unchanged_since_deploy(solution, &report, &here);
         if !unchanged.is_empty() {
             report.notes.push(format!(
-                "{} of the conflicting entities are as last deployed to the default profile's server ({}); if the export comes from that server, `twaco entity pull <entity> --apply` takes its version, or --take theirs:<name> here",
+                "{} of the conflicting entities are as last deployed to, or recorded against, the default profile's server ({}); if the export comes from that server, `twaco entity pull <entity> --apply` takes its version, or --take theirs:<name> here",
                 unchanged.len(),
                 unchanged.join(", ")
             ));

@@ -144,16 +144,24 @@ where
         None
     };
     let outcome = compare(solution, request, open, progress)?;
-    behind_sidecars(solution, request.project.as_deref(), notices);
+    behind_sidecars(solution, request, notices);
     Ok(outcome)
 }
 
 /// Status compares entity files; a sidecar edited since the last sync is not in them yet, so
 /// say so rather than let "in sync" stand for work the comparison never saw.
-fn behind_sidecars(solution: &Solution, project: Option<&str>, notices: &mut Notices) {
+fn behind_sidecars(solution: &Solution, request: &StatusRequest, notices: &mut Notices) {
     let mut entities = workspace::discover(solution).entities;
-    if let Some(project) = project {
-        entities.retain(|entity| entity.found_under == project);
+    if let Some(project) = &request.project {
+        entities.retain(|entity| &entity.found_under == project);
+    }
+    // Only the entities this status compared.
+    if let StatusTarget::Names(names) = &request.target {
+        let chosen: Vec<_> = names
+            .iter()
+            .filter_map(|name| workspace::resolve(&entities, name).ok().cloned())
+            .collect();
+        entities = chosen;
     }
     let report = crate::core::workflow::sync(
         solution,
@@ -170,6 +178,13 @@ fn behind_sidecars(solution: &Solution, project: Option<&str>, notices: &mut Not
         notices.push(format!(
             "{} entity file(s) are behind their sidecars, which this status does not compare; `twaco sync --all` brings them in",
             report.changed
+        ));
+    }
+    // A service or field added or removed in the sidecars stops a plain sync.
+    if report.failed > 0 {
+        notices.push(format!(
+            "{} entity file(s) have sidecars a plain sync cannot bring in (a service or field added or removed, or one it cannot read); `twaco sync --all` says which, and --allow-add-remove takes an addition or removal",
+            report.failed
         ));
     }
 }

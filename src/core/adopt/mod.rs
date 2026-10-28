@@ -778,9 +778,9 @@ mod tests {
         baseline.write(&root, "default").unwrap();
         let notes = notes(&solution);
         assert!(
-            notes.iter().any(|note| note
-                .starts_with("1 of the conflicting entities are as last deployed")
-                && note.contains("Mashups/P.A")),
+            notes.iter().any(|note| note.starts_with(
+                "1 of the conflicting entities are as last deployed to, or recorded against"
+            ) && note.contains("Mashups/P.A")),
             "{notes:?}"
         );
     }

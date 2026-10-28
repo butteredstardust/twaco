@@ -178,7 +178,7 @@ pub(crate) fn adopt_cmd(solution: &Solution, args: &Adopt) -> u8 {
         // something that was.
         let (left, written): (Vec<&String>, Vec<&String>) =
             outcome.lines.iter().partition(|line| {
-                ["conflict ", "kept ", "skipped "]
+                ["conflict ", "kept ", "skipped ", "not adopted "]
                     .iter()
                     .any(|word| line.starts_with(word))
             });

@@ -48,7 +48,8 @@ All notable changes to twaco are recorded here. The format follows
   a case-insensitive file system stopped it.
 - `twaco adopt` lists conflicts and skipped entities under "not applied" rather than "applied",
   says "Nothing was adopted" when that is so, and, with no base, names the conflicting entities
-  that are as last deployed to the default profile's server, for which `entity pull` is the way.
+  that are as last deployed to (or recorded against) the default profile's server, for which
+  `entity pull` is the way.
 - `twaco deploy --apply` reports "create" and "update" for what it sends, not "would create".
 - `twaco update` prints the executable's path without Windows' `\\?\` prefix.
 
