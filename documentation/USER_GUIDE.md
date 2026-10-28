@@ -1026,6 +1026,21 @@ when a Thing's service is not called yet, or a widget's own service such as a gr
 Widgets whose contract the catalogue does not know are refused. `mashup describe` lists the
 result as `trigger -> handler`.
 
+### Removing mashup wiring and widgets
+
+```sh
+twaco mashup unbind Acme.App.Orders_MU --from ui:ptcstextfield-4.Text --to data:Acme.App.Orders.Manager.SaveOrder.note --apply
+twaco mashup off Acme.App.Orders_MU --event ui:ptcsbutton-6.Clicked --invoke data:Acme.App.Orders.Manager.SaveOrder --apply
+twaco mashup remove Acme.App.Orders_MU ptcsbutton-6 --cascade --apply
+```
+
+`mashup unbind` and `mashup off` remove exactly the one binding or event handler the two
+addresses select. `mashup remove` removes a widget and its descendants. It normally refuses if
+bindings, events, data-call configuration, or extension JSON names that subtree. `--cascade`
+removes only the proven bindings and events; it still refuses unknown references and reports data
+calls made orphaned for you to review rather than deleting a call it cannot prove is unused. All
+three commands plan until `--apply` and change the entity and managed `content.json` together.
+
 ### Events from a contained mashup
 
 ```sh
@@ -1444,6 +1459,27 @@ keep a `jar:file:` URL and report the SDK version.
   rows, so a backup is the only undo.
 - **`twaco settings --search <words>`** finds a subsystem setting by name or description.
   It is read-only, and password values are never shown.
+
+## Asking the server
+
+- **How many instances:** `twaco model resolve ThingTemplates/Acme.Pump_TT` says how many
+  Things implement the template (or a ThingShape) on the server and lists the first 50
+  (`--limit`), with the total always given: Things made at run time, or by another solution,
+  that the repository cannot know about.
+- **What an entity is made of there:** `twaco entity inspect Things/Acme.Pump01` lists its
+  properties, services and events as the server has them, each with what declares it: the
+  Thing itself, its template, a shape, or a platform package (`ConfiguredThing` and the like),
+  and how many come from each. `--member <name>` narrows to one; `--values` adds a Thing's
+  current property values, and names the properties the profile may not read.
+- **Can this user call this service:** `twaco access explain ann Things/Acme.Pump01 Reset`
+  answers allowed, denied or unknown, with the reasons. The run-time half is the server's own
+  check (`CheckPermissionForUser`, the same rule the call would meet), with the grant it found;
+  visibility is the entity's visibility grants against the user's organizations: a member of
+  Administrators and the entity's owner see it whatever they say, and a deny for one of the
+  user's organizations wins over an allow. A grant to an organizational unit is not resolved
+  to its members, and visibility an entity takes from its template is not read: either makes
+  the answer "unknown", never "allowed". The service is never
+  invoked, so it is safe for any service; `twaco call --as <test user>` is the way to try one.
 
 ## Server content
 

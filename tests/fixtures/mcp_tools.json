@@ -5382,6 +5382,266 @@
     }
   },
   {
+    "name": "mashup_remove",
+    "description": "Remove a widget and its subtree from an existing mashup. By default it refuses bindings, events, data-call configuration, or extension JSON that names the subtree. cascade removes only proven bindings and events, reports orphaned data calls, and never guesses which calls to delete. A dry run unless dry_run is false; apply writes the entity and managed content sidecar together.",
+    "inputSchema": {
+      "required": [
+        "mashup",
+        "widget"
+      ],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "mashup": {
+          "description": "The existing mashup's name.",
+          "type": "string"
+        },
+        "widget": {
+          "description": "A widget id, display name, or unique catalogue name.",
+          "type": "string"
+        },
+        "cascade": {
+          "description": "Also remove bindings and event handlers proven to name the widget subtree.",
+          "type": "boolean",
+          "default": false
+        },
+        "dry_run": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "openWorldHint": false,
+      "destructiveHint": true,
+      "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "applied",
+        "dry_run",
+        "mashup",
+        "widget",
+        "removed",
+        "bindings_removed",
+        "events_removed",
+        "orphaned_data_calls",
+        "files"
+      ],
+      "properties": {
+        "applied": {
+          "type": "boolean"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "mashup": {
+          "type": "string"
+        },
+        "widget": {
+          "type": "string"
+        },
+        "removed": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "bindings_removed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "events_removed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "orphaned_data_calls": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "mashup_unbind",
+    "description": "Remove exactly one existing data binding selected by its source and target addresses. A dry run unless dry_run is false; apply writes the entity and managed content sidecar together.",
+    "inputSchema": {
+      "required": [
+        "mashup",
+        "from",
+        "to"
+      ],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "mashup": {
+          "description": "The existing mashup's name.",
+          "type": "string"
+        },
+        "from": {
+          "description": "The binding source address as mashup_describe prints it.",
+          "type": "string"
+        },
+        "to": {
+          "description": "The binding target address as mashup_describe prints it.",
+          "type": "string"
+        },
+        "dry_run": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "openWorldHint": false,
+      "destructiveHint": true,
+      "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "applied",
+        "dry_run",
+        "mashup",
+        "from",
+        "to",
+        "files"
+      ],
+      "properties": {
+        "applied": {
+          "type": "boolean"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "mashup": {
+          "type": "string"
+        },
+        "from": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "mashup_off",
+    "description": "Remove exactly one existing event handler selected by its event and invoked address. A dry run unless dry_run is false; apply writes the entity and managed content sidecar together.",
+    "inputSchema": {
+      "required": [
+        "mashup",
+        "event",
+        "invoke"
+      ],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "mashup": {
+          "description": "The existing mashup's name.",
+          "type": "string"
+        },
+        "event": {
+          "description": "The event address as mashup_describe prints it.",
+          "type": "string"
+        },
+        "invoke": {
+          "description": "The invoked data call or widget service address.",
+          "type": "string"
+        },
+        "dry_run": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "openWorldHint": false,
+      "destructiveHint": true,
+      "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "applied",
+        "dry_run",
+        "mashup",
+        "event",
+        "invoke",
+        "files"
+      ],
+      "properties": {
+        "applied": {
+          "type": "boolean"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "mashup": {
+          "type": "string"
+        },
+        "event": {
+          "type": "string"
+        },
+        "invoke": {
+          "type": "string"
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
     "name": "widgets",
     "description": "List or search the embedded ThingWorx 10.2 widget catalogue (type, Composer label, aliases, container, whether bindable), or with widget, one widget's bindable properties with base type and direction (in, out, in/out), its events and services. Read-only; no server.",
     "inputSchema": {
@@ -8330,6 +8590,238 @@
             "string",
             "null"
           ]
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "model_resolve",
+    "description": "How many Things implement a ThingTemplate or ThingShape on the server, and the first of them (limit, default 50; truncated says more exist). Read-only. Answers what the repository cannot: instances made at run time or by other solutions.",
+    "inputSchema": {
+      "required": [
+        "entity"
+      ],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "entity": {
+          "description": "The ThingTemplate or ThingShape, as ThingTemplates/<name> or ThingShapes/<name>.",
+          "type": "string"
+        },
+        "limit": {
+          "description": "List at most this many Things; the total is always given.",
+          "type": "integer",
+          "default": 50,
+          "minimum": 1
+        },
+        "profile": {
+          "description": "Server profile name.",
+          "type": "string",
+          "default": "default"
+        }
+      }
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "outputSchema": {
+      "required": [
+        "entity",
+        "total",
+        "things",
+        "truncated"
+      ],
+      "properties": {
+        "entity": {
+          "type": "string"
+        },
+        "total": {
+          "description": "Every Thing that implements it on the server.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "things": {
+          "description": "The first of them, at most the limit.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "entity_inspect",
+    "description": "An entity's properties, services and events as the server has them, each with what declares it: the entity itself, a template, a shape or a platform package (sources counts them). With values, a Thing's current property values; a property the profile may not read is listed under unreadable. member narrows to one name. Read-only.",
+    "inputSchema": {
+      "required": [
+        "entity"
+      ],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "entity": {
+          "description": "The entity, as Collection/Name.",
+          "type": "string"
+        },
+        "member": {
+          "description": "Only this property, service or event.",
+          "type": "string"
+        },
+        "values": {
+          "description": "With each property's current value (a Thing; what the profile may read).",
+          "type": "boolean",
+          "default": false
+        },
+        "profile": {
+          "description": "Server profile name.",
+          "type": "string",
+          "default": "default"
+        }
+      }
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "outputSchema": {
+      "required": [
+        "entity",
+        "members",
+        "sources"
+      ],
+      "properties": {
+        "entity": {
+          "type": "string"
+        },
+        "members": {
+          "description": "kind, name, source, source_type, base_type and, with values, value.",
+          "type": "array",
+          "items": true
+        },
+        "sources": {
+          "description": "Members per `source_type source`.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "unreadable": {
+          "description": "Properties whose value the profile may not read.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "access_explain",
+    "description": "Whether a user may invoke a service of an entity: verdict allowed, denied or unknown, from the server's own run-time check (CheckPermissionForUser) and visibility through the user's organizations and groups (Administrators and the owner see it; a deny for one of the user's organizations wins), with reasons. A grant to an organizational unit, or visibility taken from the template, is not resolved, so it is unknown rather than allowed. Read-only: the service is never invoked.",
+    "inputSchema": {
+      "required": [
+        "user",
+        "entity",
+        "service"
+      ],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "user": {
+          "description": "The user whose access is in question.",
+          "type": "string"
+        },
+        "entity": {
+          "description": "The entity, as Collection/Name.",
+          "type": "string"
+        },
+        "service": {
+          "description": "The service.",
+          "type": "string"
+        },
+        "profile": {
+          "description": "Server profile name.",
+          "type": "string",
+          "default": "default"
+        }
+      }
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "outputSchema": {
+      "required": [
+        "user",
+        "entity",
+        "service",
+        "verdict",
+        "run_time",
+        "visibility",
+        "administrator",
+        "organizations",
+        "groups",
+        "visible_to",
+        "reasons"
+      ],
+      "properties": {
+        "user": {
+          "type": "string"
+        },
+        "entity": {
+          "type": "string"
+        },
+        "service": {
+          "type": "string"
+        },
+        "verdict": {
+          "description": "allowed, denied or unknown: allowed only when run_time and visibility both are.",
+          "type": "string"
+        },
+        "run_time": {
+          "type": "string"
+        },
+        "visibility": {
+          "type": "string"
+        },
+        "administrator": {
+          "type": "boolean"
+        },
+        "organizations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "groups": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "visible_to": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       },
       "type": "object"

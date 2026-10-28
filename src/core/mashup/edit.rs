@@ -288,6 +288,18 @@ impl MashupDocument {
         node
     }
 
+    /// Remove one non-root widget, including its descendants. Callers must first account for
+    /// every reference to its subtree; this only changes the structural tree.
+    pub(crate) fn remove_widget(&mut self, path: &[usize]) -> Result<(), EditError> {
+        let Some((&index, parent)) = path.split_last() else {
+            return Err(EditError::Refused(
+                "the mashup root cannot be removed".into(),
+            ));
+        };
+        children_mut(self.at_mut(parent)).remove(index);
+        Ok(())
+    }
+
     /// Append `widget` as the last child of the widget at `parent`.
     pub(crate) fn push_child(&mut self, parent: &[usize], widget: Value) {
         self.insert_child(parent, children(self.at(parent)).len(), widget);

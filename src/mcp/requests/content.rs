@@ -616,3 +616,51 @@ pub(crate) struct ImportRequest {
     #[serde(default = "default_profile")]
     pub profile: String,
 }
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ModelResolveRequest {
+    /// The ThingTemplate or ThingShape, as ThingTemplates/<name> or ThingShapes/<name>.
+    pub(crate) entity: String,
+    /// List at most this many Things; the total is always given.
+    #[serde(default = "default_model_limit")]
+    #[schemars(range(min = 1))]
+    pub(crate) limit: u64,
+    /// Server profile name.
+    #[serde(default = "default_profile")]
+    pub(crate) profile: String,
+}
+
+fn default_model_limit() -> u64 {
+    crate::core::model_query::DEFAULT_LIMIT as u64
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct EntityInspectRequest {
+    /// The entity, as Collection/Name.
+    pub(crate) entity: String,
+    /// Only this property, service or event.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) member: Absent<String>,
+    /// With each property's current value (a Thing; what the profile may read).
+    #[serde(default)]
+    pub(crate) values: bool,
+    /// Server profile name.
+    #[serde(default = "default_profile")]
+    pub(crate) profile: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct AccessExplainRequest {
+    /// The user whose access is in question.
+    pub(crate) user: String,
+    /// The entity, as Collection/Name.
+    pub(crate) entity: String,
+    /// The service.
+    pub(crate) service: String,
+    /// Server profile name.
+    #[serde(default = "default_profile")]
+    pub(crate) profile: String,
+}

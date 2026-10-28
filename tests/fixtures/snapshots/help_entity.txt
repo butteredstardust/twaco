@@ -14,6 +14,11 @@ usage: twaco entity <command>
   entity get <entity>         fetch raw server XML to stdout or --out <path>
                               Collection/Name: any server entity; a bare name: the repository's
       [--profile <name>]      server profile (default: default)
+  entity inspect <Collection/Name> [--member <name>] [--values] [--json]
+                              the entity's members on the server, each with what declares it (the
+                              entity, a template, a shape, a platform package); read-only
+      --member <name>         that property, service or event only
+      --values                with each property's current value (a Thing; what this profile may read)
   entity push <entity> [--apply] [--json]
                               import one entity, refusing if the server changed
       --apply                 actually push (without it, report what would happen)

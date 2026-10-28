@@ -744,6 +744,43 @@ pub(crate) struct SearchResult {
 }
 
 #[derive(Serialize, JsonSchema)]
+pub(crate) struct ModelResolveResult {
+    entity: String,
+    /// Every Thing that implements it on the server.
+    total: u64,
+    /// The first of them, at most the limit.
+    things: Vec<String>,
+    truncated: bool,
+}
+
+#[derive(Serialize, JsonSchema)]
+pub(crate) struct EntityInspectResult {
+    entity: String,
+    /// kind, name, source, source_type, base_type and, with values, value.
+    members: Vec<Value>,
+    /// Members per `source_type source`.
+    sources: BTreeMap<String, u64>,
+    /// Properties whose value the profile may not read.
+    unreadable: Option<Vec<String>>,
+}
+
+#[derive(Serialize, JsonSchema)]
+pub(crate) struct AccessExplainResult {
+    user: String,
+    entity: String,
+    service: String,
+    /// allowed, denied or unknown: allowed only when run_time and visibility both are.
+    verdict: String,
+    run_time: String,
+    visibility: String,
+    administrator: bool,
+    organizations: Vec<String>,
+    groups: Vec<String>,
+    visible_to: Vec<String>,
+    reasons: Vec<String>,
+}
+
+#[derive(Serialize, JsonSchema)]
 pub(crate) struct EntityGetResult {
     ok: bool,
     entity: String,
@@ -1252,6 +1289,42 @@ pub(crate) struct MashupOnResult {
     event: String,
     invoke: String,
     new_source: Option<String>,
+    files: Vec<String>,
+    notices: Notices,
+}
+
+#[derive(Serialize, JsonSchema)]
+pub(crate) struct MashupRemoveResult {
+    applied: bool,
+    dry_run: bool,
+    mashup: String,
+    widget: String,
+    removed: Vec<String>,
+    bindings_removed: usize,
+    events_removed: usize,
+    orphaned_data_calls: Vec<String>,
+    files: Vec<String>,
+    notices: Notices,
+}
+
+#[derive(Serialize, JsonSchema)]
+pub(crate) struct MashupUnbindResult {
+    applied: bool,
+    dry_run: bool,
+    mashup: String,
+    from: String,
+    to: String,
+    files: Vec<String>,
+    notices: Notices,
+}
+
+#[derive(Serialize, JsonSchema)]
+pub(crate) struct MashupOffResult {
+    applied: bool,
+    dry_run: bool,
+    mashup: String,
+    event: String,
+    invoke: String,
     files: Vec<String>,
     notices: Notices,
 }

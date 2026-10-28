@@ -402,7 +402,14 @@ pub(crate) const USAGE: &[Usage] = &[
         text: r#"  mcp [--tools <groups>]      serve the tools over MCP on stdio (TWACO_ROOT: the solution)
       --tools <groups>        only these tool groups, comma-separated (TWACO_MCP_TOOLS): core,
                               entity, refactor, mashup, permissions, data, server, reference;
-                              default all"#,
+                              default all
+  mcp configure <codex|claude-code|cursor> [--scope user|project] [--command <path>] [--replace]
+      [--apply] [--json]      register twaco's server with a coding assistant; plan unless --apply:
+                              only twaco's entry is added, the old file is saved beside it first
+      --scope <scope>         user (every project) or project (a file in the solution); codex:
+                              user, the others: project; claude-code user: prints `claude mcp add`
+      --command <path>        the program to start (default: this twaco)
+      --replace               replace a different twaco entry (one a gateway wrapped, say)"#,
     },
     Usage {
         path: "update",
@@ -687,6 +694,30 @@ pub(crate) const USAGE: &[Usage] = &[
                               run a service or widget service when a mashup event fires; plan unless --apply
       --event <address>       event address from mashup describe
       --invoke <address>      data call or widget service to run"#,
+    },
+    Usage {
+        path: "mashup remove",
+        group: 1,
+        text: r#"  mashup remove <mashup> <widget> [--cascade] [--apply] [--json]
+                              remove a widget or subtree; refuses wiring and unknown references unless --cascade;
+                              plan unless --apply
+      --cascade                also remove proven bindings and event handlers; leave data calls for review"#,
+    },
+    Usage {
+        path: "mashup unbind",
+        group: 1,
+        text: r#"  mashup unbind <mashup> --from <address> --to <address> [--apply] [--json]
+                              remove exactly one data binding; plan unless --apply
+      --from <address>        source address from mashup describe
+      --to <address>          target address from mashup describe"#,
+    },
+    Usage {
+        path: "mashup off",
+        group: 1,
+        text: r#"  mashup off <mashup> --event <address> --invoke <address> [--apply] [--json]
+                              remove exactly one event handler; plan unless --apply
+      --event <address>       event address from mashup describe
+      --invoke <address>      data call or widget service it invokes"#,
     },
     Usage {
         path: "mashup param",
@@ -1149,6 +1180,15 @@ pub(crate) const USAGE: &[Usage] = &[
       [--profile <name>]      server profile (default: default)"#,
     },
     Usage {
+        path: "entity inspect",
+        group: 2,
+        text: r#"  entity inspect <Collection/Name> [--member <name>] [--values] [--json]
+                              the entity's members on the server, each with what declares it (the
+                              entity, a template, a shape, a platform package); read-only
+      --member <name>         that property, service or event only
+      --values                with each property's current value (a Thing; what this profile may read)"#,
+    },
+    Usage {
         path: "entity push",
         group: 2,
         text: r#"  entity push <entity> [--apply] [--json]
@@ -1332,6 +1372,21 @@ pub(crate) const USAGE: &[Usage] = &[
                               needs allow_test_users): 404 if the user cannot see it, 401 a bad password
       --lang <code>           with --as: in this language (de, or fr,de: the first with a table);
                               the test user's language preference is set for the call, then put back"#,
+    },
+    Usage {
+        path: "model resolve",
+        group: 3,
+        text: r#"  model resolve <ThingTemplates|ThingShapes>/<name> [--limit <n>] [--json]
+                              how many Things implement it on the server, and the first of them
+      --limit <n>             list at most this many (default 50); the total is always given"#,
+    },
+    Usage {
+        path: "access explain",
+        group: 3,
+        text: r#"  access explain <user> <Collection/Name> <service> [--json]
+                              can the user invoke the service: allowed, denied or unknown, and why
+                              (the server's run-time check, its grants, and visibility through the
+                              user's organizations); never invokes the service"#,
     },
     Usage {
         path: "logs",

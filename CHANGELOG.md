@@ -6,6 +6,24 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `twaco model resolve <ThingTemplates|ThingShapes>/<name>` (MCP `model_resolve`): how many
+  Things implement a template or shape on the server, and the first of them.
+- `twaco entity inspect <Collection/Name>` (MCP `entity_inspect`): an entity's members on the
+  server, each with what declares it, and with `--values` a Thing's current property values.
+- `twaco access explain <user> <Collection/Name> <service>` (MCP `access_explain`): whether the
+  user may invoke the service, from the server's run-time check and the entity's visibility
+  through the user's organizations, with the reasons; the service is never invoked.
+- `twaco mcp configure <codex|claude-code|cursor>` registers twaco's MCP server with the client:
+  a plan until `--apply`, only twaco's entry added, the old file saved beside it, nothing done
+  when the entry is already there, a different one replaced only with `--replace`.
+
+- `twaco mashup remove`, `mashup unbind`, and `mashup off` (MCP `mashup_remove`,
+  `mashup_unbind`, and `mashup_off`) remove a widget/subtree, one binding, or one event handler
+  offline. Widget removal refuses unproven references; `--cascade` removes only the bindings and
+  events it can prove depend on the widget and leaves orphaned data calls for review.
+
 ## [0.1.41] - 2026-10-28
 
 ### Added

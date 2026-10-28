@@ -11,6 +11,15 @@ says why, and what else differs on purpose.
 The server works on the solution in its working directory, or in `TWACO_ROOT` when set. It
 looks for `twaco.toml` on every call, so an edit to it applies without a restart.
 
+`twaco mcp configure <codex|claude-code|cursor>` does it for you, from the solution's root:
+it shows the entry it would add to the client's file, and `--apply` writes it, adding only
+twaco's own entry, saving the old file beside it first, and changing nothing when the entry is
+already there. Codex gets a user-wide entry in `~/.codex/config.toml` with `TWACO_ROOT` set to
+this solution; Claude Code and Cursor get the project's `.mcp.json` and `.cursor/mcp.json`
+(`--scope user`: `~/.cursor/mcp.json`, and for Claude Code the `claude mcp add` command to
+run). A different twaco entry, one an MCP gateway wrapped say, is replaced only with
+`--replace`. The same by hand:
+
 **Claude Code**, from the solution's root:
 
 ```sh
@@ -61,10 +70,10 @@ the groups named, comma-separated; any other tool is unknown to that server. `co
 | `core` | projects, types, check, status, sync, extract, fmt, push, deploy, bundle, catalog, impact, contract_diff, trace, unused, search, entity_get, docs, doctor, guide |
 | `entity` | entity_pull, entity_delete, entity_restore, entity_carry, entity_new, network, network_write, entity_edit, new_building_block, block, block_version, export, import, package |
 | `refactor` | rename, move_member, reproject, retemplate, adopt_report, adopt_apply, handoff |
-| `mashup` | mashup_new, mashup_templates, mashup_add, mashup_add_contained, mashup_bind, mashup_on, widgets, mashup_param, mashup_recipe, mashup_event, mashup_validate, mashup_describe |
+| `mashup` | mashup_new, mashup_templates, mashup_add, mashup_add_contained, mashup_bind, mashup_on, mashup_remove, mashup_unbind, mashup_off, widgets, mashup_param, mashup_recipe, mashup_event, mashup_validate, mashup_describe |
 | `permissions` | permissions, requirements_init, requirements_check, permissions_init, permissions_audit, permissions_apply, permissions_push |
 | `data` | db_run, db_query, datatable_copy, db_clean, config_table, call, test |
-| `server` | init_from_server, logs, log_level, repo, repo_write, localization, localization_write, users, users_write, appkey, extensions, ext_check, ext_build, ext_new, ext_add, ext_deploy, extension_write, settings |
+| `server` | init_from_server, logs, log_level, repo, repo_write, localization, localization_write, users, users_write, appkey, extensions, ext_check, ext_build, ext_new, ext_add, ext_deploy, extension_write, settings, model_resolve, entity_inspect, access_explain |
 | `reference` | help_search, help_page, javadoc |
 
 ```sh
@@ -173,6 +182,9 @@ in its text block. It has no `structuredContent`, which is kept for results that
 | `mashup_add_contained` | workspace | Add a repository mashup as a contained mashup; plan by default |
 | `mashup_bind` | workspace | Add one data binding, by the addresses `mashup_describe` prints; plan by default |
 | `mashup_on` | workspace | Run a data call or widget service when a mashup event fires; plan by default |
+| `mashup_remove` | workspace | Remove a widget or subtree; cascade only proven wiring; plan by default |
+| `mashup_unbind` | workspace | Remove exactly one data binding; plan by default |
+| `mashup_off` | workspace | Remove exactly one event handler; plan by default |
 | `mashup_param` | workspace | Add, change or remove a mashup parameter, with every container's copy; plan by default |
 | `mashup_event` | workspace | Give a mashup an event its containing mashups can react to; plan by default |
 | `mashup_recipe` | workspace | Write a common piece of wiring (enable-when, show-when, text, message, confirm, popup, ...) in one edit; plan by default |
@@ -208,6 +220,9 @@ in its text block. It has no `structuredContent`, which is kept for results that
 | `bundle` | workspace, with `dry_run: false` | Whether the configured bundle is current, or rebuild it |
 | `search` | no | Find server entities by text in a name or description, type, project and when they last changed |
 | `entity_get` | no | One entity's XML as the server has it, returned rather than written |
+| `model_resolve` | no | How many Things implement a ThingTemplate or ThingShape on the server, and the first of them |
+| `entity_inspect` | no | An entity's members on the server, each with what declares it; with values, a Thing's property values |
+| `access_explain` | no | Whether a user may invoke a service: allowed, denied or unknown, with the reasons; never invokes it |
 | `export` | workspace* | Export from the server into a file of the solution |
 | `import` | server | Import a file of the solution, or a source-control tree |
 | `package` | workspace | Bundles, a source-control zip or extension packages, offline |

@@ -1,5 +1,6 @@
 //! Everything twaco does. The CLI and the MCP server are thin adapters over this.
 
+pub mod access;
 pub(crate) mod accumulated;
 pub mod adopt;
 pub(crate) mod agents;
@@ -61,6 +62,8 @@ pub mod localization;
 pub mod lock;
 pub mod logs;
 pub mod mashup;
+pub mod mcp_config;
+pub mod model_query;
 pub mod network;
 pub mod newblock;
 pub mod normalise;
