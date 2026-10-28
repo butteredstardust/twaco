@@ -32,7 +32,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 mod block;
 mod content;
-pub use content::localization_status_json;
+pub use content::{localization_status_json, localization_write_json};
 mod data;
 mod entity;
 mod info;

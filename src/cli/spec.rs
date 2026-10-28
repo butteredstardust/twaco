@@ -1391,7 +1391,8 @@ pub(crate) const USAGE: &[Usage] = &[
   localization set <token> --value <text>  add or change a token; --table (default Default),
                               --usage (new: label), --context, --project
   localization remove <token> remove a token from every table, or from --table
-      --table <name>          one table only; --apply makes the change (all but status plan)"#,
+      --table <name>          one table only; --apply makes the change (all but status plan)
+      --json                  print the status, plan or result as JSON"#,
     },
     Usage {
         path: "users",

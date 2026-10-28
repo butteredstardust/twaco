@@ -559,6 +559,7 @@ usage: twaco <command>
                               --usage (new: label), --context, --project
   localization remove <token> remove a token from every table, or from --table
       --table <name>          one table only; --apply makes the change (all but status plan)
+      --json                  print the status, plan or result as JSON
   users list [--json]         the test users of [[test.user]] on the server: present, signing in
                               with the profile's test_password, in their groups
   users seed                  create the missing users, the [test] project and group memberships

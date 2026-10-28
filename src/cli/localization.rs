@@ -111,6 +111,21 @@ pub(crate) fn localization_cmd(solution: &Solution, args: &Localization) -> u8 {
         &progress,
     );
     print_notices(&notices);
+    if let (true, Ok(outcome)) = (args.json.json, &result) {
+        if !matches!(outcome, LocalizationOutcome::Status { .. }) {
+            let report = twaco::mcp::localization_write_json(
+                solution,
+                outcome,
+                !args.apply.apply,
+                args.detail.detail,
+            );
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&report).expect("JSON values serialise")
+            );
+            return OK;
+        }
+    }
     match result {
         Ok(LocalizationOutcome::Status { status, .. }) => print_status(solution, &status, args),
         Ok(LocalizationOutcome::Pulled { pulled, .. }) => {
