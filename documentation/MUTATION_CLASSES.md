@@ -65,10 +65,14 @@ when the command is asked to write. A local output named by an option is include
 | `rename table` | read-only | multi-file atomic | XML, sidecars, ledger | A crash is finished or undone by the next command that takes the workspace lock; if it refuses, follow its message. Otherwise retry. | `core/commands/rename.rs: execute` |
 | `rename property` | read-only | multi-file atomic | XML, sidecars, ledger | A crash is finished or undone by the next command that takes the workspace lock; if it refuses, follow its message. Otherwise retry. | `core/commands/rename.rs: execute` |
 | `mcp` | read-only | read-only | none | Retry freely. | `main.rs: main` |
+| `mcp configure` | read-only | single-file atomic | the client's MCP config (a backup beside it) | The file is old or new, and the old one is saved beside it; retry freely. | `cli/live.rs: mcp_configure_cmd` |
 | `doctor` | read-only | read-only | none | Retry freely. | `main.rs: doctor` |
 | `update` | read-only | single-file atomic | the twaco executable | The executable is old or new; retry freely. | `core/update.rs: install` |
 | `completions` | read-only | read-only | none | Retry freely. | `main.rs: completions_cmd` |
 | `search` | read-only | read-only | none | Retry freely. | `cli/content.rs: search_cmd` |
+| `entity inspect` | read-only | read-only | none | Retry freely. | `cli/live.rs: entity_inspect_cmd` |
+| `model resolve` | read-only | read-only | none | Retry freely. | `cli/live.rs: model_cmd` |
+| `access explain` | read-only | read-only | none | Retry freely; nothing is invoked. | `cli/live.rs: access_cmd` |
 | `export entity` | single-file atomic | single-file atomic | named export file | The output is old or new; retry freely. | `cli/content.rs: export_cmd` |
 | `export collection` | single-file atomic | single-file atomic | named export file | The output is old or new; retry freely. | `cli/content.rs: export_cmd` |
 | `export project` | single-file atomic | single-file atomic | named export file | The output is old or new; retry freely. | `cli/content.rs: export_cmd` |
@@ -282,6 +286,9 @@ when the command is asked to write. A local output named by an option is include
 | `extension_write` | read-only | server-partial | server extension | Check installed extensions before retrying. | `core/commands/extensions.rs: execute` |
 | `bundle` | read-only | single-file atomic | generated bundle | The generated bundle is old or new; retry freely. | `core/commands/bundle.rs: execute` |
 | `search` | read-only | read-only | none | Retry freely. | `mcp/content.rs: search_tool` |
+| `model_resolve` | read-only | read-only | none | Retry freely. | `mcp/content.rs: model_resolve_tool` |
+| `entity_inspect` | read-only | read-only | none | Retry freely. | `mcp/content.rs: entity_inspect_tool` |
+| `access_explain` | read-only | read-only | none | Retry freely; nothing is invoked. | `mcp/content.rs: access_explain_tool` |
 | `entity_get` | read-only | read-only | none | Retry freely. | `mcp/content.rs: entity_get_tool` |
 | `export` | read-only | server-partial | local export or server repository | Local export is atomic; source-control apply needs a new plan and inspection. | `core/commands/export.rs: execute` |
 | `package` | single-file atomic | single-file atomic | named package file | The output is old or new; retry freely. | `core/commands/package.rs: execute` |

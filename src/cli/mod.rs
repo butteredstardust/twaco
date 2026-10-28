@@ -9,6 +9,7 @@ pub(crate) mod entity_edit;
 pub(crate) mod entity_new;
 pub(crate) mod flags;
 pub(crate) mod info;
+pub(crate) mod live;
 pub(crate) mod localization;
 pub(crate) mod mashup;
 pub(crate) mod network;

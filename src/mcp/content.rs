@@ -1471,3 +1471,73 @@ pub(crate) fn repo_write_tool(
     add_notices(&mut result, &notices);
     Ok(result)
 }
+
+/// `Collection/Name`, as the live tools take an entity.
+fn live_address(text: &str) -> Result<(String, String), ToolError> {
+    match text.split_once('/') {
+        Some((collection, name)) if !collection.is_empty() && !name.is_empty() => {
+            Ok((collection.to_string(), name.to_string()))
+        }
+        _ => Err(ToolError::invalid(format!(
+            "{text:?}: name the entity as Collection/Name, such as Things/Acme.Pump"
+        ))),
+    }
+}
+
+fn live_failure(why: String) -> ToolError {
+    ToolError::with(crate::core::codes::ErrorCode::ServerError, why)
+}
+
+/// How many Things implement a template or shape on the server. Read-only.
+pub(crate) fn model_resolve_tool(
+    solution: &Solution,
+    arguments: tool::ModelResolveRequest,
+) -> Result<Value, ToolError> {
+    let (collection, name) = live_address(&arguments.entity)?;
+    if !matches!(collection.as_str(), "ThingTemplates" | "ThingShapes") {
+        return Err(ToolError::invalid(
+            "model_resolve counts the Things of ThingTemplates/<name> or ThingShapes/<name>",
+        ));
+    }
+    let client = client(solution, &arguments.profile)?;
+    let limit = usize::try_from(arguments.limit).unwrap_or(usize::MAX);
+    let found = crate::core::model_query::resolve(&client, &collection, &name, limit)
+        .map_err(live_failure)?;
+    Ok(serde_json::to_value(found).expect("JSON values serialise"))
+}
+
+/// An entity's members on the server, each with its source. Read-only.
+pub(crate) fn entity_inspect_tool(
+    solution: &Solution,
+    arguments: tool::EntityInspectRequest,
+) -> Result<Value, ToolError> {
+    let (collection, name) = live_address(&arguments.entity)?;
+    let client = client(solution, &arguments.profile)?;
+    let found = crate::core::model_query::inspect(
+        &client,
+        &collection,
+        &name,
+        arguments.member.as_deref(),
+        arguments.values,
+    )
+    .map_err(live_failure)?;
+    Ok(serde_json::to_value(found).expect("JSON values serialise"))
+}
+
+/// Whether a user may invoke a service, and why. Read-only: the service is never invoked.
+pub(crate) fn access_explain_tool(
+    solution: &Solution,
+    arguments: tool::AccessExplainRequest,
+) -> Result<Value, ToolError> {
+    let (collection, name) = live_address(&arguments.entity)?;
+    let client = client(solution, &arguments.profile)?;
+    let found = crate::core::access::explain(
+        &client,
+        &arguments.user,
+        &collection,
+        &name,
+        &arguments.service,
+    )
+    .map_err(live_failure)?;
+    Ok(serde_json::to_value(found).expect("JSON values serialise"))
+}

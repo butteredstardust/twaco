@@ -98,6 +98,9 @@ const OPEN_WORLD: &[&str] = &[
     "ext_deploy",
     "impact",
     "search",
+    "model_resolve",
+    "entity_inspect",
+    "access_explain",
     "entity_get",
     "export",
     "import",
@@ -792,6 +795,27 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             content::search_tool,
         )
         .with_output::<outputs::SearchResult>(),
+        solution_tool::<content_requests::ModelResolveRequest>(
+            "model_resolve",
+            "How many Things implement a ThingTemplate or ThingShape on the server, and the first of them (limit, default 50; truncated says more exist). Read-only. Answers what the repository cannot: instances made at run time or by other solutions.",
+            true,
+            content::model_resolve_tool,
+        )
+        .with_output::<outputs::ModelResolveResult>(),
+        solution_tool::<content_requests::EntityInspectRequest>(
+            "entity_inspect",
+            "An entity's properties, services and events as the server has them, each with what declares it: the entity itself, a template, a shape or a platform package (sources counts them). With values, a Thing's current property values; a property the profile may not read is listed under unreadable. member narrows to one name. Read-only.",
+            true,
+            content::entity_inspect_tool,
+        )
+        .with_output::<outputs::EntityInspectResult>(),
+        solution_tool::<content_requests::AccessExplainRequest>(
+            "access_explain",
+            "Whether a user may invoke a service of an entity: verdict allowed, denied or unknown, from the server's own run-time check (CheckPermissionForUser) and visibility through the user's organizations and groups (Administrators see all), with reasons. Visibility an entity takes from its template is not read, so it is unknown rather than allowed. Read-only: the service is never invoked.",
+            true,
+            content::access_explain_tool,
+        )
+        .with_output::<outputs::AccessExplainResult>(),
         solution_tool::<content_requests::EntityGetRequest>(
             "entity_get",
             "One entity's XML as the server has it: Collection/Name reaches any entity on the server, a bare name one in the repository. Read-only; nothing is written. A long entity is cut at max_chars (truncated says so); export with action entity writes it whole to a file.",
@@ -1053,6 +1077,9 @@ pub(crate) const GROUPS: &[(&str, &[&str])] = &[
             "ext_deploy",
             "extension_write",
             "settings",
+            "model_resolve",
+            "entity_inspect",
+            "access_explain",
         ],
     ),
     ("reference", &["help_search", "help_page", "javadoc"]),

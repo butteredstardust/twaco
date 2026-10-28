@@ -300,7 +300,10 @@ fn dispatch(command: Command) -> u8 {
             Entity::Delete(delete) => entity_delete_cmd(solution, delete),
             Entity::Carry(carry) => entity_carry_cmd(solution, carry),
             Entity::Restore(restore) => entity_restore_cmd(solution, restore),
+            Entity::Inspect(inspect) => cli::live::entity_inspect_cmd(solution, inspect),
         }),
+        Command::Model(model) => run(|solution| cli::live::model_cmd(solution, &model)),
+        Command::Access(access) => run(|solution| cli::live::access_cmd(solution, &access)),
         Command::Permissions(permissions) => run(|solution| match &permissions {
             Permissions::Diff(diff) => permissions_cmd(solution, diff, None),
             Permissions::Push(push) => permissions_cmd(solution, &push.diff, Some(push)),
@@ -554,6 +557,19 @@ struct Mcp {
     /// The tool groups to serve; `TWACO_MCP_TOOLS` when absent.
     #[arg(long = "tools", value_name = "groups")]
     tools: Option<String>,
+    /// `configure <client>`: register the server with a coding assistant instead of serving.
+    #[arg(id = "operands", value_name = "operand")]
+    operands: Vec<String>,
+    #[arg(long = "scope", value_name = "scope")]
+    scope: Option<String>,
+    #[arg(long = "command", value_name = "path")]
+    command: Option<String>,
+    #[arg(long = "replace")]
+    replace: bool,
+    #[command(flatten)]
+    apply: cli::flags::Apply,
+    #[command(flatten)]
+    json: cli::flags::Json,
 }
 
 /// The tool groups asked for: `--tools`, else `TWACO_MCP_TOOLS` unless it is blank, as client
@@ -572,6 +588,27 @@ fn mcp_cmd(parsed: &Mcp) -> u8 {
         .map(PathBuf::from)
         .or_else(|| std::env::current_dir().ok())
         .unwrap_or_else(|| PathBuf::from("."));
+    match parsed.operands.split_first() {
+        Some((word, rest)) if word == "configure" => {
+            return cli::live::mcp_configure_cmd(
+                &root,
+                rest,
+                parsed.scope.as_deref(),
+                parsed.command.as_deref(),
+                parsed.replace,
+                &parsed.apply,
+                &parsed.json,
+            )
+        }
+        Some((word, _)) => {
+            eprintln!(
+                "{} mcp: {word:?} is not an mcp subcommand; `twaco mcp` serves, `twaco mcp configure <client>` registers it",
+                cli::style::prefix()
+            );
+            return FAILED;
+        }
+        None => {}
+    }
     let groups = tool_groups(
         parsed.tools.as_deref(),
         std::env::var("TWACO_MCP_TOOLS").ok(),

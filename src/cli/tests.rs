@@ -138,6 +138,9 @@ fn usage_paths() -> std::collections::BTreeSet<String> {
         "network",
         "mcp-namespace",
         "agent",
+        "model",
+        "access",
+        "mcp",
     ];
     let mut paths = std::collections::BTreeSet::new();
     let blocks: String = USAGE

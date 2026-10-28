@@ -1460,6 +1460,25 @@ keep a `jar:file:` URL and report the SDK version.
 - **`twaco settings --search <words>`** finds a subsystem setting by name or description.
   It is read-only, and password values are never shown.
 
+## Asking the server
+
+- **How many instances:** `twaco model resolve ThingTemplates/Acme.Pump_TT` says how many
+  Things implement the template (or a ThingShape) on the server and lists the first 50
+  (`--limit`), with the total always given: Things made at run time, or by another solution,
+  that the repository cannot know about.
+- **What an entity is made of there:** `twaco entity inspect Things/Acme.Pump01` lists its
+  properties, services and events as the server has them, each with what declares it: the
+  Thing itself, its template, a shape, or a platform package (`ConfiguredThing` and the like),
+  and how many come from each. `--member <name>` narrows to one; `--values` adds a Thing's
+  current property values, and names the properties the profile may not read.
+- **Can this user call this service:** `twaco access explain ann Things/Acme.Pump01 Reset`
+  answers allowed, denied or unknown, with the reasons. The run-time half is the server's own
+  check (`CheckPermissionForUser`, the same rule the call would meet), with the grant it found;
+  visibility is the entity's visibility grants against the user's organizations, and a member
+  of Administrators sees everything. Visibility an entity takes from its template is not read,
+  so an entity with none of its own is "unknown", never "allowed". The service is never
+  invoked, so it is safe for any service; `twaco call --as <test user>` is the way to try one.
+
 ## Server content
 
 - **File repositories:** `twaco repo ls`, `get`, `status`, `put`, `mkdir`, `rm`, `mv`, `push`

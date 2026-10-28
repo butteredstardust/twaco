@@ -88,6 +88,10 @@ pub(crate) enum Command {
     #[command(subcommand)]
     Entity(super::entity::Entity),
     #[command(subcommand)]
+    Model(super::live::Model),
+    #[command(subcommand)]
+    Access(super::live::Access),
+    #[command(subcommand)]
     Permissions(super::entity::Permissions),
     #[command(subcommand)]
     Requirements(super::requirements::Requirements),
@@ -187,6 +191,8 @@ impl Command {
             Command::Retemplate(_) => "retemplate",
             Command::Reproject(_) => "reproject",
             Command::Entity(entity) => entity.path(),
+            Command::Model(super::live::Model::Resolve(_)) => "model resolve",
+            Command::Access(super::live::Access::Explain(_)) => "access explain",
             Command::Permissions(permissions) => permissions.path(),
             Command::Requirements(requirements) => match requirements {
                 super::requirements::Requirements::Init(_) => "requirements init",
@@ -268,6 +274,8 @@ impl Command {
             | Command::Retemplate(_)
             | Command::Reproject(_)
             | Command::Entity(_)
+            | Command::Model(_)
+            | Command::Access(_)
             | Command::Permissions(_)
             | Command::Requirements(_)
             | Command::Bundle(_)

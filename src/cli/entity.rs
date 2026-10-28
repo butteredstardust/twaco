@@ -18,6 +18,7 @@ pub(crate) enum Entity {
     Delete(EntityDelete),
     Carry(EntityCarry),
     Restore(EntityRestore),
+    Inspect(super::live::EntityInspect),
 }
 
 impl Entity {
@@ -31,6 +32,7 @@ impl Entity {
             Entity::Delete(_) => "entity delete",
             Entity::Carry(_) => "entity carry",
             Entity::Restore(_) => "entity restore",
+            Entity::Inspect(_) => "entity inspect",
         }
     }
 }

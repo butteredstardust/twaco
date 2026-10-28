@@ -744,6 +744,43 @@ pub(crate) struct SearchResult {
 }
 
 #[derive(Serialize, JsonSchema)]
+pub(crate) struct ModelResolveResult {
+    entity: String,
+    /// Every Thing that implements it on the server.
+    total: u64,
+    /// The first of them, at most the limit.
+    things: Vec<String>,
+    truncated: bool,
+}
+
+#[derive(Serialize, JsonSchema)]
+pub(crate) struct EntityInspectResult {
+    entity: String,
+    /// kind, name, source, source_type, base_type and, with values, value.
+    members: Vec<Value>,
+    /// Members per `source_type source`.
+    sources: BTreeMap<String, u64>,
+    /// Properties whose value the profile may not read.
+    unreadable: Option<Vec<String>>,
+}
+
+#[derive(Serialize, JsonSchema)]
+pub(crate) struct AccessExplainResult {
+    user: String,
+    entity: String,
+    service: String,
+    /// allowed, denied or unknown: allowed only when run_time and visibility both are.
+    verdict: String,
+    run_time: String,
+    visibility: String,
+    administrator: bool,
+    organizations: Vec<String>,
+    groups: Vec<String>,
+    visible_to: Vec<String>,
+    reasons: Vec<String>,
+}
+
+#[derive(Serialize, JsonSchema)]
 pub(crate) struct EntityGetResult {
     ok: bool,
     entity: String,
