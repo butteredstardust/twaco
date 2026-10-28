@@ -6,6 +6,8 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.1.41] - 2026-10-28
+
 ### Added
 
 - `twaco sync --json` and `twaco bundle --json` print the report the MCP `sync` and `bundle` tools
@@ -1293,6 +1295,7 @@ The first public release.
 - `mcp` serves 39 tools over stdio to MCP clients, with compact summaries, validated arguments
   and dry runs by default for tools that can write to a server.
 
+[0.1.41]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.41
 [0.1.40]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.40
 [0.1.39]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.39
 [0.1.38]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.38
