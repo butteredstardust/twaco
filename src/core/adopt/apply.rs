@@ -73,6 +73,15 @@ pub(crate) fn apply(
                             steps.push((None, format!("skipped  Mashups/{name}: the export holds no mashup content to create it from")));
                             continue;
                         }
+                        if let Some(existing) = mashup_already_here(solution, &here, name) {
+                            return Err(AdoptError::Export {
+                                path: export.to_path_buf(),
+                                why: format!(
+                                    "the export's new mashup {name} would share {} with another mashup; move or rename one of them first; nothing was adopted",
+                                    relative_to(solution, &existing)
+                                ),
+                            });
+                        }
                         match new_mashup_file(solution, &entry.project, element, name)? {
                             Some((path, text)) => {
                                 let line = format!("created  {}", relative_to(solution, &path));
@@ -924,6 +933,47 @@ fn mashup_assets(element: &Element) -> Result<Option<super::super::mashup::Asset
     super::super::mashup::assets_from_payload(&text)
         .map(Some)
         .map_err(|e| e.to_string())
+}
+
+/// What a new mashup called `name` would collide with: the sidecar folder, which is keyed by the
+/// name alone, or a mashup of that name in any letter case, in a discovered entity or in a
+/// `Mashups` folder of any project. ThingWorx names ignore case, and so do Windows file names.
+fn mashup_already_here(
+    solution: &Solution,
+    here: &BTreeMap<EntityRef, (Element, PathBuf)>,
+    name: &str,
+) -> Option<PathBuf> {
+    let sidecars = solution.src_root().join(name).join("mashup");
+    if sidecars.exists() {
+        return Some(sidecars);
+    }
+    if let Some((_, (_, path))) = here.iter().find(|(entity, _)| {
+        entity.collection == "Mashups" && entity.name.eq_ignore_ascii_case(name)
+    }) {
+        return Some(path.clone());
+    }
+    let wanted = format!("{name}.xml");
+    let mut folders: Vec<PathBuf> = solution
+        .projects
+        .iter()
+        .map(|project| solution.project_root(project).join("Mashups"))
+        .collect();
+    folders.push(solution.src_root());
+    folders.into_iter().find_map(|folder| {
+        std::fs::read_dir(&folder)
+            .ok()?
+            .flatten()
+            .find_map(|entry| {
+                let file_name = entry.file_name();
+                let file_name = file_name.to_string_lossy();
+                let clash = if folder == solution.src_root() {
+                    file_name.eq_ignore_ascii_case(name) && entry.path().join("mashup").exists()
+                } else {
+                    file_name.eq_ignore_ascii_case(&wanted)
+                };
+                clash.then(|| entry.path())
+            })
+    })
 }
 
 /// The entity file for a mashup the repository does not have yet: the first mashup of its own
