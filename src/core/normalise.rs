@@ -154,6 +154,66 @@ pub(crate) fn differ_only_in_permissions(left: &[u8], right: &[u8]) -> bool {
     }
 }
 
+/// The projects a Project entity's `dependsOn` names: `{"projects": "A:1.0.0,B:0.0.0"}`.
+pub(crate) fn project_dependencies(project: &Element) -> Vec<String> {
+    #[derive(serde::Deserialize, Default)]
+    struct Depends {
+        #[serde(default)]
+        projects: String,
+    }
+    let Some(text) = project
+        .attributes
+        .iter()
+        .find(|(name, _)| name == b"dependsOn")
+        .map(|(_, value)| String::from_utf8_lossy(value).into_owned())
+    else {
+        return Vec::new();
+    };
+    let depends: Depends = serde_json::from_str(&text).unwrap_or_default();
+    depends
+        .projects
+        .split(',')
+        .filter_map(|item| item.trim().split(':').next())
+        .filter(|name| !name.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+/// The projects the server added to a Project's `dependsOn`, when that is the only difference
+/// between what was sent and what was read back. An import of an entity that needs another
+/// project adds that project to its own Project; the server keeps what the file declares
+/// otherwise, so taking the server's copy once settles it.
+pub(crate) fn added_project_dependencies(sent: &[u8], read_back: &[u8]) -> Vec<String> {
+    let (Ok(mut sent), Ok(mut read_back)) = (
+        comparison_tree(sent, true),
+        comparison_tree(read_back, true),
+    ) else {
+        return Vec::new();
+    };
+    if sent.name != b"Project" || read_back.name != b"Project" {
+        return Vec::new();
+    }
+    let declared = project_dependencies(&sent);
+    let added: Vec<String> = project_dependencies(&read_back)
+        .into_iter()
+        .filter(|name| !declared.contains(name))
+        .collect();
+    if added.is_empty() {
+        return Vec::new();
+    }
+    for element in [&mut sent, &mut read_back] {
+        element.attributes.retain(|(name, _)| name != b"dependsOn");
+    }
+    let (mut left, mut right) = (Vec::new(), Vec::new());
+    write_element(&sent, &mut left);
+    write_element(&read_back, &mut right);
+    if left == right {
+        added
+    } else {
+        Vec::new()
+    }
+}
+
 fn canonical(src: &[u8], with_permissions: bool) -> Result<Vec<u8>, NormaliseError> {
     let entity = comparison_tree(src, with_permissions)?;
     let mut out = b"twaco-entity-normalise-v7\0".to_vec();
@@ -896,6 +956,47 @@ fn sha256(input: &[u8]) -> [u8; 32] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A Project sent with an empty `dependsOn`, and the 10.2 server's export of it after an
+    /// import whose Thing implements another project's ThingShape.
+    #[test]
+    fn the_projects_a_server_added_to_dependson_are_named_when_nothing_else_differs() {
+        let sent = "<Entities majorVersion=\"10\" minorVersion=\"1\" universal=\"password\">
+    <Projects>
+        <Project
+         artifactId=\"\"
+         aspect.projectType=\"Component\"
+         dependsOn=\"{&quot;extensions&quot;:&quot;&quot;,&quot;projects&quot;:&quot;&quot;}\"
+         description=\"\"
+         name=\"ZZ.B\"
+         packageVersion=\"1.0.0\"
+         projectName=\"ZZ.B\"
+         state=\"DRAFT\">
+            <avatar></avatar>
+            <DesignTimePermissions>
+                <Create></Create>
+                <Read></Read>
+            </DesignTimePermissions>
+            <RunTimePermissions></RunTimePermissions>
+        </Project>
+    </Projects>
+</Entities>
+";
+        let read_back = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"no\"?><Entities build=\"b75\" majorVersion=\"10\" minorVersion=\"2\" universal=\"\"><Projects><Project artifactId=\"\" aspect.projectType=\"Component\" dependsOn=\"{&quot;extensions&quot;:&quot;&quot;,&quot;projects&quot;:&quot;ZZ.A:1.0.0&quot;}\" description=\"\" lastModifiedDate=\"2026-10-28T08:25:06.565Z\" name=\"ZZ.B\" packageVersion=\"1.0.0\" projectName=\"ZZ.B\" state=\"DRAFT\"><Owner name=\"Administrator\" type=\"User\"/><avatar/><DesignTimePermissions><Read/><Create/></DesignTimePermissions><RunTimePermissions/><ConfigurationChanges><ConfigurationChange changeAction=\"CREATE\" changeReason=\"\" timestamp=\"2026-10-28T08:25:06.487Z\" user=\"Administrator\"/></ConfigurationChanges></Project></Projects></Entities>";
+        assert_ne!(
+            hash(sent.as_bytes()).unwrap(),
+            hash(read_back.as_bytes()).unwrap()
+        );
+        assert_eq!(
+            added_project_dependencies(sent.as_bytes(), read_back.as_bytes()),
+            ["ZZ.A"]
+        );
+        // Another difference as well: not only the dependencies, so nothing is named.
+        let described = read_back.replace("description=\"\"", "description=\"changed\"");
+        assert!(added_project_dependencies(sent.as_bytes(), described.as_bytes()).is_empty());
+        // A dependency the server dropped is not one it added.
+        assert!(added_project_dependencies(read_back.as_bytes(), sent.as_bytes()).is_empty());
+    }
 
     const LIVE: &[u8] = br#"<?xml version="1.0" encoding="UTF-8"?><Thing projectName="P" name="P.T" lastModifiedDate="now"><Owner name="admin"></Owner><effectiveShape><x/></effectiveShape><effectiveRemoteServiceBindings><Binding/></effectiveRemoteServiceBindings><ConfigurationChanges><ConfigurationChange timestamp="now"/></ConfigurationChanges><ServiceDefinitions><ServiceDefinition name="S"><Implementation><code><![CDATA[var x = 1;
 ]]></code></Implementation></ServiceDefinition></ServiceDefinitions></Thing>"#;

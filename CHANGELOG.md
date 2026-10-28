@@ -20,6 +20,10 @@ All notable changes to twaco are recorded here. The format follows
 - `twaco adopt --apply` refuses to create a mashup whose sidecar folder already exists, or that
   differs only in letter case from a mashup in the repository: creating it overwrote the other
   mashup's sidecars.
+- `twaco deploy` (MCP `deploy`, `added_dependencies`) explains a Project read back "not kept"
+  because the server added projects to its `dependsOn`: importing an entity that needs another
+  project adds that project. The server keeps what the file declares otherwise, so pulling the
+  Project once settles it.
 - `twaco update` prints the executable's path without Windows' `\\?\` prefix.
 
 ## [0.1.39] - 2026-10-27
