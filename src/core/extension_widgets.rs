@@ -281,6 +281,10 @@ fn key(name: &PropName) -> Option<String> {
     match name {
         PropName::Ident(ident) => Some(ident.sym.to_string()),
         PropName::Str(text) => Some(text.value.to_atom_lossy().to_string()),
+        PropName::Num(number) => Some(match number_value(number.value)? {
+            Value::Number(number) => number.to_string(),
+            _ => return None,
+        }),
         _ => None,
     }
 }
@@ -556,7 +560,7 @@ TW.IDE.Widgets.acmegauge = function () {
             properties: {
                 Value: { baseType: 'NUMBER', defaultValue: -1.5, isBindingTarget: true },
                 Title: { baseType: 'STRING', defaultValue: "Gauge" },
-                Options: { baseType: 'JSON', defaultValue: { theme: 'dark', sizes: [1, 2] } },
+                Options: { baseType: 'JSON', defaultValue: { theme: 'dark', sizes: [1, 2], 1: 'x' } },
                 Partly: { baseType: 'JSON', defaultValue: { theme: TW.theme } },
                 Unset: { baseType: 'STRING' },
                 Computed: { baseType: 'STRING', defaultValue: TW.IDE.something() },
@@ -581,7 +585,7 @@ TW.IDE.Widgets["other-one"] = function () {};
         assert!(!gauge.defaults.contains_key("Computed"));
         assert_eq!(
             gauge.defaults["Options"],
-            json!({"theme": "dark", "sizes": [1, 2]})
+            json!({"theme": "dark", "sizes": [1, 2], "1": "x"})
         );
         assert!(!gauge.defaults.contains_key("Partly"));
         assert_eq!(gauge.defaults["Area"], json!("UI"));
