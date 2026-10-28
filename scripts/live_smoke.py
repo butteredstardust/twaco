@@ -14,6 +14,7 @@ and a service call returns what its script builds. The entities are deleted at t
 when a step fails, unless --keep is given.
 """
 import argparse
+import json
 import os
 import pathlib
 import re
@@ -70,8 +71,16 @@ class Smoke:
         self.in_sync()
 
     def call_names(self, thing: str) -> list:
+        """The `name` of each row GetRows returns."""
         out = self.run("call", thing, "GetRows", '{"limit": 2}', "--json").stdout
-        return re.findall(r'"name":\s*"([^"]*)"', out)
+        try:
+            reply = json.loads(out)
+        except ValueError as error:
+            raise SmokeError(f"call --json printed no JSON ({error}):\n{out}")
+        rows = reply.get("rows") if isinstance(reply, dict) else None
+        if rows is None and isinstance(reply, dict):
+            rows = (reply.get("result") or {}).get("rows")
+        return [row.get("name") for row in rows or []]
 
 
 def server_has_smoke_entities(smoke: Smoke) -> bool:
@@ -80,7 +89,9 @@ def server_has_smoke_entities(smoke: Smoke) -> bool:
     result = smoke.run("search", PREFIX, ok=False)
     if result.returncode != 0:
         raise SmokeError(f"cannot search the server for {PREFIX}.*:\n{result.stderr}")
-    return PREFIX in result.stdout
+    # The project itself, or an entity under the prefix; not a neighbour such as ZZ.Twaco.SmokeUser.
+    names = re.findall(r"^\s+\S+?/(\S+)", result.stdout, re.M)
+    return any(name == PREFIX or name.startswith(PREFIX + ".") for name in names)
 
 
 def build(smoke: Smoke) -> None:
