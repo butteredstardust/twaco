@@ -89,8 +89,9 @@ pub(crate) fn update_cmd(parsed: &Update) -> u8 {
     if !manifest.notes.trim().is_empty() {
         println!("\n{}\n", manifest.notes.trim());
     }
-    // The real file, not a link to it: a link is replaced by a file otherwise.
-    let exe = match std::env::current_exe().and_then(std::fs::canonicalize) {
+    // The real file, not a link to it: a link is replaced by a file otherwise. dunce leaves out
+    // Windows' `\\?\` prefix wherever the path does not need it, so messages show a plain path.
+    let exe = match std::env::current_exe().and_then(dunce::canonicalize) {
         Ok(exe) => exe,
         Err(error) => {
             eprintln!(

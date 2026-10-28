@@ -53,6 +53,7 @@ owo-colors = { version = "4.4.0", features = ["supports-colors"] }
 tempfile = "3"
 uuid = { version = "1", features = ["v4"] }
 toml_edit = { version = "0.25", default-features = false, features = ["parse"] }
+dunce = "1"
 
 # Windows cannot rename over a running executable; this moves the old one aside first.
 [target.'cfg(windows)'.dependencies]
