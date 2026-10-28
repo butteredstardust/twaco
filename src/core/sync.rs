@@ -796,6 +796,58 @@ mod tests {
         assert!(report.changed.is_empty());
     }
 
+    fn text_with(code: &str) -> String {
+        String::from_utf8(entity_with(code)).unwrap()
+    }
+
+    #[test]
+    fn a_changed_definition_in_a_crlf_block_is_written_crlf() {
+        let src = text_with("<code><![CDATA[\na();\n]]></code>")
+            .replace(
+                "<ServiceDefinition name=\"S\" description=\"d\"></ServiceDefinition>",
+                "<ServiceDefinition name=\"S\" description=\"d\">\r\n</ServiceDefinition>",
+            )
+            .into_bytes();
+        let mut sidecars = sidecars_of(&src);
+        sidecars.get_mut("S").unwrap().definition =
+            "<ServiceDefinition name=\"S\" description=\"changed\">\n</ServiceDefinition>".into();
+        let (out, report) = sync(&src, &sidecars, false, false, false).unwrap();
+        assert_eq!(report.changed, ["S"]);
+        let text = String::from_utf8(out).unwrap();
+        assert!(
+            text.contains("description=\"changed\">\r\n</ServiceDefinition>"),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn a_sidecar_for_an_inherited_override_is_refused_as_one() {
+        // The entity implements S without defining it: an override of an inherited service.
+        let src = text_with("<code><![CDATA[\na();\n]]></code>")
+            .replace(
+                "<ServiceDefinitions><ServiceDefinition name=\"S\" description=\"d\"></ServiceDefinition></ServiceDefinitions>",
+                "<ServiceDefinitions></ServiceDefinitions>",
+            )
+            .into_bytes();
+        let mut sidecars = BTreeMap::new();
+        sidecars.insert(
+            "S".to_string(),
+            ServiceSidecar {
+                name: "S".into(),
+                definition: "<ServiceDefinition name=\"S\" description=\"d\"></ServiceDefinition>"
+                    .into(),
+                script: "a();".into(),
+            },
+        );
+        let error = sync(&src, &sidecars, true, false, false).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("overriding an inherited service"),
+            "{error}"
+        );
+    }
+
     #[test]
     fn a_stray_carriage_return_in_a_payload_is_repaired_and_never_written() {
         // A CRLF-converted script.js whose last line has no newline of its own ends in a lone CR.
