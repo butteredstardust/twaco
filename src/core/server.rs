@@ -255,6 +255,26 @@ impl Client {
         checked_bytes(&self.secrets, Method::Get, url, response)
     }
 
+    /// A file the web application serves, such as `Builder/index.html`, exactly as served.
+    /// Read-only.
+    pub(crate) fn fetch_web_file(&self, path: &str) -> Result<Vec<u8>, ServerError> {
+        let url = format!("{}/{path}", self.base());
+        let authorization = self.authorization();
+        let headers = [
+            ("Authorization", authorization.expose()),
+            ("X-XSRF-TOKEN", XSRF_VALUE),
+        ];
+        let response = transport(
+            &self.secrets,
+            &self.agent,
+            Method::Get,
+            &url,
+            &headers,
+            None,
+        )?;
+        checked_bytes(&self.secrets, Method::Get, url, response)
+    }
+
     /// Import one entity document through the Importer, sending its bytes exactly as given.
     ///
     /// The observed failure for an import that cannot succeed is an HTTP error (406), but a 2xx

@@ -324,11 +324,126 @@ fn analyse_in(
                 }
             }
         }
+        // The columns a grid shows of the whole result it is bound to: each names a field of it.
+        let columns = grid_columns(&content);
+        for binding in content
+            .get("DataBindings")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let text = |key: &str| binding.get(key).and_then(Value::as_str);
+            let (Some("Data"), Some("UI"), Some(section), Some(instance), Some(widget)) = (
+                text("SourceArea"),
+                text("TargetArea"),
+                text("SourceSection"),
+                text("SourceId"),
+                text("TargetId"),
+            ) else {
+                continue;
+            };
+            let Some(fields) = columns.get(widget) else {
+                continue;
+            };
+            let whole = binding
+                .get("PropertyMaps")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .any(|map| {
+                    map.get("TargetProperty").and_then(Value::as_str) == Some("Data")
+                        && map.get("SourcePropertyType").and_then(Value::as_str) != Some("Field")
+                });
+            let Some((section, service)) = service_at(&sections, section, instance) else {
+                continue;
+            };
+            if !whole {
+                continue;
+            }
+            let lookup = model.service(section, &service.target);
+            let site = Site {
+                file: &relative,
+                mashup,
+                entity: &section.entity,
+                service: &service.target,
+            };
+            for field in fields {
+                check_column(
+                    &mut report,
+                    &mut usage,
+                    &site,
+                    widget,
+                    field,
+                    &lookup,
+                    model,
+                );
+            }
+        }
     }
     report
         .problems
         .sort_by(|a, b| (&a.file, &a.rule, &a.message).cmp(&(&b.file, &b.rule, &b.message)));
     (report, usage)
+}
+
+/// Each grid's `ColumnFormat` field names, by widget id.
+fn grid_columns(content: &Value) -> BTreeMap<String, Vec<String>> {
+    fn walk(widget: &Value, out: &mut BTreeMap<String, Vec<String>>) {
+        let properties = &widget["Properties"];
+        if let (Some(id), Some(format)) = (
+            properties["Id"].as_str(),
+            properties["ColumnFormat"]["formatInfo"].as_array(),
+        ) {
+            let fields: Vec<String> = format
+                .iter()
+                .filter_map(|column| column["FieldName"].as_str())
+                .filter(|name| !name.is_empty())
+                .map(str::to_string)
+                .collect();
+            if !fields.is_empty() {
+                out.insert(id.to_string(), fields);
+            }
+        }
+        for child in widget["Widgets"].as_array().into_iter().flatten() {
+            walk(child, out);
+        }
+    }
+    let mut out = BTreeMap::new();
+    walk(&content["UI"], &mut out);
+    out
+}
+
+fn check_column(
+    report: &mut Report,
+    usage: &mut FieldUsage,
+    site: &Site<'_>,
+    widget: &str,
+    field: &str,
+    lookup: &catalog::ServiceLookup,
+    model: &Resolver<'_>,
+) {
+    let Some(service) = lookup.service.as_ref() else {
+        return;
+    };
+    let Some(shape_name) = service
+        .result
+        .data_shape
+        .as_deref()
+        .filter(|_| service.result.base_type.eq_ignore_ascii_case("INFOTABLE"))
+    else {
+        return;
+    };
+    let Some(shape) = model.checkable_shape(shape_name) else {
+        return;
+    };
+    report.examined += 1;
+    track_result(usage, site.entity, site.service, service, model);
+    if let Some(entry) = usage.shapes.get_mut(&shape.name) {
+        entry.bound.insert(field.to_string());
+    }
+    if !shape.fields.iter().any(|known| known.name == field) {
+        add_problem(report, site, "unknown-column", &format!("{widget}.{field}"), format!("{}: grid {widget} has a column for {field}, but {}.{} returns {shape_name}, which has no field {field}; the column stays empty", site.mashup, site.entity, site.service));
+    }
 }
 
 pub(crate) struct Section {
@@ -659,6 +774,24 @@ mod tests {
         format!(
             r#"{{"Data":{{"Shape":{{"EntityName":"P.Shape","EntityType":"DynamicThingShapes","Services":[{{"Name":"Svc1","Target":"Svc","Parameters":{{"{static_parameter}":"x"}}}}]}},"Thing":{{"EntityName":"P.Thing","EntityType":"Things","Services":[{{"Name":"Svc","Target":"Svc"}}]}}}},"DataBindings":[{{"SourceArea":"Data","SourceSection":"Shape","SourceId":"Svc1","PropertyMaps":[{{"SourcePropertyType":"Field","SourceProperty":"{field}"}}]}},{{"TargetArea":"Data","TargetSection":"Thing","TargetId":"Svc","PropertyMaps":[{{"TargetPropertyType":"Parameter","TargetProperty":"{parameter}"}}]}}]}}"#
         )
+    }
+
+    #[test]
+    fn a_grid_column_for_a_field_the_bound_result_lacks_is_reported() {
+        let content = r#"{"Data":{"Thing":{"EntityName":"P.Thing","EntityType":"Things","Services":[{"Name":"Svc","Target":"Svc"}]}},"UI":{"Properties":{"Id":"mashup-root"},"Widgets":[{"Properties":{"Id":"ptcsgrid-3","Type":"ptcsgrid","ColumnFormat":{"formatInfo":[{"FieldName":"good"},{"FieldName":"gone"}]}},"Widgets":[]}]},"DataBindings":[{"SourceArea":"Data","SourceSection":"Thing","SourceId":"Svc","TargetArea":"UI","TargetId":"ptcsgrid-3","PropertyMaps":[{"SourcePropertyType":"InfoTable","SourceProperty":"","TargetProperty":"Data"}]}]}"#;
+        let (_dir, solution) = solution(content);
+        let report = run(&solution);
+        let found: Vec<(&str, bool)> = report
+            .problems
+            .iter()
+            .map(|problem| {
+                (
+                    problem.rule.as_str(),
+                    problem.message.contains("column for gone"),
+                )
+            })
+            .collect();
+        assert_eq!(found, [("unknown-column", true)]);
     }
 
     #[test]

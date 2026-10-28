@@ -735,6 +735,15 @@ pub(crate) fn deploy_cmd(solution: &Solution, args: &Deploy) -> u8 {
                                         item.collection, item.name, item.name, item.name
                                     );
                             }
+                            if !item.added_dependencies.is_empty() {
+                                eprintln!(
+                                    "{} {}/{}: the server added {} to its dependsOn, because entities sent with it need them; the server keeps what the file declares, so pulling it once settles this",
+                                    style::prefix(),
+                                    item.collection,
+                                    item.name,
+                                    item.added_dependencies.join(", ")
+                                );
+                            }
                             eprintln!(
                                 "{} to take what the server made of it: twaco entity pull {}/{} --apply",
                                 style::prefix(), item.collection, item.name
@@ -965,14 +974,16 @@ fn print_deploy_report(report: &deploy::Report, apply: bool, force: bool) {
                 plan.cleared.join(", ")
             );
         }
+        // An apply reports what it sends; the import and read-back lines below say how it went.
+        let would = if apply { "" } else { "would " };
         match &plan.decision {
             push::Decision::AlreadyThere => println!("  {label}: nothing to push"),
-            push::Decision::Create => println!("  {label}: would create"),
+            push::Decision::Create => println!("  {label}: {would}create"),
             push::Decision::Update => {
-                println!("  {label}: would update; server unchanged since baseline")
+                println!("  {label}: {would}update; server unchanged since baseline")
             }
             push::Decision::Refuse(reason) if force => {
-                println!("  {label}: would overwrite with --force ({reason})")
+                println!("  {label}: {would}overwrite with --force ({reason})")
             }
             push::Decision::Refuse(reason) => {
                 println!("  {label}: {} ({reason})", style::warn("would refuse"))

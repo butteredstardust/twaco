@@ -210,6 +210,7 @@ where
     if let Some(lang) = &request.lang {
         valid_language(lang)?;
     }
+    valid_service_name(&request.target, &request.service)?;
     let selected = if request.profile_before_target {
         Some(profile::load(&solution.root, &request.profile).map_err(CallCommandError::Profile)?)
     } else {
@@ -415,6 +416,35 @@ fn call<R: Remote>(
     })
 }
 
+/// An argument in the service's place (`limit=3`, a JSON object) or no service at all, which the
+/// server would answer with a confusing 404. Other unusual names are sent, encoded.
+fn valid_service_name(target: &str, service: &str) -> Result<(), CallCommandError> {
+    let trimmed = service.trim_start();
+    let argument = trimmed.is_empty()
+        || service.contains('=')
+        || trimmed.starts_with('{')
+        || trimmed.starts_with('[');
+    if !argument {
+        return Ok(());
+    }
+    // `Entity.Service name=value` is the likely slip; a JSON object here means the service name
+    // itself was left out.
+    let example = match target.rsplit_once('.') {
+        Some((entity, name))
+            if service.contains('=')
+                && !name.is_empty()
+                && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') =>
+        {
+            format!("; to call {name} on {entity}: twaco call {entity} {name} '{{\"parameter\": value}}'")
+        }
+        _ if service.trim_start().starts_with('{') => "; the service name is missing".to_string(),
+        _ => String::new(),
+    };
+    Err(CallCommandError::Arguments(format!(
+        "{service:?} is not a service name; call takes <target> <service> [<JSON object>]{example}"
+    )))
+}
+
 /// A language preference as `SetLanguagePreferences` takes it: language tags (`de`, `pt_BR`,
 /// `zh-CN`), comma-separated, the first one with a localization table winning.
 fn valid_language(lang: &str) -> Result<(), CallCommandError> {
@@ -495,6 +525,23 @@ fn as_test_user(
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    #[test]
+    fn an_argument_in_the_service_place_is_refused_before_any_request() {
+        assert!(valid_service_name("Acme.T", "GetOrders_2").is_ok());
+        let slip = valid_service_name("Acme.T.GetOrders", "limit=3").unwrap_err();
+        assert!(
+            slip.to_string()
+                .contains("twaco call Acme.T GetOrders '{\"parameter\": value}'"),
+            "{slip}"
+        );
+        let missing = valid_service_name("Acme.T", "{\"limit\":3}").unwrap_err();
+        assert!(
+            missing.to_string().ends_with("the service name is missing"),
+            "{missing}"
+        );
+        assert!(valid_service_name("Acme.T", "").is_err());
+    }
 
     fn solution() -> (tempfile::TempDir, PathBuf, Solution) {
         let root_guard = tempfile::Builder::new()

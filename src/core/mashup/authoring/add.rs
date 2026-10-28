@@ -8,7 +8,7 @@ use super::{
 };
 use crate::core::config::Solution;
 use crate::core::mashup::edit::{MashupDocument, Placement};
-use crate::core::{mashup, widgets};
+use crate::core::{extension_widgets, mashup, widgets};
 use serde_json::{json, Value};
 use std::path::Path;
 
@@ -27,8 +27,12 @@ pub struct AddRequest {
 pub struct AddPlan {
     pub edit: EditPlan,
     pub placed: mashup::edit::Placed,
-    /// The catalogue type, such as `ptcsgrid`.
+    /// The widget's type, such as `ptcsgrid`.
     pub widget: String,
+    /// Composer's label for it, such as `Grid`.
+    pub label: String,
+    /// A function widget, which goes beside the layout.
+    pub function: bool,
 }
 
 /// A contained mashup is a `mashupcontainer` whose public properties mirror the child's
@@ -203,9 +207,27 @@ pub(crate) fn plan_add(
 ) -> Result<AddPlan, AuthoringError> {
     let loaded = load_existing(solution, &request.mashup)?;
     let mut document = parse_loaded(&loaded)?;
-    let widget = widgets::catalog()
-        .resolve(&request.widget)
-        .map_err(|error| AuthoringError::Invalid(error.to_string()))?;
+    // A platform widget first, then one of the solution's own extension projects defines.
+    let defined;
+    let widget = match widgets::catalog().resolve(&request.widget) {
+        Ok(widget) => widget,
+        Err(error) => match extension_widgets::find(solution, &request.widget) {
+            (Some(found), _) => {
+                defined = found;
+                &defined
+            }
+            (None, skipped) => {
+                let unread = if skipped.is_empty() {
+                    String::new()
+                } else {
+                    format!(" (unread: {})", skipped.join("; "))
+                };
+                return Err(AuthoringError::Invalid(format!(
+                    "{error}; nor does an [[extension]] project of this solution define it, nor an extension `twaco types --platform` saw installed on the server{unread}"
+                )));
+            }
+        },
+    };
     let placed = if widget.function {
         add_function_widget(&mut document, widget, request)?
     } else {
@@ -257,10 +279,28 @@ pub(crate) fn plan_add(
         {
             return Err(AuthoringError::Invalid(format!("twaco sets {name}")));
         }
-        let default = widget.defaults.get(name).ok_or_else(|| {
-            AuthoringError::Invalid(format!("{} has no property {name}", widget.type_id))
-        })?;
-        let value = property_value(name, text, default)?;
+        let value = match widget.defaults.get(name) {
+            Some(default) => property_value(name, text, default)?,
+            // An extension widget's property with no literal default: read as its base type,
+            // or as JSON (a string when the text is not JSON) for a structured one.
+            None if widget.extension && widget.property(name).is_some() => {
+                match widget
+                    .property(name)
+                    .and_then(|contract| contract.base_type.as_deref())
+                    .and_then(extension_widgets::empty_value)
+                {
+                    Some(empty) => property_value(name, text, &empty)?,
+                    None => serde_json::from_str(text)
+                        .unwrap_or_else(|_| Value::String(text.to_string())),
+                }
+            }
+            None => {
+                return Err(AuthoringError::Invalid(format!(
+                    "{} has no property {name}",
+                    widget.type_id
+                )))
+            }
+        };
         if let Some(contract) = widget.property(name) {
             if !contract.options.is_empty() && !contract.options.contains(&value) {
                 return Err(AuthoringError::Invalid(format!(
@@ -285,6 +325,8 @@ pub(crate) fn plan_add(
         edit: finish_edit(loaded, document, "mashup add")?,
         placed,
         widget: widget.type_id.clone(),
+        label: widget.type_display_name.clone(),
+        function: widget.function,
     })
 }
 

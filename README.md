@@ -274,7 +274,7 @@ username = "Administrator"
 password = "..."
 ```
 
-`twaco doctor` shows what resolved and whether the server answers. See
+`twaco doctor` shows what resolved, whether the server answers and which ThingWorx version it runs. See
 [Quick start](documentation/QUICK_START.md) for the full walk-through.
 
 ## Use it with an AI agent

@@ -169,7 +169,7 @@ in its text block. It has no `structuredContent`, which is kept for results that
 | `network_write` | workspace | Add, move or remove a Network connection, import an asset CSV, or pull the server's connections; plan by default |
 | `mashup_new` | workspace | Create a responsive mashup from one of the embedded layout templates; plan by default |
 | `mashup_templates` | no | The embedded layout templates, or one template's slots |
-| `mashup_add` | workspace | Add a catalogue widget to a mashup; plan by default |
+| `mashup_add` | workspace | Add a catalogue or extension-project widget to a mashup; plan by default |
 | `mashup_add_contained` | workspace | Add a repository mashup as a contained mashup; plan by default |
 | `mashup_bind` | workspace | Add one data binding, by the addresses `mashup_describe` prints; plan by default |
 | `mashup_on` | workspace | Run a data call or widget service when a mashup event fires; plan by default |

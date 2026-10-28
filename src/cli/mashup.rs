@@ -883,12 +883,9 @@ pub(crate) fn mashup_add_cmd(solution: &Solution, args: &MashupAdd) -> u8 {
         return OK;
     }
     let plan = &outcome.plan;
-    let widget = twaco::core::widgets::catalog()
-        .by_type(&plan.widget)
-        .expect("the planned widget came from the catalogue");
-    let label = widget.type_display_name.as_str();
+    let label = plan.label.as_str();
     let where_ = match placements.first() {
-        None if widget.function => "beside the layout".to_string(),
+        None if plan.function => "beside the layout".to_string(),
         None => "in center".to_string(),
         Some(("--in", value)) => format!("in {value}"),
         Some(("--right-of", value)) => format!("right of {value}"),

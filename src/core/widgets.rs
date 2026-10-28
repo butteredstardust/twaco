@@ -72,6 +72,9 @@ pub struct Widget {
     /// A legacy widget that stays readable in existing mashups; adding one adds this instead.
     #[serde(default)]
     pub(crate) replaced_by: Option<String>,
+    /// Defined by one of the solution's extension projects, not shipped with the platform.
+    #[serde(skip)]
+    pub(crate) extension: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -174,6 +177,34 @@ impl Catalog {
 }
 
 impl Widget {
+    /// A widget an extension project defines: numbered as Composer numbers every widget it has no
+    /// entry for (`<type>-<n>`), never a container, never a function.
+    pub(crate) fn extension(
+        type_id: String,
+        label: String,
+        auto_resize: bool,
+        defaults: Map<String, Value>,
+        properties: BTreeMap<String, PropertyContract>,
+        events: Vec<String>,
+    ) -> Widget {
+        Widget {
+            display_name: type_id.clone(),
+            type_id,
+            aliases: Vec::new(),
+            type_display_name: label,
+            numbered: true,
+            container: false,
+            auto_resize,
+            defaults,
+            properties: Some(properties),
+            events: Some(events),
+            services: None,
+            function: false,
+            replaced_by: None,
+            extension: true,
+        }
+    }
+
     /// Its type and aliases.
     pub(crate) fn names(&self) -> impl Iterator<Item = &str> {
         std::iter::once(self.type_id.as_str()).chain(self.aliases.iter().map(String::as_str))

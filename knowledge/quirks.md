@@ -603,7 +603,11 @@ Composer-only request members such as `excludeFilters`, `searchText`, and
 `suppressEntityContext` should not be invented as service inputs. Verify server signatures with
 `twaco javadoc`, and use `curl` only for an external diagnostic, never from a service.
 
-An import's Project graph includes `dependsOn`; the bundle command is `twaco bundle`, deployment
+An import's Project graph includes `dependsOn`. Importing an entity that needs another
+project's entity (a Thing implementing its ThingShape, for one) adds that project to the
+entity's own Project `dependsOn` on the server; re-importing the Project alone keeps exactly what
+its file declares, so a Project file that names every project its entities need is read back as
+sent. The bundle command is `twaco bundle`, deployment
 is `twaco deploy`, health inspection is `twaco doctor`, localization is `twaco localization`, and
 search is `twaco search`. A generated table name uses `dataShapeName=""` only in the inline export
 form. Settings sometimes contain JSON fields named `editorSettings` or `someJsonField`; retain

@@ -188,7 +188,55 @@ pub(crate) fn compare_with(
     let (arguments, defaults) = super::retype::report(solution, &retypes, &exported)?;
     report.retyped_arguments = arguments;
     report.retyped_defaults = defaults;
+    if base.is_none() && options.base.is_none() {
+        let unchanged = unchanged_since_deploy(solution, &report, &here);
+        if !unchanged.is_empty() {
+            report.notes.push(format!(
+                "{} of the conflicting entities are as last deployed to, or recorded against, the default profile's server ({}); if the export comes from that server, `twaco entity pull <entity> --apply` takes its version, or --take theirs:<name> here",
+                unchanged.len(),
+                unchanged.join(", ")
+            ));
+        }
+    }
     Ok(report)
+}
+
+/// The conflicting or unknown entities whose working file still hashes as the default profile's
+/// baseline recorded it: nothing here changed them since they were last deployed or recorded.
+fn unchanged_since_deploy(
+    solution: &Solution,
+    report: &Report,
+    here: &BTreeMap<EntityRef, (Element, std::path::PathBuf)>,
+) -> Vec<String> {
+    let Ok(baseline) = crate::core::baseline::Baseline::load(&solution.root, "default") else {
+        return Vec::new();
+    };
+    let rules = solution.server_owned_for("default");
+    let patches = solution.patches_for("default");
+    report
+        .entities
+        .iter()
+        .filter(|entry| matches!(entry.change, Change::Conflict | Change::Unknown))
+        .filter_map(|entry| {
+            let (_, path) = here.get(&entry.entity)?;
+            let recorded = baseline.get(&entry.entity.collection, &entry.entity.name)?;
+            let parts = crate::core::server_owned::parts(
+                &rules,
+                &entry.entity.collection,
+                &entry.entity.name,
+            );
+            let bytes = std::fs::read(path).ok()?;
+            let bytes = crate::core::patch::apply(
+                &bytes,
+                &entry.entity.collection,
+                &entry.entity.name,
+                patches,
+            )
+            .ok()?;
+            let hash = crate::core::normalise::hash_with_parts(&bytes, &parts).ok()?;
+            (hash == recorded.local).then(|| entry.entity.path())
+        })
+        .collect()
 }
 
 fn script_change(

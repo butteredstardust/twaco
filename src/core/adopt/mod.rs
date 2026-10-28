@@ -758,6 +758,57 @@ mod tests {
     }
 
     #[test]
+    fn with_no_base_an_entity_as_last_deployed_is_named_in_a_note() {
+        let (_dir, root, solution, export) = adopt_case(&[]);
+        // The export's P.A differs from ours, and no base says who changed it.
+        let text = std::fs::read_to_string(&export).unwrap().replacen(
+            "{\"UI\":{}}",
+            "{\"UI\":{\"x\":2}}",
+            1,
+        );
+        std::fs::write(&export, text).unwrap();
+        let notes = |solution: &Solution| compare(solution, &export, &[]).unwrap().notes;
+        assert_eq!(notes(&solution).len(), 1, "only the no-base note");
+
+        let ours =
+            crate::core::normalise::hash(&std::fs::read(root.join("Mashups/P.A.xml")).unwrap())
+                .unwrap();
+        let mut baseline = crate::core::baseline::Baseline::default();
+        baseline.set("Mashups", "P.A", ours, "v7:server".into());
+        baseline.write(&root, "default").unwrap();
+        let notes = notes(&solution);
+        assert!(
+            notes.iter().any(|note| note.starts_with(
+                "1 of the conflicting entities are as last deployed to, or recorded against"
+            ) && note.contains("Mashups/P.A")),
+            "{notes:?}"
+        );
+    }
+
+    #[test]
+    fn a_new_mashup_that_would_share_a_name_or_sidecars_with_another_is_refused() {
+        // Another letter case of a mashup the repository has, and a name whose sidecar folder
+        // is already there: creating either would overwrite another mashup's sidecars.
+        for (name, clash) in [("p.a", "Mashups/P.A.xml"), ("P.B", "src/P.B/mashup")] {
+            let (_dir, root, solution, export) = adopt_case(&[(name, "{\"UI\":{\"x\":1}}")]);
+            std::fs::create_dir_all(root.join("src/P.B/mashup")).unwrap();
+            std::fs::write(root.join("src/P.B/mashup/content.json"), "{\"UI\":{}}").unwrap();
+            let lock = locked(&solution);
+            let before = files_under(&root);
+            let report = compare(&solution, &export, &[]).unwrap();
+            let error = apply(&solution, &export, &report, &[], &lock)
+                .err()
+                .expect("refused");
+            let text = error.to_string().replace('\\', "/");
+            assert!(
+                text.contains(&format!("new mashup {name} would share {clash}")),
+                "{text}"
+            );
+            assert_eq!(files_under(&root), before, "nothing was adopted");
+        }
+    }
+
+    #[test]
     fn an_export_that_cannot_be_adopted_whole_changes_nothing() {
         for bad in [
             ("P.C", "not json"),

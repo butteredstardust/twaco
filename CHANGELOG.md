@@ -6,6 +6,53 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `twaco mashup add` (MCP `mashup_add`) places widgets the solution's `[[extension]]` projects
+  define: twaco reads a JavaScript `TW.IDE.Widgets.<type>` definition or a TypeScript
+  `@TWWidgetDefinition` class and writes Composer's base properties plus the literal defaults the
+  source declares. `--prop` reads a property with no default as its base type, or as JSON.
+- `twaco types --platform` also caches the mashup builder's code of the extensions installed on
+  the server, and `mashup add` places their widgets offline: web-component widgets
+  (`TW.Widget.widgetWrapper.config`) and `TW.IDE.Widgets` definitions alike.
+
+- A new `check` gate, `project dependencies`, names a project a Project file's `dependsOn` lacks
+  although its Things or ThingTemplates use that project's ThingTemplate or ThingShape. The server
+  adds such a project on import, which made the Project read back not kept (verified on 10.2; a
+  base DataShape adds nothing).
+
+- `check` finds a removed DataShape field still in use: the `mashup bindings` gate reports a grid
+  column for a field the result bound to the grid lacks, and the `result shapes` gate a row the
+  script adds to the result with a field the declared DataShape lacks.
+
+### Changed
+
+- `twaco call` refuses an argument in the service's place (`call Entity.Service limit=3` sent
+  `limit=3` to the server as the service name) and shows the form it meant.
+- `twaco entity status` says when entity files are behind their sidecars, which it does not
+  compare; an edited script or an adopt read as in sync before.
+- `twaco sync` no longer leaves a carriage return from a CRLF script in an LF entity file, and
+  repairs a file a sync left that way; `mashup param add` and `set` keep a CRLF mashup CRLF.
+
+- `twaco doctor` (MCP `doctor`) reports the server's ThingWorx version and warns when it is not
+  the version of the widget catalogue (10.2) that mashup add, new and validate judge widgets by.
+- `twaco adopt --apply` refuses to create a mashup whose sidecar folder already exists, or that
+  differs only in letter case from a mashup in the repository: creating it overwrote the other
+  mashup's sidecars.
+- `twaco deploy` (MCP `deploy`, `added_dependencies`) explains a Project read back "not kept"
+  because the server added projects to its `dependsOn`: importing an entity that needs another
+  project adds that project. The server keeps what the file declares otherwise, so pulling the
+  Project once settles it.
+- `twaco mashup new` refuses a name that differs from an existing mashup's only in case, which
+  ThingWorx refuses too ("Already Exists, With Different Case", verified on 10.2); before, only
+  a case-insensitive file system stopped it.
+- `twaco adopt` lists conflicts and skipped entities under "not applied" rather than "applied",
+  says "Nothing was adopted" when that is so, and, with no base, names the conflicting entities
+  that are as last deployed to (or recorded against) the default profile's server, for which
+  `entity pull` is the way.
+- `twaco deploy --apply` reports "create" and "update" for what it sends, not "would create".
+- `twaco update` prints the executable's path without Windows' `\\?\` prefix.
+
 ## [0.1.39] - 2026-10-27
 
 ### Added

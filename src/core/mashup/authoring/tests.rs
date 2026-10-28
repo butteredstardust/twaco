@@ -3858,3 +3858,139 @@ fn binding_into_a_navigation_function_refreshes_a_missing_or_stale_copy_first() 
         "STRING"
     );
 }
+
+#[test]
+fn add_places_a_widget_an_extension_project_defines() {
+    let (dir, solution) = with_config(
+        "[[project]]\nname = \"Acme\"\nroot = \"acme\"\n[[extension]]\nroot = \"widgets\"\n",
+    );
+    write(
+        dir.path(),
+        "widgets/src/ide.ts",
+        "import { TWWidgetDefinition, property, defaultValue, bindingTarget } from 'typescriptwebpacksupport/widgetIDESupport';\n\
+         @TWWidgetDefinition('Acme Label')\nclass AcmeLabel extends TWComposerWidget {\n\
+         @property('STRING', bindingTarget, defaultValue('hello')) Value: string;\n\
+         @property('INFOTABLE', bindingTarget) Rows: any;\n}\n",
+    );
+    // Build output beside the source is never read as source.
+    write(
+        dir.path(),
+        "widgets/build/ide.ts",
+        "not typescript, and not read",
+    );
+    let name = "Acme.Orders_MU";
+    let new = plan_new(&solution, &request(name)).unwrap();
+    apply_new(&solution, &new, &lock(&solution)).unwrap();
+    let mut add = add_request(name, "acmelabel");
+    add.properties = vec![
+        ("Value".into(), "Hi".into()),
+        ("Rows".into(), "{\"rows\":[]}".into()),
+    ];
+    let plan = plan_add(&solution, &add).unwrap();
+    assert_eq!(plan.placed.id, "AcmeLabel-3");
+    assert_eq!(plan.widget, "AcmeLabel");
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    let assets = workspace::read_mashup(new.content_path.parent().unwrap())
+        .unwrap()
+        .unwrap();
+    let document = mashup::edit::parse(&assets.content).unwrap();
+    let properties = &document.at(&document.find("AcmeLabel-3").unwrap().path)["Properties"];
+    assert_eq!(properties["Type"], "AcmeLabel");
+    assert_eq!(properties["__TypeDisplayName"], "Acme Label");
+    assert_eq!(properties["DisplayName"], "AcmeLabel-3");
+    assert_eq!(properties["Value"], "Hi");
+    assert_eq!(properties["Rows"], json!({"rows": []}));
+    assert_eq!(properties["Area"], "UI");
+    // UseTheme is what Composer adds to its own PTCS widgets, not to an extension's.
+    assert!(properties.get("UseTheme").is_none(), "{properties}");
+
+    let error = plan_add(&solution, &add_request(name, "acmemissing")).unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("nor does an [[extension]] project of this solution define it"),
+        "{error}"
+    );
+}
+
+#[test]
+fn add_names_an_extension_root_it_cannot_read() {
+    let (_dir, solution) = with_config(
+        "[[project]]\nname = \"Acme\"\nroot = \"acme\"\n[[extension]]\nroot = \"missing\"\n",
+    );
+    let name = "Acme.Orders_MU";
+    let new = plan_new(&solution, &request(name)).unwrap();
+    apply_new(&solution, &new, &lock(&solution)).unwrap();
+    let error = plan_add(&solution, &add_request(name, "acmelabel")).unwrap_err();
+    assert!(error.to_string().contains("(unread: missing: "), "{error}");
+}
+
+#[test]
+fn add_places_a_widget_of_an_extension_installed_on_the_server() {
+    let (dir, solution) = one_project();
+    // What `types --platform` caches: the mashup builder's combined extension code.
+    let code = "(function(TW){ const widgetName = 'acmechat'; const config = {\"flags\":{\"name\":\"Acme Chat\"},\"properties\":{\"Limit\":{\"baseType\":\"INTEGER\"},\"Title\":{\"baseType\":\"STRING\",\"defaultValue\":\"Chat\"}}}; TW.Widget.widgetWrapper.config(widgetName, config); }(TW));";
+    write(
+        dir.path(),
+        ".twaco/platform.json",
+        &serde_json::to_string(&json!({ "extension_widgets": code })).unwrap(),
+    );
+    let name = "Acme.Orders_MU";
+    let new = plan_new(&solution, &request(name)).unwrap();
+    apply_new(&solution, &new, &lock(&solution)).unwrap();
+    let mut add = add_request(name, "acmechat");
+    add.properties = vec![("Limit".into(), "20".into())];
+    let plan = plan_add(&solution, &add).unwrap();
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    let assets = workspace::read_mashup(new.content_path.parent().unwrap())
+        .unwrap()
+        .unwrap();
+    let document = mashup::edit::parse(&assets.content).unwrap();
+    let properties = &document.at(&document.find(&plan.placed.id).unwrap().path)["Properties"];
+    assert_eq!(properties["Type"], "acmechat");
+    assert_eq!(properties["Title"], "Chat");
+    // Read as its INTEGER base type, not as text.
+    assert_eq!(properties["Limit"], json!(20));
+    assert_eq!(properties["UseTheme"], json!(true));
+
+    let mut wrong = add_request(name, "acmechat");
+    wrong.properties = vec![("Limit".into(), "many".into())];
+    assert!(plan_add(&solution, &wrong).is_err());
+}
+
+#[test]
+fn parameters_added_to_a_crlf_mashup_keep_it_crlf() {
+    let (_dir, solution) = one_project();
+    let name = "Acme.Crlf_MU";
+    let new = plan_new(&solution, &request(name)).unwrap();
+    apply_new(&solution, &new, &lock(&solution)).unwrap();
+    let crlf = String::from_utf8(std::fs::read(&new.entity_path).unwrap())
+        .unwrap()
+        .replace("\r\n", "\n")
+        .replace('\n', "\r\n");
+    std::fs::write(&new.entity_path, crlf).unwrap();
+    for parameter in ["Beta", "Alpha", "Zed"] {
+        let mut add = param_request(name, ParameterAction::Add, parameter);
+        add.base_type = Some("STRING".into());
+        add.direction = Some("IN".into());
+        param(&solution, &add).unwrap();
+    }
+    let bytes = std::fs::read(&new.entity_path).unwrap();
+    let crlf = bytes.windows(2).filter(|pair| pair == b"\r\n").count();
+    let lf = bytes.iter().filter(|&&byte| byte == b'\n').count();
+    assert_eq!(crlf, lf, "every line still ends CRLF");
+}
+
+#[test]
+fn a_new_mashup_differing_only_in_case_is_refused() {
+    let (_dir, solution) = one_project();
+    let new = plan_new(&solution, &request("Acme.Orders_MU")).unwrap();
+    apply_new(&solution, &new, &lock(&solution)).unwrap();
+    let error = plan_new(&solution, &request("acme.orders_mu")).unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("already exists as Acme.Orders_MU, which ThingWorx takes for the same name"),
+        "{error}"
+    );
+}

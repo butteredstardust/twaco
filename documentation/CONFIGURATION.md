@@ -345,7 +345,7 @@ layout once.
 
 `advisory` names built-in gates whose findings are reported (as `warn`) without failing
 `check` or blocking `deploy`: `line endings`, `sidecars`, `formatting`, `script traps`,
-`code order`, `project`, `mashup bindings`, `mashup content`, `contained mashups`, `localization tokens`,
+`code order`, `project`, `project dependencies`, `mashup bindings`, `mashup content`, `contained mashups`, `localization tokens`,
 `result shapes`, `networks`, `requirements`, `ai references`. The live parse is not among them: `deploy` always has the server
 parse every script, and stops on a script it refuses. It is for a solution adopting twaco over code written
 before those gates existed; take a gate off the list once its findings are fixed. A gate that

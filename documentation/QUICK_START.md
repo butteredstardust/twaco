@@ -118,7 +118,7 @@ twaco doctor
 twaco entity status --all
 ```
 
-`doctor` shows what resolved and whether the server answers. `entity status` compares every
+`doctor` shows what resolved, whether the server answers and which ThingWorx version it runs. `entity status` compares every
 entity with the server.
 
 ## 6. Make a change

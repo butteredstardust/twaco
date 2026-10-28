@@ -1948,3 +1948,36 @@ fn a_deploy_the_gates_stop_says_what_each_blocking_gate_found() {
             .as_str()
             .is_some_and(|f| f.contains("Broken.xml [sidecars/unreadable]"))));
 }
+
+/// An extension widget is placed and reported by the command line as a catalogue one is; the
+/// report used to look the widget up in the catalogue again and panic.
+#[test]
+fn mashup_add_reports_an_extension_widget() {
+    let root_guard = tempfile::tempdir().unwrap();
+    let root = root_guard.path();
+    std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"Acme\"\n").unwrap();
+    std::fs::create_dir_all(root.join(".twaco")).unwrap();
+    let code = "(function(TW){ const widgetName = 'acmechat'; const config = {\"flags\":{\"name\":\"Acme Chat\"},\"properties\":{}}; TW.Widget.widgetWrapper.config(widgetName, config); }(TW));";
+    std::fs::write(
+        root.join(".twaco/platform.json"),
+        serde_json::json!({ "extension_widgets": code }).to_string(),
+    )
+    .unwrap();
+    let twaco = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_twaco"))
+            .args(args)
+            .current_dir(root)
+            .env_clear()
+            .output()
+            .unwrap()
+    };
+    let new = twaco(&["mashup", "new", "Acme.Chat_MU", "--apply"]);
+    assert!(new.status.success(), "{new:?}");
+    let add = twaco(&["mashup", "add", "Acme.Chat_MU", "acmechat", "--apply"]);
+    let stdout = String::from_utf8_lossy(&add.stdout);
+    assert!(add.status.success(), "{add:?}");
+    assert!(
+        stdout.contains("added acmechat-3 (Acme Chat) to Acme.Chat_MU in center"),
+        "{stdout}"
+    );
+}

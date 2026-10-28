@@ -254,18 +254,62 @@ pub fn diagnose(root: &Path, profile_name: &str) -> Vec<Item> {
     ));
 
     let started = Instant::now();
-    items.push(match server::Client::new(profile).check_script("") {
-        Ok(_) => item(
-            Health::Ok,
-            "server",
-            format!(
-                "answered and accepted the credentials in {} ms",
-                started.elapsed().as_millis()
-            ),
-        ),
-        Err(error) => item(Health::Fail, "server", error.to_string()),
-    });
+    let client = server::Client::new(profile);
+    match client.check_script("") {
+        Ok(_) => {
+            items.push(item(
+                Health::Ok,
+                "server",
+                format!(
+                    "answered and accepted the credentials in {} ms",
+                    started.elapsed().as_millis()
+                ),
+            ));
+            items.push(platform_item(super::help::server_version(&client)));
+        }
+        Err(error) => items.push(item(Health::Fail, "server", error.to_string())),
+    }
     items
+}
+
+/// The server's ThingWorx version, against the one the widget catalogue describes: mashup
+/// authoring and validation judge widgets by that catalogue.
+fn platform_item(version: Result<String, String>) -> Item {
+    let catalogue = super::widgets::PLATFORM;
+    let version = match version {
+        Ok(version) => version,
+        Err(why) => {
+            return item(
+                Health::Warn,
+                "platform",
+                format!("the server's ThingWorx version is unknown ({why}); the widget catalogue is {catalogue}"),
+            )
+        }
+    };
+    let mut parts = version.trim().split(['.', '-']);
+    let major_minor = match (parts.next(), parts.next()) {
+        (Some(major), Some(minor))
+            if major.parse::<u32>().is_ok() && minor.parse::<u32>().is_ok() =>
+        {
+            format!("{major}.{minor}")
+        }
+        _ => {
+            return item(
+                Health::Warn,
+                "platform",
+                format!("the server says ThingWorx {version:?}, which is not a version; the widget catalogue is {catalogue}"),
+            )
+        }
+    };
+    if major_minor == catalogue {
+        item(Health::Ok, "platform", format!("ThingWorx {version}"))
+    } else {
+        item(
+            Health::Warn,
+            "platform",
+            format!("ThingWorx {version}, but the widget catalogue is {catalogue}: mashup add, new and validate judge widgets by {catalogue}, so check new mashups in Composer on this server"),
+        )
+    }
 }
 
 fn baseline_item(solution: &Solution, found: &workspace::Discovery, profile_name: &str) -> Item {
@@ -393,6 +437,29 @@ fn committed_secrets(root: &Path) -> Item {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_platform_item_warns_when_the_server_is_not_the_catalogues_version() {
+        let catalogue = crate::core::widgets::PLATFORM;
+        let same = super::platform_item(Ok(format!("{catalogue}.0-b12")));
+        assert_eq!(same.health, super::Health::Ok);
+        assert_eq!(same.detail, format!("ThingWorx {catalogue}.0-b12"));
+        let other = super::platform_item(Ok("9.3.6-b123".to_string()));
+        assert_eq!(other.health, super::Health::Warn);
+        assert!(other
+            .detail
+            .starts_with("ThingWorx 9.3.6-b123, but the widget catalogue is "));
+        // 10.20 is not 10.2.
+        let longer = super::platform_item(Ok(format!("{catalogue}0.1")));
+        assert_eq!(longer.health, super::Health::Warn);
+        for unreadable in [
+            Ok("unknown".to_string()),
+            Ok("10".to_string()),
+            Err("HTTP 403".to_string()),
+        ] {
+            assert_eq!(super::platform_item(unreadable).health, super::Health::Warn);
+        }
+    }
+
     #[test]
     fn server_owned_parts_the_matched_entities_cannot_have_are_advisory() {
         let dir = tempfile::tempdir().unwrap();

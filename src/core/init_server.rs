@@ -200,7 +200,7 @@ where
                 });
             }
             if key.collection == "Projects" {
-                let needs: Vec<String> = depends_on_projects(&element)
+                let needs: Vec<String> = normalise::project_dependencies(&element)
                     .into_iter()
                     .filter(|name| {
                         *name != info.project
@@ -538,31 +538,6 @@ impl<R: push::Remote> push::Remote for Borrowed<'_, R> {
     fn import(&self, file_name: &str, xml: &[u8]) -> Result<(), super::server::ServerError> {
         self.0.import(file_name, xml)
     }
-}
-
-/// The projects a Project entity's `dependsOn` names: `{"projects": "A:1.0.0,B:0.0.0"}`.
-fn depends_on_projects(project: &normalise::Element) -> Vec<String> {
-    #[derive(serde::Deserialize, Default)]
-    struct Depends {
-        #[serde(default)]
-        projects: String,
-    }
-    let Some(text) = project
-        .attributes
-        .iter()
-        .find(|(name, _)| name == b"dependsOn")
-        .map(|(_, value)| String::from_utf8_lossy(value).into_owned())
-    else {
-        return Vec::new();
-    };
-    let depends: Depends = serde_json::from_str(&text).unwrap_or_default();
-    depends
-        .projects
-        .split(',')
-        .filter_map(|item| item.trim().split(':').next())
-        .filter(|name| !name.is_empty())
-        .map(str::to_string)
-        .collect()
 }
 
 #[cfg(test)]

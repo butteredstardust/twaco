@@ -174,9 +174,23 @@ pub(crate) fn adopt_cmd(solution: &Solution, args: &Adopt) -> u8 {
         print_adopt_report(solution, &report, args.detail.detail);
     }
     if let Some(outcome) = applied.as_ref() {
-        println!("\n=== applied ({}) ===", outcome.lines.len());
-        for line in &outcome.lines {
+        // A conflict, a kept or a skipped entity is reported beside what was written, not as
+        // something that was.
+        let (left, written): (Vec<&String>, Vec<&String>) =
+            outcome.lines.iter().partition(|line| {
+                ["conflict ", "kept ", "skipped ", "not adopted "]
+                    .iter()
+                    .any(|word| line.starts_with(word))
+            });
+        println!("\n=== applied ({}) ===", written.len());
+        for line in &written {
             println!("  {line}");
+        }
+        if !left.is_empty() {
+            println!("\n=== not applied ({}) ===", left.len());
+            for line in &left {
+                println!("  {line}");
+            }
         }
         print_types_refresh(&outcome.types);
         let mashup_written = report.entities.iter().any(|entry| {
@@ -186,7 +200,9 @@ pub(crate) fn adopt_cmd(solution: &Solution, args: &Adopt) -> u8 {
                     .iter()
                     .any(|line| line == &format!("sidecar  {}", entry.entity.name))
         });
-        if mashup_written {
+        if written.is_empty() {
+            println!("\nNothing was adopted.");
+        } else if mashup_written {
             println!("\nMashup sidecars may need `twaco sync --all`; backend changes are already folded. Then run `twaco check`.");
         } else {
             println!("\nBackend changes are already folded; run `twaco check`.");

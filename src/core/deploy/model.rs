@@ -73,6 +73,9 @@ pub struct NotKept {
     /// The read-back differs from what was sent only in its permissions, which an import
     /// cannot take away; `permissions push` can.
     pub only_permissions: bool,
+    /// For a Project, the projects the server added to its `dependsOn` when that is all that
+    /// differs: entities sent with it need them.
+    pub added_dependencies: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default)]
