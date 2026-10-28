@@ -139,6 +139,7 @@ pub(crate) const BUILT_IN_GATES: &[&str] = &[
     "script traps",
     "code order",
     "project",
+    "project dependencies",
     "mashup bindings",
     "mashup content",
     "contained mashups",
@@ -170,6 +171,7 @@ pub fn run(solution: &Solution) -> CheckReport {
         script_traps(solution),
         code_order(solution),
         project_validation(solution, &discovery),
+        project_dependencies(solution, &discovery, &model),
         mashup_bindings(solution, &discovery, &model),
         mashup_content(solution, &discovery),
         contained_mashups(solution, &discovery),
@@ -885,6 +887,38 @@ fn project_validation(solution: &Solution, discovered: &workspace::Discovery) ->
             message: format!(
                 "{entities} entity file(s) here are in no collection folder twaco reads, so deploy \
                  and bundle leave them out; move them under their collection, such as Things/"
+            ),
+        });
+    }
+    result
+}
+
+fn project_dependencies(
+    solution: &Solution,
+    discovered: &workspace::Discovery,
+    model: &types::Model,
+) -> GateResult {
+    let gate = super::project_deps::GATE;
+    let (examined, missing, unreadable) = super::project_deps::check(solution, discovered, model);
+    let mut result = GateResult::passed(gate, examined);
+    for (file, why) in unreadable {
+        result.findings.push(Finding {
+            gate: gate.into(),
+            file,
+            line: 0,
+            rule: "unreadable".into(),
+            message: why,
+        });
+    }
+    for missing in missing {
+        result.findings.push(Finding {
+            gate: gate.into(),
+            file: missing.file,
+            line: 0,
+            rule: "missing-dependency".into(),
+            message: format!(
+                "project {} needs {}: {}. The server adds it to dependsOn on import, and the Project then reads back not kept; add {} to its dependsOn projects",
+                missing.project, missing.needs, missing.because, missing.entry
             ),
         });
     }

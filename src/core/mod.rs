@@ -72,6 +72,7 @@ pub(crate) mod patch;
 pub mod permissions;
 pub mod profile;
 pub mod progress;
+pub(crate) mod project_deps;
 pub mod push;
 pub mod read_only;
 pub mod refs;

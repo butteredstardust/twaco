@@ -16,6 +16,11 @@ All notable changes to twaco are recorded here. The format follows
   the server, and `mashup add` places their widgets offline: web-component widgets
   (`TW.Widget.widgetWrapper.config`) and `TW.IDE.Widgets` definitions alike.
 
+- A new `check` gate, `project dependencies`, names a project a Project file's `dependsOn` lacks
+  although its Things or ThingTemplates use that project's ThingTemplate or ThingShape. The server
+  adds such a project on import, which made the Project read back not kept (verified on 10.2; a
+  base DataShape adds nothing).
+
 ### Changed
 
 - `twaco doctor` (MCP `doctor`) reports the server's ThingWorx version and warns when it is not
