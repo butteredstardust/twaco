@@ -31,6 +31,7 @@ usage: twaco <command>
       --check                 report what would change, write nothing
       --allow-add-remove      add and remove services and fields as the sidecars do
       --relayout              rewrite scripts in the configured CDATA layout
+      --json                  print the report as JSON
   fmt [--check]               format service scripts
   check [--detail]            every gate, one exit code
       --live                  also parse every script on the server (fails closed)
@@ -485,6 +486,7 @@ usage: twaco <command>
       --exclude <entity-or-glob> leave out this Collection/Name selector (repeatable)
       --out <file>            write or check this file instead of the configured dist bundle
       --profile <name>        apply this profile's mashup patches
+      --json                  print the result as JSON
   deploy [--apply] [--force] [--json]
                               check, bundle, live-parse, conflict-check, import
       --backend-only          exclude configured UI collections

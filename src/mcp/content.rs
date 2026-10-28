@@ -722,7 +722,16 @@ pub(crate) fn bundle_tool(
     let mut notices = commands::Notices::default();
     let outcome =
         commands::bundle::execute(solution, &request, &mut notices).map_err(ToolError::coded)?;
-    let (state, target, built) = match &outcome {
+    Ok(bundle_json(solution, &outcome, &notices))
+}
+
+/// A bundle build or check as `--json` and MCP report it.
+pub fn bundle_json(
+    solution: &Solution,
+    outcome: &commands::bundle::BundleOutcome,
+    notices: &commands::Notices,
+) -> Value {
+    let (state, target, built) = match outcome {
         commands::bundle::BundleOutcome::Current { target, bundle, .. } => {
             ("current", target, Some(bundle))
         }
@@ -753,8 +762,8 @@ pub(crate) fn bundle_tool(
             result[key] = json!(values);
         }
     }
-    add_notices(&mut result, &notices);
-    Ok(result)
+    add_notices(&mut result, notices);
+    result
 }
 
 /// The server's entity search, as Composer's Spotlight box does it. Read-only.

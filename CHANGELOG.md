@@ -6,6 +6,20 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `twaco sync --json` and `twaco bundle --json` print the report the MCP `sync` and `bundle` tools
+  return.
+- `scripts/live_smoke.py` builds a small app on a disposable test server with twaco, checks after
+  each step that the server kept what was sent and that every entity is in sync, and deletes it.
+
+### Fixed
+
+- `twaco localization set`, `new`, `remove`, `pull` and `push` accepted `--json` and printed text;
+  they print the JSON the MCP tool returns.
+- `twaco check` (`mashup bindings`) reports a dropdown's display or value field, a chart's axis
+  field, or any other field-name property naming a field the bound result does not have.
+
 ## [0.1.40] - 2026-10-28
 
 ### Added
