@@ -3980,3 +3980,17 @@ fn parameters_added_to_a_crlf_mashup_keep_it_crlf() {
     let lf = bytes.iter().filter(|&&byte| byte == b'\n').count();
     assert_eq!(crlf, lf, "every line still ends CRLF");
 }
+
+#[test]
+fn a_new_mashup_differing_only_in_case_is_refused() {
+    let (_dir, solution) = one_project();
+    let new = plan_new(&solution, &request("Acme.Orders_MU")).unwrap();
+    apply_new(&solution, &new, &lock(&solution)).unwrap();
+    let error = plan_new(&solution, &request("acme.orders_mu")).unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("already exists as Acme.Orders_MU, which ThingWorx takes for the same name"),
+        "{error}"
+    );
+}

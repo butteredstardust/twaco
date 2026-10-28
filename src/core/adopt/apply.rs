@@ -937,7 +937,8 @@ fn mashup_assets(element: &Element) -> Result<Option<super::super::mashup::Asset
 
 /// What a new mashup called `name` would collide with: the sidecar folder, which is keyed by the
 /// name alone, or a mashup of that name in any letter case, in a discovered entity or in a
-/// `Mashups` folder of any project. ThingWorx names ignore case, and so do Windows file names.
+/// `Mashups` folder of any project. ThingWorx refuses a name that differs from an
+/// existing one only in case, and Windows file names ignore case.
 fn mashup_already_here(
     solution: &Solution,
     here: &BTreeMap<EntityRef, (Element, PathBuf)>,

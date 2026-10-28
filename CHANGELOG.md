@@ -43,6 +43,13 @@ All notable changes to twaco are recorded here. The format follows
   because the server added projects to its `dependsOn`: importing an entity that needs another
   project adds that project. The server keeps what the file declares otherwise, so pulling the
   Project once settles it.
+- `twaco mashup new` refuses a name that differs from an existing mashup's only in case, which
+  ThingWorx refuses too ("Already Exists, With Different Case", verified on 10.2); before, only
+  a case-insensitive file system stopped it.
+- `twaco adopt` lists conflicts and skipped entities under "not applied" rather than "applied",
+  says "Nothing was adopted" when that is so, and, with no base, names the conflicting entities
+  that are as last deployed to the default profile's server, for which `entity pull` is the way.
+- `twaco deploy --apply` reports "create" and "update" for what it sends, not "would create".
 - `twaco update` prints the executable's path without Windows' `\\?\` prefix.
 
 ## [0.1.39] - 2026-10-27

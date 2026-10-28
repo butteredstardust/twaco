@@ -758,6 +758,34 @@ mod tests {
     }
 
     #[test]
+    fn with_no_base_an_entity_as_last_deployed_is_named_in_a_note() {
+        let (_dir, root, solution, export) = adopt_case(&[]);
+        // The export's P.A differs from ours, and no base says who changed it.
+        let text = std::fs::read_to_string(&export).unwrap().replacen(
+            "{\"UI\":{}}",
+            "{\"UI\":{\"x\":2}}",
+            1,
+        );
+        std::fs::write(&export, text).unwrap();
+        let notes = |solution: &Solution| compare(solution, &export, &[]).unwrap().notes;
+        assert_eq!(notes(&solution).len(), 1, "only the no-base note");
+
+        let ours =
+            crate::core::normalise::hash(&std::fs::read(root.join("Mashups/P.A.xml")).unwrap())
+                .unwrap();
+        let mut baseline = crate::core::baseline::Baseline::default();
+        baseline.set("Mashups", "P.A", ours, "v7:server".into());
+        baseline.write(&root, "default").unwrap();
+        let notes = notes(&solution);
+        assert!(
+            notes.iter().any(|note| note
+                .starts_with("1 of the conflicting entities are as last deployed")
+                && note.contains("Mashups/P.A")),
+            "{notes:?}"
+        );
+    }
+
+    #[test]
     fn a_new_mashup_that_would_share_a_name_or_sidecars_with_another_is_refused() {
         // Another letter case of a mashup the repository has, and a name whose sidecar folder
         // is already there: creating either would overwrite another mashup's sidecars.

@@ -127,12 +127,21 @@ pub(crate) fn plan_new(
     let entities = workspace::entities(solution);
     if let Some(existing) = entities
         .iter()
-        .find(|e| e.info.collection == "Mashups" && e.info.name == request.name)
+        .find(|e| e.info.collection == "Mashups" && e.info.name.eq_ignore_ascii_case(&request.name))
     {
+        // ThingWorx refuses a name that differs from an existing one only in case.
+        let how = if existing.info.name == request.name {
+            String::new()
+        } else {
+            format!(
+                " as {}, which ThingWorx takes for the same name",
+                existing.info.name
+            )
+        };
         return Err(AuthoringError::Exists(format!(
-            "mashup {} already exists: {}",
+            "mashup {} already exists{how}: {}",
             request.name,
-            existing.path.display()
+            solution.relative(&existing.path)
         )));
     }
     let theme = match &request.theme {
