@@ -23,6 +23,7 @@ mod new;
 mod on;
 mod parameter;
 mod recipes;
+mod remove;
 
 pub use add::{add_contained_plan_json, add_plan_json, AddContainedRequest, AddRequest};
 pub(crate) use add::{function_property, plan_add, plan_add_contained, AddContainedPlan, AddPlan};
@@ -51,6 +52,8 @@ use parameter::{
 pub use parameter::{parameter_plan_json, ParameterAction, ParameterDefault, ParameterRequest};
 pub(crate) use recipes::{plan_recipe, RecipePlan};
 pub use recipes::{recipe_plan_json, Recipe, RecipeArgs, RecipeRequest, RECIPES};
+pub(crate) use remove::{plan_off, plan_remove, plan_unbind, OffPlan, RemovePlan, UnbindPlan};
+pub use remove::{OffRequest, RemoveRequest, UnbindRequest};
 
 #[derive(Debug)]
 pub struct SidecarEdit {

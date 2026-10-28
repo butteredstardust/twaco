@@ -5382,6 +5382,266 @@
     }
   },
   {
+    "name": "mashup_remove",
+    "description": "Remove a widget and its subtree from an existing mashup. By default it refuses bindings, events, data-call configuration, or extension JSON that names the subtree. cascade removes only proven bindings and events, reports orphaned data calls, and never guesses which calls to delete. A dry run unless dry_run is false; apply writes the entity and managed content sidecar together.",
+    "inputSchema": {
+      "required": [
+        "mashup",
+        "widget"
+      ],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "mashup": {
+          "description": "The existing mashup's name.",
+          "type": "string"
+        },
+        "widget": {
+          "description": "A widget id, display name, or unique catalogue name.",
+          "type": "string"
+        },
+        "cascade": {
+          "description": "Also remove bindings and event handlers proven to name the widget subtree.",
+          "type": "boolean",
+          "default": false
+        },
+        "dry_run": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "openWorldHint": false,
+      "destructiveHint": true,
+      "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "applied",
+        "dry_run",
+        "mashup",
+        "widget",
+        "removed",
+        "bindings_removed",
+        "events_removed",
+        "orphaned_data_calls",
+        "files"
+      ],
+      "properties": {
+        "applied": {
+          "type": "boolean"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "mashup": {
+          "type": "string"
+        },
+        "widget": {
+          "type": "string"
+        },
+        "removed": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "bindings_removed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "events_removed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "orphaned_data_calls": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "mashup_unbind",
+    "description": "Remove exactly one existing data binding selected by its source and target addresses. A dry run unless dry_run is false; apply writes the entity and managed content sidecar together.",
+    "inputSchema": {
+      "required": [
+        "mashup",
+        "from",
+        "to"
+      ],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "mashup": {
+          "description": "The existing mashup's name.",
+          "type": "string"
+        },
+        "from": {
+          "description": "The binding source address as mashup_describe prints it.",
+          "type": "string"
+        },
+        "to": {
+          "description": "The binding target address as mashup_describe prints it.",
+          "type": "string"
+        },
+        "dry_run": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "openWorldHint": false,
+      "destructiveHint": true,
+      "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "applied",
+        "dry_run",
+        "mashup",
+        "from",
+        "to",
+        "files"
+      ],
+      "properties": {
+        "applied": {
+          "type": "boolean"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "mashup": {
+          "type": "string"
+        },
+        "from": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "mashup_off",
+    "description": "Remove exactly one existing event handler selected by its event and invoked address. A dry run unless dry_run is false; apply writes the entity and managed content sidecar together.",
+    "inputSchema": {
+      "required": [
+        "mashup",
+        "event",
+        "invoke"
+      ],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "mashup": {
+          "description": "The existing mashup's name.",
+          "type": "string"
+        },
+        "event": {
+          "description": "The event address as mashup_describe prints it.",
+          "type": "string"
+        },
+        "invoke": {
+          "description": "The invoked data call or widget service address.",
+          "type": "string"
+        },
+        "dry_run": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "openWorldHint": false,
+      "destructiveHint": true,
+      "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "applied",
+        "dry_run",
+        "mashup",
+        "event",
+        "invoke",
+        "files"
+      ],
+      "properties": {
+        "applied": {
+          "type": "boolean"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "mashup": {
+          "type": "string"
+        },
+        "event": {
+          "type": "string"
+        },
+        "invoke": {
+          "type": "string"
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
     "name": "widgets",
     "description": "List or search the embedded ThingWorx 10.2 widget catalogue (type, Composer label, aliases, container, whether bindable), or with widget, one widget's bindable properties with base type and direction (in, out, in/out), its events and services. Read-only; no server.",
     "inputSchema": {

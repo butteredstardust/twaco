@@ -575,6 +575,27 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             refactor::mashup_on_tool,
         )
         .with_output::<outputs::MashupOnResult>(),
+        solution_tool::<refactor_requests::MashupRemoveRequest>(
+            "mashup_remove",
+            "Remove a widget and its subtree from an existing mashup. By default it refuses bindings, events, data-call configuration, or extension JSON that names the subtree. cascade removes only proven bindings and events, reports orphaned data calls, and never guesses which calls to delete. A dry run unless dry_run is false; apply writes the entity and managed content sidecar together.",
+            false,
+            refactor::mashup_remove_tool,
+        )
+        .with_output::<outputs::MashupRemoveResult>(),
+        solution_tool::<refactor_requests::MashupUnbindRequest>(
+            "mashup_unbind",
+            "Remove exactly one existing data binding selected by its source and target addresses. A dry run unless dry_run is false; apply writes the entity and managed content sidecar together.",
+            false,
+            refactor::mashup_unbind_tool,
+        )
+        .with_output::<outputs::MashupUnbindResult>(),
+        solution_tool::<refactor_requests::MashupOffRequest>(
+            "mashup_off",
+            "Remove exactly one existing event handler selected by its event and invoked address. A dry run unless dry_run is false; apply writes the entity and managed content sidecar together.",
+            false,
+            refactor::mashup_off_tool,
+        )
+        .with_output::<outputs::MashupOffResult>(),
         bare_tool::<refactor_requests::WidgetsRequest>(
             "widgets",
             "List or search the embedded ThingWorx 10.2 widget catalogue (type, Composer label, aliases, container, whether bindable), or with widget, one widget's bindable properties with base type and direction (in, out, in/out), its events and services. Read-only; no server.",
@@ -976,6 +997,9 @@ pub(crate) const GROUPS: &[(&str, &[&str])] = &[
             "mashup_add_contained",
             "mashup_bind",
             "mashup_on",
+            "mashup_remove",
+            "mashup_unbind",
+            "mashup_off",
             "widgets",
             "mashup_param",
             "mashup_recipe",

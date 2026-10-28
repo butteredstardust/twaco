@@ -950,6 +950,46 @@ pub(crate) struct MashupOnRequest {
 
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct MashupRemoveRequest {
+    /// The existing mashup's name.
+    pub(crate) mashup: String,
+    /// A widget id, display name, or unique catalogue name.
+    pub(crate) widget: String,
+    /// Also remove bindings and event handlers proven to name the widget subtree.
+    #[serde(default)]
+    pub(crate) cascade: bool,
+    #[serde(default = "default_true")]
+    pub(crate) dry_run: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MashupUnbindRequest {
+    /// The existing mashup's name.
+    pub(crate) mashup: String,
+    /// The binding source address as mashup_describe prints it.
+    pub(crate) from: String,
+    /// The binding target address as mashup_describe prints it.
+    pub(crate) to: String,
+    #[serde(default = "default_true")]
+    pub(crate) dry_run: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MashupOffRequest {
+    /// The existing mashup's name.
+    pub(crate) mashup: String,
+    /// The event address as mashup_describe prints it.
+    pub(crate) event: String,
+    /// The invoked data call or widget service address.
+    pub(crate) invoke: String,
+    #[serde(default = "default_true")]
+    pub(crate) dry_run: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct RetemplateRequest {
     /// The Thing or template to change.
     pub(crate) entity: String,

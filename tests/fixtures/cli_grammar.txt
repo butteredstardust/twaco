@@ -187,6 +187,18 @@ help:
 |                               run a service or widget service when a mashup event fires; plan unless --apply
 |       --event <address>       event address from mashup describe
 |       --invoke <address>      data call or widget service to run
+|   mashup remove <mashup> <widget> [--cascade] [--apply] [--json]
+|                               remove a widget or subtree; refuses wiring and unknown references unless --cascade;
+|                               plan unless --apply
+|       --cascade                also remove proven bindings and event handlers; leave data calls for review
+|   mashup unbind <mashup> --from <address> --to <address> [--apply] [--json]
+|                               remove exactly one data binding; plan unless --apply
+|       --from <address>        source address from mashup describe
+|       --to <address>          target address from mashup describe
+|   mashup off <mashup> --event <address> --invoke <address> [--apply] [--json]
+|                               remove exactly one event handler; plan unless --apply
+|       --event <address>       event address from mashup describe
+|       --invoke <address>      data call or widget service it invokes
 |   mashup param <add|set|remove> <mashup> <name> [--type <BASETYPE>] [--direction <IN|OUT|BOTH>]
 |       [--description <text>] [--default <value> | --no-default] [--data-shape <DataShape>] [--force] [--apply] [--json]
 |                               change a mashup parameter and every contained-mashup cache; plan unless --apply
@@ -6421,7 +6433,7 @@ help:
 == twaco mashup
 usage: twaco mashup <command>
 settings: disable-version-flag disable-help-subcommand subcommand-required arg-required-else-help
-subcommands: add add-contained bind describe event new on param recipe templates validate
+subcommands: add add-contained bind describe event new off on param recipe remove templates unbind validate
 arg --help
     action: Help
     value_name: -
@@ -6471,6 +6483,18 @@ help:
 |                               run a service or widget service when a mashup event fires; plan unless --apply
 |       --event <address>       event address from mashup describe
 |       --invoke <address>      data call or widget service to run
+|   mashup remove <mashup> <widget> [--cascade] [--apply] [--json]
+|                               remove a widget or subtree; refuses wiring and unknown references unless --cascade;
+|                               plan unless --apply
+|       --cascade                also remove proven bindings and event handlers; leave data calls for review
+|   mashup unbind <mashup> --from <address> --to <address> [--apply] [--json]
+|                               remove exactly one data binding; plan unless --apply
+|       --from <address>        source address from mashup describe
+|       --to <address>          target address from mashup describe
+|   mashup off <mashup> --event <address> --invoke <address> [--apply] [--json]
+|                               remove exactly one event handler; plan unless --apply
+|       --event <address>       event address from mashup describe
+|       --invoke <address>      data call or widget service it invokes
 |   mashup param <add|set|remove> <mashup> <name> [--type <BASETYPE>] [--direction <IN|OUT|BOTH>]
 |       [--description <text>] [--default <value> | --no-default] [--data-shape <DataShape>] [--force] [--apply] [--json]
 |                               change a mashup parameter and every contained-mashup cache; plan unless --apply
@@ -7343,6 +7367,109 @@ help:
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
 
+== twaco mashup off
+usage: twaco mashup off <mashup> --event <address> --invoke <address> [--apply] [--json]
+settings: disable-version-flag disable-help-subcommand
+subcommands: 
+arg --apply
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --event
+    action: Set
+    value_name: address
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+arg --invoke
+    action: Set
+    value_name: address
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --json
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg <operands>
+    action: Append
+    value_name: operand
+    num_args: 0..
+    allow_hyphen_values: no
+    allow_negative_numbers: yes
+    required: no
+    default: -
+    index: 1
+    other: -
+help:
+|   mashup off <mashup> --event <address> --invoke <address> [--apply] [--json]
+|                               remove exactly one event handler; plan unless --apply
+|       --event <address>       event address from mashup describe
+|       --invoke <address>      data call or widget service it invokes
+| 
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
 == twaco mashup on
 usage: twaco mashup on <mashup> --event <address> --invoke <address> [--apply] [--json]
 settings: disable-version-flag disable-help-subcommand
@@ -7998,6 +8125,96 @@ help:
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
 
+== twaco mashup remove
+usage: twaco mashup remove <mashup> <widget> [--cascade] [--apply] [--json]
+settings: disable-version-flag disable-help-subcommand
+subcommands: 
+arg --apply
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --cascade
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+arg --json
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg <operands>
+    action: Append
+    value_name: operand
+    num_args: 0..
+    allow_hyphen_values: no
+    allow_negative_numbers: yes
+    required: no
+    default: -
+    index: 1
+    other: -
+help:
+|   mashup remove <mashup> <widget> [--cascade] [--apply] [--json]
+|                               remove a widget or subtree; refuses wiring and unknown references unless --cascade;
+|                               plan unless --apply
+|       --cascade                also remove proven bindings and event handlers; leave data calls for review
+| 
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
 == twaco mashup templates
 usage: twaco mashup templates [<name>] [--json]
 settings: disable-version-flag disable-help-subcommand
@@ -8060,6 +8277,109 @@ arg <operands>
 help:
 |   mashup templates [<name>] [--json]
 |                               list the embedded responsive mashup templates and their slots
+| 
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
+== twaco mashup unbind
+usage: twaco mashup unbind <mashup> --from <address> --to <address> [--apply] [--json]
+settings: disable-version-flag disable-help-subcommand
+subcommands: 
+arg --apply
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --from
+    action: Set
+    value_name: address
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+arg --json
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --to
+    action: Set
+    value_name: address
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg <operands>
+    action: Append
+    value_name: operand
+    num_args: 0..
+    allow_hyphen_values: no
+    allow_negative_numbers: yes
+    required: no
+    default: -
+    index: 1
+    other: -
+help:
+|   mashup unbind <mashup> --from <address> --to <address> [--apply] [--json]
+|                               remove exactly one data binding; plan unless --apply
+|       --from <address>        source address from mashup describe
+|       --to <address>          target address from mashup describe
 | 
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)

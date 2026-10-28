@@ -179,6 +179,18 @@ mashup on <mashup> --event <address> --invoke <address> [--apply] [--json]
                             run a service or widget service when a mashup event fires; plan unless --apply
     --event <address>       event address from mashup describe
     --invoke <address>      data call or widget service to run
+mashup remove <mashup> <widget> [--cascade] [--apply] [--json]
+                            remove a widget or subtree; refuses wiring and unknown references unless --cascade;
+                            plan unless --apply
+    --cascade                also remove proven bindings and event handlers; leave data calls for review
+mashup unbind <mashup> --from <address> --to <address> [--apply] [--json]
+                            remove exactly one data binding; plan unless --apply
+    --from <address>        source address from mashup describe
+    --to <address>          target address from mashup describe
+mashup off <mashup> --event <address> --invoke <address> [--apply] [--json]
+                            remove exactly one event handler; plan unless --apply
+    --event <address>       event address from mashup describe
+    --invoke <address>      data call or widget service it invokes
 mashup param <add|set|remove> <mashup> <name> [--type <BASETYPE>] [--direction <IN|OUT|BOTH>]
     [--description <text>] [--default <value> | --no-default] [--data-shape <DataShape>] [--force] [--apply] [--json]
                             change a mashup parameter and every contained-mashup cache; plan unless --apply

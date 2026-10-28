@@ -42,8 +42,9 @@ use cli::info::{
 use cli::localization::localization_cmd;
 use cli::mashup::{
     mashup_add_cmd, mashup_add_contained_cmd, mashup_bind_cmd, mashup_describe_cmd,
-    mashup_event_cmd, mashup_new_cmd, mashup_on_cmd, mashup_param_cmd, mashup_recipe_cmd,
-    mashup_templates_cmd, mashup_validate_cmd, Mashup,
+    mashup_event_cmd, mashup_new_cmd, mashup_off_cmd, mashup_on_cmd, mashup_param_cmd,
+    mashup_recipe_cmd, mashup_remove_cmd, mashup_templates_cmd, mashup_unbind_cmd,
+    mashup_validate_cmd, Mashup,
 };
 use cli::network::network_cmd;
 use cli::refactor::{
@@ -259,6 +260,9 @@ fn dispatch(command: Command) -> u8 {
             Mashup::AddContained(add) => mashup_add_contained_cmd(solution, add),
             Mashup::Bind(bind) => mashup_bind_cmd(solution, bind),
             Mashup::On(on) => mashup_on_cmd(solution, on),
+            Mashup::Remove(remove) => mashup_remove_cmd(solution, remove),
+            Mashup::Unbind(unbind) => mashup_unbind_cmd(solution, unbind),
+            Mashup::Off(off) => mashup_off_cmd(solution, off),
             Mashup::Param(param) => mashup_param_cmd(solution, param),
             Mashup::Event(event) => mashup_event_cmd(solution, event),
             Mashup::Recipe(recipe) => mashup_recipe_cmd(solution, recipe),

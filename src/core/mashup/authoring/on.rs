@@ -120,6 +120,47 @@ fn route_child_event(
     Ok(Some(format!("ui:{router_id}.Changed")))
 }
 
+/// Resolve an already-wired contained-mashup event without creating a router.
+pub(super) fn existing_child_event(
+    document: &MashupDocument,
+    event_raw: &str,
+) -> Result<Option<String>, AuthoringError> {
+    let Some((widget, name)) = event_raw
+        .strip_prefix("ui:")
+        .and_then(|rest| rest.rsplit_once('.'))
+    else {
+        return Ok(None);
+    };
+    let found = document.find_exact(widget).map_err(AuthoringError::Edit)?;
+    if found.type_id != "mashupcontainer" {
+        return Ok(None);
+    }
+    let router = document.value()["DataBindings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|binding| {
+            binding["SourceId"] == found.id
+                && binding["PropertyMaps"]
+                    .as_array()
+                    .is_some_and(|maps| maps.iter().any(|map| map["SourceProperty"] == name))
+                && binding["TargetId"]
+                    .as_str()
+                    .is_some_and(|id| id.starts_with("eventsrouter-"))
+        })
+        .and_then(|binding| binding["TargetId"].as_str());
+    router
+        .map(|router| format!("ui:{router}.Changed"))
+        .map_or_else(
+            || {
+                Err(AuthoringError::Unknown(format!(
+                    "{event_raw} has no event handler"
+                )))
+            },
+            |event| Ok(Some(event)),
+        )
+}
+
 /// Plan one event handler, adding a Thing service call for a data handler when needed.
 pub(crate) fn plan_on(solution: &Solution, request: &OnRequest) -> Result<OnPlan, AuthoringError> {
     let loaded = load_existing(solution, &request.mashup)?;
@@ -211,14 +252,14 @@ pub(super) fn on_in(
     Ok(new_source)
 }
 
-struct Trigger {
-    area: &'static str,
-    section: String,
-    id: String,
-    event: String,
+pub(super) struct Trigger {
+    pub(super) area: &'static str,
+    pub(super) section: String,
+    pub(super) id: String,
+    pub(super) event: String,
 }
 
-fn resolve_trigger(
+pub(super) fn resolve_trigger(
     document: &MashupDocument,
     model: &types::Model,
     platform: Option<&types::Platform>,
@@ -292,7 +333,7 @@ fn resolve_trigger(
     })
 }
 
-fn resolve_handler(
+pub(super) fn resolve_handler(
     document: &MashupDocument,
     model: &types::Model,
     platform: Option<&types::Platform>,
@@ -388,7 +429,7 @@ fn resolve_data_call(
     })
 }
 
-fn handler_service(end: &End) -> &str {
+pub(super) fn handler_service(end: &End) -> &str {
     match end {
         End::Data {
             requested_alias,

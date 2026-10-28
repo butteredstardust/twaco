@@ -1026,6 +1026,21 @@ when a Thing's service is not called yet, or a widget's own service such as a gr
 Widgets whose contract the catalogue does not know are refused. `mashup describe` lists the
 result as `trigger -> handler`.
 
+### Removing mashup wiring and widgets
+
+```sh
+twaco mashup unbind Acme.App.Orders_MU --from ui:ptcstextfield-4.Text --to data:Acme.App.Orders.Manager.SaveOrder.note --apply
+twaco mashup off Acme.App.Orders_MU --event ui:ptcsbutton-6.Clicked --invoke data:Acme.App.Orders.Manager.SaveOrder --apply
+twaco mashup remove Acme.App.Orders_MU ptcsbutton-6 --cascade --apply
+```
+
+`mashup unbind` and `mashup off` remove exactly the one binding or event handler the two
+addresses select. `mashup remove` removes a widget and its descendants. It normally refuses if
+bindings, events, data-call configuration, or extension JSON names that subtree. `--cascade`
+removes only the proven bindings and events; it still refuses unknown references and reports data
+calls made orphaned for you to review rather than deleting a call it cannot prove is unused. All
+three commands plan until `--apply` and change the entity and managed `content.json` together.
+
 ### Events from a contained mashup
 
 ```sh

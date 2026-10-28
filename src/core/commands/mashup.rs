@@ -96,6 +96,60 @@ pub struct MashupOnOutcome {
 }
 
 #[derive(Clone, Debug)]
+pub struct MashupRemoveRequest {
+    pub request: mashup::authoring::RemoveRequest,
+    pub mode: Mode,
+    pub lock_label: &'static str,
+}
+
+#[derive(Debug)]
+pub struct MashupRemoveOutcome {
+    pub plan: mashup::authoring::RemovePlan,
+    pub applied: bool,
+    #[allow(
+        dead_code,
+        reason = "the command facade's Effects (COMMAND_FACADE.md); no adapter reads it yet"
+    )]
+    pub(crate) effects: Effects,
+}
+
+#[derive(Clone, Debug)]
+pub struct MashupUnbindRequest {
+    pub request: mashup::authoring::UnbindRequest,
+    pub mode: Mode,
+    pub lock_label: &'static str,
+}
+
+#[derive(Debug)]
+pub struct MashupUnbindOutcome {
+    pub plan: mashup::authoring::UnbindPlan,
+    pub applied: bool,
+    #[allow(
+        dead_code,
+        reason = "the command facade's Effects (COMMAND_FACADE.md); no adapter reads it yet"
+    )]
+    pub(crate) effects: Effects,
+}
+
+#[derive(Clone, Debug)]
+pub struct MashupOffRequest {
+    pub request: mashup::authoring::OffRequest,
+    pub mode: Mode,
+    pub lock_label: &'static str,
+}
+
+#[derive(Debug)]
+pub struct MashupOffOutcome {
+    pub plan: mashup::authoring::OffPlan,
+    pub applied: bool,
+    #[allow(
+        dead_code,
+        reason = "the command facade's Effects (COMMAND_FACADE.md); no adapter reads it yet"
+    )]
+    pub(crate) effects: Effects,
+}
+
+#[derive(Clone, Debug)]
 pub struct MashupParameterRequest {
     pub request: mashup::authoring::ParameterRequest,
     pub mode: Mode,
@@ -280,6 +334,101 @@ pub fn on(
             mashup::authoring::apply_edit(&reloaded, &plan.edit, &lock)
                 .map_err(MashupCommandError::Authoring)?;
             Ok(MashupOnOutcome {
+                plan,
+                applied: true,
+                effects: Effects::new(Access::Write, Access::None),
+            })
+        }
+    }
+}
+
+/// Plan without a lock; to apply, lock first and plan again from what is on disk then.
+pub fn remove(
+    solution: &Solution,
+    request: &MashupRemoveRequest,
+    notices: &mut Notices,
+) -> Result<MashupRemoveOutcome, MashupCommandError> {
+    match request.mode {
+        Mode::Plan => Ok(MashupRemoveOutcome {
+            plan: mashup::authoring::plan_remove(solution, &request.request)
+                .map_err(MashupCommandError::Authoring)?,
+            applied: false,
+            effects: Effects::new(Access::Read, Access::None),
+        }),
+        Mode::Apply => {
+            let lock = lock_workspace(solution, request.lock_label, notices)
+                .map_err(MashupCommandError::Lock)?;
+            let reloaded = Solution::load(&solution.root.join(config::CONFIG_FILE))
+                .map_err(MashupCommandError::Config)?;
+            let plan = mashup::authoring::plan_remove(&reloaded, &request.request)
+                .map_err(MashupCommandError::Authoring)?;
+            if let Some(edit) = &plan.edit {
+                mashup::authoring::apply_edit(&reloaded, edit, &lock)
+                    .map_err(MashupCommandError::Authoring)?;
+            }
+            Ok(MashupRemoveOutcome {
+                plan,
+                applied: true,
+                effects: Effects::new(Access::Write, Access::None),
+            })
+        }
+    }
+}
+
+/// Plan without a lock; to apply, lock first and plan again from what is on disk then.
+pub fn unbind(
+    solution: &Solution,
+    request: &MashupUnbindRequest,
+    notices: &mut Notices,
+) -> Result<MashupUnbindOutcome, MashupCommandError> {
+    match request.mode {
+        Mode::Plan => Ok(MashupUnbindOutcome {
+            plan: mashup::authoring::plan_unbind(solution, &request.request)
+                .map_err(MashupCommandError::Authoring)?,
+            applied: false,
+            effects: Effects::new(Access::Read, Access::None),
+        }),
+        Mode::Apply => {
+            let lock = lock_workspace(solution, request.lock_label, notices)
+                .map_err(MashupCommandError::Lock)?;
+            let reloaded = Solution::load(&solution.root.join(config::CONFIG_FILE))
+                .map_err(MashupCommandError::Config)?;
+            let plan = mashup::authoring::plan_unbind(&reloaded, &request.request)
+                .map_err(MashupCommandError::Authoring)?;
+            mashup::authoring::apply_edit(&reloaded, &plan.edit, &lock)
+                .map_err(MashupCommandError::Authoring)?;
+            Ok(MashupUnbindOutcome {
+                plan,
+                applied: true,
+                effects: Effects::new(Access::Write, Access::None),
+            })
+        }
+    }
+}
+
+/// Plan without a lock; to apply, lock first and plan again from what is on disk then.
+pub fn off(
+    solution: &Solution,
+    request: &MashupOffRequest,
+    notices: &mut Notices,
+) -> Result<MashupOffOutcome, MashupCommandError> {
+    match request.mode {
+        Mode::Plan => Ok(MashupOffOutcome {
+            plan: mashup::authoring::plan_off(solution, &request.request)
+                .map_err(MashupCommandError::Authoring)?,
+            applied: false,
+            effects: Effects::new(Access::Read, Access::None),
+        }),
+        Mode::Apply => {
+            let lock = lock_workspace(solution, request.lock_label, notices)
+                .map_err(MashupCommandError::Lock)?;
+            let reloaded = Solution::load(&solution.root.join(config::CONFIG_FILE))
+                .map_err(MashupCommandError::Config)?;
+            let plan = mashup::authoring::plan_off(&reloaded, &request.request)
+                .map_err(MashupCommandError::Authoring)?;
+            mashup::authoring::apply_edit(&reloaded, &plan.edit, &lock)
+                .map_err(MashupCommandError::Authoring)?;
+            Ok(MashupOffOutcome {
                 plan,
                 applied: true,
                 effects: Effects::new(Access::Write, Access::None),

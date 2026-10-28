@@ -1256,6 +1256,42 @@ pub(crate) struct MashupOnResult {
     notices: Notices,
 }
 
+#[derive(Serialize, JsonSchema)]
+pub(crate) struct MashupRemoveResult {
+    applied: bool,
+    dry_run: bool,
+    mashup: String,
+    widget: String,
+    removed: Vec<String>,
+    bindings_removed: usize,
+    events_removed: usize,
+    orphaned_data_calls: Vec<String>,
+    files: Vec<String>,
+    notices: Notices,
+}
+
+#[derive(Serialize, JsonSchema)]
+pub(crate) struct MashupUnbindResult {
+    applied: bool,
+    dry_run: bool,
+    mashup: String,
+    from: String,
+    to: String,
+    files: Vec<String>,
+    notices: Notices,
+}
+
+#[derive(Serialize, JsonSchema)]
+pub(crate) struct MashupOffResult {
+    applied: bool,
+    dry_run: bool,
+    mashup: String,
+    event: String,
+    invoke: String,
+    files: Vec<String>,
+    notices: Notices,
+}
+
 /// The catalogue, or with a widget that widget's contract.
 #[derive(Serialize, JsonSchema)]
 pub(crate) struct WidgetsResult {

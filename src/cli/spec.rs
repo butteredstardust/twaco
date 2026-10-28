@@ -689,6 +689,30 @@ pub(crate) const USAGE: &[Usage] = &[
       --invoke <address>      data call or widget service to run"#,
     },
     Usage {
+        path: "mashup remove",
+        group: 1,
+        text: r#"  mashup remove <mashup> <widget> [--cascade] [--apply] [--json]
+                              remove a widget or subtree; refuses wiring and unknown references unless --cascade;
+                              plan unless --apply
+      --cascade                also remove proven bindings and event handlers; leave data calls for review"#,
+    },
+    Usage {
+        path: "mashup unbind",
+        group: 1,
+        text: r#"  mashup unbind <mashup> --from <address> --to <address> [--apply] [--json]
+                              remove exactly one data binding; plan unless --apply
+      --from <address>        source address from mashup describe
+      --to <address>          target address from mashup describe"#,
+    },
+    Usage {
+        path: "mashup off",
+        group: 1,
+        text: r#"  mashup off <mashup> --event <address> --invoke <address> [--apply] [--json]
+                              remove exactly one event handler; plan unless --apply
+      --event <address>       event address from mashup describe
+      --invoke <address>      data call or widget service it invokes"#,
+    },
+    Usage {
         path: "mashup param",
         group: 1,
         text: r#"  mashup param <add|set|remove> <mashup> <name> [--type <BASETYPE>] [--direction <IN|OUT|BOTH>]

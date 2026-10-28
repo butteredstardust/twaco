@@ -6,6 +6,13 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `twaco mashup remove`, `mashup unbind`, and `mashup off` (MCP `mashup_remove`,
+  `mashup_unbind`, and `mashup_off`) remove a widget/subtree, one binding, or one event handler
+  offline. Widget removal refuses unproven references; `--cascade` removes only the bindings and
+  events it can prove depend on the widget and leaves orphaned data calls for review.
+
 ## [0.1.41] - 2026-10-28
 
 ### Added

@@ -2,10 +2,10 @@ use super::requests::refactor::{
     AdoptApplyRequest, AdoptKind, AdoptReportRequest, AdoptTakeSide, EntityEditAction,
     EntityEditRequest, EntityNewRequest, HandoffAction, HandoffRequest, MashupAddContainedRequest,
     MashupAddRequest, MashupBindRequest, MashupDescribeRequest, MashupEventRequest,
-    MashupNewRequest, MashupOnRequest, MashupParameterAction, MashupParameterRequest,
-    MashupRecipeRequest, MashupTemplatesRequest, MashupValidateRequest, MoveMemberAction,
-    MoveMemberRequest, NewBuildingBlockRequest, RenameRequest, ReprojectRequest, RetemplateRequest,
-    WidgetsRequest,
+    MashupNewRequest, MashupOffRequest, MashupOnRequest, MashupParameterAction,
+    MashupParameterRequest, MashupRecipeRequest, MashupRemoveRequest, MashupTemplatesRequest,
+    MashupUnbindRequest, MashupValidateRequest, MoveMemberAction, MoveMemberRequest,
+    NewBuildingBlockRequest, RenameRequest, ReprojectRequest, RetemplateRequest, WidgetsRequest,
 };
 use super::source::add_types_refresh;
 use super::{
@@ -791,6 +791,85 @@ pub(crate) fn mashup_on_tool(
     });
     add_notices(&mut result, &notices);
     Ok(result)
+}
+
+pub(crate) fn mashup_remove_tool(
+    solution: &Solution,
+    arguments: MashupRemoveRequest,
+) -> Result<Value, ToolError> {
+    let dry_run = arguments.dry_run;
+    let request = commands::mashup::MashupRemoveRequest {
+        request: crate::core::mashup::authoring::RemoveRequest {
+            mashup: nonempty(&arguments.mashup, "mashup")?.into(),
+            widget: nonempty(&arguments.widget, "widget")?.into(),
+            cascade: arguments.cascade,
+        },
+        mode: if dry_run { Mode::Plan } else { Mode::Apply },
+        lock_label: "mcp mashup_remove",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome =
+        commands::mashup::remove(solution, &request, &mut notices).map_err(ToolError::coded)?;
+    let files = outcome
+        .plan
+        .edit
+        .as_ref()
+        .map_or_else(Vec::new, |edit| files(solution, edit));
+    let mut result = json!({ "applied": outcome.applied, "dry_run": dry_run, "mashup": arguments.mashup, "widget": outcome.plan.widget, "removed": outcome.plan.removed, "bindings_removed": outcome.plan.bindings_removed, "events_removed": outcome.plan.events_removed, "orphaned_data_calls": outcome.plan.orphaned_data_calls, "files": files });
+    add_notices(&mut result, &notices);
+    Ok(result)
+}
+
+pub(crate) fn mashup_unbind_tool(
+    solution: &Solution,
+    arguments: MashupUnbindRequest,
+) -> Result<Value, ToolError> {
+    let dry_run = arguments.dry_run;
+    let request = commands::mashup::MashupUnbindRequest {
+        request: crate::core::mashup::authoring::UnbindRequest {
+            mashup: nonempty(&arguments.mashup, "mashup")?.into(),
+            from: nonempty(&arguments.from, "from")?.into(),
+            to: nonempty(&arguments.to, "to")?.into(),
+        },
+        mode: if dry_run { Mode::Plan } else { Mode::Apply },
+        lock_label: "mcp mashup_unbind",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome =
+        commands::mashup::unbind(solution, &request, &mut notices).map_err(ToolError::coded)?;
+    let mut result = json!({ "applied": outcome.applied, "dry_run": dry_run, "mashup": outcome.plan.edit.mashup, "from": outcome.plan.from, "to": outcome.plan.to, "files": files(solution, &outcome.plan.edit) });
+    add_notices(&mut result, &notices);
+    Ok(result)
+}
+
+pub(crate) fn mashup_off_tool(
+    solution: &Solution,
+    arguments: MashupOffRequest,
+) -> Result<Value, ToolError> {
+    let dry_run = arguments.dry_run;
+    let request = commands::mashup::MashupOffRequest {
+        request: crate::core::mashup::authoring::OffRequest {
+            mashup: nonempty(&arguments.mashup, "mashup")?.into(),
+            event: nonempty(&arguments.event, "event")?.into(),
+            invoke: nonempty(&arguments.invoke, "invoke")?.into(),
+        },
+        mode: if dry_run { Mode::Plan } else { Mode::Apply },
+        lock_label: "mcp mashup_off",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome =
+        commands::mashup::off(solution, &request, &mut notices).map_err(ToolError::coded)?;
+    let mut result = json!({ "applied": outcome.applied, "dry_run": dry_run, "mashup": outcome.plan.edit.mashup, "event": outcome.plan.event, "invoke": outcome.plan.invoke, "files": files(solution, &outcome.plan.edit) });
+    add_notices(&mut result, &notices);
+    Ok(result)
+}
+
+fn files(solution: &Solution, edit: &crate::core::mashup::authoring::EditPlan) -> Vec<String> {
+    let mut files = vec![solution.relative(&edit.entity_path)];
+    if let Some(sidecars) = &edit.sidecars {
+        files.push(solution.relative(&sidecars.content_path));
+    }
+    files
 }
 
 fn beside(

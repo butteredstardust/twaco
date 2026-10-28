@@ -15,6 +15,9 @@ pub(crate) enum Mashup {
     AddContained(MashupAddContained),
     Bind(MashupBind),
     On(MashupOn),
+    Remove(MashupRemove),
+    Unbind(MashupUnbind),
+    Off(MashupOff),
     Param(MashupParam),
     Recipe(Box<MashupRecipe>),
     Event(MashupEvent),
@@ -32,6 +35,9 @@ impl Mashup {
             Mashup::AddContained(_) => "mashup add-contained",
             Mashup::Bind(_) => "mashup bind",
             Mashup::On(_) => "mashup on",
+            Mashup::Remove(_) => "mashup remove",
+            Mashup::Unbind(_) => "mashup unbind",
+            Mashup::Off(_) => "mashup off",
             Mashup::Param(_) => "mashup param",
             Mashup::Recipe(_) => "mashup recipe",
             Mashup::Event(_) => "mashup event",
@@ -133,6 +139,52 @@ pub(crate) struct MashupBind {
 #[derive(Debug, clap::Args)]
 #[group(skip)]
 pub(crate) struct MashupOn {
+    #[arg(long = "event", value_name = "address")]
+    pub(crate) event: Option<String>,
+    #[arg(long = "invoke", value_name = "address")]
+    pub(crate) invoke: Option<String>,
+    #[command(flatten)]
+    pub(crate) apply: Apply,
+    #[command(flatten)]
+    pub(crate) json: Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
+/// `twaco mashup remove <mashup> <widget> [--cascade]`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct MashupRemove {
+    #[arg(long = "cascade")]
+    pub(crate) cascade: bool,
+    #[command(flatten)]
+    pub(crate) apply: Apply,
+    #[command(flatten)]
+    pub(crate) json: Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
+/// `twaco mashup unbind <mashup> --from <address> --to <address>`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct MashupUnbind {
+    #[arg(long = "from", value_name = "address")]
+    pub(crate) from: Option<String>,
+    #[arg(long = "to", value_name = "address")]
+    pub(crate) to: Option<String>,
+    #[command(flatten)]
+    pub(crate) apply: Apply,
+    #[command(flatten)]
+    pub(crate) json: Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
+/// `twaco mashup off <mashup> --event <address> --invoke <address>`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct MashupOff {
     #[arg(long = "event", value_name = "address")]
     pub(crate) event: Option<String>,
     #[arg(long = "invoke", value_name = "address")]
@@ -1252,6 +1304,227 @@ pub(crate) fn mashup_on_cmd(solution: &Solution, args: &MashupOn) -> u8 {
         println!("run again with --apply to write it");
     }
     OK
+}
+
+/// `twaco mashup remove <mashup> <widget>`: remove a widget, optionally its known wiring.
+pub(crate) fn mashup_remove_cmd(solution: &Solution, args: &MashupRemove) -> u8 {
+    let [mashup, widget] = args.operands.as_slice() else {
+        eprintln!(
+            "{} mashup remove needs <mashup> and <widget>",
+            style::prefix()
+        );
+        return FAILED;
+    };
+    let request = commands::mashup::MashupRemoveRequest {
+        request: mashup::authoring::RemoveRequest {
+            mashup: mashup.clone(),
+            widget: widget.clone(),
+            cascade: args.cascade,
+        },
+        mode: if args.apply.apply {
+            Mode::Apply
+        } else {
+            Mode::Plan
+        },
+        lock_label: "mashup remove",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome = match commands::mashup::remove(solution, &request, &mut notices) {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            print_notices(&notices);
+            eprintln!("{} {error}", style::prefix());
+            return FAILED;
+        }
+    };
+    print_notices(&notices);
+    let files = outcome
+        .plan
+        .edit
+        .as_ref()
+        .map_or_else(Vec::new, |edit| edit_files(solution, edit));
+    let report = serde_json::json!({ "applied": outcome.applied, "mashup": mashup, "widget": outcome.plan.widget, "removed": outcome.plan.removed, "bindings_removed": outcome.plan.bindings_removed, "events_removed": outcome.plan.events_removed, "orphaned_data_calls": outcome.plan.orphaned_data_calls, "files": files });
+    if args.json.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report).expect("a remove plan serialises")
+        );
+        return OK;
+    }
+    if outcome.plan.removed.is_empty() {
+        println!("{} is already absent from {}", widget, mashup);
+        return OK;
+    }
+    println!(
+        "{} {} from {}",
+        if outcome.applied {
+            "removed"
+        } else {
+            "would remove"
+        },
+        outcome.plan.removed.join(", "),
+        mashup
+    );
+    if outcome.plan.bindings_removed > 0 || outcome.plan.events_removed > 0 {
+        println!(
+            "  cascade: {} binding(s), {} event(s)",
+            outcome.plan.bindings_removed, outcome.plan.events_removed
+        );
+    }
+    for call in &outcome.plan.orphaned_data_calls {
+        println!("  review orphaned data call {call}");
+    }
+    println!("  files: {}", files.join(", "));
+    if !outcome.applied {
+        println!("run again with --apply to write it");
+    }
+    OK
+}
+
+/// `twaco mashup unbind <mashup> --from <address> --to <address>`: remove one binding.
+pub(crate) fn mashup_unbind_cmd(solution: &Solution, args: &MashupUnbind) -> u8 {
+    let [mashup] = args.operands.as_slice() else {
+        eprintln!("{} mashup unbind needs one <mashup>", style::prefix());
+        return FAILED;
+    };
+    let (Some(from), Some(to)) = (args.from.as_ref(), args.to.as_ref()) else {
+        eprintln!(
+            "{} mashup unbind needs --from <address> and --to <address>",
+            style::prefix()
+        );
+        return FAILED;
+    };
+    let request = commands::mashup::MashupUnbindRequest {
+        request: mashup::authoring::UnbindRequest {
+            mashup: mashup.clone(),
+            from: from.clone(),
+            to: to.clone(),
+        },
+        mode: if args.apply.apply {
+            Mode::Apply
+        } else {
+            Mode::Plan
+        },
+        lock_label: "mashup unbind",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome = match commands::mashup::unbind(solution, &request, &mut notices) {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            print_notices(&notices);
+            eprintln!("{} {error}", style::prefix());
+            return FAILED;
+        }
+    };
+    print_notices(&notices);
+    let files = edit_files(solution, &outcome.plan.edit);
+    let report = serde_json::json!({ "applied": outcome.applied, "mashup": outcome.plan.edit.mashup, "from": outcome.plan.from, "to": outcome.plan.to, "files": files });
+    if args.json.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report).expect("an unbind plan serialises")
+        );
+        return OK;
+    }
+    println!(
+        "{} {} -> {} in {}",
+        if outcome.applied {
+            "unbound"
+        } else {
+            "would unbind"
+        },
+        outcome.plan.from,
+        outcome.plan.to,
+        outcome.plan.edit.mashup
+    );
+    println!("  files: {}", files.join(", "));
+    if !outcome.applied {
+        println!("run again with --apply to write it");
+    }
+    OK
+}
+
+/// `twaco mashup off <mashup> --event <address> --invoke <address>`: remove one event handler.
+pub(crate) fn mashup_off_cmd(solution: &Solution, args: &MashupOff) -> u8 {
+    let [mashup] = args.operands.as_slice() else {
+        eprintln!("{} mashup off needs one <mashup>", style::prefix());
+        return FAILED;
+    };
+    let (Some(event), Some(invoke)) = (args.event.as_ref(), args.invoke.as_ref()) else {
+        eprintln!(
+            "{} mashup off needs --event <address> and --invoke <address>",
+            style::prefix()
+        );
+        return FAILED;
+    };
+    let request = commands::mashup::MashupOffRequest {
+        request: mashup::authoring::OffRequest {
+            mashup: mashup.clone(),
+            event: event.clone(),
+            invoke: invoke.clone(),
+        },
+        mode: if args.apply.apply {
+            Mode::Apply
+        } else {
+            Mode::Plan
+        },
+        lock_label: "mashup off",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome = match commands::mashup::off(solution, &request, &mut notices) {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            print_notices(&notices);
+            eprintln!("{} {error}", style::prefix());
+            return FAILED;
+        }
+    };
+    print_notices(&notices);
+    let files = edit_files(solution, &outcome.plan.edit);
+    let report = serde_json::json!({ "applied": outcome.applied, "mashup": outcome.plan.edit.mashup, "event": outcome.plan.event, "invoke": outcome.plan.invoke, "files": files });
+    if args.json.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report).expect("an off plan serialises")
+        );
+        return OK;
+    }
+    println!(
+        "{} {} -> {} in {}",
+        if outcome.applied {
+            "removed"
+        } else {
+            "would remove"
+        },
+        outcome.plan.event,
+        outcome.plan.invoke,
+        outcome.plan.edit.mashup
+    );
+    println!("  files: {}", files.join(", "));
+    if !outcome.applied {
+        println!("run again with --apply to write it");
+    }
+    OK
+}
+
+fn edit_files(solution: &Solution, edit: &mashup::authoring::EditPlan) -> Vec<String> {
+    let mut files = vec![edit
+        .entity_path
+        .strip_prefix(&solution.root)
+        .unwrap_or(&edit.entity_path)
+        .to_string_lossy()
+        .replace('\\', "/")];
+    if let Some(sidecars) = &edit.sidecars {
+        files.push(
+            sidecars
+                .content_path
+                .strip_prefix(&solution.root)
+                .unwrap_or(&sidecars.content_path)
+                .to_string_lossy()
+                .replace('\\', "/"),
+        );
+    }
+    files
 }
 
 fn beside(anchor: &str, side: Side) -> Placement {
