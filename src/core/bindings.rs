@@ -387,8 +387,13 @@ fn analyse_in(
     (report, usage)
 }
 
+/// The properties the catalogue types `FIELDNAME` that name a field of the widget's own `Data`.
+/// Others of that type (a grid's `DisabledStateField`, a collection's `MashupNameField`) may
+/// name a field of another source, so they are not judged against `Data`.
+const DATA_FIELD_PROPERTIES: [&str; 4] = ["DisplayField", "ValueField", "XAxisField", "DataField"];
+
 /// The field names each widget's properties hold, by widget id, as `(property, field)`: a
-/// grid's `ColumnFormat` columns, and every property the catalogue types `FIELDNAME`.
+/// grid's `ColumnFormat` columns, and the `FIELDNAME` properties naming a field of its `Data`.
 fn named_fields(content: &Value) -> BTreeMap<String, Vec<(String, String)>> {
     fn walk(widget: &Value, out: &mut BTreeMap<String, Vec<(String, String)>>) {
         let properties = &widget["Properties"];
@@ -405,10 +410,11 @@ fn named_fields(content: &Value) -> BTreeMap<String, Vec<(String, String)>> {
                 .as_str()
                 .and_then(|kind| super::widgets::catalog().by_type(kind));
             for (name, value) in properties.as_object().into_iter().flatten() {
-                let names_field = contract
-                    .and_then(|widget| widget.property(name))
-                    .and_then(|property| property.base_type.as_deref())
-                    .is_some_and(|base| base.eq_ignore_ascii_case("FIELDNAME"));
+                let names_field = DATA_FIELD_PROPERTIES.contains(&name.as_str())
+                    && contract
+                        .and_then(|widget| widget.property(name))
+                        .and_then(|property| property.base_type.as_deref())
+                        .is_some_and(|base| base.eq_ignore_ascii_case("FIELDNAME"));
                 if let (true, Some(field)) = (names_field, value.as_str()) {
                     if !field.is_empty() {
                         fields.push((name.clone(), field.to_string()));

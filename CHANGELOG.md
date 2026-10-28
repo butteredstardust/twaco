@@ -17,8 +17,8 @@ All notable changes to twaco are recorded here. The format follows
 
 - `twaco localization set`, `new`, `remove`, `pull` and `push` accepted `--json` and printed text;
   they print the JSON the MCP tool returns.
-- `twaco check` (`mashup bindings`) reports a dropdown's display or value field, a chart's axis
-  field, or any other field-name property naming a field the bound result does not have.
+- `twaco check` (`mashup bindings`) reports a dropdown's or list's display or value field, or a
+  chart's axis or data field, naming a field the result bound to the widget does not have.
 
 ## [0.1.40] - 2026-10-28
 

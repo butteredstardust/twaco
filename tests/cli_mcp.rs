@@ -257,7 +257,6 @@ fn mashup_add_plan_and_apply_match_mcp() {
     }
 }
 
-/// BUG: `sync` has no CLI `--json` flag, so it cannot provide the structured counterpart of MCP.
 #[test]
 fn sync_check_matches_mcp() {
     sync_case(
@@ -267,7 +266,6 @@ fn sync_check_matches_mcp() {
     );
 }
 
-/// BUG: `sync` has no CLI `--json` flag, so it cannot provide the structured counterpart of MCP.
 #[test]
 fn sync_apply_matches_mcp() {
     sync_case(
@@ -294,7 +292,6 @@ fn sync_case(label: &str, cli_args: &[&str], mcp_arguments: Value) {
     );
 }
 
-/// BUG: `bundle` has no CLI `--json` flag, so its offline plan cannot be compared structurally.
 #[test]
 fn bundle_plan_matches_mcp() {
     let cli_scratch = prepared_bundle();

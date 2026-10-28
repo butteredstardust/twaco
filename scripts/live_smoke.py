@@ -75,8 +75,12 @@ class Smoke:
 
 
 def server_has_smoke_entities(smoke: Smoke) -> bool:
-    out = smoke.run("search", PREFIX, ok=False).stdout
-    return PREFIX in out
+    """Whether the server holds a ZZ.Twaco.Smoke.* entity; a search that fails is an error, never
+    an empty answer, so the script cannot deploy over (and then delete) entities it did not make."""
+    result = smoke.run("search", PREFIX, ok=False)
+    if result.returncode != 0:
+        raise SmokeError(f"cannot search the server for {PREFIX}.*:\n{result.stderr}")
+    return PREFIX in result.stdout
 
 
 def build(smoke: Smoke) -> None:
@@ -158,8 +162,15 @@ def main() -> int:
     root = pathlib.Path(tempfile.mkdtemp(prefix="twaco-smoke-"))
     (root / "twaco.toml").write_text(f'[[project]]\nname = "{PROJECT}"\n', encoding="utf-8")
     smoke = Smoke(args.twaco, root)
-    if server_has_smoke_entities(smoke):
+    try:
+        existing = server_has_smoke_entities(smoke)
+    except SmokeError as error:
+        print(f"FAILED before any change: {error}", file=sys.stderr)
+        shutil.rmtree(root, ignore_errors=True)
+        return 2
+    if existing:
         print(f"the server already has {PREFIX}.* entities; delete them first", file=sys.stderr)
+        shutil.rmtree(root, ignore_errors=True)
         return 2
     failure = None
     try:

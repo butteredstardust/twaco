@@ -247,7 +247,9 @@ fn with(args: &[&'static str], extra: &[&'static str]) -> Vec<&'static str> {
 /// Build the solution step by step, checking each plan against what its apply does.
 fn build(scratch: &Scratch) {
     for step in steps() {
+        let untouched = scratch.tree();
         let plan = scratch.json(&with(&step, &["--json"]));
+        assert_eq!(scratch.tree(), untouched, "{step:?}: the plan wrote");
         assert_eq!(plan["applied"], false, "{step:?}: a plan applied");
         let planned: BTreeSet<String> = plan["files"]
             .as_array()
@@ -258,7 +260,6 @@ fn build(scratch: &Scratch) {
         let mashup_before =
             (step[0] == "mashup" && step[1] == "add").then(|| scratch.content(step[2]));
         let before = scratch.tree();
-        assert_eq!(scratch.tree(), before, "{step:?}: the plan wrote");
         let applied = scratch.json(&with(&step, &["--apply", "--json"]));
         assert_eq!(applied["applied"], true, "{step:?}");
         let after = scratch.tree();
@@ -582,20 +583,17 @@ fn every_kind_of_edit_plans_what_it_applies() {
     let scratch = Scratch::new();
     build(&scratch);
     for step in more_steps() {
-        let plan = scratch.run(&with(&step, &["--json"]));
         let before = scratch.tree();
-        assert_eq!(scratch.tree(), before);
-        let planned: Option<BTreeSet<String>> = serde_json::from_slice::<Value>(&plan.stdout)
-            .ok()
-            .and_then(|plan| plan["files"].as_array().cloned())
-            .map(|files| {
-                files
-                    .iter()
-                    // A path, or an object with one (localization's files carry counts too).
-                    .filter_map(|file| file.as_str().or_else(|| file["path"].as_str()))
-                    .map(|f| f.replace('\\', "/"))
-                    .collect()
-            });
+        let plan = scratch.json(&with(&step, &["--json"]));
+        assert_eq!(scratch.tree(), before, "{step:?}: the plan wrote");
+        let planned: BTreeSet<String> = plan["files"]
+            .as_array()
+            .unwrap_or_else(|| panic!("{step:?}: the --json plan lists no files: {plan}"))
+            .iter()
+            // A path, or an object with one (localization's files carry counts too).
+            .filter_map(|file| file.as_str().or_else(|| file["path"].as_str()))
+            .map(|f| f.replace('\\', "/"))
+            .collect();
         let output = scratch.run(&with(&step, &["--apply"]));
         assert!(
             output.status.success(),
@@ -603,12 +601,31 @@ fn every_kind_of_edit_plans_what_it_applies() {
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
         );
-        let actual = changed(&before, &scratch.tree());
-        match planned {
-            Some(planned) => assert_eq!(actual, planned, "{step:?}"),
-            None => eprintln!("no files in the --json plan of {step:?}: changed {actual:?}"),
-        }
+        assert_eq!(changed(&before, &scratch.tree()), planned, "{step:?}");
     }
+}
+
+/// The `--json` forms of sync and bundle keep the exit codes of their text forms: 1 when the
+/// files are behind (drift), 2 for an error.
+#[test]
+fn json_reports_keep_the_drift_and_error_exit_codes() {
+    let scratch = Scratch::new();
+    build(&scratch);
+    scratch.ok(&["sync", "--all"]);
+    let script = scratch
+        .root()
+        .join("src/Acme.Store_T/services/GetRows/script.js");
+    std::fs::write(&script, "result = 1;\n").unwrap();
+    let drift = scratch.run(&["sync", "--all", "--check", "--json"]);
+    assert_eq!(drift.status.code(), Some(1), "{drift:?}");
+    let report: Value = serde_json::from_slice(&drift.stdout).unwrap();
+    assert_eq!(report["changed"], 1, "{report}");
+    let missing = scratch.run(&["bundle", "--check", "--json"]);
+    assert_eq!(missing.status.code(), Some(1), "{missing:?}");
+    let report: Value = serde_json::from_slice(&missing.stdout).unwrap();
+    assert_eq!(report["state"], "missing", "{report}");
+    let error = scratch.run(&["sync", "Acme.Nope", "--json"]);
+    assert_eq!(error.status.code(), Some(2), "{error:?}");
 }
 
 /// A command that accepts `--json` prints JSON: an agent asked for it and parses what comes.
