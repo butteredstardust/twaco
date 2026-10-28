@@ -427,7 +427,8 @@ pub(crate) const USAGE: &[Usage] = &[
         text: r#"  sync <entity>|--all         sidecars -> entity XML
       --check                 report what would change, write nothing
       --allow-add-remove      add and remove services and fields as the sidecars do
-      --relayout              rewrite scripts in the configured CDATA layout"#,
+      --relayout              rewrite scripts in the configured CDATA layout
+      --json                  print the report as JSON"#,
     },
     Usage {
         path: "fmt",
@@ -1273,7 +1274,8 @@ pub(crate) const USAGE: &[Usage] = &[
       --changed-since <git-rev>  select changed entity files and sidecars since this revision
       --exclude <entity-or-glob> leave out this Collection/Name selector (repeatable)
       --out <file>            write or check this file instead of the configured dist bundle
-      --profile <name>        apply this profile's mashup patches"#,
+      --profile <name>        apply this profile's mashup patches
+      --json                  print the result as JSON"#,
     },
     Usage {
         path: "deploy",
@@ -1391,7 +1393,8 @@ pub(crate) const USAGE: &[Usage] = &[
   localization set <token> --value <text>  add or change a token; --table (default Default),
                               --usage (new: label), --context, --project
   localization remove <token> remove a token from every table, or from --table
-      --table <name>          one table only; --apply makes the change (all but status plan)"#,
+      --table <name>          one table only; --apply makes the change (all but status plan)
+      --json                  print the status, plan or result as JSON"#,
     },
     Usage {
         path: "users",

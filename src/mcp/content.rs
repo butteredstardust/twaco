@@ -544,25 +544,38 @@ pub(crate) fn localization_write_tool(
         progress,
     )
     .map_err(ToolError::coded)?;
-    let mut result = match outcome {
-        command::LocalizationOutcome::Pulled { pulled, .. } => {
-            localization_files_json(solution, &pulled.files, arguments.dry_run, arguments.detail)
-        }
-        command::LocalizationOutcome::Edited { edited, .. } => {
-            localization_files_json(solution, &edited.files, arguments.dry_run, arguments.detail)
-        }
-        command::LocalizationOutcome::Pushed { pushed, .. } => {
-            let tables: Vec<_> = pushed.tables.iter().map(|table| {
-                let mut item = serde_json::json!({"table":table.table,"files":table.files.iter().map(|p|solution.relative(p)).collect::<Vec<_>>(),"create":table.create,"set_count":table.set.len(),"delete_count":table.delete.len()});
-                if arguments.detail { item["set"] = serde_json::json!(table.set); item["delete"] = serde_json::json!(table.delete); }
-                item
-            }).collect();
-            serde_json::json!({"dry_run": arguments.dry_run, "tables": tables})
-        }
-        command::LocalizationOutcome::Status { .. } => unreachable!(),
-    };
+    let mut result =
+        localization_write_json(solution, &outcome, arguments.dry_run, arguments.detail);
     add_notices(&mut result, &notices);
     Ok(result)
+}
+
+/// A localization pull, push or edit as `--json` and MCP report it; `Null` for a status, which
+/// [`localization_status_json`] reports.
+pub fn localization_write_json(
+    solution: &Solution,
+    outcome: &crate::core::commands::localization::LocalizationOutcome,
+    dry_run: bool,
+    detail: bool,
+) -> Value {
+    use crate::core::commands::localization::LocalizationOutcome;
+    match outcome {
+        LocalizationOutcome::Pulled { pulled, .. } => {
+            localization_files_json(solution, &pulled.files, dry_run, detail)
+        }
+        LocalizationOutcome::Edited { edited, .. } => {
+            localization_files_json(solution, &edited.files, dry_run, detail)
+        }
+        LocalizationOutcome::Pushed { pushed, .. } => {
+            let tables: Vec<_> = pushed.tables.iter().map(|table| {
+                let mut item = serde_json::json!({"table":table.table,"files":table.files.iter().map(|p|solution.relative(p)).collect::<Vec<_>>(),"create":table.create,"set_count":table.set.len(),"delete_count":table.delete.len()});
+                if detail { item["set"] = serde_json::json!(table.set); item["delete"] = serde_json::json!(table.delete); }
+                item
+            }).collect();
+            serde_json::json!({"dry_run": dry_run, "tables": tables})
+        }
+        LocalizationOutcome::Status { .. } => Value::Null,
+    }
 }
 
 fn localization_files_json(
@@ -709,7 +722,16 @@ pub(crate) fn bundle_tool(
     let mut notices = commands::Notices::default();
     let outcome =
         commands::bundle::execute(solution, &request, &mut notices).map_err(ToolError::coded)?;
-    let (state, target, built) = match &outcome {
+    Ok(bundle_json(solution, &outcome, &notices))
+}
+
+/// A bundle build or check as `--json` and MCP report it.
+pub fn bundle_json(
+    solution: &Solution,
+    outcome: &commands::bundle::BundleOutcome,
+    notices: &commands::Notices,
+) -> Value {
+    let (state, target, built) = match outcome {
         commands::bundle::BundleOutcome::Current { target, bundle, .. } => {
             ("current", target, Some(bundle))
         }
@@ -740,8 +762,8 @@ pub(crate) fn bundle_tool(
             result[key] = json!(values);
         }
     }
-    add_notices(&mut result, &notices);
-    Ok(result)
+    add_notices(&mut result, notices);
+    result
 }
 
 /// The server's entity search, as Composer's Spotlight box does it. Read-only.

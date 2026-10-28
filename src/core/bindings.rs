@@ -324,8 +324,9 @@ fn analyse_in(
                 }
             }
         }
-        // The columns a grid shows of the whole result it is bound to: each names a field of it.
-        let columns = grid_columns(&content);
+        // The fields a widget names of the whole result it is bound to: a grid's columns, a
+        // dropdown's display and value, a chart's axis. Each must be a field of that result.
+        let columns = named_fields(&content);
         for binding in content
             .get("DataBindings")
             .and_then(Value::as_array)
@@ -367,12 +368,12 @@ fn analyse_in(
                 entity: &section.entity,
                 service: &service.target,
             };
-            for field in fields {
+            for (property, field) in fields {
                 check_column(
                     &mut report,
                     &mut usage,
                     &site,
-                    widget,
+                    (widget, property),
                     field,
                     &lookup,
                     model,
@@ -386,20 +387,40 @@ fn analyse_in(
     (report, usage)
 }
 
-/// Each grid's `ColumnFormat` field names, by widget id.
-fn grid_columns(content: &Value) -> BTreeMap<String, Vec<String>> {
-    fn walk(widget: &Value, out: &mut BTreeMap<String, Vec<String>>) {
+/// The properties the catalogue types `FIELDNAME` that name a field of the widget's own `Data`.
+/// Others of that type (a grid's `DisabledStateField`, a collection's `MashupNameField`) may
+/// name a field of another source, so they are not judged against `Data`.
+const DATA_FIELD_PROPERTIES: [&str; 4] = ["DisplayField", "ValueField", "XAxisField", "DataField"];
+
+/// The field names each widget's properties hold, by widget id, as `(property, field)`: a
+/// grid's `ColumnFormat` columns, and the `FIELDNAME` properties naming a field of its `Data`.
+fn named_fields(content: &Value) -> BTreeMap<String, Vec<(String, String)>> {
+    fn walk(widget: &Value, out: &mut BTreeMap<String, Vec<(String, String)>>) {
         let properties = &widget["Properties"];
-        if let (Some(id), Some(format)) = (
-            properties["Id"].as_str(),
-            properties["ColumnFormat"]["formatInfo"].as_array(),
-        ) {
-            let fields: Vec<String> = format
-                .iter()
+        if let Some(id) = properties["Id"].as_str() {
+            let mut fields: Vec<(String, String)> = properties["ColumnFormat"]["formatInfo"]
+                .as_array()
+                .into_iter()
+                .flatten()
                 .filter_map(|column| column["FieldName"].as_str())
                 .filter(|name| !name.is_empty())
-                .map(str::to_string)
+                .map(|name| ("ColumnFormat".to_string(), name.to_string()))
                 .collect();
+            let contract = properties["Type"]
+                .as_str()
+                .and_then(|kind| super::widgets::catalog().by_type(kind));
+            for (name, value) in properties.as_object().into_iter().flatten() {
+                let names_field = DATA_FIELD_PROPERTIES.contains(&name.as_str())
+                    && contract
+                        .and_then(|widget| widget.property(name))
+                        .and_then(|property| property.base_type.as_deref())
+                        .is_some_and(|base| base.eq_ignore_ascii_case("FIELDNAME"));
+                if let (true, Some(field)) = (names_field, value.as_str()) {
+                    if !field.is_empty() {
+                        fields.push((name.clone(), field.to_string()));
+                    }
+                }
+            }
             if !fields.is_empty() {
                 out.insert(id.to_string(), fields);
             }
@@ -417,7 +438,7 @@ fn check_column(
     report: &mut Report,
     usage: &mut FieldUsage,
     site: &Site<'_>,
-    widget: &str,
+    (widget, property): (&str, &str),
     field: &str,
     lookup: &catalog::ServiceLookup,
     model: &Resolver<'_>,
@@ -441,8 +462,13 @@ fn check_column(
     if let Some(entry) = usage.shapes.get_mut(&shape.name) {
         entry.bound.insert(field.to_string());
     }
-    if !shape.fields.iter().any(|known| known.name == field) {
+    if shape.fields.iter().any(|known| known.name == field) {
+        return;
+    }
+    if property == "ColumnFormat" {
         add_problem(report, site, "unknown-column", &format!("{widget}.{field}"), format!("{}: grid {widget} has a column for {field}, but {}.{} returns {shape_name}, which has no field {field}; the column stays empty", site.mashup, site.entity, site.service));
+    } else {
+        add_problem(report, site, "unknown-field-property", &format!("{widget}.{property}"), format!("{}: {widget}.{property} names {field}, but {}.{} returns {shape_name}, which has no field {field}; the widget finds nothing there", site.mashup, site.entity, site.service));
     }
 }
 

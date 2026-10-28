@@ -44,6 +44,7 @@ sync <entity>|--all         sidecars -> entity XML
     --check                 report what would change, write nothing
     --allow-add-remove      add and remove services and fields as the sidecars do
     --relayout              rewrite scripts in the configured CDATA layout
+    --json                  print the report as JSON
 fmt [--check]               format service scripts
 check [--detail]            every gate, one exit code
     --live                  also parse every script on the server (fails closed)
@@ -505,6 +506,7 @@ bundle [--backend-only] [--changed-since <git-rev>] [--exclude <entity-or-glob>]
     --exclude <entity-or-glob> leave out this Collection/Name selector (repeatable)
     --out <file>            write or check this file instead of the configured dist bundle
     --profile <name>        apply this profile's mashup patches
+    --json                  print the result as JSON
 deploy [--apply] [--force] [--json]
                             check, bundle, live-parse, conflict-check, import
     --backend-only          exclude configured UI collections
@@ -593,6 +595,7 @@ localization set <token> --value <text>  add or change a token; --table (default
                             --usage (new: label), --context, --project
 localization remove <token> remove a token from every table, or from --table
     --table <name>          one table only; --apply makes the change (all but status plan)
+    --json                  print the status, plan or result as JSON
 users list [--json]         the test users of [[test.user]] on the server: present, signing in
                             with the profile's test_password, in their groups
 users seed                  create the missing users, the [test] project and group memberships

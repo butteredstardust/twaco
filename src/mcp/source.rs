@@ -195,6 +195,15 @@ pub(crate) fn sync_tool(solution: &Solution, arguments: SyncRequest) -> Result<V
     let outcome = commands::sync::execute(solution, &request, &mut notices)
         .map_err(ToolError::coded)?
         .report;
+    Ok(sync_json(&outcome, check, &notices))
+}
+
+/// A sync as `--json` and MCP report it.
+pub fn sync_json(
+    outcome: &crate::core::workflow::SyncOutcome,
+    check: bool,
+    notices: &commands::Notices,
+) -> Value {
     let mut result = json!({
         "ok": outcome.failed == 0,
         "check": check,
@@ -205,8 +214,8 @@ pub(crate) fn sync_tool(solution: &Solution, arguments: SyncRequest) -> Result<V
         "errors": outcome.log.errors().collect::<Vec<_>>(),
     });
     add_types_refresh(&mut result, &outcome.types);
-    add_notices(&mut result, &notices);
-    Ok(result)
+    add_notices(&mut result, notices);
+    result
 }
 
 pub(crate) fn extract_tool(

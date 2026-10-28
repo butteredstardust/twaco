@@ -178,6 +178,8 @@ pub(crate) struct Sync {
     pub(crate) relayout: bool,
     #[command(flatten)]
     pub(crate) project: Project,
+    #[command(flatten)]
+    pub(crate) json: Json,
 }
 
 pub(crate) fn sync_cmd(solution: &Solution, args: &Sync) -> u8 {
@@ -197,7 +199,9 @@ pub(crate) fn sync_cmd(solution: &Solution, args: &Sync) -> u8 {
     };
     let mut notices = commands::Notices::default();
     let result = commands::sync::execute(solution, &request, &mut notices);
-    print_notices(&notices);
+    if !args.json.json {
+        print_notices(&notices);
+    }
     let outcome = match result {
         Ok(outcome) => outcome.report,
         Err(error) => {
@@ -205,6 +209,20 @@ pub(crate) fn sync_cmd(solution: &Solution, args: &Sync) -> u8 {
             return FAILED;
         }
     };
+    if args.json.json {
+        let report = twaco::mcp::sync_json(&outcome, check, &notices);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report).expect("JSON values serialise")
+        );
+        return if outcome.failed > 0 {
+            FAILED
+        } else if check && outcome.changed > 0 {
+            DRIFT
+        } else {
+            OK
+        };
+    }
     print_log(&outcome.log);
     print_types_refresh(&outcome.types);
 
@@ -516,6 +534,8 @@ pub(crate) struct Bundle {
     /// Accepted, and changes nothing: the bundle is a local file, written unless `--check`.
     #[command(flatten)]
     pub(crate) apply: Apply,
+    #[command(flatten)]
+    pub(crate) json: Json,
 }
 
 /// Assemble one importable document from the split entity files.
@@ -540,6 +560,18 @@ pub(crate) fn bundle(solution: &Solution, args: &Bundle) -> u8 {
             return FAILED;
         }
     };
+    if args.json.json {
+        let report = twaco::mcp::bundle_json(solution, &outcome, &notices);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report).expect("JSON values serialise")
+        );
+        return match outcome {
+            commands::bundle::BundleOutcome::OutOfDate { .. }
+            | commands::bundle::BundleOutcome::Missing { .. } => DRIFT,
+            _ => OK,
+        };
+    }
     print_notices(&notices);
     // A reference to something this repository owns but this bundle leaves out. Scoped to the
     // selection, so a backend-only build reports what it dropped rather than what it kept.
