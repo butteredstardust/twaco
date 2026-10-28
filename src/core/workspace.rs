@@ -574,12 +574,18 @@ pub(crate) fn read_sidecars(dir: &Path) -> BTreeMap<String, ServiceSidecar> {
             name.clone(),
             ServiceSidecar {
                 name,
-                definition: definition.replace("\r\n", "\n"),
-                script: script.replace("\r\n", "\n"),
+                definition: lf(&definition),
+                script: lf(&script),
             },
         );
     }
     out
+}
+
+/// `text` with every line ending LF: CRLF, and a lone CR (a line ending in JavaScript too, and
+/// what a CRLF conversion leaves on a last line with no newline of its own).
+pub(crate) fn lf(text: &str) -> String {
+    text.replace("\r\n", "\n").replace('\r', "\n")
 }
 
 /// The sidecar folders under `dir` that no longer correspond to one of `services`.

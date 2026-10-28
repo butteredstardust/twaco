@@ -371,7 +371,11 @@ pub(super) fn splice_parameter_definition(
         return splice::splice(src, &[splice::Edit::new(span, Vec::new())])
             .map_err(|e| AuthoringError::Invalid(e.to_string()));
     }
-    let written = field_xml(def).map_err(|e| AuthoringError::Invalid(e.to_string()))?;
+    // New lines end as the document's lines do, so a CRLF file stays CRLF.
+    let nl = crate::core::sync::newline_of(&String::from_utf8_lossy(src));
+    let written = field_xml(def)
+        .map_err(|e| AuthoringError::Invalid(e.to_string()))?
+        .replace('\n', nl);
     if let Some(field) = found {
         let span = scan::element_span(&tokens, field)
             .ok_or_else(|| AuthoringError::Invalid("malformed FieldDefinition".into()))?;
@@ -393,7 +397,7 @@ pub(super) fn splice_parameter_definition(
                 .unwrap_or("")
                 .to_string();
             let separator = if indent.trim().is_empty() && !indent.is_empty() {
-                format!("\n{indent}")
+                format!("{nl}{indent}")
             } else {
                 String::new()
             };
@@ -420,10 +424,10 @@ pub(super) fn splice_parameter_definition(
     let child_indent = format!("{parent_indent}    ");
     let before = String::from_utf8_lossy(inner.of(src));
     let replacement = if before.trim().is_empty() {
-        format!("\n{child_indent}{written}\n{parent_indent}")
+        format!("{nl}{child_indent}{written}{nl}{parent_indent}")
     } else {
         format!(
-            "{}\n{child_indent}{written}\n{parent_indent}",
+            "{}{nl}{child_indent}{written}{nl}{parent_indent}",
             before.trim_end()
         )
     };

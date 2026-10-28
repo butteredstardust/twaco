@@ -3957,3 +3957,26 @@ fn add_places_a_widget_of_an_extension_installed_on_the_server() {
     wrong.properties = vec![("Limit".into(), "many".into())];
     assert!(plan_add(&solution, &wrong).is_err());
 }
+
+#[test]
+fn parameters_added_to_a_crlf_mashup_keep_it_crlf() {
+    let (_dir, solution) = one_project();
+    let name = "Acme.Crlf_MU";
+    let new = plan_new(&solution, &request(name)).unwrap();
+    apply_new(&solution, &new, &lock(&solution)).unwrap();
+    let crlf = String::from_utf8(std::fs::read(&new.entity_path).unwrap())
+        .unwrap()
+        .replace("\r\n", "\n")
+        .replace('\n', "\r\n");
+    std::fs::write(&new.entity_path, crlf).unwrap();
+    for parameter in ["Beta", "Alpha", "Zed"] {
+        let mut add = param_request(name, ParameterAction::Add, parameter);
+        add.base_type = Some("STRING".into());
+        add.direction = Some("IN".into());
+        param(&solution, &add).unwrap();
+    }
+    let bytes = std::fs::read(&new.entity_path).unwrap();
+    let crlf = bytes.windows(2).filter(|pair| pair == b"\r\n").count();
+    let lf = bytes.iter().filter(|&&byte| byte == b'\n').count();
+    assert_eq!(crlf, lf, "every line still ends CRLF");
+}

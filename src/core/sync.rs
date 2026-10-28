@@ -121,7 +121,11 @@ pub fn sync(
         // migration path and deliberately skips this guard. The comparison reuses extraction's
         // own reader so sync cannot grow a subtly different de-indenter.
         let existing_script = sidecar::script_of(&tokens, src, implementation, name)?;
-        if relayout || existing_script != sidecar.script {
+        // A payload whose line endings are mixed is rewritten even when its text is the
+        // sidecar's: the comparison folds line endings, so nothing else would ever repair it.
+        let mixed = script_region(&tokens, src, implementation)
+            .is_some_and(|(_, existing)| mixed_line_endings(&existing));
+        if relayout || mixed || existing_script != sidecar.script {
             // The whole CDATA region is rebuilt rather than its payload patched, so a script
             // containing `]]>` is split across sections instead of closing the first one early,
             // and a `<code>` holding text or nothing at all can still receive a script.
@@ -614,7 +618,7 @@ pub(crate) fn render_payload(
     newline: &str,
     indent_cdata_payload: bool,
 ) -> String {
-    let normalized_script = script.replace("\r\n", "\n");
+    let normalized_script = super::workspace::lf(script);
     if !indent_cdata_payload {
         let body = normalized_script
             .split('\n')
@@ -643,6 +647,14 @@ pub(crate) fn render_payload(
         .collect::<Vec<String>>()
         .join(newline);
     format!("{newline}{body}{newline}{indent}")
+}
+
+/// Whether `text` ends some lines with CRLF and others with LF or a lone CR.
+fn mixed_line_endings(text: &str) -> bool {
+    let crlf = text.matches("\r\n").count();
+    let cr = text.matches('\r').count();
+    let lf = text.matches('\n').count();
+    (crlf > 0 && (lf > crlf || cr > crlf)) || (crlf == 0 && cr > 0)
 }
 
 /// The line ending a piece of text uses, judged by which is more common in it.
@@ -782,6 +794,26 @@ mod tests {
         let (out, report) = sync(&src, &sidecars_of(&src), false, true, false).unwrap();
         assert_eq!(out, src, "an LF payload must stay LF");
         assert!(report.changed.is_empty());
+    }
+
+    #[test]
+    fn a_stray_carriage_return_in_a_payload_is_repaired_and_never_written() {
+        // A CRLF-converted script.js whose last line has no newline of its own ends in a lone CR.
+        let src = entity_with("<code><![CDATA[\na();\n]]></code>");
+        let mut sidecars = sidecars_of(&src);
+        sidecars.get_mut("S").unwrap().script = crate::core::workspace::lf("a();\r\nb();\r");
+        let (out, _) = sync(&src, &sidecars, false, false, false).unwrap();
+        assert!(!out.contains(&b'\r'), "{}", String::from_utf8_lossy(&out));
+
+        // A payload a sync wrote that way before is mixed; the same script repairs it.
+        let mixed = entity_with("<code><![CDATA[\na();\r\n]]></code>");
+        let (repaired, report) = sync(&mixed, &sidecars_of(&mixed), false, false, false).unwrap();
+        assert!(!repaired.contains(&b'\r'));
+        assert_eq!(report.changed, ["S"]);
+        let (again, second) =
+            sync(&repaired, &sidecars_of(&repaired), false, false, false).unwrap();
+        assert_eq!(again, repaired);
+        assert!(second.changed.is_empty());
     }
 
     #[test]
