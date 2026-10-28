@@ -6,6 +6,8 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.1.40] - 2026-10-28
+
 ### Added
 
 - `twaco mashup add` (MCP `mashup_add`) places widgets the solution's `[[extension]]` projects
@@ -1277,6 +1279,7 @@ The first public release.
 - `mcp` serves 39 tools over stdio to MCP clients, with compact summaries, validated arguments
   and dry runs by default for tools that can write to a server.
 
+[0.1.40]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.40
 [0.1.39]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.39
 [0.1.38]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.38
 [0.1.37]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.37
