@@ -38,6 +38,7 @@ pub mod ext_deploy;
 pub mod ext_new;
 pub mod ext_widget;
 pub(crate) mod extension_source;
+pub(crate) mod extension_widgets;
 pub(crate) mod extensions;
 pub(crate) mod fmt;
 pub(crate) mod git;

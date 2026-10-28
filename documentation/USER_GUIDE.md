@@ -970,6 +970,17 @@ Managed mashups update `content.json` and the entity in one transaction; unmanag
 only their entity file. If sidecars and entity content disagree, resolve it first with `sync` or
 `extract`.
 
+A widget the catalogue does not have can come from one of the solution's `[[extension]]`
+projects. twaco reads the project's mashup-builder source: a JavaScript
+`TW.IDE.Widgets.<type> = function () {...}` with its `widgetProperties` and `widgetEvents`, or a
+TypeScript `@TWWidgetDefinition` class in a file that imports `widgetIDESupport`, whose
+`@property` and `@event` members it reads. The widget gets Composer's base properties and every
+literal default the source declares; a default worked out at run time is left for Composer to
+fill when it next opens the mashup. `--prop` sets a property with no default from JSON text, or
+as a string when the text is not JSON. Bindings and events on extension widgets are set in
+Composer. An extension installed on the server without its source in the repository is not
+read.
+
 ### Binding
 
 ```sh

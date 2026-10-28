@@ -648,13 +648,15 @@ pub(crate) const USAGE: &[Usage] = &[
         group: 1,
         text: r#"  mashup add <mashup> <widget> [--in <container> | --right-of <widget> | --left-of <widget> | --above <widget> | --below <widget>]
       [--label <text>] [--prop <name=value>]... [--input <name:TYPE>]... [--apply] [--json]
-                              add a catalogue widget to a mashup; plan unless --apply; a function widget
-                              (expression, validator, navigation...) goes beside the layout
+                              add a catalogue widget, or one an [[extension]] project defines, to a
+                              mashup; plan unless --apply; a function widget (expression, validator,
+                              navigation...) goes beside the layout
       --in <container>        add inside a responsive container (center when omitted)
       --right-of/--left-of/--above/--below <widget>
                               place beside an existing widget
       --label <text>          set the widget's LabelText, Label, Text or Title property
-      --prop <name=value>     set one simple catalogue default property, repeatable
+      --prop <name=value>     set one simple default property, repeatable; an extension widget's
+                              property with no default takes JSON
       --input <name:TYPE>     an expression's or validator's input, repeatable"#,
     },
     Usage {

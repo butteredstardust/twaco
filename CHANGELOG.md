@@ -6,6 +6,22 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `twaco mashup add` (MCP `mashup_add`) places widgets the solution's `[[extension]]` projects
+  define: twaco reads a JavaScript `TW.IDE.Widgets.<type>` definition or a TypeScript
+  `@TWWidgetDefinition` class and writes Composer's base properties plus the literal defaults the
+  source declares. `--prop` takes JSON for a property with no default.
+
+### Changed
+
+- `twaco doctor` (MCP `doctor`) reports the server's ThingWorx version and warns when it is not
+  the version of the widget catalogue (10.2) that mashup add, new and validate judge widgets by.
+- `twaco adopt --apply` refuses to create a mashup whose sidecar folder already exists, or that
+  differs only in letter case from a mashup in the repository: creating it overwrote the other
+  mashup's sidecars.
+- `twaco update` prints the executable's path without Windows' `\\?\` prefix.
+
 ## [0.1.39] - 2026-10-27
 
 ### Added

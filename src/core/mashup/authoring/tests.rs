@@ -3858,3 +3858,57 @@ fn binding_into_a_navigation_function_refreshes_a_missing_or_stale_copy_first() 
         "STRING"
     );
 }
+
+#[test]
+fn add_places_a_widget_an_extension_project_defines() {
+    let (dir, solution) = with_config(
+        "[[project]]\nname = \"Acme\"\nroot = \"acme\"\n[[extension]]\nroot = \"widgets\"\n",
+    );
+    write(
+        dir.path(),
+        "widgets/src/ide.ts",
+        "import { TWWidgetDefinition, property, defaultValue, bindingTarget } from 'typescriptwebpacksupport/widgetIDESupport';\n\
+         @TWWidgetDefinition('Acme Label')\nclass AcmeLabel extends TWComposerWidget {\n\
+         @property('STRING', bindingTarget, defaultValue('hello')) Value: string;\n\
+         @property('INFOTABLE', bindingTarget) Rows: any;\n}\n",
+    );
+    // Build output beside the source is never read as source.
+    write(
+        dir.path(),
+        "widgets/build/ide.ts",
+        "not typescript, and not read",
+    );
+    let name = "Acme.Orders_MU";
+    let new = plan_new(&solution, &request(name)).unwrap();
+    apply_new(&solution, &new, &lock(&solution)).unwrap();
+    let mut add = add_request(name, "acmelabel");
+    add.properties = vec![
+        ("Value".into(), "Hi".into()),
+        ("Rows".into(), "{\"rows\":[]}".into()),
+    ];
+    let plan = plan_add(&solution, &add).unwrap();
+    assert_eq!(plan.placed.id, "AcmeLabel-3");
+    assert_eq!(plan.widget, "AcmeLabel");
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    let assets = workspace::read_mashup(new.content_path.parent().unwrap())
+        .unwrap()
+        .unwrap();
+    let document = mashup::edit::parse(&assets.content).unwrap();
+    let properties = &document.at(&document.find("AcmeLabel-3").unwrap().path)["Properties"];
+    assert_eq!(properties["Type"], "AcmeLabel");
+    assert_eq!(properties["__TypeDisplayName"], "Acme Label");
+    assert_eq!(properties["DisplayName"], "AcmeLabel-3");
+    assert_eq!(properties["Value"], "Hi");
+    assert_eq!(properties["Rows"], json!({"rows": []}));
+    assert_eq!(properties["Area"], "UI");
+    // UseTheme is what Composer adds to its own PTCS widgets, not to an extension's.
+    assert!(properties.get("UseTheme").is_none(), "{properties}");
+
+    let error = plan_add(&solution, &add_request(name, "acmemissing")).unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("nor does an [[extension]] project of this solution define it"),
+        "{error}"
+    );
+}
