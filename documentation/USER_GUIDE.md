@@ -986,7 +986,9 @@ A widget of an extension installed on the server, whose source the repository do
 comes from the platform cache: `twaco types --platform` also saves the mashup builder's combined
 extension code there, and `mashup add` reads its web-component configurations
 (`TW.Widget.widgetWrapper.config`) and `TW.IDE.Widgets` definitions offline. A web-component
-widget also gets `UseTheme`, as Composer gives it.
+widget also gets `UseTheme`, as Composer gives it. The cache holds what the server of the
+profile last given to `types --platform` had installed; run it again against the server the
+mashup is for.
 
 ### Binding
 

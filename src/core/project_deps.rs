@@ -50,6 +50,17 @@ pub(crate) fn check(
                 continue;
             }
         };
+        let written = element
+            .attributes
+            .iter()
+            .find(|(name, _)| name == b"dependsOn")
+            .map(|(_, value)| String::from_utf8_lossy(value).into_owned());
+        if let Some(written) = written.filter(|text| !text.trim().is_empty()) {
+            if let Err(error) = serde_json::from_str::<serde_json::Value>(&written) {
+                unreadable.push((file, format!("its dependsOn is not JSON: {error}")));
+                continue;
+            }
+        }
         let declared = normalise::project_dependencies(&element)
             .into_iter()
             .collect();
@@ -62,8 +73,26 @@ pub(crate) fn check(
             .unwrap_or_else(|| "1.0.0".to_string());
         projects.insert(entry.info.name.clone(), (file, declared, version));
     }
+    // The project the server files each entity in: its document's projectName, which can differ
+    // from the folder it sits in (the project gate reports that).
+    let project_of: BTreeMap<(&str, &str), &str> = discovered
+        .entities
+        .iter()
+        .filter(|entry| !entry.info.project.is_empty())
+        .map(|entry| {
+            (
+                (entry.info.collection.as_str(), entry.info.name.as_str()),
+                entry.info.project.as_str(),
+            )
+        })
+        .collect();
+    let project = |entity: &types::Entity| -> String {
+        project_of
+            .get(&(entity.collection.as_str(), entity.name.as_str()))
+            .map_or_else(|| entity.project.clone(), |project| (*project).to_string())
+    };
     // Where each of the solution's own templates and shapes lives.
-    let owner: BTreeMap<(&str, &str), &str> = model
+    let owner: BTreeMap<(&str, &str), String> = model
         .entities
         .iter()
         .filter(|entity| entity.extension.is_none())
@@ -71,7 +100,7 @@ pub(crate) fn check(
         .map(|entity| {
             (
                 (entity.collection.as_str(), entity.name.as_str()),
-                entity.project.as_str(),
+                project(entity),
             )
         })
         .collect();
@@ -80,7 +109,8 @@ pub(crate) fn check(
         entity.extension.is_none()
             && matches!(entity.collection.as_str(), "Things" | "ThingTemplates")
     }) {
-        let Some((file, declared, _)) = projects.get(&entity.project) else {
+        let own = project(entity);
+        let Some((file, declared, _)) = projects.get(&own) else {
             continue;
         };
         let uses = entity
@@ -94,10 +124,10 @@ pub(crate) fn check(
                     .map(|shape| ("ThingShapes", shape.as_str(), "as a shape it implements")),
             );
         for (collection, name, how) in uses {
-            let Some(&needs) = owner.get(&(collection, name)) else {
+            let Some(needs) = owner.get(&(collection, name)).map(String::as_str) else {
                 continue;
             };
-            if needs.is_empty() || needs == entity.project || declared.contains(needs) {
+            if needs.is_empty() || needs == own || declared.contains(needs) {
                 continue;
             }
             let version = projects
@@ -105,10 +135,10 @@ pub(crate) fn check(
                 .map(|(_, _, version)| version.as_str())
                 .unwrap_or("1.0.0");
             missing
-                .entry((entity.project.clone(), needs.to_string()))
+                .entry((own.clone(), needs.to_string()))
                 .or_insert_with(|| Missing {
                     file: file.clone(),
-                    project: entity.project.clone(),
+                    project: own.clone(),
                     needs: needs.to_string(),
                     because: format!(
                         "{}/{} uses {collection}/{name} {how}",
@@ -154,6 +184,8 @@ mod tests {
         // B needs A twice, and is told once; C declares A already.
         write(root, "b/Things/B.T.xml", "<Entities><Things><Thing name=\"B.T\" thingTemplate=\"A.TT\" projectName=\"B\"><ImplementedShapes><ImplementedShape name=\"A.TS\"/></ImplementedShapes></Thing></Things></Entities>");
         write(root, "c/Things/C.T.xml", "<Entities><Things><Thing name=\"C.T\" thingTemplate=\"A.TT\" projectName=\"C\"/></Things></Entities>");
+        // Filed under A but in project C by its projectName, which already declares A.
+        write(root, "a/Things/C.Misfiled.xml", "<Entities><Things><Thing name=\"C.Misfiled\" thingTemplate=\"A.TT\" projectName=\"C\"/></Things></Entities>");
         // A platform template is no project of the solution.
         write(root, "a/Things/A.T.xml", "<Entities><Things><Thing name=\"A.T\" thingTemplate=\"GenericThing\" projectName=\"A\"/></Things></Entities>");
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
@@ -172,5 +204,13 @@ mod tests {
                 entry: "A:2.1.0".into(),
             }]
         );
+
+        // A dependsOn that is not JSON is unreadable, not empty.
+        write(root, "b/Projects/B.xml", "<Entities><Projects><Project name=\"B\" projectName=\"B\" dependsOn=\"{projects\"/></Projects></Entities>");
+        let discovered = workspace::discover(&solution);
+        let (_, missing, unreadable) = check(&solution, &discovered, &model);
+        assert!(missing.is_empty(), "{missing:?}");
+        assert_eq!(unreadable.len(), 1, "{unreadable:?}");
+        assert!(unreadable[0].1.starts_with("its dependsOn is not JSON"));
     }
 }

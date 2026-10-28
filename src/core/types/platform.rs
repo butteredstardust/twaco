@@ -314,7 +314,7 @@ fn extension_widget_code(remote: &dyn Remote) -> Result<Option<String>, String> 
         return Err("Builder/index.html: COMBINED_EXT_JS is not closed".to_string());
     };
     let file = &page[start..start + length];
-    if file.contains("..") || file.starts_with('/') || file.contains(':') {
+    if !is_bundle_name(file) {
         return Err(format!(
             "Builder/index.html names {file:?} as COMBINED_EXT_JS"
         ));
@@ -326,6 +326,20 @@ fn extension_widget_code(remote: &dyn Remote) -> Result<Option<String>, String> 
     String::from_utf8(code)
         .map(Some)
         .map_err(|_| format!("Builder/{file} is not UTF-8"))
+}
+
+/// `js/<name>.js` in plain letters, digits, `.`, `_` and `-`: the request carries the
+/// credentials, so no escape or traversal of any spelling may steer it elsewhere.
+fn is_bundle_name(file: &str) -> bool {
+    file.strip_prefix("js/")
+        .and_then(|name| name.strip_suffix(".js"))
+        .is_some_and(|stem| {
+            !stem.is_empty()
+                && !stem.contains("..")
+                && stem
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+        })
 }
 
 fn fetch_one(
@@ -473,5 +487,28 @@ pub(super) fn merge_platform_meta(members: &mut BTreeMap<String, Member>, meta: 
                 },
             })
         });
+    }
+}
+
+#[cfg(test)]
+mod name_tests {
+    #[test]
+    fn only_a_plain_bundle_name_is_fetched() {
+        assert!(super::is_bundle_name(
+            "js/CombinedExtensions.20261028_074036.js"
+        ));
+        for bad in [
+            "../x.js",
+            "js/../x.js",
+            "js/%2e%2e/x.js",
+            "js/a/b.js",
+            "/js/x.js",
+            "js/x.css",
+            "js/.js",
+            "http://h/js/x.js",
+            "js/x.js?y=1",
+        ] {
+            assert!(!super::is_bundle_name(bad), "{bad}");
+        }
     }
 }
