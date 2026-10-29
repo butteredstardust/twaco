@@ -14,10 +14,10 @@ looks for `twaco.toml` on every call, so an edit to it applies without a restart
 `twaco mcp configure <codex|claude-code|cursor>` does it for you, from the solution's root:
 it shows the entry it would add to the client's file, and `--apply` writes it, adding only
 twaco's own entry, saving the old file beside it first, and changing nothing when the entry is
-already there. Codex gets a user-wide entry in `~/.codex/config.toml` with `TWACO_ROOT` set to
-this solution; Claude Code and Cursor get the project's `.mcp.json` and `.cursor/mcp.json`
-(`--scope user`: `~/.cursor/mcp.json`, and for Claude Code the `claude mcp add` command to
-run). A different twaco entry, one an MCP gateway wrapped say, is replaced only with
+already there. User-scoped Codex and Claude Code entries have no `TWACO_ROOT`, so the server uses
+the client's working directory; Claude Code and Cursor project entries go in `.mcp.json` and
+`.cursor/mcp.json` (`--scope user`: `~/.cursor/mcp.json`, and for Claude Code the `claude mcp add`
+command to run). A different twaco entry, one an MCP gateway wrapped say, is replaced only with
 `--replace`. The same by hand:
 
 **Claude Code**, from the solution's root:
@@ -32,12 +32,10 @@ claude mcp add twaco -- twaco mcp
 [mcp_servers.twaco]
 command = "twaco"
 args = ["mcp"]
-env = { TWACO_ROOT = "/path/to/solution" }
 ```
 
-**Any other client** (Cursor, Claude Desktop, VS Code and others) takes the same three
-things: the command `twaco`, the argument `mcp`, and `TWACO_ROOT` when the client does not
-start it in the solution's folder.
+**Any other client** (Cursor, Claude Desktop, VS Code and others) takes the command `twaco` and
+argument `mcp`; set `TWACO_ROOT` only when it cannot start the server in the solution's folder.
 
 **Logs.** An MCP client often hides the server's stderr, so send logs to a file. Add
 `--log-file` to the server arguments, or set `TWACO_LOG_FILE` in its environment:

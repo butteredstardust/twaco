@@ -336,9 +336,10 @@ showing every column) is not judged. Only mashups are read, so a field a script,
 or a REST client reads looks unused: review before removing one.
 
 `twaco types --check` type-checks every service against declarations generated from the
-entities, the DataShapes and the server's platform metadata. A typo in a property name or a
-wrong parameter is caught before a deploy; a wrong one is suppressed with `// @ts-ignore` on
-the line above.
+entities, the DataShapes and the server's platform metadata. It prints the TypeScript version and
+checks that the compiler reports twaco's known type-error canary before trusting its findings. A
+typo in a property name or a wrong parameter is caught before a deploy; a wrong one is suppressed
+with `// @ts-ignore` on the line above.
 
 ### Status, the baseline and conflicts
 

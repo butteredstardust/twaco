@@ -279,15 +279,12 @@ pub(crate) fn mcp_configure_cmd(
             }
         },
     };
-    // A project file is read by a client started in the project; a user-wide entry has to say
-    // which solution it serves.
-    let root = (scope == mcp_config::Scope::User)
-        .then(|| dunce::canonicalize(solution_root).unwrap_or_else(|_| solution_root.to_path_buf()))
-        .map(|root| root.to_string_lossy().into_owned());
+    // The server resolves the client's working directory on every call. In particular, a
+    // user-wide registration must not capture whichever solution happened to configure it.
     let entry = mcp_config::Entry {
         command: program,
         args: vec!["mcp".to_string()],
-        root,
+        root: None,
     };
     let plan = match mcp_config::plan(client, scope, &entry, solution_root, &home, replace) {
         Ok(plan) => plan,

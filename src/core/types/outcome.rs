@@ -62,6 +62,7 @@ pub struct CheckOutcome {
     pub findings: Vec<TypeFinding>,
     pub(crate) affected_services: usize,
     pub(crate) services: usize,
+    pub(crate) compiler_version: String,
     pub(crate) elapsed: Duration,
 }
 
@@ -80,10 +81,11 @@ pub fn finding_json(finding: &TypeFinding) -> String {
 
 pub fn check_summary(outcome: &CheckOutcome) -> String {
     format!(
-        "types: {} finding(s) in {} of {} services (tsc in {:.1} s)",
+        "types: {} finding(s) in {} of {} services (TypeScript {}; tsc in {:.1} s)",
         outcome.findings.len(),
         outcome.affected_services,
         outcome.services,
+        outcome.compiler_version,
         outcome.elapsed.as_secs_f64()
     )
 }

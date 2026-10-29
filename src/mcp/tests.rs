@@ -1767,12 +1767,19 @@ fn types_generate_and_check_return_the_mcp_shapes() {
         fn run(
             &self,
             _program: &std::ffi::OsStr,
-            _arguments: &[std::ffi::OsString],
+            arguments: &[std::ffi::OsString],
             _current_dir: &Path,
         ) -> std::io::Result<types::CompilerOutput> {
+            if arguments.iter().any(|argument| argument == "--version") {
+                return Ok(types::CompilerOutput {
+                    success: true,
+                    stdout: b"Version 5.9.3\n".to_vec(),
+                    stderr: Vec::new(),
+                });
+            }
             Ok(types::CompilerOutput {
                 success: false,
-                stdout: b".twaco/types/check/s0000.js(3,4): error TS2554: Expected 2 arguments.\n"
+                stdout: b".twaco/types/check/twaco-canary.js(2,7): error TS2322: Type 'number' is not assignable to type 'string'.\n.twaco/types/check/s0000.js(3,4): error TS2554: Expected 2 arguments.\n"
                     .to_vec(),
                 stderr: Vec::new(),
             })
@@ -1789,6 +1796,7 @@ fn types_generate_and_check_return_the_mcp_shapes() {
     assert_eq!(checked["findings"], 1);
     assert_eq!(checked["services_with_findings"], 1);
     assert_eq!(checked["services"], 1);
+    assert_eq!(checked["compiler_version"], "5.9.3");
     assert_eq!(checked["by_code"]["TS2554"], 1);
     assert_eq!(checked["first"].as_array().unwrap().len(), 1);
     assert!(checked.get("findings_list").is_none());

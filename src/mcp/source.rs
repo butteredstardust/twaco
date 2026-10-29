@@ -77,6 +77,7 @@ pub(crate) fn types_tool_with_compiler(
                 "findings": outcome.findings.len(),
                 "services_with_findings": outcome.affected_services,
                 "services": outcome.services,
+                "compiler_version": outcome.compiler_version,
                 "seconds": outcome.elapsed.as_secs_f64(),
                 "by_code": by_code,
             });
