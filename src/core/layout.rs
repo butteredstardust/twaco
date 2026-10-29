@@ -186,6 +186,21 @@ impl<'a> Document<'a> {
     fn comparison(&self, at: usize) -> Option<&Comparison> {
         self.comparison.get(&self.tokens[at].span.start)
     }
+
+    fn parent(&self, at: usize) -> Option<usize> {
+        (0..at).rev().find(|parent| {
+            self.tokens[*parent].kind == Kind::Start && self.end(*parent).is_ok_and(|end| end > at)
+        })
+    }
+
+    /// Timestamp and Quality do not affect comparison, but are required XML in a stored value.
+    fn property_stamp(&self, at: usize) -> bool {
+        matches!(self.name(at), b"Timestamp" | b"Quality")
+            && self
+                .parent(at)
+                .and_then(|value| self.parent(value))
+                .is_some_and(|properties| self.name(properties) == b"ThingProperties")
+    }
 }
 
 /// Lay out one entity element, using its destination (or a collection peer) as a whitespace
@@ -541,8 +556,9 @@ fn lay_out(
     let mut previous = token.span.end;
     for child in children {
         let start = doc.tokens[child].span.start;
+        let property_stamp = doc.property_stamp(child);
         let matched = guide.and_then(|(d, i)| {
-            (d.retain_ignored || doc.comparison(child).is_some())
+            (d.retain_ignored || doc.comparison(child).is_some() || property_stamp)
                 .then(|| d.matching(i, doc, child))
                 .flatten()
         });
@@ -551,6 +567,7 @@ fn lay_out(
         // A missing comparison node is metadata or an empty permission kind the hash drops.
         // Retain its repository spelling when present; server-only fill-ins add no content.
         if doc.comparison(child).is_none()
+            && !property_stamp
             && !guide.is_some_and(|(d, _)| matched.is_some_and(|i| d.comparison(i).is_none()))
         {
             if !xml_space(source_gap) {
@@ -585,7 +602,9 @@ fn lay_out(
             };
         }
         let mut child_edits = Vec::new();
-        if doc.comparison(child).is_none() {
+        if (doc.comparison(child).is_none() && !property_stamp)
+            || (property_stamp && child_guide.is_some())
+        {
             let (d, i) = child_guide.unwrap();
             gap.extend_from_slice(&d.src[d.tokens[i].span.start..d.tokens[d.end(i)?].span.end]);
         } else {

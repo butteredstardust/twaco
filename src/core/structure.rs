@@ -595,9 +595,14 @@ impl Schema {
             }
         }
         for particle in &mut out {
-            particle.min *= group_min;
+            particle.min = particle.min.checked_mul(group_min).ok_or_else(|| {
+                "schema occurrence multiplication overflows usize and is unsupported".to_string()
+            })?;
             particle.max = match (particle.max, group_max) {
-                (Some(own), Some(group)) => Some(own * group),
+                (Some(own), Some(group)) => Some(own.checked_mul(group).ok_or_else(|| {
+                    "schema occurrence multiplication overflows usize and is unsupported"
+                        .to_string()
+                })?),
                 _ => None,
             };
         }
@@ -969,6 +974,20 @@ mod tests {
         assert!(kinds.contains("unexpected child"));
         assert!(kinds.contains("text not allowed"));
         assert!(kinds.contains("bad value"));
+    }
+
+    #[test]
+    fn occurrence_multiplication_overflow_is_unsupported() {
+        let schema = format!(
+            r#"<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"><xs:element name="T" type="TType"/><xs:complexType name="TType"><xs:sequence minOccurs="2"><xs:element name="A" minOccurs="{}"/></xs:sequence></xs:complexType></xs:schema>"#,
+            usize::MAX
+        );
+        let root = parse_xml(schema.as_bytes(), true).unwrap();
+        let schema = Schema::from_root(root).unwrap();
+        let Err(error) = schema.element("T") else {
+            panic!("schema should be unsupported");
+        };
+        assert!(error.contains("occurrence multiplication overflows"));
     }
 
     fn findings_for(xml: &str) -> Vec<String> {

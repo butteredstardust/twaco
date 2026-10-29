@@ -114,6 +114,12 @@ pub(crate) fn check_with(
     let version = compiler
         .run(program, &version_arguments, &solution.root)
         .map_err(|error| {
+            if matches!(error.kind(), ErrorKind::NotFound) {
+                return CheckError(format!(
+                    "cannot start TypeScript compiler {}: {error}; install one with `npm install --save-dev typescript` in the solution root, or set `[types] tsc` in twaco.toml",
+                    program.to_string_lossy()
+                ));
+            }
             CheckError(format!(
                 "could not run TypeScript compiler {} --version: {error}",
                 program.to_string_lossy()

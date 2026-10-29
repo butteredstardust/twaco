@@ -2668,7 +2668,7 @@ fn status_record_returns_matching_entities_in_sync_and_keeps_differing_verdicts(
     )
     .unwrap();
     std::fs::create_dir_all(root.join(".twaco/baselines")).unwrap();
-    std::fs::write(root.join(".twaco/baselines/default.json"),r#"{"entities":{"Things":{"Acme.Same":{"local":"v7:old","server":"v7:old"},"Acme.Different":{"local":"v7:old","server":"v7:old"}}}}"#).unwrap();
+    std::fs::write(root.join(".twaco/baselines/default.json"),r#"{"entities":{"Things":{"Acme.Same":{"local":"v8:old","server":"v8:old"},"Acme.Different":{"local":"v8:old","server":"v8:old"}}}}"#).unwrap();
     let before = call(root, "status", json!({"all":true,"detail":true}));
     assert_eq!(body(&before)["counts"]["converged"], 1);
     assert_eq!(body(&before)["counts"]["both-changed"], 1);

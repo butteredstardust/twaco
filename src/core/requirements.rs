@@ -33,6 +33,15 @@ pub(crate) struct Contract {
     pub(crate) project: Vec<Project>,
     #[serde(default)]
     pub(crate) entities: BTreeMap<String, Vec<String>>,
+    #[serde(default)]
+    pub(crate) optional: Optional,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Optional {
+    #[serde(default)]
+    pub(crate) entities: BTreeMap<String, Vec<String>>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -123,24 +132,40 @@ pub(crate) fn parse(text: &str) -> Result<Contract, Error> {
         }
     }
     for (collection, names) in &contract.entities {
-        if !workspace::KNOWN_COLLECTIONS.contains(&collection.as_str()) {
-            return Err(invalid(
-                &format!("entities.{collection}"),
-                "unknown collection; use a ThingWorx collection name",
-            ));
-        }
-        let mut seen = BTreeSet::new();
-        for name in names {
-            valid_name(&format!("entities.{collection}"), name)?;
-            if !seen.insert(name) {
+        validate_entities("entities", collection, names)?;
+    }
+    for (collection, names) in &contract.optional.entities {
+        validate_entities("optional.entities", collection, names)?;
+        if let Some(required) = contract.entities.get(collection) {
+            if let Some(name) = names.iter().find(|name| required.contains(name)) {
                 return Err(invalid(
-                    &format!("entities.{collection}"),
-                    format!("duplicate {name:?}; list it once"),
+                    &format!("optional.entities.{collection}"),
+                    format!("{name:?} is also in [entities]; list it in one table"),
                 ));
             }
         }
     }
     Ok(contract)
+}
+
+fn validate_entities(key: &str, collection: &str, names: &[String]) -> Result<(), Error> {
+    if !workspace::KNOWN_COLLECTIONS.contains(&collection) {
+        return Err(invalid(
+            &format!("{key}.{collection}"),
+            "unknown collection; use a ThingWorx collection name",
+        ));
+    }
+    let mut seen = BTreeSet::new();
+    for name in names {
+        valid_name(&format!("{key}.{collection}"), name)?;
+        if !seen.insert(name) {
+            return Err(invalid(
+                &format!("{key}.{collection}"),
+                format!("duplicate {name:?}; list it once"),
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn valid_name(key: &str, name: &str) -> Result<(), Error> {
@@ -607,6 +632,23 @@ impl Report {
             referrers,
         });
     }
+
+    fn note(
+        &mut self,
+        rule: &str,
+        requirement: String,
+        message: String,
+        referrers: BTreeSet<String>,
+    ) {
+        self.findings.push(Finding {
+            rule: rule.into(),
+            requirement,
+            blocking: false,
+            message,
+            installed: None,
+            referrers,
+        });
+    }
 }
 
 pub(crate) fn offline(contract: &Contract, collected: &Collected) -> Report {
@@ -629,6 +671,11 @@ pub(crate) fn offline(contract: &Contract, collected: &Collected) -> Report {
                 .entities
                 .get(collection)
                 .is_some_and(|names| names.contains(name))
+                && !contract
+                    .optional
+                    .entities
+                    .get(collection)
+                    .is_some_and(|names| names.contains(name))
             {
                 report.finding(
                     "undeclared",
@@ -647,6 +694,22 @@ pub(crate) fn offline(contract: &Contract, collected: &Collected) -> Report {
                 .is_some_and(|names| names.contains_key(name))
             {
                 report.finding(
+                    "stale",
+                    format!("{collection}/{name}"),
+                    "nothing in the repository references it; review whether to keep it".into(),
+                    BTreeSet::new(),
+                );
+            }
+        }
+    }
+    for (collection, names) in &contract.optional.entities {
+        for name in names {
+            if !collected
+                .references
+                .get(collection)
+                .is_some_and(|names| names.contains_key(name))
+            {
+                report.note(
                     "stale",
                     format!("{collection}/{name}"),
                     "nothing in the repository references it; review whether to keep it".into(),
@@ -769,14 +832,25 @@ pub(crate) fn server_check(
         .flat_map(|(collection, names)| {
             names
                 .iter()
-                .map(move |name| (collection.as_str(), name.as_str()))
+                .map(move |name| (collection.as_str(), name.as_str(), false))
         })
         .collect();
     entities.extend(
         contract
+            .optional
+            .entities
+            .iter()
+            .flat_map(|(collection, names)| {
+                names
+                    .iter()
+                    .map(move |name| (collection.as_str(), name.as_str(), true))
+            }),
+    );
+    entities.extend(
+        contract
             .project
             .iter()
-            .map(|p| ("Projects", p.name.as_str())),
+            .map(|p| ("Projects", p.name.as_str(), false)),
     );
     // Opened before the platform and extension reads, which wait on the server too.
     let _phase = progress::phase(
@@ -815,11 +889,12 @@ pub(crate) fn server_check(
             );
         }
     }
-    let answers = parallel::map_progress(&entities, progress, |(collection, name)| {
+    let answers = parallel::map_progress(&entities, progress, |(collection, name, _)| {
         progress.message(&format!("{collection}/{name}"));
         remote.entity_exists(collection, name)
     });
-    for ((collection, name), answer) in entities.into_iter().zip(answers) {
+    for ((collection, name, optional), answer) in entities.into_iter().zip(answers) {
+        let missing = matches!(&answer, Ok(false));
         let message = match answer {
             Ok(true) => continue,
             Ok(false) => "entity is missing; install the dependency before deploying".into(),
@@ -837,7 +912,16 @@ pub(crate) fn server_check(
         }
         .cloned()
         .unwrap_or_default();
-        report.finding("unmet", format!("{collection}/{name}"), message, refs);
+        if optional && missing {
+            report.note(
+                "optional_missing",
+                format!("{collection}/{name}"),
+                "optional entity is missing; install it when this server needs that feature".into(),
+                refs,
+            );
+        } else {
+            report.finding("unmet", format!("{collection}/{name}"), message, refs);
+        }
     }
 }
 

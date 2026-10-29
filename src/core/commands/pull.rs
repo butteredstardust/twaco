@@ -28,6 +28,8 @@ pub struct PullRequest {
 #[derive(Debug)]
 pub struct PullOutcome {
     pub entities: Vec<String>,
+    /// `--all` leaves these alone until a baseline establishes which side is newer.
+    pub skipped_no_baseline: Vec<String>,
     pub applied: bool,
     pub recorded: usize,
     pub effects: Effects,
@@ -126,11 +128,13 @@ where
         return Err(PullError::Remote(failures.join("; ")));
     }
     let mut work = Vec::new();
+    let mut skipped_no_baseline = Vec::new();
     for entry in statuses {
         let label = format!("{}/{}", entry.collection, entry.name);
         match entry.verdict {
             status::Verdict::ServerChanged => work.push((label, entry)),
             status::Verdict::NoBaselineDiffers if named => work.push((label, entry)),
+            status::Verdict::NoBaselineDiffers => skipped_no_baseline.push(label),
             status::Verdict::LocalChanged | status::Verdict::BothChanged => {
                 return Err(PullError::Refused(format!(
                     "{label}: working file changed; use twaco adopt for a merge"
@@ -151,6 +155,7 @@ where
     if matches!(request.mode, Mode::Plan) {
         return Ok(PullOutcome {
             entities: labels,
+            skipped_no_baseline,
             applied: false,
             recorded: 0,
             effects: Effects::new(Access::Read, Access::Read),
@@ -237,6 +242,7 @@ where
         .map_err(|error| finish(format!("the baseline was not recorded: {error}")))?;
     Ok(PullOutcome {
         entities: labels,
+        skipped_no_baseline,
         applied: true,
         recorded,
         effects: Effects::new(Access::Write, Access::Read),
@@ -350,5 +356,15 @@ mod tests {
             std::fs::read(dir.path().join("Things/P.T.xml")).unwrap(),
             working
         );
+    }
+
+    #[test]
+    fn all_reports_entities_skipped_without_a_baseline() {
+        let base = thing("mine", "\n");
+        let (dir, solution) = setup(&base, &base);
+        std::fs::remove_file(dir.path().join(".twaco/baselines/default.json")).unwrap();
+        let plan = pull(&solution, &thing("theirs", "\n"), Mode::Plan).unwrap();
+        assert!(plan.entities.is_empty());
+        assert_eq!(plan.skipped_no_baseline, ["Things/P.T"]);
     }
 }

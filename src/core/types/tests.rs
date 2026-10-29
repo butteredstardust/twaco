@@ -1275,6 +1275,25 @@ fn compiler_timeout_and_output_overflow_are_not_startup_failures() {
 }
 
 #[test]
+fn a_missing_compiler_during_version_probe_has_install_guidance() {
+    let (_dir, _, solution) = fixture_solution("missing-compiler", &[]);
+    let error = check_with(
+        &solution,
+        &FailingCompiler {
+            kind: ErrorKind::NotFound,
+            message: "program not found",
+        },
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(
+        error.contains("npm install --save-dev typescript"),
+        "{error}"
+    );
+    assert!(error.contains("[types] tsc"), "{error}");
+}
+
+#[test]
 fn json_check_output_is_all_findings_and_no_summary() {
     let outcome = CheckOutcome {
         declarations: Outcome::default(),

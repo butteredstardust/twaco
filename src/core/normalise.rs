@@ -4,7 +4,7 @@
 //! they are hash input, never an export. Length-prefixing makes element, attribute, text and
 //! CDATA boundaries unambiguous without choosing an escaping style.
 //!
-//! Normalisation version 7 has exactly these non-semantic rules:
+//! Normalisation version 8 has exactly these non-semantic rules:
 //!
 //! - apply XML 1.0 line-end and CDATA-attribute whitespace normalisation to literal XML input
 //!   before unescaping character references or applying payload-specific rules;
@@ -24,7 +24,8 @@
 //!   attribute order is not semantic;
 //! - sort element children by `name` (canonical bytes break ties) only in `FieldDefinitions`,
 //!   `ParameterDefinitions`, `ServiceDefinitions`, `ServiceImplementations`, `ConfigurationTables`,
-//!   and `ConfigurationTableDefinitions`; some live exports reorder these named sections;
+//!   `ConfigurationTableDefinitions`, and `PropertyDefinitions`; some live exports reorder these
+//!   named sections (PropertyDefinitions observed 2026-10-29; version 8);
 //! - sort the entries of a direct-child `ThingProperties` by element name, and drop each entry's
 //!   `Timestamp` and `Quality`: a 10.1 export orders a Thing's stored values by where each property
 //!   comes from and by hash, not as imported, and an import re-stamps a value whose definition
@@ -49,12 +50,20 @@
 //!   and treat whitespace-only text as empty; the full live comparison found this export
 //!   indentation around leaf values throughout configuration rows, scripts, property values, and
 //!   JSON content, while interior bytes (including service-script indentation) remained semantic.
+//! - where an entity declares the local base type, canonicalise a PropertyDefinition or
+//!   FieldDefinition's `aspect.defaultValue` (and numeric minimum/maximum), ConfigurationTable
+//!   row cells using that table's DataShape, and ThingProperties values using a local property
+//!   definition: NUMBER follows Java `Double.toString`, INTEGER and LONG are parsed as i64, and
+//!   JSON is parsed, key-sorted and compacted. Unparseable values and values with no local type
+//!   remain byte-significant (observed 2026-10-29; version 8);
+//! - a leaf holding only an empty or whitespace-only CDATA is the same as an empty element, as
+//!   the server stores an empty service script as `<code/>` (observed 2026-10-29; version 8).
 //!
 //! No generated id, default attribute, or other exception is included without a live/committed
 //! observation. Apart from the rules above, CDATA bytes are never decoded, re-indented, or joined.
 //!
-//! Without server ownership, hashes remain `v7:<sha256>` byte for byte. With ownership they are
-//! `v7:so1:<policy-sha256>:<content-sha256>`: the policy digest covers the sorted, deduplicated
+//! Without server ownership, hashes remain `v8:<sha256>` byte for byte. With ownership they are
+//! `v8:so1:<policy-sha256>:<content-sha256>`: the policy digest covers the sorted, deduplicated
 //! union of applicable part labels (newline-delimited). `so1` versions selector semantics.
 //! Content uses the same comparison tree with owned nodes omitted. Baselines must compare the
 //! entire prefix before the final colon; adding, removing or changing ownership invalidates
@@ -64,7 +73,7 @@ use super::scan::{self, Kind, ScanError, Token};
 use sha2::{Digest, Sha256};
 
 /// The normalisation version every hash carries; a baseline from another one says nothing.
-pub(crate) const HASH_VERSION: &str = "v7";
+pub(crate) const HASH_VERSION: &str = "v8";
 pub(crate) const LIVE_ONLY_ELEMENTS: [&[u8]; 9] = [
     b"effectiveShape",
     b"Owner",
@@ -78,13 +87,14 @@ pub(crate) const LIVE_ONLY_ELEMENTS: [&[u8]; 9] = [
 ];
 const LIVE_ONLY_ATTRIBUTE: &[u8] = b"lastModifiedDate";
 // Live exports reorder these name-keyed containers while preserving their child sets.
-const NAME_KEYED_CONTAINERS: [&[u8]; 6] = [
+const NAME_KEYED_CONTAINERS: [&[u8]; 7] = [
     b"FieldDefinitions",
     b"ParameterDefinitions",
     b"ServiceDefinitions",
     b"ServiceImplementations",
     b"ConfigurationTables",
     b"ConfigurationTableDefinitions",
+    b"PropertyDefinitions",
 ];
 const JSON_CONTENT_ENTITIES: [&[u8]; 2] = [b"StateDefinition", b"StyleTheme"];
 const PERMISSION_BLOCKS: [&[u8]; 6] = [
@@ -216,7 +226,7 @@ pub(crate) fn added_project_dependencies(sent: &[u8], read_back: &[u8]) -> Vec<S
 
 fn canonical(src: &[u8], with_permissions: bool) -> Result<Vec<u8>, NormaliseError> {
     let entity = comparison_tree(src, with_permissions)?;
-    let mut out = b"twaco-entity-normalise-v7\0".to_vec();
+    let mut out = b"twaco-entity-normalise-v8\0".to_vec();
     write_element(&entity, &mut out);
     Ok(out)
 }
@@ -235,6 +245,7 @@ pub(crate) fn comparison_tree(
 /// Compare an already parsed entity using the hash and layout policy, without serialising it.
 pub(crate) fn comparison_element(mut entity: Element, with_permissions: bool) -> Element {
     strip_live_only(&mut entity);
+    normalise_typed_values(&mut entity);
     normalise_leaf_content(&mut entity);
     normalise_special_payloads(&mut entity);
     clean_indentation(&mut entity);
@@ -280,7 +291,7 @@ pub(crate) fn hash_with_parts(
         return hash(src);
     }
     let tree = owned_comparison_tree(src, parts)?;
-    let mut canonical = b"twaco-entity-normalise-v7\0".to_vec();
+    let mut canonical = b"twaco-entity-normalise-v8\0".to_vec();
     write_element(&tree, &mut canonical);
     Ok(format!(
         "{}:{}",
@@ -679,6 +690,176 @@ fn normalise_special_payloads(entity: &mut Element) {
     }
 }
 
+/// Values only acquire a type from their own entity.  In particular, an inherited property is
+/// deliberately not guessed: the local document does not prove which definition the server uses.
+fn normalise_typed_values(entity: &mut Element) {
+    normalise_definition_aspects(entity);
+    normalise_configuration_tables(entity);
+
+    let definitions = definitions_named(entity, b"PropertyDefinition");
+    for child in &mut entity.children {
+        let Node::Element(properties) = child else {
+            continue;
+        };
+        if properties.name != b"ThingProperties" {
+            continue;
+        }
+        for value in &mut properties.children {
+            let Node::Element(value) = value else {
+                continue;
+            };
+            let Some(base_type) = definitions.get(&value.name) else {
+                continue;
+            };
+            for part in &mut value.children {
+                if let Node::Element(part) = part {
+                    if part.name == b"Value" {
+                        normalise_typed_leaf(part, base_type);
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn normalise_definition_aspects(element: &mut Element) {
+    if matches!(
+        element.name.as_slice(),
+        b"PropertyDefinition" | b"FieldDefinition"
+    ) {
+        let base_type = attribute_value(element, b"baseType").map(|value| value.to_vec());
+        if let Some(base_type) = base_type {
+            for (name, value) in &mut element.attributes {
+                if name == b"aspect.defaultValue"
+                    || matches!(base_type.as_slice(), b"NUMBER" | b"INTEGER" | b"LONG")
+                        && (name == b"aspect.minimumValue" || name == b"aspect.maximumValue")
+                {
+                    if let Some(canonical) = canonical_typed_value(&base_type, value) {
+                        *value = canonical;
+                    }
+                }
+            }
+        }
+    }
+    for child in &mut element.children {
+        if let Node::Element(child) = child {
+            normalise_definition_aspects(child);
+        }
+    }
+}
+
+fn normalise_configuration_tables(element: &mut Element) {
+    if element.name == b"ConfigurationTable" {
+        let fields = definitions_named(element, b"FieldDefinition");
+        for child in &mut element.children {
+            let Node::Element(rows) = child else {
+                continue;
+            };
+            if rows.name != b"Rows" {
+                continue;
+            }
+            for row in &mut rows.children {
+                let Node::Element(row) = row else {
+                    continue;
+                };
+                if row.name != b"Row" {
+                    continue;
+                }
+                for cell in &mut row.children {
+                    let Node::Element(cell) = cell else {
+                        continue;
+                    };
+                    if let Some(base_type) = fields.get(&cell.name) {
+                        normalise_typed_leaf(cell, base_type);
+                    }
+                }
+            }
+        }
+    }
+    for child in &mut element.children {
+        if let Node::Element(child) = child {
+            normalise_configuration_tables(child);
+        }
+    }
+}
+
+fn definitions_named(
+    element: &Element,
+    wanted: &[u8],
+) -> std::collections::BTreeMap<Vec<u8>, Vec<u8>> {
+    fn collect(
+        element: &Element,
+        wanted: &[u8],
+        out: &mut std::collections::BTreeMap<Vec<u8>, Vec<u8>>,
+    ) {
+        if element.name == wanted {
+            if let (Some(name), Some(base_type)) = (
+                attribute_value(element, b"name"),
+                attribute_value(element, b"baseType"),
+            ) {
+                out.insert(name.to_vec(), base_type.to_vec());
+            }
+        }
+        for child in &element.children {
+            if let Node::Element(child) = child {
+                collect(child, wanted, out);
+            }
+        }
+    }
+    let mut out = std::collections::BTreeMap::new();
+    collect(element, wanted, &mut out);
+    out
+}
+
+fn attribute_value<'a>(element: &'a Element, wanted: &[u8]) -> Option<&'a [u8]> {
+    element
+        .attributes
+        .iter()
+        .find(|(name, _)| name == wanted)
+        .map(|(_, value)| value.as_slice())
+}
+
+fn canonical_typed_value(base_type: &[u8], value: &[u8]) -> Option<Vec<u8>> {
+    let base_type = std::str::from_utf8(base_type).ok()?;
+    let value = std::str::from_utf8(trim_xml_whitespace(value)).ok()?;
+    match base_type {
+        "NUMBER" | "INTEGER" | "LONG" => {
+            crate::core::number::java_text(base_type, value).map(String::into_bytes)
+        }
+        "JSON" => serde_json::from_str(value)
+            .ok()
+            .and_then(|value| serde_json::to_vec(&sorted_keys(value)).ok()),
+        _ => None,
+    }
+}
+
+fn normalise_typed_leaf(element: &mut Element, base_type: &[u8]) {
+    let payload = single_text_or_cdata_payload(element);
+    let Some(payload) = payload else {
+        return;
+    };
+    let Some(canonical) = canonical_typed_value(base_type, &payload) else {
+        return;
+    };
+    // Values are semantically text; picking one framing also makes an escaped value and CDATA
+    // value compare equal when their locally-declared type proves they mean the same thing.
+    element.children = vec![Node::Text(canonical)];
+}
+
+fn single_text_or_cdata_payload(element: &Element) -> Option<Vec<u8>> {
+    let mut payload = None;
+    for child in &element.children {
+        match child {
+            Node::Text(text) if xml_whitespace(text) => {}
+            Node::Text(text) | Node::Cdata(text) if payload.is_none() => {
+                payload = Some(text.clone())
+            }
+            _ => return None,
+        }
+    }
+    payload
+}
+
 fn normalise_leaf_content(element: &mut Element) {
     for child in &mut element.children {
         if let Node::Element(child) = child {
@@ -703,7 +884,12 @@ fn normalise_leaf_content(element: &mut Element) {
     let Some(payload) = single_cdata_payload(element) else {
         return;
     };
-    element.children = vec![Node::Cdata(trim_xml_whitespace(&payload).to_vec())];
+    let payload = trim_xml_whitespace(&payload);
+    if payload.is_empty() {
+        element.children.clear();
+    } else {
+        element.children = vec![Node::Cdata(payload.to_vec())];
+    }
 }
 
 fn trim_xml_whitespace(mut bytes: &[u8]) -> &[u8] {
@@ -1407,11 +1593,48 @@ mod tests {
     }
 
     #[test]
-    fn hash_and_framing_are_version_six() {
-        assert!(hash(b"<Thing/>").unwrap().starts_with("v7:"));
+    fn hash_and_framing_are_version_eight() {
+        assert!(hash(b"<Thing/>").unwrap().starts_with("v8:"));
         assert!(normalise(b"<Thing/>")
             .unwrap()
-            .starts_with(b"twaco-entity-normalise-v7\0"));
+            .starts_with(b"twaco-entity-normalise-v8\0"));
+    }
+
+    #[test]
+    fn locally_typed_values_use_server_text_but_untyped_values_do_not() {
+        let sent = br#"<Thing><ThingShape><PropertyDefinitions><PropertyDefinition name="rate" baseType="NUMBER" aspect.defaultValue="10800000.0"/><PropertyDefinition name="json" baseType="JSON" aspect.defaultValue="{&quot;b&quot;: 1, &quot;a&quot;: [1,2]}"/><PropertyDefinition name="big" baseType="LONG" aspect.defaultValue="9007199254740993"/></PropertyDefinitions></ThingShape><ConfigurationTables><ConfigurationTable name="Settings"><DataShape><FieldDefinitions><FieldDefinition name="rate" baseType="NUMBER"/></FieldDefinitions></DataShape><Rows><Row><rate>10800000.0</rate></Row></Rows></ConfigurationTable></ConfigurationTables><ThingProperties><rate><Value>10800000.0</Value></rate></ThingProperties><plain><Value>1E7</Value></plain></Thing>"#;
+        let returned = br#"<Thing><ThingShape><PropertyDefinitions><PropertyDefinition name="rate" baseType="NUMBER" aspect.defaultValue="1.08E7"/><PropertyDefinition name="json" baseType="JSON" aspect.defaultValue="{&quot;a&quot;:[1,2],&quot;b&quot;:1}"/><PropertyDefinition name="big" baseType="LONG" aspect.defaultValue="9007199254740993"/></PropertyDefinitions></ThingShape><ConfigurationTables><ConfigurationTable name="Settings"><DataShape><FieldDefinitions><FieldDefinition name="rate" baseType="NUMBER"/></FieldDefinitions></DataShape><Rows><Row><rate>1.08E7</rate></Row></Rows></ConfigurationTable></ConfigurationTables><ThingProperties><rate><Value>1.08E7</Value></rate></ThingProperties><plain><Value>10000000</Value></plain></Thing>"#;
+        assert_ne!(hash(sent).unwrap(), hash(returned).unwrap());
+        let same_without_plain = std::str::from_utf8(sent)
+            .unwrap()
+            .replace("<plain><Value>1E7</Value></plain>", "");
+        let returned_without_plain = std::str::from_utf8(returned)
+            .unwrap()
+            .replace("<plain><Value>10000000</Value></plain>", "");
+        assert_eq!(
+            hash(same_without_plain.as_bytes()).unwrap(),
+            hash(returned_without_plain.as_bytes()).unwrap()
+        );
+        let rounded_long = returned_without_plain.replace("9007199254740993", "9007199254740992");
+        assert_ne!(
+            hash(same_without_plain.as_bytes()).unwrap(),
+            hash(rounded_long.as_bytes()).unwrap()
+        );
+    }
+
+    #[test]
+    fn empty_cdata_leaf_equals_empty_element() {
+        assert_eq!(
+            hash(b"<Thing><code><![CDATA[\n\n]]></code></Thing>").unwrap(),
+            hash(b"<Thing><code/></Thing>").unwrap()
+        );
+    }
+
+    #[test]
+    fn property_definitions_are_name_keyed() {
+        let inserted = b"<Thing><ThingShape><PropertyDefinitions><PropertyDefinition name=\"z\" baseType=\"STRING\"/><PropertyDefinition name=\"a\" baseType=\"STRING\"/></PropertyDefinitions></ThingShape></Thing>";
+        let returned = b"<Thing><ThingShape><PropertyDefinitions><PropertyDefinition name=\"a\" baseType=\"STRING\"/><PropertyDefinition name=\"z\" baseType=\"STRING\"/></PropertyDefinitions></ThingShape></Thing>";
+        assert_eq!(hash(inserted).unwrap(), hash(returned).unwrap());
     }
 
     #[test]

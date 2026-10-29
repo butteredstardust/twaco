@@ -295,9 +295,6 @@ pub(super) fn compare_owned_entity(
 ) -> EntityReport {
     let parts =
         super::super::server_owned::parts(&solution.server_owned, &entity.collection, &entity.name);
-    if parts.is_empty() {
-        return compare_entity(entity, left, right, &solution.adopt.ignore_paths);
-    }
     let mut left = normalise::comparison_element(left.clone(), true);
     let mut right = normalise::comparison_element(right.clone(), true);
     super::super::server_owned::omit(&mut left, &parts);

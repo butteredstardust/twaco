@@ -394,7 +394,7 @@ pub(crate) fn plan(solution: &Solution, request: &Request) -> Result<Plan, EditE
                 .as_deref()
                 .map(entity::new::parse_duration)
                 .transpose()?;
-            let value = value.map(|ms| format!("{ms}.0"));
+            let value = value.map(|ms| java_double(&ms.to_string()));
             let change = Settings {
                 value,
                 run_as: run_as.as_deref(),
@@ -1012,6 +1012,17 @@ impl Definition {
                 self.base_type,
                 BASE_TYPES.join(", ")
             )));
+        }
+        if self.base_type == "LONG"
+            && self
+                .default
+                .as_deref()
+                .and_then(|value| value.parse::<i64>().ok())
+                .is_some_and(|value| value.unsigned_abs() > 9_007_199_254_740_992)
+        {
+            return Err(invalid(
+                "a LONG default beyond 2^53 is refused: the server stores LONG as a double and would change it",
+            ));
         }
         if self.base_type == "INFOTABLE" {
             let shape = self

@@ -49,6 +49,12 @@ pub fn resolve(
     let total = row["totalCount"]
         .as_f64()
         .map(super::number::saturating_u64)
+        .or_else(|| {
+            row["rootEntityList"]["rows"]
+                .as_array()
+                .filter(|rows| rows.is_empty())
+                .map(|_| 0)
+        })
         .ok_or_else(|| format!("{entity}: the answer has no totalCount: {reply}"))?;
     let mut things: Vec<String> = row["rootEntityList"]["rows"]
         .as_array()
@@ -201,6 +207,19 @@ mod tests {
             (3, vec!["A".into(), "B".into()], true)
         );
         assert!(resolve(&fake, "Things", "X", 2).is_err());
+    }
+
+    #[test]
+    fn resolve_accepts_the_empty_list_without_total_count() {
+        let fake = Fake(BTreeMap::from([(
+            "ThingShapes/Acme.Empty.QueryImplementingThingsOptimizedWithTotalCount".to_string(),
+            json!({ "rows": [{ "rootEntityList": { "rows": [] } }] }),
+        )]));
+        let found = resolve(&fake, "ThingShapes", "Acme.Empty", 50).unwrap();
+        assert_eq!(
+            (found.total, found.things, found.truncated),
+            (0, Vec::new(), false)
+        );
     }
 
     #[test]

@@ -205,7 +205,7 @@ mod tests {
     }
 
     fn export(project: &str, name: &str) -> Vec<u8> {
-        format!("<Entities><Things><Thing name=\"{name}\" projectName=\"{project}\"><ThingShape><ServiceDefinitions><ServiceDefinition name=\"S\"/></ServiceDefinitions><ServiceImplementations><ServiceImplementation name=\"S\" handlerName=\"Script\"><ConfigurationTables><ConfigurationTable name=\"Script\"><Rows><Row><code><![CDATA[me();]]></code></Row></Rows></ConfigurationTable></ConfigurationTables></ServiceImplementation></ServiceImplementations></ThingShape></Thing></Things></Entities>").into_bytes()
+        format!("<Entities><Things><Thing name=\"{name}\" projectName=\"{project}\"><ThingProperties><big><Value>1.2345678E7</Value><Timestamp>1970-01-01T00:00:00.000Z</Timestamp><Quality>UNKNOWN</Quality></big></ThingProperties><ThingShape><ServiceDefinitions><ServiceDefinition name=\"S\"/></ServiceDefinitions><ServiceImplementations><ServiceImplementation name=\"S\" handlerName=\"Script\"><ConfigurationTables><ConfigurationTable name=\"Script\"><Rows><Row><code><![CDATA[me();]]></code></Row></Rows></ConfigurationTable></ConfigurationTables></ServiceImplementation></ServiceImplementations></ThingShape></Thing></Things></Entities>").into_bytes()
     }
 
     fn profile(root: &std::path::Path) {
@@ -245,6 +245,9 @@ mod tests {
                 .unwrap()
                 .contains("name=\"S\"")
         );
+        let entity = std::fs::read_to_string(temp.path().join("Things/P.T.xml")).unwrap();
+        assert!(entity.contains("<Timestamp>1970-01-01T00:00:00.000Z</Timestamp>"));
+        assert!(entity.contains("<Quality>UNKNOWN</Quality>"));
     }
 
     #[test]

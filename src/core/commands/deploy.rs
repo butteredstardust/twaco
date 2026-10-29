@@ -315,6 +315,9 @@ where
         Ok(planned) => planned,
         Err(why) => return Err(DeployCommandError::Plan { why, gates }),
     };
+    if let Err(why) = thing_property_stamps(&projects) {
+        return Err(DeployCommandError::Plan { why, gates });
+    }
     let profile = match profile::load(&solution.root, &request.profile) {
         Ok(profile) => profile,
         Err(why) => return Err(DeployCommandError::Profile { why, gates }),
@@ -418,6 +421,50 @@ where
     })
 }
 
+/// Importer requires all three stored-value children although comparison intentionally ignores
+/// the two server-owned ones. Refuse before a bundle can make that malformed value server input.
+fn thing_property_stamps(projects: &[deploy::ProjectBundle]) -> Result<(), String> {
+    for entity in projects.iter().flat_map(|project| &project.entities) {
+        if entity.collection != "Things" {
+            continue;
+        }
+        let tree = crate::core::normalise::entity_of(&entity.bytes)
+            .map_err(|error| format!("Things/{}: {error}", entity.name))?;
+        for block in &tree.children {
+            let crate::core::normalise::Node::Element(block) = block else {
+                continue;
+            };
+            if block.name != b"ThingProperties" {
+                continue;
+            }
+            for property in &block.children {
+                let crate::core::normalise::Node::Element(property) = property else {
+                    continue;
+                };
+                let tags: Vec<_> = property
+                    .children
+                    .iter()
+                    .filter_map(|child| match child {
+                        crate::core::normalise::Node::Element(child) => Some(child.name.as_slice()),
+                        _ => None,
+                    })
+                    .collect();
+                if tags.contains(&b"Value".as_slice())
+                    && (!tags.contains(&b"Timestamp".as_slice())
+                        || !tags.contains(&b"Quality".as_slice()))
+                {
+                    return Err(format!(
+                        "Things/{}: ThingProperties/{} has a Value without Timestamp and Quality; restore both before deploy",
+                        entity.name,
+                        String::from_utf8_lossy(&property.name)
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Whether this deploy carries the localization tables: a deploy of the whole solution does,
 /// when it has table files (or files that look like tables and cannot be read, which then stop
 /// it). A deploy of some projects or entities, or of the backend only, leaves them to
@@ -437,6 +484,27 @@ mod tests {
     use crate::core::lock;
 
     struct NetworkFake(Vec<network::ServerConnection>);
+
+    #[test]
+    fn stored_values_without_server_stamps_are_refused_before_deploy() {
+        let project = deploy::ProjectBundle {
+            project: "Acme".into(),
+            file_name: "Acme.xml".into(),
+            bytes: Vec::new(),
+            entities: vec![deploy::Entity {
+                server_owned: Vec::new(),
+                collection: "Things".into(),
+                name: "Acme.Timer".into(),
+                bytes: b"<Entities><Things><Thing name=\"Acme.Timer\"><ThingProperties><big><Value>1.2345678E7</Value></big></ThingProperties></Thing></Things></Entities>".to_vec(),
+            }],
+            scripts: Vec::new(),
+            deploy: None,
+            framework: false,
+            post_import: Vec::new(),
+        };
+        let error = thing_property_stamps(&[project]).unwrap_err();
+        assert!(error.contains("Things/Acme.Timer") && error.contains("big"));
+    }
     impl network::Remote for NetworkFake {
         fn connections(
             &self,

@@ -651,6 +651,43 @@ fn duplicate_contract_entries_are_refused() {
 }
 
 #[test]
+fn optional_entities_are_declared_offline_and_missing_on_server_is_a_note() {
+    let contract = parse("[optional.entities]\nWidgets=['Acme.Widget']").unwrap();
+    let collected = Collected {
+        references: BTreeMap::from([(
+            "Widgets".into(),
+            BTreeMap::from([(
+                "Acme.Widget".into(),
+                BTreeSet::from(["Things/Acme.Ref".into()]),
+            )]),
+        )]),
+        ..Default::default()
+    };
+    assert!(!offline(&contract, &collected).blocks());
+    let mut report = offline(&contract, &collected);
+    server_check(
+        &contract,
+        &collected,
+        &Fake {
+            exists: Ok(false),
+            ..Default::default()
+        },
+        &mut report,
+        &progress::NONE,
+    );
+    assert!(!report.blocks());
+    assert!(report.findings.iter().any(|finding| {
+        finding.rule == "optional_missing" && finding.requirement == "Widgets/Acme.Widget"
+    }));
+    assert!(parse(
+        "[entities]\nWidgets=['Acme.Widget']\n[optional.entities]\nWidgets=['Acme.Widget']"
+    )
+    .unwrap_err()
+    .to_string()
+    .contains("one table"));
+}
+
+#[test]
 fn unparsed_script_has_no_resolved_requirements() {
     let (_dir, solution) = solution("");
     entity(

@@ -1024,7 +1024,10 @@ fn print_deploy_report(report: &deploy::Report, apply: bool, force: bool) {
                 println!("  {label}: {would}update; server unchanged since baseline")
             }
             push::Decision::Refuse(reason) if force => {
-                println!("  {label}: {would}overwrite with --force ({reason})")
+                println!(
+                    "  {label}: {would}overwrite with --force ({})",
+                    reason.short_reason()
+                )
             }
             push::Decision::Refuse(reason) => {
                 println!("  {label}: {} ({reason})", style::warn("would refuse"))
