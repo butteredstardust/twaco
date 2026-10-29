@@ -6,6 +6,13 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- `twaco deploy` and `twaco entity push` (MCP `deploy`: `differences` on each `not_kept` item)
+  say where an entity read back "not kept" differs from what was sent: up to five paths such as
+  `Project[P]/@dependsOn: changed`, compared as the hash compares them. Paths carry element and
+  `name` attributes only, never a value.
+
 ## [0.1.42] - 2026-10-28
 
 ### Added

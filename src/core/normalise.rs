@@ -279,10 +279,7 @@ pub(crate) fn hash_with_parts(
     if parts.is_empty() {
         return hash(src);
     }
-    let mut tree = comparison_tree(src, true)?;
-    super::server_owned::omit(&mut tree, parts);
-    // Removing owned descendants can change a set member's canonical sort key.
-    let tree = comparison_element(tree, true);
+    let tree = owned_comparison_tree(src, parts)?;
     let mut canonical = b"twaco-entity-normalise-v7\0".to_vec();
     write_element(&tree, &mut canonical);
     Ok(format!(
@@ -290,6 +287,166 @@ pub(crate) fn hash_with_parts(
         hash_scope(parts),
         hex(&sha256(&canonical))
     ))
+}
+
+/// The tree [`hash_with_parts`] digests: the comparison tree with server-owned parts left out.
+fn owned_comparison_tree(
+    src: &[u8],
+    parts: &[super::server_owned::Part],
+) -> Result<Element, NormaliseError> {
+    let mut tree = comparison_tree(src, true)?;
+    if parts.is_empty() {
+        return Ok(tree);
+    }
+    super::server_owned::omit(&mut tree, parts);
+    // Removing owned descendants can change a set member's canonical sort key.
+    Ok(comparison_element(tree, true))
+}
+
+const MAX_DIFFERENCES: usize = 5;
+
+/// Where a read-back differs from what was sent, as the hash sees it: up to five paths such as
+/// `Project/@dependsOn: changed` or `Thing/ThingShape/.../PropertyDefinition[a]: dropped by the
+/// server`. Paths carry element names and `name` attributes only, never a value or text, which
+/// may be a password.
+pub(crate) fn read_back_differences(
+    sent: &[u8],
+    read_back: &[u8],
+    parts: &[super::server_owned::Part],
+) -> Vec<String> {
+    let (Ok(sent), Ok(read_back)) = (
+        owned_comparison_tree(sent, parts),
+        owned_comparison_tree(read_back, parts),
+    ) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    differences(&sent, &read_back, &element_label(&sent), &mut out);
+    out
+}
+
+fn differences(sent: &Element, back: &Element, path: &str, out: &mut Vec<String>) {
+    let names: std::collections::BTreeSet<&[u8]> = sent
+        .attributes
+        .iter()
+        .chain(&back.attributes)
+        .map(|(name, _)| name.as_slice())
+        .collect();
+    for name in names {
+        let value = |element: &Element| {
+            element
+                .attributes
+                .iter()
+                .find(|(key, _)| key == name)
+                .map(|(_, value)| value.clone())
+        };
+        let what = match (value(sent), value(back)) {
+            (Some(left), Some(right)) if left == right => continue,
+            (Some(_), Some(_)) => "changed",
+            (Some(_), None) => "dropped by the server",
+            (None, Some(_)) => "added by the server",
+            (None, None) => continue,
+        };
+        note(
+            out,
+            format!("{path}/@{}: {what}", String::from_utf8_lossy(name)),
+        );
+    }
+    let content = |element: &Element| {
+        let mut bytes = Vec::new();
+        for child in &element.children {
+            match child {
+                Node::Element(_) => {}
+                Node::Text(text) => field(b'T', text, &mut bytes),
+                Node::Cdata(cdata) => field(b'C', cdata, &mut bytes),
+                Node::Comment(comment) => field(b'M', comment, &mut bytes),
+                Node::Pi(pi) => field(b'P', pi, &mut bytes),
+            }
+        }
+        bytes
+    };
+    if content(sent) != content(back) {
+        note(out, format!("{path}: text changed"));
+    }
+    let (left, right) = (labelled_children(sent), labelled_children(back));
+    let unique = |children: &[(String, &Element)]| {
+        let labels: std::collections::BTreeSet<&String> =
+            children.iter().map(|(label, _)| label).collect();
+        labels.len() == children.len()
+    };
+    if unique(&left) && unique(&right) {
+        // Children told apart by name: match them by it, so one the server dropped or added is
+        // named rather than shifting every sibling after it.
+        let find = |children: &[(String, &'_ Element)], label: &str| {
+            children.iter().any(|(other, _)| other == label)
+        };
+        for (label, _) in &left {
+            if !find(&right, label) {
+                note(out, format!("{path}/{label}: dropped by the server"));
+            }
+        }
+        for (label, _) in &right {
+            if !find(&left, label) {
+                note(out, format!("{path}/{label}: added by the server"));
+            }
+        }
+        for (label, child) in &left {
+            if let Some((_, other)) = right.iter().find(|(other, _)| other == label) {
+                differences(child, other, &format!("{path}/{label}"), out);
+            }
+        }
+        return;
+    }
+    for (index, ((label, child), (other_label, other))) in left.iter().zip(&right).enumerate() {
+        if label == other_label {
+            differences(child, other, &format!("{path}/{label}[{}]", index + 1), out);
+        } else {
+            note(
+                out,
+                format!(
+                    "{path}: element {} is {label} as sent, {other_label} as read back",
+                    index + 1
+                ),
+            );
+            return;
+        }
+    }
+    if left.len() != right.len() {
+        note(
+            out,
+            format!(
+                "{path}: {} child elements sent, {} read back",
+                left.len(),
+                right.len()
+            ),
+        );
+    }
+}
+
+fn note(out: &mut Vec<String>, what: String) {
+    if out.len() < MAX_DIFFERENCES {
+        out.push(what);
+    }
+}
+
+/// An element's name, with its `name` attribute when it has one: `PropertyDefinition[a]`.
+fn element_label(element: &Element) -> String {
+    let tag = String::from_utf8_lossy(&element.name);
+    match name_attribute(element) {
+        [] => tag.into_owned(),
+        name => format!("{tag}[{}]", String::from_utf8_lossy(name)),
+    }
+}
+
+fn labelled_children(element: &Element) -> Vec<(String, &Element)> {
+    element
+        .children
+        .iter()
+        .filter_map(|child| match child {
+            Node::Element(child) => Some((element_label(child), child)),
+            _ => None,
+        })
+        .collect()
 }
 
 /// Hash version and selector policy, excluding the content digest.
@@ -996,6 +1153,54 @@ mod tests {
         assert!(added_project_dependencies(sent.as_bytes(), described.as_bytes()).is_empty());
         // A dependency the server dropped is not one it added.
         assert!(added_project_dependencies(read_back.as_bytes(), sent.as_bytes()).is_empty());
+    }
+
+    #[test]
+    fn a_read_back_names_where_it_differs_without_values() {
+        let sent = r#"<Entities><Things><Thing name="P.T" description="d" password="s3cret"><ThingShape><PropertyDefinitions><PropertyDefinition name="a" baseType="NUMBER"/><PropertyDefinition name="b" baseType="STRING"/></PropertyDefinitions></ThingShape><ThingProperties><a><Value>1</Value></a></ThingProperties></Thing></Things></Entities>"#;
+        let back = r#"<Thing name="P.T" description="other" password="t0ps" lastModifiedDate="2026-10-29T08:00:00.000Z"><Owner name="Administrator" type="User"/><ThingShape><PropertyDefinitions><PropertyDefinition name="c" baseType="STRING"/><PropertyDefinition name="a" baseType="INTEGER"/></PropertyDefinitions></ThingShape><ThingProperties><a><Value>2</Value><Timestamp>2026-10-29T08:00:00.000Z</Timestamp></a></ThingProperties></Thing>"#;
+        let found = read_back_differences(sent.as_bytes(), back.as_bytes(), &[]);
+        assert_eq!(
+            found,
+            [
+                "Thing[P.T]/@description: changed",
+                "Thing[P.T]/@password: changed",
+                "Thing[P.T]/ThingShape/PropertyDefinitions/PropertyDefinition[b]: dropped by the server",
+                "Thing[P.T]/ThingShape/PropertyDefinitions/PropertyDefinition[c]: added by the server",
+                "Thing[P.T]/ThingShape/PropertyDefinitions/PropertyDefinition[a]/@baseType: changed",
+            ]
+        );
+        assert!(!found
+            .iter()
+            .any(|line| line.contains("s3cret") || line.contains("t0ps")));
+        // The sixth difference, the stored value, is past the limit; on its own it is text.
+        let only_value = sent.replace("<Value>1</Value>", "<Value>2</Value>");
+        assert_eq!(
+            read_back_differences(sent.as_bytes(), only_value.as_bytes(), &[]),
+            ["Thing[P.T]/ThingProperties/a/Value: text changed"]
+        );
+        // What the hash ignores is no difference.
+        let reindented = sent.replace(
+            "><", ">
+  <",
+        );
+        assert!(read_back_differences(sent.as_bytes(), reindented.as_bytes(), &[]).is_empty());
+    }
+
+    #[test]
+    fn unnamed_siblings_are_compared_in_order() {
+        let sent = r#"<Mashup name="M"><Things><Thing>A</Thing><Thing>B</Thing></Things></Mashup>"#;
+        let fewer = r#"<Mashup name="M"><Things><Thing>A</Thing></Things></Mashup>"#;
+        assert_eq!(
+            read_back_differences(sent.as_bytes(), fewer.as_bytes(), &[]),
+            ["Mashup[M]/Things: 2 child elements sent, 1 read back"]
+        );
+        let changed =
+            r#"<Mashup name="M"><Things><Thing>A</Thing><Thing>C</Thing></Things></Mashup>"#;
+        assert_eq!(
+            read_back_differences(sent.as_bytes(), changed.as_bytes(), &[]),
+            ["Mashup[M]/Things/Thing[2]: text changed"]
+        );
     }
 
     const LIVE: &[u8] = br#"<?xml version="1.0" encoding="UTF-8"?><Thing projectName="P" name="P.T" lastModifiedDate="now"><Owner name="admin"></Owner><effectiveShape><x/></effectiveShape><effectiveRemoteServiceBindings><Binding/></effectiveRemoteServiceBindings><ConfigurationChanges><ConfigurationChange timestamp="now"/></ConfigurationChanges><ServiceDefinitions><ServiceDefinition name="S"><Implementation><code><![CDATA[var x = 1;

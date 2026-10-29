@@ -520,6 +520,7 @@ mod tests {
             PushError::NotKept {
                 sent: text(),
                 read_back: None,
+                differences: Vec::new(),
             },
             ErrorCode::NotVerified,
         );
