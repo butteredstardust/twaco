@@ -114,6 +114,27 @@ claude mcp add twaco -- twaco mcp --tools core,mashup
   32 MiB, its line ending included, is answered with `-32000` and skipped; the messages after it
   are read as usual.
 
+A tool call, from the agent to twaco's core and back:
+
+```mermaid
+sequenceDiagram
+    participant Agent as MCP client
+    participant Reader as twaco mcp
+    participant Worker as tool worker
+    participant Core as twaco core
+    Agent->>Reader: tools/call deploy {"only": ["Acme.Orders"]}
+    Reader->>Worker: queue the call
+    Note over Reader: keeps answering ping, tools/list<br/>and cancellations meanwhile
+    Worker->>Core: the same executor the CLI uses
+    Core-->>Worker: a plan, since dry_run defaults to true
+    Worker-->>Agent: notifications/progress
+    Worker-->>Agent: result: a summary first, detail on request
+    Agent->>Reader: tools/call deploy {..., "dry_run": false}
+```
+
+Tool calls run one at a time, in the order they arrive. A cancelled call that has not started
+never starts; one that has runs to its end, so a server write is never stopped halfway.
+
 ## Errors and codes
 
 An errored tool result has `isError: true` and `{"error":"the unchanged message","code":"stable_code"}`
