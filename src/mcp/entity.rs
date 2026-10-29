@@ -131,7 +131,7 @@ pub(crate) fn pull_tool(
         progress,
     )
     .map_err(ToolError::coded)?;
-    let mut value = json!({"dry_run": !outcome.applied, "entities": outcome.entities, "recorded": outcome.recorded});
+    let mut value = json!({"dry_run": !outcome.applied, "entities": outcome.entities, "skipped_no_baseline": outcome.skipped_no_baseline, "recorded": outcome.recorded});
     add_notices(&mut value, &notices);
     Ok(value)
 }

@@ -53,7 +53,11 @@ impl fmt::Display for Refusal {
             ),
             Refusal::UnknownAncestor { server } => write!(
                 f,
-                "the server has a different version ({server}) and there is no baseline to say                  which side changed; look at it with `twaco entity get <entity>` and bring its                  change into the repository if it matters, or overwrite it with --force --apply;                  once both sides agree, `twaco entity status <entity> --record` records the                  baseline"
+                "the server has a different version ({server}) and there is no baseline to say \
+                 which side changed; look at it with `twaco entity get <entity>` and bring its \
+                 change into the repository if it matters, or overwrite it with --force --apply; \
+                 once both sides agree, `twaco entity status <entity> --record` records the \
+                 baseline"
             ),
             Refusal::Conflict { server, baseline } => write!(
                 f,
@@ -67,6 +71,18 @@ impl fmt::Display for Refusal {
                  --force and set it again yourself",
                 parts.join(", ")
             ),
+        }
+    }
+}
+
+impl Refusal {
+    /// The reason shown beside an already-selected `--force`, without repeating its advice.
+    pub fn short_reason(&self) -> String {
+        match self {
+            Self::UnknownAncestor { server } => format!(
+                "the server has a different version ({server}) and there is no baseline to say which side changed"
+            ),
+            _ => self.to_string(),
         }
     }
 }
@@ -422,6 +438,23 @@ mod tests {
             "status <entity> --record",
         ] {
             assert!(text.contains(step), "{step}: {text}");
+        }
+    }
+
+    #[test]
+    fn refusal_text_never_has_two_spaces() {
+        for refusal in [
+            Refusal::DeletedOnServer,
+            Refusal::UnknownAncestor { server: "s".into() },
+            Refusal::Conflict {
+                server: "s".into(),
+                baseline: "b".into(),
+            },
+            Refusal::EncryptedServerOwned {
+                parts: vec!["p".into()],
+            },
+        ] {
+            assert!(!refusal.to_string().contains("  "), "{refusal}");
         }
     }
 

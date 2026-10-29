@@ -6,6 +6,31 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `requirements.toml` supports `[optional.entities]` for dependencies that are allowed to be
+  absent from some target servers.
+
+### Fixed
+
+- Entity comparison hashes are version 8. A NUMBER, INTEGER, LONG or JSON value whose type the
+  entity declares compares by value (the server returns `10800000.0` as `1.08E7` and JSON
+  compacted with sorted keys), PropertyDefinitions compare in any order, and an empty script
+  equals the server's `<code/>`. Entities twaco authored no longer deploy as "not kept" and then
+  get refused. Run `twaco entity status --all --record` once to record the new baselines.
+  Adopt compares through the same rules.
+- `new timer` and `timer set` write the update rate as the server does; `thing property add`
+  refuses a LONG default beyond 2^53, which the server would round.
+- `init --from-server`, `entity pull` and adopt keep a stored property value's `Timestamp` and
+  `Quality`; without them the server refused the whole project import. Deploy refuses such a
+  value before importing.
+- `entity pull --all` names the entities it skips for having no baseline.
+- The no-baseline refusal no longer prints runs of spaces; with `--force`, deploy shows the
+  reason without the advice.
+- `model resolve` answers 0 for a template or shape no Thing implements; `types --check` with no
+  TypeScript installed says how to install it; an XSD whose occurrence counts overflow is
+  refused instead of mis-validated.
+
 ## [0.1.45] - 2026-10-29
 
 ### Fixed

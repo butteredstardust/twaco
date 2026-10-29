@@ -774,7 +774,7 @@ mod tests {
             crate::core::normalise::hash(&std::fs::read(root.join("Mashups/P.A.xml")).unwrap())
                 .unwrap();
         let mut baseline = crate::core::baseline::Baseline::default();
-        baseline.set("Mashups", "P.A", ours, "v7:server".into());
+        baseline.set("Mashups", "P.A", ours, "v8:server".into());
         baseline.write(&root, "default").unwrap();
         let notes = notes(&solution);
         assert!(

@@ -149,7 +149,7 @@ fn semantically_unchanged_export_permissions_do_not_rewrite_the_entity() {
     std::fs::write(&export, theirs).unwrap();
     let solution = Solution::load(&dir.path().join("twaco.toml")).unwrap();
     let report = compare(&solution, &export, &[]).unwrap();
-    assert_eq!(report.entities[0].change, Change::Unknown);
+    assert_eq!(report.entities[0].change, Change::Same);
     let takes = [Take {
         side: TakeSide::Theirs,
         target: "Acme.Manager".into(),

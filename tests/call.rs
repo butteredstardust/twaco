@@ -84,7 +84,7 @@ fn status_record_prints_post_record_verdicts_and_returns_their_exit_code() {
         let xml = "<Entities><Things><Thing name=\"Acme.Manager\" projectName=\"Acme.App\"><value>current</value></Thing></Things></Entities>";
         std::fs::write(root.join("Things/Acme.Manager.xml"), xml).unwrap();
         let baseline =
-            r#"{"entities":{"Things":{"Acme.Manager":{"local":"v7:old","server":"v7:old"}}}}"#;
+            r#"{"entities":{"Things":{"Acme.Manager":{"local":"v8:old","server":"v8:old"}}}}"#;
         std::fs::create_dir_all(root.join(".twaco/baselines")).unwrap();
         std::fs::write(root.join(".twaco/baselines/default.json"), baseline).unwrap();
         let response = if matches {
@@ -135,7 +135,7 @@ fn status_record_prints_post_record_verdicts_and_returns_their_exit_code() {
             .unwrap();
             assert_eq!(
                 saved["entities"]["Things"]["Acme.Manager"]["local"],
-                "v7:old"
+                "v8:old"
             );
         }
         server.join().unwrap();

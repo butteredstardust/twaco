@@ -37,6 +37,9 @@ Things = ["Acme.ExternalEntryPoint"]
 Organizations = ["Acme.Shared_OR"]
 Groups = ["Acme.Operators"]
 Widgets = ["Acme.ExtensionWidget"]
+
+[optional.entities]
+Things = ["Acme.OptionalEntryPoint"]
 ```
 
 Collection keys use ThingWorx collection names; only names the repository does not define
@@ -54,6 +57,10 @@ runtime dependencies even when marked stale. `--server` additionally checks the 
 extension package versions, external projects and entities; unreadable server results block.
 The built-in `requirements` gate runs offline when the file exists; `[gates] advisory =
 ["requirements"]` makes its findings advisory (a gate that cannot run still fails closed).
+
+Use `[optional.entities]` for a dependency that some target servers intentionally do not have.
+It has the same collection keys as `[entities]`, counts as declared offline, and is a non-blocking
+note when absent from `requirements check --server` or deploy; do not list one name in both tables.
 
 ## `twaco.toml`
 

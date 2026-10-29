@@ -81,7 +81,7 @@ pub(crate) fn entity_pull(solution: &Solution, args: &EntityPull) -> u8 {
             if args.json.json {
                 println!(
                     "{}",
-                    serde_json::json!({"dry_run":!outcome.applied,"entities":outcome.entities,"recorded":outcome.recorded})
+                    serde_json::json!({"dry_run":!outcome.applied,"entities":outcome.entities,"skipped_no_baseline":outcome.skipped_no_baseline,"recorded":outcome.recorded})
                 );
             } else if outcome.applied {
                 println!(
@@ -98,6 +98,11 @@ pub(crate) fn entity_pull(solution: &Solution, args: &EntityPull) -> u8 {
             } else {
                 for entity in &outcome.entities {
                     println!("{entity}: would take the server's version");
+                }
+                for entity in &outcome.skipped_no_baseline {
+                    println!(
+                        "{entity}: skipped (no baseline; name it to pull, or `twaco entity status {entity} --record` once both agree)"
+                    );
                 }
                 println!("dry run: nothing was written; pass --apply to pull");
             }
