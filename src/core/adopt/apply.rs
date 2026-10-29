@@ -183,6 +183,7 @@ pub(crate) fn apply(
         }
     }
     let retypes = map_retyped_arguments(solution, report, &here, &mut steps)?;
+    refresh_field_sidecars(solution, &here, &mut steps)?;
     let mut transaction = Transaction::new(&solution.root, "adopt");
     let mut lines = Vec::new();
     for (write, line) in steps {
@@ -353,6 +354,92 @@ fn map_retyped_arguments(
     }
     steps.extend(added);
     Ok(adopted)
+}
+
+/// A DataShape's `fields.json` and a DataTable's `datatable.json` follow the XML this apply
+/// writes, since `sync` reads them as the source of truth and would otherwise put the old fields
+/// back. A sidecar edited since the last sync is newer work the comparison never saw, so the
+/// apply is refused rather than overwrite it.
+fn refresh_field_sidecars(
+    solution: &Solution,
+    here: &BTreeMap<EntityRef, (Element, PathBuf)>,
+    steps: &mut Vec<(Option<Write>, String)>,
+) -> Result<(), AdoptError> {
+    let mut added = Vec::new();
+    for (entity, (_, path)) in here {
+        // The last planned write of the file is what it ends up holding.
+        let Some(new) = steps.iter().rev().find_map(|(write, _)| match write {
+            Some(Write::Entity(planned, text)) if planned == path => Some(text.as_bytes()),
+            Some(Write::Bytes(planned, bytes)) if planned == path => Some(bytes.as_slice()),
+            _ => None,
+        }) else {
+            continue;
+        };
+        let old = std::fs::read(path).map_err(|e| io_error(path, e))?;
+        let dir = solution.src_root().join(&entity.name);
+        let render = |xml: &[u8], file: &str| -> Option<Result<String, String>> {
+            if file == "fields.json" {
+                (entity.collection == "DataShapes").then(|| {
+                    super::super::datashape::extract(xml)
+                        .map(|fields| super::super::datashape::to_sidecar(&fields))
+                        .map_err(|e| e.to_string())
+                })
+            } else {
+                super::super::datatable::is_data_table(xml).then(|| {
+                    super::super::datatable::extract(xml)
+                        .and_then(|c| super::super::datatable::to_sidecar(&c))
+                        .map_err(|e| e.to_string())
+                })
+            }
+        };
+        for file in ["fields.json", "datatable.json"] {
+            let sidecar = dir.join(file);
+            let Ok(current) = std::fs::read_to_string(&sidecar) else {
+                continue;
+            };
+            let (Some(synced), Some(wanted)) = (render(&old, file), render(new, file)) else {
+                continue;
+            };
+            let wanted = wanted.map_err(|why| io_error(path, why))?;
+            let lf = current.replace("\r\n", "\n");
+            // Compared as read, so a sidecar only reformatted since the sync still counts as
+            // synced.
+            let same = |text: &str| match file {
+                "fields.json" => {
+                    super::super::datashape::from_sidecar(&lf).ok()
+                        == super::super::datashape::from_sidecar(text).ok()
+                }
+                _ => {
+                    super::super::datatable::from_sidecar(&lf).ok()
+                        == super::super::datatable::from_sidecar(text).ok()
+                }
+            };
+            if !synced.as_deref().is_ok_and(same) && !same(&wanted) {
+                return Err(io_error(
+                    &sidecar,
+                    format!(
+                        "it changed since the last sync, and adopting {}/{} would overwrite it; \
+                         sync, then adopt again; nothing was adopted",
+                        entity.collection, entity.name
+                    ),
+                ));
+            }
+            if same(&wanted) {
+                continue;
+            }
+            let bytes = if current.contains("\r\n") {
+                wanted.replace('\n', "\r\n")
+            } else {
+                wanted
+            };
+            added.push((
+                Some(Write::Bytes(sidecar.clone(), bytes.into_bytes())),
+                format!("sidecar  {}", relative_to(solution, &sidecar)),
+            ));
+        }
+    }
+    steps.extend(added);
+    Ok(())
 }
 
 /// One file or sidecar folder `apply` will write, worked out in full beforehand.
