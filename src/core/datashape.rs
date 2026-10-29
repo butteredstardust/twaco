@@ -74,7 +74,9 @@ impl From<ScanError> for FieldError {
     }
 }
 
-/// Read a DataShape's fields, in the order the document declares them.
+/// Read a DataShape's fields, in `ordinal` order. A server export lists them by name instead, so
+/// the order they were declared in would otherwise depend on where the file came from. When an
+/// ordinal is not a number the document's order stands; equal ordinals keep it too.
 pub fn extract(src: &[u8]) -> Result<Vec<Field>, FieldError> {
     let tokens = scan::tokenize(src)?;
     let Some(section) = sole_section(&tokens, src)? else {
@@ -99,6 +101,15 @@ pub fn extract(src: &[u8]) -> Result<Vec<Field>, FieldError> {
         } else {
             index += 1;
         }
+    }
+    let ordinals: Option<Vec<u64>> = fields
+        .iter()
+        .map(|field| field.ordinal.trim().parse().ok())
+        .collect();
+    if let Some(ordinals) = ordinals {
+        let mut numbered: Vec<(u64, Field)> = ordinals.into_iter().zip(fields).collect();
+        numbered.sort_by_key(|(ordinal, _)| *ordinal);
+        fields = numbered.into_iter().map(|(_, field)| field).collect();
     }
     Ok(fields)
 }
@@ -749,6 +760,45 @@ mod tests {
         assert!(
             sync(src, &[], false).is_err(),
             "a nested section is not ours to overwrite"
+        );
+    }
+
+    /// A server export lists fields by name; Composer's own file lists them as declared.
+    #[test]
+    fn fields_come_out_in_ordinal_order_whatever_order_the_file_lists_them_in() {
+        let field = |name: &str, ordinal: &str| {
+            format!("<FieldDefinition baseType=\"STRING\" description=\"\" name=\"{name}\" ordinal=\"{ordinal}\"/>")
+        };
+        let shape = |fields: &[String]| {
+            format!(
+                "<Entities><DataShapes><DataShape name=\"D\"><FieldDefinitions>{}</FieldDefinitions></DataShape></DataShapes></Entities>",
+                fields.concat()
+            )
+        };
+        let names = |src: &str| -> Vec<String> {
+            extract(src.as_bytes())
+                .unwrap()
+                .into_iter()
+                .map(|f| f.name)
+                .collect()
+        };
+        let declared = shape(&[field("zeta", "1"), field("alpha", "2"), field("mid", "10")]);
+        let by_name = shape(&[field("alpha", "2"), field("mid", "10"), field("zeta", "1")]);
+        assert_eq!(names(&declared), ["zeta", "alpha", "mid"]);
+        assert_eq!(names(&by_name), ["zeta", "alpha", "mid"]);
+        // The sidecar of one is already in sync with the other.
+        let sidecar = extract(declared.as_bytes()).unwrap();
+        let (out, changes) = sync(by_name.as_bytes(), &sidecar, false).unwrap();
+        assert_eq!(out, by_name.as_bytes());
+        assert!(changes.is_empty());
+        // Equal ordinals keep the file's order; one that is not a number leaves it all as written.
+        assert_eq!(
+            names(&shape(&[field("b", "1"), field("a", "1"), field("c", "0")])),
+            ["c", "b", "a"]
+        );
+        assert_eq!(
+            names(&shape(&[field("b", "2"), field("a", "x"), field("c", "1")])),
+            ["b", "a", "c"]
         );
     }
 

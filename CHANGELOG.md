@@ -19,6 +19,9 @@ All notable changes to twaco are recorded here. The format follows
   with the XML it adopts. They were left as they were, and `sync`, which reads them as the source
   of truth, put the old field description, type or aspects back. A sidecar edited since the last
   sync is never overwritten: the adopt is refused and nothing is written.
+- `fields.json` lists a DataShape's fields in `ordinal` order wherever its XML came from. A
+  server export lists them by name, so a pulled DataShape's sidecar came out in another order
+  than an authored one.
 
 ## [0.1.42] - 2026-10-28
 
