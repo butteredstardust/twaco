@@ -76,6 +76,9 @@ pub struct NotKept {
     /// For a Project, the projects the server added to its `dependsOn` when that is all that
     /// differs: entities sent with it need them.
     pub added_dependencies: Vec<String>,
+    /// Up to five paths where the read-back differs from what was sent, as the hash compares
+    /// them; names only, never values.
+    pub differences: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default)]

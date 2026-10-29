@@ -929,3 +929,94 @@ fn a_new_entity_without_a_peer_file_gets_the_source_control_envelope() {
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Entities\n majorVersion=\"10\"\n minorVersion=\"1\"\n universal=\"password\">\n    <DataShapes>\n        <DataShape\n         name=\"Acme.Row_DS\"\n         projectName=\"Acme.App\">\n            <FieldDefinitions></FieldDefinitions>\n        </DataShape>\n    </DataShapes>\n</Entities>\n"
     );
 }
+
+fn data_shape(description: &str) -> String {
+    format!(
+        "<Entities><DataShapes><DataShape name=\"P.D\" projectName=\"P\"><FieldDefinitions>\
+         <FieldDefinition baseType=\"STRING\" description=\"{description}\" name=\"a\" ordinal=\"1\"/>\
+         </FieldDefinitions></DataShape></DataShapes></Entities>"
+    )
+}
+
+fn data_shape_case(fields: &str) -> (tempfile::TempDir, Solution, PathBuf, PathBuf) {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
+    std::fs::create_dir(dir.path().join("DataShapes")).unwrap();
+    std::fs::write(dir.path().join("DataShapes/P.D.xml"), data_shape("old")).unwrap();
+    std::fs::create_dir_all(dir.path().join("src/P.D")).unwrap();
+    let synced = crate::core::datashape::extract(data_shape(fields).as_bytes()).unwrap();
+    std::fs::write(
+        dir.path().join("src/P.D/fields.json"),
+        crate::core::datashape::to_sidecar(&synced),
+    )
+    .unwrap();
+    let base_file = dir.path().join("base.xml");
+    std::fs::write(&base_file, data_shape("old")).unwrap();
+    let export = dir.path().join("export.xml");
+    std::fs::write(&export, data_shape("new")).unwrap();
+    let solution = Solution::load(&dir.path().join("twaco.toml")).unwrap();
+    (dir, solution, base_file, export)
+}
+
+/// `sync` reads fields.json as the source of truth: one left stale would put the old field back.
+#[test]
+fn an_adopted_data_shape_brings_its_fields_json_along() {
+    let (_dir, solution, base, export) = data_shape_case("old");
+    let lines = apply_all(&solution, &base, &export, &[]);
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.starts_with("sidecar") && l.contains("fields.json")),
+        "{lines:?}"
+    );
+    assert!(read(&solution, "DataShapes/P.D.xml").contains("description=\"new\""));
+    let fields = read(&solution, "src/P.D/fields.json");
+    assert!(
+        fields.contains("\"new\"") && !fields.contains("\"old\""),
+        "{fields}"
+    );
+    // Nothing left for a sync to undo, and a second apply writes nothing.
+    assert!(apply_all(&solution, &base, &export, &[])
+        .iter()
+        .all(|l| !l.starts_with("sidecar")));
+}
+
+#[test]
+fn a_fields_json_edited_since_the_sync_is_never_overwritten() {
+    let (_dir, solution, base, export) = data_shape_case("mine");
+    let before = file_snapshot(&solution.root);
+    let report = compared(&solution, &base, &export);
+    let lock = locked(&solution);
+    let Err(error) = apply(&solution, &export, &report, &[], &lock) else {
+        panic!("the apply went ahead");
+    };
+    assert!(
+        error.to_string().contains("changed since the last sync"),
+        "{error}"
+    );
+    drop(lock);
+    assert_eq!(file_snapshot(&solution.root), before, "nothing was adopted");
+}
+
+#[test]
+fn a_data_shape_they_added_comes_with_its_fields_json() {
+    let (_dir, solution, base, export) = data_shape_case("old");
+    let both = data_shape("old").replace(
+        "</DataShape>",
+        "</DataShape><DataShape name=\"P.New\" projectName=\"P\"><FieldDefinitions>\
+         <FieldDefinition baseType=\"NUMBER\" description=\"\" name=\"n\" ordinal=\"1\"/>\
+         </FieldDefinitions></DataShape>",
+    );
+    std::fs::write(&export, &both).unwrap();
+    let lines = apply_all(&solution, &base, &export, &[]);
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.starts_with("created  DataShapes/P.New.xml")),
+        "{lines:?}"
+    );
+    let fields = read(&solution, "src/P.New/fields.json");
+    assert!(fields.contains("\"NUMBER\""), "{fields}");
+    // The shape already here was not changed, so its sidecar is left alone.
+    assert!(read(&solution, "src/P.D/fields.json").contains("\"old\""));
+}

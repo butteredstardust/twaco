@@ -775,6 +775,15 @@ pub(crate) fn deploy_cmd(solution: &Solution, args: &Deploy) -> u8 {
                                     item.name,
                                     item.added_dependencies.join(", ")
                                 );
+                            } else if !item.only_permissions {
+                                for difference in &item.differences {
+                                    eprintln!(
+                                        "{} {}/{}: {difference}",
+                                        style::prefix(),
+                                        item.collection,
+                                        item.name
+                                    );
+                                }
                             }
                             eprintln!(
                                 "{} to take what the server made of it: twaco entity pull {}/{} --apply",

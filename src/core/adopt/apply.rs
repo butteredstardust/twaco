@@ -183,6 +183,7 @@ pub(crate) fn apply(
         }
     }
     let retypes = map_retyped_arguments(solution, report, &here, &mut steps)?;
+    refresh_field_sidecars(solution, &here, &mut steps)?;
     let mut transaction = Transaction::new(&solution.root, "adopt");
     let mut lines = Vec::new();
     for (write, line) in steps {
@@ -353,6 +354,121 @@ fn map_retyped_arguments(
     }
     steps.extend(added);
     Ok(adopted)
+}
+
+/// A DataShape's `fields.json` and a DataTable's `datatable.json` follow the XML this apply
+/// writes, since `sync` reads them as the source of truth and would otherwise put the old fields
+/// back; a new entity gets them as extract would write them. A sidecar edited since the last sync
+/// is newer work the comparison never saw, so the apply is refused rather than overwrite it.
+fn refresh_field_sidecars(
+    solution: &Solution,
+    here: &BTreeMap<EntityRef, (Element, PathBuf)>,
+    steps: &mut Vec<(Option<Write>, String)>,
+) -> Result<(), AdoptError> {
+    // The last planned write of each entity file is what it ends up holding.
+    let mut planned: Vec<(&PathBuf, &[u8])> = Vec::new();
+    for (write, _) in steps.iter() {
+        let (path, bytes) = match write {
+            Some(Write::Entity(path, text)) => (path, text.as_bytes()),
+            Some(Write::Bytes(path, bytes)) => (path, bytes.as_slice()),
+            _ => continue,
+        };
+        planned.retain(|(other, _)| *other != path);
+        planned.push((path, bytes));
+    }
+    let mut added = Vec::new();
+    for (path, new) in planned {
+        let entity = match here.iter().find(|(_, (_, here_path))| here_path == path) {
+            Some((entity, _)) => entity.clone(),
+            None => match super::super::entity::parse(new) {
+                Ok(info) => EntityRef {
+                    collection: info.collection,
+                    name: info.name,
+                },
+                Err(_) => continue,
+            },
+        };
+        // A new entity has no XML yet, so no sidecar of it can have been synced.
+        let old = match std::fs::read(path) {
+            Ok(bytes) => Some(bytes),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) => return Err(io_error(path, error)),
+        };
+        let dir = solution.src_root().join(&entity.name);
+        let render = |xml: &[u8], file: &str| -> Option<Result<String, String>> {
+            if file == "fields.json" {
+                (entity.collection == "DataShapes").then(|| {
+                    super::super::datashape::extract(xml)
+                        .map(|fields| super::super::datashape::to_sidecar(&fields))
+                        .map_err(|e| e.to_string())
+                })
+            } else {
+                super::super::datatable::is_data_table(xml).then(|| {
+                    super::super::datatable::extract(xml)
+                        .and_then(|c| super::super::datatable::to_sidecar(&c))
+                        .map_err(|e| e.to_string())
+                })
+            }
+        };
+        for file in ["fields.json", "datatable.json"] {
+            let sidecar = dir.join(file);
+            let Some(wanted) = render(new, file) else {
+                continue;
+            };
+            let wanted = wanted.map_err(|why| io_error(path, why))?;
+            let current = match std::fs::read_to_string(&sidecar) {
+                Ok(current) => current,
+                // An entity that has its XML and no sidecar is not managed by one.
+                Err(_) if old.is_some() => continue,
+                Err(_) => {
+                    added.push((
+                        Some(Write::Bytes(sidecar.clone(), wanted.into_bytes())),
+                        format!("created  {}", relative_to(solution, &sidecar)),
+                    ));
+                    continue;
+                }
+            };
+            let synced = old.as_deref().and_then(|old| render(old, file));
+            let lf = current.replace("\r\n", "\n");
+            // Compared as read, so a sidecar only reformatted since the sync still counts as
+            // synced.
+            let same = |text: &str| match file {
+                "fields.json" => {
+                    super::super::datashape::from_sidecar(&lf).ok()
+                        == super::super::datashape::from_sidecar(text).ok()
+                }
+                _ => {
+                    super::super::datatable::from_sidecar(&lf).ok()
+                        == super::super::datatable::from_sidecar(text).ok()
+                }
+            };
+            let synced = synced.is_some_and(|synced| synced.as_deref().is_ok_and(same));
+            if !synced && !same(&wanted) {
+                return Err(io_error(
+                    &sidecar,
+                    format!(
+                        "it changed since the last sync, and adopting {}/{} would overwrite it; \
+                         sync, then adopt again; nothing was adopted",
+                        entity.collection, entity.name
+                    ),
+                ));
+            }
+            if same(&wanted) {
+                continue;
+            }
+            let bytes = if current.contains("\r\n") {
+                wanted.replace('\n', "\r\n")
+            } else {
+                wanted
+            };
+            added.push((
+                Some(Write::Bytes(sidecar.clone(), bytes.into_bytes())),
+                format!("sidecar  {}", relative_to(solution, &sidecar)),
+            ));
+        }
+    }
+    steps.extend(added);
+    Ok(())
 }
 
 /// One file or sidecar folder `apply` will write, worked out in full beforehand.

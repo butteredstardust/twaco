@@ -524,7 +524,13 @@ fn baseline_is_written_once_and_contains_only_matching_read_backs() {
     };
     let baselines = MemoryBaseline::default();
     let error = run_test(&remote, &baselines, &[project], true, false).unwrap_err();
-    assert!(matches!(error, DeployError::NotKept(_)));
+    let DeployError::NotKept(report) = &error else {
+        panic!("{error}");
+    };
+    assert_eq!(
+        report.not_kept[0].differences,
+        ["Thing[Changed]/ThingShape/ServiceImplementations/ServiceImplementation[S]/ConfigurationTables/ConfigurationTable[Script]/Rows/Row/code: text changed"]
+    );
     assert_eq!(*baselines.writes.borrow(), 1);
     let baseline = baselines.value.borrow();
     assert!(baseline.get("Things", "Same").is_some());

@@ -6,6 +6,24 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- `twaco deploy` and `twaco entity push` (MCP `deploy`: `differences` on each `not_kept` item)
+  say where an entity read back "not kept" differs from what was sent: up to five paths such as
+  `Project[P]/@dependsOn: changed`, compared as the hash compares them. Paths carry element and
+  `name` attributes only, never a value.
+
+### Fixed
+
+- `twaco adopt` rewrites a DataShape's `fields.json` and a DataTable's `datatable.json` along
+  with the XML it adopts. They were left as they were, and `sync`, which reads them as the source
+  of truth, put the old field description, type or aspects back. A sidecar edited since the last
+  sync is never overwritten: the adopt is refused and nothing is written. A DataShape or
+  DataTable the adopt creates gets its sidecar too.
+- `fields.json` lists a DataShape's fields in `ordinal` order wherever its XML came from. A
+  server export lists them by name, so a pulled DataShape's sidecar came out in another order
+  than an authored one. A `fields.json` written in another order still reads as in sync.
+
 ## [0.1.42] - 2026-10-28
 
 ### Added

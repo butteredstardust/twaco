@@ -178,13 +178,23 @@ pub enum PushError {
                  (sent {sent}, read back {}); the baseline was not updated. Known causes: a \
                  configuration table the template does not define is dropped, and a file \
                  missing sections the server always writes (a hand-written one, typically) \
-                 comes back with them filled in. `twaco entity get` shows what the server kept", .read_back
+                 comes back with them filled in. `twaco entity get` shows what the server kept{}", .read_back
                     .as_deref()
-                    .unwrap_or("nothing: the entity is missing"))]
+                    .unwrap_or("nothing: the entity is missing"), where_it_differs(.differences))]
     NotKept {
         sent: String,
         read_back: Option<String>,
+        /// Where the read-back differs, names only: [`normalise::read_back_differences`].
+        differences: Vec<String>,
     },
+}
+
+fn where_it_differs(differences: &[String]) -> String {
+    if differences.is_empty() {
+        String::new()
+    } else {
+        format!("; it differs at {}", differences.join("; "))
+    }
 }
 
 /// Decide, and with `apply`, act. `force` overrides a refusal and nothing else.
@@ -282,16 +292,19 @@ pub(crate) fn push_with_parts(
         .map_err(PushError::Remote)?;
     // From here on the server has changed, so a failure must say so rather than read like the
     // fetch before the import did.
-    let read_back = remote
-        .fetch(&target.key)
-        .map_err(PushError::Unverified)?
-        .map(|bytes| normalise::hash_with_parts(&bytes, parts))
+    let fetched = remote.fetch(&target.key).map_err(PushError::Unverified)?;
+    let read_back = fetched
+        .as_deref()
+        .map(|bytes| normalise::hash_with_parts(bytes, parts))
         .transpose()
         .map_err(PushError::Server)?;
     if read_back.as_deref() != Some(working.as_str()) {
         return Err(PushError::NotKept {
             sent: working,
             read_back,
+            differences: fetched
+                .map(|bytes| normalise::read_back_differences(target.document.bytes, &bytes, parts))
+                .unwrap_or_default(),
         });
     }
     record(root, profile, target, working.clone(), working)?;
@@ -551,6 +564,7 @@ mod tests {
         let second = entity("b();");
         let error = push(&fake, &root, &target(&second), true, false).unwrap_err();
         assert!(matches!(error, PushError::NotKept { .. }), "{error}");
+        assert!(error.to_string().contains("; it differs at "), "{error}");
         assert_eq!(
             std::fs::read(Baseline::path(&root, "default")).unwrap(),
             before

@@ -74,7 +74,9 @@ impl From<ScanError> for FieldError {
     }
 }
 
-/// Read a DataShape's fields, in the order the document declares them.
+/// Read a DataShape's fields, in `ordinal` order. A server export lists them by name instead, so
+/// the order they were declared in would otherwise depend on where the file came from. When an
+/// ordinal is not a number the document's order stands; equal ordinals keep it too.
 pub fn extract(src: &[u8]) -> Result<Vec<Field>, FieldError> {
     let tokens = scan::tokenize(src)?;
     let Some(section) = sole_section(&tokens, src)? else {
@@ -100,7 +102,22 @@ pub fn extract(src: &[u8]) -> Result<Vec<Field>, FieldError> {
             index += 1;
         }
     }
-    Ok(fields)
+    Ok(in_ordinal_order(fields))
+}
+
+/// Fields in `ordinal` order, stably; as they are when an ordinal is not a number. Both the XML
+/// and the sidecar are read this way, so a sidecar written in another order still matches.
+fn in_ordinal_order(fields: Vec<Field>) -> Vec<Field> {
+    let ordinals: Option<Vec<u64>> = fields
+        .iter()
+        .map(|field| field.ordinal.trim().parse().ok())
+        .collect();
+    let Some(ordinals) = ordinals else {
+        return fields;
+    };
+    let mut numbered: Vec<(u64, Field)> = ordinals.into_iter().zip(fields).collect();
+    numbered.sort_by_key(|(ordinal, _)| *ordinal);
+    numbered.into_iter().map(|(_, field)| field).collect()
 }
 
 fn read_field(tag: &Token, src: &[u8]) -> Result<Field, FieldError> {
@@ -267,7 +284,7 @@ pub fn to_sidecar(fields: &[Field]) -> String {
     out
 }
 
-/// Parse a `fields.json` sidecar.
+/// Parse a `fields.json` sidecar, in `ordinal` order as [`extract`] reads the XML.
 pub fn from_sidecar(text: &str) -> Result<Vec<Field>, FieldError> {
     let value: serde_json::Value =
         serde_json::from_str(text).map_err(|e| FieldError::Malformed {
@@ -345,7 +362,7 @@ pub fn from_sidecar(text: &str) -> Result<Vec<Field>, FieldError> {
             aspects,
         });
     }
-    Ok(fields)
+    Ok(in_ordinal_order(fields))
 }
 
 /// Write fields back into a DataShape document.
@@ -359,6 +376,8 @@ pub fn sync(
     desired: &[Field],
     allow_add_remove: bool,
 ) -> Result<(Vec<u8>, Vec<String>), FieldError> {
+    let desired = in_ordinal_order(desired.to_vec());
+    let desired = desired.as_slice();
     let current = extract(src)?;
     if !allow_add_remove {
         // Counted rather than compared as sets: two fields named A in the XML against one in
@@ -749,6 +768,57 @@ mod tests {
         assert!(
             sync(src, &[], false).is_err(),
             "a nested section is not ours to overwrite"
+        );
+    }
+
+    /// A server export lists fields by name; Composer's own file lists them as declared.
+    #[test]
+    fn fields_come_out_in_ordinal_order_whatever_order_the_file_lists_them_in() {
+        let field = |name: &str, ordinal: &str| {
+            format!("<FieldDefinition baseType=\"STRING\" description=\"\" name=\"{name}\" ordinal=\"{ordinal}\"/>")
+        };
+        let shape = |fields: &[String]| {
+            format!(
+                "<Entities><DataShapes><DataShape name=\"D\"><FieldDefinitions>{}</FieldDefinitions></DataShape></DataShapes></Entities>",
+                fields.concat()
+            )
+        };
+        let names = |src: &str| -> Vec<String> {
+            extract(src.as_bytes())
+                .unwrap()
+                .into_iter()
+                .map(|f| f.name)
+                .collect()
+        };
+        let declared = shape(&[field("zeta", "1"), field("alpha", "2"), field("mid", "10")]);
+        let by_name = shape(&[field("alpha", "2"), field("mid", "10"), field("zeta", "1")]);
+        assert_eq!(names(&declared), ["zeta", "alpha", "mid"]);
+        assert_eq!(names(&by_name), ["zeta", "alpha", "mid"]);
+        // The sidecar of one is already in sync with the other.
+        let sidecar = extract(declared.as_bytes()).unwrap();
+        let (out, changes) = sync(by_name.as_bytes(), &sidecar, false).unwrap();
+        assert_eq!(out, by_name.as_bytes());
+        assert!(changes.is_empty());
+        // A sidecar written in the file's order before reads the same.
+        let legacy = from_sidecar(&to_sidecar(&[
+            sidecar[1].clone(),
+            sidecar[2].clone(),
+            sidecar[0].clone(),
+        ]))
+        .unwrap();
+        assert_eq!(legacy, sidecar);
+        assert_eq!(
+            sync(by_name.as_bytes(), &legacy, false).unwrap().0,
+            by_name.as_bytes()
+        );
+        // Equal ordinals keep the file's order; one that is not a number leaves it all as written.
+        assert_eq!(
+            names(&shape(&[field("b", "1"), field("a", "1"), field("c", "0")])),
+            ["c", "b", "a"]
+        );
+        assert_eq!(
+            names(&shape(&[field("b", "2"), field("a", "x"), field("c", "1")])),
+            ["b", "a", "c"]
         );
     }
 

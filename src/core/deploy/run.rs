@@ -332,6 +332,7 @@ pub(crate) fn run_with_progress(
             EntityKey::address(&entity.collection, &entity.name).and_then(|key| remote.fetch(&key));
         let mut only_permissions = false;
         let mut added_dependencies = Vec::new();
+        let mut differences = Vec::new();
         let (read_back, error) = match fetched {
             Ok(Some(bytes)) => match normalise::hash_with_parts(&bytes, &entity.server_owned) {
                 Ok(hash) => {
@@ -340,6 +341,11 @@ pub(crate) fn run_with_progress(
                             normalise::differ_only_in_permissions(&entity.bytes, &bytes);
                         added_dependencies =
                             normalise::added_project_dependencies(&entity.bytes, &bytes);
+                        differences = normalise::read_back_differences(
+                            &entity.bytes,
+                            &bytes,
+                            &entity.server_owned,
+                        );
                     }
                     (Some(hash), None)
                 }
@@ -355,12 +361,14 @@ pub(crate) fn run_with_progress(
             error,
             only_permissions,
             added_dependencies,
+            differences,
         ))
     });
     drop(read_back_phase);
     let mut first_read_back = BTreeMap::<(String, String), String>::new();
     for result in read_backs {
-        let (entity, sent, read_back, error, only_permissions, added_dependencies) = result?;
+        let (entity, sent, read_back, error, only_permissions, added_dependencies, differences) =
+            result?;
         if read_back.as_deref() == Some(sent.as_str()) {
             let read_back = read_back.expect("matching read-back is present");
             baseline.set(
@@ -382,6 +390,7 @@ pub(crate) fn run_with_progress(
                 error,
                 only_permissions,
                 added_dependencies,
+                differences,
             });
         }
     }
