@@ -325,26 +325,29 @@ pub(crate) fn fmt(solution: &Solution, args: &Fmt) -> u8 {
 }
 
 /// Print the one-line result of a gate. Pad the plain word first, then style it.
-fn print_gate_line(gate: &twaco::core::check::GateResult) {
+fn print_gate_line(gate: &twaco::core::check::GateResult, width: usize) {
     if let Some(why) = &gate.skipped {
         println!(
-            "  {} {:<14} {why}",
+            "  {} {:<width$} {why}",
             style::ok(&format!("{:<7}", "skip")),
-            gate.name
+            gate.name,
+            width = width
         );
         return;
     }
     match &gate.broken {
         Some(why) => println!(
-            "  {} {:<14} {why}",
+            "  {} {:<width$} {why}",
             style::fail(&format!("{:<7}", "BROKEN")),
-            gate.name
+            gate.name,
+            width = width
         ),
         None if gate.findings.is_empty() => println!(
-            "  {} {:<14} {} examined",
+            "  {} {:<width$} {} examined",
             style::ok(&format!("{:<7}", "ok")),
             gate.name,
-            gate.examined
+            gate.examined,
+            width = width
         ),
         // A check that reports without blocking says so, rather than reading as a failure
         // someone has to chase.
@@ -355,11 +358,12 @@ fn print_gate_line(gate: &twaco::core::check::GateResult) {
                 ("warn", style::warn)
             };
             println!(
-                "  {} {:<14} {} finding(s) in {} examined",
+                "  {} {:<width$} {} finding(s) in {} examined",
                 paint(&format!("{word:<7}")),
                 gate.name,
                 gate.findings.len(),
-                gate.examined
+                gate.examined,
+                width = width
             );
         }
     }
@@ -401,8 +405,14 @@ pub(crate) fn check(solution: &Solution, args: &Check) -> u8 {
     // Summary by default, detail on request.
     let detail = args.detail.detail;
 
+    let width = report
+        .gates
+        .iter()
+        .map(|gate| gate.name.len())
+        .max()
+        .unwrap_or(0);
     for gate in &report.gates {
-        print_gate_line(gate);
+        print_gate_line(gate, width);
     }
 
     if detail {
@@ -449,8 +459,14 @@ pub(crate) fn check(solution: &Solution, args: &Check) -> u8 {
 
 /// Print a gate report in the command-line form shared by `check` and deploy's gate outcome.
 fn print_gate_lines(report: &twaco::core::check::CheckReport) {
+    let width = report
+        .gates
+        .iter()
+        .map(|gate| gate.name.len())
+        .max()
+        .unwrap_or(0);
     for gate in &report.gates {
-        print_gate_line(gate);
+        print_gate_line(gate, width);
     }
     println!();
 }
@@ -477,8 +493,14 @@ fn print_blocking(report: &twaco::core::check::CheckReport) {
 }
 
 fn print_check_report(report: &twaco::core::check::CheckReport, detail: bool) {
+    let width = report
+        .gates
+        .iter()
+        .map(|gate| gate.name.len())
+        .max()
+        .unwrap_or(0);
     for gate in &report.gates {
-        print_gate_line(gate);
+        print_gate_line(gate, width);
     }
     if detail {
         for gate in &report.gates {
@@ -724,9 +746,21 @@ pub(crate) fn deploy_cmd(solution: &Solution, args: &Deploy) -> u8 {
                         eprintln!("{} live parse failed; no import was sent", style::prefix());
                         FAILED
                     }
-                    deploy::DeployError::Conflicts(conflicts) => {
+                    deploy::DeployError::Conflicts(plans) => {
                         print_network_changes(&network_changes);
-                        for conflict in conflicts {
+                        // What the rest would do, as a dry run says it, then the refusals.
+                        for plan in plans
+                            .iter()
+                            .filter(|plan| !matches!(plan.decision, push::Decision::Refuse(_)))
+                        {
+                            let would = match plan.decision {
+                                push::Decision::AlreadyThere => "nothing to push",
+                                push::Decision::Create => "would create",
+                                _ => "would update; server unchanged since baseline",
+                            };
+                            println!("  {}/{}: {would}", plan.collection, plan.name);
+                        }
+                        for conflict in deploy::refused(&plans) {
                             let deploy::EntityPlan {
                                 collection,
                                 name,
@@ -864,7 +898,7 @@ fn deploy_json(
             (
                 json!({"ok": true, "dry_run": !apply, "projects": notes, "scripts_parsed": report.scripts_checked, "plans": plans,
                 "server_owned": report.plans.iter().filter(|p| !p.server_owned.is_empty()).map(|p| json!({"entity": format!("{}/{}", p.collection, p.name), "parts": p.server_owned})).collect::<Vec<_>>(),
-                "imported": report.imported, "kept": report.kept.len(), "backup": backup,
+                "imported": report.imported, "unchanged_projects": report.unchanged, "kept": report.kept.len(), "backup": backup,
                 "calls": report.calls.iter().map(|c| json!({"project": c.project, "call": c.call.to_string(), "skipped": c.skipped})).collect::<Vec<_>>(),
                 "localization": localization.map(|l| l.tables.iter().map(|t| json!({"table": t.table, "create": t.create, "set": t.set.len(), "imported": l.applied})).collect::<Vec<_>>()),
                 "network_connections": report.network_changes.iter().map(|n| json!({"name": n.name, "adds": n.adds, "moves": n.moves, "removes": n.removes})).collect::<Vec<_>>(),
@@ -881,7 +915,7 @@ fn deploy_json(
             let mut value = json!({"ok":false,"error":error.to_string(),"backup":error.backup()});
             let code = if let commands::deploy::DeployCommandError::Deploy { why, .. } = &error {
                 if let deploy::DeployError::Conflicts(plans) = why.as_ref() {
-                    value["refused"] = json!(plans.iter().map(|p| json!({"entity":format!("{}/{}",p.collection,p.name),"decision":format!("{:?}",p.decision),"server_owned":p.server_owned})).collect::<Vec<_>>());
+                    value["refused"] = json!(deploy::refused(plans).map(|p| json!({"entity":format!("{}/{}",p.collection,p.name),"decision":format!("{:?}",p.decision),"server_owned":p.server_owned})).collect::<Vec<_>>());
                     DRIFT
                 } else {
                     FAILED
@@ -1036,7 +1070,11 @@ fn print_deploy_report(report: &deploy::Report, apply: bool, force: bool) {
     }
     if !apply {
         for project in &report.projects {
-            println!("project {project}: would import one bundle");
+            if report.unchanged.contains(project) {
+                println!("project {project}: nothing to import");
+            } else {
+                println!("project {project}: would import one bundle");
+            }
         }
         print_deploy_calls(report, false);
         print_block_steps(&report.blocks, apply);
@@ -1044,6 +1082,9 @@ fn print_deploy_report(report: &deploy::Report, apply: bool, force: bool) {
     } else {
         for project in &report.imported {
             println!("project {project}: {}", style::ok("imported"));
+        }
+        for project in &report.unchanged {
+            println!("project {project}: nothing to import; read back only");
         }
         println!(
             "import read-back: {} matching, {} not kept",

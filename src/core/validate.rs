@@ -178,10 +178,47 @@ fn check_one(
         &solution.validate.inherited_overrides,
         &|service| ancestry.defines(&entity.info.collection, &entity.info.name, service),
     ));
+    problems.extend(check_member_names(&file, &src));
     if entity.info.collection == "Mashups" {
         problems.extend(check_mashup(&file, &src));
     }
     problems.extend(check_tags(&file, &src, vocabularies));
+    problems
+}
+
+/// The importer shares one namespace between local properties, services and events.
+fn check_member_names(file: &str, src: &[u8]) -> Vec<Problem> {
+    let Ok(tokens) = scan::tokenize(src) else {
+        return Vec::new();
+    };
+    let mut names = BTreeMap::new();
+    let mut problems = Vec::new();
+    for (tag, kind) in [
+        ("PropertyDefinition", "property"),
+        ("ServiceDefinition", "service"),
+        ("EventDefinition", "event"),
+    ] {
+        for token in tokens.iter().filter(|token| {
+            matches!(token.kind, Kind::Start | Kind::Empty) && token.name.of(src) == tag.as_bytes()
+        }) {
+            let Some(name) = scan::attribute(src, token, "name")
+                .ok()
+                .flatten()
+                .map(|span| scan::decode_entities(&String::from_utf8_lossy(span.of(src))))
+            else {
+                continue;
+            };
+            if let Some(previous) = names.insert(name.clone(), kind) {
+                problems.push(Problem {
+                    file: file.to_string(),
+                    rule: "member-name-clash",
+                    message: format!(
+                        "{kind} {name} has the same name as a {previous}; rename one before import"
+                    ),
+                });
+            }
+        }
+    }
     problems
 }
 
@@ -428,6 +465,16 @@ mod tests {
             ["service-without-definition"],
             "another entity's"
         );
+    }
+
+    #[test]
+    fn member_names_cannot_clash_across_properties_services_and_events() {
+        let src = br#"<Thing><ThingShape><PropertyDefinitions><PropertyDefinition name="Alpha"/></PropertyDefinitions><ServiceDefinitions><ServiceDefinition name="Alpha"/></ServiceDefinitions><EventDefinitions><EventDefinition name="Alpha"/></EventDefinitions></ThingShape></Thing>"#;
+        let problems = check_member_names("T.xml", src);
+        assert_eq!(problems.len(), 2);
+        assert!(problems
+            .iter()
+            .all(|problem| problem.rule == "member-name-clash"));
     }
 
     /// An override needs no listing when an ancestor is known to define the service: a template

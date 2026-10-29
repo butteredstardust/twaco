@@ -2,22 +2,22 @@ $ twaco check
 exit: 0
 
 --- stdout
-  ok      line endings   36 examined
-  ok      sidecars       8 examined
-  ok      formatting     7 examined
-  ok      script traps   7 examined
-  ok      code order     7 examined
-  ok      project        16 examined
+  ok      line endings         36 examined
+  ok      sidecars             8 examined
+  ok      formatting           7 examined
+  ok      script traps         7 examined
+  ok      code order           7 examined
+  ok      project              16 examined
   ok      project dependencies 1 examined
-  ok      mashup bindings 0 examined
-  warn    mashup content 1 finding(s) in 1 examined
-  ok      contained mashups 0 examined
-  ok      localization tokens 0 examined
-  ok      result shapes  7 examined
-  ok      networks       1 examined
-  skip    requirements   requirements.toml is absent; run twaco requirements init to draft it
-  ok      ai references  0 examined
-  skip    structure      no XSD source configured
+  ok      mashup bindings      0 examined
+  warn    mashup content       1 finding(s) in 1 examined
+  ok      contained mashups    0 examined
+  ok      localization tokens  0 examined
+  ok      result shapes        7 examined
+  ok      networks             1 examined
+  skip    requirements         requirements.toml is absent; run twaco requirements init to draft it
+  ok      ai references        0 examined
+  skip    structure            no XSD source configured
 
 1 finding(s) across 1 gate(s); 0 gate(s) could not run
 run `twaco check --detail` to see them

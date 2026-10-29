@@ -290,11 +290,21 @@ pub(crate) struct Call {
 /// whether an arbitrary ThingWorx service writes. The MCP surface must decide separately
 /// whether and how to expose this capability.
 pub(crate) fn call(solution: &Solution, args: &Call) -> u8 {
+    let dotted_hint = args.operands.first().and_then(|target| {
+        target.rsplit_once('.').and_then(|(thing, service)| {
+            (!thing.is_empty() && !service.is_empty()).then(|| {
+                format!("to call {service} on {thing}: twaco call {thing} {service} '{{...}}'")
+            })
+        })
+    });
     if !(2..=3).contains(&args.operands.len()) {
         eprintln!(
             "{} call needs <target> <service> and an optional JSON object",
             style::prefix()
         );
+        if let Some(hint) = &dotted_hint {
+            eprintln!("{} {hint}", style::prefix());
+        }
         return FAILED;
     }
     let parameters = match args.operands.get(2) {
@@ -309,6 +319,9 @@ pub(crate) fn call(solution: &Solution, args: &Call) -> u8 {
                     "{} call parameters are not valid JSON: {error}",
                     style::prefix()
                 );
+                if let Some(hint) = &dotted_hint {
+                    eprintln!("{} {hint}", style::prefix());
+                }
                 return FAILED;
             }
         },

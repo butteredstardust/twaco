@@ -231,10 +231,14 @@ fn service_add_refuses_clashes_bad_types_and_hosts() {
         with(&["n"], None),
         with(&["n:STRING", "n:NUMBER"], None),
         with(&[], Some("NUMBER:Acme.Orders.Row_DS")),
-        service("Ok", "x = ']]>';"),
     ] {
         assert!(add("Acme.Orders.Press", bad.clone()).is_err(), "{bad:?}");
     }
+    let split = add("Acme.Orders.Press", service("Split", "x = ']]>';")).unwrap();
+    assert!(split
+        .changes
+        .iter()
+        .any(|change| String::from_utf8_lossy(&change.after).contains("]]><![CDATA[>")));
     assert!(add("Acme.Orders.Row_DS", service("Ok", "")).is_err());
     // An untyped INFOTABLE is legal; one on a DataShape outside the solution is a warning.
     let planned = add(
@@ -703,6 +707,15 @@ fn stored_values_follow_the_server_rules_for_each_type() {
     let mut sorted: Vec<String> = written.iter().map(|name| name.to_string()).collect();
     sorted.sort();
     assert_eq!(java_hash_map_order(&sorted), written);
+}
+
+#[test]
+fn datetime_defaults_are_written_in_utc_milliseconds() {
+    assert_eq!(
+        canonical_datetime("DATETIME", "2026-10-29T12:00:00+02:00").unwrap(),
+        "2026-10-29T10:00:00.000Z"
+    );
+    assert!(canonical_datetime("DATETIME", "not a date").is_err());
 }
 
 #[test]

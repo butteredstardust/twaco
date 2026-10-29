@@ -405,13 +405,18 @@ pub(super) fn rename_data_table(
         }
     }
     for index in &mut renamed.indexes {
-        let parts: Vec<&str> = index.field_names.split(',').collect();
+        let separator = if index.field_names.contains(';') {
+            ';'
+        } else {
+            ','
+        };
+        let parts: Vec<&str> = index.field_names.split(separator).collect();
         if parts.iter().any(|part| part.trim() == old) {
             index.field_names = parts
                 .iter()
                 .map(|part| if part.trim() == old { new } else { *part })
                 .collect::<Vec<_>>()
-                .join(",");
+                .join(&separator.to_string());
             changed = true;
         }
     }

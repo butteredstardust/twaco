@@ -12,7 +12,7 @@ use crate::core::lock::WorkspaceLock;
 use crate::core::mashup::authoring::parse_visibility;
 use crate::core::mashup::templates::Visibility;
 use crate::core::refs;
-use crate::core::scan::{escape_attribute as escape, IllegalXmlChar};
+use crate::core::scan::{self, escape_attribute as escape, IllegalXmlChar};
 use crate::core::transaction::{Transaction, TransactionError};
 use crate::core::types;
 use crate::core::workspace;
@@ -528,7 +528,7 @@ pub(crate) fn subscription_xml(
 ) -> Result<String, IllegalXmlChar> {
     let (name, event) = (escape(name)?, escape(event)?);
     let (source, source_property) = (escape(source)?, escape(source_property)?);
-    Ok(format!("                    <Subscription\n                     description=\"\"\n                     enabled=\"true\"\n                     eventName=\"{event}\"\n                     name=\"{name}\"\n                     source=\"{source}\"\n                     sourceProperty=\"{source_property}\"\n                     sourceType=\"Thing\">\n                        <ServiceImplementation\n                         description=\"\"\n                         handlerName=\"Script\"\n                         name=\"{name}\">\n                            <ConfigurationTables>\n                                <ConfigurationTable\n                                 dataShapeName=\"\"\n                                 description=\"\"\n                                 isMultiRow=\"false\"\n                                 name=\"Script\"\n                                 ordinal=\"0\">\n                                    <DataShape>\n                                        <FieldDefinitions>\n                                            <FieldDefinition\n                                             baseType=\"STRING\"\n                                             description=\"code\"\n                                             name=\"code\"\n                                             ordinal=\"0\"></FieldDefinition>\n                                        </FieldDefinitions>\n                                    </DataShape>\n                                    <Rows>\n                                        <Row>\n                                            <code><![CDATA[{code}]]></code>\n                                        </Row>\n                                    </Rows>\n                                </ConfigurationTable>\n                            </ConfigurationTables>\n                        </ServiceImplementation>\n                    </Subscription>"))
+    Ok(format!("                    <Subscription\n                     description=\"\"\n                     enabled=\"true\"\n                     eventName=\"{event}\"\n                     name=\"{name}\"\n                     source=\"{source}\"\n                     sourceProperty=\"{source_property}\"\n                     sourceType=\"Thing\">\n                        <ServiceImplementation\n                         description=\"\"\n                         handlerName=\"Script\"\n                         name=\"{name}\">\n                            <ConfigurationTables>\n                                <ConfigurationTable\n                                 dataShapeName=\"\"\n                                 description=\"\"\n                                 isMultiRow=\"false\"\n                                 name=\"Script\"\n                                 ordinal=\"0\">\n                                    <DataShape>\n                                        <FieldDefinitions>\n                                            <FieldDefinition\n                                             baseType=\"STRING\"\n                                             description=\"code\"\n                                             name=\"code\"\n                                             ordinal=\"0\"></FieldDefinition>\n                                        </FieldDefinitions>\n                                    </DataShape>\n                                    <Rows>\n                                        <Row>\n                                            <code>{}</code>\n                                        </Row>\n                                    </Rows>\n                                </ConfigurationTable>\n                            </ConfigurationTables>\n                        </ServiceImplementation>\n                    </Subscription>", cdata(code)))
 }
 
 fn local_shape(subscription: Option<(&str, &str, &str)>) -> Result<String, IllegalXmlChar> {
@@ -561,7 +561,7 @@ fn scheduler_settings(kind: Kind, enabled: bool, run_as: &str, value: &str) -> S
 }
 
 pub(crate) fn cdata(value: &str) -> String {
-    format!("<![CDATA[{value}]]>")
+    String::from_utf8(scan::render_cdata(value.as_bytes())).expect("CDATA framing is UTF-8")
 }
 
 fn plain_entity(
@@ -1090,7 +1090,7 @@ fn make_xml(
                     .iter()
                     .map(|value| {
                         let (name, fields) = value.split_once('=').expect("validated index");
-                        (name.to_string(), fields.to_string())
+                        (name.to_string(), fields.replace(',', ";"))
                     })
                     .collect::<Vec<_>>(),
             ),
@@ -1262,7 +1262,7 @@ pub(crate) fn plan(solution: &Solution, request: &NewRequest) -> Result<Plan, Ne
                     "index {name} is listed more than once"
                 )));
             }
-            for field in values.split(',') {
+            for field in values.split([',', ';']) {
                 if !names.contains(field) {
                     return Err(NewError::Unknown(format!(
                         "DataShape {shape} has no field {field} for index {name}"
@@ -1427,6 +1427,22 @@ pub(crate) fn plan(solution: &Solution, request: &NewRequest) -> Result<Plan, Ne
         )?,
     }
     .into_bytes();
+    // The server adds a stored value for each persistent property the Thing inherits.
+    let entity = if request.kind == Kind::Thing {
+        let file = workspace::EntityFile {
+            path: path.clone(),
+            info: crate::core::entity::EntityInfo {
+                collection: "Things".to_string(),
+                name: request.name.clone(),
+                project: project_name.clone(),
+            },
+            found_under: project_name.clone(),
+        };
+        super::edit::with_inherited_stored_values(solution, file, entity, template, &request.shapes)
+            .map_err(|error| NewError::Invalid(error.to_string()))?
+    } else {
+        entity
+    };
     let sidecars = if request.kind == Kind::DataShape {
         vec![(
             solution.src_root().join(&request.name).join("fields.json"),
@@ -1685,6 +1701,53 @@ mod tests {
             actual,
             "{name} differs from its 10.1 golden export"
         );
+    }
+
+    #[test]
+    fn a_new_thing_has_the_stored_values_of_the_persistent_properties_it_inherits() {
+        let (_dir, solution) = fixture();
+        let template = |name: &str, base: &str, properties: &str| {
+            format!("<Entities><ThingTemplates><ThingTemplate name=\"{name}\" baseThingTemplate=\"{base}\" projectName=\"Acme.Orders\"><ThingShape><PropertyDefinitions>{properties}</PropertyDefinitions></ThingShape></ThingTemplate></ThingTemplates></Entities>")
+        };
+        let property = |name: &str, base_type: &str, persistent: bool, default: &str| {
+            format!("<PropertyDefinition name=\"{name}\" baseType=\"{base_type}\" aspect.isPersistent=\"{persistent}\" aspect.defaultValue=\"{default}\"/>")
+        };
+        std::fs::write(
+            solution
+                .root
+                .join("app/ThingTemplates/Acme.Orders.Base_TT.xml"),
+            template(
+                "Acme.Orders.Base_TT",
+                "GenericThing",
+                &property("count", "INTEGER", true, "3"),
+            ),
+        )
+        .unwrap();
+        std::fs::write(
+            solution
+                .root
+                .join("app/ThingTemplates/Acme.Orders.Pump_TT.xml"),
+            template(
+                "Acme.Orders.Pump_TT",
+                "Acme.Orders.Base_TT",
+                &(property("note", "TEXT", true, "a]]&gt;b")
+                    + property("speed", "NUMBER", false, "1").as_str()),
+            ),
+        )
+        .unwrap();
+        let mut thing = request(Kind::Thing, "Acme.Orders.Pump01");
+        thing.template = Some("Acme.Orders.Pump_TT".into());
+        let planned = plan(&solution, &thing).unwrap();
+        let xml = std::str::from_utf8(&planned.entity).unwrap();
+        assert!(
+            xml.contains("<count><Value>3</Value><Timestamp>1970-01-01T00:00:00.000Z</Timestamp><Quality>UNKNOWN</Quality></count>"),
+            "{xml}"
+        );
+        assert!(
+            xml.contains("<note><Value><![CDATA[a]]]]><![CDATA[>b]]></Value>"),
+            "{xml}"
+        );
+        assert!(!xml.contains("<speed>"), "{xml}");
     }
 
     #[test]

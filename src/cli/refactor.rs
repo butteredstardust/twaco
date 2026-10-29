@@ -497,7 +497,17 @@ pub(crate) fn rename_cmd(solution: &Solution, command: &Rename) -> u8 {
         !verification.sync_problems.is_empty() || !verification.blocking_gates.is_empty()
     });
     if verification_failed {
-        eprintln!("{} the rename is applied, but verification found problems; fix the sync entities and blocking gates listed above", style::prefix());
+        let verification = outcome.verification.as_ref().expect("just checked");
+        let failed = match (
+            !verification.sync_problems.is_empty(),
+            !verification.blocking_gates.is_empty(),
+        ) {
+            (true, true) => "sync entities and blocking gates",
+            (true, false) => "sync entities",
+            (false, true) => "blocking gates",
+            (false, false) => unreachable!(),
+        };
+        eprintln!("{} the rename is applied, but verification found problems; fix the {failed} listed above", style::prefix());
         FAILED
     } else {
         OK
@@ -531,7 +541,10 @@ fn print_rename_outcome(
     .iter()
     .map(|count| count.review)
     .sum::<usize>();
-    println!("  review         {review} occurrences left for a person");
+    println!(
+        "  review         {review} occurrence{} left for a person",
+        if review == 1 { "" } else { "s" }
+    );
     if !plan.named.is_empty() {
         println!(
             "  file names     {} file(s) are named for the old name and were not renamed",

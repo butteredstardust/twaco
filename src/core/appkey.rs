@@ -183,7 +183,7 @@ pub fn show<R: Remote>(remote: &R, name: &str) -> Result<Key, AppKeyError> {
         .as_ref()
         .and_then(|reply| reply.pointer("/rows/0/ExpirationDate"))
         .and_then(Value::as_i64)
-        .and_then(|ms| jiff::Timestamp::from_second(ms.div_euclid(1000)).ok());
+        .and_then(|ms| jiff::Timestamp::from_millisecond(ms).ok());
     Ok(Key {
         name: name.to_string(),
         expires,

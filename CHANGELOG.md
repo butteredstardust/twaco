@@ -6,6 +6,31 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Entity comparison hashes are version 9. Split CDATA payloads compare as their joined text,
+  EventDefinitions and subscriptions compare by name, and declared LOCATION and QUERY values
+  compare as the server stores them. Run `twaco entity status --all --record` once to record the
+  new baselines.
+  Before this, a script containing `]]>` that the server stored trimmed read back as "not kept",
+  and the next deploy was refused.
+- `new thing` writes the stored value of each persistent property the Thing inherits from its
+  repository templates and shapes, which the server adds on import.
+- A failed project import shows the Importer's reason from the ApplicationLog (such as a name
+  conflict or a bad index field) after the HTTP status.
+- Deploy no longer re-imports a project whose entities are all already on the server; it reads
+  them back and records their baselines. When deploy refuses, it prints what the other entities
+  would do before the refusals.
+- `access explain` says when the entity has no such service, or the server no such user, instead
+  of answering "allowed" or printing a raw 404.
+- `thing property add` writes DATETIME defaults in UTC milliseconds, and service, subscription,
+  property-default and localization editing accepts `]]>` by using split CDATA. `new data-table`
+  writes semicolon-separated multi-column indexes, which the server accepts.
+- `check` reports a property, service or event sharing a member name in one entity before the
+  importer rejects it. `appkey show` preserves expiration milliseconds, `call Thing.Service`
+  gives the two-argument invocation hint, and CLI summaries handle long gate names and singular
+  occurrences correctly.
+
 ## [0.1.46] - 2026-10-29
 
 ### Added

@@ -941,9 +941,14 @@ impl Definition {
         out.push_str(&attr("aspect.isLogged", &self.logged.to_string())?);
         out.push_str(&attr("aspect.isPersistent", &self.persistent.to_string())?);
         out.push_str(&attr("aspect.isReadOnly", &self.read_only.to_string())?);
+        let default = self
+            .default
+            .as_deref()
+            .map(|value| canonical_datetime(&self.base_type, value))
+            .transpose()?;
         let optional = [
             ("aspect.units", &self.units),
-            ("aspect.defaultValue", &self.default),
+            ("aspect.defaultValue", &default),
             ("aspect.dataShape", &self.data_shape),
         ];
         for (name, value) in optional {
@@ -1047,6 +1052,7 @@ impl Definition {
                 "LONG" => default.parse::<i64>().is_ok(),
                 "BOOLEAN" => default == "true" || default == "false",
                 "JSON" | "QUERY" => serde_json::from_str::<Value>(default).is_ok(),
+                "DATETIME" => default.parse::<jiff::Timestamp>().is_ok(),
                 "INFOTABLE" => false,
                 _ => true,
             };
@@ -1055,9 +1061,6 @@ impl Definition {
                     "--default {default:?} is not a valid {} value",
                     self.base_type
                 )));
-            }
-            if default.contains("]]>") {
-                return Err(invalid("--default cannot contain `]]>`"));
             }
         }
         Ok(warnings)
@@ -1074,13 +1077,15 @@ impl Definition {
             "NUMBER" => java_double(given.unwrap_or("0")),
             "INTEGER" | "LONG" => given.unwrap_or("0").to_string(),
             "BOOLEAN" => given.unwrap_or("false").to_string(),
-            "DATETIME" => given.unwrap_or("1970-01-01T00:00:00.000Z").to_string(),
+            "DATETIME" => match given {
+                Some(value) => canonical_datetime("DATETIME", value)?,
+                None => "1970-01-01T00:00:00.000Z".into(),
+            },
             "LOCATION" => given.unwrap_or("0.0,0.0,0.0").to_string(),
-            "JSON" | "QUERY" => format!("<json><![CDATA[{}]]></json>", given.unwrap_or("{}")),
-            "GUID" => format!(
-                "<![CDATA[{}]]>",
-                given.unwrap_or("00000000-0000-0000-0000-000000000000")
-            ),
+            "JSON" | "QUERY" => {
+                format!("<json>{}</json>", entity::new::cdata(given.unwrap_or("{}")))
+            }
+            "GUID" => entity::new::cdata(given.unwrap_or("00000000-0000-0000-0000-000000000000")),
             "INFOTABLE" => {
                 return Err(invalid(
                     "a persistent INFOTABLE property cannot match the server: a 10.1 import \
@@ -1088,12 +1093,20 @@ impl Definition {
                      not persistent, or make it in Composer and pull it",
                 ))
             }
-            _ => given
-                .map(|value| format!("<![CDATA[{value}]]>"))
-                .unwrap_or_default(),
+            _ => given.map(entity::new::cdata).unwrap_or_default(),
         };
         Ok(Some(value))
     }
+}
+
+fn canonical_datetime(base_type: &str, value: &str) -> Result<String, EditError> {
+    if base_type != "DATETIME" {
+        return Ok(value.to_string());
+    }
+    let timestamp = value
+        .parse::<jiff::Timestamp>()
+        .map_err(|_| invalid(format!("--default {value:?} is not a valid DATETIME value")))?;
+    Ok(timestamp.strftime("%Y-%m-%dT%H:%M:%S%.3fZ").to_string())
 }
 
 #[derive(Clone, Debug)]
@@ -1620,9 +1633,6 @@ impl Edit2<'_> {
             "subscriptions belong to a Thing, ThingTemplate or ThingShape",
         )?;
         validate_member_name(name)?;
-        if code.contains("]]>") {
-            return Err(invalid("the subscription script cannot contain `]]>`"));
-        }
         let list = doc.only_child(doc.members()?, "Subscriptions")?;
         if doc.named(list, "Subscription", name).is_some() {
             return Err(EditError::Exists(format!(
@@ -1682,9 +1692,6 @@ impl Edit2<'_> {
             "services belong to a Thing, ThingTemplate or ThingShape",
         )?;
         validate_member_name(&service.name)?;
-        if service.code.contains("]]>") {
-            return Err(invalid("the service script cannot contain `]]>`"));
-        }
         let model = Model::build(self.solution, self.found)?;
         refuse_clash(&model, doc, std::slice::from_ref(&service.name))?;
         let definition = ServiceDefinition::from_request(service, self.found, &mut plan.warnings)?;
@@ -2087,6 +2094,55 @@ fn refuse_clash(model: &Model, doc: &Doc, names: &[String]) -> Result<(), EditEr
         }
     }
     Ok(())
+}
+
+/// A new Thing's document with the stored value of every persistent property its repository
+/// template chain and shapes define, as the server adds them on import.
+pub(crate) fn with_inherited_stored_values(
+    solution: &Solution,
+    file: EntityFile,
+    src: Vec<u8>,
+    template: &str,
+    shapes: &[String],
+) -> Result<Vec<u8>, EditError> {
+    let found = workspace::entities(solution);
+    let model = Model::build(solution, &found)?;
+    let mut sources = Vec::new();
+    let mut add = |label: String, name: &str| {
+        sources.push(name.to_string());
+        sources.extend(model.inherits.get(&label).cloned().unwrap_or_default());
+    };
+    add(format!("ThingTemplates/{template}"), template);
+    for shape in shapes {
+        add(format!("ThingShapes/{shape}"), shape);
+    }
+    let mut src = src;
+    let mut seen = BTreeSet::new();
+    for name in sources {
+        let Some(ancestor) = model.ancestor(&name) else {
+            continue;
+        };
+        if !seen.insert(ancestor.path.clone()) {
+            continue;
+        }
+        let ancestor = Doc::read(ancestor)?;
+        // An ancestor without members (a stand-in for a platform template) brings no values.
+        let Ok(host) = ancestor.members() else {
+            continue;
+        };
+        for list in scan::child_tags(&ancestor.tokens, &ancestor.src, "PropertyDefinitions", host) {
+            for element in
+                scan::child_tags(&ancestor.tokens, &ancestor.src, "PropertyDefinition", list)
+            {
+                let definition = Definition::read(&ancestor, element);
+                if let Some(stored) = definition.stored_value()? {
+                    let doc = Doc::parse(file.clone(), src)?;
+                    src = set_stored_value(&doc, &definition.name, Some(&stored))?;
+                }
+            }
+        }
+    }
+    Ok(src)
 }
 
 /// A Thing's `<ThingProperties>` with `property`'s stored value set to `value`, or removed. The

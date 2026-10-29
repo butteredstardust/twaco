@@ -23,6 +23,13 @@ pub(crate) use model::{
     Entity, NotKept, ParseFailure, PlanOptions, PlannedCall, ProjectBundle, Script, ServiceCall,
 };
 pub use model::{EntityPlan, NetworkChange, Report};
+
+/// The plans a deploy refused, out of all it made.
+pub fn refused(plans: &[EntityPlan]) -> impl Iterator<Item = &EntityPlan> {
+    plans
+        .iter()
+        .filter(|plan| matches!(plan.decision, super::push::Decision::Refuse(_)))
+}
 pub(crate) use plan::{decide_all, decide_all_with_progress, plan_bundles};
 pub(crate) use remote::{BaselineStore, DiskBaseline, Remote};
 #[cfg(test)]
