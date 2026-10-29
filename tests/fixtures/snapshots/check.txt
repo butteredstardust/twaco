@@ -17,6 +17,7 @@ exit: 0
   ok      networks       1 examined
   skip    requirements   requirements.toml is absent; run twaco requirements init to draft it
   ok      ai references  0 examined
+  skip    structure      no XSD source configured
 
 1 finding(s) across 1 gate(s); 0 gate(s) could not run
 run `twaco check --detail` to see them

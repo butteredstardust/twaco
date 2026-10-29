@@ -106,6 +106,7 @@ indent_cdata_payload = false  # true keeps scripts indented to their <code> elem
 [gates]
 live = false                  # true: every `check` also has the server parse every script
 advisory = []                 # built-in gates that report without failing, e.g. ["code order"]
+structure_xsd = ""            # optional XSD, plugin JAR, or directory; also TWACO_STRUCTURE_XSD
 
 [validate]
 inherited_overrides = ["Acme.Dashboards.Manager.GetDashboards"]
@@ -343,10 +344,15 @@ layout once.
 `check --live` does. That gate fails closed: without a reachable server, `check` fails.
 `deploy` always parses on the server, whatever this says.
 
+`structure_xsd = "path"` enables the offline, advisory `structure` gate. The path is relative
+to the solution root unless `TWACO_STRUCTURE_XSD` overrides it. It may name an XSD, the Eclipse
+plugin JAR that contains it, or a directory holding either. twaco reads the schema at check time;
+it does not copy it into the repository.
+
 `advisory` names built-in gates whose findings are reported (as `warn`) without failing
 `check` or blocking `deploy`: `line endings`, `sidecars`, `formatting`, `script traps`,
 `code order`, `project`, `project dependencies`, `mashup bindings`, `mashup content`, `contained mashups`, `localization tokens`,
-`result shapes`, `networks`, `requirements`, `ai references`. The live parse is not among them: `deploy` always has the server
+`result shapes`, `networks`, `requirements`, `ai references`, `structure`. The live parse is not among them: `deploy` always has the server
 parse every script, and stops on a script it refuses. It is for a solution adopting twaco over code written
 before those gates existed; take a gate off the list once its findings are fixed. A gate that
 cannot run still fails, and a name that is not a gate is refused.

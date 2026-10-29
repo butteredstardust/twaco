@@ -7,7 +7,7 @@
 use super::child::{credential_values, redact, run_to_completion, strip_credentials};
 use super::config::Solution;
 use super::progress::{self, Progress};
-use super::{agents_check, bindings, fmt as format_js, network, sync, types, workspace};
+use super::{agents_check, bindings, fmt as format_js, network, structure, sync, types, workspace};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -148,6 +148,7 @@ pub(crate) const BUILT_IN_GATES: &[&str] = &[
     "networks",
     "requirements",
     "ai references",
+    "structure",
 ];
 
 /// A built-in gate as the solution wants it: blocking, or advisory when `[gates] advisory`
@@ -180,6 +181,7 @@ pub fn run(solution: &Solution) -> CheckReport {
         networks(solution, &discovery),
         requirements(solution, &discovery),
         ai_references(solution, &discovery, &model),
+        structure_gate(solution, &discovery),
     ] {
         report.gates.push(as_configured(solution, gate));
     }
@@ -187,6 +189,29 @@ pub fn run(solution: &Solution) -> CheckReport {
         report.gates.push(run_hook(solution, hook));
     }
     report
+}
+
+/// Validate exports against an operator-supplied ThingWorx XSD. This is intentionally advisory:
+/// exports from adjacent platform releases are useful to inspect, but must not stop deployment.
+fn structure_gate(solution: &Solution, discovered: &workspace::Discovery) -> GateResult {
+    let checked = structure::run(solution, discovered);
+    let mut result = GateResult::passed("structure", checked.examined);
+    result.gates_the_run = false;
+    result.prose = checked.notes;
+    result.broken = checked.broken;
+    result.skipped = checked.skipped;
+    result.findings = checked
+        .findings
+        .into_iter()
+        .map(|finding| Finding {
+            gate: "structure".to_string(),
+            file: finding.file,
+            line: finding.line,
+            rule: finding.kind,
+            message: finding.message,
+        })
+        .collect();
+    result
 }
 
 fn ai_references(
