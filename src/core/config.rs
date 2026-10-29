@@ -913,6 +913,15 @@ value = "P.Qa"
     }
 
     #[test]
+    fn discover_finds_the_solution_from_a_subfolder() {
+        let root = tempfile::tempdir().unwrap();
+        let nested = root.path().join("src/P/services/Run");
+        std::fs::create_dir_all(&nested).unwrap();
+        std::fs::write(root.path().join(CONFIG_FILE), "[[project]]\nname = 'P'\n").unwrap();
+        assert_eq!(Solution::discover(&nested).unwrap().root, root.path());
+    }
+
+    #[test]
     fn a_single_project_solution_needs_no_ceremony() {
         let s = solution("[[project]]\nname = \"Only\"\n").unwrap();
         assert_eq!(s.projects.len(), 1);

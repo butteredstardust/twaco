@@ -80,7 +80,9 @@ impl Scope {
     }
 }
 
-/// What to register: the program and, for a user-wide entry, the solution it serves.
+/// What to register: the program and an optional root for clients that do not start it in the
+/// solution. Configured entries deliberately leave it unset, but retaining it here lets an old,
+/// root-pinned entry compare as different and require `--replace`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Entry {
     pub command: String,
@@ -438,7 +440,7 @@ mod tests {
         let plan = super::plan(
             Client::Codex,
             Scope::User,
-            &entry(Some("C:/sol")),
+            &entry(None),
             &project,
             &home,
             false,
@@ -446,7 +448,7 @@ mod tests {
         .unwrap();
         assert_eq!(plan.change, Change::Add);
         assert!(
-            plan.entry_text.contains("[mcp_servers.twaco.env]"),
+            !plan.entry_text.contains("TWACO_ROOT"),
             "{}",
             plan.entry_text
         );
@@ -458,13 +460,13 @@ mod tests {
             "the old text is untouched:\n{after}"
         );
         assert!(after.contains("[mcp_servers.twaco]"), "{after}");
-        assert!(after.contains("TWACO_ROOT = \"C:/sol\""), "{after}");
+        assert!(!after.contains("TWACO_ROOT"), "{after}");
 
         // Again: nothing to do.
         let again = super::plan(
             Client::Codex,
             Scope::User,
-            &entry(Some("C:/sol")),
+            &entry(None),
             &project,
             &home,
             false,
@@ -473,10 +475,26 @@ mod tests {
         assert_eq!(again.change, Change::Same);
         assert!(!again.writes());
 
+        // An older user registration that captured one solution must be replaced explicitly.
+        let pinned = "[mcp_servers.twaco]\ncommand = \"C:/tools/twaco.exe\"\nargs = [\"mcp\"]\n\n[mcp_servers.twaco.env]\nTWACO_ROOT = \"C:/sol\"\n";
+        std::fs::write(&file, pinned).unwrap();
+        let pinned_plan = super::plan(
+            Client::Codex,
+            Scope::User,
+            &entry(None),
+            &project,
+            &home,
+            false,
+        )
+        .unwrap();
+        assert!(matches!(pinned_plan.change, Change::Differs { .. }));
+        assert!(!pinned_plan.writes());
+        std::fs::write(&file, &after).unwrap();
+
         // A different twaco entry is replaced only when asked.
         let other = Entry {
             command: "twaco".into(),
-            ..entry(Some("C:/sol"))
+            ..entry(None)
         };
         let refused =
             super::plan(Client::Codex, Scope::User, &other, &project, &home, false).unwrap();
@@ -599,7 +617,7 @@ mod tests {
         let plan = super::plan(
             Client::ClaudeCode,
             Scope::User,
-            &entry(Some("C:/my sol")),
+            &entry(None),
             dir.path(),
             dir.path(),
             false,
@@ -608,7 +626,7 @@ mod tests {
         assert!(plan.file.is_none() && !plan.writes());
         assert_eq!(
             plan.command.as_deref(),
-            Some("claude mcp add --scope user -e TWACO_ROOT=\"C:/my sol\" twaco -- C:/tools/twaco.exe mcp")
+            Some("claude mcp add --scope user twaco -- C:/tools/twaco.exe mcp")
         );
     }
 }

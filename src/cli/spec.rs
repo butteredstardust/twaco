@@ -406,8 +406,9 @@ pub(crate) const USAGE: &[Usage] = &[
   mcp configure <codex|claude-code|cursor> [--scope user|project] [--command <path>] [--replace]
       [--apply] [--json]      register twaco's server with a coding assistant; plan unless --apply:
                               only twaco's entry is added, the old file is saved beside it first
-      --scope <scope>         user (every project) or project (a file in the solution); codex:
-                              user, the others: project; claude-code user: prints `claude mcp add`
+      --scope <scope>         user (every project) or project (a file in the solution); entries use
+                              the client's working directory; codex: user, the others: project;
+                              claude-code user: prints `claude mcp add`
       --command <path>        the program to start (default: this twaco)
       --replace               replace a different twaco entry (one a gateway wrapped, say)"#,
     },

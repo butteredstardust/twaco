@@ -1,5 +1,6 @@
 use super::super::child::{credential_values, redact, run_to_completion, strip_credentials};
 use super::super::config::Solution;
+use super::super::profile::Secret;
 use super::model::{load_model, script_declares, Member, Model, Service};
 use super::render::{identifiers, type_name};
 use super::write::write;
@@ -14,6 +15,9 @@ use std::time::{Duration, Instant};
 
 const COMPILER_TIMEOUT: Duration = Duration::from_secs(600);
 const COMPILER_OUTPUT_CAP: usize = 16 * 1024 * 1024;
+const CANARY_FILE: &str = "twaco-canary.js";
+const CANARY_LINE: usize = 2;
+const CANARY_CODE: &str = "2322";
 
 /// Captured compiler output, kept independent of `std::process::Output` for no-node tests.
 pub struct CompilerOutput {
@@ -104,6 +108,20 @@ pub(crate) fn check_with(
     let (program, configured_arguments) = command
         .split_first()
         .expect("compiler discovery always returns a program");
+    let started = Instant::now();
+    let mut version_arguments = configured_arguments.to_vec();
+    version_arguments.push(OsString::from("--version"));
+    let version = compiler
+        .run(program, &version_arguments, &solution.root)
+        .map_err(|error| {
+            CheckError(format!(
+                "could not run TypeScript compiler {} --version: {error}",
+                program.to_string_lossy()
+            ))
+        })?;
+    let compiler_version = compiler_version(&version, program, &credential_values())?;
+    tracing::debug!(compiler_version, "TypeScript compiler version");
+
     let config_path = solution.root.join(".twaco/types/check/tsconfig.json");
     let mut arguments = configured_arguments.to_vec();
     arguments.extend([
@@ -112,7 +130,6 @@ pub(crate) fn check_with(
         OsString::from("--pretty"),
         OsString::from("false"),
     ]);
-    let started = Instant::now();
     let output = compiler
         .run(program, &arguments, &solution.root)
         .map_err(|error| {
@@ -150,7 +167,7 @@ pub(crate) fn check_with(
     } else {
         format!("{stdout}\n{stderr}")
     };
-    let parsed = parse_compiler_output(&combined);
+    let mut parsed = parse_compiler_output(&combined);
     if !output.success && parsed.is_empty() {
         let argv = std::iter::once(program.as_os_str())
             .chain(arguments.iter().map(OsString::as_os_str))
@@ -168,6 +185,12 @@ pub(crate) fn check_with(
              in the solution root, or set `[types] tsc` in twaco.toml"
         )));
     }
+
+    let canary: Vec<_> = parsed.iter().filter(|finding| is_canary(finding)).collect();
+    if canary.len() != 1 {
+        return Err(untrusted_compiler(program, &compiler_version));
+    }
+    parsed.retain(|finding| !is_canary(finding));
 
     let mut affected = BTreeSet::new();
     let mut findings = Vec::new();
@@ -193,6 +216,7 @@ pub(crate) fn check_with(
         findings,
         affected_services: affected.len(),
         services: projects.len(),
+        compiler_version,
         elapsed,
     })
 }
@@ -321,6 +345,16 @@ pub(super) fn write_check_project(
             header_lines,
         });
     }
+    std::fs::write(
+        directory.join(CANARY_FILE),
+        "/** @type {string} */\nlet twacoCanary = 1;\n",
+    )
+    .map_err(|error| {
+        CheckError(format!(
+            "{}: {error}",
+            directory.join(CANARY_FILE).display()
+        ))
+    })?;
     let tsconfig = json!({
         "compilerOptions": {
             "allowJs": true,
@@ -345,6 +379,57 @@ pub(super) fn write_check_project(
     )
     .map_err(|error| CheckError(format!("{}: {error}", config_path.display())))?;
     Ok(projects)
+}
+
+fn compiler_version(
+    output: &CompilerOutput,
+    program: &OsStr,
+    secrets: &[Secret],
+) -> Result<String, CheckError> {
+    if !output.success {
+        return Err(CheckError(format!(
+            "could not run TypeScript compiler {} --version successfully",
+            program.to_string_lossy()
+        )));
+    }
+    let bytes = if output.stdout.is_empty() {
+        &output.stderr
+    } else {
+        &output.stdout
+    };
+    let text = redact(
+        std::str::from_utf8(bytes).map_err(|error| {
+            CheckError(format!(
+                "could not read TypeScript compiler version: {error}"
+            ))
+        })?,
+        secrets,
+    );
+    // `tsc --version` prints "Version 5.9.3"; the summary says "TypeScript 5.9.3".
+    let text = text.trim();
+    let text = text.strip_prefix("Version ").unwrap_or(text);
+    if text.is_empty() {
+        return Err(CheckError(format!(
+            "TypeScript compiler {} did not print a version",
+            program.to_string_lossy()
+        )));
+    }
+    Ok(text.to_string())
+}
+
+fn is_canary(finding: &CompilerFinding) -> bool {
+    Path::new(&finding.file)
+        .file_name()
+        .is_some_and(|name| name == CANARY_FILE)
+        && finding.line == CANARY_LINE
+        && finding.code == CANARY_CODE
+}
+
+fn untrusted_compiler(program: &OsStr, version: &str) -> CheckError {
+    CheckError(format!(
+        "{} (TypeScript {version}) did not report a known type error, so its result cannot be trusted; check that it is a TypeScript compiler that checks JavaScript, or set [types] tsc",
+        program.to_string_lossy()
+    ))
 }
 
 pub(super) fn compiler_command(solution: &Solution) -> Vec<OsString> {

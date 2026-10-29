@@ -1,18 +1,21 @@
 //! A deliberately small XSD reader for validating exported entity XML.
 //!
-//! The platform owns its schema, so this module reads an operator-provided copy at run time and
-//! never embeds it. It accepts only the subset the export schema uses and refuses to guess at
-//! declarations it cannot model.
+//! The platform owns its schema, so this module reads an operator-provided XSD or Eclipse
+//! distribution archive at run time and never embeds it. It accepts only the subset the export
+//! schema uses and refuses to guess at declarations it cannot model.
 
 use super::config::Solution;
 use super::normalise::LIVE_ONLY_ELEMENTS;
 use super::scan::{self, Kind};
 use super::workspace;
 use std::collections::{BTreeMap, BTreeSet};
-use std::io::Read;
+use std::io::{Cursor, Read, Seek};
 use std::path::{Path, PathBuf};
 
 const JAR_ENTRY: &str = "com/thingworx/documents/schema.xsd";
+/// Nested archives are vendor input. Enough for the platform common jar, but not enough to let a
+/// malformed plugin archive make a gate allocate without a useful bound.
+const MAX_NESTED_JAR_BYTES: u64 = 64 * 1024 * 1024;
 
 pub(crate) struct Report {
     pub(crate) examined: usize,
@@ -231,29 +234,98 @@ fn schema_bytes(path: &Path) -> Result<Vec<u8>, String> {
         Some("xsd") => {
             std::fs::read(&path).map_err(|e| format!("could not read {}: {e}", path.display()))
         }
-        Some("jar") => {
+        Some("jar" | "zip") => {
             let file = std::fs::File::open(&path)
                 .map_err(|e| format!("could not read {}: {e}", path.display()))?;
             let mut archive = zip::ZipArchive::new(file)
-                .map_err(|e| format!("{} is not a readable jar: {e}", path.display()))?;
-            let mut entry = archive
-                .by_name(JAR_ENTRY)
-                .map_err(|_| format!("{} has no {JAR_ENTRY}", path.display()))?;
-            let mut bytes = Vec::new();
-            entry
-                .read_to_end(&mut bytes)
-                .map_err(|e| format!("could not read {JAR_ENTRY}: {e}"))?;
-            Ok(bytes)
+                .map_err(|e| format!("{} is not a readable archive: {e}", path.display()))?;
+            let nested_levels = if path
+                .extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("zip"))
+            {
+                2
+            } else {
+                1
+            };
+            schema_in_archive(&mut archive, nested_levels)?.ok_or_else(|| {
+                format!(
+                    "{} has no {JAR_ENTRY} at its top level or in a nested jar up to {} MiB",
+                    path.display(),
+                    MAX_NESTED_JAR_BYTES / (1024 * 1024)
+                )
+            })
         }
         _ => Err(format!(
-            "{} is not an .xsd file, .jar file, or directory",
+            "{} is not an .xsd file, .jar file, .zip file, or directory",
             path.display()
         )),
     }
 }
 
-/// The first `schema.xsd`, or jar holding the schema entry, below `dir`: nearer ones first, then
-/// by name. Jars without the entry (most of a plugins folder) are passed over.
+/// Search an archive's schema entry, then nested jars. Eclipse plugin jars keep the
+/// platform-common jar under `lib/`; a distribution zip adds its plugin jar under `plugins/`.
+/// Nested archives are held only while their top-level entry is read.
+fn schema_in_archive<R: Read + Seek>(
+    archive: &mut zip::ZipArchive<R>,
+    nested_levels: usize,
+) -> Result<Option<Vec<u8>>, String> {
+    if let Some(schema) = schema_at_top_level(archive)? {
+        return Ok(Some(schema));
+    }
+    for index in 0..archive.len() {
+        let (name, size) = {
+            let entry = archive
+                .by_index(index)
+                .map_err(|error| format!("could not inspect archive entry: {error}"))?;
+            (
+                entry
+                    .name()
+                    .map_err(|error| format!("could not inspect archive entry name: {error}"))?
+                    .into_owned(),
+                entry.size(),
+            )
+        };
+        if nested_levels == 0
+            || !Path::new(&name)
+                .extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("jar"))
+            || size > MAX_NESTED_JAR_BYTES
+        {
+            continue;
+        }
+        let mut bytes = Vec::with_capacity(usize::try_from(size).unwrap_or(0));
+        // The declared size is the archive's word; the read is bounded whatever it says.
+        archive
+            .by_index(index)
+            .map_err(|error| format!("could not read nested jar {name}: {error}"))?
+            .take(MAX_NESTED_JAR_BYTES)
+            .read_to_end(&mut bytes)
+            .map_err(|error| format!("could not read nested jar {name}: {error}"))?;
+        let Ok(mut nested) = zip::ZipArchive::new(Cursor::new(bytes)) else {
+            continue;
+        };
+        if let Some(schema) = schema_in_archive(&mut nested, nested_levels - 1)? {
+            return Ok(Some(schema));
+        }
+    }
+    Ok(None)
+}
+
+fn schema_at_top_level<R: Read + Seek>(
+    archive: &mut zip::ZipArchive<R>,
+) -> Result<Option<Vec<u8>>, String> {
+    let Ok(mut entry) = archive.by_name(JAR_ENTRY) else {
+        return Ok(None);
+    };
+    let mut bytes = Vec::new();
+    entry
+        .read_to_end(&mut bytes)
+        .map_err(|error| format!("could not read {JAR_ENTRY}: {error}"))?;
+    Ok(Some(bytes))
+}
+
+/// The first `schema.xsd`, or archive holding the schema entry, below `dir`: nearer ones first,
+/// then by name. Archives without the entry (most of a plugins folder) are passed over.
 fn find_schema(dir: &Path, depth: usize) -> Option<PathBuf> {
     if depth > 8 {
         return None;
@@ -273,7 +345,8 @@ fn find_schema(dir: &Path, depth: usize) -> Option<PathBuf> {
     for entry in &entries {
         let p = entry.path();
         if p.is_file()
-            && p.extension().is_some_and(|e| e.eq_ignore_ascii_case("jar"))
+            && p.extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case("jar") || e.eq_ignore_ascii_case("zip"))
             && jar_has_schema(&p)
         {
             return Some(p);
@@ -286,10 +359,23 @@ fn find_schema(dir: &Path, depth: usize) -> Option<PathBuf> {
 }
 
 fn jar_has_schema(path: &Path) -> bool {
+    let nested_levels = if path
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("zip"))
+    {
+        2
+    } else {
+        1
+    };
     std::fs::File::open(path)
         .ok()
         .and_then(|file| zip::ZipArchive::new(file).ok())
-        .is_some_and(|mut archive| archive.by_name(JAR_ENTRY).is_ok())
+        .is_some_and(|mut archive| {
+            schema_in_archive(&mut archive, nested_levels)
+                .ok()
+                .flatten()
+                .is_some()
+        })
 }
 
 impl Schema {
@@ -988,21 +1074,48 @@ mod tests {
     }
 
     #[test]
-    fn a_directory_search_passes_over_jars_without_the_schema() {
+    fn a_directory_search_finds_a_schema_in_a_nested_plugin_jar() {
         use std::io::Write;
         let dir = tempfile::tempdir().unwrap();
-        let jar = |path: &Path, entry: &str| {
+        let jar = |path: &Path, entry: &str, contents: &[u8]| {
             let mut zip = zip::ZipWriter::new(std::fs::File::create(path).unwrap());
             zip.start_file(entry, zip::write::SimpleFileOptions::default())
                 .unwrap();
-            zip.write_all(OPEN.as_bytes()).unwrap();
+            zip.write_all(contents).unwrap();
             zip.finish().unwrap();
         };
-        jar(&dir.path().join("a-unrelated.jar"), "META-INF/MANIFEST.MF");
-        let deep = dir.path().join("p/l/u/g/i/n");
-        std::fs::create_dir_all(&deep).unwrap();
-        jar(&deep.join("z-plugin.jar"), JAR_ENTRY);
-        assert_eq!(find_schema(dir.path(), 0), Some(deep.join("z-plugin.jar")));
+        let common = dir.path().join("thingworx-platform-common.jar");
+        jar(&common, JAR_ENTRY, OPEN.as_bytes());
+        assert!(schema_bytes(&common).unwrap().starts_with(b"<xs:schema"));
+
+        let plugin = dir.path().join("com.thingworx.eclipse.extension.ui.jar");
+        jar(
+            &plugin,
+            "lib/thingworx-platform-common.jar",
+            &std::fs::read(&common).unwrap(),
+        );
+        assert!(schema_bytes(&plugin).unwrap().starts_with(b"<xs:schema"));
+
+        let distribution = dir.path().join("eclipse-plugin.zip");
+        jar(
+            &distribution,
+            "plugins/com.thingworx.eclipse.extension.ui.jar",
+            &std::fs::read(&plugin).unwrap(),
+        );
+        assert!(schema_bytes(&distribution)
+            .unwrap()
+            .starts_with(b"<xs:schema"));
+
+        let folder = dir.path().join("plugins");
+        std::fs::create_dir_all(&folder).unwrap();
+        jar(
+            &folder.join("a-unrelated.jar"),
+            "META-INF/MANIFEST.MF",
+            b"manifest",
+        );
+        let found = folder.join("z-plugin.jar");
+        std::fs::copy(&plugin, &found).unwrap();
+        assert_eq!(find_schema(&folder, 0), Some(found));
         assert!(schema_bytes(dir.path()).unwrap().starts_with(b"<xs:schema"));
     }
 

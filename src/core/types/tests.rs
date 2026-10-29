@@ -1100,6 +1100,7 @@ struct FakeCompiler {
     success: bool,
     stdout: Vec<u8>,
     stderr: Vec<u8>,
+    version: Vec<u8>,
     calls: RefCell<Vec<(OsString, Vec<OsString>, PathBuf)>>,
 }
 
@@ -1148,6 +1149,13 @@ impl CompilerRunner for FakeCompiler {
             arguments.to_vec(),
             current_dir.to_path_buf(),
         ));
+        if arguments.iter().any(|argument| argument == "--version") {
+            return Ok(CompilerOutput {
+                success: true,
+                stdout: self.version.clone(),
+                stderr: Vec::new(),
+            });
+        }
         Ok(CompilerOutput {
             success: self.success,
             stdout: self.stdout.clone(),
@@ -1163,6 +1171,7 @@ fn compiler_errors_without_a_parsable_finding_are_a_broken_run() {
         success: false,
         stdout: Vec::new(),
         stderr: b"\nnode: cannot find module typescript\nlong stack trace\n".to_vec(),
+        version: b"Version 5.9.3\n".to_vec(),
         calls: RefCell::new(Vec::new()),
     };
     let error = check_with(&solution, &compiler).unwrap_err().to_string();
@@ -1174,9 +1183,30 @@ fn compiler_errors_without_a_parsable_finding_are_a_broken_run() {
     assert!(!error.contains("long stack trace"));
     assert!(error.contains("npm install --save-dev typescript"));
     let calls = compiler.calls.borrow();
-    assert_eq!(calls.len(), 1);
-    assert!(calls[0].1.iter().any(|argument| argument == "--pretty"));
-    assert_eq!(calls[0].2, root);
+    assert_eq!(calls.len(), 2);
+    assert!(calls[1].1.iter().any(|argument| argument == "--pretty"));
+    assert_eq!(calls[1].2, root);
+}
+
+#[test]
+fn a_silent_compiler_is_rejected_by_the_known_error_canary() {
+    let (_dir, _, solution) = fixture_solution("silent-compiler", &[]);
+    let compiler = FakeCompiler {
+        success: true,
+        stdout: Vec::new(),
+        stderr: Vec::new(),
+        version: b"Version 7.0.2\n".to_vec(),
+        calls: RefCell::new(Vec::new()),
+    };
+
+    let error = check_with(&solution, &compiler).unwrap_err().to_string();
+
+    assert!(
+        error.contains("did not report a known type error"),
+        "{error}"
+    );
+    assert!(error.contains("(TypeScript 7.0.2)"), "{error}");
+    assert!(error.contains("set [types] tsc"), "{error}");
 }
 
 #[test]
@@ -1212,6 +1242,7 @@ fn compiler_stderr_credentials_are_redacted() {
         success: false,
         stdout: Vec::new(),
         stderr: format!("compiler failed with {secret}\n").into_bytes(),
+        version: b"Version 5.9.3\n".to_vec(),
         calls: RefCell::new(Vec::new()),
     };
 
@@ -1265,6 +1296,7 @@ fn json_check_output_is_all_findings_and_no_summary() {
         ],
         affected_services: 2,
         services: 4,
+        compiler_version: "5.9.3".into(),
         elapsed: Duration::from_millis(1250),
     };
     let stdout: Vec<String> = outcome.findings.iter().map(finding_json).collect();

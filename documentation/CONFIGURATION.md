@@ -106,7 +106,7 @@ indent_cdata_payload = false  # true keeps scripts indented to their <code> elem
 [gates]
 live = false                  # true: every `check` also has the server parse every script
 advisory = []                 # built-in gates that report without failing, e.g. ["code order"]
-structure_xsd = ""            # optional XSD, plugin JAR, or directory; also TWACO_STRUCTURE_XSD
+structure_xsd = ""            # optional XSD, Eclipse plugin JAR/zip, or directory; also TWACO_STRUCTURE_XSD
 
 [validate]
 inherited_overrides = ["Acme.Dashboards.Manager.GetDashboards"]
@@ -346,7 +346,8 @@ layout once.
 
 `structure_xsd = "path"` enables the offline, advisory `structure` gate. The path is relative
 to the solution root unless `TWACO_STRUCTURE_XSD` overrides it. It may name an XSD, the Eclipse
-plugin JAR that contains it, or a directory holding either. twaco reads the schema at check time;
+plugin JAR (whose nested platform-common JAR holds it), its distribution zip, or a directory
+holding any of them. twaco reads the schema at check time;
 it does not copy it into the repository.
 
 `advisory` names built-in gates whose findings are reported (as `warn`) without failing
@@ -420,7 +421,7 @@ character is literal, brackets included, so `ConfigurationTable[ConnectionInfo]`
 
 | Key | Meaning |
 | --- | --- |
-| `types.tsc` | The TypeScript compiler command for `types --check`, before twaco's own `-p` arguments. Default: `tsc` (`tsc.cmd` on Windows) on `PATH`. It receives no credentials, has a 600-second timeout, and each output stream is capped at 16 MiB. |
+| `types.tsc` | The TypeScript compiler command for `types --check`, before twaco's own `-p` arguments. Default: `tsc` (`tsc.cmd` on Windows) on `PATH`. It receives no credentials, has a 600-second timeout, each output stream is capped at 16 MiB, and must report twaco's known type-error canary. TypeScript 7 reports fewer JavaScript findings than 5.x, such as a value that may be null. |
 | `help.version` | The help center release `twaco help` reads, such as `10.1`. Default: the server's version, else the newest. |
 | `repositories.root` | The folder holding one subfolder per FileRepository, for `repo status`, `push` and `pull`. Default `filerepository`. A pull writes only inside the solution. |
 | `localization.root` | The folder holding localization table files. Default `localization`. Edits write only inside the solution. |

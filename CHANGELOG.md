@@ -6,6 +6,15 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- The `structure` gate now finds the export schema in the Eclipse plugin JAR's nested
+  platform-common JAR, and in an Eclipse distribution zip, without copying the vendor schema.
+- User-scoped MCP registrations no longer pin `TWACO_ROOT` to the solution that configured them.
+- `types --check` names the TypeScript version it ran, and refuses a compiler that does not
+  report a known type error twaco plants, rather than reporting a silent compiler as a pass.
+  TypeScript 7 reports fewer JavaScript findings than 5.x, such as a value that may be null.
+
 ## [0.1.44] - 2026-10-29
 
 ### Added
