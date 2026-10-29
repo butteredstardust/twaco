@@ -4,7 +4,7 @@
 //! they are hash input, never an export. Length-prefixing makes element, attribute, text and
 //! CDATA boundaries unambiguous without choosing an escaping style.
 //!
-//! Normalisation version 8 has exactly these non-semantic rules:
+//! Normalisation version 9 has exactly these non-semantic rules:
 //!
 //! - apply XML 1.0 line-end and CDATA-attribute whitespace normalisation to literal XML input
 //!   before unescaping character references or applying payload-specific rules;
@@ -54,16 +54,18 @@
 //!   FieldDefinition's `aspect.defaultValue` (and numeric minimum/maximum), ConfigurationTable
 //!   row cells using that table's DataShape, and ThingProperties values using a local property
 //!   definition: NUMBER follows Java `Double.toString`, INTEGER and LONG are parsed as i64, and
-//!   JSON is parsed, key-sorted and compacted. Unparseable values and values with no local type
-//!   remain byte-significant (observed 2026-10-29; version 8);
+//!   JSON and QUERY are parsed, key-sorted and compacted; LOCATION components compare as numbers.
+//!   Unparseable values and values with no local type remain byte-significant (version 9);
+//! - adjacent CDATA sections separated only by whitespace are one payload; XML uses that spelling
+//!   for a literal `]]>` in a script (version 9);
 //! - a leaf holding only an empty or whitespace-only CDATA is the same as an empty element, as
 //!   the server stores an empty service script as `<code/>` (observed 2026-10-29; version 8).
 //!
 //! No generated id, default attribute, or other exception is included without a live/committed
 //! observation. Apart from the rules above, CDATA bytes are never decoded, re-indented, or joined.
 //!
-//! Without server ownership, hashes remain `v8:<sha256>` byte for byte. With ownership they are
-//! `v8:so1:<policy-sha256>:<content-sha256>`: the policy digest covers the sorted, deduplicated
+//! Without server ownership, hashes remain `v9:<sha256>` byte for byte. With ownership they are
+//! `v9:so1:<policy-sha256>:<content-sha256>`: the policy digest covers the sorted, deduplicated
 //! union of applicable part labels (newline-delimited). `so1` versions selector semantics.
 //! Content uses the same comparison tree with owned nodes omitted. Baselines must compare the
 //! entire prefix before the final colon; adding, removing or changing ownership invalidates
@@ -73,7 +75,7 @@ use super::scan::{self, Kind, ScanError, Token};
 use sha2::{Digest, Sha256};
 
 /// The normalisation version every hash carries; a baseline from another one says nothing.
-pub(crate) const HASH_VERSION: &str = "v8";
+pub(crate) const HASH_VERSION: &str = "v9";
 pub(crate) const LIVE_ONLY_ELEMENTS: [&[u8]; 9] = [
     b"effectiveShape",
     b"Owner",
@@ -87,7 +89,7 @@ pub(crate) const LIVE_ONLY_ELEMENTS: [&[u8]; 9] = [
 ];
 const LIVE_ONLY_ATTRIBUTE: &[u8] = b"lastModifiedDate";
 // Live exports reorder these name-keyed containers while preserving their child sets.
-const NAME_KEYED_CONTAINERS: [&[u8]; 7] = [
+const NAME_KEYED_CONTAINERS: [&[u8]; 9] = [
     b"FieldDefinitions",
     b"ParameterDefinitions",
     b"ServiceDefinitions",
@@ -95,6 +97,8 @@ const NAME_KEYED_CONTAINERS: [&[u8]; 7] = [
     b"ConfigurationTables",
     b"ConfigurationTableDefinitions",
     b"PropertyDefinitions",
+    b"Subscriptions",
+    b"EventDefinitions",
 ];
 const JSON_CONTENT_ENTITIES: [&[u8]; 2] = [b"StateDefinition", b"StyleTheme"];
 const PERMISSION_BLOCKS: [&[u8]; 6] = [
@@ -226,7 +230,7 @@ pub(crate) fn added_project_dependencies(sent: &[u8], read_back: &[u8]) -> Vec<S
 
 fn canonical(src: &[u8], with_permissions: bool) -> Result<Vec<u8>, NormaliseError> {
     let entity = comparison_tree(src, with_permissions)?;
-    let mut out = b"twaco-entity-normalise-v8\0".to_vec();
+    let mut out = b"twaco-entity-normalise-v9\0".to_vec();
     write_element(&entity, &mut out);
     Ok(out)
 }
@@ -291,7 +295,7 @@ pub(crate) fn hash_with_parts(
         return hash(src);
     }
     let tree = owned_comparison_tree(src, parts)?;
-    let mut canonical = b"twaco-entity-normalise-v8\0".to_vec();
+    let mut canonical = b"twaco-entity-normalise-v9\0".to_vec();
     write_element(&tree, &mut canonical);
     Ok(format!(
         "{}:{}",
@@ -826,9 +830,17 @@ fn canonical_typed_value(base_type: &[u8], value: &[u8]) -> Option<Vec<u8>> {
         "NUMBER" | "INTEGER" | "LONG" => {
             crate::core::number::java_text(base_type, value).map(String::into_bytes)
         }
-        "JSON" => serde_json::from_str(value)
+        "JSON" | "QUERY" => serde_json::from_str(value)
             .ok()
             .and_then(|value| serde_json::to_vec(&sorted_keys(value)).ok()),
+        "LOCATION" => {
+            let values: Option<Vec<String>> = value
+                .split(',')
+                .map(|component| crate::core::number::java_text("NUMBER", component.trim()))
+                .collect();
+            let values = values?;
+            matches!(values.len(), 2 | 3).then(|| values.join(",").into_bytes())
+        }
         _ => None,
     }
 }
@@ -847,17 +859,27 @@ fn normalise_typed_leaf(element: &mut Element, base_type: &[u8]) {
 }
 
 fn single_text_or_cdata_payload(element: &Element) -> Option<Vec<u8>> {
-    let mut payload = None;
+    let mut payload = Vec::new();
+    let mut framing = None;
     for child in &element.children {
         match child {
             Node::Text(text) if xml_whitespace(text) => {}
-            Node::Text(text) | Node::Cdata(text) if payload.is_none() => {
-                payload = Some(text.clone())
+            Node::Text(text) => {
+                if framing.replace(0).is_some_and(|kind| kind != 0) {
+                    return None;
+                }
+                payload.extend_from_slice(text);
+            }
+            Node::Cdata(text) => {
+                if framing.replace(1).is_some_and(|kind| kind != 1) {
+                    return None;
+                }
+                payload.extend_from_slice(text);
             }
             _ => return None,
         }
     }
-    payload
+    framing.map(|_| payload)
 }
 
 fn normalise_leaf_content(element: &mut Element) {
@@ -993,15 +1015,19 @@ fn normalise_json_payload(element: &mut Element) {
 }
 
 fn single_cdata_payload(element: &Element) -> Option<Vec<u8>> {
-    let mut payload = None;
+    let mut payload = Vec::new();
+    let mut found = false;
     for child in &element.children {
         match child {
             Node::Text(text) if xml_whitespace(text) => {}
-            Node::Cdata(cdata) if payload.is_none() => payload = Some(cdata.clone()),
+            Node::Cdata(cdata) => {
+                found = true;
+                payload.extend_from_slice(cdata);
+            }
             _ => return None,
         }
     }
-    payload
+    found.then_some(payload)
 }
 
 fn clean_indentation(element: &mut Element) {
@@ -1400,7 +1426,7 @@ mod tests {
     fn named_siblings_in_another_order_differ_unless_the_hash_sorts_them() {
         let events = |first: &str, second: &str| {
             format!(
-                r#"<Thing name="T"><ThingShape><EventDefinitions><EventDefinition name="{first}"/><EventDefinition name="{second}"/></EventDefinitions></ThingShape></Thing>"#
+                r#"<Thing name="T"><ThingShape><EventHandlers><EventHandler name="{first}"/><EventHandler name="{second}"/></EventHandlers></ThingShape></Thing>"#
             )
         };
         let (sent, back) = (events("A", "B"), events("B", "A"));
@@ -1410,11 +1436,15 @@ mod tests {
         );
         assert_eq!(
             read_back_differences(sent.as_bytes(), back.as_bytes(), &[]),
-            ["Thing[T]/ThingShape/EventDefinitions: its elements are in another order"]
+            ["Thing[T]/ThingShape/EventHandlers: its elements are in another order"]
         );
         // ServiceDefinitions is a set the hash sorts by name.
-        let services = sent.replace("EventDefinition", "ServiceDefinition");
-        let swapped = back.replace("EventDefinition", "ServiceDefinition");
+        let services = sent
+            .replace("EventHandlers", "ServiceDefinitions")
+            .replace("EventHandler", "ServiceDefinition");
+        let swapped = back
+            .replace("EventHandlers", "ServiceDefinitions")
+            .replace("EventHandler", "ServiceDefinition");
         assert_eq!(
             hash(services.as_bytes()).unwrap(),
             hash(swapped.as_bytes()).unwrap()
@@ -1593,11 +1623,11 @@ mod tests {
     }
 
     #[test]
-    fn hash_and_framing_are_version_eight() {
-        assert!(hash(b"<Thing/>").unwrap().starts_with("v8:"));
+    fn hash_and_framing_are_version_nine() {
+        assert!(hash(b"<Thing/>").unwrap().starts_with("v9:"));
         assert!(normalise(b"<Thing/>")
             .unwrap()
-            .starts_with(b"twaco-entity-normalise-v8\0"));
+            .starts_with(b"twaco-entity-normalise-v9\0"));
     }
 
     #[test]
@@ -1635,6 +1665,36 @@ mod tests {
         let inserted = b"<Thing><ThingShape><PropertyDefinitions><PropertyDefinition name=\"z\" baseType=\"STRING\"/><PropertyDefinition name=\"a\" baseType=\"STRING\"/></PropertyDefinitions></ThingShape></Thing>";
         let returned = b"<Thing><ThingShape><PropertyDefinitions><PropertyDefinition name=\"a\" baseType=\"STRING\"/><PropertyDefinition name=\"z\" baseType=\"STRING\"/></PropertyDefinitions></ThingShape></Thing>";
         assert_eq!(hash(inserted).unwrap(), hash(returned).unwrap());
+    }
+
+    #[test]
+    fn split_cdata_is_one_payload_but_its_contents_still_matter() {
+        let split = b"<Thing><code>\n<![CDATA[first]]]]><![CDATA[>second]]>\n</code></Thing>";
+        let joined = b"<Thing><code><![CDATA[first]]]]><![CDATA[>second]]></code></Thing>";
+        let changed = b"<Thing><code><![CDATA[first]]]]><![CDATA[>third]]></code></Thing>";
+        assert_eq!(hash(split).unwrap(), hash(joined).unwrap());
+        assert_ne!(hash(joined).unwrap(), hash(changed).unwrap());
+    }
+
+    #[test]
+    fn subscriptions_and_events_are_name_keyed() {
+        for container in ["Subscriptions", "EventDefinitions"] {
+            let first = format!(
+                "<Thing><{container}><Item name=\"A\"/><Item name=\"B\"/></{container}></Thing>"
+            );
+            let second = first.replace("A\"/><Item name=\"B", "B\"/><Item name=\"A");
+            assert_eq!(
+                hash(first.as_bytes()).unwrap(),
+                hash(second.as_bytes()).unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn query_and_location_values_compare_by_declared_type() {
+        let sent = br#"<Thing><ThingShape><PropertyDefinitions><PropertyDefinition name="where" baseType="LOCATION" aspect.defaultValue="45.5,9.2,100"/><PropertyDefinition name="filter" baseType="QUERY" aspect.defaultValue="{&quot;b&quot;:1,&quot;a&quot;:2}"/></PropertyDefinitions></ThingShape></Thing>"#;
+        let returned = br#"<Thing><ThingShape><PropertyDefinitions><PropertyDefinition name="where" baseType="LOCATION" aspect.defaultValue="45.5,9.2,100.0"/><PropertyDefinition name="filter" baseType="QUERY" aspect.defaultValue="{&quot;a&quot;:2,&quot;b&quot;:1}"/></PropertyDefinitions></ThingShape></Thing>"#;
+        assert_eq!(hash(sent).unwrap(), hash(returned).unwrap());
     }
 
     #[test]

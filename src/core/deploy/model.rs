@@ -53,10 +53,6 @@ pub struct EntityPlan {
     pub server_owned: Vec<String>,
     /// Owned parts holding an encrypted value, which the import clears (a deploy hook sets it).
     pub cleared: Vec<String>,
-    #[allow(
-        dead_code,
-        reason = "read only by Debug; the plan keeps the project it was planned for"
-    )]
     pub(crate) project: String,
     pub collection: String,
     pub name: String,
@@ -87,6 +83,9 @@ pub struct Report {
     pub projects: Vec<String>,
     pub plans: Vec<EntityPlan>,
     pub imported: Vec<String>,
+    /// Projects not imported because every entity in them is already on the server as sent;
+    /// they are still read back, so their baselines are recorded.
+    pub unchanged: Vec<String>,
     pub kept: Vec<(String, String)>,
     pub not_kept: Vec<NotKept>,
     /// Placeholder-bearing calls only; resolved values never enter a report.

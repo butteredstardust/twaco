@@ -1105,7 +1105,7 @@ mod tests {
                 project: text(),
                 source: http(),
                 imported: vec![],
-                put_back: Box::default(),
+                notes: Box::default(),
             },
             ErrorCode::ServerError,
         );

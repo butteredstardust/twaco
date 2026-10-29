@@ -794,7 +794,9 @@ arguments and write the matching `fields.json` sidecar. Timers accept `--every` 
 all managed sidecars are created together in one transaction.
 
 DataTables and Streams require a DataShape; DataTables write `datatable.json` and validate every
-indexed field. A DataTable's DataShape needs a primary key among its own fields: the server ignores
+indexed field. Multi-column index `fieldNames` are semicolon-separated in XML and `datatable.json`
+(the `new data-table --index name=field1,field2` command spelling remains comma-separated). A
+DataTable's DataShape needs a primary key among its own fields: the server ignores
 an inherited one, and refuses the import. ValueStreams, Streams, and DataTables always set the persistence provider. Media
 accepts PNG, JPEG, GIF, or SVG content up to 10 MB. Styles use `#rrggbb` or `rgba(r,g,b,a)` colors.
 States take ordered comparator specifications; menus require one or more `Title=Mashup` items; and

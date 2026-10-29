@@ -603,15 +603,20 @@ fn plan_cell(
         .filter(|t| t.kind == scan::Kind::Cdata)
         .collect();
     let text_only = inside.iter().all(|t| t.kind == scan::Kind::Text);
-    let one_cdata_with_space = cdata.len() == 1
+    let cdata_with_space = !cdata.is_empty()
         && inside.iter().all(|t| {
             t.kind == scan::Kind::Cdata
                 || (t.kind == scan::Kind::Text
                     && t.span.of(src).iter().all(u8::is_ascii_whitespace))
         });
-    if one_cdata_with_space {
+    if cdata_with_space {
+        let replacement = if cdata.len() == 1 {
+            cdata[0].span
+        } else {
+            cell.inner
+        };
         return Ok(Some(splice::Edit::new(
-            cdata[0].span,
+            replacement,
             scan::render_cdata(value.as_bytes()),
         )));
     }

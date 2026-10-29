@@ -120,6 +120,8 @@ struct Fake {
     block_state: Mutex<Option<String>>,
     /// What a service answers, by service name.
     replies: BTreeMap<String, Value>,
+    /// What the server log says about a failed import.
+    import_failures: Vec<String>,
 }
 
 impl push::Remote for Fake {
@@ -227,6 +229,10 @@ fn ai_refusal(held: &BTreeMap<(String, String), Vec<u8>>) -> Option<String> {
 }
 
 impl Remote for Fake {
+    fn import_failures(&self, _since_ms: i64) -> Result<Vec<String>, String> {
+        Ok(self.import_failures.clone())
+    }
+
     fn list_entity_names(&self, collection: &str) -> Result<Vec<String>, ServerError> {
         Ok(self
             .held
@@ -449,6 +455,23 @@ fn projects_import_in_order_and_first_failure_stops_the_second() {
     let error = run_test(&remote, &MemoryBaseline::default(), &projects, true, false).unwrap_err();
     assert!(matches!(error, DeployError::Import { project, .. } if project == "A"));
     assert_eq!(remote.imports.lock().unwrap().as_slice(), ["A.xml"]);
+}
+
+#[test]
+fn a_failed_import_says_what_the_server_logged() {
+    let projects = [project("A", vec![target("A", "a();")], vec![])];
+    let remote = Fake {
+        fail_import: Some("A.xml".to_string()),
+        import_failures: vec!["Invalid Field Name [a,b] in index [byA]".to_string()],
+        ..Fake::default()
+    };
+    let error = run_test(&remote, &MemoryBaseline::default(), &projects, true, false).unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("; the server says: Invalid Field Name [a,b] in index [byA]"),
+        "{error}"
+    );
 }
 
 #[test]

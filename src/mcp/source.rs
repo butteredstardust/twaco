@@ -394,6 +394,7 @@ pub(crate) fn deploy_tool(
                 "projects": notes,
                 "scripts_parsed": report.scripts_checked,
                 "entities": plans(&report),
+                "unchanged_projects": report.unchanged,
                 "calls": calls(&report),
                 "network_connections": network_changes(&report.network_changes),
                 "agents_narrowed_first": report.agents_narrowed.iter().map(agent_narrowing).collect::<Vec<_>>(),
@@ -452,8 +453,7 @@ pub(crate) fn deploy_tool(
             "stage": "conflict check",
             "network_connections": network_changes(&networks),
             // A short reason per entity; the full sentence, with hashes, is detail.
-            "refused": conflicts
-                .iter()
+            "refused": deploy::refused(&conflicts)
                 .map(|c| {
                     let (code, full) = match &c.decision {
                         push::Decision::Refuse(reason) => (refusal_code(reason), reason.to_string()),

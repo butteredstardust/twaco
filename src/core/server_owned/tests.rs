@@ -407,11 +407,12 @@ fn deploy_plans_allow_owned_drift_refuse_source_drift_and_preserve_bundle_values
     let changed = String::from_utf8(remote.clone())
         .unwrap()
         .replace("description=\"ours\"", "description=\"changed\"");
-    *fake.held.lock().unwrap() = Some(changed.into_bytes());
+    *fake.held.lock().unwrap() = Some(changed.clone().into_bytes());
     assert!(matches!(
         deploy::decide_all(&fake, &Baseline::default(), &projects).unwrap()[0].decision,
         push::Decision::Refuse(_)
     ));
+    let changed_bytes = changed.into_bytes();
     *fake.held.lock().unwrap() = Some(remote.clone());
     let profile = Profile {
         url: "http://server".into(),
@@ -431,8 +432,23 @@ fn deploy_plans_allow_owned_drift_refuse_source_drift_and_preserve_bundle_values
         false,
     )
     .unwrap();
+    // Only owned values differ, so there is nothing to import; the read-back still records it.
     assert_eq!(report.kept.len(), 1);
-    assert!(report.changed_by_deploy.is_empty());
+    assert_eq!(report.unchanged, ["Acme.Project"]);
+    assert!(fake.imports.lock().unwrap().is_empty());
+    // A forced overwrite of a source change imports the bundle with the server's owned values.
+    *fake.held.lock().unwrap() = Some(changed_bytes);
+    deploy::run(
+        &fake,
+        &Store::default(),
+        &profile,
+        &projects,
+        true,
+        true,
+        false,
+    )
+    .unwrap();
+    assert_eq!(fake.imports.lock().unwrap().len(), 1);
     assert_eq!(fake.imports.lock().unwrap()[0], remote);
     assert_eq!(projects[0].bytes, local);
     // A new entity retains its committed initial values and does not ask the Exporter.

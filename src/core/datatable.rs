@@ -23,7 +23,7 @@ pub struct Configuration {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Index {
     pub(crate) name: String,
-    /// Comma-separated, as the platform writes it.
+    /// Semicolon-separated, as the platform writes it.
     pub(crate) field_names: String,
 }
 

@@ -7,8 +7,8 @@ use super::super::push::Decision;
 use super::super::server::ServerError;
 use super::calls::{redact_placeholder_values, resolve_call};
 use super::{
-    decide_all_with_progress, BaselineStore, DeployError, Entity, EntityPlan, NotKept,
-    ParseFailure, PlannedCall, ProjectBundle, Remote, Report, Script, ServiceCall,
+    decide_all_with_progress, BaselineStore, DeployError, Entity, NotKept, ParseFailure,
+    PlannedCall, ProjectBundle, Remote, Report, Script, ServiceCall,
 };
 use std::collections::BTreeMap;
 use std::time::Duration;
@@ -166,21 +166,20 @@ pub(crate) fn run_with_progress(
         decide_all_with_progress(remote, &baseline, projects, progress)?
     };
 
-    let conflicts: Vec<EntityPlan> = report
+    let conflicts = report
         .plans
         .iter()
         .filter(|plan| matches!(plan.decision, Decision::Refuse(_)))
-        .cloned()
-        .collect();
+        .count();
     tracing::info!(
         entities = report.plans.len(),
-        conflicts = conflicts.len(),
+        conflicts,
         apply,
         force,
         "deploy: planned"
     );
-    if !conflicts.is_empty() && !force {
-        return Err(DeployError::Conflicts(conflicts));
+    if conflicts > 0 && !force {
+        return Err(DeployError::Conflicts(report.plans));
     }
     for project in projects.iter().filter(|project| project.framework) {
         let Some(call) = &project.deploy else {
@@ -208,6 +207,23 @@ pub(crate) fn run_with_progress(
         .iter()
         .map(|interim| interim.narrowing.clone())
         .collect();
+    // Re-importing a bundle the server already holds is not free (the server rewrites what it
+    // imports), so a project with nothing to push and no calls to run is only read back.
+    if interim.is_empty() {
+        report.unchanged = projects
+            .iter()
+            .filter(|project| {
+                project.deploy.is_none()
+                    && project.post_import.is_empty()
+                    && report
+                        .plans
+                        .iter()
+                        .filter(|plan| plan.project == project.project)
+                        .all(|plan| plan.decision == Decision::AlreadyThere)
+            })
+            .map(|project| project.project.clone())
+            .collect();
+    }
     if !apply {
         return Ok(report);
     }
@@ -277,7 +293,12 @@ pub(crate) fn run_with_progress(
     let mut import_failure = None;
     let import_phase = progress::phase(progress, "importing", Some(projects.len() as u64));
     for (project, bytes) in projects.iter().zip(&outgoing) {
+        if report.unchanged.contains(&project.project) {
+            progress.advance(1);
+            continue;
+        }
         progress.message(&project.project);
+        let started = super::super::logs::now_ms();
         let imported = remote.import(&project.file_name, bytes);
         progress.advance(1);
         match imported {
@@ -289,16 +310,27 @@ pub(crate) fn run_with_progress(
                 tracing::info!(project = %project.project, "deploy: project import failed");
                 // A narrowed agent whose bundle did not import goes back as it was, unless a
                 // namespace it was narrowed for imported.
+                // A second's slack for the server's clock.
+                let mut notes: Vec<String> = match remote.import_failures(started - 1_000) {
+                    Ok(reasons) => reasons
+                        .into_iter()
+                        .map(|reason| format!("the server says: {reason}"))
+                        .collect(),
+                    Err(why) => vec![format!(
+                        "the server log could not be read for the cause: {why}"
+                    )],
+                };
+                notes.extend(super::ai_order::after_failed_import(
+                    remote,
+                    &narrowed,
+                    &report.imported,
+                    &mut baseline,
+                ));
                 import_failure = Some(DeployError::Import {
                     project: project.project.clone(),
                     source,
                     imported: report.imported.clone(),
-                    put_back: super::ai_order::after_failed_import(
-                        remote,
-                        &narrowed,
-                        &report.imported,
-                        &mut baseline,
-                    ),
+                    notes: notes.into(),
                 });
                 break;
             }
@@ -309,7 +341,10 @@ pub(crate) fn run_with_progress(
 
     let imported_entities: Vec<&Entity> = projects
         .iter()
-        .filter(|project| report.imported.contains(&project.project))
+        .filter(|project| {
+            report.imported.contains(&project.project)
+                || report.unchanged.contains(&project.project)
+        })
         .flat_map(|project| &project.entities)
         .collect();
     let read_back_phase = progress::phase(

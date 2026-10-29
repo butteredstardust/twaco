@@ -564,6 +564,15 @@ pub(crate) fn entity_new_cmd(solution: &Solution, new: &NewEntity) -> u8 {
             plan.cron.as_deref().unwrap(),
             plan.request.run_as.as_deref().unwrap()
         ),
+        Kind::Project => println!(
+            "{} project {}",
+            if outcome.applied {
+                "created"
+            } else {
+                "would create"
+            },
+            plan.request.name,
+        ),
         _ => println!(
             "{} {} {} in project {}",
             if outcome.applied {

@@ -31,8 +31,9 @@ pub enum DeployError {
         project: String,
         source: ServerError,
         imported: Vec<String>,
-        /// What happened to each agent narrowed before the imports and put back after this one.
-        put_back: Box<[String]>,
+        /// The Importer's reason from the server log (or why it could not be read), then what
+        /// happened to each agent narrowed before the imports and put back after this one.
+        notes: Box<[String]>,
     },
     /// An agent's import without the allowances the deploy's namespaces drop failed, before any
     /// project imported.
@@ -88,8 +89,12 @@ impl fmt::Display for DeployError {
             DeployError::ParseFailed(failures) => {
                 write!(f, "{} service script(s) failed live parse", failures.len())
             }
-            DeployError::Conflicts(conflicts) => {
-                write!(f, "{} entity conflict(s) refuse this deploy", conflicts.len())
+            DeployError::Conflicts(plans) => {
+                write!(
+                    f,
+                    "{} entity conflict(s) refuse this deploy",
+                    super::refused(plans).count()
+                )
             }
             DeployError::AgentsOutside(agents) => {
                 let agents: Vec<String> = agents
@@ -106,12 +111,12 @@ impl fmt::Display for DeployError {
                     agents.join(", ")
                 )
             }
-            DeployError::Import { project, source, imported, put_back } => {
+            DeployError::Import { project, source, imported, notes } => {
                 write!(f, "project {project} import failed: {source}")?;
                 if !imported.is_empty() {
                     write!(f, "; already imported and recorded: {}", imported.join(", "))?;
                 }
-                for note in put_back {
+                for note in notes {
                     write!(f, "; {note}")?;
                 }
                 Ok(())

@@ -64,6 +64,19 @@ pub fn explain(
     let person = ServiceTarget::entity("Users", user).map_err(|e| e.to_string())?;
     let mut reasons = Vec::new();
 
+    // The permission check answers for any name, so a misspelt service would read as allowed.
+    match remote.call(&target, "GetServiceDefinition", &json!({ "name": service })) {
+        Err(ServerError::Http {
+            status: 404, body, ..
+        }) if body.contains("Service definition") => {
+            return Err(format!("{entity} has no service {service}"));
+        }
+        Err(error) if error.is_not_found() => {
+            return Err(format!("no entity {entity} on the server"));
+        }
+        _ => {}
+    }
+
     let check = remote
         .call(
             &target,
@@ -108,9 +121,13 @@ pub fn explain(
     }
 
     let names = |service: &str| -> Result<Vec<String>, String> {
-        let reply = remote
-            .call(&person, service, &json!({}))
-            .map_err(|error| failed(&format!("Users/{user}"), service, &error))?;
+        let reply = remote.call(&person, service, &json!({})).map_err(|error| {
+            if error.is_not_found() {
+                format!("no user {user} on the server")
+            } else {
+                failed(&format!("Users/{user}"), service, &error)
+            }
+        })?;
         let mut out: Vec<String> = rows(&reply)
             .filter_map(|row| row["name"].as_str().map(str::to_string))
             .collect();
@@ -300,6 +317,42 @@ mod tests {
                 table(json!([{ "result": "bob" }])),
             ),
         ]))
+    }
+
+    #[test]
+    fn a_missing_service_or_user_is_named_rather_than_judged() {
+        struct Missing(&'static str, &'static str);
+        impl Remote for Missing {
+            fn call(
+                &self,
+                target: &ServiceTarget,
+                service: &str,
+                _: &Value,
+            ) -> Result<Option<Value>, ServerError> {
+                if format!("{target}.{service}") == self.0 {
+                    return Err(ServerError::Http {
+                        method: crate::core::server::Method::Post,
+                        status: 404,
+                        url: "http://server".to_string(),
+                        body: self.1.to_string(),
+                    });
+                }
+                Ok(Some(json!({ "rows": [] })))
+            }
+        }
+        let service = Missing(
+            "Things/Acme.T.GetServiceDefinition",
+            "Service definition [Run] does not exist",
+        );
+        assert_eq!(
+            explain(&service, "ann", "Things", "Acme.T", "Run").unwrap_err(),
+            "Things/Acme.T has no service Run"
+        );
+        let user = Missing("Users/ann.GetOrganizations", "Entity Not Found : [ann]");
+        assert_eq!(
+            explain(&user, "ann", "Things", "Acme.T", "Run").unwrap_err(),
+            "no user ann on the server"
+        );
     }
 
     fn explained(fake: &Fake) -> Explanation {
