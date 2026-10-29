@@ -102,16 +102,22 @@ pub fn extract(src: &[u8]) -> Result<Vec<Field>, FieldError> {
             index += 1;
         }
     }
+    Ok(in_ordinal_order(fields))
+}
+
+/// Fields in `ordinal` order, stably; as they are when an ordinal is not a number. Both the XML
+/// and the sidecar are read this way, so a sidecar written in another order still matches.
+fn in_ordinal_order(fields: Vec<Field>) -> Vec<Field> {
     let ordinals: Option<Vec<u64>> = fields
         .iter()
         .map(|field| field.ordinal.trim().parse().ok())
         .collect();
-    if let Some(ordinals) = ordinals {
-        let mut numbered: Vec<(u64, Field)> = ordinals.into_iter().zip(fields).collect();
-        numbered.sort_by_key(|(ordinal, _)| *ordinal);
-        fields = numbered.into_iter().map(|(_, field)| field).collect();
-    }
-    Ok(fields)
+    let Some(ordinals) = ordinals else {
+        return fields;
+    };
+    let mut numbered: Vec<(u64, Field)> = ordinals.into_iter().zip(fields).collect();
+    numbered.sort_by_key(|(ordinal, _)| *ordinal);
+    numbered.into_iter().map(|(_, field)| field).collect()
 }
 
 fn read_field(tag: &Token, src: &[u8]) -> Result<Field, FieldError> {
@@ -278,7 +284,7 @@ pub fn to_sidecar(fields: &[Field]) -> String {
     out
 }
 
-/// Parse a `fields.json` sidecar.
+/// Parse a `fields.json` sidecar, in `ordinal` order as [`extract`] reads the XML.
 pub fn from_sidecar(text: &str) -> Result<Vec<Field>, FieldError> {
     let value: serde_json::Value =
         serde_json::from_str(text).map_err(|e| FieldError::Malformed {
@@ -356,7 +362,7 @@ pub fn from_sidecar(text: &str) -> Result<Vec<Field>, FieldError> {
             aspects,
         });
     }
-    Ok(fields)
+    Ok(in_ordinal_order(fields))
 }
 
 /// Write fields back into a DataShape document.
@@ -370,6 +376,8 @@ pub fn sync(
     desired: &[Field],
     allow_add_remove: bool,
 ) -> Result<(Vec<u8>, Vec<String>), FieldError> {
+    let desired = in_ordinal_order(desired.to_vec());
+    let desired = desired.as_slice();
     let current = extract(src)?;
     if !allow_add_remove {
         // Counted rather than compared as sets: two fields named A in the XML against one in
@@ -791,6 +799,18 @@ mod tests {
         let (out, changes) = sync(by_name.as_bytes(), &sidecar, false).unwrap();
         assert_eq!(out, by_name.as_bytes());
         assert!(changes.is_empty());
+        // A sidecar written in the file's order before reads the same.
+        let legacy = from_sidecar(&to_sidecar(&[
+            sidecar[1].clone(),
+            sidecar[2].clone(),
+            sidecar[0].clone(),
+        ]))
+        .unwrap();
+        assert_eq!(legacy, sidecar);
+        assert_eq!(
+            sync(by_name.as_bytes(), &legacy, false).unwrap().0,
+            by_name.as_bytes()
+        );
         // Equal ordinals keep the file's order; one that is not a number leaves it all as written.
         assert_eq!(
             names(&shape(&[field("b", "1"), field("a", "1"), field("c", "0")])),

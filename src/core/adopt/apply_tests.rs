@@ -997,3 +997,26 @@ fn a_fields_json_edited_since_the_sync_is_never_overwritten() {
     drop(lock);
     assert_eq!(file_snapshot(&solution.root), before, "nothing was adopted");
 }
+
+#[test]
+fn a_data_shape_they_added_comes_with_its_fields_json() {
+    let (_dir, solution, base, export) = data_shape_case("old");
+    let both = data_shape("old").replace(
+        "</DataShape>",
+        "</DataShape><DataShape name=\"P.New\" projectName=\"P\"><FieldDefinitions>\
+         <FieldDefinition baseType=\"NUMBER\" description=\"\" name=\"n\" ordinal=\"1\"/>\
+         </FieldDefinitions></DataShape>",
+    );
+    std::fs::write(&export, &both).unwrap();
+    let lines = apply_all(&solution, &base, &export, &[]);
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.starts_with("created  DataShapes/P.New.xml")),
+        "{lines:?}"
+    );
+    let fields = read(&solution, "src/P.New/fields.json");
+    assert!(fields.contains("\"NUMBER\""), "{fields}");
+    // The shape already here was not changed, so its sidecar is left alone.
+    assert!(read(&solution, "src/P.D/fields.json").contains("\"old\""));
+}

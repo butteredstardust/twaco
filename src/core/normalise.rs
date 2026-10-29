@@ -322,6 +322,13 @@ pub(crate) fn read_back_differences(
     };
     let mut out = Vec::new();
     differences(&sent, &read_back, &element_label(&sent), &mut out);
+    // The walk compares text and elements apart; only how they interleave is left.
+    if out.is_empty() && canonical_element_bytes(&sent) != canonical_element_bytes(&read_back) {
+        out.push(format!(
+            "{}: its text and elements interleave differently",
+            element_label(&sent)
+        ));
+    }
     out
 }
 
@@ -388,6 +395,22 @@ fn differences(sent: &Element, back: &Element, path: &str, out: &mut Vec<String>
         for (label, _) in &right {
             if !find(&left, label) {
                 note(out, format!("{path}/{label}: added by the server"));
+            }
+        }
+        // Outside the sets the hash sorts, order is content.
+        if !sent.unordered {
+            fn common<'a>(
+                children: &'a [(String, &Element)],
+                other: &[(String, &Element)],
+            ) -> Vec<&'a str> {
+                children
+                    .iter()
+                    .map(|(label, _)| label.as_str())
+                    .filter(|label| other.iter().any(|(other, _)| other == label))
+                    .collect()
+            }
+            if common(&left, &right) != common(&right, &left) {
+                note(out, format!("{path}: its elements are in another order"));
             }
         }
         for (label, child) in &left {
@@ -1185,6 +1208,38 @@ mod tests {
   <",
         );
         assert!(read_back_differences(sent.as_bytes(), reindented.as_bytes(), &[]).is_empty());
+    }
+
+    #[test]
+    fn named_siblings_in_another_order_differ_unless_the_hash_sorts_them() {
+        let events = |first: &str, second: &str| {
+            format!(
+                r#"<Thing name="T"><ThingShape><EventDefinitions><EventDefinition name="{first}"/><EventDefinition name="{second}"/></EventDefinitions></ThingShape></Thing>"#
+            )
+        };
+        let (sent, back) = (events("A", "B"), events("B", "A"));
+        assert_ne!(
+            hash(sent.as_bytes()).unwrap(),
+            hash(back.as_bytes()).unwrap()
+        );
+        assert_eq!(
+            read_back_differences(sent.as_bytes(), back.as_bytes(), &[]),
+            ["Thing[T]/ThingShape/EventDefinitions: its elements are in another order"]
+        );
+        // ServiceDefinitions is a set the hash sorts by name.
+        let services = sent.replace("EventDefinition", "ServiceDefinition");
+        let swapped = back.replace("EventDefinition", "ServiceDefinition");
+        assert_eq!(
+            hash(services.as_bytes()).unwrap(),
+            hash(swapped.as_bytes()).unwrap()
+        );
+        assert!(read_back_differences(services.as_bytes(), swapped.as_bytes(), &[]).is_empty());
+        let mixed = r#"<Thing name="T"><a>x<b/></a></Thing>"#;
+        let moved = r#"<Thing name="T"><a><b/>x</a></Thing>"#;
+        assert_eq!(
+            read_back_differences(mixed.as_bytes(), moved.as_bytes(), &[]),
+            ["Thing[T]: its text and elements interleave differently"]
+        );
     }
 
     #[test]
