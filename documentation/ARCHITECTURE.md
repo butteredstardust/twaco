@@ -8,6 +8,23 @@ wherever they share a feature.
 Colour belongs to the command line only. All styling lives in `src/cli/style.rs`. Core and MCP code
 never style text.
 
+```mermaid
+flowchart TB
+    cli["Command line<br/>src/main.rs, src/cli/ (clap derive)"]
+    mcp["MCP server<br/>src/mcp/ (JSON-RPC on stdio)"]
+    subgraph core["src/core"]
+        direction TB
+        commands["commands, workflow<br/>shared policy: workspace lock, profile,<br/>plan or apply, backups"]
+        features["features<br/>deploy, push, status, adopt, check, rename, relocate,<br/>mashup, catalog, impact, trace, permissions, ..."]
+        foundations["foundations<br/>scan, splice, sidecar, index, workspace,<br/>transaction, lock, config, profile, server"]
+        commands --> features --> foundations
+    end
+    cli --> commands
+    mcp --> commands
+    foundations --> files[("Repository files")]
+    foundations --> server[("ThingWorx REST API")]
+```
+
 ## Principles
 
 These decide most design questions. A change that breaks one needs a very good reason.

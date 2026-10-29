@@ -59,7 +59,11 @@ fn flatten_entity(src: &[u8]) -> Vec<u8> {
                 out.push(b'<');
                 out.extend_from_slice(t.name.of(src));
                 for a in scan::attributes(src, t).unwrap() {
-                    assert_ne!(a.name.of(src), b"lastModifiedDate");
+                    // A file committed straight from a server export already has one; the
+                    // exporter's own is added below.
+                    if a.name.of(src) == b"lastModifiedDate" {
+                        continue;
+                    }
                     out.push(b' ');
                     out.extend_from_slice(&src[a.name.start..a.value.end + 1]);
                 }
@@ -184,6 +188,33 @@ fn corpus_roots() -> Vec<PathBuf> {
         }
     }
     roots
+}
+
+/// The licensed platform XSD is supplied by the operator and is never a test fixture. When it
+/// is available, every bundled and opted-in export must fit it after the compatibility policy.
+#[test]
+fn structure_check_is_clean_over_the_opt_in_corpus() {
+    if std::env::var_os("TWACO_STRUCTURE_XSD").is_none() {
+        eprintln!("structure corpus check skipped: TWACO_STRUCTURE_XSD is not set");
+        return;
+    }
+    let mut failures = Vec::new();
+    for root in corpus_roots() {
+        let solution = twaco::core::config::Solution::load(&root.join("twaco.toml")).unwrap();
+        let report = twaco::core::check::run(&solution);
+        let structure = report
+            .gates
+            .iter()
+            .find(|gate| gate.name == "structure")
+            .unwrap();
+        if let Some(why) = &structure.broken {
+            failures.push(format!("{}: structure gate broken: {why}", root.display()));
+        }
+        for finding in &structure.findings {
+            failures.push(format!("{}: {finding}", root.display()));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
 /// The bundled repository is what keeps these tests from skipping everywhere, so its absence (a
@@ -1472,7 +1503,11 @@ fn datashape_fields_reproduce_the_committed_sidecars_byte_for_byte() {
                 let committed = std::fs::read_to_string(sidecar)
                     .unwrap()
                     .replace("\r\n", "\n");
-                if produced != committed {
+                // A sidecar written before fields came out in ordinal order lists them as its XML
+                // did; the same fields in ordinal order must then be what extract writes.
+                let reordered = twaco::core::datashape::from_sidecar(&committed)
+                    .map(|fields| twaco::core::datashape::to_sidecar(&fields));
+                if produced != committed && reordered.as_ref().ok() != Some(&produced) {
                     failures.push(format!("{}: differs", sidecar.display()));
                 } else {
                     checked += 1;

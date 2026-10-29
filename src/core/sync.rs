@@ -650,11 +650,28 @@ pub(crate) fn render_payload(
 }
 
 /// Whether `text` ends some lines with CRLF and others with LF or a lone CR.
+/// Whether a payload ends its lines in more than one way. `\r\r\n` throughout is one way, not a
+/// mix: a CRLF export checked out with CRLF conversion holds it, and rewriting it on every sync
+/// would make an unchanged script look changed.
 fn mixed_line_endings(text: &str) -> bool {
-    let crlf = text.matches("\r\n").count();
-    let cr = text.matches('\r').count();
-    let lf = text.matches('\n').count();
-    (crlf > 0 && (lf > crlf || cr > crlf)) || (crlf == 0 && cr > 0)
+    let bytes = text.as_bytes();
+    let mut kinds = BTreeSet::new();
+    let mut at = 0;
+    while at < bytes.len() {
+        let ending: &[u8] = match &bytes[at..] {
+            [b'\r', b'\r', b'\n', ..] => b"\r\r\n",
+            [b'\r', b'\n', ..] => b"\r\n",
+            [b'\r', ..] => b"\r",
+            [b'\n', ..] => b"\n",
+            _ => {
+                at += 1;
+                continue;
+            }
+        };
+        kinds.insert(ending);
+        at += ending.len();
+    }
+    kinds.len() > 1
 }
 
 /// The line ending a piece of text uses, judged by which is more common in it.
@@ -675,6 +692,39 @@ pub(crate) fn newline_of(text: &str) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn one_kind_of_line_ending_throughout_is_not_mixed() {
+        for text in [
+            "a\nb\n",
+            "a\r\nb\r\n",
+            "a\r\r\nb\r\r\n",
+            "a\rb",
+            "no ending",
+        ] {
+            assert!(!mixed_line_endings(text), "{text:?}");
+        }
+        for text in ["a\r\nb\n", "a\r\r\nb\r\n", "a\nb\r", "a\r\nb\r"] {
+            assert!(mixed_line_endings(text), "{text:?}");
+        }
+    }
+
+    /// A CRLF export checked out with CRLF conversion: every script line ends `\r\r\n`.
+    #[test]
+    fn an_unedited_cr_cr_lf_script_syncs_back_byte_for_byte() {
+        let src = entity_with("<code><![CDATA[let a = 1;\r\r\n\r\r\nreturn a;]]></code>");
+        let extraction = sidecar::extract(&src).unwrap();
+        let sidecars: BTreeMap<String, _> = extraction
+            .services
+            .iter()
+            .map(|s| (s.name.clone(), s.clone()))
+            .collect();
+        for indent in [false, true] {
+            let (out, report) = sync(&src, &sidecars, true, indent, false).unwrap();
+            assert_eq!(out, src);
+            assert!(report.changed.is_empty(), "{:?}", report.changed);
+        }
+    }
 
     fn entity_with(code: &str) -> Vec<u8> {
         format!(

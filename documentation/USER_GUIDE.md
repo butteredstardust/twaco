@@ -3,6 +3,84 @@
 How twaco sees a solution, and how to do each part of the work with it. [Quick
 start](QUICK_START.md) gets a repository set up; [Commands](COMMANDS.md) lists every flag.
 
+## How twaco works
+
+The repository holds the entity XML that ThingWorx exports, and twaco keeps the parts you
+edit beside it as plain files. Every arrow that reaches the server plans until `--apply`.
+
+```mermaid
+flowchart LR
+    sidecars["Sidecars in src/<br/>script.js, fields.json,<br/>content.json, datatable.json"]
+    composer["A designer's<br/>Composer export"]
+    xml["Entity XML in the repository<br/>Things/, Mashups/, ..."]
+    gates{{"twaco check<br/>every gate, one exit code"}}
+    server[("ThingWorx server")]
+    xml -- "extract" --> sidecars
+    sidecars -- "sync" --> xml
+    sidecars -.-> gates
+    composer -- "adopt" --> xml
+    xml -- "deploy, entity push" --> server
+    server -- "init --from-server,<br/>entity pull" --> xml
+    server -. "entity status" .-> xml
+```
+
+`sync` writes back only the spans it changed, so an untouched entity stays byte for byte the
+same. `deploy` runs the gates, bundles each project in dependency order, and refuses before it
+imports anything when a script does not parse, or when the server's copy of an entity is not the
+one your last deploy left there (changed, deleted, or never recorded) and `--force` is absent:
+
+```mermaid
+sequenceDiagram
+    actor You
+    participant twaco
+    participant Server as ThingWorx server
+    You->>twaco: twaco deploy [--apply]
+    twaco->>twaco: run the gates, bundle each project in dependency order
+    twaco->>Server: parse every service script
+    twaco->>Server: read each entity the bundles hold
+    twaco->>twaco: compare each with the baseline of the last deploy
+    alt a script does not parse
+        twaco-->>You: refused, naming the entity, service and line
+    else the server's copy differs from the baseline, without --force
+        twaco-->>You: refused as a conflict, naming each entity
+    else without --apply
+        twaco-->>You: the plan: what it imports, and what it calls
+    else with --apply
+        twaco->>Server: import each project's bundle, in order
+        twaco->>Server: read each entity back and record the new baseline
+        twaco->>Server: run the configured deploy and post-import services
+        twaco-->>You: what changed
+    end
+```
+
+## What twaco does to each part
+
+What twaco can do to each part of a solution, without opening Composer. Repository changes plan
+until `--apply`; `sync` and `deploy` take them to the server.
+
+| Part | Create | Read | Change | Delete |
+| --- | --- | --- | --- | --- |
+| Service | `thing service add` | `catalog <Entity>.<Service> --body`, `trace` | edit `script.js` + `sync`; `rename service`, `rename param`, `move service`, `copy service` | `thing service remove` |
+| Property | `thing property add` | `catalog <entity>`, `impact --member` | `thing property set`; `rename property`, `move property`, `copy property` | `thing property remove` |
+| Subscription | `thing subscription add` | the entity's XML | remove and add | `thing subscription remove` |
+| Thing, ThingTemplate, ThingShape | `new thing`, `new thing-template`, `new thing-shape` | `catalog`, `impact`, `entity get` | `thing shape add\|remove`, `retemplate`, `reproject`, `rename entity` | `entity delete` |
+| DataShape | `new data-shape` | `src/<DataShape>/fields.json` | edit `fields.json` + `sync` (its DataTables and Streams follow); `rename field` | `entity delete` |
+| DataTable, Stream, ValueStream | `new data-table`, `new stream`, `new value-stream` | `datatable.json`, `db query` | `datatable.json` + `sync`; `datatable copy` for rows | `entity delete` |
+| Mashup | `mashup new` (14 templates), `mashup add-contained` | `mashup describe`, `mashup validate` | `mashup add`, `bind`, `on`, `param`, `event`, `recipe` | `entity delete` |
+| Timer, Scheduler | `new timer`, `new scheduler` | the entity's XML | `timer set`, `scheduler set` | `entity delete` |
+| Style, theme, state, menu, media | `new style`, `new theme`, `new state`, `new menu`, `new media` | the entity's XML | `style set`, `state set`, `menu item add\|remove`, `media set` | `entity delete` |
+| Network (asset hierarchy) | `new network`, `network import` | `network list`, `network show` | `network add`, `network move` | `network remove` (connections, never the Things) |
+| AI agent, MCP namespace | `new ai-agent`, `new mcp-namespace` | `impact`, `check` (`ai references`) | `mcp-namespace add\|remove`, `agent allow\|disallow`, `agent taxonomy`, `agent skill`, `agent set` | `entity delete` |
+| Building block | `new building-block` | `block list`, `block show` (`--server`: the framework's state), `projects`, `docs` | `block version`, `rename prefix`; `deploy` runs its deploy step | `entity delete` of its entities |
+| Java extension | `ext new` | `ext check`, `ext list`, `ext show` | `ext add thing-template\|thing-shape\|resource\|widget\|jar`, `ext build`, `ext deploy` | `ext remove` |
+| Widget extension | `ext new --widget` | `ext check`, `ext list`, `ext show` | edit `src/`, then `ext build`, `ext deploy` | `ext remove` |
+| Permissions | `permissions init` (drafts `permissions.toml` from the entities) | `permissions audit`, `permissions diff` | `permissions apply`, then `permissions push` | drop it from the policy, then `apply` and `push` |
+| Localization token | `localization new`, `localization set` | `localization status` | `localization set`, `localization push` | `localization remove` |
+| Test user | `users seed` | `users list` | | `users delete` |
+| Application key | `appkey create` | `appkey show` | | `appkey delete` |
+| File repository | `repo put`, `repo mkdir` | `repo ls`, `repo get`, `repo status` | `repo mv`, `repo push`, `repo pull` | `repo rm` |
+| Server entity | `entity push`, `deploy`, `import` | `entity status`, `entity get`, `search`, `export` | `entity push`, `entity carry` (permissions after a rename) | `entity delete`, then `entity restore` to undo |
+
 ## The repository
 
 ### Reviewing public contract changes
@@ -237,6 +315,7 @@ without it, each gate gives a summary.
 | localization tokens | an entity names a `[[token]]` under one of the solution's token prefixes that no Default table file holds (the label would show the raw text), a language table holds a token Default lacks, a token is in one table twice, or a table file cannot be read. Tokens outside the prefixes are the platform's or an extension's and are not checked. Notes, which never fail it: per language table, the solution's tokens it lacks (they show the Default text), and Default tokens no entity names as `[[token]]` or as a bare name |
 | result shapes | a service's script builds its result with `CreateInfoTableFromDataShape` from another DataShape than its definition declares, named by a literal or a `const` holding one (a mashup bound to the declared shape finds other fields), or adds a row to the result with `AddRow({...})` setting a field the declared DataShape does not have (ThingWorx drops it). A name computed at run time, a spread or a computed key, and a DataShape deriving from another are not checked |
 | requirements | `requirements.toml` exists and a collected dependency is undeclared or its version is declared lower; skipped when absent. Runs offline; list `requirements` in `[gates] advisory` to report without blocking |
+| structure | an entity export disagrees with the XSD selected by `[gates] structure_xsd` or `TWACO_STRUCTURE_XSD`. It is offline and advisory; the vendor XSD stays outside the repository |
 | ai references | an MCP namespace tool or service resource calls a service its Thing, template or shape, what they inherit, or (for a platform template or shape) the platform cache does not declare, or names a provider of the wrong kind; an AI agent references an MCP namespace that is neither in the repository nor `AgentUtilities`, allows a tool, resource or prompt its namespace does not define, names a taxonomy type of the wrong kind, or a hierarchy resolver that does not implement `HierarchyResolver`; an MCP File resource or a skill names a file the `[repositories]` mirror of that file repository does not hold (the import refuses such a namespace). A provider, taxonomy type or resolver under one of the solution's projects that the repository lacks is a note, which does not fail the run: another project may share the prefix. Names outside the solution's projects may be another solution's and are not judged |
 | your hooks | a `[[check]]` command fails ([Configuration](CONFIGURATION.md#check-your-own-gates)) |
 | live parse | with `--live` or `[gates] live`: the server's own parser rejects a script |
@@ -1599,3 +1678,15 @@ release's `.deb` or AppImage instead.
   and `twaco guide` gives it the knowledge it needs ([Knowledge](KNOWLEDGE.md)). Write what
   you learn about the solution in its AGENTS.md or `docs/`: `guide` searches them, and the next
   agent starts from them.
+
+## Shell completions
+
+`twaco completions <shell>` writes a completion script for bash, elvish, fish, powershell or zsh
+on stdout: every command and flag, with the descriptions `twaco` lists, and in bash and zsh the
+action words too (`users list|seed|delete`).
+
+```sh
+twaco completions bash > ~/.local/share/bash-completion/completions/twaco
+twaco completions zsh > "${fpath[1]}/_twaco"
+twaco completions fish > ~/.config/fish/completions/twaco.fish
+```

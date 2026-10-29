@@ -39,6 +39,9 @@
             <ConfigurationTables>
                 <ConfigurationTable
                  name="Settings">
+                    <DataShape>
+                        <FieldDefinitions></FieldDefinitions>
+                    </DataShape>
                     <Rows>
                         <Row>
                             <accumulatedDataShape><json><![CDATA[{"fieldDefinitions":{"note":{"name":"note","aspects":{"isPrimaryKey":false},"description":"A remark with <markup> & an é","baseType":"STRING","ordinal":3},"quantity":{"name":"quantity","aspects":{"isPrimaryKey":false},"description":"How many","baseType":"INTEGER","ordinal":4},"orderId":{"name":"orderId","baseType":"STRING","ordinal":1},"sku":{"name":"sku","baseType":"STRING","ordinal":2}}}]]></json></accumulatedDataShape>
@@ -48,6 +51,9 @@
                 </ConfigurationTable>
                 <ConfigurationTable
                  name="Indexes">
+                    <DataShape>
+                        <FieldDefinitions></FieldDefinitions>
+                    </DataShape>
                     <Rows>
                         <Row>
                             <name><![CDATA[byOrder]]></name>

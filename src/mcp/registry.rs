@@ -304,7 +304,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         .with_output::<outputs::TypesResult>(),
         solution_progress_tool::<source_requests::CheckRequest>(
             "check",
-            "Run every gate of the solution (line endings, sidecars in sync, formatting, script traps, code order, project validation, declared hooks). With live: true, every service script is also parsed by the ThingWorx server, and an unreachable server fails the check. live defaults to the solution's [gates] live.",
+            "Run every gate of the solution (line endings, sidecars in sync, formatting, script traps, code order, project validation, structure, declared hooks). The structure gate is offline and advisory when an XSD source is configured. With live: true, every service script is also parsed by the ThingWorx server, and an unreachable server fails the check. live defaults to the solution's [gates] live.",
             true,
             source::check_tool,
         )

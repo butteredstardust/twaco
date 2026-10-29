@@ -153,6 +153,10 @@ pub struct Gates {
     /// code written before these gates existed. A gate that cannot run still fails.
     #[serde(default)]
     pub(crate) advisory: Vec<String>,
+    /// An export schema used by the offline structure check. It is deliberately a path: the
+    /// vendor schema is not redistributed with a solution or with twaco.
+    #[serde(default)]
+    pub(crate) structure_xsd: Option<String>,
 }
 
 /// Optional TypeScript compiler command. Arguments before twaco's `-p` are allowed.

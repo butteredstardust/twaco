@@ -75,9 +75,11 @@ exit: 0
       "name": "Acme.Orders.Base_TT",
       "project": "Acme.Orders",
       "file": "ThingTemplates/Acme.Orders.Base_TT.xml",
-      "template": null,
+      "template": "GenericThing",
       "shapes": [],
-      "inherits": [],
+      "inherits": [
+        "GenericThing"
+      ],
       "implemented_by": [],
       "referred_to_by": {
         "structural": 1,
@@ -175,7 +177,8 @@ exit: 0
       "template": "Acme.Orders.Base_TT",
       "shapes": [],
       "inherits": [
-        "Acme.Orders.Base_TT"
+        "Acme.Orders.Base_TT",
+        "GenericThing"
       ],
       "implemented_by": [],
       "referred_to_by": {

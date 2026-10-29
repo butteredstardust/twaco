@@ -5,7 +5,7 @@
  universal="password">
     <ThingTemplates>
         <ThingTemplate
-         aspect.thingTemplate="GenericThing"
+         baseThingTemplate="GenericThing"
          description="The base of every order component."
          documentationContent=""
          effectiveThingPackage=""

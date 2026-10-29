@@ -686,7 +686,7 @@ mod tests {
         assert_eq!(project.entities["Things"], 6);
 
         let manager = entity(&document, "Things/Acme.Orders.Manager");
-        assert_eq!(manager.inherits, ["Acme.Orders.Base_TT"]);
+        assert_eq!(manager.inherits, ["Acme.Orders.Base_TT", "GenericThing"]);
         assert_eq!(manager.services.len(), 5);
         assert!(manager
             .services

@@ -6,6 +6,27 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `twaco check` has an offline, advisory `structure` gate. Set `[gates] structure_xsd` (or
+  `TWACO_STRUCTURE_XSD`) to an XSD, Eclipse plugin JAR, or directory; the vendor schema is read
+  only at runtime and is never stored by twaco. It reports unknown attributes, unexpected or
+  missing children, text where only elements belong and values of the wrong type (a boolean that
+  is not `true`/`false`). Child order, `aspect.*` attributes, server-computed sections, an empty
+  `ExtensionPackages`, the empty `Subscriptions` a 10.2 export writes under a Thing, and
+  collections the schema does not know are not findings.
+
+### Notes
+
+- A `fields.json` written before 0.1.43 lists fields as its XML did. It still reads as in sync;
+  the next `extract` of that DataShape rewrites it once, in ordinal order.
+
+### Fixed
+
+- `twaco sync` leaves an unedited service script whose lines all end `\r\r\n` (a CRLF export
+  checked out with CRLF conversion) alone again. Since 0.1.40 it counted those endings as mixed
+  and rewrote the payload, so every sync reported the script as changed.
+
 ## [0.1.43] - 2026-10-29
 
 ### Changed
