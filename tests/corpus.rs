@@ -59,7 +59,11 @@ fn flatten_entity(src: &[u8]) -> Vec<u8> {
                 out.push(b'<');
                 out.extend_from_slice(t.name.of(src));
                 for a in scan::attributes(src, t).unwrap() {
-                    assert_ne!(a.name.of(src), b"lastModifiedDate");
+                    // A file committed straight from a server export already has one; the
+                    // exporter's own is added below.
+                    if a.name.of(src) == b"lastModifiedDate" {
+                        continue;
+                    }
                     out.push(b' ');
                     out.extend_from_slice(&src[a.name.start..a.value.end + 1]);
                 }
