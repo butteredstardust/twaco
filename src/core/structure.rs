@@ -82,11 +82,19 @@ struct Schema {
 
 /// Run without a profile or server. A missing source is normal; a requested bad source is not.
 pub(crate) fn run(solution: &Solution, discovered: &workspace::Discovery) -> Report {
+    // An empty value, the documented `structure_xsd = ""` or an exported empty variable, means
+    // unset rather than the solution folder.
     let source = std::env::var_os("TWACO_STRUCTURE_XSD")
+        .filter(|value| !value.is_empty())
         .map(PathBuf::from)
-        .or_else(|| solution.gates.structure_xsd.as_ref().map(PathBuf::from))
-        // The documented `structure_xsd = ""` means unset, not the solution folder.
-        .filter(|path| !path.as_os_str().is_empty())
+        .or_else(|| {
+            solution
+                .gates
+                .structure_xsd
+                .as_ref()
+                .filter(|value| !value.is_empty())
+                .map(PathBuf::from)
+        })
         .map(|path| {
             if path.is_absolute() {
                 path
@@ -115,7 +123,7 @@ pub(crate) fn run(solution: &Solution, discovered: &workspace::Discovery) -> Rep
             }
         }
     };
-    let schema = match parse_xml(&bytes).and_then(Schema::from_root) {
+    let schema = match parse_xml(&bytes, true).and_then(Schema::from_root) {
         Ok(schema) => schema,
         Err(why) => {
             return Report {
@@ -160,7 +168,7 @@ pub(crate) fn run(solution: &Solution, discovered: &workspace::Discovery) -> Rep
                 continue;
             }
         };
-        let node = match parse_xml(&bytes) {
+        let node = match parse_xml(&bytes, false) {
             Ok(node) => node,
             Err(error) => {
                 report.findings.push(Finding {
@@ -173,6 +181,18 @@ pub(crate) fn run(solution: &Solution, discovered: &workspace::Discovery) -> Rep
             }
         };
         report.examined += 1;
+        if node.name != root.name {
+            report.findings.push(Finding {
+                file: solution.relative(&file.path),
+                line: node.line,
+                kind: "unexpected child".into(),
+                message: format!(
+                    "/{}: the document element is not <{}>",
+                    node.name, root.name
+                ),
+            });
+            continue;
+        }
         validate(
             &root,
             &node,
@@ -232,8 +252,10 @@ fn schema_bytes(path: &Path) -> Result<Vec<u8>, String> {
     }
 }
 
+/// The first `schema.xsd`, or jar holding the schema entry, below `dir`: nearer ones first, then
+/// by name. Jars without the entry (most of a plugins folder) are passed over.
 fn find_schema(dir: &Path, depth: usize) -> Option<PathBuf> {
-    if depth > 4 {
+    if depth > 8 {
         return None;
     }
     let mut entries: Vec<_> = std::fs::read_dir(dir).ok()?.flatten().collect();
@@ -250,7 +272,10 @@ fn find_schema(dir: &Path, depth: usize) -> Option<PathBuf> {
     }
     for entry in &entries {
         let p = entry.path();
-        if p.is_file() && p.extension().is_some_and(|e| e.eq_ignore_ascii_case("jar")) {
+        if p.is_file()
+            && p.extension().is_some_and(|e| e.eq_ignore_ascii_case("jar"))
+            && jar_has_schema(&p)
+        {
             return Some(p);
         }
     }
@@ -258,6 +283,13 @@ fn find_schema(dir: &Path, depth: usize) -> Option<PathBuf> {
         .into_iter()
         .filter(|e| e.path().is_dir())
         .find_map(|e| find_schema(&e.path(), depth + 1))
+}
+
+fn jar_has_schema(path: &Path) -> bool {
+    std::fs::File::open(path)
+        .ok()
+        .and_then(|file| zip::ZipArchive::new(file).ok())
+        .is_some_and(|mut archive| archive.by_name(JAR_ENTRY).is_ok())
 }
 
 impl Schema {
@@ -359,11 +391,8 @@ impl Schema {
         for child in &node.children {
             match child.name.as_str() {
                 "sequence" | "all" | "choice" => {
-                    if child.children.iter().any(|n| n.name == "any") {
-                        decl.any = true;
-                    }
-                    decl.particles
-                        .extend(self.particles(child, child.name == "choice", stack)?);
+                    let particles = self.particles(child, false, &mut decl.any, stack)?;
+                    decl.particles.extend(particles);
                 }
                 "attribute" => {
                     let name = required(child, "name")?.to_string();
@@ -422,11 +451,8 @@ impl Schema {
         for child in &extension.children {
             match child.name.as_str() {
                 "sequence" | "all" | "choice" => {
-                    if child.children.iter().any(|n| n.name == "any") {
-                        decl.any = true;
-                    }
-                    decl.particles
-                        .extend(self.particles(child, child.name == "choice", stack)?);
+                    let particles = self.particles(child, false, &mut decl.any, stack)?;
+                    decl.particles.extend(particles);
                 }
                 "attribute" => {
                     let name = required(child, "name")?.to_string();
@@ -444,12 +470,18 @@ impl Schema {
         }
         Ok(())
     }
+    /// The elements a compositor allows, its own occurrences folded into theirs: a
+    /// `<choice maxOccurs="unbounded">` of one element allows that element any number of times.
+    /// Which alternative of a choice is taken is not checked, only how often each may appear.
     fn particles(
         &self,
         node: &Node,
-        choice: bool,
+        within_choice: bool,
+        any: &mut bool,
         stack: &mut Vec<String>,
     ) -> Result<Vec<Particle>, String> {
+        let choice = within_choice || node.name == "choice";
+        let (group_min, group_max) = (occurs(node, "minOccurs", 1)?, max_occurs(node)?);
         let mut out = Vec::new();
         for child in &node.children {
             match child.name.as_str() {
@@ -467,13 +499,21 @@ impl Schema {
                     {
                         return Err("xs:any without processContents=lax is unsupported".into());
                     }
+                    *any = true;
                 }
                 "sequence" | "all" | "choice" => {
-                    out.extend(self.particles(child, choice || child.name == "choice", stack)?)
+                    out.extend(self.particles(child, choice, any, stack)?)
                 }
                 "annotation" => {}
                 other => return Err(format!("unsupported compositor child <{other}>")),
             }
+        }
+        for particle in &mut out {
+            particle.min *= group_min;
+            particle.max = match (particle.max, group_max) {
+                (Some(own), Some(group)) => Some(own * group),
+                _ => None,
+            };
         }
         Ok(out)
     }
@@ -548,10 +588,6 @@ fn validate(
     }
     let entity_child = path.len() == 3;
     let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
-    if expected.any {
-        path.pop();
-        return;
-    }
     for child in &actual.children {
         if entities_root
             && child.name != "ExtensionPackages"
@@ -578,6 +614,10 @@ fn validate(
             .filter(|p| p.decl.name == child.name)
             .collect();
         if candidates.is_empty() {
+            // `xs:any processContents="lax"`: what the schema does not declare goes unchecked.
+            if expected.any {
+                continue;
+            }
             findings.push(Finding {
                 file: file.into(),
                 line: child.line,
@@ -718,7 +758,10 @@ fn required<'a>(node: &'a Node, name: &str) -> Result<&'a str, String> {
         .ok_or_else(|| format!("<{}> needs @{name}", node.name))
 }
 
-fn parse_xml(bytes: &[u8]) -> Result<Node, String> {
+/// The document as a tree. A schema's own `xs:` prefixes are dropped; an entity document keeps its
+/// names as written, so a prefixed element is not taken for the plain one the schema declares.
+fn parse_xml(bytes: &[u8], schema: bool) -> Result<Node, String> {
+    let name_of = |raw: &str| if schema { local(raw) } else { raw }.to_string();
     let scanned = scan::scan(bytes).map_err(|e| e.to_string())?;
     let text = std::str::from_utf8(bytes).map_err(|e| e.to_string())?;
     let mut stack: Vec<Node> = vec![];
@@ -726,7 +769,7 @@ fn parse_xml(bytes: &[u8]) -> Result<Node, String> {
     // Tokens come in document order, so the line count only ever moves forward.
     let (mut line, mut counted) = (1, 0);
     for token in &scanned.tokens {
-        let name = local(&text[token.name.start..token.name.end]).to_string();
+        let name = name_of(&text[token.name.start..token.name.end]);
         line += bytes[counted..token.span.start]
             .iter()
             .filter(|b| **b == b'\n')
@@ -735,7 +778,7 @@ fn parse_xml(bytes: &[u8]) -> Result<Node, String> {
         match token.kind {
             Kind::Start => stack.push(Node {
                 name,
-                attrs: attributes(bytes, token)?,
+                attrs: attributes(bytes, token, schema)?,
                 children: vec![],
                 text: String::new(),
                 line,
@@ -743,7 +786,7 @@ fn parse_xml(bytes: &[u8]) -> Result<Node, String> {
             Kind::Empty => {
                 let node = Node {
                     name,
-                    attrs: attributes(bytes, token)?,
+                    attrs: attributes(bytes, token, schema)?,
                     children: vec![],
                     text: String::new(),
                     line,
@@ -788,7 +831,11 @@ fn push_node(node: Node, stack: &mut [Node], root: &mut Option<Node>) -> Result<
         Err("a second root element".into())
     }
 }
-fn attributes(bytes: &[u8], token: &scan::Token) -> Result<BTreeMap<String, String>, String> {
+fn attributes(
+    bytes: &[u8],
+    token: &scan::Token,
+    schema: bool,
+) -> Result<BTreeMap<String, String>, String> {
     let text = std::str::from_utf8(bytes).map_err(|e| e.to_string())?;
     let mut attrs = BTreeMap::new();
     for attr in scan::attributes(bytes, token).map_err(|e| e.to_string())? {
@@ -797,7 +844,7 @@ fn attributes(bytes: &[u8], token: &scan::Token) -> Result<BTreeMap<String, Stri
             continue;
         }
         attrs.insert(
-            local(name).to_string(),
+            if schema { local(name) } else { name }.to_string(),
             scan::decode_entities(&text[attr.value.start..attr.value.end]),
         );
     }
@@ -816,9 +863,9 @@ mod tests {
 
     #[test]
     fn scanner_reader_and_model_report_the_structural_kinds() {
-        let schema = Schema::from_root(parse_xml(XSD.as_bytes()).unwrap()).unwrap();
+        let schema = Schema::from_root(parse_xml(XSD.as_bytes(), true).unwrap()).unwrap();
         let expected = schema.element("Entities").unwrap();
-        let actual = parse_xml(b"<Entities><Things><Thing enabled='not-a-bool' surprise='x'>text<One/><One/><Else/></Thing></Things></Entities>").unwrap();
+        let actual = parse_xml(b"<Entities><Things><Thing enabled='not-a-bool' surprise='x'>text<One/><One/><Else/></Thing></Things></Entities>", false).unwrap();
         let mut findings = Vec::new();
         validate(
             &expected,
@@ -839,11 +886,11 @@ mod tests {
     }
 
     fn findings_for(xml: &str) -> Vec<String> {
-        let schema = Schema::from_root(parse_xml(XSD.as_bytes()).unwrap()).unwrap();
+        let schema = Schema::from_root(parse_xml(XSD.as_bytes(), true).unwrap()).unwrap();
         let mut findings = Vec::new();
         validate(
             &schema.element("Entities").unwrap(),
-            &parse_xml(xml.as_bytes()).unwrap(),
+            &parse_xml(xml.as_bytes(), false).unwrap(),
             &mut Vec::new(),
             "T.xml",
             &mut findings,
@@ -880,6 +927,85 @@ mod tests {
         );
     }
 
+    const OPEN: &str = r#"<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+      <xs:element name="Entities"><xs:complexType><xs:all>
+        <xs:element name="Mashup" minOccurs="0"><xs:complexType><xs:all>
+          <xs:element name="Things" minOccurs="0"><xs:complexType>
+            <xs:choice minOccurs="0" maxOccurs="unbounded"><xs:element name="Thing" type="xs:string"/></xs:choice>
+          </xs:complexType></xs:element>
+          <xs:element name="Open" minOccurs="0"><xs:complexType><xs:sequence>
+            <xs:element name="Known" type="xs:boolean"/>
+            <xs:any minOccurs="0" maxOccurs="unbounded" processContents="lax"/>
+          </xs:sequence></xs:complexType></xs:element>
+        </xs:all></xs:complexType></xs:element>
+      </xs:all></xs:complexType></xs:element>
+    </xs:schema>"#;
+
+    fn open_findings(xml: &str) -> Vec<String> {
+        let schema = Schema::from_root(parse_xml(OPEN.as_bytes(), true).unwrap()).unwrap();
+        let mut findings = Vec::new();
+        validate(
+            &schema.element("Entities").unwrap(),
+            &parse_xml(xml.as_bytes(), false).unwrap(),
+            &mut Vec::new(),
+            "T.xml",
+            &mut findings,
+            &mut BTreeSet::new(),
+            false,
+        );
+        findings
+            .into_iter()
+            .map(|f| format!("{} {}", f.kind, f.message))
+            .collect()
+    }
+
+    #[test]
+    fn an_unbounded_choice_allows_many_and_a_wildcard_still_checks_what_it_declares() {
+        assert!(open_findings(
+            "<Entities><Mashup><Things><Thing>A</Thing><Thing>B</Thing><Thing>C</Thing></Things></Mashup></Entities>"
+        )
+        .is_empty());
+        // Beside the wildcard, the declared child is still required and still typed.
+        assert!(open_findings(
+            "<Entities><Mashup><Open><Known>true</Known><Whatever/></Open></Mashup></Entities>"
+        )
+        .is_empty());
+        assert_eq!(
+            open_findings("<Entities><Mashup><Open><Whatever/></Open></Mashup></Entities>"),
+            ["missing required child /Entities/Mashup/Open: missing <Known>"]
+        );
+        assert_eq!(
+            open_findings(
+                "<Entities><Mashup><Open><Known>maybe</Known></Open></Mashup></Entities>"
+            ),
+            ["bad value /Entities/Mashup/Open/Known: expected xs:boolean; got \"maybe\""]
+        );
+        // A prefixed element is not the plain one the schema declares.
+        assert_eq!(
+            open_findings("<Entities><x:Mashup xmlns:x='urn:x'/></Entities>"),
+            ["unexpected child /Entities/x:Mashup"]
+        );
+    }
+
+    #[test]
+    fn a_directory_search_passes_over_jars_without_the_schema() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+        let jar = |path: &Path, entry: &str| {
+            let mut zip = zip::ZipWriter::new(std::fs::File::create(path).unwrap());
+            zip.start_file(entry, zip::write::SimpleFileOptions::default())
+                .unwrap();
+            zip.write_all(OPEN.as_bytes()).unwrap();
+            zip.finish().unwrap();
+        };
+        jar(&dir.path().join("a-unrelated.jar"), "META-INF/MANIFEST.MF");
+        let deep = dir.path().join("p/l/u/g/i/n");
+        std::fs::create_dir_all(&deep).unwrap();
+        jar(&deep.join("z-plugin.jar"), JAR_ENTRY);
+        assert_eq!(find_schema(dir.path(), 0), Some(deep.join("z-plugin.jar")));
+        assert!(schema_bytes(dir.path()).unwrap().starts_with(b"<xs:schema"));
+    }
+
     #[test]
     fn sensitive_bad_values_are_not_in_a_finding() {
         let finding = finding(
@@ -896,12 +1022,12 @@ mod tests {
     #[test]
     fn rejects_declaration_cycles_and_unsupported_constructs() {
         let cycle = br#"<schema><element name="A" type="T"/><complexType name="T"><complexContent><extension base="T"/></complexContent></complexType></schema>"#;
-        let schema = Schema::from_root(parse_xml(cycle).unwrap()).unwrap();
+        let schema = Schema::from_root(parse_xml(cycle, true).unwrap()).unwrap();
         assert!(schema.element("A").unwrap_err().contains("cycle"));
         let refs = br#"<schema><element name="A"><complexType><sequence><element ref="A" minOccurs="0"/></sequence></complexType></element></schema>"#;
-        let schema = Schema::from_root(parse_xml(refs).unwrap()).unwrap();
+        let schema = Schema::from_root(parse_xml(refs, true).unwrap()).unwrap();
         assert!(schema.element("A").unwrap_err().contains("cycle"));
         let unsupported = br#"<schema><include schemaLocation="no"/></schema>"#;
-        assert!(Schema::from_root(parse_xml(unsupported).unwrap()).is_err());
+        assert!(Schema::from_root(parse_xml(unsupported, true).unwrap()).is_err());
     }
 }
