@@ -688,7 +688,20 @@ fn stored_values_follow_the_server_rules_for_each_type() {
         "not persistent"
     );
     assert!(stored("TIMESPAN", Some(",,1"), true).is_err());
-    assert!(stored("VARIANT", Some("x"), true).is_err());
+    assert_eq!(
+        stored("VARIANT", None, true).unwrap().as_deref(),
+        Some("<value baseType=\"STRING\"/>")
+    );
+    assert_eq!(
+        stored(
+            "TIMESPAN",
+            Some("2026-01-01T00:00:00Z,,00:00:01:00:00:00"),
+            true
+        )
+        .unwrap()
+        .as_deref(),
+        Some("2026-01-01T00:00:00.000Z,,00:00:01:00:00:00")
+    );
     // Its stored value needs the DataShape, which is not in the repository here.
     assert!(stored("INFOTABLE", None, true).is_err());
     // The order a 10.1 export wrote 22 values in.
@@ -758,6 +771,27 @@ fn a_persistent_infotable_stores_an_empty_table_of_its_data_shape_fields() {
 }
 
 #[test]
+fn timespan_and_variant_defaults_are_written_in_the_form_an_import_reads() {
+    // The export form reads back as the imported one, so a pulled file deploys as it was.
+    let window = "2026-01-01T00:00:00.000Z,2026-02-01T00:00:00.000Z,00:00:01:00:00:00";
+    assert_eq!(default_attribute("TIMESPAN", window).unwrap(), window);
+    assert_eq!(
+        default_attribute(
+            "TIMESPAN",
+            "{period=00:00:01:00:00:00, start=1767225600000, end=1769904000000}"
+        )
+        .unwrap(),
+        window
+    );
+    assert!(default_attribute("TIMESPAN", ",,1").is_err());
+    assert_eq!(default_attribute("VARIANT", "abc").unwrap(), "abc");
+    assert_eq!(
+        default_attribute("VARIANT", r#"{"value":"abc","baseType":"STRING"}"#).unwrap(),
+        "abc"
+    );
+}
+
+#[test]
 fn datetime_defaults_are_written_in_utc_milliseconds() {
     assert_eq!(
         canonical_datetime("DATETIME", "2026-10-29T12:00:00+02:00").unwrap(),
@@ -806,6 +840,15 @@ fn property_add_refusals() {
         code(add("Acme.Orders.Press", property("bad name", "STRING"))),
         ErrorCode::InvalidArguments
     );
+    for (base_type, default) in [("VEC2", "1,x"), ("VEC2", "1,2,3"), ("VEC3", "1,2,inf")] {
+        let mut vector = property("Pos", base_type);
+        vector.default = Some(default.into());
+        assert_eq!(
+            code(add("Acme.Orders.Press", vector)),
+            ErrorCode::InvalidArguments,
+            "{base_type} {default}"
+        );
+    }
     let mut bad_default = property("Count", "INTEGER");
     bad_default.default = Some("many".into());
     assert_eq!(
@@ -1294,6 +1337,29 @@ fn timer_and_scheduler_set_change_only_their_settings_row() {
         ErrorCode::InvalidArguments
     );
     assert_in_step(&solution);
+}
+
+#[test]
+fn a_style_holding_the_cdata_terminator_can_be_edited_and_cloned() {
+    let (_dir, solution) = fixture();
+    new(&solution, Kind::Style, "Acme.Orders.Split_SD", |request| {
+        request.display_string = Some("a]]>b".into());
+    });
+    let change = StyleChange {
+        bold: Some(true),
+        ..StyleChange::default()
+    };
+    run(&solution, "Acme.Orders.Split_SD", Action::StyleSet(change));
+    let xml = file(&solution, "StyleDefinitions", "Acme.Orders.Split_SD");
+    assert!(xml.contains("a]]]]><![CDATA[>b"), "{xml}");
+    new(&solution, Kind::Theme, "Acme.Orders.Split_TH", |request| {
+        request.props = vec!["note=a]]>b".into()];
+    });
+    new(&solution, Kind::Theme, "Acme.Orders.Copy_TH", |request| {
+        request.from = Some("Acme.Orders.Split_TH".into());
+    });
+    let copy = file(&solution, "StyleThemes", "Acme.Orders.Copy_TH");
+    assert!(copy.contains("a]]]]><![CDATA[>b"), "{copy}");
 }
 
 #[test]

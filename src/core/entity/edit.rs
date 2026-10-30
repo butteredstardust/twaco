@@ -19,6 +19,7 @@ use crate::core::scan::{self, Kind as TokenKind, Span, Token};
 use crate::core::sidecar::{self, ServiceSidecar};
 use crate::core::splice::{self, Edit};
 use crate::core::transaction::{Transaction, TransactionError};
+use crate::core::typed_default::{self, Timespan};
 use crate::core::types;
 use crate::core::workspace::{self, EntityFile};
 use serde_json::{json, Value};
@@ -653,15 +654,9 @@ impl Doc {
 
     /// An element's text: its CDATA payload, or its decoded text.
     fn text(&self, element: usize) -> Result<String, EditError> {
-        let inner = String::from_utf8_lossy(self.inner(element)?.of(&self.src)).into_owned();
-        let trimmed = inner.trim();
-        let payload = trimmed
-            .strip_prefix("<![CDATA[")
-            .and_then(|value| value.strip_suffix("]]>"));
-        Ok(match payload {
-            Some(payload) => payload.to_string(),
-            None => scan::decode_entities(trimmed),
-        })
+        let inner = self.inner(element)?.of(&self.src);
+        Ok(scan::content_text(inner)
+            .unwrap_or_else(|| scan::decode_entities(String::from_utf8_lossy(inner).trim())))
     }
 
     /// The whitespace before an element's start tag on its line.
@@ -981,7 +976,7 @@ impl Definition {
         let default = self
             .default
             .as_deref()
-            .map(|value| canonical_datetime(&self.base_type, value))
+            .map(|value| default_attribute(&self.base_type, value))
             .transpose()?;
         let optional = [
             ("aspect.units", &self.units),
@@ -1090,6 +1085,20 @@ impl Definition {
                 "BOOLEAN" => default == "true" || default == "false",
                 "JSON" | "QUERY" => serde_json::from_str::<Value>(default).is_ok(),
                 "DATETIME" => default.parse::<jiff::Timestamp>().is_ok(),
+                "TIMESPAN" => Timespan::parse(default).is_some(),
+                "VEC2" | "VEC3" | "VEC4" => {
+                    let wanted = usize::from(self.base_type.as_bytes()[3] - b'0');
+                    let parts: Vec<&str> = default.split(',').collect();
+                    parts.len() == wanted
+                        && parts
+                            .iter()
+                            .all(|part| part.trim().parse::<f64>().is_ok_and(f64::is_finite))
+                }
+                "VARIANT" => {
+                    return Err(invalid(
+                        "a VARIANT --default is refused: a 10.2 server imports it once, then fails every later import of the entity (String cannot be cast to StringPrimitive); give no --default",
+                    ))
+                }
                 "INFOTABLE" => false,
                 _ => true,
             };
@@ -1121,7 +1130,11 @@ impl Definition {
             "LOCATION" => given.unwrap_or("0.0,0.0,0.0").to_string(),
             // The type defaults a 10.2 server stored (2026-10-30).
             "VEC2" | "VEC3" | "VEC4" => match given {
-                Some(value) => value.split(',').map(|part| java_double(part.trim())).collect::<Vec<_>>().join(","),
+                Some(value) => value
+                    .split(',')
+                    .map(|part| java_double(part.trim()))
+                    .collect::<Vec<_>>()
+                    .join(","),
                 None => match self.base_type.as_str() {
                     "VEC2" => "0.0,0.0",
                     "VEC3" => "0.0,0.0,0.0",
@@ -1130,21 +1143,16 @@ impl Definition {
                 .to_string(),
             },
             "THINGCODE" => given.unwrap_or("0:0").to_string(),
-            "TIMESPAN" if given.is_none() => ",,00:00:00:00:01:00".to_string(),
-            "TIMESPAN" => {
-                return Err(invalid(
-                    "a TIMESPAN --default is stored in a form twaco does not write yet; give no --default, or set it in Composer and pull it",
-                ))
-            }
+            "TIMESPAN" => match given {
+                Some(value) => Timespan::parse(value)
+                    .ok_or_else(|| invalid(format!("--default {value:?} is not a TIMESPAN")))?
+                    .text(),
+                None => ",,00:00:00:00:01:00".to_string(),
+            },
             // A persistent XML property is an empty element, with no Value, stamp or quality.
             "XML" => return Ok(Some(NO_VALUE.to_string())),
-            "VARIANT" if given.is_none() => "<value baseType=\"STRING\"/>".to_string(),
-            "VARIANT" => {
-                return Err(invalid(
-                    "a persistent VARIANT property's stored value names its type; give no \
-                     --default, or set the value in Composer and pull it",
-                ))
-            }
+            // Whatever the default, the server stores an empty STRING variant (10.2, 2026-10-30).
+            "VARIANT" => "<value baseType=\"STRING\"/>".to_string(),
             "JSON" | "QUERY" => {
                 format!("<json>{}</json>", entity::new::cdata(given.unwrap_or("{}")))
             }
@@ -1205,6 +1213,20 @@ fn infotable_value(found: &[EntityFile], shape: &str) -> Result<String, EditErro
     Ok(format!(
         "<infoTable><DataShape><FieldDefinitions>{fields}</FieldDefinitions></DataShape><Rows/></infoTable>"
     ))
+}
+
+/// `aspect.defaultValue` as an import reads it; see `typed_default` for the two types whose
+/// export writes another form.
+fn default_attribute(base_type: &str, value: &str) -> Result<String, EditError> {
+    match base_type {
+        "DATETIME" => canonical_datetime(base_type, value),
+        "TIMESPAN" | "VARIANT" => typed_default::importable(base_type, value).ok_or_else(|| {
+            invalid(format!(
+                "--default {value:?} is not a valid {base_type} value"
+            ))
+        }),
+        _ => Ok(value.to_string()),
+    }
 }
 
 fn canonical_datetime(base_type: &str, value: &str) -> Result<String, EditError> {

@@ -67,7 +67,7 @@ pub(super) fn plan(
         entity.warnings.extend(cleared.iter().map(|(property, thing)| {
             format!("clears the default of property {property} (Things/{thing}, which depends on this entity) before deleting, to break the cycle")
         }));
-        entity.unlink = Some(stripped);
+        entity.unlink = Some((export, stripped));
     }
     Ok(())
 }

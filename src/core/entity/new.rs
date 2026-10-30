@@ -369,11 +369,9 @@ fn entity_content(path: &Path) -> Result<String, NewError> {
         .find("</content>")
         .map(|end| start + end)
         .ok_or_else(|| NewError::Invalid(format!("{} has unclosed content", path.display())))?;
-    Ok(source[start..end]
-        .trim()
-        .strip_prefix("<![CDATA[")
-        .and_then(|value| value.strip_suffix("]]>"))
-        .unwrap_or(&source[start..end])
+    let content = &source[start..end];
+    Ok(crate::core::scan::content_text(content.as_bytes())
+        .unwrap_or_else(|| content.trim().to_string())
         .trim()
         .to_string())
 }

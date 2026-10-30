@@ -4,7 +4,7 @@
 //! they are hash input, never an export. Length-prefixing makes element, attribute, text and
 //! CDATA boundaries unambiguous without choosing an escaping style.
 //!
-//! Normalisation version 9 has exactly these non-semantic rules:
+//! Normalisation version 10 has exactly these non-semantic rules:
 //!
 //! - apply XML 1.0 line-end and CDATA-attribute whitespace normalisation to literal XML input
 //!   before unescaping character references or applying payload-specific rules;
@@ -54,8 +54,11 @@
 //!   FieldDefinition's `aspect.defaultValue` (and numeric minimum/maximum), ConfigurationTable
 //!   row cells using that table's DataShape, and ThingProperties values using a local property
 //!   definition: NUMBER follows Java `Double.toString`, INTEGER and LONG are parsed as i64, and
-//!   JSON and QUERY are parsed, key-sorted and compacted; LOCATION components compare as numbers.
-//!   Unparseable values and values with no local type remain byte-significant (version 9);
+//!   JSON and QUERY are parsed, key-sorted and compacted, also as a stored `<Value><json>`;
+//!   LOCATION and VEC2-VEC4 components compare as numbers; a TIMESPAN or VARIANT default in the
+//!   form a server exports compares as the form it imports (see `typed_default`). A table's
+//!   cells take only its own DataShape's types, not a nested INFOTABLE's (observed 2026-10-30;
+//!   version 10). Unparseable values and values with no local type remain byte-significant;
 //! - adjacent CDATA sections separated only by whitespace are one payload; XML uses that spelling
 //!   for a literal `]]>` in a script (version 9);
 //! - a leaf holding only an empty or whitespace-only CDATA is the same as an empty element, as
@@ -64,8 +67,8 @@
 //! No generated id, default attribute, or other exception is included without a live/committed
 //! observation. Apart from the rules above, CDATA bytes are never decoded, re-indented, or joined.
 //!
-//! Without server ownership, hashes remain `v9:<sha256>` byte for byte. With ownership they are
-//! `v9:so1:<policy-sha256>:<content-sha256>`: the policy digest covers the sorted, deduplicated
+//! Without server ownership, hashes remain `v10:<sha256>` byte for byte. With ownership they are
+//! `v10:so1:<policy-sha256>:<content-sha256>`: the policy digest covers the sorted, deduplicated
 //! union of applicable part labels (newline-delimited). `so1` versions selector semantics.
 //! Content uses the same comparison tree with owned nodes omitted. Baselines must compare the
 //! entire prefix before the final colon; adding, removing or changing ownership invalidates
@@ -75,7 +78,7 @@ use super::scan::{self, Kind, ScanError, Token};
 use sha2::{Digest, Sha256};
 
 /// The normalisation version every hash carries; a baseline from another one says nothing.
-pub(crate) const HASH_VERSION: &str = "v9";
+pub(crate) const HASH_VERSION: &str = "v10";
 pub(crate) const LIVE_ONLY_ELEMENTS: [&[u8]; 9] = [
     b"effectiveShape",
     b"Owner",
@@ -868,6 +871,10 @@ fn canonical_typed_value(base_type: &[u8], value: &[u8]) -> Option<Vec<u8>> {
                 .collect();
             let values = values?;
             matches!(values.len(), 2 | 3).then(|| values.join(",").into_bytes())
+        }
+        // Exported in another form than imported; see `typed_default`.
+        "TIMESPAN" | "VARIANT" => {
+            crate::core::typed_default::importable(base_type, value).map(String::into_bytes)
         }
         // Components the server writes as doubles: `1,2` is stored `1.0,2.0` (10.2, 2026-10-30).
         "VEC2" | "VEC3" | "VEC4" => {
@@ -1681,7 +1688,7 @@ mod tests {
 
     #[test]
     fn hash_and_framing_are_version_nine() {
-        assert!(hash(b"<Thing/>").unwrap().starts_with("v9:"));
+        assert!(hash(b"<Thing/>").unwrap().starts_with("v10:"));
         assert!(normalise(b"<Thing/>")
             .unwrap()
             .starts_with(b"twaco-entity-normalise-v9\0"));
@@ -1752,6 +1759,28 @@ mod tests {
         let sent = br#"<Thing><ThingShape><PropertyDefinitions><PropertyDefinition name="where" baseType="LOCATION" aspect.defaultValue="45.5,9.2,100"/><PropertyDefinition name="filter" baseType="QUERY" aspect.defaultValue="{&quot;b&quot;:1,&quot;a&quot;:2}"/></PropertyDefinitions></ThingShape></Thing>"#;
         let returned = br#"<Thing><ThingShape><PropertyDefinitions><PropertyDefinition name="where" baseType="LOCATION" aspect.defaultValue="45.5,9.2,100.0"/><PropertyDefinition name="filter" baseType="QUERY" aspect.defaultValue="{&quot;a&quot;:2,&quot;b&quot;:1}"/></PropertyDefinitions></ThingShape></Thing>"#;
         assert_eq!(hash(sent).unwrap(), hash(returned).unwrap());
+    }
+
+    #[test]
+    fn timespan_and_variant_defaults_compare_with_their_exported_form() {
+        let thing = |span: &str, any: &str| {
+            format!("<Thing><ThingShape><PropertyDefinitions><PropertyDefinition name=\"span\" baseType=\"TIMESPAN\" aspect.defaultValue=\"{span}\"/><PropertyDefinition name=\"any\" baseType=\"VARIANT\" aspect.defaultValue=\"{any}\"/></PropertyDefinitions></ThingShape></Thing>")
+        };
+        // As imported, and as a 10.2 server exported them (2026-10-30).
+        let sent = thing(",,00:00:00:01:00:00", "abc");
+        let exported = thing(
+            "{period=00:00:00:01:00:00}",
+            "{&quot;value&quot;:&quot;abc&quot;,&quot;baseType&quot;:&quot;STRING&quot;}",
+        );
+        let other = thing(",,00:00:00:02:00:00", "abc");
+        assert_eq!(
+            hash(sent.as_bytes()).unwrap(),
+            hash(exported.as_bytes()).unwrap()
+        );
+        assert_ne!(
+            hash(sent.as_bytes()).unwrap(),
+            hash(other.as_bytes()).unwrap()
+        );
     }
 
     #[test]

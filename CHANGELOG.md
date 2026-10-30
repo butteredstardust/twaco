@@ -8,6 +8,19 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Fixed
 
+- Entity comparison hashes are version 10: stored JSON and QUERY values, VEC values, TIMESPAN and
+  VARIANT defaults and nested INFOTABLE cells compare as the server stores them. Run
+  `twaco entity status --all --record` once to record the new baselines.
+- A TIMESPAN property default is sent in the form an import reads (`start,end,period`) even when
+  the file holds the form the server exports (`{period=…, start=…, end=…}`), which an import
+  misreads: before this, deploying a pulled TIMESPAN default reset or garbled it.
+  `thing property add --default` accepts a TIMESPAN. A VARIANT default stays refused: a 10.2
+  server imports it once and then fails every later import of the entity.
+- A style or theme value holding `]]>` can be edited and cloned after it is created.
+- `entity delete` puts back the defaults it cleared to break a cycle when the entity is not
+  deleted after all.
+- MCP `entity_new` creates `twaco.toml` for a first project in an empty root, as the CLI does.
+- `thing property add` checks that a VEC2-VEC4 default has that many numeric components.
 - Stored JSON and QUERY property values compare with their keys sorted, as the server stores
   them. Before this, a Thing with a persistent JSON or QUERY property whose keys were not in order
   read back as "not kept" after a deploy.

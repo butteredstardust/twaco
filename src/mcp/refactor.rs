@@ -88,6 +88,21 @@ pub(crate) fn new_building_block_tool(
     Ok(result)
 }
 
+/// `entity_new` from the root: a first project in a folder with no twaco.toml creates the file.
+pub(crate) fn entity_new_root_tool(
+    root: &std::path::Path,
+    arguments: EntityNewRequest,
+) -> Result<Value, ToolError> {
+    let project = arguments.kind == super::requests::refactor::EntityNewKind::Project;
+    match Solution::discover(root) {
+        Ok(solution) => entity_new_tool(&solution, arguments),
+        Err(crate::core::config::ConfigError::NotFound { .. }) if project => {
+            entity_new_tool(&Solution::bare(root), arguments)
+        }
+        Err(error) => Err(ToolError::coded(error)),
+    }
+}
+
 pub(crate) fn entity_new_tool(
     solution: &Solution,
     arguments: EntityNewRequest,

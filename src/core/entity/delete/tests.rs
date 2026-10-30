@@ -1004,3 +1004,51 @@ fn a_thingname_default_cycle_is_broken_by_an_import_before_the_deletes() {
     assert!(import < first_delete, "{calls:?}");
     assert!(report.entities.iter().all(|e| e.status == Status::Deleted));
 }
+
+#[test]
+fn a_cycle_entity_left_after_a_failed_delete_gets_its_defaults_back() {
+    let (_dir, _, solution) = solution();
+    let mut fake = Fake::new(&[("ThingTemplates", "C_TT"), ("Things", "C")]);
+    let dependent = |collection: &str, name: &str| Dependent {
+        collection: collection.to_string(),
+        name: name.to_string(),
+    };
+    fake.dependencies.insert(
+        ("ThingTemplates".to_string(), "C_TT".to_string()),
+        vec![dependent("Things", "C")],
+    );
+    fake.dependencies.insert(
+        ("Things".to_string(), "C".to_string()),
+        vec![dependent("ThingTemplates", "C_TT")],
+    );
+    let original = r#"<Entities><ThingTemplates><ThingTemplate name="C_TT"><PropertyDefinitions><PropertyDefinition aspect.defaultValue="C" baseType="THINGNAME" name="me"/></PropertyDefinitions></ThingTemplate></ThingTemplates></Entities>"#;
+    fake.exports
+        .insert("C_TT".to_string(), original.to_string());
+    // The Thing answers success but stays, so the template cannot go either.
+    fake.keep_after_delete
+        .insert(("Things".to_string(), "C".to_string()));
+    fake.keep_after_delete
+        .insert(("ThingTemplates".to_string(), "C_TT".to_string()));
+    let report = execute(
+        &fake,
+        &solution,
+        &["ThingTemplates/C_TT", "Things/C"],
+        true,
+        false,
+    );
+    let template = report.entities.iter().find(|e| e.name == "C_TT").unwrap();
+    assert_eq!(template.status, Status::Failed);
+    assert!(
+        template
+            .error
+            .as_deref()
+            .unwrap_or_default()
+            .contains("put back"),
+        "{:?}",
+        template.error
+    );
+    let calls = fake.calls.borrow();
+    let imports: Vec<&String> = calls.iter().filter(|c| c.starts_with("IMPORT")).collect();
+    assert_eq!(imports.len(), 2, "{calls:?}");
+    assert!(imports[1].contains(original), "{calls:?}");
+}

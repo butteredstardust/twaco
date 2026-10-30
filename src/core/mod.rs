@@ -100,6 +100,7 @@ pub mod sync;
 pub mod testing;
 pub mod trace;
 pub(crate) mod transaction;
+pub(crate) mod typed_default;
 pub mod types;
 pub mod unused;
 pub mod update;
