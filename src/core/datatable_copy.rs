@@ -277,6 +277,14 @@ pub(crate) fn run(
     }
 
     let old_entries = remote.entries(&request.old, source_rows.max(1))?;
+    // A row added or removed between the count and the read would be missed or verified wrong.
+    let fetched = old_entries["rows"].as_array().map_or(0, Vec::len) as u64;
+    if fetched != source_rows {
+        return Err(CopyError::Refused(format!(
+            "{} counted {source_rows} row(s) but returned {fetched}; is something writing to it? Copy again when it is quiet",
+            request.old
+        )));
+    }
     let new_shape_probe = remote.entries(&request.new, 1)?;
     let old_fields = shape_fields(&old_entries);
     let new_fields = shape_fields(&new_shape_probe);
@@ -406,11 +414,14 @@ pub(crate) fn run(
     }
     let back = remote.entries(&request.new, after.max(1))?;
     let target_names: BTreeSet<&str> = targets.iter().map(String::as_str).collect();
-    let have = sorted_keys(&rows_of(&back, &target_names));
+    let mut have = sorted_keys(&rows_of(&back, &target_names));
     let mut missing = 0u64;
+    // Each read-back row answers for one copied row: two equal rows need two equal rows back.
     for key in sorted_keys(&moved) {
         match have.binary_search(&key) {
-            Ok(_) => {}
+            Ok(at) => {
+                have.remove(at);
+            }
             Err(_) => missing += 1,
         }
     }
@@ -475,6 +486,10 @@ mod tests {
         adds: RefCell<usize>,
         /// Silently drop everything written.
         lose_writes: bool,
+        /// Return one row fewer than the count says, as if one was deleted in between.
+        short_read: bool,
+        /// Store the last written row with another label.
+        corrupt_last: bool,
     }
 
     impl Fake {
@@ -519,6 +534,11 @@ mod tests {
                 .rows
                 .iter()
                 .take(usize::try_from(max_items).unwrap_or(usize::MAX))
+                .take(if self.short_read {
+                    table.rows.len().saturating_sub(1)
+                } else {
+                    usize::MAX
+                })
                 .map(|row| {
                     let mut row = row.as_object().unwrap().clone();
                     row.insert("key".into(), json!("1"));
@@ -538,7 +558,13 @@ mod tests {
                     .unwrap()
                     .iter()
                     .map(canonical_numbers);
-                tables.get_mut(table).unwrap().rows.extend(added);
+                let target = &mut tables.get_mut(table).unwrap().rows;
+                target.extend(added);
+                if self.corrupt_last {
+                    if let Some(last) = target.last_mut() {
+                        last["title"] = json!("changed");
+                    }
+                }
             }
             Ok(())
         }
@@ -626,6 +652,42 @@ mod tests {
         assert_eq!(report.unfilled, ["extra"]);
         assert_eq!((report.source_rows, report.applied), (2, false));
         assert_eq!(*fake.adds.borrow(), 0);
+    }
+
+    #[test]
+    fn a_source_that_returns_fewer_rows_than_it_counted_is_refused_before_writing() {
+        let (_dir, _, solution) = solution(Some(LEDGER));
+        let fake = Fake {
+            short_read: true,
+            ..Fake::default()
+        }
+        .table("Old_DT", &OLD, rows())
+        .table(
+            "New_DT",
+            &[("id", "STRING"), ("title", "STRING"), ("amount", "NUMBER")],
+            vec![],
+        );
+        let error = run(&fake, &solution, &request(true)).unwrap_err();
+        assert!(error.to_string().contains("returned 1"), "{error}");
+        assert_eq!(*fake.adds.borrow(), 0);
+    }
+
+    #[test]
+    fn two_equal_rows_need_two_equal_rows_read_back() {
+        let (_dir, _, solution) = solution(Some(LEDGER));
+        let same = json!({ "id": "1", "label": "first", "amount": 1.5 });
+        let fake = Fake {
+            corrupt_last: true,
+            ..Fake::default()
+        }
+        .table("Old_DT", &OLD, vec![same.clone(), same])
+        .table(
+            "New_DT",
+            &[("id", "STRING"), ("title", "STRING"), ("amount", "NUMBER")],
+            vec![],
+        );
+        let error = run(&fake, &solution, &request(true)).unwrap_err();
+        assert!(error.to_string().contains("1 of the 2"), "{error}");
     }
 
     #[test]

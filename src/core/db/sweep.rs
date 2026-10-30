@@ -7,7 +7,8 @@ use serde_json::Value;
 /// What sweeping stale temporary Things needs from a server.
 pub trait Sweeper {
     fn thing_names(&self) -> Result<Vec<String>, String>;
-    fn template_of(&self, name: &str) -> Result<String, String>;
+    /// The Thing's template and description.
+    fn identity_of(&self, name: &str) -> Result<(String, String), String>;
     fn delete_thing(&self, name: &str) -> Result<(), String>;
     fn thing_exists(&self, name: &str) -> Result<bool, String>;
 }
@@ -18,13 +19,16 @@ impl Sweeper for Client {
             .map_err(|error| error.to_string())
     }
 
-    fn template_of(&self, name: &str) -> Result<String, String> {
+    fn identity_of(&self, name: &str) -> Result<(String, String), String> {
         let thing = Remote::thing(self, name)?;
-        Ok(thing
-            .get("thingTemplate")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string())
+        let text = |key: &str| {
+            thing
+                .get(key)
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string()
+        };
+        Ok((text("thingTemplate"), text("description")))
     }
 
     fn delete_thing(&self, name: &str) -> Result<(), String> {
@@ -77,14 +81,23 @@ pub(crate) fn sweep(remote: &dyn Sweeper, apply: bool) -> Result<Vec<Swept>, DbE
     names.sort();
     let mut swept = Vec::new();
     for name in names {
-        let template = remote
-            .template_of(&name)
+        let (template, description) = remote
+            .identity_of(&name)
             .map_err(|why| DbError(format!("cannot read {name}: {why}")))?;
         if template != "Database" {
             swept.push(Swept {
                 name,
                 status: SweepStatus::Skipped,
                 why: Some(format!("its template is {template:?}, not Database")),
+            });
+            continue;
+        }
+        // The name and template alone could be someone's own Thing.
+        if description != super::execute::TEMPORARY_DESCRIPTION {
+            swept.push(Swept {
+                name,
+                status: SweepStatus::Skipped,
+                why: Some("its description is not the one twaco gives a temporary Thing".into()),
             });
             continue;
         }
