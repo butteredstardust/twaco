@@ -1068,7 +1068,7 @@ impl Definition {
 
     /// The value a 10.1 server stores for this property in a Thing's `<ThingProperties>`: only a
     /// persistent property has one, its default or the type's (observed for every type here).
-    fn stored_value(&self) -> Result<Option<String>, EditError> {
+    fn stored_value(&self, found: &[EntityFile]) -> Result<Option<String>, EditError> {
         if !self.persistent || self.base_type == "XML" {
             return Ok(None);
         }
@@ -1086,17 +1086,62 @@ impl Definition {
                 format!("<json>{}</json>", entity::new::cdata(given.unwrap_or("{}")))
             }
             "GUID" => entity::new::cdata(given.unwrap_or("00000000-0000-0000-0000-000000000000")),
-            "INFOTABLE" => {
-                return Err(invalid(
-                    "a persistent INFOTABLE property cannot match the server: a 10.1 import \
-                     re-stamps a stored infotable with the import time, every time; leave it \
-                     not persistent, or make it in Composer and pull it",
-                ))
-            }
+            // An empty infotable of the DataShape's fields; an import re-stamps it, which the
+            // hash ignores (observed on 10.1 and 10.2, 2026-10-30).
+            "INFOTABLE" => infotable_value(found, self.data_shape.as_deref().unwrap_or_default())?,
             _ => given.map(entity::new::cdata).unwrap_or_default(),
         };
         Ok(Some(value))
     }
+}
+
+/// A persistent INFOTABLE property's stored value as the server writes it: the repository
+/// DataShape's own field definitions, one line, and no rows.
+fn infotable_value(found: &[EntityFile], shape: &str) -> Result<String, EditError> {
+    let refuse = |why: &str| {
+        invalid(format!(
+            "a persistent INFOTABLE property's stored value holds its DataShape's fields, and              DataShape {shape} {why}; make the property in Composer and pull it"
+        ))
+    };
+    let file = found
+        .iter()
+        .find(|file| file.info.collection == "DataShapes" && file.info.name == shape)
+        .ok_or_else(|| refuse("is not in the repository"))?;
+    let src = std::fs::read(&file.path)
+        .map_err(|error| invalid(format!("{}: {error}", file.path.display())))?;
+    let unreadable = |error: scan::ScanError| invalid(format!("{}: {error}", file.path.display()));
+    let tokens = scan::tokenize(&src).map_err(unreadable)?;
+    let tag = |token: &Token| matches!(token.kind, TokenKind::Start | TokenKind::Empty);
+    let host = tokens
+        .iter()
+        .position(|token| tag(token) && token.name.of(&src) == b"DataShape")
+        .ok_or_else(|| refuse("has no DataShape element"))?;
+    let base = scan::attribute(&src, &tokens[host], "baseDataShape").map_err(unreadable)?;
+    if base.is_some_and(|value| !value.is_empty()) {
+        return Err(refuse("inherits fields from another DataShape"));
+    }
+    let mut fields = String::new();
+    for index in scan::child_tags(&tokens, &src, "FieldDefinitions", host) {
+        for field in scan::child_tags(&tokens, &src, "FieldDefinition", index) {
+            let token = &tokens[field];
+            let mut attributes = scan::attributes(&src, token)
+                .map_err(unreadable)?
+                .into_iter()
+                .map(|attribute| {
+                    format!(
+                        "{}=\"{}\"",
+                        String::from_utf8_lossy(attribute.name.of(&src)),
+                        String::from_utf8_lossy(attribute.value.of(&src))
+                    )
+                })
+                .collect::<Vec<_>>();
+            attributes.sort();
+            fields.push_str(&format!("<FieldDefinition {}/>", attributes.join(" ")));
+        }
+    }
+    Ok(format!(
+        "<infoTable><DataShape><FieldDefinitions>{fields}</FieldDefinitions></DataShape><Rows/></infoTable>"
+    ))
 }
 
 fn canonical_datetime(base_type: &str, value: &str) -> Result<String, EditError> {
@@ -1496,7 +1541,7 @@ impl Edit2<'_> {
         };
         definition.merge(property);
         plan.warnings.extend(definition.validate(self.found)?);
-        let stored = definition.stored_value()?;
+        let stored = definition.stored_value(self.found)?;
         let after = append_child(doc, list, &definition.xml()?, 20)?;
         plan.summary = format!("add property {}:{}", definition.name, definition.base_type);
         let mut files = Files::new(doc, after);
@@ -1530,7 +1575,7 @@ impl Edit2<'_> {
         if retyped {
             self.guard_users(&property.name, force, "retype", plan)?;
         }
-        let stored = definition.stored_value()?;
+        let stored = definition.stored_value(self.found)?;
         let after = splice_all(&doc.src, attribute_edits(doc, element, &old, &definition)?)?;
         plan.summary = format!("set property {}", property.name);
         let model = Model::build(self.solution, self.found)?;
@@ -1902,7 +1947,7 @@ impl Edit2<'_> {
                 );
                 for element in elements {
                     let definition = Definition::read(shape_doc, element);
-                    if let Some(stored) = definition.stored_value()? {
+                    if let Some(stored) = definition.stored_value(self.found)? {
                         files.set_values(&model, &definition.name, Some(&stored))?;
                     }
                 }
@@ -2135,7 +2180,7 @@ pub(crate) fn with_inherited_stored_values(
                 scan::child_tags(&ancestor.tokens, &ancestor.src, "PropertyDefinition", list)
             {
                 let definition = Definition::read(&ancestor, element);
-                if let Some(stored) = definition.stored_value()? {
+                if let Some(stored) = definition.stored_value(&found)? {
                     let doc = Doc::parse(file.clone(), src)?;
                     src = set_stored_value(&doc, &definition.name, Some(&stored))?;
                 }

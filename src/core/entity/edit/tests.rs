@@ -639,7 +639,7 @@ fn stored_values_follow_the_server_rules_for_each_type() {
             name: "p".into(),
             ordinal: "1".into(),
         }
-        .stored_value()
+        .stored_value(&[])
     };
     // As a 10.1 server wrote them (2026-10-16).
     let cases = [
@@ -678,6 +678,7 @@ fn stored_values_follow_the_server_rules_for_each_type() {
         None,
         "not persistent"
     );
+    // Its stored value needs the DataShape, which is not in the repository here.
     assert!(stored("INFOTABLE", None, true).is_err());
     // The order a 10.1 export wrote 22 values in.
     let written = [
@@ -707,6 +708,42 @@ fn stored_values_follow_the_server_rules_for_each_type() {
     let mut sorted: Vec<String> = written.iter().map(|name| name.to_string()).collect();
     sorted.sort();
     assert_eq!(java_hash_map_order(&sorted), written);
+}
+
+#[test]
+fn a_persistent_infotable_stores_an_empty_table_of_its_data_shape_fields() {
+    let (_dir, solution) = fixture();
+    new(
+        &solution,
+        Kind::DataShape,
+        "Acme.Orders.Line_DS",
+        |request| {
+            request.project = Some("Acme.Orders".into());
+            request.fields = vec!["a:STRING".into(), "n:NUMBER".into()];
+        },
+    );
+    new(&solution, Kind::Thing, "Acme.Orders.Line", |request| {
+        request.project = Some("Acme.Orders".into());
+        request.template = Some("GenericThing".into());
+    });
+    let mut table = property("Lines", "INFOTABLE");
+    table.data_shape = Some("Acme.Orders.Line_DS".into());
+    table.persistent = Some(true);
+    run(&solution, "Acme.Orders.Line", Action::PropertyAdd(table));
+    let xml = file(&solution, "Things", "Acme.Orders.Line");
+    // As a 10.2 server stored it (2026-10-30), but for the Timestamp an import re-stamps.
+    let server = r#"<Thing name="Acme.Orders.Line"><ThingProperties><Lines><Value><infoTable><DataShape><FieldDefinitions><FieldDefinition aspect.isPrimaryKey="false" baseType="STRING" description="" name="a" ordinal="1"/><FieldDefinition aspect.isPrimaryKey="false" baseType="NUMBER" description="" name="n" ordinal="2"/></FieldDefinitions></DataShape><Rows/></infoTable></Value></Lines></ThingProperties></Thing>"#;
+    let start = xml.find("<Lines>").expect("a stored value");
+    let end = xml.find("</Lines>").unwrap() + "</Lines>".len();
+    let ours = format!(
+        "<Thing name=\"Acme.Orders.Line\"><ThingProperties>{}</ThingProperties></Thing>",
+        &xml[start..end]
+    );
+    assert_eq!(
+        crate::core::normalise::hash(ours.as_bytes()).unwrap(),
+        crate::core::normalise::hash(server.as_bytes()).unwrap(),
+        "{ours}"
+    );
 }
 
 #[test]
@@ -765,7 +802,7 @@ fn property_add_refusals() {
         ErrorCode::InvalidArguments
     );
     let mut table = property("Rows", "INFOTABLE");
-    table.data_shape = Some("Acme.Orders.Row_DS".into());
+    table.data_shape = Some("Elsewhere.Row_DS".into());
     table.persistent = Some(true);
     assert_eq!(
         code(add("Acme.Orders.Press", table)),

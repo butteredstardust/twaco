@@ -24,6 +24,10 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- `thing property add --persistent` accepts an INFOTABLE property, writing an empty table of its
+  repository DataShape's fields as the stored value, as the server does. It was refused on the
+  grounds that an import re-stamps the value, but comparisons have ignored that stamp since hash
+  version 6.
 - `new project` in a folder with no `twaco.toml` creates one declaring the project.
 
 ## [0.1.47] - 2026-10-29

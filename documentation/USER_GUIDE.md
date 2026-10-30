@@ -957,9 +957,9 @@ that has it, and the server writes that value into each Thing's export. So addin
 retyping or implementing one also rewrites those Things' `ThingProperties`. Removing or retyping
 a property that a mashup binding, another entity's script or a `me.<name>` read still uses is
 refused, and so is stopping implementing a shape whose members are still used that way; `--force`
-does it anyway and lists the users. A persistent INFOTABLE property is
-refused: a 10.1 import re-stamps a stored infotable with the import time, so the repository could
-never match the server. MCP: `entity_edit`.
+does it anyway and lists the users. A persistent INFOTABLE property stores an empty table of
+its DataShape's fields, which needs that DataShape in the repository and without a base DataShape.
+MCP: `entity_edit`.
 
 `thing service add` writes the exported service signature and script sidecars, then folds them
 into the entity through the same synchronizer as sidecar changes. Parameters are repeated

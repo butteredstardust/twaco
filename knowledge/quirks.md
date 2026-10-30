@@ -433,8 +433,9 @@ the container parameter to an events router, and react to Changed in the parent.
 Each Thing export holds every persistent own or inherited property value, including type defaults.
 Adding template properties affects all instances and removing a shape removes values. Exports group
 them by origin in hash order. Definition changes re-stamp import time and GOOD quality, so compare
-without timestamp/quality. Persistent INFOTABLE values re-stamp on every import and can never
-match source; twaco thing property refuses them.
+without timestamp/quality. A persistent INFOTABLE value is an empty infoTable of its DataShape's
+field definitions, and every import re-stamps it; compared without the stamp it matches source
+(10.2, 2026-10-30).
 
 ## Additional import, entity, and REST observations
 
