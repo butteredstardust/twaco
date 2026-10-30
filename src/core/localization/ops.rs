@@ -713,9 +713,12 @@ pub(crate) fn push<R: Remote>(
                         },
                     })
                     .map_err(|error| interrupted(error, &done_tables, done_tokens))?;
+                // One imported file of a table's several already changed it.
+                if done_tables.last() != Some(&push.table.as_str()) {
+                    done_tables.push(&push.table);
+                }
                 progress.advance(1);
             }
-            done_tables.push(&push.table);
         }
         drop(_imports);
         let mut deletes = out.iter().collect::<Vec<_>>();
@@ -737,7 +740,9 @@ pub(crate) fn push<R: Remote>(
         drop(_deletes);
         let touched: Vec<String> = out.iter().map(|push| push.table.clone()).collect();
         let _confirm = progress::phase(progress, "confirming tables", Some(touched.len() as u64));
-        let after = server_tokens(remote, &touched)?;
+        // The confirming read comes after the server changed: a failure here is after it too.
+        let after = server_tokens(remote, &touched)
+            .map_err(|error| interrupted(error, &done_tables, done_tokens))?;
         for _ in &touched {
             progress.advance(1);
         }

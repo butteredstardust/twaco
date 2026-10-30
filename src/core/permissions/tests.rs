@@ -271,12 +271,12 @@ fn a_set_that_does_not_read_back_as_written_fails_the_entity() {
         "{:?}",
         one.error
     );
-    // The run-time set written before it stays written, and the error says so.
+    // Both sets were sent (the design-time one read back otherwise), and the error says so.
     assert!(
         one.error
             .as_deref()
             .unwrap()
-            .contains("already written: run-time permissions; push again"),
+            .contains("already written: run-time and design-time permissions; push again"),
         "{:?}",
         one.error
     );

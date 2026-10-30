@@ -455,7 +455,7 @@ mod tests {
         reject: bool,
         /// The install row's status: 0 installs, 3 queues for the next restart.
         install_status: i64,
-        /// The package list cannot be read once a delete was sent.
+        /// The package list cannot be read once a delete or an install was sent.
         list_fails_after_delete: bool,
     }
 
@@ -480,11 +480,10 @@ mod tests {
     impl Remote for Fake {
         fn service(&self, service: &str, body: &Value) -> Result<Option<Value>, ServerError> {
             self.calls.borrow_mut().push(service.to_string());
-            let deleted = self
-                .calls
-                .borrow()
-                .iter()
-                .any(|call| call == "DeleteExtensionPackage");
+            let deleted =
+                self.calls.borrow().iter().any(|call| {
+                    call == "DeleteExtensionPackage" || call == "upload validate=false"
+                });
             if service == "GetExtensionPackageList" && self.list_fails_after_delete && deleted {
                 return Err(ServerError::InvalidUrl("connection reset".to_string()));
             }
@@ -670,6 +669,20 @@ mod tests {
         remove(&fake, "P", true).unwrap();
         assert!(fake.installed.borrow().is_empty());
         assert!(remove(&fake, "P", false).is_err(), "no longer installed");
+    }
+
+    #[test]
+    fn an_import_whose_confirmation_cannot_be_read_says_it_was_sent() {
+        let mut fake = Fake::with(&[("P", "1.0.0")]);
+        fake.list_fails_after_delete = true;
+        let zip = package_zip(Some(&metadata("P", "1.2.0")));
+        let error = import(&fake, "p.zip", &zip, true).unwrap_err();
+        let message = error.to_string();
+        assert!(
+            message.contains("the import was sent and may have installed P 1.2.0"),
+            "{message}"
+        );
+        assert!(message.contains("twaco ext list"), "{message}");
     }
 
     #[test]

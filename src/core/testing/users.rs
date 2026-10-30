@@ -296,7 +296,9 @@ where
             Step::DeleteUser(_) => unreachable!("a seed deletes nothing"),
         }
     }
-    let users = list(solution, profile, admin, &sign_in)?;
+    // Every step changed the server before this read: a failure here is after them.
+    let users =
+        list(solution, profile, admin, &sign_in).map_err(|error| interrupted(error, &steps))?;
     Ok(Changed {
         steps,
         applied: true,

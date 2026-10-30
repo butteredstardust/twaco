@@ -597,6 +597,8 @@ fn one(remote: &(dyn Remote + Sync), entity: &EntityFile, apply: bool) -> Entity
                 ),
             );
         }
+        // Sent: whatever the read-back finds, the server has this set now.
+        written.push(kind.label());
         let back = remote
             .get(&collection, &name, kind)
             .map_err(|e| e.to_string())
@@ -628,7 +630,6 @@ fn one(remote: &(dyn Remote + Sync), entity: &EntityFile, apply: bool) -> Entity
                 )
             }
         }
-        written.push(kind.label());
     }
     report.status = Status::Pushed;
     report

@@ -170,8 +170,18 @@ pub(crate) fn entity_new_tool(
         fetch_profile: Some("default".to_string()),
     };
     let mut notices = commands::Notices::default();
-    let outcome = commands::entity_new::execute(solution, &request, &mut notices)
-        .map_err(ToolError::coded)?;
+    let outcome = match commands::entity_new::execute(solution, &request, &mut notices) {
+        Ok(outcome) => outcome,
+        Err(error) if notices.lines().is_empty() => return Err(ToolError::coded(error)),
+        // What fetching into the platform cache said is often why a template is unknown.
+        Err(error) => {
+            use crate::core::codes::Coded;
+            return Err(ToolError::with(
+                error.code(),
+                format!("{error}; {}", notices.lines().join("; ")),
+            ));
+        }
+    };
     let mut result = crate::core::entity::new::plan_json(solution, &outcome.plan, outcome.applied);
     result["dry_run"] = json!(dry_run);
     if !outcome.fetched.is_empty() {

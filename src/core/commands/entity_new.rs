@@ -156,9 +156,11 @@ fn missing_platform_names(
     wanted
         .into_iter()
         .filter(|(collection, name)| {
-            !defined
-                .iter()
-                .any(|e| e.info.collection == *collection && &e.info.name == name)
+            // GenericThing roots every Thing chain; a plan knows it without the cache.
+            !(*collection == "ThingTemplates" && name == "GenericThing")
+                && !defined
+                    .iter()
+                    .any(|e| e.info.collection == *collection && &e.info.name == name)
                 && !match *collection {
                     "ThingTemplates" => cache.templates.contains_key(name),
                     _ => cache.shapes.contains_key(name),
