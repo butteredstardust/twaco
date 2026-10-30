@@ -124,7 +124,7 @@ mod tests {
         let root = root_guard.path().to_path_buf();
         std::fs::create_dir_all(root.join(".twaco")).unwrap();
         std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
-        std::fs::write(root.join(".twaco/.baseline.json.1.twaco-tmp"), b"half").unwrap();
+        std::fs::write(root.join(".twaco/.baseline.json.1-2-3.twaco-tmp"), b"half").unwrap();
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
         let mut notices = Notices::default();
         let held = lock_workspace(&solution, "test", &mut notices).unwrap();

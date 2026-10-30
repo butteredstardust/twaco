@@ -219,7 +219,7 @@ mod tests {
     #[test]
     fn applies_report_lock_recovery_notices_and_keep_error_codes() {
         let (_dir, root, solution) = setup(true);
-        std::fs::write(root.join(".twaco/.baseline.json.1.twaco-tmp"), b"half").unwrap();
+        std::fs::write(root.join(".twaco/.baseline.json.1-2-3.twaco-tmp"), b"half").unwrap();
         let mut notices = Notices::default();
         let outcome = execute(
             &solution,

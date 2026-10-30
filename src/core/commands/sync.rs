@@ -190,7 +190,7 @@ mod tests {
     fn an_apply_reports_what_taking_its_lock_recovered() {
         let (_dir, root, solution) = setup();
         std::fs::create_dir_all(root.join(".twaco")).unwrap();
-        std::fs::write(root.join(".twaco/.baseline.json.1.twaco-tmp"), b"half").unwrap();
+        std::fs::write(root.join(".twaco/.baseline.json.1-2-3.twaco-tmp"), b"half").unwrap();
         let mut notices = Notices::default();
         execute(&solution, &request(Mode::Apply), &mut notices).unwrap();
         assert_eq!(notices.lines().len(), 1, "{:?}", notices.lines());

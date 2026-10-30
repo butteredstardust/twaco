@@ -27,7 +27,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub(crate) const RELATIVE_PATH: &str = ".twaco/lock";
 pub(crate) const HOLDER_PATH: &str = ".twaco/lock.holder";
 const TEMPORARY_SUFFIX: &str = ".twaco-tmp";
-const LEGACY_SUFFIXES: [&str; 2] = [".twaco-rename-tmp", ".twaco-delete-tmp"];
+/// The holder record's own temporary, written beside it in `.twaco`.
+const HOLDER_TEMPORARY: &str = ".lock.holder.twaco-tmp";
 
 /// Held for as long as it lives. Dropping it closes the file, which releases the lock.
 #[derive(Debug)]
@@ -223,7 +224,7 @@ fn acquire_then_sweep(
     );
     // Written beside it and renamed over it, so a contender never reads half a record.
     // Informational; a failure to say who holds the lock must not fail the command holding it.
-    let staged = root.join(format!(".twaco/.lock.holder{TEMPORARY_SUFFIX}"));
+    let staged = root.join(".twaco").join(HOLDER_TEMPORARY);
     if std::fs::write(&staged, record.as_bytes())
         .and_then(|()| std::fs::rename(&staged, &holder_path))
         .is_err()
@@ -314,13 +315,35 @@ pub(crate) fn acquire_for(
     })
 }
 
-/// twaco's own temporaries are hidden siblings of their target: `.<name>[.<pid>...].twaco-tmp`.
-/// Older versions also left `.twaco-rename-tmp` and `.twaco-delete-tmp`; those are recognised too.
+/// Only a name twaco writes is removed: `workspace::atomic_replace`'s hidden sibling
+/// `.<target>.<pid>-<nanos>-<counter>.twaco-tmp`, and the holder record's temporary. A file that
+/// merely ends in the suffix may be someone's own, so it stays.
 fn is_temporary(name: &str) -> bool {
-    name.starts_with('.')
-        && LEGACY_SUFFIXES
+    if name == HOLDER_TEMPORARY {
+        return true;
+    }
+    let Some(rest) = name
+        .strip_prefix('.')
+        .and_then(|rest| rest.strip_suffix(TEMPORARY_SUFFIX))
+    else {
+        return false;
+    };
+    let Some((target, stamp)) = rest.rsplit_once('.') else {
+        return false;
+    };
+    let parts: Vec<&str> = stamp.split('-').collect();
+    !target.is_empty()
+        && parts.len() == 3
+        && parts
             .iter()
-            .chain([&TEMPORARY_SUFFIX])
+            .all(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit()))
+}
+
+/// A file ending in a temporary suffix that `is_temporary` does not recognise.
+fn looks_temporary(name: &str) -> bool {
+    name.starts_with('.')
+        && [TEMPORARY_SUFFIX, ".twaco-rename-tmp", ".twaco-delete-tmp"]
+            .iter()
             .any(|suffix| name.ends_with(suffix))
 }
 
@@ -335,14 +358,19 @@ fn remove_temporaries(directory: &Path, recovered: &mut Vec<PathBuf>) {
         };
         if kind.is_dir() {
             remove_temporaries(&path, recovered);
-        } else if kind.is_file()
-            && path
-                .file_name()
-                .is_some_and(|name| is_temporary(&name.to_string_lossy()))
-            && std::fs::remove_file(&path).is_ok()
-        {
-            tracing::warn!(path = %path.display(), "removed a stale temporary left by an interrupted write");
-            recovered.push(path);
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if !kind.is_file() {
+            continue;
+        }
+        if is_temporary(&name) {
+            if std::fs::remove_file(&path).is_ok() {
+                tracing::warn!(path = %path.display(), "removed a stale temporary left by an interrupted write");
+                recovered.push(path);
+            }
+        } else if looks_temporary(&name) {
+            tracing::warn!(path = %path.display(), "left a file that looks like a temporary but is not named as twaco names one; remove it if it is stale");
         }
     }
 }
@@ -461,6 +489,18 @@ mod tests {
         assert!(!is_temporary(".a.txt.20261005T093015Z-1-0.twaco-stage"));
         assert!(!is_temporary(".a.txt.20261005T093015Z-1-0.twaco-backup"));
         assert!(is_temporary(".a.txt.42-7-0.twaco-tmp"));
+        assert!(is_temporary(".lock.holder.twaco-tmp"));
+        // A suffix alone is not twaco's name.
+        for name in [
+            ".T.xml.twaco-tmp",
+            ".notes.twaco-tmp",
+            ".a.txt.42-7.twaco-tmp",
+            ".a.txt.x-7-0.twaco-tmp",
+            "..42-7-0.twaco-tmp",
+            ".renames.json.42.twaco-rename-tmp",
+        ] {
+            assert!(!is_temporary(name), "{name}");
+        }
     }
 
     #[test]
@@ -472,11 +512,9 @@ mod tests {
         std::fs::create_dir_all(&nested).unwrap();
         std::fs::create_dir_all(root.join(".twaco")).unwrap();
         let stale = [
-            things.join(".T.xml.twaco-tmp"),
-            nested.join(".script.js.twaco-tmp"),
-            root.join(".twaco/.baseline.json.42.twaco-tmp"),
-            root.join(".twaco/.renames.json.42.twaco-rename-tmp"),
-            root.join(".twaco/.renames.json.42.twaco-delete-tmp"),
+            things.join(".T.xml.1-2-3.twaco-tmp"),
+            nested.join(".script.js.42-7-0.twaco-tmp"),
+            root.join(".twaco/.baseline.json.42-7-1.twaco-tmp"),
         ];
         // Outside the workspace, nothing is twaco's to recover, even with twaco's own name.
         let (_dir, outside) = temp();
@@ -485,13 +523,16 @@ mod tests {
             nested.join("script.js"),
             root.join(".twaco/baseline.json"),
             things.join("notes.twaco-tmp"),
-            outside.join(".T.xml.twaco-tmp"),
+            // Ends in the suffix, but is not named as twaco names a temporary.
+            nested.join(".notes.twaco-tmp"),
+            root.join(".twaco/.renames.json.42.twaco-rename-tmp"),
+            outside.join(".T.xml.1-2-3.twaco-tmp"),
         ];
         for path in stale.iter().chain(&kept) {
             std::fs::write(path, b"x").unwrap();
         }
         let lock = acquire(&root, "sync", &[things, root.join("src"), outside.clone()]).unwrap();
-        assert_eq!(lock.recovered.len(), 5);
+        assert_eq!(lock.recovered.len(), 3);
         assert!(stale.iter().all(|path| !path.exists()));
         assert!(kept.iter().all(|path| path.exists()));
         drop(lock);
@@ -501,7 +542,7 @@ mod tests {
     fn the_lock_logs_each_step_and_warns_about_a_stale_temporary() {
         let (_dir, root) = temp();
         std::fs::create_dir_all(root.join(".twaco")).unwrap();
-        std::fs::write(root.join(".twaco/.old.json.7.twaco-tmp"), b"x").unwrap();
+        std::fs::write(root.join(".twaco/.old.json.7-8-9.twaco-tmp"), b"x").unwrap();
         let (_, logs) = crate::core::diagnostics::captured(|| {
             let span = tracing::info_span!("capture", mine = "lock-logs-steps");
             let _entered = span.enter();
@@ -526,7 +567,7 @@ mod tests {
             .find(|line| line.contains("removed a stale temporary") && line.contains(&mine))
             .unwrap_or_else(|| panic!("no warning for {mine}:\n{logs}"));
         assert!(
-            warning.contains("WARN") && warning.contains(".old.json.7.twaco-tmp"),
+            warning.contains("WARN") && warning.contains(".old.json.7-8-9.twaco-tmp"),
             "{logs}"
         );
         assert!(
