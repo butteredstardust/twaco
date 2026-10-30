@@ -909,7 +909,8 @@ pub(crate) fn apply_parameter(
                 .replace_file(
                     &sidecars.content_path,
                     &sidecars.content_before,
-                    sidecars.content_after.clone(),
+                    // An edited content.json keeps the byte-order mark it had.
+                    workspace::keeping_bom(&sidecars.content_path, sidecars.content_after.clone()),
                 )
                 .map_err(AuthoringError::Write)?;
         }

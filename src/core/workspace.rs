@@ -641,11 +641,21 @@ pub(crate) fn stale_sidecars(dir: &Path, services: &[ServiceSidecar]) -> Vec<Str
 /// Atomically write generated UTF-8 text with LF endings, but leave an identical file alone.
 ///
 /// Generated editor files are watched by editors and build tools, so preserving the timestamp
-/// on a fixed point is observable behaviour rather than just an optimisation.
+/// on a fixed point is observable behaviour rather than just an optimisation. A generated file
+/// never has a byte-order mark: its reader (`platform.json`'s JSON parser) would refuse one.
 pub(crate) fn write_lf_if_changed(path: &Path, text: &str) -> Result<bool, WorkspaceError> {
     let normalised = text.replace("\r\n", "\n").replace('\r', "\n");
-    // A file that differs only by the byte-order mark it had keeps it, and is not rewritten.
-    let wanted = keeping_bom(path, normalised.into_bytes());
+    write_if_changed(path, normalised.into_bytes())
+}
+
+/// `write_lf_if_changed` for a sidecar a person edits: a file that had a byte-order mark keeps
+/// it, and one that differs only by it is not rewritten.
+pub(crate) fn write_sidecar_if_changed(path: &Path, text: &str) -> Result<bool, WorkspaceError> {
+    let normalised = text.replace("\r\n", "\n").replace('\r', "\n");
+    write_if_changed(path, keeping_bom(path, normalised.into_bytes()))
+}
+
+fn write_if_changed(path: &Path, wanted: Vec<u8>) -> Result<bool, WorkspaceError> {
     if matches!(std::fs::read(path), Ok(current) if current == wanted) {
         return Ok(false);
     }

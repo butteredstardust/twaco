@@ -261,7 +261,7 @@ pub(crate) fn sync(
         }
         if !options.check && entity_written {
             if let Some((path, text)) = accumulated_sidecar {
-                if let Err(e) = super::workspace::write_lf_if_changed(&path, &text) {
+                if let Err(e) = super::workspace::write_sidecar_if_changed(&path, &text) {
                     log.error(format!("{e}"));
                     tally.failed += 1;
                 }

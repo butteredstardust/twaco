@@ -95,6 +95,13 @@ fn parameters_are_written_to_the_entity_and_content_together() {
     );
     assert_eq!(mashup_parameters(&plan.entity).unwrap().len(), 2);
     apply_new(&solution, &plan, &lock(&solution)).unwrap();
+    // An editor saved content.json with a byte-order mark: an edit keeps it.
+    let content_path = solution
+        .src_root()
+        .join("Acme.Parameter_MU/mashup/content.json");
+    let mut marked = b"\xEF\xBB\xBF".to_vec();
+    marked.extend(std::fs::read(&content_path).unwrap());
+    std::fs::write(&content_path, marked).unwrap();
     let parameter = ParameterRequest {
         mashup: "Acme.Parameter_MU".into(),
         action: ParameterAction::Add,
@@ -113,6 +120,9 @@ fn parameters_are_written_to_the_entity_and_content_together() {
         .unwrap()
         .content;
     let value: Value = serde_json::from_str(&content).unwrap();
+    assert!(std::fs::read(&content_path)
+        .unwrap()
+        .starts_with(b"\xEF\xBB\xBF"));
     // As Composer writes it: the default is the root property, not a `DefaultValue`.
     assert_eq!(value["UI"]["Properties"]["header"], "Orders");
     assert!(value["UI"]["Properties"]["_currentParameterDefs"][2]

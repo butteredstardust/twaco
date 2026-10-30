@@ -925,6 +925,14 @@ fn writing_the_same_generated_bytes_twice_is_a_fixed_point() {
     let first = std::fs::read(&path).unwrap();
     assert!(!workspace::write_lf_if_changed(&path, "one\ntwo\n").unwrap());
     assert_eq!(std::fs::read(&path).unwrap(), first);
+    // A generated file never keeps a byte-order mark: its JSON reader would refuse it.
+    std::fs::write(&path, b"\xEF\xBB\xBFone\ntwo\n").unwrap();
+    assert!(workspace::write_lf_if_changed(&path, "one\ntwo\n").unwrap());
+    assert_eq!(std::fs::read(&path).unwrap(), b"one\ntwo\n");
+    // A sidecar keeps it.
+    std::fs::write(&path, b"\xEF\xBB\xBFone\n").unwrap();
+    assert!(workspace::write_sidecar_if_changed(&path, "two\n").unwrap());
+    assert_eq!(std::fs::read(&path).unwrap(), b"\xEF\xBB\xBFtwo\n");
 }
 
 #[test]
