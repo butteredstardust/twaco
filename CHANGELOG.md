@@ -6,6 +6,21 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `new thing --template` and `new thing-template --base` fetch a platform template or shape into
+  the platform cache holding the workspace lock, also for a plan, and the plan's effects say it
+  wrote the cache; a plan with nothing to fetch still takes no lock. Before this, the cache was
+  written before any lock, so two commands could lose each other's entries.
+- MCP `permissions_push` reports an applied push that did not write everything as an error
+  (`isError`), naming what was pushed, what failed and why, and what is not on the server; it
+  returned a normal result with `ok: false`.
+- A failure part-way through a server write now says what had already changed, and that running
+  the command again finishes the rest: a permission push (the sets of the entity already
+  written), a localization push (tables imported, tokens deleted), `users seed` and
+  `users delete` (steps done), and `ext import` or `ext remove` when the read that confirms
+  them fails (the change was sent and may have happened).
+
 ## [0.1.49] - 2026-10-30
 
 ### Fixed

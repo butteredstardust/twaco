@@ -674,14 +674,36 @@ pub(crate) fn push<R: Remote>(
             .collect();
         let import_count = imported.iter().map(|push| push.files.len() as u64).sum();
         let _imports = progress::phase(progress, "importing tables", Some(import_count));
+        // What has reached the server, for an error after it.
+        let mut done_tables: Vec<&str> = Vec::new();
+        let mut done_tokens = 0usize;
+        let interrupted = |error: LocalizationError, tables: &[&str], tokens: usize| {
+            if tables.is_empty() && tokens == 0 {
+                return error;
+            }
+            let mut done = Vec::new();
+            if !tables.is_empty() {
+                done.push(format!("imported {}", tables.join(", ")));
+            }
+            if tokens > 0 {
+                done.push(format!("deleted {tokens} token(s)"));
+            }
+            LocalizationError::Interrupted {
+                source: Box::new(error),
+                done: done.join(" and "),
+            }
+        };
         for push in imported {
             for path in &push.files {
-                let source = std::fs::read(path).map_err(|error| LocalizationError::Io {
-                    path: path.clone(),
-                    why: error.to_string(),
-                })?;
+                let source = std::fs::read(path)
+                    .map_err(|error| LocalizationError::Io {
+                        path: path.clone(),
+                        why: error.to_string(),
+                    })
+                    .map_err(|error| interrupted(error, &done_tables, done_tokens))?;
                 // A file of several tables sends only this one.
-                let bytes = super::table_export(path, &source, &push.table)?;
+                let bytes = super::table_export(path, &source, &push.table)
+                    .map_err(|error| interrupted(error, &done_tables, done_tokens))?;
                 imports::import_file(remote, &file_name(&push.table), &bytes, true, true, true)
                     .map_err(|error| match error {
                         imports::ImportError::Remote(error) => LocalizationError::Remote(error),
@@ -689,7 +711,12 @@ pub(crate) fn push<R: Remote>(
                             path: root(solution),
                             why,
                         },
-                    })?;
+                    })
+                    .map_err(|error| interrupted(error, &done_tables, done_tokens))?;
+                // One imported file of a table's several already changed it.
+                if done_tables.last() != Some(&push.table.as_str()) {
+                    done_tables.push(&push.table);
+                }
                 progress.advance(1);
             }
         }
@@ -702,14 +729,20 @@ pub(crate) fn push<R: Remote>(
         let _deletes = progress::phase(progress, "deleting tokens", Some(delete_count));
         for push in deletes {
             for name in &push.delete {
-                remote.delete_token(&push.table, name)?;
+                remote
+                    .delete_token(&push.table, name)
+                    .map_err(LocalizationError::from)
+                    .map_err(|error| interrupted(error, &done_tables, done_tokens))?;
+                done_tokens += 1;
                 progress.advance(1);
             }
         }
         drop(_deletes);
         let touched: Vec<String> = out.iter().map(|push| push.table.clone()).collect();
         let _confirm = progress::phase(progress, "confirming tables", Some(touched.len() as u64));
-        let after = server_tokens(remote, &touched)?;
+        // The confirming read comes after the server changed: a failure here is after it too.
+        let after = server_tokens(remote, &touched)
+            .map_err(|error| interrupted(error, &done_tables, done_tokens))?;
         for _ in &touched {
             progress.advance(1);
         }

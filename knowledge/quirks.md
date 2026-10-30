@@ -525,7 +525,8 @@ not a fixed Thing. For InfoTables, conversion such as `String(...)` and `new Dat
 
 ## Additional mashup binding and widget observations
 
-For a full table binding, use `SourceDetails: "AllData"`, `SourceProperty: ""`, and `SourceName`.
+For a full table binding, use `SourceDetails: "AllData"` and `SourceProperty: ""`; Composer usually
+omits `SourceName` (138 of 166 Composer-saved full-table bindings in real repositories), so it is optional.
 A runtime-selected source is `EntityType: "DynamicThingShapes"`; its section is named
 `DynamicThingShapes_<ThingShape>` and needs a binding with `TargetId` `EntityName`. A contained
 `mashupcontainer` requires each `ParmDef`; the container's `parameterDefinitions` and

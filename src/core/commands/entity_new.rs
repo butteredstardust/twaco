@@ -9,11 +9,16 @@ pub struct Request {
     pub request: entity::new::NewRequest,
     pub mode: Mode,
     pub lock_label: &'static str,
+    /// Fetch a platform ThingTemplate or ThingShape the request names into the platform cache from
+    /// this profile's server, when neither the solution nor the cache has it. `None` fetches nothing.
+    pub fetch_profile: Option<String>,
 }
 #[derive(Debug)]
 pub struct Outcome {
     pub plan: entity::new::Plan,
     pub applied: bool,
+    /// What fetching into the platform cache did, one note each.
+    pub fetched: Vec<String>,
     #[allow(
         dead_code,
         reason = "the command facade's Effects (COMMAND_FACADE.md); no adapter reads it yet"
@@ -43,15 +48,44 @@ pub fn execute(
     request: &Request,
     notices: &mut Notices,
 ) -> Result<Outcome, CommandError> {
+    let missing = missing_platform_names(solution, &request.request);
+    let fetch = request
+        .fetch_profile
+        .as_deref()
+        .filter(|_| !missing.is_empty());
     match request.mode {
-        Mode::Plan => Ok(Outcome {
-            plan: entity::new::plan(solution, &request.request).map_err(CommandError::New)?,
-            applied: false,
-            effects: Effects::new(Access::Read, Access::None),
-        }),
+        Mode::Plan => {
+            // The cache is the workspace's: filling it takes the lock, even for a plan, and the
+            // effects say so. A plan with nothing to fetch takes no lock and writes nothing.
+            let fetched = match fetch {
+                Some(profile) => {
+                    let lock = lock_workspace(solution, request.lock_label, notices)
+                        .map_err(CommandError::Lock)?;
+                    fetch_missing(solution, &missing, profile, &lock)
+                }
+                None => Vec::new(),
+            };
+            let effects = if fetch.is_some() {
+                Effects::new(Access::Write, Access::Read)
+            } else {
+                Effects::new(Access::Read, Access::None)
+            };
+            let plan = entity::new::plan(solution, &request.request)
+                .map_err(|error| refused(error, &fetched, notices))?;
+            Ok(Outcome {
+                plan,
+                applied: false,
+                fetched,
+                effects,
+            })
+        }
         Mode::Apply => {
             let lock = lock_workspace(solution, request.lock_label, notices)
                 .map_err(CommandError::Lock)?;
+            let fetched = match fetch {
+                Some(profile) => fetch_missing(solution, &missing, profile, &lock),
+                None => Vec::new(),
+            };
             let path = solution.root.join(config::CONFIG_FILE);
             // A bare solution stays bare until this apply writes its twaco.toml.
             let reloaded = if solution.projects.is_empty() && !path.exists() {
@@ -59,53 +93,90 @@ pub fn execute(
             } else {
                 Solution::load(&path).map_err(CommandError::Config)?
             };
-            let plan = entity::new::plan(&reloaded, &request.request).map_err(CommandError::New)?;
+            let plan = entity::new::plan(&reloaded, &request.request)
+                .map_err(|error| refused(error, &fetched, notices))?;
             entity::new::apply(&reloaded, &plan, &lock).map_err(CommandError::New)?;
             Ok(Outcome {
                 plan,
                 applied: true,
-                effects: Effects::new(Access::Write, Access::None),
+                fetched,
+                effects: Effects::new(
+                    Access::Write,
+                    if fetch.is_some() {
+                        Access::Read
+                    } else {
+                        Access::None
+                    },
+                ),
             })
         }
     }
 }
 
-/// Fetch into the platform cache each ThingTemplate or ThingShape `request` names that neither the
-/// solution nor the cache has, so a platform one (FileRepository, RemoteThing) can be named before
-/// anything in the repository uses it. Best effort: what cannot be fetched is left to the request's
-/// own refusal, and the notes say why.
-pub fn fetch_platform_names(
+/// A refused request, with what fetching into the platform cache said: often why a template it
+/// names is unknown.
+fn refused(
+    error: entity::new::NewError,
+    fetched: &[String],
+    notices: &mut Notices,
+) -> CommandError {
+    notices.0.extend(fetched.iter().cloned());
+    CommandError::New(error)
+}
+
+/// The ThingTemplates and ThingShapes `request` names that neither the solution nor the
+/// platform cache has, so a platform one (FileRepository, RemoteThing) can be fetched before
+/// anything in the repository uses it.
+fn missing_platform_names(
     solution: &Solution,
     request: &entity::new::NewRequest,
-    profile: &str,
-) -> Vec<String> {
+) -> Vec<(&'static str, String)> {
     use entity::new::Kind;
-    let mut wanted = Vec::new();
+    let mut wanted: Vec<(&'static str, String)> = Vec::new();
     match request.kind {
-        Kind::Thing => wanted.extend(request.template.iter().map(|t| ("ThingTemplates", t))),
-        Kind::ThingTemplate => wanted.extend(request.base.iter().map(|t| ("ThingTemplates", t))),
+        Kind::Thing => wanted.extend(
+            request
+                .template
+                .iter()
+                .map(|t| ("ThingTemplates", t.clone())),
+        ),
+        Kind::ThingTemplate => {
+            wanted.extend(request.base.iter().map(|t| ("ThingTemplates", t.clone())))
+        }
         _ => {}
     }
     if matches!(request.kind, Kind::Thing | Kind::ThingTemplate) {
-        wanted.extend(request.shapes.iter().map(|s| ("ThingShapes", s)));
+        wanted.extend(request.shapes.iter().map(|s| ("ThingShapes", s.clone())));
+    }
+    if wanted.is_empty() {
+        return wanted;
     }
     let defined = crate::core::workspace::entities(solution);
     let cache = crate::core::types::platform::cached(solution).unwrap_or_default();
-    let missing: Vec<_> = wanted
+    wanted
         .into_iter()
         .filter(|(collection, name)| {
-            !defined
-                .iter()
-                .any(|e| e.info.collection == *collection && &e.info.name == *name)
+            // GenericThing roots every Thing chain; a plan knows it without the cache.
+            !(*collection == "ThingTemplates" && name == "GenericThing")
+                && !defined
+                    .iter()
+                    .any(|e| e.info.collection == *collection && &e.info.name == name)
                 && !match *collection {
-                    "ThingTemplates" => cache.templates.contains_key(*name),
-                    _ => cache.shapes.contains_key(*name),
+                    "ThingTemplates" => cache.templates.contains_key(name),
+                    _ => cache.shapes.contains_key(name),
                 }
         })
-        .collect();
-    if missing.is_empty() {
-        return Vec::new();
-    }
+        .collect()
+}
+
+/// Fetch `missing` into the platform cache, holding the workspace lock. Best effort: what cannot
+/// be fetched is left to the request's own refusal, and the notes say why.
+fn fetch_missing(
+    solution: &Solution,
+    missing: &[(&'static str, String)],
+    profile: &str,
+    held: &lock::WorkspaceLock,
+) -> Vec<String> {
     let remote = match crate::core::profile::load(&solution.root, profile) {
         Ok(profile) => crate::core::server::Client::new(profile),
         Err(error) => {
@@ -121,7 +192,7 @@ pub fn fetch_platform_names(
     };
     let mut notes = Vec::new();
     for (collection, name) in missing {
-        match crate::core::types::platform::cache_one(&remote, solution, collection, name) {
+        match crate::core::types::platform::cache_one(&remote, solution, collection, name, held) {
             Ok(true) => notes.push(format!(
                 "fetched {collection}/{name} into the platform cache"
             )),

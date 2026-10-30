@@ -100,6 +100,14 @@ pub enum TestError {
     Invalid(String),
     #[error("{0}")]
     Server(#[from] ServerError),
+    /// A seed or delete failed after earlier steps changed the server; `done` lists them.
+    #[error(
+        "{source}; already done: {done}; run it again to finish, as it only does what is left"
+    )]
+    Interrupted {
+        source: Box<TestError>,
+        done: String,
+    },
 }
 
 impl Coded for TestError {
@@ -108,6 +116,7 @@ impl Coded for TestError {
             Self::NotAllowed | Self::NoPassword | Self::NoUsers => ErrorCode::InvalidArguments,
             Self::Invalid(_) => ErrorCode::InvalidData,
             Self::Server(error) => error.code(),
+            Self::Interrupted { source, .. } => source.code(),
         }
     }
 }

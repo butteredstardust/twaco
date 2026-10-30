@@ -423,6 +423,38 @@ fn permissions_target(
     }
 }
 
+/// What an applied permission push did, entity by entity: pushed, failed (and why), or not on
+/// the server.
+fn push_failure(report: &crate::core::permissions::Report) -> String {
+    use crate::core::permissions::Status;
+    let names = |status: Status| {
+        report
+            .entities
+            .iter()
+            .filter(|entity| entity.status == status)
+            .map(|entity| match &entity.error {
+                Some(error) => format!("{}/{} ({error})", entity.collection, entity.name),
+                None => format!("{}/{}", entity.collection, entity.name),
+            })
+            .collect::<Vec<_>>()
+    };
+    let mut parts = Vec::new();
+    for (label, status) in [
+        ("failed", Status::Failed),
+        ("not on the server", Status::NotOnServer),
+        ("pushed", Status::Pushed),
+    ] {
+        let listed = names(status);
+        if !listed.is_empty() {
+            parts.push(format!("{label}: {}", listed.join(", ")));
+        }
+    }
+    format!(
+        "the permission push did not finish: {}; push again to write what is left",
+        parts.join("; ")
+    )
+}
+
 fn permissions_result(
     solution: &Solution,
     request: commands::permissions::PermissionsRequest,
@@ -443,6 +475,15 @@ fn permissions_result(
     // As the command line: drift in a diff and a target missing from the server in an applied
     // push are not success.
     let push = matches!(request.mode, Mode::Apply);
+    // An applied push that did not write everything is a failure, as the command line's exit
+    // code says: an error, naming what was written, so an agent does not read a partial write
+    // as done.
+    if push && (report.count(Status::Failed) > 0 || report.count(Status::NotOnServer) > 0) {
+        return Err(ToolError::with(
+            crate::core::codes::ErrorCode::ServerError,
+            push_failure(report),
+        ));
+    }
     let mut result = json!({
         "ok": report.count(Status::Failed) == 0
             && !(push && report.count(Status::NotOnServer) > 0)
@@ -649,4 +690,44 @@ pub(crate) fn permissions_init_tool(
     result[if outcome.written { "applied" } else { "plan" }] = json!(true);
     add_notices(&mut result, &notices);
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::push_failure;
+    use crate::core::permissions::{EntityReport, Report, Status};
+
+    fn entity(name: &str, status: Status, error: Option<&str>) -> EntityReport {
+        EntityReport {
+            collection: "Things".into(),
+            name: name.into(),
+            status,
+            differences: Vec::new(),
+            sets: Vec::new(),
+            error: error.map(Into::into),
+        }
+    }
+
+    #[test]
+    fn a_push_failure_names_what_was_pushed_and_what_was_not() {
+        let report = Report {
+            applied: true,
+            entities: vec![
+                entity("A", Status::Pushed, None),
+                entity(
+                    "B",
+                    Status::Failed,
+                    Some("writing run-time permissions: 500"),
+                ),
+                entity("C", Status::NotOnServer, None),
+            ],
+        };
+        let message = push_failure(&report);
+        assert!(
+            message.contains("failed: Things/B (writing run-time permissions: 500)"),
+            "{message}"
+        );
+        assert!(message.contains("not on the server: Things/C"), "{message}");
+        assert!(message.contains("pushed: Things/A"), "{message}");
+    }
 }

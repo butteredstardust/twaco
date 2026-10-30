@@ -1369,14 +1369,24 @@ fn one_platform_template_is_added_to_the_cache_and_the_rest_kept() {
         ),
         ok(metadata("name")),
     )]));
-    assert!(
-        super::platform::cache_one(&remote, &solution, "ThingTemplates", "FileRepository").unwrap()
-    );
+    assert!(super::platform::cache_one(
+        &remote,
+        &solution,
+        "ThingTemplates",
+        "FileRepository",
+        &held(&solution)
+    )
+    .unwrap());
     let cache = super::platform::cached(&solution).unwrap();
     assert!(cache.templates.contains_key("FileRepository"));
     assert!(cache.templates.contains_key("GenericThing"));
     // Already cached: no second call (the fake would panic on one).
-    assert!(
-        super::platform::cache_one(&remote, &solution, "ThingTemplates", "FileRepository").unwrap()
-    );
+    assert!(super::platform::cache_one(
+        &remote,
+        &solution,
+        "ThingTemplates",
+        "FileRepository",
+        &held(&solution)
+    )
+    .unwrap());
 }

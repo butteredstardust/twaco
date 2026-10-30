@@ -26,6 +26,7 @@ fn new(solution: &Solution, kind: Kind, name: &str, set: impl FnOnce(&mut NewReq
         request,
         mode: Mode::Apply,
         lock_label: "test new",
+        fetch_profile: None,
     };
     commands::entity_new::execute(solution, &command, &mut Notices::default()).unwrap();
 }

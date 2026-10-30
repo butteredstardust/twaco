@@ -511,14 +511,11 @@ pub(crate) fn entity_new_cmd(solution: &Solution, new: &NewEntity) -> u8 {
         eprintln!("{} {} needs one <name>", style::prefix(), new.path());
         return FAILED;
     };
-    let request = new.request(name);
-    for note in commands::entity_new::fetch_platform_names(solution, &request, "default") {
-        eprintln!("{} {note}", style::prefix());
-    }
     let request = commands::entity_new::Request {
-        request,
+        request: new.request(name),
         mode: if apply { Mode::Apply } else { Mode::Plan },
         lock_label: "new entity",
+        fetch_profile: Some("default".to_string()),
     };
     let mut notices = commands::Notices::default();
     let outcome = match commands::entity_new::execute(solution, &request, &mut notices) {
@@ -530,6 +527,9 @@ pub(crate) fn entity_new_cmd(solution: &Solution, new: &NewEntity) -> u8 {
         }
     };
     print_notices(&notices);
+    for note in &outcome.fetched {
+        eprintln!("{} {note}", style::prefix());
+    }
     let report = entity::new::plan_json(solution, &outcome.plan, outcome.applied);
     if json {
         println!(
