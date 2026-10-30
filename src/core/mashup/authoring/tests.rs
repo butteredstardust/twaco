@@ -113,11 +113,11 @@ fn parameters_are_written_to_the_entity_and_content_together() {
         .unwrap()
         .content;
     let value: Value = serde_json::from_str(&content).unwrap();
+    // As Composer writes it: the default is the root property, not a `DefaultValue`.
     assert_eq!(value["UI"]["Properties"]["header"], "Orders");
-    assert_eq!(
-        value["UI"]["Properties"]["_currentParameterDefs"][2]["DefaultValue"],
-        "Orders"
-    );
+    assert!(value["UI"]["Properties"]["_currentParameterDefs"][2]
+        .get("DefaultValue")
+        .is_none());
 }
 
 #[test]

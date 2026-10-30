@@ -6,6 +6,12 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- A mashup parameter's default is written and read as Composer keeps it: the root property of
+  the parameter's name (a JSON default as an object), with no `DefaultValue` in the parameter's
+  definition. `mashup describe` and `mashup param` now see a default set in Composer.
+
 ## [0.1.48] - 2026-10-30
 
 ### Fixed
