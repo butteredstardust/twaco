@@ -50,6 +50,7 @@ pub(crate) fn run(
                             .to_string(),
                 }],
                 ledger,
+                unlink: None,
             });
             continue;
         }
@@ -69,6 +70,7 @@ pub(crate) fn run(
                 error: None,
                 refusals: Vec::new(),
                 ledger,
+                unlink: None,
             });
             continue;
         }
@@ -161,9 +163,12 @@ pub(crate) fn run(
             error: None,
             refusals,
             ledger,
+            unlink: None,
         });
     }
 
+    super::cycle::plan(remote, &mut entities)
+        .map_err(|(entity, why)| DeleteError::Remote { entity, why })?;
     delete_dependents_first(&mut entities);
     let mut backup_dir = None;
     if apply {
@@ -177,6 +182,22 @@ pub(crate) fn run(
                 backup_dir = remote
                     .backup(solution, &ready, stamp)
                     .map_err(|error| DeleteError::Backup(error.to_string()))?;
+            }
+        }
+        // Break each cycle first: the delete set is backed up, so this changes nothing kept.
+        for entity in &mut entities {
+            let Some(xml) = entity.unlink.as_deref() else {
+                continue;
+            };
+            if entity.status != Status::Ready {
+                continue;
+            }
+            let file = format!("{}.xml", entity.name);
+            if let Err(error) = remote.import(&file, xml) {
+                entity.status = Status::Failed;
+                entity.error = Some(format!(
+                    "clearing the defaults that close the cycle failed: {error}"
+                ));
             }
         }
         for entity in &mut entities {

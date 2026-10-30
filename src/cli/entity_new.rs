@@ -606,6 +606,9 @@ pub(crate) fn entity_new_cmd(solution: &Solution, new: &NewEntity) -> u8 {
             code.lines().next().unwrap_or_default()
         );
     }
+    if let Some(config) = report["twaco_toml"].as_str() {
+        println!("  twaco.toml: {config}");
+    }
     if !outcome.applied {
         println!("run again with --apply to write it");
     }

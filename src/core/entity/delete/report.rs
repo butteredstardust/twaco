@@ -29,6 +29,8 @@ pub struct EntityResult {
     pub error: Option<String>,
     pub(super) refusals: Vec<Refusal>,
     pub(super) ledger: Vec<LedgerLocation>,
+    /// The export to import before the delete, without the defaults that close a cycle.
+    pub(super) unlink: Option<Vec<u8>>,
 }
 
 impl EntityResult {

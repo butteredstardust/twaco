@@ -81,9 +81,11 @@ pub(crate) fn entity_pull(solution: &Solution, args: &EntityPull) -> u8 {
             if args.json.json {
                 println!(
                     "{}",
-                    serde_json::json!({"dry_run":!outcome.applied,"entities":outcome.entities,"skipped_no_baseline":outcome.skipped_no_baseline,"recorded":outcome.recorded})
+                    serde_json::json!({"dry_run":!outcome.applied,"entities":outcome.entities,"skipped_no_baseline":outcome.skipped_no_baseline,"in_sync":outcome.in_sync,"recorded":outcome.recorded})
                 );
-            } else if outcome.applied {
+                return OK;
+            }
+            if outcome.applied && !outcome.entities.is_empty() {
                 println!(
                     "pulled {} entit{}; baseline recorded for {} entit{}",
                     outcome.entities.len(),
@@ -99,11 +101,22 @@ pub(crate) fn entity_pull(solution: &Solution, args: &EntityPull) -> u8 {
                 for entity in &outcome.entities {
                     println!("{entity}: would take the server's version");
                 }
-                for entity in &outcome.skipped_no_baseline {
-                    println!(
-                        "{entity}: skipped (no baseline; name it to pull, or `twaco entity status {entity} --record` once both agree)"
-                    );
+            }
+            for entity in &outcome.skipped_no_baseline {
+                println!(
+                    "{entity}: skipped (no baseline; name it to pull, or `twaco entity status {entity} --record` once both agree)"
+                );
+            }
+            if outcome.entities.is_empty() {
+                match outcome.in_sync.as_slice() {
+                    [] => println!("nothing to pull"),
+                    [one] => println!("{one}: already in sync with the server; nothing to pull"),
+                    many => println!(
+                        "nothing to pull: {} entities already in sync with the server",
+                        many.len()
+                    ),
                 }
+            } else if !outcome.applied {
                 println!("dry run: nothing was written; pass --apply to pull");
             }
             OK

@@ -52,8 +52,13 @@ pub fn execute(
         Mode::Apply => {
             let lock = lock_workspace(solution, request.lock_label, notices)
                 .map_err(CommandError::Lock)?;
-            let reloaded = Solution::load(&solution.root.join(config::CONFIG_FILE))
-                .map_err(CommandError::Config)?;
+            let path = solution.root.join(config::CONFIG_FILE);
+            // A bare solution stays bare until this apply writes its twaco.toml.
+            let reloaded = if solution.projects.is_empty() && !path.exists() {
+                Solution::bare(&solution.root)
+            } else {
+                Solution::load(&path).map_err(CommandError::Config)?
+            };
             let plan = entity::new::plan(&reloaded, &request.request).map_err(CommandError::New)?;
             entity::new::apply(&reloaded, &plan, &lock).map_err(CommandError::New)?;
             Ok(Outcome {

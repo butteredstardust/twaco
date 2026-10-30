@@ -30,6 +30,8 @@ pub struct PullOutcome {
     pub entities: Vec<String>,
     /// `--all` leaves these alone until a baseline establishes which side is newer.
     pub skipped_no_baseline: Vec<String>,
+    /// Already the same on both sides, so nothing to take.
+    pub in_sync: Vec<String>,
     pub applied: bool,
     pub recorded: usize,
     pub effects: Effects,
@@ -129,12 +131,16 @@ where
     }
     let mut work = Vec::new();
     let mut skipped_no_baseline = Vec::new();
+    let mut in_sync = Vec::new();
     for entry in statuses {
         let label = format!("{}/{}", entry.collection, entry.name);
         match entry.verdict {
             status::Verdict::ServerChanged => work.push((label, entry)),
             status::Verdict::NoBaselineDiffers if named => work.push((label, entry)),
             status::Verdict::NoBaselineDiffers => skipped_no_baseline.push(label),
+            status::Verdict::InSync
+            | status::Verdict::Converged
+            | status::Verdict::NoBaselineSame => in_sync.push(label),
             status::Verdict::LocalChanged | status::Verdict::BothChanged => {
                 return Err(PullError::Refused(format!(
                     "{label}: working file changed; use twaco adopt for a merge"
@@ -145,7 +151,6 @@ where
                     "{label}: not on the server, so it cannot be pulled"
                 )))
             }
-            _ => {}
         }
     }
     let labels = work
@@ -156,6 +161,7 @@ where
         return Ok(PullOutcome {
             entities: labels,
             skipped_no_baseline,
+            in_sync,
             applied: false,
             recorded: 0,
             effects: Effects::new(Access::Read, Access::Read),
@@ -243,6 +249,7 @@ where
     Ok(PullOutcome {
         entities: labels,
         skipped_no_baseline,
+        in_sync,
         applied: true,
         recorded,
         effects: Effects::new(Access::Write, Access::Read),

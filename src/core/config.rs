@@ -552,6 +552,14 @@ impl Solution {
         })
     }
 
+    /// A solution at `root` with no `twaco.toml` yet: what `new project` starts from in an
+    /// empty folder, writing the file as it creates the project.
+    pub fn bare(root: &Path) -> Solution {
+        let mut solution: Solution = toml::from_str("").expect("an empty config parses");
+        solution.root = root.to_path_buf();
+        solution
+    }
+
     pub fn load(path: &Path) -> Result<Solution, ConfigError> {
         let text = std::fs::read_to_string(path).map_err(|e| ConfigError::Unreadable {
             path: path.to_path_buf(),

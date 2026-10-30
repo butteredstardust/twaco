@@ -6,6 +6,22 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Stored JSON and QUERY property values compare with their keys sorted, as the server stores
+  them. Before this, a Thing with a persistent JSON or QUERY property whose keys were not in order
+  read back as "not kept" after a deploy.
+- `new timer` and `new scheduler` accept `]]>` in `--then` and `--script`, writing split CDATA.
+- `entity delete` breaks a cycle made by a THINGNAME property default that names a Thing of the
+  set depending on the entity: it imports the entity without those defaults, then deletes the
+  Thing first. Before this, the server refused both deletes.
+- `entity pull` says when the entities are already in sync instead of "pulled 0 entities", and
+  prints the entities it skipped for lack of a baseline when applying too. Its JSON adds `in_sync`.
+
+### Added
+
+- `new project` in a folder with no `twaco.toml` creates one declaring the project.
+
 ## [0.1.47] - 2026-10-29
 
 ### Fixed

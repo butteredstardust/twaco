@@ -262,6 +262,14 @@ mod tests {
                 .unwrap_or_default())
         }
 
+        fn export(&self, _: &EntityKey) -> Result<Option<Vec<u8>>, ServerError> {
+            Ok(None)
+        }
+
+        fn import(&self, _: &str, _: &[u8]) -> Result<(), ServerError> {
+            unreachable!("no cycle to break")
+        }
+
         fn fetch(&self, key: &EntityKey) -> Result<Vec<u8>, ServerError> {
             let file_repository = self
                 .state

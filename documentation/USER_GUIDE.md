@@ -679,6 +679,11 @@ warns about it. `--force` is deprecated: it means the first two acknowledgements
 FileRepository data-loss acknowledgement. The dependency answer sees structural dependents only,
 never a name inside a script or a mashup, which the rename's own review findings cover.
 
+A template, shape or Thing whose THINGNAME property default names a Thing of the set that depends
+on it is a cycle: the server refuses to delete either side first. The plan warns about it, and the
+apply, after the backup, imports that entity again with those defaults emptied, then deletes the
+Thing before it.
+
 ## Moving and copying services and properties
 
 Refactoring often means a service or property belongs somewhere else: lifted out of a Thing into
@@ -759,7 +764,8 @@ given. Every kind accepts `--project`, one-line `--description`, and repeated
 `--visibility Organization/name` or `OrganizationalUnit/org:unit`.
 
 Create a project before deploying entities assigned to it; `new project` also appends its
-`[[project]]` entry when it is not already declared. `new group` creates an empty Group in a
+`[[project]]` entry when it is not already declared. In a folder with no `twaco.toml` above it,
+`new project` creates the file with that one entry, so a solution can start from an empty folder. `new group` creates an empty Group in a
 named project.
 
 ```sh

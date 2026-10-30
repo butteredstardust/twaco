@@ -846,6 +846,25 @@ fn canonical_typed_value(base_type: &[u8], value: &[u8]) -> Option<Vec<u8>> {
 }
 
 fn normalise_typed_leaf(element: &mut Element, base_type: &[u8]) {
+    // A stored JSON or QUERY value is `<Value><json>…</json></Value>`; the server sorts its keys.
+    if matches!(base_type, b"JSON" | b"QUERY") {
+        if let [Node::Element(json)] = element
+            .children
+            .iter_mut()
+            .filter(|child| !matches!(child, Node::Text(text) if xml_whitespace(text)))
+            .collect::<Vec<_>>()
+            .as_mut_slice()
+        {
+            if json.name == b"json" {
+                if let Some(canonical) = single_text_or_cdata_payload(json)
+                    .and_then(|payload| canonical_typed_value(base_type, &payload))
+                {
+                    json.children = vec![Node::Cdata(canonical)];
+                }
+                return;
+            }
+        }
+    }
     let payload = single_text_or_cdata_payload(element);
     let Some(payload) = payload else {
         return;
@@ -1695,6 +1714,35 @@ mod tests {
         let sent = br#"<Thing><ThingShape><PropertyDefinitions><PropertyDefinition name="where" baseType="LOCATION" aspect.defaultValue="45.5,9.2,100"/><PropertyDefinition name="filter" baseType="QUERY" aspect.defaultValue="{&quot;b&quot;:1,&quot;a&quot;:2}"/></PropertyDefinitions></ThingShape></Thing>"#;
         let returned = br#"<Thing><ThingShape><PropertyDefinitions><PropertyDefinition name="where" baseType="LOCATION" aspect.defaultValue="45.5,9.2,100.0"/><PropertyDefinition name="filter" baseType="QUERY" aspect.defaultValue="{&quot;a&quot;:2,&quot;b&quot;:1}"/></PropertyDefinitions></ThingShape></Thing>"#;
         assert_eq!(hash(sent).unwrap(), hash(returned).unwrap());
+    }
+
+    #[test]
+    fn stored_json_and_query_values_compare_with_sorted_keys() {
+        // As written, and as a 10.2 server stored them (2026-10-30).
+        let definitions = r#"<ThingShape><PropertyDefinitions><PropertyDefinition name="cfg" baseType="JSON" isPersistent="true"/><PropertyDefinition name="flt" baseType="QUERY" isPersistent="true"/></PropertyDefinitions></ThingShape>"#;
+        let thing = |cfg: &str, flt: &str| {
+            format!("<Thing>{definitions}<ThingProperties><cfg><Value><json><![CDATA[{cfg}]]></json></Value></cfg><flt><Value><json><![CDATA[{flt}]]></json></Value></flt></ThingProperties></Thing>")
+        };
+        let sent = thing(
+            r#"{"b":1,"a":{"d":2,"c":3}}"#,
+            r#"{"filters":{"type":"EQ","fieldName":"x"}}"#,
+        );
+        let stored = thing(
+            r#"{"a":{"c":3,"d":2},"b":1}"#,
+            r#"{"filters":{"fieldName":"x","type":"EQ"}}"#,
+        );
+        let other = thing(
+            r#"{"a":{"c":3,"d":2},"b":2}"#,
+            r#"{"filters":{"fieldName":"x","type":"EQ"}}"#,
+        );
+        assert_eq!(
+            hash(sent.as_bytes()).unwrap(),
+            hash(stored.as_bytes()).unwrap()
+        );
+        assert_ne!(
+            hash(stored.as_bytes()).unwrap(),
+            hash(other.as_bytes()).unwrap()
+        );
     }
 
     #[test]
