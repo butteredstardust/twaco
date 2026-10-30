@@ -1635,10 +1635,39 @@ mod tests {
             request,
             mode: Mode::Apply,
             lock_label: "test new entity",
+            fetch_profile: None,
         };
         commands::entity_new::execute(solution, &command, &mut Notices::default())
             .unwrap()
             .plan
+    }
+
+    #[test]
+    fn a_plan_that_must_fetch_a_platform_template_takes_the_workspace_lock() {
+        let (_dir, solution) = fixture();
+        let plan = |template: &str| {
+            let mut thing = request(Kind::Thing, "Acme.Orders.Store");
+            thing.template = Some(template.into());
+            commands::entity_new::execute(
+                &solution,
+                &commands::entity_new::Request {
+                    request: thing,
+                    mode: Mode::Plan,
+                    lock_label: "test new entity",
+                    fetch_profile: Some("default".into()),
+                },
+                &mut Notices::default(),
+            )
+        };
+        let held = crate::core::lock::acquire_for(&solution, "another command").unwrap();
+        // The cache is the workspace's: filling it waits for the lock another command holds.
+        assert!(matches!(
+            plan("FileRepository"),
+            Err(commands::entity_new::CommandError::Lock(_))
+        ));
+        // Nothing to fetch (the solution defines GenericThing): a plan takes no lock.
+        assert!(plan("GenericThing").is_ok());
+        drop(held);
     }
 
     fn assert_golden(name: &str, actual: &[u8]) {
@@ -2238,6 +2267,7 @@ mod tests {
                     request: project,
                     mode: Mode::Apply,
                     lock_label: "test new entity",
+                    fetch_profile: None,
                 },
                 &mut Notices::default(),
             )

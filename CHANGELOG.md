@@ -6,6 +6,13 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `new thing --template` and `new thing-template --base` fetch a platform template or shape into
+  the platform cache holding the workspace lock, also for a plan, and the plan's effects say it
+  wrote the cache; a plan with nothing to fetch still takes no lock. Before this, the cache was
+  written before any lock, so two commands could lose each other's entries.
+
 ## [0.1.49] - 2026-10-30
 
 ### Fixed

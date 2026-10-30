@@ -106,11 +106,14 @@ pub(crate) fn cached(solution: &Solution) -> Option<Platform> {
 /// Add one ThingTemplate or ThingShape the solution does not define to the platform cache, as
 /// `types --platform` would have, when the cache lacks it; other entries stay. `Ok(false)` when
 /// the server has no such entity.
+/// Add one template or shape to the platform cache. The cache is the workspace's: writing it
+/// needs the workspace lock, which `_held` proves the caller holds.
 pub(crate) fn cache_one(
     remote: &dyn Remote,
     solution: &Solution,
     collection: &str,
     name: &str,
+    _held: &WorkspaceLock,
 ) -> Result<bool, TypesError> {
     lock::reject_unlocked_write_links(solution)?;
     let mut platform = cached(solution).unwrap_or_default();
