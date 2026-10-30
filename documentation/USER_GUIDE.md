@@ -1279,7 +1279,7 @@ seen, so twaco saves the server's copy first. `entity delete --apply` exports ev
 about to delete, and `entity push --force` and `deploy --force` export the ones they would overwrite
 that hold such changes, into `.twaco/backups/<date-time>/<Collection>/<Name>.xml` with a
 `backup.json` saying why. A backup that cannot be taken stops the command before anything changes;
-`--no-backup` goes ahead without one. The newest 20 sets are kept.
+`--no-backup` goes ahead without one. The newest 20 sets are kept, pruned only after an operation succeeds: a failed one's set stays as the record of what it was about to change.
 
 ```sh
 twaco entity restore                          # the sets there are

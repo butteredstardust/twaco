@@ -278,13 +278,18 @@ where
             backup,
             effects: ALREADY_THERE_EFFECTS,
         }),
-        push::Outcome::Pushed { .. } => Ok(PushOutcome::Applied {
-            server_owned,
-            entity: key,
-            result,
-            backup,
-            effects: PUSHED_EFFECTS,
-        }),
+        push::Outcome::Pushed { .. } => {
+            if backup.is_some() {
+                backup::settle(solution);
+            }
+            Ok(PushOutcome::Applied {
+                server_owned,
+                entity: key,
+                result,
+                backup,
+                effects: PUSHED_EFFECTS,
+            })
+        }
         push::Outcome::Refused(_) => Ok(PushOutcome::Applied {
             server_owned,
             entity: key,
@@ -327,6 +332,7 @@ mod tests {
         imports: usize,
         exports: usize,
         fail_export: bool,
+        fail_import: bool,
     }
 
     impl Fake {
@@ -337,6 +343,7 @@ mod tests {
                     imports: 0,
                     exports: 0,
                     fail_export: false,
+                    fail_import: false,
                 })),
             }
         }
@@ -358,6 +365,9 @@ mod tests {
         fn import(&self, _: &str, xml: &[u8]) -> Result<(), ServerError> {
             let mut state = self.state.borrow_mut();
             state.imports += 1;
+            if state.fail_import {
+                return Err(ServerError::InvalidUrl("import failed".to_string()));
+            }
             state.held = Some(xml.to_vec());
             Ok(())
         }
@@ -631,6 +641,45 @@ mod tests {
         .unwrap();
         assert_eq!(remote.imports(), 1);
         assert_eq!(remote.exports(), 0);
+    }
+
+    #[test]
+    fn a_forced_push_that_fails_prunes_no_older_backup() {
+        let old = document("old();");
+        let changed = document("changed();");
+        let (_dir, root, solution, remote) = setup(
+            Some(changed.clone()),
+            Some((old.as_slice(), old.as_slice())),
+        );
+        // A full store of older sets.
+        for at in 0..backup::KEEP {
+            let dir = root.join(backup::DIR).join(format!("2026-{at:04}"));
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(
+                dir.join("backup.json"),
+                format!(r#"{{"created":"2026-{at:04}","reason":"r","entities":[]}}"#),
+            )
+            .unwrap();
+        }
+        assert_eq!(backup::list(&solution).len(), backup::KEEP);
+        remote.state.borrow_mut().fail_import = true;
+        let failed = execute(&solution, &request(Mode::Apply, true, true), {
+            let remote = remote.clone();
+            move |_| remote
+        });
+        assert!(failed.is_err());
+        assert_eq!(
+            backup::list(&solution).len(),
+            backup::KEEP + 1,
+            "the failed push's set is kept, and no older one is pruned"
+        );
+        remote.state.borrow_mut().fail_import = false;
+        execute(&solution, &request(Mode::Apply, true, true), {
+            let remote = remote.clone();
+            move |_| remote
+        })
+        .unwrap();
+        assert_eq!(backup::list(&solution).len(), backup::KEEP);
     }
 
     #[test]

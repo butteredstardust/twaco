@@ -145,6 +145,15 @@ where
         &date,
     )
     .map_err(EntityDeleteCommandError::Delete)?;
+    // Every entity the set saved was deleted: only then is the set no longer evidence.
+    if report.backup.is_some()
+        && !report
+            .entities
+            .iter()
+            .any(|entity| entity.status == entity::delete::Status::Failed)
+    {
+        crate::core::backup::settle(solution);
+    }
     let effects = effects(&report);
     Ok(match request.mode {
         Mode::Plan => EntityDeleteOutcome::Plan {

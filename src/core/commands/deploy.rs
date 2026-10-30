@@ -411,6 +411,9 @@ where
     } else {
         Access::Read
     };
+    if backup.is_some() && matches!(request.mode, Mode::Apply) {
+        backup::settle(solution);
+    }
     Ok(DeployOutcome::Complete {
         report: Box::new(report),
         gates,
