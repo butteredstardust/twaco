@@ -81,6 +81,12 @@ pub enum LocalizationError {
     /// was undone.
     #[error("{}", write_failure(.0))]
     Write(super::transaction::TransactionError),
+    /// A push failed after it had already changed the server; `done` says what.
+    #[error("{source}; the push had already {done}; push again to finish, as it only sends what still differs")]
+    Interrupted {
+        source: Box<LocalizationError>,
+        done: String,
+    },
 }
 
 fn write_failure(error: &super::transaction::TransactionError) -> String {
@@ -102,6 +108,7 @@ impl Coded for LocalizationError {
             Self::AlreadyExists(_) => ErrorCode::AlreadyExists,
             Self::Unknown(_) => ErrorCode::UnknownEntity,
             Self::Write(error) => error.code(),
+            Self::Interrupted { source, .. } => source.code(),
         }
     }
 }

@@ -43,6 +43,8 @@ struct Server {
     log: Mutex<Vec<String>>,
     /// A token an import silently does not take, to prove the read-back.
     drops: Option<String>,
+    /// A table whose import the server refuses.
+    fails: Option<String>,
 }
 
 impl Server {
@@ -81,6 +83,12 @@ impl imports::Remote for Server {
             .lock()
             .unwrap()
             .push(format!("import {}", file.table));
+        if self.fails.as_deref() == Some(file.table.as_str()) {
+            return Err(ServerError::Rejected {
+                url: "http://example.invalid/Thingworx/Importer".to_string(),
+                body: "refused".to_string(),
+            });
+        }
         let mut tables = self.tables.lock().unwrap();
         let existed = tables.contains_key(&file.table);
         let entry = tables
@@ -660,6 +668,26 @@ fn a_push_imports_default_first_creates_a_missing_table_and_reads_back() {
     )
     .unwrap();
     assert!(again.tables.is_empty());
+}
+
+#[test]
+fn a_push_that_fails_after_an_import_says_what_reached_the_server() {
+    let workspace = Workspace::curated();
+    let mut server = Server::with(&[(DEFAULT_TABLE, vec![token("Acme.App.Save", "Old")])]);
+    server.fails = Some("de".to_string());
+    let error = push(
+        &workspace.solution,
+        &server,
+        None,
+        false,
+        true,
+        &progress::NONE,
+    )
+    .unwrap_err();
+    assert_eq!(server.log(), ["import Default", "import de"]);
+    let message = error.to_string();
+    assert!(message.contains("already imported Default"), "{message}");
+    assert!(message.contains("push again to finish"), "{message}");
 }
 
 #[test]

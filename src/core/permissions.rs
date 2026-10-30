@@ -574,10 +574,28 @@ fn one(remote: &(dyn Remote + Sync), entity: &EntityFile, apply: bool) -> Entity
     if !apply {
         return report;
     }
+    // A set written before a later one fails stays written: say which, so a rerun is understood.
+    let mut written: Vec<&'static str> = Vec::new();
+    let after = |why: String, written: &[&str]| {
+        if written.is_empty() {
+            why
+        } else {
+            format!(
+                "{why}; already written: {} permissions; push again to write the rest",
+                written.join(" and ")
+            )
+        }
+    };
     for &kind in &report.sets.clone() {
         let wanted = &sets[&KindKey::of(kind)];
         if let Err(e) = remote.set(&collection, &name, kind, &to_json(kind, wanted)) {
-            return failed(report, format!("writing {} permissions: {e}", kind.label()));
+            return failed(
+                report,
+                after(
+                    format!("writing {} permissions: {e}", kind.label()),
+                    &written,
+                ),
+            );
         }
         let back = remote
             .get(&collection, &name, kind)
@@ -589,21 +607,28 @@ fn one(remote: &(dyn Remote + Sync), entity: &EntityFile, apply: bool) -> Entity
                 let left = differences(kind, wanted, &back);
                 return failed(
                     report,
-                    format!(
-                        "{} permissions read back with {} difference(s), first: {}",
-                        kind.label(),
-                        left.len(),
-                        left.first().map(ToString::to_string).unwrap_or_default()
+                    after(
+                        format!(
+                            "{} permissions read back with {} difference(s), first: {}",
+                            kind.label(),
+                            left.len(),
+                            left.first().map(ToString::to_string).unwrap_or_default()
+                        ),
+                        &written,
                     ),
                 );
             }
             Err(e) => {
                 return failed(
                     report,
-                    format!("reading {} permissions back: {e}", kind.label()),
+                    after(
+                        format!("reading {} permissions back: {e}", kind.label()),
+                        &written,
+                    ),
                 )
             }
         }
+        written.push(kind.label());
     }
     report.status = Status::Pushed;
     report

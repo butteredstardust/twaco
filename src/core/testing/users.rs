@@ -248,43 +248,50 @@ where
             users: before,
         });
     }
-    for step in &steps {
+    for (index, step) in steps.iter().enumerate() {
+        let done = |error: TestError| interrupted(error, &steps[..index]);
         match step {
             Step::CreateProject(name) => {
-                admin.call(
-                    &entity_services(),
-                    "CreateProject",
-                    // `type`, not `projectType`: verified on 10.x, where `projectType` is ignored
-                    // and `type = "Solution"` makes a Solution project.
-                    &json!({
-                        "name": name,
-                        "type": "Component",
-                        "dependsOn": "",
-                        "tags": "",
-                        "description": "Test users created by twaco for `twaco test`.",
-                    }),
-                )?;
+                admin
+                    .call(
+                        &entity_services(),
+                        "CreateProject",
+                        // `type`, not `projectType`: verified on 10.x, where `projectType` is ignored
+                        // and `type = "Solution"` makes a Solution project.
+                        &json!({
+                            "name": name,
+                            "type": "Component",
+                            "dependsOn": "",
+                            "tags": "",
+                            "description": "Test users created by twaco for `twaco test`.",
+                        }),
+                    )
+                    .map_err(|error| done(error.into()))?;
             }
             Step::CreateUser(name) => {
-                admin.call(
-                    &entity_services(),
-                    "CreateUser",
-                    &json!({
-                        "name": name,
-                        "password": password,
-                        "description": "Test user created by twaco for `twaco test`.",
-                        "tags": "",
-                        "projectName": solution.test.project.clone().unwrap_or_default(),
-                    }),
-                )?;
+                admin
+                    .call(
+                        &entity_services(),
+                        "CreateUser",
+                        &json!({
+                            "name": name,
+                            "password": password,
+                            "description": "Test user created by twaco for `twaco test`.",
+                            "tags": "",
+                            "projectName": solution.test.project.clone().unwrap_or_default(),
+                        }),
+                    )
+                    .map_err(|error| done(error.into()))?;
             }
             // `member`, not `name`; adding someone already in the group is not an error.
             Step::AddMember { user, group } => {
-                admin.call(
-                    &ServiceTarget::Entity(key("Groups", group)?),
-                    "AddMember",
-                    &json!({ "member": user, "type": "User" }),
-                )?;
+                admin
+                    .call(
+                        &ServiceTarget::Entity(key("Groups", group).map_err(done)?),
+                        "AddMember",
+                        &json!({ "member": user, "type": "User" }),
+                    )
+                    .map_err(|error| done(error.into()))?;
             }
             Step::DeleteUser(_) => unreachable!("a seed deletes nothing"),
         }
@@ -295,6 +302,21 @@ where
         applied: true,
         users,
     })
+}
+
+/// `error`, saying which of a seed's or delete's steps had already changed the server.
+fn interrupted(error: TestError, done: &[Step]) -> TestError {
+    if done.is_empty() {
+        return error;
+    }
+    TestError::Interrupted {
+        source: Box::new(error),
+        done: done
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(", "),
+    }
 }
 
 /// Delete every declared user the server has. Groups and the project stay: they may hold more.
@@ -316,9 +338,11 @@ pub(crate) fn delete<R: Remote + ?Sized>(
         }
     }
     if apply {
-        for step in &steps {
+        for (index, step) in steps.iter().enumerate() {
             if let Step::DeleteUser(name) = step {
-                admin.call(&entity_services(), "DeleteUser", &json!({ "name": name }))?;
+                admin
+                    .call(&entity_services(), "DeleteUser", &json!({ "name": name }))
+                    .map_err(|error| interrupted(error.into(), &steps[..index]))?;
             }
         }
     }
@@ -343,6 +367,8 @@ mod tests {
         projects: Mutex<Vec<String>>,
         password: String,
         calls: Mutex<Vec<String>>,
+        /// A user `CreateUser` refuses.
+        fails: Option<&'static str>,
     }
 
     /// A session on `Server`: the administrator, or a user with a password.
@@ -413,6 +439,9 @@ mod tests {
                     Ok(Some(json!({ "rows": rows })))
                 }
                 "CreateUser" => {
+                    if self.server.fails == Some(field("name").as_str()) {
+                        return Err(ServerError::InvalidUrl("refused".to_string()));
+                    }
                     assert_eq!(field("password"), self.server.password);
                     assert!(!field("description").contains(&self.server.password));
                     self.server.users.lock().unwrap().push(field("name"));
@@ -500,6 +529,36 @@ mod tests {
             .unwrap()
             .iter()
             .all(|call| call.ends_with("GetGroupMembers"))
+    }
+
+    #[test]
+    fn a_seed_that_fails_part_way_says_what_it_already_did() {
+        let (_dir, solution) = solution(TOML);
+        let server = Server {
+            fails: Some("nora.none"),
+            ..server()
+        };
+        let admin = Session {
+            server: &server,
+            user: None,
+        };
+        let profile = profile("allow_test_users = true\ntest_password = \"secret\"\n");
+        let error = seed(
+            &solution,
+            &profile,
+            &admin,
+            sign_in(&server, &profile),
+            true,
+        )
+        .unwrap_err();
+        let message = error.to_string();
+        assert!(
+            message.contains(
+                "already done: create project Acme.App.TestUsers, create user vera.viewer, add vera.viewer to Acme.App.Viewers_UG, add ed.editor to Acme.App.Editors_UG"
+            ),
+            "{message}"
+        );
+        assert!(message.contains("run it again to finish"), "{message}");
     }
 
     #[test]

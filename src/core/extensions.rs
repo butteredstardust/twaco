@@ -45,6 +45,12 @@ pub enum ExtensionError {
     Shape(String),
     #[error("{0}")]
     Invalid(String),
+    /// The change was sent, but the read that confirms it failed: it may have happened.
+    #[error("{sent}, but reading the package list to confirm it failed: {source}; run `twaco ext list` before trying again")]
+    Unconfirmed {
+        sent: String,
+        source: Box<ExtensionError>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -324,7 +330,13 @@ pub(crate) fn import_with_progress(
     }
     let now = {
         let _phase = progress::phase(progress, "confirming the package", Some(1));
-        let packages = list(remote)?;
+        let packages = list(remote).map_err(|error| ExtensionError::Unconfirmed {
+            sent: format!(
+                "the import was sent and may have installed {} {}",
+                package.name, package.version
+            ),
+            source: Box::new(error),
+        })?;
         progress.advance(1);
         packages
     }
@@ -380,7 +392,11 @@ pub(crate) fn remove(
     remote
         .service("DeleteExtensionPackage", &json!({ "packageName": name }))
         .map_err(ExtensionError::Remote)?;
-    if list(remote)?.iter().any(|p| p.name == name) {
+    let after = list(remote).map_err(|error| ExtensionError::Unconfirmed {
+        sent: format!("{plan} was sent and may have removed {name}"),
+        source: Box::new(error),
+    })?;
+    if after.iter().any(|p| p.name == name) {
         return Err(ExtensionError::Shape(format!(
             "{plan} was sent, but {name} is still installed"
         )));
@@ -393,6 +409,7 @@ impl Coded for ExtensionError {
         match self {
             Self::Remote(error) => error.code(),
             Self::Shape(_) => ErrorCode::InvalidData,
+            Self::Unconfirmed { source, .. } => source.code(),
             Self::Invalid(_) => ErrorCode::InvalidArguments,
         }
     }
@@ -438,6 +455,8 @@ mod tests {
         reject: bool,
         /// The install row's status: 0 installs, 3 queues for the next restart.
         install_status: i64,
+        /// The package list cannot be read once a delete was sent.
+        list_fails_after_delete: bool,
     }
 
     impl Fake {
@@ -453,6 +472,7 @@ mod tests {
                 calls: RefCell::new(Vec::new()),
                 reject: false,
                 install_status: 0,
+                list_fails_after_delete: false,
             }
         }
     }
@@ -460,6 +480,14 @@ mod tests {
     impl Remote for Fake {
         fn service(&self, service: &str, body: &Value) -> Result<Option<Value>, ServerError> {
             self.calls.borrow_mut().push(service.to_string());
+            let deleted = self
+                .calls
+                .borrow()
+                .iter()
+                .any(|call| call == "DeleteExtensionPackage");
+            if service == "GetExtensionPackageList" && self.list_fails_after_delete && deleted {
+                return Err(ServerError::InvalidUrl("connection reset".to_string()));
+            }
             let rows: Vec<Value> = match service {
                 "GetExtensionPackageList" => self
                     .installed
@@ -642,5 +670,20 @@ mod tests {
         remove(&fake, "P", true).unwrap();
         assert!(fake.installed.borrow().is_empty());
         assert!(remove(&fake, "P", false).is_err(), "no longer installed");
+    }
+
+    #[test]
+    fn a_remove_whose_confirmation_cannot_be_read_says_it_was_sent() {
+        let mut fake = Fake::with(&[("P", "1.0.0")]);
+        fake.list_fails_after_delete = true;
+        let error = remove(&fake, "P", true).unwrap_err();
+        let message = error.to_string();
+        assert!(
+            message.contains("was sent and may have removed P"),
+            "{message}"
+        );
+        assert!(message.contains("twaco ext list"), "{message}");
+        // The code is the read's own, not a malformed-reply one.
+        assert_eq!(error.code(), ServerError::InvalidUrl(String::new()).code());
     }
 }
