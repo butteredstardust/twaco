@@ -266,11 +266,24 @@ fn content_parameter(document: &MashupDocument, name: &str) -> Option<ParameterD
                     .unwrap_or("BOTH")
                     .into(),
                 description: entry["Description"].as_str().unwrap_or_default().into(),
-                default: entry.get("DefaultValue").cloned(),
+                default: root_default(properties, entry, name),
                 data_shape: entry["Aspects"]["dataShape"].as_str().map(str::to_string),
                 visible: entry["Aspects"]["isVisible"] != false && !name.starts_with("ConfigForm_"),
             })
         })
+}
+
+/// A root parameter's default: the root property of its name, as Composer writes it, or the
+/// `DefaultValue` an earlier twaco wrote into its definition.
+pub(crate) fn root_default(
+    properties: &Map<String, Value>,
+    entry: &Value,
+    name: &str,
+) -> Option<Value> {
+    properties
+        .get(name)
+        .cloned()
+        .or_else(|| entry.get("DefaultValue").cloned())
 }
 
 fn parameter_entry(def: &ParameterDefinition) -> Value {
@@ -283,9 +296,9 @@ fn parameter_entry(def: &ParameterDefinition) -> Value {
     let mut item = Map::new();
     item.insert("Aspects".into(), Value::Object(aspects));
     item.insert("BaseType".into(), json!(def.base_type));
-    if let Some(value) = &def.default {
-        item.insert("DefaultValue".into(), value.clone());
-    }
+    // Composer keeps a mashup's own parameter default as the root property of its name, never
+    // as a `DefaultValue` here (0 of 52 root definitions in real repositories, and a JSON value
+    // Composer saved on 10.2, 2026-10-30); `set_content_parameter` writes that property.
     item.insert("Description".into(), json!(def.description));
     item.insert("ParameterName".into(), json!(def.name));
     Value::Object(item)
@@ -676,6 +689,7 @@ fn change_parameter_bindings(
 }
 
 fn document_parameters(document: &MashupDocument) -> Vec<ParameterDefinition> {
+    let properties = document.value()["UI"]["Properties"].as_object();
     document.value()["UI"]["Properties"]["_currentParameterDefs"]
         .as_array()
         .into_iter()
@@ -691,7 +705,8 @@ fn document_parameters(document: &MashupDocument) -> Vec<ParameterDefinition> {
                         .unwrap_or("BOTH")
                         .into(),
                     description: entry["Description"].as_str().unwrap_or_default().into(),
-                    default: entry.get("DefaultValue").cloned(),
+                    default: properties
+                        .and_then(|properties| root_default(properties, entry, name)),
                     data_shape: entry["Aspects"]["dataShape"].as_str().map(str::to_string),
                     visible: entry["Aspects"]["isVisible"] != false
                         && !name.starts_with("ConfigForm_"),
@@ -894,7 +909,8 @@ pub(crate) fn apply_parameter(
                 .replace_file(
                     &sidecars.content_path,
                     &sidecars.content_before,
-                    sidecars.content_after.clone(),
+                    // An edited content.json keeps the byte-order mark it had.
+                    workspace::keeping_bom(&sidecars.content_path, sidecars.content_after.clone()),
                 )
                 .map_err(AuthoringError::Write)?;
         }

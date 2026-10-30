@@ -231,14 +231,17 @@ pub(crate) fn describe_in(
     description.parameters = parameters
         .into_iter()
         .map(|mut parameter| {
+            let properties = value["UI"]["Properties"].as_object();
             parameter.default = value["UI"]["Properties"]["_currentParameterDefs"]
                 .as_array()
                 .and_then(|defs| {
                     defs.iter()
                         .find(|def| def["ParameterName"] == parameter.name)
                 })
-                .and_then(|def| def.get("DefaultValue"))
-                .cloned();
+                .zip(properties)
+                .and_then(|(def, properties)| {
+                    crate::core::mashup::authoring::root_default(properties, def, &parameter.name)
+                });
             parameter
         })
         .collect();

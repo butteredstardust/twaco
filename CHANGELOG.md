@@ -6,6 +6,28 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- A mashup parameter's default is written and read as Composer keeps it: the root property of
+  the parameter's name (a JSON default as an object), with no `DefaultValue` in the parameter's
+  definition. `mashup describe` and `mashup param` now see a default set in Composer.
+- `db query` and `db run` check that the temporary Thing's generated name is free before importing
+  it; a taken name was imported over and then deleted by the cleanup.
+- `db clean` deletes a leftover temporary Thing only when its description is the one twaco gives
+  it, not on its name and template alone.
+- `datatable copy` refuses when the source returns another number of rows than it counted, and
+  its read-back check needs one matching row for each copied row, so two equal rows need two.
+- `twaco types` (and the refresh after sync, extract and adopt) writes every changed declaration
+  file, and with `types platform` the platform cache, in one transaction under the workspace lock:
+  a failure leaves the old set whole instead of some files new and some old.
+- Taking the workspace lock removes only temporaries named as twaco names them, and warns about a
+  lookalike instead of deleting it.
+- Backup sets are pruned only after the forced push, forced deploy or delete they guard succeeds.
+- A UTF-8 byte-order mark at the start of a sidecar (which a Windows editor may add) is read as its
+  encoding, not its content: sync, check and adopt no longer see a script that only gained one as
+  changed, no longer fold U+FEFF into the entity's script, and read a `fields.json` or
+  `content.json` that has one. Extract, adopt and sync keep the mark when they rewrite the file.
+
 ## [0.1.48] - 2026-10-30
 
 ### Fixed

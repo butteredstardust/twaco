@@ -63,6 +63,7 @@ impl Side {
                             why: error.to_string(),
                         }
                     })?;
+                    let body = crate::core::workspace::without_bom(&body).to_string();
                     services.insert((entity.name.clone(), service), body);
                 }
             }

@@ -1860,7 +1860,11 @@ fn sync_writes_a_sidecar_edit_and_refuses_while_the_workspace_is_locked() {
     drop(held);
 
     let solution = Solution::load(&root.join("twaco.toml")).unwrap();
-    types::write(&solution).unwrap();
+    types::write(
+        &solution,
+        &crate::core::lock::acquire_for(&solution, "types test").unwrap(),
+    )
+    .unwrap();
     let written = sync(json!({"all": true}));
     assert_eq!(written["isError"], false);
     let content: Value =

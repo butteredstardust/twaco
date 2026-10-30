@@ -245,8 +245,14 @@ pub(crate) fn save(
     text.push('\n');
     let path = dir.join(MANIFEST);
     workspace::atomic_replace(&path, text.as_bytes()).map_err(|error| io(&path, error))?;
-    rotate(solution, KEEP);
     Ok(Some(Set { id, dir, manifest }))
+}
+
+/// Keep the newest `KEEP` sets, once the operation a set guarded has succeeded. Saving does not
+/// prune: a failed operation's set is the evidence of what it was about to change, and an older
+/// set must not be lost to an operation that changed nothing. The next success prunes.
+pub(crate) fn settle(solution: &Solution) {
+    rotate(solution, KEEP);
 }
 
 /// `base/<stamp>`, or `base/<stamp>-2`, ... when that exists.
@@ -630,6 +636,9 @@ mod tests {
             )
             .unwrap();
         }
+        // Saving alone prunes nothing: these may be the sets of operations that failed.
+        assert_eq!(list(&solution).len(), KEEP + 3);
+        settle(&solution);
         let sets = list(&solution);
         assert_eq!(sets.len(), KEEP);
         assert_eq!(sets[0].id, "2026-0003", "the oldest were removed");

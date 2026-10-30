@@ -1,6 +1,6 @@
 use super::super::config::Solution;
 use super::super::entity::key::ServiceTarget;
-use super::super::lock;
+use super::super::lock::{self, WorkspaceLock};
 use super::super::progress::{self, Progress};
 use super::super::server::{Client, ServerError};
 use super::super::workspace;
@@ -152,8 +152,9 @@ fn is_false(value: &bool) -> bool {
 pub(crate) fn fetch_platform(
     remote: &dyn Remote,
     solution: &Solution,
+    held: &WorkspaceLock,
 ) -> Result<PlatformOutcome, TypesError> {
-    fetch_platform_with_progress(remote, solution, &progress::NONE)
+    fetch_platform_with_progress(remote, solution, &progress::NONE, held)
 }
 
 /// Fetch a complete new cache before replacing the old one, then regenerate declarations from it.
@@ -163,6 +164,7 @@ pub(crate) fn fetch_platform_with_progress(
     remote: &dyn Remote,
     solution: &Solution,
     progress: &dyn Progress,
+    held: &WorkspaceLock,
 ) -> Result<PlatformOutcome, TypesError> {
     lock::reject_unlocked_write_links(solution)?;
     let (model, model_skipped) = load_model(solution);
@@ -285,8 +287,15 @@ pub(crate) fn fetch_platform_with_progress(
         "{}\n",
         serde_json::to_string_pretty(&platform).expect("platform cache structs are JSON encodable")
     );
-    workspace::write_lf_if_changed(&solution.root.join(".twaco/platform.json"), &text)?;
-    let types = write_model(solution, &model, Some(&platform), model_skipped)?;
+    let cache = (solution.root.join(".twaco/platform.json"), text);
+    let types = write_model(
+        solution,
+        &model,
+        Some(&platform),
+        model_skipped,
+        held,
+        std::slice::from_ref(&cache),
+    )?;
     Ok(PlatformOutcome {
         templates: platform.templates.len(),
         shapes: platform.shapes.len(),

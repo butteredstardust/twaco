@@ -84,15 +84,22 @@ impl Sweeper for SweepFake {
             .map(|(name, _)| name.clone())
             .collect())
     }
-    fn template_of(&self, name: &str) -> Result<String, String> {
-        Ok(self
+    fn identity_of(&self, name: &str) -> Result<(String, String), String> {
+        let template = self
             .things
             .borrow()
             .iter()
             .find(|(thing, _)| thing == name)
             .unwrap()
             .1
-            .clone())
+            .clone();
+        // A Thing named like twaco's but made by someone else has another description.
+        let description = if name.ends_with("0000beef") {
+            "a user's own database".to_string()
+        } else {
+            super::execute::TEMPORARY_DESCRIPTION.to_string()
+        };
+        Ok((template, description))
     }
     fn delete_thing(&self, name: &str) -> Result<(), String> {
         if !self.keep {
@@ -113,6 +120,8 @@ fn sweep_fake(keep: bool) -> SweepFake {
         ("ZZ.Twaco.Sql.mine", "Database"),
         ("ZZ.Twaco.Sql.0badf00f", "GenericThing"),
         ("Acme.Real.Database", "Database"),
+        // twaco's name shape on a Database Thing someone else made: its description says so.
+        ("ZZ.Twaco.Sql.0000beef", "Database"),
     ];
     SweepFake {
         things: std::cell::RefCell::new(
@@ -136,12 +145,13 @@ fn a_sweep_plan_lists_only_generated_database_things_and_deletes_nothing() {
     assert_eq!(
         rows,
         [
+            ("ZZ.Twaco.Sql.0000beef", &SweepStatus::Skipped),
             ("ZZ.Twaco.Sql.0badf00d", &SweepStatus::Stale),
             ("ZZ.Twaco.Sql.0badf00e", &SweepStatus::Stale),
             ("ZZ.Twaco.Sql.0badf00f", &SweepStatus::Skipped),
         ]
     );
-    assert_eq!(fake.things.borrow().len(), 5, "a plan deletes nothing");
+    assert_eq!(fake.things.borrow().len(), 6, "a plan deletes nothing");
 }
 
 #[test]
@@ -166,7 +176,8 @@ fn a_sweep_apply_deletes_confirms_and_leaves_everything_else() {
         [
             "ZZ.Twaco.Sql.mine",
             "ZZ.Twaco.Sql.0badf00f",
-            "Acme.Real.Database"
+            "Acme.Real.Database",
+            "ZZ.Twaco.Sql.0000beef"
         ]
     );
     // A delete that answers success but leaves the Thing is a failure.
@@ -353,6 +364,38 @@ fn plan_reads_only_and_printable_fields_hide_both_passwords() {
 }
 
 #[test]
+fn a_taken_temporary_name_is_never_imported_over_or_deleted() {
+    let (_dir, root) = temp("taken");
+    let fake = Fake::default();
+    // Every name the run generates already names a Thing on the server.
+    fake.exists.set(true);
+    let options = Options {
+        mode: Mode::Run,
+        thing: Some("P.Database".into()),
+        apply: true,
+        no_transaction: true,
+        max_rows: 123,
+        timeout: Duration::from_secs(9),
+    };
+    let error = execute(
+        &fake,
+        &solution(&root),
+        &profile(Some("DISTINCT-db-password")),
+        "SELECT 1",
+        &options,
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("taken"), "{error}");
+    let calls = fake.calls.borrow();
+    assert!(
+        calls
+            .iter()
+            .all(|call| !call.0.starts_with("IMPORT") && !call.0.starts_with("DELETE")),
+        "{calls:?}"
+    );
+}
+
+#[test]
 fn apply_uses_the_verified_order_and_bodies_then_deletes_and_confirms() {
     let (_dir, root) = temp("apply");
     let fake = Fake::default();
@@ -376,17 +419,19 @@ fn apply_uses_the_verified_order_and_bodies_then_deletes_and_confirms() {
     let calls = fake.calls.borrow();
     let names: Vec<&str> = calls.iter().map(|call| call.0.as_str()).collect();
     assert_eq!(names[0], "GET P.Database");
-    assert!(names[1].starts_with("IMPORT ZZ.Twaco.Sql."));
-    assert!(names[2].contains("EncryptionServices EncryptPropertyValue"));
-    assert!(names[3].contains("SetConfigurationTable"));
-    assert!(names[4].contains("RestartThing"));
-    assert!(names[5].ends_with(" Run"));
+    // The generated name is checked free first: an import would replace a Thing that has it.
+    assert!(names[1].starts_with("EXISTS ZZ.Twaco.Sql."));
+    assert!(names[2].starts_with("IMPORT ZZ.Twaco.Sql."));
+    assert!(names[3].contains("EncryptionServices EncryptPropertyValue"));
+    assert!(names[4].contains("SetConfigurationTable"));
+    assert!(names[5].contains("RestartThing"));
+    assert!(names[6].ends_with(" Run"));
     // The Thing is looked for first (it may never have been made), then deleted, then confirmed gone.
-    assert!(names[6].starts_with("EXISTS ZZ.Twaco.Sql."));
-    assert!(names[7].starts_with("DELETE ZZ.Twaco.Sql."));
-    assert!(names[8].starts_with("EXISTS ZZ.Twaco.Sql."));
-    assert_eq!(calls[2].1, json!({ "data": "DISTINCT-db-password" }));
-    let table = &calls[3].1["configurationTable"];
+    assert!(names[7].starts_with("EXISTS ZZ.Twaco.Sql."));
+    assert!(names[8].starts_with("DELETE ZZ.Twaco.Sql."));
+    assert!(names[9].starts_with("EXISTS ZZ.Twaco.Sql."));
+    assert_eq!(calls[3].1, json!({ "data": "DISTINCT-db-password" }));
+    let table = &calls[4].1["configurationTable"];
     assert_eq!(table["rows"][0]["password"], "encrypted-value");
     assert_eq!(table["rows"][0]["userName"], "profile-user");
     assert_eq!(

@@ -593,7 +593,7 @@ fn sidecars_in_sync(solution: &Solution, found: &workspace::Discovery) -> GateRe
             continue;
         };
         examined.insert(entity.info.name.clone());
-        match super::datashape::from_sidecar(&text.replace("\r\n", "\n"))
+        match super::datashape::from_sidecar(&workspace::lf(&text))
             .and_then(|desired| super::datashape::sync(&src, &desired, true))
         {
             Ok((out, changes)) if out != src => result.findings.push(Finding {
@@ -784,7 +784,7 @@ fn scripts(solution: &Solution, result: &mut GateResult) -> Vec<(PathBuf, String
     }
     for path in tree.files {
         match std::fs::read_to_string(&path) {
-            Ok(source) => read.push((path, source)),
+            Ok(source) => read.push((path, workspace::without_bom(&source).to_string())),
             Err(error) => {
                 let file = relative(solution, &path);
                 result.findings.push(unreadable(&result.name, file, error));
@@ -866,6 +866,7 @@ fn result_shapes(solution: &Solution, model: &types::Model) -> GateResult {
         let Some(definition) = path
             .parent()
             .and_then(|dir| std::fs::read_to_string(dir.join("definition.xml")).ok())
+            .map(|text| workspace::lf(&text))
         else {
             continue;
         };

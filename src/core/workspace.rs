@@ -523,15 +523,15 @@ pub(crate) fn read_mashup(dir: &Path) -> Result<Option<super::mashup::Assets>, W
         }
     };
     Ok(Some(super::mashup::Assets {
-        content: content.replace("\r\n", "\n"),
-        css: css.replace("\r\n", "\n"),
+        content: without_bom(&content).replace("\r\n", "\n"),
+        css: without_bom(&css).replace("\r\n", "\n"),
     }))
 }
 
 /// Read one DataTable's configuration sidecar, telling "not managed" from "will not read".
 pub(crate) fn read_datatable(path: &Path) -> Result<Option<String>, WorkspaceError> {
     match std::fs::read_to_string(path) {
-        Ok(text) => Ok(Some(text.replace("\r\n", "\n"))),
+        Ok(text) => Ok(Some(without_bom(&text).replace("\r\n", "\n"))),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(WorkspaceError::Io {
             path: path.to_path_buf(),
@@ -583,9 +583,35 @@ pub(crate) fn read_sidecars(dir: &Path) -> BTreeMap<String, ServiceSidecar> {
 }
 
 /// `text` with every line ending LF: CRLF, and a lone CR (a line ending in JavaScript too, and
-/// what a CRLF conversion leaves on a last line with no newline of its own).
+/// what a CRLF conversion leaves on a last line with no newline of its own). A leading UTF-8
+/// byte-order mark, which a Windows editor may add, is the file's encoding, not its content.
 pub(crate) fn lf(text: &str) -> String {
-    text.replace("\r\n", "\n").replace('\r', "\n")
+    without_bom(text).replace("\r\n", "\n").replace('\r', "\n")
+}
+
+/// `text` without one leading UTF-8 byte-order mark: a sidecar's encoding, never content that
+/// belongs in the entity (a script folded with it would carry U+FEFF to the server).
+pub(crate) fn without_bom(text: &str) -> &str {
+    text.strip_prefix('\u{feff}').unwrap_or(text)
+}
+
+/// `bytes` for `path`, starting with a UTF-8 byte-order mark when the file there has one: a
+/// rewrite keeps the encoding its editor chose.
+pub(crate) fn keeping_bom(path: &Path, bytes: Vec<u8>) -> Vec<u8> {
+    const BOM: &[u8] = b"\xEF\xBB\xBF";
+    let had = std::fs::File::open(path)
+        .and_then(|mut file| {
+            let mut start = [0u8; 3];
+            std::io::Read::read_exact(&mut file, &mut start).map(|()| start)
+        })
+        .is_ok_and(|start| start == BOM);
+    if had && !bytes.starts_with(BOM) {
+        let mut out = BOM.to_vec();
+        out.extend(bytes);
+        out
+    } else {
+        bytes
+    }
 }
 
 /// The sidecar folders under `dir` that no longer correspond to one of `services`.
@@ -612,25 +638,25 @@ pub(crate) fn stale_sidecars(dir: &Path, services: &[ServiceSidecar]) -> Vec<Str
     stale
 }
 
-/// Replace a file's contents in one step, so an interrupted write cannot truncate it.
-///
-/// The temporary file sits in the same directory as its target, because a rename across volumes
-/// is not atomic and may not be a rename at all.
-fn write_lf(path: &Path, text: &str) -> Result<(), WorkspaceError> {
-    let normalised = text.replace("\r\n", "\n");
-    atomic_replace(path, normalised.as_bytes()).map_err(|e| WorkspaceError::Io {
-        path: path.to_path_buf(),
-        why: e.to_string(),
-    })
-}
-
 /// Atomically write generated UTF-8 text with LF endings, but leave an identical file alone.
 ///
 /// Generated editor files are watched by editors and build tools, so preserving the timestamp
-/// on a fixed point is observable behaviour rather than just an optimisation.
+/// on a fixed point is observable behaviour rather than just an optimisation. A generated file
+/// never has a byte-order mark: its reader (`platform.json`'s JSON parser) would refuse one.
 pub(crate) fn write_lf_if_changed(path: &Path, text: &str) -> Result<bool, WorkspaceError> {
     let normalised = text.replace("\r\n", "\n").replace('\r', "\n");
-    if matches!(std::fs::read(path), Ok(current) if current == normalised.as_bytes()) {
+    write_if_changed(path, normalised.into_bytes())
+}
+
+/// `write_lf_if_changed` for a sidecar a person edits: a file that had a byte-order mark keeps
+/// it, and one that differs only by it is not rewritten.
+pub(crate) fn write_sidecar_if_changed(path: &Path, text: &str) -> Result<bool, WorkspaceError> {
+    let normalised = text.replace("\r\n", "\n").replace('\r', "\n");
+    write_if_changed(path, keeping_bom(path, normalised.into_bytes()))
+}
+
+fn write_if_changed(path: &Path, wanted: Vec<u8>) -> Result<bool, WorkspaceError> {
+    if matches!(std::fs::read(path), Ok(current) if current == wanted) {
         return Ok(false);
     }
     if let Some(parent) = path.parent() {
@@ -639,7 +665,10 @@ pub(crate) fn write_lf_if_changed(path: &Path, text: &str) -> Result<bool, Works
             why: e.to_string(),
         })?;
     }
-    write_lf(path, &normalised)?;
+    atomic_replace(path, &wanted).map_err(|e| WorkspaceError::Io {
+        path: path.to_path_buf(),
+        why: e.to_string(),
+    })?;
     Ok(true)
 }
 

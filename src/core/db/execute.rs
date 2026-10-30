@@ -62,7 +62,7 @@ pub(crate) fn execute(
     } else {
         connection
     };
-    let temporary = temporary_name();
+    let temporary = free_temporary_name(remote)?;
     report.temporary_thing = Some(temporary.clone());
     let handler = if options.mode == Mode::Run {
         "SQLCommand"
@@ -235,7 +235,7 @@ pub(super) fn thing_xml(
         r#"<?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <Entities build="b75" majorVersion="10" minorVersion="2" universal="">
 <Things>
-<Thing description="TEMPORARY: runs one SQL statement through the Database template." enabled="true" name="{}" projectName="" published="false" thingTemplate="Database">
+<Thing description="{TEMPORARY_DESCRIPTION}" enabled="true" name="{}" projectName="" published="false" thingTemplate="Database">
 <avatar/>
 <DesignTimePermissions><Create/><Read/><Update/><Delete/><Metadata/></DesignTimePermissions>
 <RunTimePermissions/>
@@ -297,6 +297,27 @@ pub(super) fn thing_xml(
 
 fn cdata(value: &str) -> String {
     value.replace("]]>", "]]]]><![CDATA[>")
+}
+
+/// Every temporary Thing's description: with its name and template, what tells `db clean` the
+/// Thing is twaco's to delete.
+pub(crate) const TEMPORARY_DESCRIPTION: &str =
+    "TEMPORARY: runs one SQL statement through the Database template.";
+
+/// A temporary name no Thing on the server has: the import would replace that Thing, and the
+/// cleanup then delete it.
+fn free_temporary_name(remote: &dyn Remote) -> Result<String, DbError> {
+    for _ in 0..5 {
+        let name = temporary_name();
+        match remote.thing_exists(&name) {
+            Ok(false) => return Ok(name),
+            Ok(true) => continue,
+            Err(why) => return Err(DbError(format!("cannot check {name} is free: {why}"))),
+        }
+    }
+    Err(DbError(
+        "five generated temporary Thing names were all taken on the server".into(),
+    ))
 }
 
 #[allow(

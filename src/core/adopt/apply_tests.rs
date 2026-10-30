@@ -800,6 +800,20 @@ fn a_changed_crlf_sidecar_keeps_crlf() {
 }
 
 #[test]
+fn a_changed_sidecar_keeps_its_byte_order_mark() {
+    let (_dir, solution, base, export) = multi_case(
+        ("v", &[("A", "a();")]),
+        ("v", &[("A", "a();")]),
+        ("v", &[("A", "a2();")]),
+    );
+    let script = sidecar(&solution, "A").join("script.js");
+    // The mark is the file's encoding: the script is still the synced one.
+    std::fs::write(&script, "\u{feff}a();").unwrap();
+    apply_all(&solution, &base, &export, &[]);
+    assert_eq!(std::fs::read_to_string(&script).unwrap(), "\u{feff}a2();");
+}
+
+#[test]
 fn backend_names_that_cannot_be_file_names_are_refused_before_any_write() {
     for (entity, service) in [("../P.Evil", "Run"), ("P.New", "../Run"), ("P.New", "CON")] {
         let (_dir, solution, base, export) = multi_case(

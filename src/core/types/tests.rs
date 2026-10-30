@@ -19,6 +19,11 @@ use std::io::{Error, ErrorKind};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+/// The workspace lock a command holding it would pass down.
+fn held(solution: &Solution) -> crate::core::lock::WorkspaceLock {
+    crate::core::lock::acquire_for(solution, "types test").unwrap()
+}
+
 fn document(collection: &str, body: &str) -> String {
     format!("<Entities><{collection}>{body}</{collection}></Entities>")
 }
@@ -129,11 +134,11 @@ fn generation_refuses_a_linked_twaco_folder() {
         return;
     }
 
-    let error = write(&solution).unwrap_err();
+    // Generating needs the workspace lock, and taking it refuses the linked folder.
+    let error = crate::core::lock::acquire_for(&solution, "types test").unwrap_err();
     assert!(matches!(
         error,
-        TypesError::Lock(crate::core::lock::LockError::Link { ref path })
-            if path == &root.join(".twaco")
+        crate::core::lock::LockError::Link { ref path } if path == &root.join(".twaco")
     ));
     assert!(!outside.join("types").exists());
     assert_eq!(std::fs::read(outside.join("untouched")).unwrap(), b"keep");
@@ -782,7 +787,7 @@ fn fetches_solution_platform_dependencies_and_all_resources() {
         "Builder/js/CombinedExtensions.1.js".into(),
         b"TW.IDE.Widgets.acme = function () {};".to_vec(),
     );
-    let outcome = fetch_platform(&remote, &solution).unwrap();
+    let outcome = fetch_platform(&remote, &solution, &held(&solution)).unwrap();
     assert_eq!(
         (outcome.templates, outcome.shapes, outcome.resources),
         (2, 1, 2)
@@ -846,7 +851,7 @@ fn a_not_found_entity_is_skipped_but_an_auth_failure_writes_nothing() {
             ok(json!({"rows": []})),
         ),
     ]));
-    let outcome = fetch_platform(&remote, &solution).unwrap();
+    let outcome = fetch_platform(&remote, &solution, &held(&solution)).unwrap();
     assert_eq!(outcome.templates, 1);
     assert_eq!(outcome.skipped.len(), 1);
     assert!(root.join(".twaco/platform.json").is_file());
@@ -880,7 +885,7 @@ fn a_not_found_entity_is_skipped_but_an_auth_failure_writes_nothing() {
             Err(unauthorized),
         ),
     ]));
-    assert!(fetch_platform(&remote, &solution).is_err());
+    assert!(fetch_platform(&remote, &solution, &held(&solution)).is_err());
     assert_eq!(
         std::fs::read(root.join(".twaco/platform.json")).unwrap(),
         old_cache
@@ -899,7 +904,7 @@ fn malformed_cache_is_reported_and_ignored() {
     );
     std::fs::create_dir_all(root.join(".twaco")).unwrap();
     std::fs::write(root.join(".twaco/platform.json"), "{not json").unwrap();
-    let outcome = write(&solution).unwrap();
+    let outcome = write(&solution, &held(&solution)).unwrap();
     assert!(outcome
         .skipped
         .iter()
@@ -920,6 +925,14 @@ fn writing_the_same_generated_bytes_twice_is_a_fixed_point() {
     let first = std::fs::read(&path).unwrap();
     assert!(!workspace::write_lf_if_changed(&path, "one\ntwo\n").unwrap());
     assert_eq!(std::fs::read(&path).unwrap(), first);
+    // A generated file never keeps a byte-order mark: its JSON reader would refuse it.
+    std::fs::write(&path, b"\xEF\xBB\xBFone\ntwo\n").unwrap();
+    assert!(workspace::write_lf_if_changed(&path, "one\ntwo\n").unwrap());
+    assert_eq!(std::fs::read(&path).unwrap(), b"one\ntwo\n");
+    // A sidecar keeps it.
+    std::fs::write(&path, b"\xEF\xBB\xBFone\n").unwrap();
+    assert!(workspace::write_sidecar_if_changed(&path, "two\n").unwrap());
+    assert_eq!(std::fs::read(&path).unwrap(), b"\xEF\xBB\xBFtwo\n");
 }
 
 #[test]
@@ -961,7 +974,7 @@ fn generated_service_projects_do_not_change_check_gate_results() {
 
     let solution = Solution::load(&root.join("twaco.toml")).unwrap();
     let before = crate::core::check::run(&solution);
-    write(&solution).unwrap();
+    write(&solution, &held(&solution)).unwrap();
     let after = crate::core::check::run(&solution);
     assert_eq!(before.gates.len(), after.gates.len());
     for (before, after) in before.gates.iter().zip(&after.gates) {
@@ -1174,7 +1187,9 @@ fn compiler_errors_without_a_parsable_finding_are_a_broken_run() {
         version: b"Version 5.9.3\n".to_vec(),
         calls: RefCell::new(Vec::new()),
     };
-    let error = check_with(&solution, &compiler).unwrap_err().to_string();
+    let error = check_with(&solution, &compiler, &held(&solution))
+        .unwrap_err()
+        .to_string();
     assert!(error.contains("non-zero without a parsable finding"));
     assert!(error.contains("ran:"));
     assert!(error.contains("--pretty"));
@@ -1199,7 +1214,9 @@ fn a_silent_compiler_is_rejected_by_the_known_error_canary() {
         calls: RefCell::new(Vec::new()),
     };
 
-    let error = check_with(&solution, &compiler).unwrap_err().to_string();
+    let error = check_with(&solution, &compiler, &held(&solution))
+        .unwrap_err()
+        .to_string();
 
     assert!(
         error.contains("did not report a known type error"),
@@ -1210,27 +1227,24 @@ fn a_silent_compiler_is_rejected_by_the_known_error_canary() {
 }
 
 #[test]
-fn a_write_failing_after_others_names_the_files_already_updated() {
+fn a_write_that_cannot_complete_changes_no_generated_file() {
     let (_dir, root, solution) = fixture_solution("interrupted", &[]);
-    // A folder where the fourth declaration file goes makes that write fail after three landed.
+    // A folder where the fourth declaration file goes: that one cannot be written.
     std::fs::create_dir_all(root.join(".twaco/types/collections.d.ts")).unwrap();
 
-    let error = write(&solution).unwrap_err();
+    let error = write(&solution, &held(&solution)).unwrap_err();
 
-    let TypesError::Interrupted { ref written, .. } = error else {
-        panic!("expected an interrupted write, got {error:?}");
-    };
-    let names: Vec<_> = written
-        .iter()
-        .map(|path| path.file_name().unwrap().to_string_lossy().into_owned())
-        .collect();
-    assert_eq!(names, ["twx.d.ts", "datashapes.d.ts", "entities.d.ts"]);
-    let message = error.to_string();
+    assert!(matches!(error, TypesError::Write(_)), "{error:?}");
     assert!(
-        message.contains("3 generated file(s) were already updated"),
-        "{message}"
+        error.to_string().contains("no generated file was changed"),
+        "{error}"
     );
-    assert!(message.contains("run `twaco types` again"), "{message}");
+    for name in ["twx.d.ts", "datashapes.d.ts", "entities.d.ts"] {
+        assert!(
+            !root.join(".twaco/types").join(name).exists(),
+            "{name} was written although the set was not"
+        );
+    }
 }
 
 #[test]
@@ -1246,7 +1260,9 @@ fn compiler_stderr_credentials_are_redacted() {
         calls: RefCell::new(Vec::new()),
     };
 
-    let error = check_with(&solution, &compiler).unwrap_err().to_string();
+    let error = check_with(&solution, &compiler, &held(&solution))
+        .unwrap_err()
+        .to_string();
 
     assert!(error.contains("compiler failed with <redacted>"), "{error}");
     assert!(!error.contains(secret), "{error}");
@@ -1262,9 +1278,13 @@ fn compiler_timeout_and_output_overflow_are_not_startup_failures() {
         ),
         (ErrorKind::FileTooLarge, "printed more than 16777216 bytes"),
     ] {
-        let error = check_with(&solution, &FailingCompiler { kind, message })
-            .unwrap_err()
-            .to_string();
+        let error = check_with(
+            &solution,
+            &FailingCompiler { kind, message },
+            &held(&solution),
+        )
+        .unwrap_err()
+        .to_string();
         assert!(error.contains(message), "{error}");
         assert!(
             !error.contains("cannot start TypeScript compiler"),
@@ -1283,6 +1303,7 @@ fn a_missing_compiler_during_version_probe_has_install_guidance() {
             kind: ErrorKind::NotFound,
             message: "program not found",
         },
+        &held(&solution),
     )
     .unwrap_err()
     .to_string();

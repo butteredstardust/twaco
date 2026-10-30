@@ -87,17 +87,17 @@ where
     R: types::Remote,
     F: FnOnce(profile::Profile) -> R,
 {
-    let _lock =
+    let held =
         lock_workspace(solution, request.lock_label, notices).map_err(TypesCommandError::Lock)?;
     match &request.action {
-        TypesAction::Generate => types::write(solution)
+        TypesAction::Generate => types::write(solution, &held)
             .map(TypesOutcome::Generated)
             .map_err(TypesCommandError::Types),
         TypesAction::Check => {
             let _phase = progress::phase(progress, "type-checking services", None);
             match compiler {
-                Some(compiler) => types::check_with(solution, compiler),
-                None => types::check(solution),
+                Some(compiler) => types::check_with(solution, compiler, &held),
+                None => types::check(solution, &held),
             }
             .map(TypesOutcome::Checked)
             .map_err(TypesCommandError::Check)
@@ -105,7 +105,7 @@ where
         TypesAction::Platform => {
             let profile = profile::load(&solution.root, &request.profile)
                 .map_err(TypesCommandError::Profile)?;
-            types::fetch_platform_with_progress(&open(profile), solution, progress)
+            types::fetch_platform_with_progress(&open(profile), solution, progress, &held)
                 .map(TypesOutcome::Platform)
                 .map_err(TypesCommandError::Types)
         }

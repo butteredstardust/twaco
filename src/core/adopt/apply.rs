@@ -200,8 +200,11 @@ pub(crate) fn apply(
                     ("content.json", &assets.content),
                     ("custom.css", &assets.css),
                 ] {
+                    let path = dir.join(file);
+                    let bytes =
+                        workspace::keeping_bom(&path, text.replace("\r\n", "\n").into_bytes());
                     transaction
-                        .write_file(&dir.join(file), text.replace("\r\n", "\n").into_bytes())
+                        .write_file(&path, bytes)
                         .map_err(AdoptError::Write)?;
                 }
             }
@@ -218,17 +221,17 @@ pub(crate) fn apply(
                         let path = dir.join(&service.name).join(file);
                         let mut wanted = text.replace("\r\n", "\n");
                         // A sidecar we keep is left byte for byte, CRLF checkout included, and
-                        // one we change keeps the line endings it had.
+                        // one we change keeps the line endings and byte-order mark it had.
                         let current = std::fs::read_to_string(&path).ok();
                         match current {
-                            Some(current) if current.replace("\r\n", "\n") == wanted => continue,
+                            Some(current) if workspace::lf(&current) == wanted => continue,
                             Some(current) if current.contains("\r\n") => {
                                 wanted = wanted.replace('\n', "\r\n");
                             }
                             _ => {}
                         }
                         transaction
-                            .write_file(&path, wanted.into_bytes())
+                            .write_file(&path, workspace::keeping_bom(&path, wanted.into_bytes()))
                             .map_err(AdoptError::Write)?;
                     }
                 }
@@ -261,7 +264,7 @@ pub(crate) fn apply(
     tracing::info!(wrote, "adopt: done");
     Ok(ApplyOutcome {
         lines,
-        types: super::super::types::refresh_after_write(solution, wrote),
+        types: super::super::types::refresh_after_write(solution, wrote, lock),
         retypes,
     })
 }
@@ -429,7 +432,7 @@ fn refresh_field_sidecars(
                 }
             };
             let synced = old.as_deref().and_then(|old| render(old, file));
-            let lf = current.replace("\r\n", "\n");
+            let lf = workspace::lf(&current);
             // Compared as read, so a sidecar only reformatted since the sync still counts as
             // synced.
             let same = |text: &str| match file {
@@ -462,7 +465,10 @@ fn refresh_field_sidecars(
                 wanted
             };
             added.push((
-                Some(Write::Bytes(sidecar.clone(), bytes.into_bytes())),
+                Some(Write::Bytes(
+                    sidecar.clone(),
+                    workspace::keeping_bom(&sidecar, bytes.into_bytes()),
+                )),
                 format!("sidecar  {}", relative_to(solution, &sidecar)),
             ));
         }
@@ -946,7 +952,8 @@ fn ours_services(
             .join(&service.name)
             .join("script.js");
         if script.is_file() {
-            service.script = std::fs::read_to_string(&script).map_err(|e| io_error(&script, e))?;
+            let text = std::fs::read_to_string(&script).map_err(|e| io_error(&script, e))?;
+            service.script = workspace::without_bom(&text).to_string();
         }
     }
     Ok(services)
