@@ -1,6 +1,6 @@
 use super::super::config::Solution;
-use super::super::lock;
-use super::super::workspace;
+use super::super::lock::{self, WorkspaceLock};
+use super::super::transaction::Transaction;
 use super::model::{load_model, script_declares, Member, Model, Service};
 use super::platform::Platform;
 use super::render::{
@@ -33,8 +33,8 @@ pub(super) const PLAIN_COLLECTIONS: &[&str] = &[
     "Applications",
 ];
 
-/// Generate and atomically update the four shared declaration files.
-pub(crate) fn write(solution: &Solution) -> Result<Outcome, TypesError> {
+/// Generate the declarations and update every changed file in one transaction.
+pub(crate) fn write(solution: &Solution, held: &WorkspaceLock) -> Result<Outcome, TypesError> {
     let (model, mut skipped) = load_model(solution);
     let platform_path = solution.root.join(".twaco/platform.json");
     let platform = match std::fs::read(&platform_path) {
@@ -57,14 +57,18 @@ pub(crate) fn write(solution: &Solution) -> Result<Outcome, TypesError> {
             None
         }
     };
-    write_model(solution, &model, platform.as_ref(), skipped)
+    write_model(solution, &model, platform.as_ref(), skipped, held, &[])
 }
 
+/// `extra` files (the platform cache) go into the same transaction as the declarations, so a
+/// failure leaves the old set whole rather than a cache and declarations that disagree.
 pub(super) fn write_model(
     solution: &Solution,
     model: &Model,
     platform: Option<&Platform>,
     mut skipped: Vec<String>,
+    held: &WorkspaceLock,
+    extra: &[(PathBuf, String)],
 ) -> Result<Outcome, TypesError> {
     lock::reject_unlocked_write_links(solution)?;
     let generated = generate(model, platform);
@@ -75,37 +79,50 @@ pub(super) fn write_model(
         ("entities.d.ts", generated.entities),
         ("collections.d.ts", generated.collections),
     ];
-    let mut written = Vec::new();
+    let mut planned = Planned {
+        transaction: Transaction::new(&solution.root, "types"),
+        written: Vec::new(),
+    };
+    for (path, content) in extra {
+        planned.put(path, content)?;
+    }
     for (name, content) in files {
-        put(&directory.join(name), &content, &mut written)?;
+        planned.put(&directory.join(name), &content)?;
     }
 
-    let services = write_service_projects(solution, model, &mut skipped, &mut written)?;
+    let services = write_service_projects(solution, model, &mut skipped, &mut planned)?;
     skipped.sort();
+    let written = planned.written;
+    planned.transaction.apply(held).map_err(TypesError::Write)?;
 
     Ok(Outcome {
         entities: model.entities.len(),
         data_shapes: model.data_shapes.len(),
         services,
-        files_written: written.len(),
+        files_written: written.len() - extra.len().min(written.len()),
         skipped,
         gitignore_covers_types: gitignore_covers_types(&solution.root),
     })
 }
 
-/// Write one generated file if it changed, recording it; a failure names what was written before it.
-fn put(path: &Path, text: &str, written: &mut Vec<PathBuf>) -> Result<(), TypesError> {
-    match workspace::write_lf_if_changed(path, text) {
-        Ok(true) => {
-            written.push(path.to_path_buf());
-            Ok(())
+/// The changed generated files, planned into one transaction.
+struct Planned<'a> {
+    transaction: Transaction<'a>,
+    written: Vec<PathBuf>,
+}
+
+impl Planned<'_> {
+    /// Plan `text` (with LF line endings) for `path` when it differs from what the file holds.
+    fn put(&mut self, path: &Path, text: &str) -> Result<(), TypesError> {
+        let normalised = text.replace("\r\n", "\n").replace('\r', "\n");
+        if matches!(std::fs::read(path), Ok(current) if current == normalised.as_bytes()) {
+            return Ok(());
         }
-        Ok(false) => Ok(()),
-        Err(source) if written.is_empty() => Err(TypesError::Workspace(source)),
-        Err(source) => Err(TypesError::Interrupted {
-            source,
-            written: std::mem::take(written),
-        }),
+        self.transaction
+            .write_file(path, normalised.into_bytes())
+            .map_err(TypesError::Write)?;
+        self.written.push(path.to_path_buf());
+        Ok(())
     }
 }
 
@@ -113,7 +130,7 @@ fn write_service_projects(
     solution: &Solution,
     model: &Model,
     skipped: &mut Vec<String>,
-    written: &mut Vec<PathBuf>,
+    planned: &mut Planned<'_>,
 ) -> Result<usize, TypesError> {
     let known_shapes: BTreeSet<&str> = model
         .data_shapes
@@ -159,8 +176,8 @@ fn write_service_projects(
                 &known_shapes,
                 &data_shape_ids,
             );
-            put(&directory.join("jsconfig.json"), &jsconfig, written)?;
-            put(&directory.join("twaco-globals.d.ts"), &globals, written)?;
+            planned.put(&directory.join("jsconfig.json"), &jsconfig)?;
+            planned.put(&directory.join("twaco-globals.d.ts"), &globals)?;
             services += 1;
         }
     }

@@ -17,6 +17,12 @@ All notable changes to twaco are recorded here. The format follows
   it, not on its name and template alone.
 - `datatable copy` refuses when the source returns another number of rows than it counted, and
   its read-back check needs one matching row for each copied row, so two equal rows need two.
+- `twaco types` (and the refresh after sync, extract and adopt) writes every changed declaration
+  file, and with `types platform` the platform cache, in one transaction under the workspace lock:
+  a failure leaves the old set whole instead of some files new and some old.
+- Taking the workspace lock removes only temporaries named as twaco names them, and warns about a
+  lookalike instead of deleting it.
+- Backup sets are pruned only after the forced push, forced deploy or delete they guard succeeds.
 
 ## [0.1.48] - 2026-10-30
 

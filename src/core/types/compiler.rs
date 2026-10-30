@@ -91,17 +91,21 @@ impl CompilerRunner for ProcessCompiler {
 }
 
 /// Regenerate editor declarations and type-check every service in one compiler project.
-pub(crate) fn check(solution: &Solution) -> Result<CheckOutcome, CheckError> {
-    check_with(solution, &ProcessCompiler)
+pub(crate) fn check(
+    solution: &Solution,
+    held: &crate::core::lock::WorkspaceLock,
+) -> Result<CheckOutcome, CheckError> {
+    check_with(solution, &ProcessCompiler, held)
 }
 
 pub(crate) fn check_with(
     solution: &Solution,
     compiler: &dyn CompilerRunner,
+    held: &crate::core::lock::WorkspaceLock,
 ) -> Result<CheckOutcome, CheckError> {
     // This is deliberately the public generation path: checking has exactly the same cache
     // handling and declaration writes as plain `twaco types`.
-    let declarations = write(solution)?;
+    let declarations = write(solution, held)?;
     let (model, _) = load_model(solution);
     let projects = write_check_project(solution, &model)?;
     let command = compiler_command(solution);

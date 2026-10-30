@@ -22,11 +22,15 @@ pub struct Refresh {
 
 /// Keep an opted-in solution's declarations current after another command wrote source data.
 /// Failure is advisory: the command's own writes have already succeeded and remain successful.
-pub(crate) fn refresh_after_write(solution: &Solution, wrote: bool) -> Refresh {
+pub(crate) fn refresh_after_write(
+    solution: &Solution,
+    wrote: bool,
+    held: &crate::core::lock::WorkspaceLock,
+) -> Refresh {
     if !wrote || !solution.root.join(".twaco/types").exists() {
         return Refresh::default();
     }
-    match write(solution) {
+    match write(solution, held) {
         Ok(outcome) => Refresh {
             files_written: Some(outcome.files_written),
             warning: None,

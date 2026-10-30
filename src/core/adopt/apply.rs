@@ -261,7 +261,7 @@ pub(crate) fn apply(
     tracing::info!(wrote, "adopt: done");
     Ok(ApplyOutcome {
         lines,
-        types: super::super::types::refresh_after_write(solution, wrote),
+        types: super::super::types::refresh_after_write(solution, wrote, lock),
         retypes,
     })
 }

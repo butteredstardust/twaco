@@ -277,8 +277,6 @@ pub(crate) fn sync(
         failed += tally.failed;
     }
     outcome.failed = failed;
-    outcome.types =
-        super::types::refresh_after_write(solution, !options.check && outcome.changed > 0);
     outcome
 }
 
@@ -790,7 +788,7 @@ pub(crate) fn extract(
     outcome.written = written;
     outcome.entities = entities;
     outcome.failed = failed;
-    outcome.types = super::types::refresh_after_write(solution, written > 0);
+    outcome.types = super::types::refresh_after_write(solution, written > 0, lock);
     outcome
 }
 
@@ -1189,7 +1187,11 @@ mod tests {
     #[test]
     fn sync_refreshes_only_after_a_real_write_and_only_when_opted_in() {
         let (_dir, root, solution) = service_fixture("sync-types");
-        types::write(&solution).unwrap();
+        types::write(
+            &solution,
+            &crate::core::lock::acquire_for(&solution, "types test").unwrap(),
+        )
+        .unwrap();
         let globals = root.join("src/T/services/Run/twaco-globals.d.ts");
         std::fs::write(
             root.join("src/T/services/Run/definition.xml"),
@@ -1210,7 +1212,7 @@ mod tests {
         assert!(checked.types.files_written.is_none());
         assert!(!globals.exists());
 
-        let written = sync(&solution, &entities(&solution), &[], SyncOptions::default());
+        let written = applied_sync(&solution);
         assert_eq!(written.changed, 1);
         assert!(written.types.files_written.is_some());
         assert!(std::fs::read_to_string(&globals)
@@ -1218,16 +1220,41 @@ mod tests {
             .contains("declare let added: string;"));
 
         std::fs::remove_file(&globals).unwrap();
-        let unchanged = sync(&solution, &entities(&solution), &[], SyncOptions::default());
+        let unchanged = applied_sync(&solution);
         assert_eq!(unchanged.changed, 0);
         assert!(unchanged.types.files_written.is_none());
         assert!(!globals.exists());
 
         let (_dir, root, solution) = service_fixture("sync-no-types");
         std::fs::write(root.join("src/T/services/Run/script.js"), "changed();").unwrap();
-        let outcome = sync(&solution, &entities(&solution), &[], SyncOptions::default());
+        let outcome = applied_sync(&solution);
         assert_eq!(outcome.changed, 1);
         assert!(!root.join(".twaco/types").exists());
+    }
+
+    /// `twaco sync --all --apply`: the command holds the lock, so it refreshes the declarations.
+    fn applied_sync(solution: &Solution) -> SyncOutcome {
+        use crate::core::commands::sync::{execute, SyncRequest, SyncTarget};
+        let request = SyncRequest {
+            target: SyncTarget {
+                project: None,
+                entities: Vec::new(),
+                all: true,
+                reject_entities_with_all: false,
+                missing_target: "give --all",
+            },
+            mode: crate::core::commands::Mode::Apply,
+            allow_structural: false,
+            relayout: false,
+            lock_label: "test sync",
+        };
+        execute(
+            solution,
+            &request,
+            &mut crate::core::commands::Notices::default(),
+        )
+        .unwrap()
+        .report
     }
 
     fn two_services(name: &str, a: &str) -> String {
@@ -1386,7 +1413,7 @@ mod tests {
         std::fs::create_dir_all(root.join(".twaco")).unwrap();
         std::fs::write(root.join(".twaco/types"), "not a directory").unwrap();
         std::fs::write(root.join("src/T/services/Run/script.js"), "changed();").unwrap();
-        let outcome = sync(&solution, &entities(&solution), &[], SyncOptions::default());
+        let outcome = applied_sync(&solution);
         assert_eq!(outcome.changed, 1);
         assert_eq!(outcome.failed, 0);
         assert!(outcome.types.warning.is_some());

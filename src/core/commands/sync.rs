@@ -83,7 +83,7 @@ pub fn execute(
         ),
     };
     let (chosen, unreadable, named) = select(solution, &request.target)?;
-    let report = workflow::sync(
+    let mut report = workflow::sync(
         solution,
         &chosen,
         &unreadable,
@@ -94,6 +94,9 @@ pub fn execute(
             named,
         },
     );
+    if let Some(held) = &_lock {
+        report.types = crate::core::types::refresh_after_write(solution, report.changed > 0, held);
+    }
     let workspace = match request.mode {
         Mode::Plan => Access::Read,
         Mode::Apply => Access::Write,
