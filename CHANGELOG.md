@@ -17,6 +17,10 @@ All notable changes to twaco are recorded here. The format follows
   Thing first. Before this, the server refused both deletes.
 - `entity pull` says when the entities are already in sync instead of "pulled 0 entities", and
   prints the entities it skipped for lack of a baseline when applying too. Its JSON adds `in_sync`.
+- A ConfigurationTable cell is typed by the table's own fields only; a field of the same name
+  inside an INFOTABLE cell no longer changes how the table's cell compares.
+- `entity pull` given two names for one entity pulls it once instead of refusing.
+- `new scheduler` writes a `--cron` holding `]]>` as split CDATA instead of malformed XML.
 
 ### Added
 

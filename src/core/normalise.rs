@@ -754,7 +754,7 @@ fn normalise_definition_aspects(element: &mut Element) {
 
 fn normalise_configuration_tables(element: &mut Element) {
     if element.name == b"ConfigurationTable" {
-        let fields = definitions_named(element, b"FieldDefinition");
+        let fields = table_fields(element);
         for child in &mut element.children {
             let Node::Element(rows) = child else {
                 continue;
@@ -785,6 +785,34 @@ fn normalise_configuration_tables(element: &mut Element) {
             normalise_configuration_tables(child);
         }
     }
+}
+
+/// The table's own `DataShape/FieldDefinitions`: an INFOTABLE cell's inner shape may reuse a
+/// field name with another type.
+fn table_fields(table: &Element) -> std::collections::BTreeMap<Vec<u8>, Vec<u8>> {
+    fn children<'a>(element: &'a Element, wanted: &'a [u8]) -> impl Iterator<Item = &'a Element> {
+        element
+            .children
+            .iter()
+            .filter_map(move |child| match child {
+                Node::Element(child) if child.name == wanted => Some(child),
+                _ => None,
+            })
+    }
+    let mut out = std::collections::BTreeMap::new();
+    for shape in children(table, b"DataShape") {
+        for list in children(shape, b"FieldDefinitions") {
+            for field in children(list, b"FieldDefinition") {
+                if let (Some(name), Some(base_type)) = (
+                    attribute_value(field, b"name"),
+                    attribute_value(field, b"baseType"),
+                ) {
+                    out.insert(name.to_vec(), base_type.to_vec());
+                }
+            }
+        }
+    }
+    out
 }
 
 fn definitions_named(
@@ -1742,6 +1770,17 @@ mod tests {
         assert_ne!(
             hash(stored.as_bytes()).unwrap(),
             hash(other.as_bytes()).unwrap()
+        );
+    }
+
+    #[test]
+    fn a_nested_infotable_field_does_not_retype_the_table_field_of_its_name() {
+        let thing = |x: &str| {
+            format!("<Thing><ConfigurationTables><ConfigurationTable name=\"Settings\"><DataShape><FieldDefinitions><FieldDefinition name=\"x\" baseType=\"STRING\"/><FieldDefinition name=\"nested\" baseType=\"INFOTABLE\"/></FieldDefinitions></DataShape><Rows><Row><x>{x}</x><nested><infoTable><DataShape><FieldDefinitions><FieldDefinition name=\"x\" baseType=\"NUMBER\"/></FieldDefinitions></DataShape><Rows></Rows></infoTable></nested></Row></Rows></ConfigurationTable></ConfigurationTables></Thing>")
+        };
+        assert_ne!(
+            hash(thing("1").as_bytes()).unwrap(),
+            hash(thing("1.0").as_bytes()).unwrap()
         );
     }
 

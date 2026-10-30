@@ -553,7 +553,7 @@ fn scheduler_settings(kind: Kind, enabled: bool, run_as: &str, value: &str) -> S
         _ => unreachable!(),
     };
     let value = if kind == Kind::Scheduler {
-        format!("<![CDATA[{value}]]>")
+        cdata(value)
     } else {
         value.into()
     };
@@ -1769,6 +1769,15 @@ mod tests {
         let xml = std::str::from_utf8(&planned.entity).unwrap();
         assert!(
             xml.contains("<code><![CDATA[var s = \"]]]]><![CDATA[>\";]]></code>"),
+            "{xml}"
+        );
+        let mut scheduler = request(Kind::Scheduler, "Acme.Orders.Split_SC");
+        scheduler.run_as = Some("Administrator".into());
+        scheduler.cron = Some("0 0 0 ? * ]]>".into());
+        let planned = plan(&solution, &scheduler).unwrap();
+        let xml = std::str::from_utf8(&planned.entity).unwrap();
+        assert!(
+            xml.contains("<schedule><![CDATA[0 0 0 ? * ]]]]><![CDATA[>]]></schedule>"),
             "{xml}"
         );
     }
