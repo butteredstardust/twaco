@@ -64,14 +64,19 @@ pub(crate) fn importable_document(bytes: &[u8]) -> Vec<u8> {
     splice::splice(bytes, &edits).unwrap_or_else(|_| bytes.to_vec())
 }
 
-/// The text of an exported STRING variant, `{"value":"abc","baseType":"STRING"}`.
+/// The text of an exported variant, `{"value":"abc","baseType":"STRING"}`, of any base type.
 fn variant_value(value: &str) -> Option<String> {
     let parsed: Value = serde_json::from_str(value).ok()?;
     let object = parsed.as_object()?;
-    if object.len() != 2 || object.get("baseType")?.as_str()? != "STRING" {
+    object.get("baseType")?.as_str()?;
+    if object.len() != 2 {
         return None;
     }
-    object.get("value")?.as_str().map(str::to_string)
+    // A string is its text; a number, boolean or object is its JSON.
+    Some(match object.get("value")? {
+        Value::String(text) => text.clone(),
+        other => other.to_string(),
+    })
 }
 
 /// A TIMESPAN: an optional start and end, and a period of six colon-separated numbers.
@@ -169,6 +174,14 @@ mod tests {
             "abc"
         );
         assert_eq!(importable("VARIANT", "42").unwrap(), "42");
+        assert_eq!(
+            importable("VARIANT", r#"{"value":42,"baseType":"INTEGER"}"#).unwrap(),
+            "42"
+        );
+        assert_eq!(
+            importable("VARIANT", r#"{"value":true,"baseType":"BOOLEAN"}"#).unwrap(),
+            "true"
+        );
         assert_eq!(importable("STRING", "x"), None);
     }
 
