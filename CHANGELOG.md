@@ -28,6 +28,12 @@ All notable changes to twaco are recorded here. The format follows
   repository DataShape's fields as the stored value, as the server does. It was refused on the
   grounds that an import re-stamps the value, but comparisons have ignored that stamp since hash
   version 6.
+- Properties, service parameters and DataShape fields take every base type of the 10.2 platform,
+  such as XML, VEC2-VEC4, IMAGE, THINGCODE, TIMESPAN, VARIANT, GROUPNAME and PROJECTNAME. A
+  persistent one gets the stored value the server writes for its type; a persistent TIMESPAN with
+  a default, or VARIANT with one, is refused. VEC values compare as the doubles the server stores.
+- `]]>` is accepted in style, state, theme and menu values, in menu items, in AI agent text and in
+  `--run-as`, written as split CDATA.
 - `new project` in a folder with no `twaco.toml` creates one declaring the project.
 
 ## [0.1.47] - 2026-10-29

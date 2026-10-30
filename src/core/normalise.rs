@@ -869,6 +869,16 @@ fn canonical_typed_value(base_type: &[u8], value: &[u8]) -> Option<Vec<u8>> {
             let values = values?;
             matches!(values.len(), 2 | 3).then(|| values.join(",").into_bytes())
         }
+        // Components the server writes as doubles: `1,2` is stored `1.0,2.0` (10.2, 2026-10-30).
+        "VEC2" | "VEC3" | "VEC4" => {
+            let values: Option<Vec<String>> = value
+                .split(',')
+                .map(|component| crate::core::number::java_text("NUMBER", component.trim()))
+                .collect();
+            let values = values?;
+            let wanted = usize::from(base_type.as_bytes()[3] - b'0');
+            (values.len() == wanted).then(|| values.join(",").into_bytes())
+        }
         _ => None,
     }
 }
@@ -1742,6 +1752,15 @@ mod tests {
         let sent = br#"<Thing><ThingShape><PropertyDefinitions><PropertyDefinition name="where" baseType="LOCATION" aspect.defaultValue="45.5,9.2,100"/><PropertyDefinition name="filter" baseType="QUERY" aspect.defaultValue="{&quot;b&quot;:1,&quot;a&quot;:2}"/></PropertyDefinitions></ThingShape></Thing>"#;
         let returned = br#"<Thing><ThingShape><PropertyDefinitions><PropertyDefinition name="where" baseType="LOCATION" aspect.defaultValue="45.5,9.2,100.0"/><PropertyDefinition name="filter" baseType="QUERY" aspect.defaultValue="{&quot;a&quot;:2,&quot;b&quot;:1}"/></PropertyDefinitions></ThingShape></Thing>"#;
         assert_eq!(hash(sent).unwrap(), hash(returned).unwrap());
+    }
+
+    #[test]
+    fn vector_values_compare_as_the_doubles_the_server_writes() {
+        let sent = br#"<Thing><ThingShape><PropertyDefinitions><PropertyDefinition name="v" baseType="VEC2" aspect.defaultValue="1,2"/></PropertyDefinitions></ThingShape><ThingProperties><v><Value>1,2</Value></v></ThingProperties></Thing>"#;
+        let stored = br#"<Thing><ThingShape><PropertyDefinitions><PropertyDefinition name="v" baseType="VEC2" aspect.defaultValue="1.0,2.0"/></PropertyDefinitions></ThingShape><ThingProperties><v><Value>1.0,2.0</Value></v></ThingProperties></Thing>"#;
+        let other = br#"<Thing><ThingShape><PropertyDefinitions><PropertyDefinition name="v" baseType="VEC2" aspect.defaultValue="1.0,3.0"/></PropertyDefinitions></ThingShape><ThingProperties><v><Value>1.0,2.0</Value></v></ThingProperties></Thing>"#;
+        assert_eq!(hash(sent).unwrap(), hash(stored).unwrap());
+        assert_ne!(hash(stored).unwrap(), hash(other).unwrap());
     }
 
     #[test]

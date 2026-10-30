@@ -270,36 +270,73 @@ fn invalid(why: impl std::fmt::Display) -> EditError {
     EditError::Invalid(why.to_string())
 }
 
-/// The base types a property may have. Anything else is refused rather than written.
-pub(crate) const BASE_TYPES: [&str; 28] = [
+/// The base types a property may have: the 10.2 platform's `BaseTypes` but NOTHING, which only a
+/// result has, and ANYSCALAR, which older servers' services use. Anything else is refused.
+pub(crate) const BASE_TYPES: [&str; 64] = [
+    "AIAGENTNAME",
     "ANYSCALAR",
+    "APPLICATIONKEYNAME",
     "BASETYPENAME",
     "BLOB",
     "BOOLEAN",
+    "CATEGORYNAME",
+    "DASHBOARDNAME",
     "DATASHAPENAME",
+    "DATATAGVOCABULARYNAME",
     "DATETIME",
+    "EVENTNAME",
+    "GROUPNAME",
     "GUID",
     "HTML",
     "HYPERLINK",
+    "IMAGE",
     "IMAGELINK",
     "INFOTABLE",
     "INTEGER",
     "JSON",
+    "LOCALIZATIONTABLENAME",
     "LOCATION",
     "LONG",
     "MASHUPNAME",
+    "MCPNAMESPACENAME",
+    "MEDIAENTITYNAME",
     "MENUNAME",
+    "MODELTAGVOCABULARYNAME",
+    "NETWORKNAME",
+    "NOTIFICATIONCONTENTNAME",
+    "NOTIFICATIONDEFINITIONNAME",
     "NUMBER",
+    "ORGANIZATIONNAME",
     "PASSWORD",
+    "PERMISSIONGROUPNAME",
+    "PERSISTENCEPROVIDERNAME",
+    "PERSISTENCEPROVIDERPACKAGENAME",
+    "PROJECTNAME",
+    "PROPERTYNAME",
     "QUERY",
+    "QUEUEPROVIDERNAME",
+    "QUEUEPROVIDERPACKAGENAME",
+    "ROLENAME",
+    "SCHEDULE",
+    "SERVICENAME",
+    "STATEDEFINITIONNAME",
     "STRING",
-    "STYLEDEFINITION",
+    "STYLEDEFINITIONNAME",
+    "STYLETHEMENAME",
     "TAGS",
     "TEXT",
+    "THINGCODE",
+    "THINGGROUPNAME",
     "THINGNAME",
     "THINGSHAPENAME",
     "THINGTEMPLATENAME",
+    "TIMESPAN",
     "USERNAME",
+    "VARIANT",
+    "VEC2",
+    "VEC3",
+    "VEC4",
+    "XML",
 ];
 
 /// Events every Thing has, besides the ones its template and shapes define.
@@ -1069,7 +1106,7 @@ impl Definition {
     /// The value a 10.1 server stores for this property in a Thing's `<ThingProperties>`: only a
     /// persistent property has one, its default or the type's (observed for every type here).
     fn stored_value(&self, found: &[EntityFile]) -> Result<Option<String>, EditError> {
-        if !self.persistent || self.base_type == "XML" {
+        if !self.persistent {
             return Ok(None);
         }
         let given = self.default.as_deref();
@@ -1082,6 +1119,32 @@ impl Definition {
                 None => "1970-01-01T00:00:00.000Z".into(),
             },
             "LOCATION" => given.unwrap_or("0.0,0.0,0.0").to_string(),
+            // The type defaults a 10.2 server stored (2026-10-30).
+            "VEC2" | "VEC3" | "VEC4" => match given {
+                Some(value) => value.split(',').map(|part| java_double(part.trim())).collect::<Vec<_>>().join(","),
+                None => match self.base_type.as_str() {
+                    "VEC2" => "0.0,0.0",
+                    "VEC3" => "0.0,0.0,0.0",
+                    _ => "0.0,0.0,0.0,1.0",
+                }
+                .to_string(),
+            },
+            "THINGCODE" => given.unwrap_or("0:0").to_string(),
+            "TIMESPAN" if given.is_none() => ",,00:00:00:00:01:00".to_string(),
+            "TIMESPAN" => {
+                return Err(invalid(
+                    "a TIMESPAN --default is stored in a form twaco does not write yet; give no --default, or set it in Composer and pull it",
+                ))
+            }
+            // A persistent XML property is an empty element, with no Value, stamp or quality.
+            "XML" => return Ok(Some(NO_VALUE.to_string())),
+            "VARIANT" if given.is_none() => "<value baseType=\"STRING\"/>".to_string(),
+            "VARIANT" => {
+                return Err(invalid(
+                    "a persistent VARIANT property's stored value names its type; give no \
+                     --default, or set the value in Composer and pull it",
+                ))
+            }
             "JSON" | "QUERY" => {
                 format!("<json>{}</json>", entity::new::cdata(given.unwrap_or("{}")))
             }
@@ -2254,7 +2317,13 @@ fn set_stored_value(doc: &Doc, property: &str, value: Option<&str>) -> Result<Ve
 }
 
 /// One stored value, as a 10.1 server writes it for a property it has just met.
+/// The stored value of a property the server writes as a bare `<name/>`.
+const NO_VALUE: &str = " ";
+
 fn stored_entry(property: &str, value: &str) -> String {
+    if value == NO_VALUE {
+        return format!("<{property}/>");
+    }
     format!(
         "<{property}><Value>{value}</Value><Timestamp>1970-01-01T00:00:00.000Z</Timestamp>\
          <Quality>UNKNOWN</Quality></{property}>"
@@ -2394,10 +2463,7 @@ fn settings_set(
             "nothing to change: give a new value, --run-as, --enabled or --disabled",
         ));
     }
-    if change
-        .run_as
-        .is_some_and(|user| user.is_empty() || user.contains("]]>"))
-    {
+    if change.run_as.is_some_and(|user| user.is_empty()) {
         return Err(invalid("--run-as must be a user name"));
     }
     let tables = doc.only_child(doc.entity, "ConfigurationTables")?;
@@ -2517,9 +2583,6 @@ fn style_set(
     ];
     for (key, text) in texts {
         if let Some(text) = text {
-            if text.contains("]]>") {
-                return Err(invalid(format!("{key} cannot contain `]]>`")));
-            }
             object.insert(key.into(), Value::String(text.clone()));
             changed.push(key);
         }
@@ -2596,20 +2659,6 @@ fn menu_entries(doc: &Doc) -> Result<(usize, Vec<Entry>), EditError> {
                 doc.label()
             )));
         }
-        // A row repeats these as CDATA, which cannot hold its own terminator.
-        let values = [
-            "title",
-            "linkDestination",
-            "description",
-            "imageURL",
-            "linkTarget",
-        ];
-        if let Some(name) = values.iter().find(|name| get(name).contains("]]>")) {
-            return Err(invalid(format!(
-                "{} has an item whose {name} holds `]]>`; its effective-menu row cannot be written",
-                doc.label()
-            )));
-        }
         entries.push(Entry {
             element,
             title: get("title"),
@@ -2634,10 +2683,9 @@ fn menu_item_add(
 ) -> Result<(), EditError> {
     doc.require(&["Menus"], "menu item add changes a Menu")?;
     let (title, mashup, default) = item;
-    let bad = |text: &str| text.is_empty() || text.contains("]]>");
-    if bad(&title) || bad(&mashup) {
+    if title.is_empty() || mashup.is_empty() {
         return Err(invalid(
-            "a menu item is <Title>=<Mashup>, neither empty nor holding `]]>`",
+            "a menu item is <Title>=<Mashup>, and neither may be empty",
         ));
     }
     let known = found

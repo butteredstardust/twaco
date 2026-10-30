@@ -665,6 +665,15 @@ fn stored_values_follow_the_server_rules_for_each_type() {
             None,
             "<![CDATA[00000000-0000-0000-0000-000000000000]]>",
         ),
+        // As a 10.2 server wrote them (2026-10-30).
+        ("VEC2", None, "0.0,0.0"),
+        ("VEC3", Some("1,2,3"), "1.0,2.0,3.0"),
+        ("VEC4", None, "0.0,0.0,0.0,1.0"),
+        ("THINGCODE", None, "0:0"),
+        ("TIMESPAN", None, ",,00:00:00:00:01:00"),
+        ("VARIANT", None, "<value baseType=\"STRING\"/>"),
+        ("PROJECTNAME", None, ""),
+        ("XML", None, NO_VALUE),
     ];
     for (base_type, default, value) in cases {
         assert_eq!(
@@ -678,6 +687,8 @@ fn stored_values_follow_the_server_rules_for_each_type() {
         None,
         "not persistent"
     );
+    assert!(stored("TIMESPAN", Some(",,1"), true).is_err());
+    assert!(stored("VARIANT", Some("x"), true).is_err());
     // Its stored value needs the DataShape, which is not in the repository here.
     assert!(stored("INFOTABLE", None, true).is_err());
     // The order a 10.1 export wrote 22 values in.
@@ -1704,7 +1715,7 @@ fn a_shape_member_used_through_an_inheriting_thing_is_guarded() {
 }
 
 #[test]
-fn a_crlf_menu_keeps_its_line_endings_and_a_terminator_in_an_item_is_refused() {
+fn a_crlf_menu_keeps_its_line_endings_and_a_terminator_in_an_item_is_split() {
     let (_dir, solution) = fixture();
     std::fs::create_dir_all(solution.root.join("app/Mashups")).unwrap();
     new(&solution, Kind::Menu, "Acme.Orders.Main_MN", |request| {
@@ -1734,7 +1745,7 @@ fn a_crlf_menu_keeps_its_line_endings_and_a_terminator_in_an_item_is_refused() {
     let after = std::fs::read_to_string(&path).unwrap();
     assert!(after.contains("title=\"Orders\""));
     assert_eq!(after.matches('\n').count(), after.matches("\r\n").count());
-    // An existing title holding `]]>` cannot be repeated in a CDATA row.
+    // An existing title holding `]]>` is repeated in its row as split CDATA.
     std::fs::write(
         &path,
         after.replace("title=\"Orders\"", "title=\"A]]&gt;\""),
@@ -1746,10 +1757,9 @@ fn a_crlf_menu_keeps_its_line_endings_and_a_terminator_in_an_item_is_refused() {
         default: false,
         before: None,
     };
-    assert_eq!(
-        code(plan_of(&solution, "Acme.Orders.Main_MN", again)),
-        ErrorCode::InvalidArguments
-    );
+    run(&solution, "Acme.Orders.Main_MN", again);
+    let after = std::fs::read_to_string(&path).unwrap();
+    assert!(after.contains("A]]]]><![CDATA[>"), "{after}");
 }
 
 #[test]

@@ -426,22 +426,7 @@ fn parse_fields(values: &[String]) -> Result<Vec<Field>, NewError> {
         ));
     }
     let mut names = BTreeSet::new();
-    let known: BTreeSet<&str> = [
-        "BOOLEAN",
-        "DATETIME",
-        "INTEGER",
-        "LONG",
-        "NUMBER",
-        "STRING",
-        "TEXT",
-        "THINGNAME",
-        "USERNAME",
-        "JSON",
-        "INFOTABLE",
-        "BASETYPENAME",
-    ]
-    .into_iter()
-    .collect();
+    let known: BTreeSet<&str> = super::edit::BASE_TYPES.into_iter().collect();
     values.iter().enumerate().map(|(index, value)| {
         let parts: Vec<&str> = value.split(':').collect();
         if !(parts.len() == 2 || parts.len() == 3) || parts[0].is_empty() || !known.contains(parts[1]) || (parts.len() == 3 && parts[2] != "primary") {
@@ -557,7 +542,7 @@ fn scheduler_settings(kind: Kind, enabled: bool, run_as: &str, value: &str) -> S
     } else {
         value.into()
     };
-    format!("            <ConfigurationTables>\n                <ConfigurationTable\n                 dataShapeName=\"\"\n                 description=\"General Settings\"\n                 isHidden=\"true\"\n                 isMultiRow=\"false\"\n                 name=\"Settings\"\n                 ordinal=\"0\">\n                    <DataShape>\n                        <FieldDefinitions>\n                            <FieldDefinition\n                             aspect.defaultValue=\"true\"\n                             baseType=\"BOOLEAN\"\n                             description=\"Automatically enable {} on startup\"\n                             name=\"enabled\"\n                             ordinal=\"0\"></FieldDefinition>\n                            <FieldDefinition\n                             baseType=\"USERNAME\"\n                             description=\"User context in which to run event handlers\"\n                             name=\"runAsUser\"\n                             ordinal=\"0\"></FieldDefinition>\n                            <FieldDefinition\n                             aspect.defaultValue=\"{}\"\n                             baseType=\"{}\"\n                             description=\"{}\"\n                             name=\"{}\"\n                             ordinal=\"0\"></FieldDefinition>\n                        </FieldDefinitions>\n                    </DataShape>\n                    <Rows>\n                        <Row>\n                            <enabled>{enabled}</enabled>\n                            <runAsUser><![CDATA[{}]]></runAsUser>\n                            <{}>{value}</{}>\n                        </Row>\n                    </Rows>\n                </ConfigurationTable>\n            </ConfigurationTables>", kind.word(), default, element, description, field, run_as, field, field)
+    format!("            <ConfigurationTables>\n                <ConfigurationTable\n                 dataShapeName=\"\"\n                 description=\"General Settings\"\n                 isHidden=\"true\"\n                 isMultiRow=\"false\"\n                 name=\"Settings\"\n                 ordinal=\"0\">\n                    <DataShape>\n                        <FieldDefinitions>\n                            <FieldDefinition\n                             aspect.defaultValue=\"true\"\n                             baseType=\"BOOLEAN\"\n                             description=\"Automatically enable {} on startup\"\n                             name=\"enabled\"\n                             ordinal=\"0\"></FieldDefinition>\n                            <FieldDefinition\n                             baseType=\"USERNAME\"\n                             description=\"User context in which to run event handlers\"\n                             name=\"runAsUser\"\n                             ordinal=\"0\"></FieldDefinition>\n                            <FieldDefinition\n                             aspect.defaultValue=\"{}\"\n                             baseType=\"{}\"\n                             description=\"{}\"\n                             name=\"{}\"\n                             ordinal=\"0\"></FieldDefinition>\n                        </FieldDefinitions>\n                    </DataShape>\n                    <Rows>\n                        <Row>\n                            <enabled>{enabled}</enabled>\n                            <runAsUser>{}</runAsUser>\n                            <{}>{value}</{}>\n                        </Row>\n                    </Rows>\n                </ConfigurationTable>\n            </ConfigurationTables>", kind.word(), default, element, description, field, cdata(run_as), field, field)
 }
 
 pub(crate) fn cdata(value: &str) -> String {
@@ -1358,14 +1343,6 @@ pub(crate) fn plan(solution: &Solution, request: &NewRequest) -> Result<Plan, Ne
         ),
         _ => None,
     };
-    // The script is split CDATA where it holds `]]>`; --run-as is one CDATA section.
-    if request
-        .run_as
-        .as_deref()
-        .is_some_and(|value| value.contains("]]>"))
-    {
-        return Err(NewError::Invalid("--run-as cannot contain `]]>`".into()));
-    }
     let mut rendered = request.clone();
     if request.kind == Kind::Theme {
         if let Some(from) = &request.from {
@@ -1378,34 +1355,6 @@ pub(crate) fn plan(solution: &Solution, request: &NewRequest) -> Result<Plan, Ne
                     NewError::Invalid(format!("StyleTheme {from} content is not JSON: {error}"))
                 },
             )?;
-        }
-    }
-    for value in [
-        rendered.run_as.as_ref(),
-        rendered.data_shape.as_ref(),
-        rendered.display_string.as_ref(),
-        rendered.label.as_ref(),
-        rendered.theme_content.as_ref(),
-    ]
-    .into_iter()
-    .flatten()
-    {
-        if value.contains("]]>") {
-            return Err(NewError::Invalid(
-                "CDATA-bound values cannot contain `]]>`".into(),
-            ));
-        }
-    }
-    for value in rendered
-        .states
-        .iter()
-        .chain(rendered.items.iter())
-        .chain(rendered.props.iter())
-    {
-        if value.contains("]]>") {
-            return Err(NewError::Invalid(
-                "CDATA-bound values cannot contain `]]>`".into(),
-            ));
         }
     }
     let entity = match request.kind {
@@ -2168,19 +2117,26 @@ mod tests {
         media.file = Some(large_media);
         assert_eq!(code(media), ErrorCode::InvalidArguments);
 
+        // `]]>` in a value is written as split CDATA, and the entity still reads.
+        let split = |request: NewRequest| {
+            let entity = plan(&solution, &request).unwrap().entity;
+            let xml = std::str::from_utf8(&entity).unwrap();
+            assert!(xml.contains("]]]]><![CDATA[>"), "{xml}");
+            crate::core::normalise::hash(&entity).unwrap();
+        };
         let mut style_cdata = request(Kind::Style, "Acme.Orders.CdataStyle_SD");
         style_cdata.display_string = Some("bad]]>value".into());
-        assert_eq!(code(style_cdata), ErrorCode::InvalidArguments);
+        split(style_cdata);
         let mut state_cdata = request(Kind::State, "Acme.Orders.CdataState_SD");
         state_cdata.state_type = Some("numeric".into());
         state_cdata.states = vec!["<3=bad]]>value".into()];
-        assert_eq!(code(state_cdata), ErrorCode::InvalidArguments);
+        split(state_cdata);
         let mut theme_cdata = request(Kind::Theme, "Acme.Orders.CdataTheme_TH");
         theme_cdata.props = vec!["color=bad]]>value".into()];
-        assert_eq!(code(theme_cdata), ErrorCode::InvalidArguments);
+        split(theme_cdata);
         let mut menu_cdata = request(Kind::Menu, "Acme.Orders.CdataMenu_MN");
         menu_cdata.items = vec!["bad]]>value=Acme.Orders.Home_MU".into()];
-        assert_eq!(code(menu_cdata), ErrorCode::InvalidArguments);
+        split(menu_cdata);
     }
 
     #[test]
@@ -2433,7 +2389,7 @@ mod tests {
         timer.script = Some("nope.js".into());
         assert_eq!(code(timer.clone()), ErrorCode::InvalidArguments);
         timer.script = None;
-        timer.run_as = Some("a]]>b".into());
+        timer.run_as = Some(String::new());
         assert_eq!(code(timer), ErrorCode::InvalidArguments);
         let data = request(Kind::DataShape, "Acme.Orders.Empty_DS");
         assert_eq!(code(data), ErrorCode::InvalidArguments);
