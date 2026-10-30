@@ -2844,7 +2844,7 @@ dependencies = [
 
 [[package]]
 name = "twaco"
-version = "0.1.48"
+version = "0.1.49"
 dependencies = [
  "base64 0.23.1",
  "clap",
