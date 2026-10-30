@@ -32,6 +32,8 @@ All notable changes to twaco are recorded here. The format follows
   such as XML, VEC2-VEC4, IMAGE, THINGCODE, TIMESPAN, VARIANT, GROUPNAME and PROJECTNAME. A
   persistent one gets the stored value the server writes for its type; a persistent TIMESPAN with
   a default, or VARIANT with one, is refused. VEC values compare as the doubles the server stores.
+- Property, service and parameter names may hold `-` and non-ASCII letters, which the server
+  accepts; a leading digit and a dot stay refused, as the server refuses them.
 - `]]>` is accepted in style, state, theme and menu values, in menu items, in AI agent text and in
   `--run-as`, written as split CDATA.
 - `new project` in a folder with no `twaco.toml` creates one declaring the project.

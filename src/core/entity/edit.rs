@@ -1549,14 +1549,13 @@ fn java_double(text: &str) -> String {
     crate::core::number::java_text("NUMBER", text).unwrap_or_else(|| text.to_string())
 }
 
+/// A 10.2 server takes `order-id` and `ünï` but refuses a leading digit and a dot (2026-10-30).
 fn validate_member_name(name: &str) -> Result<(), EditError> {
     let mut chars = name.chars();
-    let first = chars
-        .next()
-        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_');
-    if !first || !chars.all(|c| c.is_ascii_alphanumeric() || c == '_') {
+    let first = chars.next().is_some_and(|c| c.is_alphabetic() || c == '_');
+    if !first || !chars.all(|c| c.is_alphanumeric() || c == '_' || c == '-') {
         return Err(invalid(format!(
-            "{name:?} is not a member name: letters, digits and _, not starting with a digit"
+            "{name:?} is not a member name: letters, digits, _ and -, not starting with a digit or -"
         )));
     }
     Ok(())
@@ -2318,7 +2317,7 @@ fn set_stored_value(doc: &Doc, property: &str, value: Option<&str>) -> Result<Ve
 
 /// One stored value, as a 10.1 server writes it for a property it has just met.
 /// The stored value of a property the server writes as a bare `<name/>`.
-const NO_VALUE: &str = " ";
+const NO_VALUE: &str = "\0";
 
 fn stored_entry(property: &str, value: &str) -> String {
     if value == NO_VALUE {
