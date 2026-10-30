@@ -23,6 +23,10 @@ All notable changes to twaco are recorded here. The format follows
 - Taking the workspace lock removes only temporaries named as twaco names them, and warns about a
   lookalike instead of deleting it.
 - Backup sets are pruned only after the forced push, forced deploy or delete they guard succeeds.
+- A UTF-8 byte-order mark at the start of a sidecar (which a Windows editor may add) is read as its
+  encoding, not its content: sync, check and adopt no longer see a script that only gained one as
+  changed, no longer fold U+FEFF into the entity's script, and read a `fields.json` or
+  `content.json` that has one. Extract, adopt and sync keep the mark when they rewrite the file.
 
 ## [0.1.48] - 2026-10-30
 

@@ -293,7 +293,7 @@ pub(crate) fn shape_fields_after_sync(
     let Ok(text) = std::fs::read_to_string(path) else {
         return super::datashape::extract(&src).ok();
     };
-    let desired = super::datashape::from_sidecar(&text.replace("\r\n", "\n")).ok()?;
+    let desired = super::datashape::from_sidecar(&super::workspace::lf(&text)).ok()?;
     let (out, _) = super::datashape::sync(&src, &desired, allow_structural).ok()?;
     super::datashape::extract(&out).ok()
 }
@@ -453,7 +453,7 @@ fn sync_fields(
     };
     // CRLF to LF. This once read `replace("<LF>", "<LF>")`, a no-op left by a shell
     // heredoc that ate the escapes: harmless only because JSON treats CR as whitespace.
-    let desired = match super::datashape::from_sidecar(&text.replace("\r\n", "\n")) {
+    let desired = match super::datashape::from_sidecar(&super::workspace::lf(&text)) {
         Ok(d) => d,
         Err(e) => {
             log.error(format!("{}: {e}", path.display()));
@@ -798,7 +798,10 @@ fn plan_lf(
     path: &std::path::Path,
     text: &str,
 ) -> Result<(), super::transaction::TransactionError> {
-    transaction.write_file(path, text.replace("\r\n", "\n").into_bytes())
+    transaction.write_file(
+        path,
+        super::workspace::keeping_bom(path, text.replace("\r\n", "\n").into_bytes()),
+    )
 }
 
 /// Say what an entity held that did not become a sidecar, so it is never a silent omission.
@@ -887,6 +890,55 @@ mod tests {
     use super::*;
     use crate::core::{config::Solution, types, workspace};
     use std::path::PathBuf;
+
+    #[test]
+    fn a_byte_order_mark_is_a_sidecar_encoding_not_script_content() {
+        let (_dir, root, solution) = service_fixture("bom");
+        let script = root.join("src/T/services/Run/script.js");
+        // An editor saved the unchanged script with a byte-order mark: nothing to sync.
+        std::fs::write(&script, "\u{feff}old();").unwrap();
+        let checked = sync(
+            &solution,
+            &entities(&solution),
+            &[],
+            SyncOptions {
+                check: true,
+                ..SyncOptions::default()
+            },
+        );
+        assert_eq!(checked.changed, 0, "{:?}", checked.log);
+
+        // A real change syncs without the mark reaching the entity.
+        std::fs::write(&script, "\u{feff}changed();").unwrap();
+        let synced = sync(&solution, &entities(&solution), &[], SyncOptions::default());
+        assert_eq!(synced.changed, 1, "{:?}", synced.log);
+        let xml = std::fs::read_to_string(root.join("Things/T.xml")).unwrap();
+        assert!(xml.contains("changed();"), "{xml}");
+        assert!(!xml.contains('\u{feff}'), "{xml}");
+
+        // Extract rewrites the script from the entity and keeps the mark the file had.
+        let xml = xml.replace("changed();", "again();");
+        std::fs::write(root.join("Things/T.xml"), xml).unwrap();
+        let extracted = extract(
+            &solution,
+            &entities(&solution),
+            &[],
+            false,
+            &crate::core::lock::acquire(&solution.root, "test", &[]).unwrap(),
+        );
+        assert!(extracted.written > 0);
+        assert_eq!(
+            std::fs::read_to_string(&script).unwrap(),
+            "\u{feff}again();"
+        );
+    }
+
+    #[test]
+    fn only_a_leading_byte_order_mark_is_encoding() {
+        assert_eq!(crate::core::workspace::lf("\u{feff}a\r\nb"), "a\nb");
+        assert_eq!(crate::core::workspace::lf("a\u{feff}b"), "a\u{feff}b");
+        assert_eq!(crate::core::workspace::lf("\u{feff}\u{feff}a"), "\u{feff}a");
+    }
 
     fn service_fixture(label: &str) -> (tempfile::TempDir, PathBuf, Solution) {
         let root_guard = tempfile::Builder::new()
