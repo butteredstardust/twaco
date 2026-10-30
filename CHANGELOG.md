@@ -34,6 +34,8 @@ All notable changes to twaco are recorded here. The format follows
   a default, or VARIANT with one, is refused. VEC values compare as the doubles the server stores.
 - Property, service and parameter names may hold `-` and non-ASCII letters, which the server
   accepts; a leading digit and a dot stay refused, as the server refuses them.
+- `mashup new --param` takes an INFOTABLE parameter as `name:INFOTABLE:DataShape[:DIRECTION]`,
+  as `mashup param add` already did, and mashup parameters take every platform base type.
 - `]]>` is accepted in style, state, theme and menu values, in menu items, in AI agent text and in
   `--run-as`, written as split CDATA.
 - `new project` in a folder with no `twaco.toml` creates one declaring the project.

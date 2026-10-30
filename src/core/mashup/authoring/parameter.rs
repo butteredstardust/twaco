@@ -62,73 +62,82 @@ pub(super) struct ParameterDefinition {
     pub(super) visible: bool,
 }
 
+/// `name:TYPE[:DIRECTION]`, or `name:INFOTABLE:DataShape[:DIRECTION]`.
 pub(super) fn parse_new_parameter(text: &str) -> Result<ParameterDefinition, AuthoringError> {
+    let shape = || {
+        AuthoringError::Invalid(format!(
+            "--param {text:?} must be name:TYPE[:DIRECTION] or name:INFOTABLE:DataShape[:DIRECTION]"
+        ))
+    };
     let mut parts = text.split(':');
     let name = parts.next().unwrap_or_default();
-    let base_type = parts.next().ok_or_else(|| {
-        AuthoringError::Invalid(format!("--param {text:?} must be name:TYPE[:DIRECTION]"))
-    })?;
+    let base_type = parts.next().ok_or_else(shape)?;
+    let data_shape = if base_type == "INFOTABLE" {
+        Some(
+            parts
+                .next()
+                .filter(|name| !name.is_empty())
+                .ok_or_else(shape)?,
+        )
+    } else {
+        None
+    };
     let direction = parts.next().unwrap_or("BOTH");
     if parts.next().is_some() {
-        return Err(AuthoringError::Invalid(format!(
-            "--param {text:?} must be name:TYPE[:DIRECTION]"
-        )));
+        return Err(shape());
     }
-    validate_parameter(name, base_type, direction, None)?;
-    if base_type == "INFOTABLE" {
-        return Err(AuthoringError::Invalid(
-            "INFOTABLE parameters need --data-shape and cannot be used with mashup new".into(),
-        ));
-    }
+    validate_parameter(name, base_type, direction, data_shape)?;
     Ok(ParameterDefinition {
         name: name.into(),
         base_type: base_type.into(),
         direction: direction.into(),
         description: String::new(),
         default: None,
-        data_shape: None,
+        data_shape: data_shape.map(Into::into),
         visible: !name.starts_with("ConfigForm_"),
     })
 }
 
+/// The platform's base types, and the ones only a mashup parameter has.
 fn known_base_type(name: &str) -> bool {
-    matches!(
-        name,
-        "BASE64"
-            | "BLOB"
-            | "BOOLEAN"
-            | "DATASHAPENAME"
-            | "DATETIME"
-            | "GUID"
-            | "HTML"
-            | "HYPERLINK"
-            | "IMAGE"
-            | "IMAGELINK"
-            | "INFOTABLE"
-            | "INTEGER"
-            | "JSON"
-            | "LOCATION"
-            | "LONG"
-            | "MASHUPNAME"
-            | "MEDIAENTITYNAME"
-            | "MENUNAME"
-            | "NAME"
-            | "NUMBER"
-            | "PASSWORD"
-            | "PROJECTNAME"
-            | "QUERY"
-            | "SCHEDULE"
-            | "STRING"
-            | "TAG"
-            | "TEXT"
-            | "THINGCODE"
-            | "THINGNAME"
-            | "THINGSHAPENAME"
-            | "THINGTEMPLATENAME"
-            | "USERNAME"
-            | "VARIANT"
-            | "XML"
-    )
+    crate::core::entity::edit::BASE_TYPES.contains(&name)
+        || matches!(
+            name,
+            "BASE64"
+                | "BLOB"
+                | "BOOLEAN"
+                | "DATASHAPENAME"
+                | "DATETIME"
+                | "GUID"
+                | "HTML"
+                | "HYPERLINK"
+                | "IMAGE"
+                | "IMAGELINK"
+                | "INFOTABLE"
+                | "INTEGER"
+                | "JSON"
+                | "LOCATION"
+                | "LONG"
+                | "MASHUPNAME"
+                | "MEDIAENTITYNAME"
+                | "MENUNAME"
+                | "NAME"
+                | "NUMBER"
+                | "PASSWORD"
+                | "PROJECTNAME"
+                | "QUERY"
+                | "SCHEDULE"
+                | "STRING"
+                | "TAG"
+                | "TEXT"
+                | "THINGCODE"
+                | "THINGNAME"
+                | "THINGSHAPENAME"
+                | "THINGTEMPLATENAME"
+                | "USERNAME"
+                | "VARIANT"
+                | "XML"
+        )
 }
 
 pub(super) fn validate_parameter(
@@ -969,5 +978,24 @@ pub(super) fn ensure_cached(
                 refreshed.push(id);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_new_infotable_parameter_names_its_data_shape() {
+        let rows = parse_new_parameter("Rows:INFOTABLE:Acme.Row_DS:IN").unwrap();
+        assert_eq!(rows.data_shape.as_deref(), Some("Acme.Row_DS"));
+        assert_eq!(rows.direction, "IN");
+        let both = parse_new_parameter("Rows:INFOTABLE:Acme.Row_DS").unwrap();
+        assert_eq!(both.direction, "BOTH");
+        assert!(parse_new_parameter("Rows:INFOTABLE").is_err());
+        assert!(parse_new_parameter("Rows:INFOTABLE:").is_err());
+        let plain = parse_new_parameter("Count:INTEGER:OUT").unwrap();
+        assert_eq!(plain.data_shape, None);
+        assert!(parse_new_parameter("Pos:VEC3").is_ok());
     }
 }

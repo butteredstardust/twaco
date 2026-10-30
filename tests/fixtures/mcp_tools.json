@@ -4757,7 +4757,7 @@
           }
         },
         "params": {
-          "description": "Parameter declarations as `name:TYPE[:DIRECTION]`; INFOTABLE is not supported here.",
+          "description": "Parameter declarations as `name:TYPE[:DIRECTION]`, or `name:INFOTABLE:DataShape[:DIRECTION]`.",
           "type": "array",
           "items": {
             "type": "string"
