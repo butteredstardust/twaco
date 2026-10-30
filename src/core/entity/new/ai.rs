@@ -715,13 +715,8 @@ pub(crate) fn taxonomy_row(kind: &str, name: &str, aliases: &str) -> String {
     )
 }
 
-/// Refuse what a CDATA section cannot hold: its own terminator, or a character XML cannot hold.
+/// Refuse a character XML cannot hold; `]]>` is written as split CDATA.
 pub(crate) fn cdata_value(value: &str) -> Result<(), NewError> {
-    if value.contains("]]>") {
-        return Err(NewError::Invalid(
-            "CDATA-bound values cannot contain `]]>`".into(),
-        ));
-    }
     match crate::core::scan::illegal_xml_char(value) {
         Some(illegal) => Err(illegal.into()),
         None => Ok(()),

@@ -1142,7 +1142,7 @@
   },
   {
     "name": "entity_new",
-    "description": "Create a ThingWorx entity as a repository XML file: Projects, Groups, common Things, data Things, media, styles, states, menus, themes, and Networks. A new Project also appends its project declaration to twaco.toml. DataShape and DataTable creation also writes their managed sidecar. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
+    "description": "Create a ThingWorx entity as a repository XML file: Projects, Groups, common Things, data Things, media, styles, states, menus, themes, and Networks. A new Project also appends its project declaration to twaco.toml, or creates twaco.toml in a root without one. DataShape and DataTable creation also writes their managed sidecar. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
     "inputSchema": {
       "required": [
         "kind",
@@ -1773,7 +1773,7 @@
           }
         },
         "params": {
-          "description": "Parameter declarations as `name:TYPE[:DIRECTION]`; INFOTABLE is not supported here.",
+          "description": "Parameter declarations as `name:TYPE[:DIRECTION]`, or `name:INFOTABLE:DataShape[:DIRECTION]`.",
           "type": "array",
           "items": { "type": "string" }
         },

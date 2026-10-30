@@ -639,7 +639,7 @@ fn stored_values_follow_the_server_rules_for_each_type() {
             name: "p".into(),
             ordinal: "1".into(),
         }
-        .stored_value()
+        .stored_value(&[])
     };
     // As a 10.1 server wrote them (2026-10-16).
     let cases = [
@@ -665,6 +665,15 @@ fn stored_values_follow_the_server_rules_for_each_type() {
             None,
             "<![CDATA[00000000-0000-0000-0000-000000000000]]>",
         ),
+        // As a 10.2 server wrote them (2026-10-30).
+        ("VEC2", None, "0.0,0.0"),
+        ("VEC3", Some("1,2,3"), "1.0,2.0,3.0"),
+        ("VEC4", None, "0.0,0.0,0.0,1.0"),
+        ("THINGCODE", None, "0:0"),
+        ("TIMESPAN", None, ",,00:00:00:00:01:00"),
+        ("VARIANT", None, "<value baseType=\"STRING\"/>"),
+        ("PROJECTNAME", None, ""),
+        ("XML", None, NO_VALUE),
     ];
     for (base_type, default, value) in cases {
         assert_eq!(
@@ -678,6 +687,22 @@ fn stored_values_follow_the_server_rules_for_each_type() {
         None,
         "not persistent"
     );
+    assert!(stored("TIMESPAN", Some(",,1"), true).is_err());
+    assert_eq!(
+        stored("VARIANT", None, true).unwrap().as_deref(),
+        Some("<value baseType=\"STRING\"/>")
+    );
+    assert_eq!(
+        stored(
+            "TIMESPAN",
+            Some("2026-01-01T00:00:00Z,,00:00:01:00:00:00"),
+            true
+        )
+        .unwrap()
+        .as_deref(),
+        Some("2026-01-01T00:00:00.000Z,,00:00:01:00:00:00")
+    );
+    // Its stored value needs the DataShape, which is not in the repository here.
     assert!(stored("INFOTABLE", None, true).is_err());
     // The order a 10.1 export wrote 22 values in.
     let written = [
@@ -707,6 +732,63 @@ fn stored_values_follow_the_server_rules_for_each_type() {
     let mut sorted: Vec<String> = written.iter().map(|name| name.to_string()).collect();
     sorted.sort();
     assert_eq!(java_hash_map_order(&sorted), written);
+}
+
+#[test]
+fn a_persistent_infotable_stores_an_empty_table_of_its_data_shape_fields() {
+    let (_dir, solution) = fixture();
+    new(
+        &solution,
+        Kind::DataShape,
+        "Acme.Orders.Line_DS",
+        |request| {
+            request.project = Some("Acme.Orders".into());
+            request.fields = vec!["a:STRING".into(), "n:NUMBER".into()];
+        },
+    );
+    new(&solution, Kind::Thing, "Acme.Orders.Line", |request| {
+        request.project = Some("Acme.Orders".into());
+        request.template = Some("GenericThing".into());
+    });
+    let mut table = property("Lines", "INFOTABLE");
+    table.data_shape = Some("Acme.Orders.Line_DS".into());
+    table.persistent = Some(true);
+    run(&solution, "Acme.Orders.Line", Action::PropertyAdd(table));
+    let xml = file(&solution, "Things", "Acme.Orders.Line");
+    // As a 10.2 server stored it (2026-10-30), but for the Timestamp an import re-stamps.
+    let server = r#"<Thing name="Acme.Orders.Line"><ThingProperties><Lines><Value><infoTable><DataShape><FieldDefinitions><FieldDefinition aspect.isPrimaryKey="false" baseType="STRING" description="" name="a" ordinal="1"/><FieldDefinition aspect.isPrimaryKey="false" baseType="NUMBER" description="" name="n" ordinal="2"/></FieldDefinitions></DataShape><Rows/></infoTable></Value></Lines></ThingProperties></Thing>"#;
+    let start = xml.find("<Lines>").expect("a stored value");
+    let end = xml.find("</Lines>").unwrap() + "</Lines>".len();
+    let ours = format!(
+        "<Thing name=\"Acme.Orders.Line\"><ThingProperties>{}</ThingProperties></Thing>",
+        &xml[start..end]
+    );
+    assert_eq!(
+        crate::core::normalise::hash(ours.as_bytes()).unwrap(),
+        crate::core::normalise::hash(server.as_bytes()).unwrap(),
+        "{ours}"
+    );
+}
+
+#[test]
+fn timespan_and_variant_defaults_are_written_in_the_form_an_import_reads() {
+    // The export form reads back as the imported one, so a pulled file deploys as it was.
+    let window = "2026-01-01T00:00:00.000Z,2026-02-01T00:00:00.000Z,00:00:01:00:00:00";
+    assert_eq!(default_attribute("TIMESPAN", window).unwrap(), window);
+    assert_eq!(
+        default_attribute(
+            "TIMESPAN",
+            "{period=00:00:01:00:00:00, start=1767225600000, end=1769904000000}"
+        )
+        .unwrap(),
+        window
+    );
+    assert!(default_attribute("TIMESPAN", ",,1").is_err());
+    assert_eq!(default_attribute("VARIANT", "abc").unwrap(), "abc");
+    assert_eq!(
+        default_attribute("VARIANT", r#"{"value":"abc","baseType":"STRING"}"#).unwrap(),
+        "abc"
+    );
 }
 
 #[test]
@@ -758,6 +840,15 @@ fn property_add_refusals() {
         code(add("Acme.Orders.Press", property("bad name", "STRING"))),
         ErrorCode::InvalidArguments
     );
+    for (base_type, default) in [("VEC2", "1,x"), ("VEC2", "1,2,3"), ("VEC3", "1,2,inf")] {
+        let mut vector = property("Pos", base_type);
+        vector.default = Some(default.into());
+        assert_eq!(
+            code(add("Acme.Orders.Press", vector)),
+            ErrorCode::InvalidArguments,
+            "{base_type} {default}"
+        );
+    }
     let mut bad_default = property("Count", "INTEGER");
     bad_default.default = Some("many".into());
     assert_eq!(
@@ -765,7 +856,7 @@ fn property_add_refusals() {
         ErrorCode::InvalidArguments
     );
     let mut table = property("Rows", "INFOTABLE");
-    table.data_shape = Some("Acme.Orders.Row_DS".into());
+    table.data_shape = Some("Elsewhere.Row_DS".into());
     table.persistent = Some(true);
     assert_eq!(
         code(add("Acme.Orders.Press", table)),
@@ -1249,6 +1340,29 @@ fn timer_and_scheduler_set_change_only_their_settings_row() {
 }
 
 #[test]
+fn a_style_holding_the_cdata_terminator_can_be_edited_and_cloned() {
+    let (_dir, solution) = fixture();
+    new(&solution, Kind::Style, "Acme.Orders.Split_SD", |request| {
+        request.display_string = Some("a]]>b".into());
+    });
+    let change = StyleChange {
+        bold: Some(true),
+        ..StyleChange::default()
+    };
+    run(&solution, "Acme.Orders.Split_SD", Action::StyleSet(change));
+    let xml = file(&solution, "StyleDefinitions", "Acme.Orders.Split_SD");
+    assert!(xml.contains("a]]]]><![CDATA[>b"), "{xml}");
+    new(&solution, Kind::Theme, "Acme.Orders.Split_TH", |request| {
+        request.props = vec!["note=a]]>b".into()];
+    });
+    new(&solution, Kind::Theme, "Acme.Orders.Copy_TH", |request| {
+        request.from = Some("Acme.Orders.Split_TH".into());
+    });
+    let copy = file(&solution, "StyleThemes", "Acme.Orders.Copy_TH");
+    assert!(copy.contains("a]]]]><![CDATA[>b"), "{copy}");
+}
+
+#[test]
 fn style_media_menu_and_state_edits_match_what_new_writes() {
     let (_dir, solution) = fixture();
     let (_other, fresh) = fixture();
@@ -1667,7 +1781,7 @@ fn a_shape_member_used_through_an_inheriting_thing_is_guarded() {
 }
 
 #[test]
-fn a_crlf_menu_keeps_its_line_endings_and_a_terminator_in_an_item_is_refused() {
+fn a_crlf_menu_keeps_its_line_endings_and_a_terminator_in_an_item_is_split() {
     let (_dir, solution) = fixture();
     std::fs::create_dir_all(solution.root.join("app/Mashups")).unwrap();
     new(&solution, Kind::Menu, "Acme.Orders.Main_MN", |request| {
@@ -1697,7 +1811,7 @@ fn a_crlf_menu_keeps_its_line_endings_and_a_terminator_in_an_item_is_refused() {
     let after = std::fs::read_to_string(&path).unwrap();
     assert!(after.contains("title=\"Orders\""));
     assert_eq!(after.matches('\n').count(), after.matches("\r\n").count());
-    // An existing title holding `]]>` cannot be repeated in a CDATA row.
+    // An existing title holding `]]>` is repeated in its row as split CDATA.
     std::fs::write(
         &path,
         after.replace("title=\"Orders\"", "title=\"A]]&gt;\""),
@@ -1709,10 +1823,9 @@ fn a_crlf_menu_keeps_its_line_endings_and_a_terminator_in_an_item_is_refused() {
         default: false,
         before: None,
     };
-    assert_eq!(
-        code(plan_of(&solution, "Acme.Orders.Main_MN", again)),
-        ErrorCode::InvalidArguments
-    );
+    run(&solution, "Acme.Orders.Main_MN", again);
+    let after = std::fs::read_to_string(&path).unwrap();
+    assert!(after.contains("A]]]]><![CDATA[>"), "{after}");
 }
 
 #[test]

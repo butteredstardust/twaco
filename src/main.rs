@@ -34,7 +34,7 @@ use cli::entity::{
     permissions_init_cmd, Entity, Permissions,
 };
 use cli::entity_edit::entity_edit_cmd;
-use cli::entity_new::{entity_new_cmd, New};
+use cli::entity_new::{entity_new_cmd, New, NewEntity};
 use cli::info::{
     catalog_cmd, docs_cmd, guide_cmd, help_cmd, impact_cmd, javadoc_cmd, settings_cmd, unused_cmd,
     update_cmd, write_agent_files,
@@ -251,6 +251,20 @@ fn dispatch(command: Command) -> u8 {
         Command::Network(network) => run(|solution| network_cmd(solution, &network)),
         Command::New(New::BuildingBlock(block)) => {
             run(|solution| new_building_block_cmd(solution, &block))
+        }
+        // A first project in a folder with no twaco.toml creates the file too.
+        Command::New(New::Entity(new @ NewEntity::Project(_))) => {
+            let here = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+            match Solution::discover(&here) {
+                Ok(solution) => entity_new_cmd(&solution, &new),
+                Err(twaco::core::config::ConfigError::NotFound { .. }) => {
+                    entity_new_cmd(&Solution::bare(&here), &new)
+                }
+                Err(e) => {
+                    eprintln!("{} {e}", cli::style::prefix());
+                    FAILED
+                }
+            }
         }
         Command::New(New::Entity(new)) => run(|solution| entity_new_cmd(solution, &new)),
         // The templates are built in, so they need no solution.

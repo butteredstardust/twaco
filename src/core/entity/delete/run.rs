@@ -50,6 +50,7 @@ pub(crate) fn run(
                             .to_string(),
                 }],
                 ledger,
+                unlink: None,
             });
             continue;
         }
@@ -69,6 +70,7 @@ pub(crate) fn run(
                 error: None,
                 refusals: Vec::new(),
                 ledger,
+                unlink: None,
             });
             continue;
         }
@@ -161,9 +163,12 @@ pub(crate) fn run(
             error: None,
             refusals,
             ledger,
+            unlink: None,
         });
     }
 
+    super::cycle::plan(remote, &mut entities)
+        .map_err(|(entity, why)| DeleteError::Remote { entity, why })?;
     delete_dependents_first(&mut entities);
     let mut backup_dir = None;
     if apply {
@@ -177,6 +182,26 @@ pub(crate) fn run(
                 backup_dir = remote
                     .backup(solution, &ready, stamp)
                     .map_err(|error| DeleteError::Backup(error.to_string()))?;
+            }
+        }
+        // Break each cycle first; an entity that is then not deleted gets its defaults back.
+        let mut unlinked = Vec::new();
+        for (index, entity) in entities.iter_mut().enumerate() {
+            let Some((_, stripped)) = &entity.unlink else {
+                continue;
+            };
+            if entity.status != Status::Ready {
+                continue;
+            }
+            let file = format!("{}.xml", entity.name);
+            match remote.import(&file, stripped) {
+                Ok(()) => unlinked.push(index),
+                Err(error) => {
+                    entity.status = Status::Failed;
+                    entity.error = Some(format!(
+                        "clearing the defaults that close the cycle failed: {error}"
+                    ));
+                }
             }
         }
         for entity in &mut entities {
@@ -209,6 +234,26 @@ pub(crate) fn run(
                     ));
                 }
             }
+        }
+        for index in unlinked {
+            let entity = &mut entities[index];
+            if entity.status == Status::Deleted {
+                continue;
+            }
+            let Some((original, _)) = &entity.unlink else {
+                continue;
+            };
+            let file = format!("{}.xml", entity.name);
+            let restored = match remote.import(&file, original) {
+                Ok(()) => "its cleared defaults were put back".to_string(),
+                Err(error) => format!(
+                    "its cleared defaults could not be put back ({error}); `twaco entity restore` has the backup"
+                ),
+            };
+            entity.error = Some(match entity.error.take() {
+                Some(error) => format!("{error}; {restored}"),
+                None => restored,
+            });
         }
     }
 

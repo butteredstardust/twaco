@@ -30,6 +30,8 @@ pub struct PullOutcome {
     pub entities: Vec<String>,
     /// `--all` leaves these alone until a baseline establishes which side is newer.
     pub skipped_no_baseline: Vec<String>,
+    /// Already the same on both sides, so nothing to take.
+    pub in_sync: Vec<String>,
     pub applied: bool,
     pub recorded: usize,
     pub effects: Effects,
@@ -117,6 +119,12 @@ where
                 .map_err(PullError::Resolve)?
         }
     };
+    // Two operands may name one entity (`P.T` and `T`); it is pulled once.
+    let mut seen = std::collections::BTreeSet::new();
+    let chosen: Vec<_> = chosen
+        .into_iter()
+        .filter(|file| seen.insert(file.path.clone()))
+        .collect();
     let profile = profile::load(&solution.root, &request.profile).map_err(PullError::Profile)?;
     let rules = solution.server_owned_for(&request.profile);
     let patches = solution.patches_for(&request.profile);
@@ -129,12 +137,16 @@ where
     }
     let mut work = Vec::new();
     let mut skipped_no_baseline = Vec::new();
+    let mut in_sync = Vec::new();
     for entry in statuses {
         let label = format!("{}/{}", entry.collection, entry.name);
         match entry.verdict {
             status::Verdict::ServerChanged => work.push((label, entry)),
             status::Verdict::NoBaselineDiffers if named => work.push((label, entry)),
             status::Verdict::NoBaselineDiffers => skipped_no_baseline.push(label),
+            status::Verdict::InSync
+            | status::Verdict::Converged
+            | status::Verdict::NoBaselineSame => in_sync.push(label),
             status::Verdict::LocalChanged | status::Verdict::BothChanged => {
                 return Err(PullError::Refused(format!(
                     "{label}: working file changed; use twaco adopt for a merge"
@@ -145,7 +157,6 @@ where
                     "{label}: not on the server, so it cannot be pulled"
                 )))
             }
-            _ => {}
         }
     }
     let labels = work
@@ -156,6 +167,7 @@ where
         return Ok(PullOutcome {
             entities: labels,
             skipped_no_baseline,
+            in_sync,
             applied: false,
             recorded: 0,
             effects: Effects::new(Access::Read, Access::Read),
@@ -243,6 +255,7 @@ where
     Ok(PullOutcome {
         entities: labels,
         skipped_no_baseline,
+        in_sync,
         applied: true,
         recorded,
         effects: Effects::new(Access::Write, Access::Read),
@@ -307,10 +320,19 @@ mod tests {
     }
 
     fn pull(solution: &Solution, server: &[u8], mode: Mode) -> Result<PullOutcome, PullError> {
+        pull_target(solution, server, mode, Target::All)
+    }
+
+    fn pull_target(
+        solution: &Solution,
+        server: &[u8],
+        mode: Mode,
+        target: Target,
+    ) -> Result<PullOutcome, PullError> {
         execute(
             solution,
             &PullRequest {
-                target: Target::All,
+                target,
                 mode,
                 profile: "default".into(),
                 lock_label: "entity pull",
@@ -366,5 +388,28 @@ mod tests {
         let plan = pull(&solution, &thing("theirs", "\n"), Mode::Plan).unwrap();
         assert!(plan.entities.is_empty());
         assert_eq!(plan.skipped_no_baseline, ["Things/P.T"]);
+    }
+
+    #[test]
+    fn two_names_for_one_entity_pull_it_once() {
+        let base = thing(
+            "", "
+",
+        );
+        let (dir, solution) = setup(&base, &base);
+        let names = Target::Names(vec!["Things/P.T".into(), "P.T".into()]);
+        let applied = pull_target(
+            &solution,
+            &thing(
+                "server", "
+",
+            ),
+            Mode::Apply,
+            names,
+        )
+        .unwrap();
+        assert_eq!(applied.entities, ["Things/P.T"]);
+        let after = std::fs::read_to_string(dir.path().join("Things/P.T.xml")).unwrap();
+        assert!(after.contains("description=\"server\""));
     }
 }

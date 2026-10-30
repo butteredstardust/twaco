@@ -10,6 +10,9 @@ pub trait Remote {
     fn exists(&self, key: &EntityKey) -> Result<bool, ServerError>;
     fn incoming(&self, key: &EntityKey) -> Result<Vec<Dependent>, ServerError>;
     fn fetch(&self, key: &EntityKey) -> Result<Vec<u8>, ServerError>;
+    /// The entity's Exporter XML, which imports back as it is; `None` when the server lacks it.
+    fn export(&self, key: &EntityKey) -> Result<Option<Vec<u8>>, ServerError>;
+    fn import(&self, file_name: &str, xml: &[u8]) -> Result<(), ServerError>;
     fn delete_service(&self, service: &str, name: &str) -> Result<(), ServerError>;
     fn delete_rest(&self, key: &EntityKey) -> Result<(), ServerError>;
     /// Save the server's export of each entity before it is deleted; the set's folder, relative to
@@ -33,6 +36,14 @@ impl Remote for Client {
 
     fn fetch(&self, key: &EntityKey) -> Result<Vec<u8>, ServerError> {
         self.fetch_entity(key)
+    }
+
+    fn export(&self, key: &EntityKey) -> Result<Option<Vec<u8>>, ServerError> {
+        backup::Remote::export(self, key)
+    }
+
+    fn import(&self, file_name: &str, xml: &[u8]) -> Result<(), ServerError> {
+        self.import_entity(file_name, xml)
     }
 
     fn delete_service(&self, service: &str, name: &str) -> Result<(), ServerError> {

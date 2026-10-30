@@ -693,6 +693,33 @@ pub(crate) fn child_tags(tokens: &[Token], src: &[u8], name: &str, parent: usize
     out
 }
 
+/// The text of an element's content: its CDATA sections joined (a value holding `]]>` is split
+/// across two) and its other text decoded. `None` when it holds an element or does not scan.
+pub(crate) fn content_text(inner: &[u8]) -> Option<String> {
+    let tokens = tokenize(inner).ok()?;
+    let has_cdata = tokens.iter().any(|token| token.kind == Kind::Cdata);
+    let mut out = String::new();
+    for token in &tokens {
+        match token.kind {
+            Kind::Cdata => out.push_str(std::str::from_utf8(token.inner.of(inner)).ok()?),
+            Kind::Text => {
+                let text = std::str::from_utf8(token.span.of(inner)).ok()?;
+                // Indentation around CDATA is layout, not content.
+                if !(has_cdata && text.trim().is_empty()) {
+                    out.push_str(&decode_entities(text));
+                }
+            }
+            Kind::Comment => {}
+            _ => return None,
+        }
+    }
+    Some(if has_cdata {
+        out
+    } else {
+        out.trim().to_string()
+    })
+}
+
 /// Expand the XML entity references a parser would resolve.
 ///
 /// Attribute values reach this scanner as raw bytes, so `name="A&amp;B"` is literally `A&amp;B`
@@ -747,6 +774,21 @@ fn numeric_entity(name: &str) -> Option<char> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn content_text_joins_split_cdata_and_decodes_text() {
+        assert_eq!(
+            content_text(
+                b"
+  <![CDATA[a]]]]><![CDATA[>b]]>
+"
+            )
+            .as_deref(),
+            Some("a]]>b")
+        );
+        assert_eq!(content_text(b" a &amp; b ").as_deref(), Some("a & b"));
+        assert_eq!(content_text(b"<x/>"), None);
+    }
 
     /// A tab or a line break in an attribute is read back as a space unless it is a reference.
     #[test]

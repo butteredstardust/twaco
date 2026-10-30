@@ -18,6 +18,8 @@ struct Fake {
     disabled: BTreeSet<String>,
     /// A Project's `dependsOn` projects, as `A:1.0.0,B:1.0.0`.
     depends_on: BTreeMap<String, String>,
+    /// Exporter XML by entity name.
+    exports: BTreeMap<String, String>,
 }
 
 impl Fake {
@@ -35,6 +37,7 @@ impl Fake {
             backup_fails: false,
             disabled: BTreeSet::new(),
             depends_on: BTreeMap::new(),
+            exports: BTreeMap::new(),
         }
     }
 }
@@ -92,6 +95,20 @@ impl Remote for Fake {
             "GenericThing"
         };
         Ok(format!("<Entities><Things><Thing name=\"{}\" thingTemplate=\"{template}\"/></Things></Entities>", key.name()).into_bytes())
+    }
+    fn export(&self, key: &EntityKey) -> Result<Option<Vec<u8>>, ServerError> {
+        self.calls.borrow_mut().push(format!("EXPORT {key}"));
+        Ok(self
+            .exports
+            .get(key.name())
+            .map(|xml| xml.clone().into_bytes()))
+    }
+    fn import(&self, file_name: &str, xml: &[u8]) -> Result<(), ServerError> {
+        self.calls.borrow_mut().push(format!(
+            "IMPORT {file_name} {}",
+            String::from_utf8_lossy(xml)
+        ));
+        Ok(())
     }
     fn delete_service(&self, service: &str, name: &str) -> Result<(), ServerError> {
         self.calls
@@ -924,4 +941,114 @@ fn a_bare_name_resolves_on_the_server_and_ambiguity_lists_its_collections() {
         .borrow()
         .iter()
         .any(|call| call.starts_with("DELETE") || call.starts_with("SERVICE")));
+}
+
+#[test]
+fn a_thingname_default_cycle_is_broken_by_an_import_before_the_deletes() {
+    let (_dir, _, solution) = solution();
+    let mut fake = Fake::new(&[("ThingTemplates", "C_TT"), ("Things", "C")]);
+    // C implements C_TT, and C_TT's `me` default names C: each is referenced by the other.
+    fake.dependencies.insert(
+        ("ThingTemplates".to_string(), "C_TT".to_string()),
+        vec![Dependent {
+            collection: "Things".to_string(),
+            name: "C".to_string(),
+        }],
+    );
+    fake.dependencies.insert(
+        ("Things".to_string(), "C".to_string()),
+        vec![Dependent {
+            collection: "ThingTemplates".to_string(),
+            name: "C_TT".to_string(),
+        }],
+    );
+    fake.exports.insert(
+        "C_TT".to_string(),
+        r#"<Entities><ThingTemplates><ThingTemplate name="C_TT"><PropertyDefinitions><PropertyDefinition aspect.defaultValue="C" baseType="THINGNAME" name="me"/></PropertyDefinitions></ThingTemplate></ThingTemplates></Entities>"#.to_string(),
+    );
+    let plan = execute(
+        &fake,
+        &solution,
+        &["ThingTemplates/C_TT", "Things/C"],
+        false,
+        false,
+    );
+    let template = plan.entities.iter().find(|e| e.name == "C_TT").unwrap();
+    assert!(
+        template.warnings.iter().any(|w| w.contains("property me")),
+        "{:?}",
+        template.warnings
+    );
+    assert!(fake
+        .calls
+        .borrow()
+        .iter()
+        .all(|call| !call.starts_with("IMPORT")));
+
+    let report = execute(
+        &fake,
+        &solution,
+        &["ThingTemplates/C_TT", "Things/C"],
+        true,
+        false,
+    );
+    let order: Vec<&str> = report.entities.iter().map(|e| e.name.as_str()).collect();
+    assert_eq!(order, ["C", "C_TT"]);
+    let calls = fake.calls.borrow();
+    let import = calls
+        .iter()
+        .position(|c| c.starts_with("IMPORT C_TT.xml"))
+        .unwrap();
+    assert!(calls[import].contains(r#"aspect.defaultValue="" baseType="THINGNAME""#));
+    let first_delete = calls.iter().position(|c| c.starts_with("SERVICE")).unwrap();
+    assert!(import < first_delete, "{calls:?}");
+    assert!(report.entities.iter().all(|e| e.status == Status::Deleted));
+}
+
+#[test]
+fn a_cycle_entity_left_after_a_failed_delete_gets_its_defaults_back() {
+    let (_dir, _, solution) = solution();
+    let mut fake = Fake::new(&[("ThingTemplates", "C_TT"), ("Things", "C")]);
+    let dependent = |collection: &str, name: &str| Dependent {
+        collection: collection.to_string(),
+        name: name.to_string(),
+    };
+    fake.dependencies.insert(
+        ("ThingTemplates".to_string(), "C_TT".to_string()),
+        vec![dependent("Things", "C")],
+    );
+    fake.dependencies.insert(
+        ("Things".to_string(), "C".to_string()),
+        vec![dependent("ThingTemplates", "C_TT")],
+    );
+    let original = r#"<Entities><ThingTemplates><ThingTemplate name="C_TT"><PropertyDefinitions><PropertyDefinition aspect.defaultValue="C" baseType="THINGNAME" name="me"/></PropertyDefinitions></ThingTemplate></ThingTemplates></Entities>"#;
+    fake.exports
+        .insert("C_TT".to_string(), original.to_string());
+    // The Thing answers success but stays, so the template cannot go either.
+    fake.keep_after_delete
+        .insert(("Things".to_string(), "C".to_string()));
+    fake.keep_after_delete
+        .insert(("ThingTemplates".to_string(), "C_TT".to_string()));
+    let report = execute(
+        &fake,
+        &solution,
+        &["ThingTemplates/C_TT", "Things/C"],
+        true,
+        false,
+    );
+    let template = report.entities.iter().find(|e| e.name == "C_TT").unwrap();
+    assert_eq!(template.status, Status::Failed);
+    assert!(
+        template
+            .error
+            .as_deref()
+            .unwrap_or_default()
+            .contains("put back"),
+        "{:?}",
+        template.error
+    );
+    let calls = fake.calls.borrow();
+    let imports: Vec<&String> = calls.iter().filter(|c| c.starts_with("IMPORT")).collect();
+    assert_eq!(imports.len(), 2, "{calls:?}");
+    assert!(imports[1].contains(original), "{calls:?}");
 }

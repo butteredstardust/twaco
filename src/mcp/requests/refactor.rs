@@ -328,7 +328,7 @@ pub(crate) struct MashupNewRequest {
     /// `Organization/<name>` or `OrganizationalUnit/<organization>:<unit>`; none unless given.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) visibility: Absent<Vec<String>>,
-    /// Parameter declarations as `name:TYPE[:DIRECTION]`; INFOTABLE is not supported here.
+    /// Parameter declarations as `name:TYPE[:DIRECTION]`, or `name:INFOTABLE:DataShape[:DIRECTION]`.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) params: Absent<Vec<String>>,
     /// For template tabs: `Label=Mashup` (or `Label`) per tab.

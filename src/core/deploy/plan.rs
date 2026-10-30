@@ -233,14 +233,14 @@ pub(crate) fn plan_bundles(
                     project.name, key.0, key.1
                 ));
             }
-            let bytes = match std::fs::read(&entity.path) {
+            let original = match std::fs::read(&entity.path) {
                 Ok(bytes) => bytes,
                 Err(error) => {
                     return Err(format!("{}: {error}", entity.path.display()));
                 }
             };
             let bytes = patch::apply(
-                &bytes,
+                &original,
                 &entity.info.collection,
                 &entity.info.name,
                 solution.patches_for(profile),

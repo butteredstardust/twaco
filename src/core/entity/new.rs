@@ -369,11 +369,9 @@ fn entity_content(path: &Path) -> Result<String, NewError> {
         .find("</content>")
         .map(|end| start + end)
         .ok_or_else(|| NewError::Invalid(format!("{} has unclosed content", path.display())))?;
-    Ok(source[start..end]
-        .trim()
-        .strip_prefix("<![CDATA[")
-        .and_then(|value| value.strip_suffix("]]>"))
-        .unwrap_or(&source[start..end])
+    let content = &source[start..end];
+    Ok(crate::core::scan::content_text(content.as_bytes())
+        .unwrap_or_else(|| content.trim().to_string())
         .trim()
         .to_string())
 }
@@ -426,22 +424,7 @@ fn parse_fields(values: &[String]) -> Result<Vec<Field>, NewError> {
         ));
     }
     let mut names = BTreeSet::new();
-    let known: BTreeSet<&str> = [
-        "BOOLEAN",
-        "DATETIME",
-        "INTEGER",
-        "LONG",
-        "NUMBER",
-        "STRING",
-        "TEXT",
-        "THINGNAME",
-        "USERNAME",
-        "JSON",
-        "INFOTABLE",
-        "BASETYPENAME",
-    ]
-    .into_iter()
-    .collect();
+    let known: BTreeSet<&str> = super::edit::BASE_TYPES.into_iter().collect();
     values.iter().enumerate().map(|(index, value)| {
         let parts: Vec<&str> = value.split(':').collect();
         if !(parts.len() == 2 || parts.len() == 3) || parts[0].is_empty() || !known.contains(parts[1]) || (parts.len() == 3 && parts[2] != "primary") {
@@ -553,11 +536,11 @@ fn scheduler_settings(kind: Kind, enabled: bool, run_as: &str, value: &str) -> S
         _ => unreachable!(),
     };
     let value = if kind == Kind::Scheduler {
-        format!("<![CDATA[{value}]]>")
+        cdata(value)
     } else {
         value.into()
     };
-    format!("            <ConfigurationTables>\n                <ConfigurationTable\n                 dataShapeName=\"\"\n                 description=\"General Settings\"\n                 isHidden=\"true\"\n                 isMultiRow=\"false\"\n                 name=\"Settings\"\n                 ordinal=\"0\">\n                    <DataShape>\n                        <FieldDefinitions>\n                            <FieldDefinition\n                             aspect.defaultValue=\"true\"\n                             baseType=\"BOOLEAN\"\n                             description=\"Automatically enable {} on startup\"\n                             name=\"enabled\"\n                             ordinal=\"0\"></FieldDefinition>\n                            <FieldDefinition\n                             baseType=\"USERNAME\"\n                             description=\"User context in which to run event handlers\"\n                             name=\"runAsUser\"\n                             ordinal=\"0\"></FieldDefinition>\n                            <FieldDefinition\n                             aspect.defaultValue=\"{}\"\n                             baseType=\"{}\"\n                             description=\"{}\"\n                             name=\"{}\"\n                             ordinal=\"0\"></FieldDefinition>\n                        </FieldDefinitions>\n                    </DataShape>\n                    <Rows>\n                        <Row>\n                            <enabled>{enabled}</enabled>\n                            <runAsUser><![CDATA[{}]]></runAsUser>\n                            <{}>{value}</{}>\n                        </Row>\n                    </Rows>\n                </ConfigurationTable>\n            </ConfigurationTables>", kind.word(), default, element, description, field, run_as, field, field)
+    format!("            <ConfigurationTables>\n                <ConfigurationTable\n                 dataShapeName=\"\"\n                 description=\"General Settings\"\n                 isHidden=\"true\"\n                 isMultiRow=\"false\"\n                 name=\"Settings\"\n                 ordinal=\"0\">\n                    <DataShape>\n                        <FieldDefinitions>\n                            <FieldDefinition\n                             aspect.defaultValue=\"true\"\n                             baseType=\"BOOLEAN\"\n                             description=\"Automatically enable {} on startup\"\n                             name=\"enabled\"\n                             ordinal=\"0\"></FieldDefinition>\n                            <FieldDefinition\n                             baseType=\"USERNAME\"\n                             description=\"User context in which to run event handlers\"\n                             name=\"runAsUser\"\n                             ordinal=\"0\"></FieldDefinition>\n                            <FieldDefinition\n                             aspect.defaultValue=\"{}\"\n                             baseType=\"{}\"\n                             description=\"{}\"\n                             name=\"{}\"\n                             ordinal=\"0\"></FieldDefinition>\n                        </FieldDefinitions>\n                    </DataShape>\n                    <Rows>\n                        <Row>\n                            <enabled>{enabled}</enabled>\n                            <runAsUser>{}</runAsUser>\n                            <{}>{value}</{}>\n                        </Row>\n                    </Rows>\n                </ConfigurationTable>\n            </ConfigurationTables>", kind.word(), default, element, description, field, cdata(run_as), field, field)
 }
 
 pub(crate) fn cdata(value: &str) -> String {
@@ -1358,17 +1341,6 @@ pub(crate) fn plan(solution: &Solution, request: &NewRequest) -> Result<Plan, Ne
         ),
         _ => None,
     };
-    // Both are written as CDATA, which cannot hold its own terminator.
-    for value in [request.run_as.as_deref(), script.as_deref()]
-        .into_iter()
-        .flatten()
-    {
-        if value.contains("]]>") {
-            return Err(NewError::Invalid(
-                "--run-as and the script cannot contain `]]>`".into(),
-            ));
-        }
-    }
     let mut rendered = request.clone();
     if request.kind == Kind::Theme {
         if let Some(from) = &request.from {
@@ -1381,35 +1353,6 @@ pub(crate) fn plan(solution: &Solution, request: &NewRequest) -> Result<Plan, Ne
                     NewError::Invalid(format!("StyleTheme {from} content is not JSON: {error}"))
                 },
             )?;
-        }
-    }
-    for value in [
-        rendered.run_as.as_ref(),
-        script.as_ref(),
-        rendered.data_shape.as_ref(),
-        rendered.display_string.as_ref(),
-        rendered.label.as_ref(),
-        rendered.theme_content.as_ref(),
-    ]
-    .into_iter()
-    .flatten()
-    {
-        if value.contains("]]>") {
-            return Err(NewError::Invalid(
-                "CDATA-bound values cannot contain `]]>`".into(),
-            ));
-        }
-    }
-    for value in rendered
-        .states
-        .iter()
-        .chain(rendered.items.iter())
-        .chain(rendered.props.iter())
-    {
-        if value.contains("]]>") {
-            return Err(NewError::Invalid(
-                "CDATA-bound values cannot contain `]]>`".into(),
-            ));
         }
     }
     let entity = match request.kind {
@@ -1494,10 +1437,19 @@ pub(crate) fn plan(solution: &Solution, request: &NewRequest) -> Result<Plan, Ne
     let (config_before, config_after) =
         if request.kind == Kind::Project && declared_project.is_none() {
             let path = solution.root.join(CONFIG_FILE);
-            let before = std::fs::read_to_string(&path)
-                .map_err(|error| NewError::Invalid(format!("{}: {error}", path.display())))?;
+            // A bare solution has no twaco.toml yet: the project's entry is its first content.
+            let before = if solution.projects.is_empty() && !path.exists() {
+                String::new()
+            } else {
+                std::fs::read_to_string(&path)
+                    .map_err(|error| NewError::Invalid(format!("{}: {error}", path.display())))?
+            };
             let eol = workspace::line_ending(&before);
-            let separator = if before.ends_with('\n') { "" } else { eol };
+            let separator = if before.is_empty() || before.ends_with('\n') {
+                ""
+            } else {
+                eol
+            };
             let dependencies = if request.depends_on.is_empty() {
                 String::new()
             } else {
@@ -1512,7 +1464,8 @@ pub(crate) fn plan(solution: &Solution, request: &NewRequest) -> Result<Plan, Ne
                 )
             };
             let addition = format!(
-                "\n[[project]]\nname = \"{}\"\nroot = \"{}\"\n{dependencies}",
+                "{}[[project]]\nname = \"{}\"\nroot = \"{}\"\n{dependencies}",
+                if before.is_empty() { "" } else { "\n" },
                 request.name.replace('"', "\\\""),
                 request.name.replace('"', "\\\"")
             );
@@ -1555,13 +1508,16 @@ pub(crate) fn apply(
             .map_err(NewError::Write)?;
     }
     if let (Some(before), Some(after)) = (&plan.config_before, &plan.config_after) {
-        transaction
-            .replace_file(
-                &solution.root.join(CONFIG_FILE),
-                before.as_bytes(),
-                after.as_bytes().to_vec(),
-            )
-            .map_err(NewError::Write)?;
+        let config = solution.root.join(CONFIG_FILE);
+        if solution.projects.is_empty() && before.is_empty() && !config.exists() {
+            transaction
+                .create_file(&config, after.as_bytes().to_vec())
+                .map_err(NewError::Write)?;
+        } else {
+            transaction
+                .replace_file(&config, before.as_bytes(), after.as_bytes().to_vec())
+                .map_err(NewError::Write)?;
+        }
     }
     transaction.apply(lock).map_err(NewError::Write)?;
     Ok(())
@@ -1569,7 +1525,7 @@ pub(crate) fn apply(
 
 pub fn plan_json(solution: &Solution, plan: &Plan, applied: bool) -> Value {
     let relative = |path: &Path| solution.relative(path);
-    json!({ "applied": applied, "kind": plan.request.kind.word(), "name": plan.request.name, "project": plan.project, "files": std::iter::once(relative(&plan.entity_path)).chain(plan.sidecars.iter().map(|(path, _)| relative(path))).collect::<Vec<_>>(), "twaco_toml": plan.config_after.as_ref().map(|_| "project appended"), "every_ms": plan.duration_ms, "cron": plan.cron, "runs": plan.script.as_ref().map(|code| code.lines().next().unwrap_or_default()) })
+    json!({ "applied": applied, "kind": plan.request.kind.word(), "name": plan.request.name, "project": plan.project, "files": std::iter::once(relative(&plan.entity_path)).chain(plan.sidecars.iter().map(|(path, _)| relative(path))).collect::<Vec<_>>(), "twaco_toml": plan.config_after.as_ref().map(|_| if plan.config_before.as_deref() == Some("") { "created" } else { "project appended" }), "every_ms": plan.duration_ms, "cron": plan.cron, "runs": plan.script.as_ref().map(|code| code.lines().next().unwrap_or_default()) })
 }
 
 #[cfg(test)]
@@ -1748,6 +1704,29 @@ mod tests {
             "{xml}"
         );
         assert!(!xml.contains("<speed>"), "{xml}");
+    }
+
+    #[test]
+    fn a_timer_script_holding_the_cdata_terminator_is_split_cdata() {
+        let (_dir, solution) = fixture();
+        let mut timer = request(Kind::Timer, "Acme.Orders.Split_TM");
+        timer.run_as = Some("Administrator".into());
+        timer.then = Some("var s = \"]]>\";".into());
+        let planned = plan(&solution, &timer).unwrap();
+        let xml = std::str::from_utf8(&planned.entity).unwrap();
+        assert!(
+            xml.contains("<code><![CDATA[var s = \"]]]]><![CDATA[>\";]]></code>"),
+            "{xml}"
+        );
+        let mut scheduler = request(Kind::Scheduler, "Acme.Orders.Split_SC");
+        scheduler.run_as = Some("Administrator".into());
+        scheduler.cron = Some("0 0 0 ? * ]]>".into());
+        let planned = plan(&solution, &scheduler).unwrap();
+        let xml = std::str::from_utf8(&planned.entity).unwrap();
+        assert!(
+            xml.contains("<schedule><![CDATA[0 0 0 ? * ]]]]><![CDATA[>]]></schedule>"),
+            "{xml}"
+        );
     }
 
     #[test]
@@ -2136,19 +2115,26 @@ mod tests {
         media.file = Some(large_media);
         assert_eq!(code(media), ErrorCode::InvalidArguments);
 
+        // `]]>` in a value is written as split CDATA, and the entity still reads.
+        let split = |request: NewRequest| {
+            let entity = plan(&solution, &request).unwrap().entity;
+            let xml = std::str::from_utf8(&entity).unwrap();
+            assert!(xml.contains("]]]]><![CDATA[>"), "{xml}");
+            crate::core::normalise::hash(&entity).unwrap();
+        };
         let mut style_cdata = request(Kind::Style, "Acme.Orders.CdataStyle_SD");
         style_cdata.display_string = Some("bad]]>value".into());
-        assert_eq!(code(style_cdata), ErrorCode::InvalidArguments);
+        split(style_cdata);
         let mut state_cdata = request(Kind::State, "Acme.Orders.CdataState_SD");
         state_cdata.state_type = Some("numeric".into());
         state_cdata.states = vec!["<3=bad]]>value".into()];
-        assert_eq!(code(state_cdata), ErrorCode::InvalidArguments);
+        split(state_cdata);
         let mut theme_cdata = request(Kind::Theme, "Acme.Orders.CdataTheme_TH");
         theme_cdata.props = vec!["color=bad]]>value".into()];
-        assert_eq!(code(theme_cdata), ErrorCode::InvalidArguments);
+        split(theme_cdata);
         let mut menu_cdata = request(Kind::Menu, "Acme.Orders.CdataMenu_MN");
         menu_cdata.items = vec!["bad]]>value=Acme.Orders.Home_MU".into()];
-        assert_eq!(code(menu_cdata), ErrorCode::InvalidArguments);
+        split(menu_cdata);
     }
 
     #[test]
@@ -2401,10 +2387,7 @@ mod tests {
         timer.script = Some("nope.js".into());
         assert_eq!(code(timer.clone()), ErrorCode::InvalidArguments);
         timer.script = None;
-        timer.then = Some("var s = \"]]>\";".into());
-        assert_eq!(code(timer.clone()), ErrorCode::InvalidArguments);
-        timer.then = None;
-        timer.run_as = Some("a]]>b".into());
+        timer.run_as = Some(String::new());
         assert_eq!(code(timer), ErrorCode::InvalidArguments);
         let data = request(Kind::DataShape, "Acme.Orders.Empty_DS");
         assert_eq!(code(data), ErrorCode::InvalidArguments);

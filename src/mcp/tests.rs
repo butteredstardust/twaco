@@ -2668,7 +2668,7 @@ fn status_record_returns_matching_entities_in_sync_and_keeps_differing_verdicts(
     )
     .unwrap();
     std::fs::create_dir_all(root.join(".twaco/baselines")).unwrap();
-    std::fs::write(root.join(".twaco/baselines/default.json"),r#"{"entities":{"Things":{"Acme.Same":{"local":"v9:old","server":"v9:old"},"Acme.Different":{"local":"v9:old","server":"v9:old"}}}}"#).unwrap();
+    std::fs::write(root.join(".twaco/baselines/default.json"),r#"{"entities":{"Things":{"Acme.Same":{"local":"v10:old","server":"v10:old"},"Acme.Different":{"local":"v10:old","server":"v10:old"}}}}"#).unwrap();
     let before = call(root, "status", json!({"all":true,"detail":true}));
     assert_eq!(body(&before)["counts"]["converged"], 1);
     assert_eq!(body(&before)["counts"]["both-changed"], 1);
@@ -3037,6 +3037,36 @@ fn entity_new_timer_applies_and_writes_the_entity_file() {
     assert_eq!(applied["isError"], false, "{applied}");
     assert_eq!(applied["structuredContent"]["applied"], true);
     assert!(root.join("Things/P.Refresh_TM.xml").exists());
+}
+
+#[test]
+fn entity_new_project_in_an_empty_root_creates_twaco_toml() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_path_buf();
+    let planned = call(
+        &root,
+        "entity_new",
+        json!({"kind": "project", "name": "Acme.First"}),
+    );
+    assert_eq!(planned["isError"], false, "{planned}");
+    assert!(!root.join("twaco.toml").exists());
+    let applied = call(
+        &root,
+        "entity_new",
+        json!({"kind": "project", "name": "Acme.First", "dry_run": false}),
+    );
+    assert_eq!(applied["isError"], false, "{applied}");
+    let config = std::fs::read_to_string(root.join("twaco.toml")).unwrap();
+    assert!(config.contains("name = \"Acme.First\""), "{config}");
+    assert!(root.join("Acme.First/Projects/Acme.First.xml").exists());
+    // Any other kind still needs a solution.
+    let empty = tempfile::tempdir().unwrap();
+    let thing = call(
+        empty.path(),
+        "entity_new",
+        json!({"kind": "thing", "name": "X"}),
+    );
+    assert_eq!(thing["isError"], true, "{thing}");
 }
 
 #[test]

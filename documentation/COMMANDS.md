@@ -242,7 +242,7 @@ mashup templates [<name>] [--json]
                             list the embedded responsive mashup templates and their slots
 mashup new <name> [--project <name>] [--template <name>] [--primary-menu <address>]
     [--secondary-menu <address>] [--theme <StyleTheme>] [--master]
-    [--visibility <principal>]... [--param <name:TYPE[:DIRECTION]>]... [--tab <Label=Mashup>]...
+    [--visibility <principal>]... [--param <name:TYPE[:DIRECTION]|name:INFOTABLE:DataShape[:DIRECTION]>]... [--tab <Label=Mashup>]...
     [--apply] [--json]
                             create a ThingWorx 10.2 responsive mashup as Composer would: its entity file
                             and its content sidecars; plan unless --apply

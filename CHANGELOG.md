@@ -6,6 +6,57 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Entity comparison hashes are version 10: stored JSON and QUERY values, VEC values, TIMESPAN and
+  VARIANT defaults and nested INFOTABLE cells compare as the server stores them. Run
+  `twaco entity status --all --record` once to record the new baselines.
+- A TIMESPAN property default is sent in the form an import reads (`start,end,period`) even when
+  the file holds the form the server exports (`{period=…, start=…, end=…}`), which an import
+  misreads: before this, deploying a pulled TIMESPAN default reset or garbled it.
+  `thing property add --default` accepts a TIMESPAN. A VARIANT default stays refused: a 10.2
+  server imports it once and then fails every later import of the entity.
+- A style or theme value holding `]]>` can be edited and cloned after it is created.
+- `entity delete` puts back the defaults it cleared to break a cycle when the entity is not
+  deleted after all.
+- MCP `entity_new` creates `twaco.toml` for a first project in an empty root, as the CLI does.
+- `thing property add` checks that a VEC2-VEC4 default has that many numeric components.
+- The rows of an infotable value compare by its own DataShape's types: a server stores a NUMBER
+  cell `1` as `1.0`, which read back as "not kept".
+- Mashup parameters accept a JSON `--default`, and names holding `-`, non-ASCII letters or a
+  leading digit, all of which the server keeps.
+- Stored JSON and QUERY property values compare with their keys sorted, as the server stores
+  them. Before this, a Thing with a persistent JSON or QUERY property whose keys were not in order
+  read back as "not kept" after a deploy.
+- `new timer` and `new scheduler` accept `]]>` in `--then` and `--script`, writing split CDATA.
+- `entity delete` breaks a cycle made by a THINGNAME property default that names a Thing of the
+  set depending on the entity: it imports the entity without those defaults, then deletes the
+  Thing first. Before this, the server refused both deletes.
+- `entity pull` says when the entities are already in sync instead of "pulled 0 entities", and
+  prints the entities it skipped for lack of a baseline when applying too. Its JSON adds `in_sync`.
+- A ConfigurationTable cell is typed by the table's own fields only; a field of the same name
+  inside an INFOTABLE cell no longer changes how the table's cell compares.
+- `entity pull` given two names for one entity pulls it once instead of refusing.
+- `new scheduler` writes a `--cron` holding `]]>` as split CDATA instead of malformed XML.
+
+### Added
+
+- `thing property add --persistent` accepts an INFOTABLE property, writing an empty table of its
+  repository DataShape's fields as the stored value, as the server does. It was refused on the
+  grounds that an import re-stamps the value, but comparisons have ignored that stamp since hash
+  version 6.
+- Properties, service parameters and DataShape fields take every base type of the 10.2 platform,
+  such as XML, VEC2-VEC4, IMAGE, THINGCODE, TIMESPAN, VARIANT, GROUPNAME and PROJECTNAME. A
+  persistent one gets the stored value the server writes for its type; a persistent TIMESPAN with
+  a default, or VARIANT with one, is refused. VEC values compare as the doubles the server stores.
+- Property, service and parameter names may hold `-` and non-ASCII letters, which the server
+  accepts; a leading digit and a dot stay refused, as the server refuses them.
+- `mashup new --param` takes an INFOTABLE parameter as `name:INFOTABLE:DataShape[:DIRECTION]`,
+  as `mashup param add` already did, and mashup parameters take every platform base type.
+- `]]>` is accepted in style, state, theme and menu values, in menu items, in AI agent text and in
+  `--run-as`, written as split CDATA.
+- `new project` in a folder with no `twaco.toml` creates one declaring the project.
+
 ## [0.1.47] - 2026-10-29
 
 ### Fixed

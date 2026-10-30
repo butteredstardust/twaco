@@ -4,7 +4,7 @@
 //! they are hash input, never an export. Length-prefixing makes element, attribute, text and
 //! CDATA boundaries unambiguous without choosing an escaping style.
 //!
-//! Normalisation version 9 has exactly these non-semantic rules:
+//! Normalisation version 10 has exactly these non-semantic rules:
 //!
 //! - apply XML 1.0 line-end and CDATA-attribute whitespace normalisation to literal XML input
 //!   before unescaping character references or applying payload-specific rules;
@@ -54,8 +54,11 @@
 //!   FieldDefinition's `aspect.defaultValue` (and numeric minimum/maximum), ConfigurationTable
 //!   row cells using that table's DataShape, and ThingProperties values using a local property
 //!   definition: NUMBER follows Java `Double.toString`, INTEGER and LONG are parsed as i64, and
-//!   JSON and QUERY are parsed, key-sorted and compacted; LOCATION components compare as numbers.
-//!   Unparseable values and values with no local type remain byte-significant (version 9);
+//!   JSON and QUERY are parsed, key-sorted and compacted, also as a stored `<Value><json>`;
+//!   LOCATION and VEC2-VEC4 components compare as numbers; a TIMESPAN or VARIANT default in the
+//!   form a server exports compares as the form it imports (see `typed_default`). A table's
+//!   cells take only its own DataShape's types, not a nested INFOTABLE's (observed 2026-10-30;
+//!   version 10). Unparseable values and values with no local type remain byte-significant;
 //! - adjacent CDATA sections separated only by whitespace are one payload; XML uses that spelling
 //!   for a literal `]]>` in a script (version 9);
 //! - a leaf holding only an empty or whitespace-only CDATA is the same as an empty element, as
@@ -64,8 +67,8 @@
 //! No generated id, default attribute, or other exception is included without a live/committed
 //! observation. Apart from the rules above, CDATA bytes are never decoded, re-indented, or joined.
 //!
-//! Without server ownership, hashes remain `v9:<sha256>` byte for byte. With ownership they are
-//! `v9:so1:<policy-sha256>:<content-sha256>`: the policy digest covers the sorted, deduplicated
+//! Without server ownership, hashes remain `v10:<sha256>` byte for byte. With ownership they are
+//! `v10:so1:<policy-sha256>:<content-sha256>`: the policy digest covers the sorted, deduplicated
 //! union of applicable part labels (newline-delimited). `so1` versions selector semantics.
 //! Content uses the same comparison tree with owned nodes omitted. Baselines must compare the
 //! entire prefix before the final colon; adding, removing or changing ownership invalidates
@@ -75,7 +78,7 @@ use super::scan::{self, Kind, ScanError, Token};
 use sha2::{Digest, Sha256};
 
 /// The normalisation version every hash carries; a baseline from another one says nothing.
-pub(crate) const HASH_VERSION: &str = "v9";
+pub(crate) const HASH_VERSION: &str = "v10";
 pub(crate) const LIVE_ONLY_ELEMENTS: [&[u8]; 9] = [
     b"effectiveShape",
     b"Owner",
@@ -752,9 +755,11 @@ fn normalise_definition_aspects(element: &mut Element) {
     }
 }
 
+/// The rows of each ConfigurationTable and each `infoTable` value, typed by its own DataShape: a
+/// 10.2 server stores a NUMBER cell `1` of a persistent infotable as `1.0` (2026-10-30).
 fn normalise_configuration_tables(element: &mut Element) {
-    if element.name == b"ConfigurationTable" {
-        let fields = definitions_named(element, b"FieldDefinition");
+    if element.name == b"ConfigurationTable" || element.name == b"infoTable" {
+        let fields = table_fields(element);
         for child in &mut element.children {
             let Node::Element(rows) = child else {
                 continue;
@@ -785,6 +790,34 @@ fn normalise_configuration_tables(element: &mut Element) {
             normalise_configuration_tables(child);
         }
     }
+}
+
+/// The table's own `DataShape/FieldDefinitions`: an INFOTABLE cell's inner shape may reuse a
+/// field name with another type.
+fn table_fields(table: &Element) -> std::collections::BTreeMap<Vec<u8>, Vec<u8>> {
+    fn children<'a>(element: &'a Element, wanted: &'a [u8]) -> impl Iterator<Item = &'a Element> {
+        element
+            .children
+            .iter()
+            .filter_map(move |child| match child {
+                Node::Element(child) if child.name == wanted => Some(child),
+                _ => None,
+            })
+    }
+    let mut out = std::collections::BTreeMap::new();
+    for shape in children(table, b"DataShape") {
+        for list in children(shape, b"FieldDefinitions") {
+            for field in children(list, b"FieldDefinition") {
+                if let (Some(name), Some(base_type)) = (
+                    attribute_value(field, b"name"),
+                    attribute_value(field, b"baseType"),
+                ) {
+                    out.insert(name.to_vec(), base_type.to_vec());
+                }
+            }
+        }
+    }
+    out
 }
 
 fn definitions_named(
@@ -841,11 +874,44 @@ fn canonical_typed_value(base_type: &[u8], value: &[u8]) -> Option<Vec<u8>> {
             let values = values?;
             matches!(values.len(), 2 | 3).then(|| values.join(",").into_bytes())
         }
+        // Exported in another form than imported; see `typed_default`.
+        "TIMESPAN" | "VARIANT" => {
+            crate::core::typed_default::importable(base_type, value).map(String::into_bytes)
+        }
+        // Components the server writes as doubles: `1,2` is stored `1.0,2.0` (10.2, 2026-10-30).
+        "VEC2" | "VEC3" | "VEC4" => {
+            let values: Option<Vec<String>> = value
+                .split(',')
+                .map(|component| crate::core::number::java_text("NUMBER", component.trim()))
+                .collect();
+            let values = values?;
+            let wanted = usize::from(base_type.as_bytes()[3] - b'0');
+            (values.len() == wanted).then(|| values.join(",").into_bytes())
+        }
         _ => None,
     }
 }
 
 fn normalise_typed_leaf(element: &mut Element, base_type: &[u8]) {
+    // A stored JSON or QUERY value is `<Value><json>…</json></Value>`; the server sorts its keys.
+    if matches!(base_type, b"JSON" | b"QUERY") {
+        if let [Node::Element(json)] = element
+            .children
+            .iter_mut()
+            .filter(|child| !matches!(child, Node::Text(text) if xml_whitespace(text)))
+            .collect::<Vec<_>>()
+            .as_mut_slice()
+        {
+            if json.name == b"json" {
+                if let Some(canonical) = single_text_or_cdata_payload(json)
+                    .and_then(|payload| canonical_typed_value(base_type, &payload))
+                {
+                    json.children = vec![Node::Cdata(canonical)];
+                }
+                return;
+            }
+        }
+    }
     let payload = single_text_or_cdata_payload(element);
     let Some(payload) = payload else {
         return;
@@ -1624,7 +1690,7 @@ mod tests {
 
     #[test]
     fn hash_and_framing_are_version_nine() {
-        assert!(hash(b"<Thing/>").unwrap().starts_with("v9:"));
+        assert!(hash(b"<Thing/>").unwrap().starts_with("v10:"));
         assert!(normalise(b"<Thing/>")
             .unwrap()
             .starts_with(b"twaco-entity-normalise-v9\0"));
@@ -1695,6 +1761,94 @@ mod tests {
         let sent = br#"<Thing><ThingShape><PropertyDefinitions><PropertyDefinition name="where" baseType="LOCATION" aspect.defaultValue="45.5,9.2,100"/><PropertyDefinition name="filter" baseType="QUERY" aspect.defaultValue="{&quot;b&quot;:1,&quot;a&quot;:2}"/></PropertyDefinitions></ThingShape></Thing>"#;
         let returned = br#"<Thing><ThingShape><PropertyDefinitions><PropertyDefinition name="where" baseType="LOCATION" aspect.defaultValue="45.5,9.2,100.0"/><PropertyDefinition name="filter" baseType="QUERY" aspect.defaultValue="{&quot;a&quot;:2,&quot;b&quot;:1}"/></PropertyDefinitions></ThingShape></Thing>"#;
         assert_eq!(hash(sent).unwrap(), hash(returned).unwrap());
+    }
+
+    #[test]
+    fn timespan_and_variant_defaults_compare_with_their_exported_form() {
+        let thing = |span: &str, any: &str| {
+            format!("<Thing><ThingShape><PropertyDefinitions><PropertyDefinition name=\"span\" baseType=\"TIMESPAN\" aspect.defaultValue=\"{span}\"/><PropertyDefinition name=\"any\" baseType=\"VARIANT\" aspect.defaultValue=\"{any}\"/></PropertyDefinitions></ThingShape></Thing>")
+        };
+        // As imported, and as a 10.2 server exported them (2026-10-30).
+        let sent = thing(",,00:00:00:01:00:00", "abc");
+        let exported = thing(
+            "{period=00:00:00:01:00:00}",
+            "{&quot;value&quot;:&quot;abc&quot;,&quot;baseType&quot;:&quot;STRING&quot;}",
+        );
+        let other = thing(",,00:00:00:02:00:00", "abc");
+        assert_eq!(
+            hash(sent.as_bytes()).unwrap(),
+            hash(exported.as_bytes()).unwrap()
+        );
+        assert_ne!(
+            hash(sent.as_bytes()).unwrap(),
+            hash(other.as_bytes()).unwrap()
+        );
+    }
+
+    #[test]
+    fn vector_values_compare_as_the_doubles_the_server_writes() {
+        let sent = br#"<Thing><ThingShape><PropertyDefinitions><PropertyDefinition name="v" baseType="VEC2" aspect.defaultValue="1,2"/></PropertyDefinitions></ThingShape><ThingProperties><v><Value>1,2</Value></v></ThingProperties></Thing>"#;
+        let stored = br#"<Thing><ThingShape><PropertyDefinitions><PropertyDefinition name="v" baseType="VEC2" aspect.defaultValue="1.0,2.0"/></PropertyDefinitions></ThingShape><ThingProperties><v><Value>1.0,2.0</Value></v></ThingProperties></Thing>"#;
+        let other = br#"<Thing><ThingShape><PropertyDefinitions><PropertyDefinition name="v" baseType="VEC2" aspect.defaultValue="1.0,3.0"/></PropertyDefinitions></ThingShape><ThingProperties><v><Value>1.0,2.0</Value></v></ThingProperties></Thing>"#;
+        assert_eq!(hash(sent).unwrap(), hash(stored).unwrap());
+        assert_ne!(hash(stored).unwrap(), hash(other).unwrap());
+    }
+
+    #[test]
+    fn stored_json_and_query_values_compare_with_sorted_keys() {
+        // As written, and as a 10.2 server stored them (2026-10-30).
+        let definitions = r#"<ThingShape><PropertyDefinitions><PropertyDefinition name="cfg" baseType="JSON" isPersistent="true"/><PropertyDefinition name="flt" baseType="QUERY" isPersistent="true"/></PropertyDefinitions></ThingShape>"#;
+        let thing = |cfg: &str, flt: &str| {
+            format!("<Thing>{definitions}<ThingProperties><cfg><Value><json><![CDATA[{cfg}]]></json></Value></cfg><flt><Value><json><![CDATA[{flt}]]></json></Value></flt></ThingProperties></Thing>")
+        };
+        let sent = thing(
+            r#"{"b":1,"a":{"d":2,"c":3}}"#,
+            r#"{"filters":{"type":"EQ","fieldName":"x"}}"#,
+        );
+        let stored = thing(
+            r#"{"a":{"c":3,"d":2},"b":1}"#,
+            r#"{"filters":{"fieldName":"x","type":"EQ"}}"#,
+        );
+        let other = thing(
+            r#"{"a":{"c":3,"d":2},"b":2}"#,
+            r#"{"filters":{"fieldName":"x","type":"EQ"}}"#,
+        );
+        assert_eq!(
+            hash(sent.as_bytes()).unwrap(),
+            hash(stored.as_bytes()).unwrap()
+        );
+        assert_ne!(
+            hash(stored.as_bytes()).unwrap(),
+            hash(other.as_bytes()).unwrap()
+        );
+    }
+
+    #[test]
+    fn infotable_rows_compare_by_their_own_data_shape() {
+        let thing = |n: &str, inner: &str| {
+            format!("<Thing><ThingProperties><tbl><Value><infoTable><DataShape><FieldDefinitions><FieldDefinition name=\"n\" baseType=\"NUMBER\"/><FieldDefinition name=\"t\" baseType=\"INFOTABLE\"/></FieldDefinitions></DataShape><Rows><Row><n>{n}</n><t><infoTable><DataShape><FieldDefinitions><FieldDefinition name=\"n\" baseType=\"STRING\"/></FieldDefinitions></DataShape><Rows><Row><n>{inner}</n></Row></Rows></infoTable></t></Row></Rows></infoTable></Value></tbl></ThingProperties></Thing>")
+        };
+        // As written, and as a 10.2 server stored it (2026-10-30).
+        assert_eq!(
+            hash(thing("10800000", "1").as_bytes()).unwrap(),
+            hash(thing("1.08E7", "1").as_bytes()).unwrap()
+        );
+        // The inner table's `n` is a STRING: `1` and `1.0` differ there.
+        assert_ne!(
+            hash(thing("1", "1").as_bytes()).unwrap(),
+            hash(thing("1", "1.0").as_bytes()).unwrap()
+        );
+    }
+
+    #[test]
+    fn a_nested_infotable_field_does_not_retype_the_table_field_of_its_name() {
+        let thing = |x: &str| {
+            format!("<Thing><ConfigurationTables><ConfigurationTable name=\"Settings\"><DataShape><FieldDefinitions><FieldDefinition name=\"x\" baseType=\"STRING\"/><FieldDefinition name=\"nested\" baseType=\"INFOTABLE\"/></FieldDefinitions></DataShape><Rows><Row><x>{x}</x><nested><infoTable><DataShape><FieldDefinitions><FieldDefinition name=\"x\" baseType=\"NUMBER\"/></FieldDefinitions></DataShape><Rows></Rows></infoTable></nested></Row></Rows></ConfigurationTable></ConfigurationTables></Thing>")
+        };
+        assert_ne!(
+            hash(thing("1").as_bytes()).unwrap(),
+            hash(thing("1.0").as_bytes()).unwrap()
+        );
     }
 
     #[test]

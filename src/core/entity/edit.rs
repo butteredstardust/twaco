@@ -19,6 +19,7 @@ use crate::core::scan::{self, Kind as TokenKind, Span, Token};
 use crate::core::sidecar::{self, ServiceSidecar};
 use crate::core::splice::{self, Edit};
 use crate::core::transaction::{Transaction, TransactionError};
+use crate::core::typed_default::{self, Timespan};
 use crate::core::types;
 use crate::core::workspace::{self, EntityFile};
 use serde_json::{json, Value};
@@ -270,36 +271,73 @@ fn invalid(why: impl std::fmt::Display) -> EditError {
     EditError::Invalid(why.to_string())
 }
 
-/// The base types a property may have. Anything else is refused rather than written.
-pub(crate) const BASE_TYPES: [&str; 28] = [
+/// The base types a property may have: the 10.2 platform's `BaseTypes` but NOTHING, which only a
+/// result has, and ANYSCALAR, which older servers' services use. Anything else is refused.
+pub(crate) const BASE_TYPES: [&str; 64] = [
+    "AIAGENTNAME",
     "ANYSCALAR",
+    "APPLICATIONKEYNAME",
     "BASETYPENAME",
     "BLOB",
     "BOOLEAN",
+    "CATEGORYNAME",
+    "DASHBOARDNAME",
     "DATASHAPENAME",
+    "DATATAGVOCABULARYNAME",
     "DATETIME",
+    "EVENTNAME",
+    "GROUPNAME",
     "GUID",
     "HTML",
     "HYPERLINK",
+    "IMAGE",
     "IMAGELINK",
     "INFOTABLE",
     "INTEGER",
     "JSON",
+    "LOCALIZATIONTABLENAME",
     "LOCATION",
     "LONG",
     "MASHUPNAME",
+    "MCPNAMESPACENAME",
+    "MEDIAENTITYNAME",
     "MENUNAME",
+    "MODELTAGVOCABULARYNAME",
+    "NETWORKNAME",
+    "NOTIFICATIONCONTENTNAME",
+    "NOTIFICATIONDEFINITIONNAME",
     "NUMBER",
+    "ORGANIZATIONNAME",
     "PASSWORD",
+    "PERMISSIONGROUPNAME",
+    "PERSISTENCEPROVIDERNAME",
+    "PERSISTENCEPROVIDERPACKAGENAME",
+    "PROJECTNAME",
+    "PROPERTYNAME",
     "QUERY",
+    "QUEUEPROVIDERNAME",
+    "QUEUEPROVIDERPACKAGENAME",
+    "ROLENAME",
+    "SCHEDULE",
+    "SERVICENAME",
+    "STATEDEFINITIONNAME",
     "STRING",
-    "STYLEDEFINITION",
+    "STYLEDEFINITIONNAME",
+    "STYLETHEMENAME",
     "TAGS",
     "TEXT",
+    "THINGCODE",
+    "THINGGROUPNAME",
     "THINGNAME",
     "THINGSHAPENAME",
     "THINGTEMPLATENAME",
+    "TIMESPAN",
     "USERNAME",
+    "VARIANT",
+    "VEC2",
+    "VEC3",
+    "VEC4",
+    "XML",
 ];
 
 /// Events every Thing has, besides the ones its template and shapes define.
@@ -616,15 +654,9 @@ impl Doc {
 
     /// An element's text: its CDATA payload, or its decoded text.
     fn text(&self, element: usize) -> Result<String, EditError> {
-        let inner = String::from_utf8_lossy(self.inner(element)?.of(&self.src)).into_owned();
-        let trimmed = inner.trim();
-        let payload = trimmed
-            .strip_prefix("<![CDATA[")
-            .and_then(|value| value.strip_suffix("]]>"));
-        Ok(match payload {
-            Some(payload) => payload.to_string(),
-            None => scan::decode_entities(trimmed),
-        })
+        let inner = self.inner(element)?.of(&self.src);
+        Ok(scan::content_text(inner)
+            .unwrap_or_else(|| scan::decode_entities(String::from_utf8_lossy(inner).trim())))
     }
 
     /// The whitespace before an element's start tag on its line.
@@ -944,7 +976,7 @@ impl Definition {
         let default = self
             .default
             .as_deref()
-            .map(|value| canonical_datetime(&self.base_type, value))
+            .map(|value| default_attribute(&self.base_type, value))
             .transpose()?;
         let optional = [
             ("aspect.units", &self.units),
@@ -1053,6 +1085,20 @@ impl Definition {
                 "BOOLEAN" => default == "true" || default == "false",
                 "JSON" | "QUERY" => serde_json::from_str::<Value>(default).is_ok(),
                 "DATETIME" => default.parse::<jiff::Timestamp>().is_ok(),
+                "TIMESPAN" => Timespan::parse(default).is_some(),
+                "VEC2" | "VEC3" | "VEC4" => {
+                    let wanted = usize::from(self.base_type.as_bytes()[3] - b'0');
+                    let parts: Vec<&str> = default.split(',').collect();
+                    parts.len() == wanted
+                        && parts
+                            .iter()
+                            .all(|part| part.trim().parse::<f64>().is_ok_and(f64::is_finite))
+                }
+                "VARIANT" => {
+                    return Err(invalid(
+                        "a VARIANT --default is refused: a 10.2 server imports it once, then fails every later import of the entity (String cannot be cast to StringPrimitive); give no --default",
+                    ))
+                }
                 "INFOTABLE" => false,
                 _ => true,
             };
@@ -1068,8 +1114,8 @@ impl Definition {
 
     /// The value a 10.1 server stores for this property in a Thing's `<ThingProperties>`: only a
     /// persistent property has one, its default or the type's (observed for every type here).
-    fn stored_value(&self) -> Result<Option<String>, EditError> {
-        if !self.persistent || self.base_type == "XML" {
+    fn stored_value(&self, found: &[EntityFile]) -> Result<Option<String>, EditError> {
+        if !self.persistent {
             return Ok(None);
         }
         let given = self.default.as_deref();
@@ -1082,20 +1128,104 @@ impl Definition {
                 None => "1970-01-01T00:00:00.000Z".into(),
             },
             "LOCATION" => given.unwrap_or("0.0,0.0,0.0").to_string(),
+            // The type defaults a 10.2 server stored (2026-10-30).
+            "VEC2" | "VEC3" | "VEC4" => match given {
+                Some(value) => value
+                    .split(',')
+                    .map(|part| java_double(part.trim()))
+                    .collect::<Vec<_>>()
+                    .join(","),
+                None => match self.base_type.as_str() {
+                    "VEC2" => "0.0,0.0",
+                    "VEC3" => "0.0,0.0,0.0",
+                    _ => "0.0,0.0,0.0,1.0",
+                }
+                .to_string(),
+            },
+            "THINGCODE" => given.unwrap_or("0:0").to_string(),
+            "TIMESPAN" => match given {
+                Some(value) => Timespan::parse(value)
+                    .ok_or_else(|| invalid(format!("--default {value:?} is not a TIMESPAN")))?
+                    .text(),
+                None => ",,00:00:00:00:01:00".to_string(),
+            },
+            // A persistent XML property is an empty element, with no Value, stamp or quality.
+            "XML" => return Ok(Some(NO_VALUE.to_string())),
+            // Whatever the default, the server stores an empty STRING variant (10.2, 2026-10-30).
+            "VARIANT" => "<value baseType=\"STRING\"/>".to_string(),
             "JSON" | "QUERY" => {
                 format!("<json>{}</json>", entity::new::cdata(given.unwrap_or("{}")))
             }
             "GUID" => entity::new::cdata(given.unwrap_or("00000000-0000-0000-0000-000000000000")),
-            "INFOTABLE" => {
-                return Err(invalid(
-                    "a persistent INFOTABLE property cannot match the server: a 10.1 import \
-                     re-stamps a stored infotable with the import time, every time; leave it \
-                     not persistent, or make it in Composer and pull it",
-                ))
-            }
+            // An empty infotable of the DataShape's fields; an import re-stamps it, which the
+            // hash ignores (observed on 10.1 and 10.2, 2026-10-30).
+            "INFOTABLE" => infotable_value(found, self.data_shape.as_deref().unwrap_or_default())?,
             _ => given.map(entity::new::cdata).unwrap_or_default(),
         };
         Ok(Some(value))
+    }
+}
+
+/// A persistent INFOTABLE property's stored value as the server writes it: the repository
+/// DataShape's own field definitions, one line, and no rows.
+fn infotable_value(found: &[EntityFile], shape: &str) -> Result<String, EditError> {
+    let refuse = |why: &str| {
+        invalid(format!(
+            "a persistent INFOTABLE property's stored value holds its DataShape's fields, and              DataShape {shape} {why}; make the property in Composer and pull it"
+        ))
+    };
+    let file = found
+        .iter()
+        .find(|file| file.info.collection == "DataShapes" && file.info.name == shape)
+        .ok_or_else(|| refuse("is not in the repository"))?;
+    let src = std::fs::read(&file.path)
+        .map_err(|error| invalid(format!("{}: {error}", file.path.display())))?;
+    let unreadable = |error: scan::ScanError| invalid(format!("{}: {error}", file.path.display()));
+    let tokens = scan::tokenize(&src).map_err(unreadable)?;
+    let tag = |token: &Token| matches!(token.kind, TokenKind::Start | TokenKind::Empty);
+    let host = tokens
+        .iter()
+        .position(|token| tag(token) && token.name.of(&src) == b"DataShape")
+        .ok_or_else(|| refuse("has no DataShape element"))?;
+    let base = scan::attribute(&src, &tokens[host], "baseDataShape").map_err(unreadable)?;
+    if base.is_some_and(|value| !value.is_empty()) {
+        return Err(refuse("inherits fields from another DataShape"));
+    }
+    let mut fields = String::new();
+    for index in scan::child_tags(&tokens, &src, "FieldDefinitions", host) {
+        for field in scan::child_tags(&tokens, &src, "FieldDefinition", index) {
+            let token = &tokens[field];
+            let mut attributes = scan::attributes(&src, token)
+                .map_err(unreadable)?
+                .into_iter()
+                .map(|attribute| {
+                    format!(
+                        "{}=\"{}\"",
+                        String::from_utf8_lossy(attribute.name.of(&src)),
+                        String::from_utf8_lossy(attribute.value.of(&src))
+                    )
+                })
+                .collect::<Vec<_>>();
+            attributes.sort();
+            fields.push_str(&format!("<FieldDefinition {}/>", attributes.join(" ")));
+        }
+    }
+    Ok(format!(
+        "<infoTable><DataShape><FieldDefinitions>{fields}</FieldDefinitions></DataShape><Rows/></infoTable>"
+    ))
+}
+
+/// `aspect.defaultValue` as an import reads it; see `typed_default` for the two types whose
+/// export writes another form.
+fn default_attribute(base_type: &str, value: &str) -> Result<String, EditError> {
+    match base_type {
+        "DATETIME" => canonical_datetime(base_type, value),
+        "TIMESPAN" | "VARIANT" => typed_default::importable(base_type, value).ok_or_else(|| {
+            invalid(format!(
+                "--default {value:?} is not a valid {base_type} value"
+            ))
+        }),
+        _ => Ok(value.to_string()),
     }
 }
 
@@ -1441,14 +1571,13 @@ fn java_double(text: &str) -> String {
     crate::core::number::java_text("NUMBER", text).unwrap_or_else(|| text.to_string())
 }
 
+/// A 10.2 server takes `order-id` and `ünï` but refuses a leading digit and a dot (2026-10-30).
 fn validate_member_name(name: &str) -> Result<(), EditError> {
     let mut chars = name.chars();
-    let first = chars
-        .next()
-        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_');
-    if !first || !chars.all(|c| c.is_ascii_alphanumeric() || c == '_') {
+    let first = chars.next().is_some_and(|c| c.is_alphabetic() || c == '_');
+    if !first || !chars.all(|c| c.is_alphanumeric() || c == '_' || c == '-') {
         return Err(invalid(format!(
-            "{name:?} is not a member name: letters, digits and _, not starting with a digit"
+            "{name:?} is not a member name: letters, digits, _ and -, not starting with a digit or -"
         )));
     }
     Ok(())
@@ -1496,7 +1625,7 @@ impl Edit2<'_> {
         };
         definition.merge(property);
         plan.warnings.extend(definition.validate(self.found)?);
-        let stored = definition.stored_value()?;
+        let stored = definition.stored_value(self.found)?;
         let after = append_child(doc, list, &definition.xml()?, 20)?;
         plan.summary = format!("add property {}:{}", definition.name, definition.base_type);
         let mut files = Files::new(doc, after);
@@ -1530,7 +1659,7 @@ impl Edit2<'_> {
         if retyped {
             self.guard_users(&property.name, force, "retype", plan)?;
         }
-        let stored = definition.stored_value()?;
+        let stored = definition.stored_value(self.found)?;
         let after = splice_all(&doc.src, attribute_edits(doc, element, &old, &definition)?)?;
         plan.summary = format!("set property {}", property.name);
         let model = Model::build(self.solution, self.found)?;
@@ -1902,7 +2031,7 @@ impl Edit2<'_> {
                 );
                 for element in elements {
                     let definition = Definition::read(shape_doc, element);
-                    if let Some(stored) = definition.stored_value()? {
+                    if let Some(stored) = definition.stored_value(self.found)? {
                         files.set_values(&model, &definition.name, Some(&stored))?;
                     }
                 }
@@ -2135,7 +2264,7 @@ pub(crate) fn with_inherited_stored_values(
                 scan::child_tags(&ancestor.tokens, &ancestor.src, "PropertyDefinition", list)
             {
                 let definition = Definition::read(&ancestor, element);
-                if let Some(stored) = definition.stored_value()? {
+                if let Some(stored) = definition.stored_value(&found)? {
                     let doc = Doc::parse(file.clone(), src)?;
                     src = set_stored_value(&doc, &definition.name, Some(&stored))?;
                 }
@@ -2209,7 +2338,13 @@ fn set_stored_value(doc: &Doc, property: &str, value: Option<&str>) -> Result<Ve
 }
 
 /// One stored value, as a 10.1 server writes it for a property it has just met.
+/// The stored value of a property the server writes as a bare `<name/>`.
+const NO_VALUE: &str = "\0";
+
 fn stored_entry(property: &str, value: &str) -> String {
+    if value == NO_VALUE {
+        return format!("<{property}/>");
+    }
     format!(
         "<{property}><Value>{value}</Value><Timestamp>1970-01-01T00:00:00.000Z</Timestamp>\
          <Quality>UNKNOWN</Quality></{property}>"
@@ -2349,10 +2484,7 @@ fn settings_set(
             "nothing to change: give a new value, --run-as, --enabled or --disabled",
         ));
     }
-    if change
-        .run_as
-        .is_some_and(|user| user.is_empty() || user.contains("]]>"))
-    {
+    if change.run_as.is_some_and(|user| user.is_empty()) {
         return Err(invalid("--run-as must be a user name"));
     }
     let tables = doc.only_child(doc.entity, "ConfigurationTables")?;
@@ -2472,9 +2604,6 @@ fn style_set(
     ];
     for (key, text) in texts {
         if let Some(text) = text {
-            if text.contains("]]>") {
-                return Err(invalid(format!("{key} cannot contain `]]>`")));
-            }
             object.insert(key.into(), Value::String(text.clone()));
             changed.push(key);
         }
@@ -2551,20 +2680,6 @@ fn menu_entries(doc: &Doc) -> Result<(usize, Vec<Entry>), EditError> {
                 doc.label()
             )));
         }
-        // A row repeats these as CDATA, which cannot hold its own terminator.
-        let values = [
-            "title",
-            "linkDestination",
-            "description",
-            "imageURL",
-            "linkTarget",
-        ];
-        if let Some(name) = values.iter().find(|name| get(name).contains("]]>")) {
-            return Err(invalid(format!(
-                "{} has an item whose {name} holds `]]>`; its effective-menu row cannot be written",
-                doc.label()
-            )));
-        }
         entries.push(Entry {
             element,
             title: get("title"),
@@ -2589,10 +2704,9 @@ fn menu_item_add(
 ) -> Result<(), EditError> {
     doc.require(&["Menus"], "menu item add changes a Menu")?;
     let (title, mashup, default) = item;
-    let bad = |text: &str| text.is_empty() || text.contains("]]>");
-    if bad(&title) || bad(&mashup) {
+    if title.is_empty() || mashup.is_empty() {
         return Err(invalid(
-            "a menu item is <Title>=<Mashup>, neither empty nor holding `]]>`",
+            "a menu item is <Title>=<Mashup>, and neither may be empty",
         ));
     }
     let known = found

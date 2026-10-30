@@ -29,6 +29,9 @@ pub struct EntityResult {
     pub error: Option<String>,
     pub(super) refusals: Vec<Refusal>,
     pub(super) ledger: Vec<LedgerLocation>,
+    /// The server's export, and the same without the defaults that close a cycle: the second is
+    /// imported before the deletes, the first again when the entity is not deleted after all.
+    pub(super) unlink: Option<(Vec<u8>, Vec<u8>)>,
 }
 
 impl EntityResult {

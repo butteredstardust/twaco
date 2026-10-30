@@ -221,6 +221,8 @@ pub(crate) fn build(files: &[PathBuf], selection: &Selection) -> Result<Bundle, 
 
     let bytes = (parts.join("\n") + "\n").into_bytes();
     verify(&bytes, &entities)?;
+    // What the server exported in another form than it imports is sent in the imported one.
+    let bytes = super::typed_default::importable_document(&bytes);
     Ok(Bundle {
         bytes,
         files: used,

@@ -1,16 +1,19 @@
-//! Profile-specific mashup values applied only to copies sent to or compared with a server.
+//! Profile-specific mashup values applied only to copies sent to or compared with a server, and
+//! the property defaults an import reads in another form than the server exports them.
 
 use super::config::Patch;
 use serde_json::Value;
 
-/// `bytes` with each of `patches` for this entity set in its `mashupContent`; the same bytes when
-/// none applies or nothing changes.
+/// `bytes` with each of `patches` for this entity set in its `mashupContent`, and TIMESPAN and
+/// VARIANT defaults in their imported form; the same bytes when nothing changes.
 pub(crate) fn apply(
     bytes: &[u8],
     collection: &str,
     name: &str,
     patches: &[Patch],
 ) -> Result<Vec<u8>, String> {
+    let importable = super::typed_default::importable_document(bytes);
+    let bytes = importable.as_slice();
     let selected: Vec<&Patch> = patches
         .iter()
         .filter(|patch| patch.entity == format!("{collection}/{name}"))
