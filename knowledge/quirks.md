@@ -437,6 +437,14 @@ without timestamp/quality. A persistent INFOTABLE value is an empty infoTable of
 field definitions, and every import re-stamps it; compared without the stamp it matches source
 (10.2, 2026-10-30).
 
+## TIMESPAN and VARIANT defaults do not round-trip
+
+A 10.2 import reads a TIMESPAN default as `start,end,period` and exports it as
+`{period=…, start=<ms>, end=<ms>}`; importing that exported form resets or garbles it. A VARIANT
+default imports once (exported as `{"value":…,"baseType":"STRING"}`), then every later import of
+the entity fails with `String cannot be cast to StringPrimitive` (2026-10-30). twaco sends the
+TIMESPAN import form and refuses VARIANT defaults.
+
 ## Additional import, entity, and REST observations
 
 For a missing dependency, the response is `406 Not Acceptable`. Nested shapes commonly carry

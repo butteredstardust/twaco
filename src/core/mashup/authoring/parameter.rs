@@ -146,11 +146,14 @@ pub(super) fn validate_parameter(
     direction: &str,
     data_shape: Option<&str>,
 ) -> Result<(), AuthoringError> {
-    if !name.as_bytes().first().is_some_and(u8::is_ascii_alphabetic) && !name.starts_with('_')
-        || !name.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_')
+    // A 10.2 server keeps `order-id`, `ünï` and `1st` as mashup parameters (2026-10-30).
+    if name.is_empty()
+        || !name
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
     {
         return Err(AuthoringError::Invalid(format!(
-            "parameter name {name:?} is not a valid identifier"
+            "parameter name {name:?} must be letters, digits, _ and -"
         )));
     }
     if matches!(name, "Entity" | "ConfigurationMashup") {
@@ -178,9 +181,13 @@ pub(super) fn validate_parameter(
 
 pub(super) fn default_value(base_type: &str, value: &str) -> Result<Value, AuthoringError> {
     match base_type {
-        "INFOTABLE" | "JSON" => Err(AuthoringError::Invalid(
-            "this parameter is structured; set it in Composer".into(),
+        "INFOTABLE" => Err(AuthoringError::Invalid(
+            "an INFOTABLE parameter's default is a table; set it in Composer".into(),
         )),
+        // A 10.2 server keeps a JSON default written as an object (2026-10-30).
+        "JSON" => serde_json::from_str::<Value>(value).map_err(|error| {
+            AuthoringError::Invalid(format!("--default {value:?} is not JSON: {error}"))
+        }),
         "BOOLEAN" => match value {
             "true" => Ok(json!(true)),
             "false" => Ok(json!(false)),
@@ -997,5 +1004,23 @@ mod tests {
         let plain = parse_new_parameter("Count:INTEGER:OUT").unwrap();
         assert_eq!(plain.data_shape, None);
         assert!(parse_new_parameter("Pos:VEC3").is_ok());
+        for name in ["order-id", "ünï", "1st"] {
+            assert!(
+                parse_new_parameter(&format!("{name}:STRING")).is_ok(),
+                "{name}"
+            );
+        }
+        assert_eq!(
+            default_value("JSON", r#"{"b":1}"#).unwrap(),
+            serde_json::json!({"b": 1})
+        );
+        assert!(default_value("JSON", "{nope").is_err());
+        assert!(default_value("INFOTABLE", "x").is_err());
+        for name in ["na.me", "a b", ""] {
+            assert!(
+                parse_new_parameter(&format!("{name}:STRING")).is_err(),
+                "{name:?}"
+            );
+        }
     }
 }

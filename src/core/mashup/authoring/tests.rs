@@ -2355,7 +2355,7 @@ fn parameter_requests_twaco_cannot_stand_behind_are_refused() {
         ErrorCode::AlreadyExists
     );
     assert_eq!(
-        code("1x", Some("STRING"), ParameterAction::Add),
+        code("na.me", Some("STRING"), ParameterAction::Add),
         ErrorCode::InvalidArguments
     );
     assert_eq!(

@@ -21,6 +21,10 @@ All notable changes to twaco are recorded here. The format follows
   deleted after all.
 - MCP `entity_new` creates `twaco.toml` for a first project in an empty root, as the CLI does.
 - `thing property add` checks that a VEC2-VEC4 default has that many numeric components.
+- The rows of an infotable value compare by its own DataShape's types: a server stores a NUMBER
+  cell `1` as `1.0`, which read back as "not kept".
+- Mashup parameters accept a JSON `--default`, and names holding `-`, non-ASCII letters or a
+  leading digit, all of which the server keeps.
 - Stored JSON and QUERY property values compare with their keys sorted, as the server stores
   them. Before this, a Thing with a persistent JSON or QUERY property whose keys were not in order
   read back as "not kept" after a deploy.

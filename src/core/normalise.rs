@@ -755,8 +755,10 @@ fn normalise_definition_aspects(element: &mut Element) {
     }
 }
 
+/// The rows of each ConfigurationTable and each `infoTable` value, typed by its own DataShape: a
+/// 10.2 server stores a NUMBER cell `1` of a persistent infotable as `1.0` (2026-10-30).
 fn normalise_configuration_tables(element: &mut Element) {
-    if element.name == b"ConfigurationTable" {
+    if element.name == b"ConfigurationTable" || element.name == b"infoTable" {
         let fields = table_fields(element);
         for child in &mut element.children {
             let Node::Element(rows) = child else {
@@ -1818,6 +1820,23 @@ mod tests {
         assert_ne!(
             hash(stored.as_bytes()).unwrap(),
             hash(other.as_bytes()).unwrap()
+        );
+    }
+
+    #[test]
+    fn infotable_rows_compare_by_their_own_data_shape() {
+        let thing = |n: &str, inner: &str| {
+            format!("<Thing><ThingProperties><tbl><Value><infoTable><DataShape><FieldDefinitions><FieldDefinition name=\"n\" baseType=\"NUMBER\"/><FieldDefinition name=\"t\" baseType=\"INFOTABLE\"/></FieldDefinitions></DataShape><Rows><Row><n>{n}</n><t><infoTable><DataShape><FieldDefinitions><FieldDefinition name=\"n\" baseType=\"STRING\"/></FieldDefinitions></DataShape><Rows><Row><n>{inner}</n></Row></Rows></infoTable></t></Row></Rows></infoTable></Value></tbl></ThingProperties></Thing>")
+        };
+        // As written, and as a 10.2 server stored it (2026-10-30).
+        assert_eq!(
+            hash(thing("10800000", "1").as_bytes()).unwrap(),
+            hash(thing("1.08E7", "1").as_bytes()).unwrap()
+        );
+        // The inner table's `n` is a STRING: `1` and `1.0` differ there.
+        assert_ne!(
+            hash(thing("1", "1").as_bytes()).unwrap(),
+            hash(thing("1", "1.0").as_bytes()).unwrap()
         );
     }
 
