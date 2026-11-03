@@ -6,6 +6,11 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Linux builds need glibc 2.39 or later (Ubuntu 24.04, Debian 13), from glibc 2.35 (Ubuntu
+  22.04). The builds run on Ubuntu 24.04, because GitHub deprecates its Ubuntu 22.04 runner.
+
 ## [0.1.52] - 2026-11-03
 
 ### Changed
