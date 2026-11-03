@@ -901,6 +901,7 @@ pub(crate) fn script_traps_with(
     let mut result = GateResult::passed("script traps", 0);
     for (path, source) in scripts(solution, &mut result) {
         result.examined += 1;
+        let mark = (result.findings.len(), result.warnings.len());
         let source = source.replace("\r\n", "\n");
         let mut directives = source
             .contains("twaco-lint-")
@@ -960,6 +961,7 @@ pub(crate) fn script_traps_with(
                 );
             }
         }
+        in_line_order(&mut result, mark);
     }
     result
 }
@@ -1038,6 +1040,7 @@ pub(crate) fn code_order_with(
     let mut result = GateResult::passed("code order", 0);
     for (path, source) in scripts(solution, &mut result) {
         result.examined += 1;
+        let mark = (result.findings.len(), result.warnings.len());
         let source = source.replace("\r\n", "\n");
         let mut directives = source
             .contains("twaco-lint-")
@@ -1081,8 +1084,16 @@ pub(crate) fn code_order_with(
                 );
             }
         }
+        in_line_order(&mut result, mark);
     }
     result
+}
+
+/// One script's findings in line order, from where `mark` says its findings start, so a
+/// directive's own finding reads where the directive is rather than after the rule findings.
+fn in_line_order(result: &mut GateResult, mark: (usize, usize)) {
+    result.findings[mark.0..].sort_by_key(|finding| finding.line);
+    result.warnings[mark.1..].sort_by_key(|finding| finding.line);
 }
 
 pub(crate) fn comment_budget_with(
@@ -2278,6 +2289,23 @@ name = \"P\"
                 .collect::<Vec<_>>(),
             ["indexed-rows"]
         );
+    }
+
+    #[test]
+    fn a_directive_finding_reads_in_line_order_with_the_rule_findings() {
+        let (_dir, root, solution) = live_solution();
+        std::fs::write(
+            root.join("src/P.T/services/Bad/script.js"),
+            "// twaco-lint-disable-next-line traps.nan-risk: nothing to hide\nresult = 1;\nfor (var key in map) {}\n",
+        )
+        .unwrap();
+        let traps = script_traps(&solution);
+        let lines: Vec<(usize, &str)> = traps
+            .findings
+            .iter()
+            .map(|finding| (finding.line, finding.rule.as_str()))
+            .collect();
+        assert_eq!(lines, [(1, "suppression"), (3, "for-in")]);
     }
 
     #[test]
