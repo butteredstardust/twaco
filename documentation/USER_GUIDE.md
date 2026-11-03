@@ -304,16 +304,17 @@ without it, each gate gives a summary.
 
 `twaco lint` runs the formatting, script-trap, code-order and enabled comment rules, reporting each
 finding at the configured rule severity. Narrow it with `--entity <Collection/Name-glob>` or
-`--service <glob>`, select a rule or a group (`format`, `traps`, `order`, `comments`) with
-`--rule`, and use `--explain` to read the reason for a rule. `--print-config` shows every resolved severity and where it came
-from. `--json` writes JSON Lines findings only, so it is suitable as a `[[check]]` command. Unlike
-`check`, `[gates].advisory` does not apply: lint reports the configured rule severity directly. With
-`house-v1`, comment budget and prose checks use the configured house style; select all prose rules
-with `--rule comments.prose`, and tune their thresholds and word lists in `[lint.rules]`. The
-comment-header rules also hold the leading JSDoc to `definition.xml`; `twaco lint fix-headers`
-shows contract repairs, and `twaco lint fix-headers --apply` writes them to sidecar `script.js`
-files, moving each existing tag whole and generating only what is missing (see
-[Configuration](CONFIGURATION.md#service-headers)). `twaco sync` then writes them into the XML.
+`--service <glob>`, select a rule or a group (`format`, `traps`, `order`, `comments`) with `--rule`,
+and use `--explain` to read the reason for a rule. `--print-config` shows every resolved severity
+and where it came from. `--json` writes JSON Lines findings only, so it is suitable as a `[[check]]`
+command. Unlike `check`, `[gates].advisory` does not apply: lint reports the configured rule
+severity directly. With `house-v1`, comment budget and prose checks use the configured house style;
+select all prose rules with `--rule comments.prose`, and tune their thresholds and word lists in
+`[lint.rules]`. The comment-header rules also hold the leading JSDoc to `definition.xml`; `twaco
+lint fix-headers` shows contract repairs, and `twaco lint fix-headers --apply` writes them to
+sidecar `script.js` files, correcting `@function`, moving each existing tag whole and generating
+only what is missing (see [Configuration](CONFIGURATION.md#service-headers)). `twaco sync` then
+writes them into the XML.
 
 #### Adopting house-v1 in an existing solution
 

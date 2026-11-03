@@ -211,12 +211,16 @@ fn per_line_rules(lines: &[&str], whole: &str) -> Vec<Trap> {
     traps
 }
 
+/// A wrapped condition longer than this is not one the formatter wrote.
+const CONDITION_LINES: usize = 64;
+
 /// The parenthesised condition that opens the first line, whole even when a narrow
 /// `[format.script] line_width` has wrapped it over several lines.
 fn condition(lines: &[&str]) -> String {
     let mut text = String::new();
     let mut depth = 0usize;
-    for line in lines {
+    // Bounded, so a script of unclosed `while (` lines is not read to its end once per line.
+    for line in lines.iter().take(CONDITION_LINES) {
         for c in line.chars() {
             text.push(c);
             match c {
@@ -780,6 +784,9 @@ mod tests {
             vec!["unbounded-loop"]
         );
         assert!(rules("while (false) {\n    never();\n}\n").is_empty());
+        // Unclosed conditions on every line: each is read a bounded way, not to the end.
+        let unclosed = "while (\n".repeat(20_000);
+        assert_eq!(rules(&unclosed).len(), 20_000);
         // A `(` in a string never balances; the rules still finish.
         assert!(rules("for (const c of \"a(b\") {\n    use(c);\n}").is_empty());
         // The same loop as a narrow line width wraps it.

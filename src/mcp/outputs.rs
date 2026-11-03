@@ -204,6 +204,8 @@ struct LintExplained {
     summary: String,
     severity: String,
     origin: String,
+    /// `[gates] advisory` names the rule's gate, so `check` reports it without failing.
+    advisory: bool,
 }
 
 #[derive(Serialize, JsonSchema)]

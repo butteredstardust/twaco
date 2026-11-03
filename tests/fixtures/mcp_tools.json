@@ -595,6 +595,10 @@
               },
               "origin": {
                 "type": "string"
+              },
+              "advisory": {
+                "description": "`[gates] advisory` names the rule's gate, so `check` reports it without failing.",
+                "type": "boolean"
               }
             },
             "required": [
@@ -602,7 +606,8 @@
               "gate",
               "summary",
               "severity",
-              "origin"
+              "origin",
+              "advisory"
             ]
           }
         },

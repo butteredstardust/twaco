@@ -449,19 +449,19 @@ A service script starts with a JSDoc header that its `definition.xml` holds it t
 alphabetically, so the order is the attribute's), and one `@returns`, which names the full
 DataShape when the result has one. The first statement follows the header directly.
 
-When the contract rule is on, `entity edit ... service add` writes the header for a new service
-from its definition: the description as prose, then `@function`, `@param {type} name -
-description` lines and `@returns`. `twaco lint fix-headers` plans the same repair for existing
-scripts and `--apply` writes it under the workspace lock. It moves each existing tag whole, with
-its text as written, generates only what is missing, removes a `@param` that names no input, and
-never rewrites prose; a comment above the first statement or a line too long is reported for a
-person to fix. Services whose contract rule is off are left alone. Run `twaco sync` afterwards to
-write the scripts into the entity XML.
+When the contract rule is on, `entity edit ... service add` writes the header for a new service from
+its definition: the description as prose, then `@function`, `@param {type} name - description` lines
+and `@returns`. `twaco lint fix-headers` plans the same repair for existing scripts and `--apply`
+writes it under the workspace lock. It sets `@function` to the service's name and otherwise moves
+each existing tag whole, with its text as written, generates only what is missing, removes a
+`@param` that names no input, and never rewrites prose; a comment above the first statement or a
+line too long is reported for a person to fix. Services whose contract rule is off are left alone.
+Run `twaco sync` afterwards to write the scripts into the entity XML.
 
 | Rule option | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `comments.budget.jsdoc-prose.max_lines` | integer ≥ 0 | `2` | Header prose lines allowed before tags. |
-| `comments.budget.line-run.max_lines` | integer ≥ 1 | `2` | Consecutive `//` lines allowed. |
+| `comments.budget.line-run.max_lines` | integer ≥ 1 | `2` | `//` lines allowed in one run; a blank line does not end a run, code does. |
 | `comments.budget.ratio.max_ratio` | float 0–1 | `0.40` | Largest comment share. |
 | `comments.budget.ratio.min_code_lines` | integer ≥ 0 | `15` | Code lines needed before judging the ratio. |
 | `comments.prose.length.instruction_max_words` | integer ≥ 1 | `20` | Word cap for imperative sentences. |

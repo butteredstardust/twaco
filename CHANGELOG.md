@@ -24,8 +24,9 @@ All notable changes to twaco are recorded here. The format follows
   narrowed by `--entity`, `--service` and `--rule`; `--json` prints JSON Lines, `--explain` says
   why a rule exists and `--print-config` where each severity comes from. MCP `lint` does the same.
 - `twaco lint fix-headers [--apply]` (MCP `lint_fix_headers`, a dry run by default) repairs
-  service headers from definition.xml, moving each existing tag whole and generating only what is
-  missing. `entity edit ... service add` writes the header for a new service when the rule is on.
+  service headers from definition.xml, correcting `@function`, moving each existing tag whole and
+  generating only what is missing. `entity edit ... service add` writes the header for a new
+  service when the rule is on.
 - `// twaco-lint-disable-next-line <rule>: <reason>` and `twaco-lint-disable` / `-enable`
   suppress a named script-trap or code-order finding; a malformed directive, or one that
   suppresses nothing, is reported.
