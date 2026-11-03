@@ -45,6 +45,26 @@ pub(crate) struct CheckRequest {
 
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct LintRequest {
+    /// Collection/Name glob.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) entity: Absent<String>,
+    /// Service folder glob.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) service: Absent<String>,
+    /// Full rule ids or groups (format, traps, order).
+    #[serde(default)]
+    pub(crate) rules: Vec<String>,
+    /// Explain one rule id or group instead of running lint.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) explain: Absent<String>,
+    /// Return the resolved severity and its source for every rule.
+    #[serde(default)]
+    pub(crate) print_config: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct SyncRequest {
     /// One entity, full name or its last dotted segment. Name one or more (entity, entities), or pass all: true.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]

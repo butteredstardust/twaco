@@ -309,6 +309,13 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             source::check_tool,
         )
         .with_output::<outputs::CheckResult>(),
+        solution_tool::<source_requests::LintRequest>(
+            "lint",
+            "Run the configurable formatting, script-trap and code-order rules without changing the workspace. entity and service narrow reported scripts; rules accepts full ids or format, traps and order. explain gives rule summaries and resolved severity; print_config gives every rule's severity and origin. [gates].advisory does not apply to lint.",
+            true,
+            source::lint_tool,
+        )
+        .with_output::<outputs::LintResult>(),
         solution_progress_tool::<entity_requests::StatusRequest>(
             "status",
             "Compare entities with the server and the recorded baseline: in-sync, local-changed, server-changed, both-changed, not-on-server, or no baseline yet. Lists every entity that needs attention.",
@@ -962,6 +969,7 @@ pub(crate) const GROUPS: &[(&str, &[&str])] = &[
             "projects",
             "types",
             "check",
+            "lint",
             "status",
             "sync",
             "extract",

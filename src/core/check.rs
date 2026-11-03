@@ -805,7 +805,7 @@ fn formatting(solution: &Solution) -> GateResult {
     formatting_with(solution, &discovered, &solution.effective_lint())
 }
 
-fn formatting_with(
+pub(crate) fn formatting_with(
     solution: &Solution,
     discovered: &workspace::Discovery,
     lint: &EffectiveLint<'_>,
@@ -868,7 +868,7 @@ fn script_traps(solution: &Solution) -> GateResult {
     script_traps_with(solution, &discovered, &solution.effective_lint())
 }
 
-fn script_traps_with(
+pub(crate) fn script_traps_with(
     solution: &Solution,
     discovered: &workspace::Discovery,
     lint: &EffectiveLint<'_>,
@@ -1005,7 +1005,7 @@ fn code_order(solution: &Solution) -> GateResult {
     code_order_with(solution, &discovered, &solution.effective_lint())
 }
 
-fn code_order_with(
+pub(crate) fn code_order_with(
     solution: &Solution,
     discovered: &workspace::Discovery,
     lint: &EffectiveLint<'_>,
@@ -1060,7 +1060,7 @@ fn code_order_with(
     result
 }
 
-fn script_entity<'a>(
+pub(crate) fn script_entity<'a>(
     solution: &Solution,
     discovered: &'a workspace::Discovery,
     path: &Path,
@@ -1614,7 +1614,7 @@ pub(crate) fn parse_finding(gate: &str, line: &str) -> Option<Finding> {
 }
 
 /// A path as the user would recognise it: relative to the solution when it is inside one.
-fn relative(solution: &Solution, path: &Path) -> String {
+pub(crate) fn relative(solution: &Solution, path: &Path) -> String {
     path.strip_prefix(&solution.root)
         .unwrap_or(path)
         .display()

@@ -58,6 +58,7 @@ pub mod layout;
 pub(crate) mod ledger;
 pub(crate) mod links;
 pub(crate) mod lint;
+pub mod lint_report;
 pub mod localization;
 pub mod lock;
 pub mod logs;

@@ -1,6 +1,7 @@
 use super::entity::{refusal_code, tool_targets};
 use super::requests::source::{
-    CheckRequest, DeployRequest, ExtractRequest, FmtRequest, SyncRequest, TypesAction, TypesRequest,
+    CheckRequest, DeployRequest, ExtractRequest, FmtRequest, LintRequest, SyncRequest, TypesAction,
+    TypesRequest,
 };
 use super::{
     add_notices, check, client, commands, deploy, json, push, relative, server, types, Mode,
@@ -186,6 +187,58 @@ pub(crate) fn check_tool(
         }
     }
     Ok(result)
+}
+
+pub(crate) fn lint_tool(solution: &Solution, request: LintRequest) -> Result<Value, ToolError> {
+    let explain = request.explain.as_ref();
+    if (explain.is_some() && (request.print_config || !request.rules.is_empty()))
+        || (request.print_config && !request.rules.is_empty())
+    {
+        return Err(ToolError::invalid(
+            "explain and print_config are mutually exclusive and neither may be combined with rules",
+        ));
+    }
+    if let Some(id) = explain {
+        let rules = crate::core::lint_report::explain(solution, id).map_err(ToolError::invalid)?;
+        return Ok(json!({
+            "summary": format!("{} rule(s) explained", rules.len()),
+            "explain": rules,
+        }));
+    }
+    if request.print_config {
+        let config = crate::core::lint_report::effective_config(
+            solution,
+            request.entity.as_ref().map(String::as_str),
+            request.service.as_ref().map(String::as_str),
+        );
+        return Ok(json!({
+            "summary": format!("{} rule(s) configured", config.len()),
+            "config": config,
+        }));
+    }
+    let report = crate::core::lint_report::run(
+        solution,
+        &crate::core::lint_report::LintRequest {
+            entity: request.entity.as_ref().cloned(),
+            service: request.service.as_ref().cloned(),
+            rules: request.rules,
+        },
+    )
+    .map_err(ToolError::invalid)?;
+    let errors = report
+        .findings
+        .iter()
+        .filter(|finding| finding.severity == "error")
+        .count();
+    let warnings = report.findings.len() - errors;
+    Ok(json!({
+        "summary": format!("{errors} error(s), {warnings} warning(s) in {} script(s)", report.examined),
+        "examined": report.examined,
+        "errors": errors,
+        "warnings": warnings,
+        "findings": report.findings,
+        "broken": report.broken,
+    }))
 }
 
 pub(crate) fn sync_tool(solution: &Solution, arguments: SyncRequest) -> Result<Value, ToolError> {

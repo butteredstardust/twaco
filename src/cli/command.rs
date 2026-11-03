@@ -36,6 +36,7 @@ pub(crate) enum Command {
     Sync(super::source::Sync),
     Fmt(super::source::Fmt),
     Check(super::source::Check),
+    Lint(super::lint::Lint),
     Types(super::source::Types),
     Users(super::users::Users),
     #[command(name = "appkey")]
@@ -129,6 +130,7 @@ impl Command {
             Command::Sync(_) => "sync",
             Command::Fmt(_) => "fmt",
             Command::Check(_) => "check",
+            Command::Lint(_) => "lint",
             Command::Types(_) => "types",
             Command::Users(_) => "users",
             Command::AppKey(_) => "appkey",
@@ -241,6 +243,7 @@ impl Command {
             | Command::Widgets(_)
             | Command::Fmt(_)
             | Command::Check(_)
+            | Command::Lint(_)
             | Command::Types(_)
             | Command::Users(_)
             | Command::AppKey(_)

@@ -419,6 +419,7 @@ A malformed directive, or one that suppresses nothing, is itself reported.
 | `order.suppression` | code order |
 
 `[gates].advisory` still makes its whole gate report-only, whatever the rule severities say.
+Run `twaco lint --print-config` to see each rule's resolved severity and where it came from.
 With a `[lint]` table, a `[[check]]` hook cannot use the name of a lint gate that the table
 enables (`formatting`, `script traps`, or `code order`); rename or remove that hook. Without one,
 every hook name that loaded before still loads.

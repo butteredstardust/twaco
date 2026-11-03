@@ -231,16 +231,32 @@ pub(crate) struct LintRule {
 /// last matching selector wins, without a hidden specificity rule.
 pub(crate) struct EffectiveLint<'a> {
     base: BTreeMap<&'static str, Severity>,
+    origins: BTreeMap<&'static str, String>,
     overrides: &'a [LintOverride],
 }
 
 impl<'a> EffectiveLint<'a> {
     pub(crate) fn severity(&self, id: &str, entity: Option<&str>, service: &str) -> Severity {
+        self.severity_with_origin(id, entity, service).0
+    }
+
+    /// Resolve a severity with the last configuration source that set it.
+    pub(crate) fn severity_with_origin(
+        &self,
+        id: &str,
+        entity: Option<&str>,
+        service: &str,
+    ) -> (Severity, String) {
         let mut severity = self.base.get(id).copied().unwrap_or(Severity::Off);
+        let mut origin = self
+            .origins
+            .get(id)
+            .cloned()
+            .unwrap_or_else(|| "checks-v1 (default)".to_string());
         let Some(entity) = entity else {
-            return severity;
+            return (severity, origin);
         };
-        for override_ in self.overrides {
+        for (number, override_) in self.overrides.iter().enumerate() {
             if super::glob::matches(&override_.entity, entity)
                 && override_
                     .service
@@ -249,10 +265,16 @@ impl<'a> EffectiveLint<'a> {
             {
                 if let Some(rule) = override_.rules.get(id).and_then(|rule| rule.severity) {
                     severity = rule;
+                    origin = format!(
+                        "[[lint.override]] #{} (entity = {}, service = {})",
+                        number + 1,
+                        override_.entity,
+                        override_.service.as_deref().unwrap_or("*")
+                    );
                 }
             }
         }
-        severity
+        (severity, origin)
     }
 
     /// Whether any rule of the gate can report, here or for an entity an override names.
@@ -929,6 +951,10 @@ impl Solution {
             .iter()
             .map(|rule| (rule.id, Severity::Off))
             .collect::<BTreeMap<_, _>>();
+        let mut origins = super::rules::RULES
+            .iter()
+            .map(|rule| (rule.id, "checks-v1 (default)".to_string()))
+            .collect::<BTreeMap<_, _>>();
         if let Some(lint) = &self.lint {
             let presets: Vec<&str> = lint.extends.as_ref().map_or_else(
                 || vec!["checks-v1"],
@@ -940,6 +966,7 @@ impl Solution {
                         rule.id,
                         super::rules::preset(preset, rule).expect("validated lint preset"),
                     );
+                    origins.insert(rule.id, preset.to_string());
                 }
             }
             for (id, rule) in &lint.rules {
@@ -948,10 +975,15 @@ impl Solution {
                         super::rules::by_id(id).expect("validated lint rule").id,
                         severity,
                     );
+                    origins.insert(
+                        super::rules::by_id(id).expect("validated lint rule").id,
+                        "[lint.rules]".to_string(),
+                    );
                 }
             }
             EffectiveLint {
                 base,
+                origins,
                 overrides: &lint.overrides,
             }
         } else {
@@ -960,6 +992,7 @@ impl Solution {
             }
             EffectiveLint {
                 base,
+                origins,
                 overrides: &[],
             }
         }
@@ -1162,6 +1195,38 @@ name = "P"
                 .severity("format.unformatted", None, ""),
             Severity::Off
         );
+    }
+
+    #[test]
+    fn lint_origin_records_the_last_matching_source() {
+        let configured = solution(
+            r#"[lint]
+extends = ["traps-only-v1"]
+[lint.rules."traps.for-in"]
+severity = "warn"
+[[lint.override]]
+entity = "Things/P.*"
+service = "Run"
+[lint.override.rules."traps.for-in"]
+severity = "error"
+[[project]]
+name = "P"
+"#,
+        )
+        .unwrap();
+        let lint = configured.effective_lint();
+        assert_eq!(
+            lint.severity_with_origin("format.unformatted", None, "").1,
+            "traps-only-v1"
+        );
+        assert_eq!(
+            lint.severity_with_origin("traps.for-in", None, "").1,
+            "[lint.rules]"
+        );
+        assert!(lint
+            .severity_with_origin("traps.for-in", Some("Things/P.T"), "Run")
+            .1
+            .starts_with("[[lint.override]] #1"));
     }
 
     #[test]

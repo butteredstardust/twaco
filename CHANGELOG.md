@@ -8,6 +8,8 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- `twaco lint` and the read-only MCP `lint` tool report configurable script rules, explain their
+  summaries and show each resolved severity's origin.
 - `[lint]` configures formatting, script-trap and code-order rules with versioned presets,
   per-entity/service overrides, warning severity and doctor reporting.
 - Service scripts can suppress named script lint findings inline with a required reason; malformed

@@ -176,6 +176,45 @@ pub(crate) struct CheckResult {
 }
 
 #[derive(Serialize, JsonSchema)]
+pub(crate) struct LintResult {
+    summary: String,
+    examined: Option<u64>,
+    errors: Option<u64>,
+    warnings: Option<u64>,
+    findings: Option<Vec<LintFinding>>,
+    broken: Option<Vec<String>>,
+    explain: Option<Vec<LintExplained>>,
+    config: Option<Vec<LintEffective>>,
+}
+
+#[derive(Serialize, JsonSchema)]
+struct LintFinding {
+    gate: String,
+    file: String,
+    line: u64,
+    rule: String,
+    severity: String,
+    message: String,
+}
+
+#[derive(Serialize, JsonSchema)]
+struct LintExplained {
+    id: String,
+    gate: String,
+    summary: String,
+    severity: String,
+    origin: String,
+}
+
+#[derive(Serialize, JsonSchema)]
+struct LintEffective {
+    rule: String,
+    gate: String,
+    severity: String,
+    origin: String,
+}
+
+#[derive(Serialize, JsonSchema)]
 struct GateEntry {
     gate: String,
     examined: u64,

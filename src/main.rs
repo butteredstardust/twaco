@@ -39,6 +39,7 @@ use cli::info::{
     catalog_cmd, docs_cmd, guide_cmd, help_cmd, impact_cmd, javadoc_cmd, settings_cmd, unused_cmd,
     update_cmd, write_agent_files,
 };
+use cli::lint::lint;
 use cli::localization::localization_cmd;
 use cli::mashup::{
     mashup_add_cmd, mashup_add_contained_cmd, mashup_bind_cmd, mashup_describe_cmd,
@@ -201,6 +202,7 @@ fn dispatch(command: Command) -> u8 {
         Command::Sync(sync) => run(|solution| sync_cmd(solution, &sync)),
         Command::Fmt(command) => run(|solution| fmt(solution, &command)),
         Command::Check(command) => run(|solution| check(solution, &command)),
+        Command::Lint(command) => run(|solution| lint(solution, &command)),
         Command::Users(users) => run(|solution| users_cmd(solution, &users)),
         Command::AppKey(appkey) => run(|solution| appkey_cmd(solution, &appkey)),
         Command::Test(test) => run(|solution| test_cmd(solution, &test)),

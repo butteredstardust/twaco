@@ -300,6 +300,15 @@ Both commands work through MCP as `requirements_init` (dry run by default) and `
 with `gate = false` reports its findings without failing the run. `--detail` lists every finding;
 without it, each gate gives a summary.
 
+### Focused script lint
+
+`twaco lint` runs just formatting, script-trap and code-order rules, reporting each finding at
+the configured rule severity. Narrow it with `--entity <Collection/Name-glob>` or `--service
+<glob>`, select a rule or `format`, `traps` or `order` with `--rule`, and use `--explain` to read
+the reason for a rule. `--print-config` shows every resolved severity and where it came from.
+`--json` writes JSON Lines findings only, so it is suitable as a `[[check]]` command. Unlike
+`check`, `[gates].advisory` does not apply: lint reports the configured rule severity directly.
+
 | Gate | Fails when |
 | --- | --- |
 | line endings | a file mixes CRLF and LF, which is a tool's half-rewrite. Files the solution's own `.gitignore` files match are skipped (patterns only: a tracked file that matches one is skipped too), and so is anything a `.ignore` file lists, for tracked files kept verbatim such as raw exports. Ignore files above the solution and global excludes do not count |

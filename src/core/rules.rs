@@ -7,7 +7,6 @@ pub(crate) struct Rule {
     pub(crate) id: &'static str,
     pub(crate) gate: &'static str,
     pub(crate) rule: &'static str,
-    #[allow(dead_code)] // used by the forthcoming `lint --explain` command.
     pub(crate) summary: &'static str,
 }
 
@@ -16,55 +15,55 @@ pub(crate) const RULES: &[Rule] = &[
         id: "format.unformatted",
         gate: "formatting",
         rule: "unformatted",
-        summary: "The script differs from twaco's formatter output.",
+        summary: "The script is not laid out as `twaco fmt` would write it.",
     },
     Rule {
         id: "format.will-not-parse",
         gate: "formatting",
         rule: "will-not-parse",
-        summary: "The formatter cannot parse the script.",
+        summary: "The script does not parse as JavaScript.",
     },
     Rule {
         id: "traps.const-in-loop",
         gate: "script traps",
         rule: "const-in-loop",
-        summary: "A loop declares a constant on every iteration.",
+        summary: "A const declared in a loop body keeps its first value on every later iteration.",
     },
     Rule {
         id: "traps.const-redeclared",
         gate: "script traps",
         rule: "const-redeclared",
-        summary: "A constant is redeclared in the same scope.",
+        summary: "A name declared twice in one function fails the whole service to compile; const and let are function-scoped here.",
     },
     Rule {
         id: "traps.for-in",
         gate: "script traps",
         rule: "for-in",
-        summary: "A for-in loop can visit inherited properties.",
+        summary: "for..in is a syntax error in the ThingWorx script engine.",
     },
     Rule {
         id: "traps.indexed-rows",
         gate: "script traps",
         rule: "indexed-rows",
-        summary: "An InfoTable row is indexed directly.",
+        summary: "Indexing an InfoTable's rows.toArray() by a loop variable re-reads the first row.",
     },
     Rule {
         id: "traps.nan-risk",
         gate: "script traps",
         rule: "nan-risk",
-        summary: "A row value can become NaN.",
+        summary: "Number(x) written straight into a row is NaN when x is absent, which fails the whole service.",
     },
     Rule {
         id: "traps.read-before-assign",
         gate: "script traps",
         rule: "read-before-assign",
-        summary: "A value is read before it is assigned.",
+        summary: "A top-level statement reads a name that only a later statement fills in.",
     },
     Rule {
         id: "traps.unbounded-loop",
         gate: "script traps",
         rule: "unbounded-loop",
-        summary: "A loop has no evident terminating condition.",
+        summary: "A while loop can pin a platform thread if its body ever fails to advance.",
     },
     Rule {
         id: "traps.suppression",
@@ -76,13 +75,13 @@ pub(crate) const RULES: &[Rule] = &[
         id: "order.main-code-below-a-helper",
         gate: "code order",
         rule: "main-code-below-a-helper",
-        summary: "Main code appears below a helper function.",
+        summary: "Main code sits below the first helper function, so the service reads out of order.",
     },
     Rule {
         id: "order.declaration-between-helpers",
         gate: "code order",
         rule: "declaration-between-helpers",
-        summary: "A declaration sits between helper functions.",
+        summary: "A declaration between helper functions is not hoisted, so code above it reads undefined.",
     },
     Rule {
         id: "order.suppression",
