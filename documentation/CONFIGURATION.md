@@ -454,8 +454,9 @@ its definition: the description as prose, then `@function`, `@param {type} name 
 and `@returns`. `twaco lint fix-headers` plans the same repair for existing scripts and `--apply`
 writes it under the workspace lock. It sets `@function` to the service's name and otherwise moves
 each existing tag whole, with its text as written, generates only what is missing, removes a
-`@param` that names no input, and never rewrites prose; a comment above the first statement or a
-line too long is reported for a person to fix. Services whose contract rule is off are left alone.
+`@param` that names no input and a second `@returns`, and never rewrites prose; a comment above the
+first statement or a line too long is reported for a person to fix. Services whose contract rule
+is off are left alone.
 Run `twaco sync` afterwards to write the scripts into the entity XML.
 
 | Rule option | Type | Default | Meaning |

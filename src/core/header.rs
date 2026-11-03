@@ -535,6 +535,13 @@ pub(crate) fn repair(
 
     let returns = (0..groups.len())
         .find(|&index| !used[index] && matches!(groups[index].name.as_str(), "returns" | "return"));
+    // The contract is one @returns; a second is dropped, as a second @function is.
+    for index in 0..groups.len() {
+        if Some(index) != returns && matches!(groups[index].name.as_str(), "returns" | "return") {
+            used[index] = true;
+            repair.changes.push("removed a second @returns".to_string());
+        }
+    }
     let returns_text = match returns {
         Some(index) => {
             used[index] = true;
@@ -804,6 +811,23 @@ mod tests {
             .fixed
             .unwrap()
             .contains(" * @returns {Object} An InfoTable shaped by Acme.Rows.\n"));
+    }
+
+    #[test]
+    fn repair_keeps_one_returns_and_its_result_passes_the_gate() {
+        let source = "/**\n * @function Run\n * @param {number} a -\n * @param {string} b -\n * @returns {Object} Acme.Rows\n * @return {Object} again\n */\ngo();";
+        let repaired = fixed(source);
+        assert_eq!(repaired.changes, ["removed a second @returns"]);
+        let text = repaired.fixed.unwrap();
+        assert!(!text.contains("again"), "{text}");
+        assert!(findings(
+            &text,
+            "Run",
+            Some(&sample_definition()),
+            &HeaderPolicy::default()
+        )
+        .is_empty());
+        assert_eq!(fixed(&text).fixed, None);
     }
 
     #[test]
