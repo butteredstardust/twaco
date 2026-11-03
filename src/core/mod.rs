@@ -86,6 +86,7 @@ pub mod reproject;
 pub mod requirements;
 pub(crate) mod result_shape;
 pub mod retemplate;
+pub(crate) mod rules;
 pub mod scan;
 pub mod script;
 pub mod search;

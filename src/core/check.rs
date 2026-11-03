@@ -5,7 +5,7 @@
 //! file. Structured findings keep large check results compact and machine-readable.
 
 use super::child::{credential_values, redact, run_to_completion, strip_credentials};
-use super::config::Solution;
+use super::config::{EffectiveLint, Severity, Solution};
 use super::progress::{self, Progress};
 use super::{agents_check, bindings, fmt as format_js, network, structure, sync, types, workspace};
 use std::collections::{BTreeMap, BTreeSet};
@@ -51,6 +51,8 @@ pub struct GateResult {
     /// What the gate looked at, for a summary line that means something.
     pub examined: usize,
     pub findings: Vec<Finding>,
+    /// Configured report-only lint findings. They are informational and never block a run.
+    pub warnings: Vec<Finding>,
     /// Whatever the gate printed that was not a finding. Kept so a passing hook's own summary
     /// -- "123 scripts, 0 failing" -- stays readable rather than being silently discarded.
     pub prose: Vec<String>,
@@ -68,6 +70,7 @@ impl GateResult {
             name: name.to_string(),
             examined,
             findings: Vec::new(),
+            warnings: Vec::new(),
             prose: Vec::new(),
             broken: None,
             skipped: None,
@@ -164,13 +167,14 @@ fn as_configured(solution: &Solution, mut gate: GateResult) -> GateResult {
 pub fn run(solution: &Solution) -> CheckReport {
     let discovery = workspace::discover(solution);
     let (model, _) = types::load_model(solution);
+    let lint = solution.effective_lint();
     let mut report = CheckReport::default();
     for gate in [
         line_endings(solution),
         sidecars_in_sync(solution, &discovery),
-        formatting(solution),
-        script_traps(solution),
-        code_order(solution),
+        formatting_with(solution, &discovery, &lint),
+        script_traps_with(solution, &discovery, &lint),
+        code_order_with(solution, &discovery, &lint),
         project_validation(solution, &discovery),
         project_dependencies(solution, &discovery, &model),
         mashup_bindings(solution, &discovery, &model),
@@ -795,7 +799,17 @@ fn scripts(solution: &Solution, result: &mut GateResult) -> Vec<(PathBuf, String
 }
 
 /// Service scripts that the formatter would change.
+#[cfg(test)]
 fn formatting(solution: &Solution) -> GateResult {
+    let discovered = workspace::discover(solution);
+    formatting_with(solution, &discovered, &solution.effective_lint())
+}
+
+fn formatting_with(
+    solution: &Solution,
+    discovered: &workspace::Discovery,
+    lint: &EffectiveLint<'_>,
+) -> GateResult {
     let mut result = GateResult::passed("formatting", 0);
     let style = format_js::Style::from(&solution.format.script);
     let scripts = scripts(solution, &mut result);
@@ -804,20 +818,34 @@ fn formatting(solution: &Solution) -> GateResult {
         result.examined += 1;
         match format_js::format(&source.replace("\r\n", "\n"), &style) {
             Ok(None) => {}
-            Ok(Some(_)) => result.findings.push(Finding {
-                gate: "formatting".to_string(),
-                file: relative(solution, &path),
-                line: 0,
-                rule: "unformatted".to_string(),
-                message: "run `twaco fmt`".to_string(),
-            }),
-            Err(e) => result.findings.push(Finding {
-                gate: "formatting".to_string(),
-                file: relative(solution, &path),
-                line: 0,
-                rule: "will-not-parse".to_string(),
-                message: e,
-            }),
+            Ok(Some(_)) => lint_finding(
+                &mut result,
+                lint,
+                script_entity(solution, discovered, &path),
+                "formatting",
+                "unformatted",
+                Finding {
+                    gate: "formatting".to_string(),
+                    file: relative(solution, &path),
+                    line: 0,
+                    rule: "unformatted".to_string(),
+                    message: "run `twaco fmt`".to_string(),
+                },
+            ),
+            Err(e) => lint_finding(
+                &mut result,
+                lint,
+                script_entity(solution, discovered, &path),
+                "formatting",
+                "will-not-parse",
+                Finding {
+                    gate: "formatting".to_string(),
+                    file: relative(solution, &path),
+                    line: 0,
+                    rule: "will-not-parse".to_string(),
+                    message: e,
+                },
+            ),
         }
     }
     if !result.findings.is_empty() {
@@ -834,18 +862,35 @@ fn formatting(solution: &Solution) -> GateResult {
 const OUTPUT_CAP: usize = 1024 * 1024;
 
 /// Traps in the script engine that compile cleanly and then misbehave at runtime.
+#[cfg(test)]
 fn script_traps(solution: &Solution) -> GateResult {
+    let discovered = workspace::discover(solution);
+    script_traps_with(solution, &discovered, &solution.effective_lint())
+}
+
+fn script_traps_with(
+    solution: &Solution,
+    discovered: &workspace::Discovery,
+    lint: &EffectiveLint<'_>,
+) -> GateResult {
     let mut result = GateResult::passed("script traps", 0);
     for (path, source) in scripts(solution, &mut result) {
         result.examined += 1;
         for trap in super::lint::lint(&source.replace("\r\n", "\n")) {
-            result.findings.push(Finding {
-                gate: "script traps".to_string(),
-                file: relative(solution, &path),
-                line: trap.line,
-                rule: trap.rule.to_string(),
-                message: trap.message,
-            });
+            lint_finding(
+                &mut result,
+                lint,
+                script_entity(solution, discovered, &path),
+                "script traps",
+                trap.rule,
+                Finding {
+                    gate: "script traps".to_string(),
+                    file: relative(solution, &path),
+                    line: trap.line,
+                    rule: trap.rule.to_string(),
+                    message: trap.message,
+                },
+            );
         }
     }
     result
@@ -910,21 +955,80 @@ fn result_shapes(solution: &Solution, model: &types::Model) -> GateResult {
 }
 
 /// Main code above its helpers, so a service reads in the order it runs.
+#[cfg(test)]
+#[allow(dead_code)]
 fn code_order(solution: &Solution) -> GateResult {
+    let discovered = workspace::discover(solution);
+    code_order_with(solution, &discovered, &solution.effective_lint())
+}
+
+fn code_order_with(
+    solution: &Solution,
+    discovered: &workspace::Discovery,
+    lint: &EffectiveLint<'_>,
+) -> GateResult {
     let mut result = GateResult::passed("code order", 0);
     for (path, source) in scripts(solution, &mut result) {
         result.examined += 1;
         for misplaced in super::order::check(&source.replace("\r\n", "\n")) {
-            result.findings.push(Finding {
-                gate: "code order".to_string(),
-                file: relative(solution, &path),
-                line: misplaced.line,
-                rule: misplaced.rule.to_string(),
-                message: misplaced.message,
-            });
+            lint_finding(
+                &mut result,
+                lint,
+                script_entity(solution, discovered, &path),
+                "code order",
+                misplaced.rule,
+                Finding {
+                    gate: "code order".to_string(),
+                    file: relative(solution, &path),
+                    line: misplaced.line,
+                    rule: misplaced.rule.to_string(),
+                    message: misplaced.message,
+                },
+            );
         }
     }
     result
+}
+
+fn script_entity<'a>(
+    solution: &Solution,
+    discovered: &'a workspace::Discovery,
+    path: &Path,
+) -> Option<(&'a str, &'a str)> {
+    discovered.entities.iter().find_map(|entity| {
+        let services = workspace::services_dir(solution, entity);
+        path.strip_prefix(services).ok().and_then(|rest| {
+            (rest.file_name().is_some_and(|name| name == "script.js"))
+                .then_some((entity.info.collection.as_str(), entity.info.name.as_str()))
+        })
+    })
+}
+
+fn lint_finding(
+    result: &mut GateResult,
+    lint: &EffectiveLint<'_>,
+    entity: Option<(&str, &str)>,
+    gate: &str,
+    rule: &str,
+    finding: Finding,
+) {
+    let Some(rule) = super::rules::RULES
+        .iter()
+        .find(|known| known.gate == gate && known.rule == rule)
+    else {
+        result.findings.push(finding);
+        return;
+    };
+    let entity = entity.map(|(collection, name)| format!("{collection}/{name}"));
+    match lint.severity(
+        rule.id,
+        entity.as_deref(),
+        finding.file.rsplit('/').nth(1).unwrap_or(""),
+    ) {
+        Severity::Error => result.findings.push(finding),
+        Severity::Warn => result.warnings.push(finding),
+        Severity::Off => {}
+    }
 }
 
 /// Whether the entity files agree with themselves and with each other.
@@ -1657,6 +1761,81 @@ mod tests {
             formatting.findings
         );
         assert!(script_traps(&solution).blocks());
+    }
+
+    #[test]
+    fn a_lint_override_applies_only_to_the_entity_it_names() {
+        let (_dir, root, _) = live_solution();
+        let unparsed = |entity: &str, service: &str| {
+            std::fs::write(
+                root.join("twaco.toml"),
+                format!(
+                    "[lint]
+[[lint.override]]
+entity = \"{entity}\"
+service = \"{service}\"
+[lint.override.rules.\"format.will-not-parse\"]
+severity = \"off\"
+
+[[project]]
+name = \"P\"
+"
+                ),
+            )
+            .unwrap();
+            let solution = Solution::load(&root.join("twaco.toml")).unwrap();
+            run(&solution)
+                .gates
+                .into_iter()
+                .find(|gate| gate.name == "formatting")
+                .unwrap()
+                .findings
+                .len()
+        };
+        assert_eq!(unparsed("Things/P.*", "Bad"), 0);
+        assert_eq!(unparsed("Things/P.T", "B*"), 0);
+        assert_eq!(unparsed("Things/P.T", "Good"), 1, "another service");
+        assert_eq!(unparsed("Things/Other", "Bad"), 1, "another entity");
+        assert_eq!(
+            unparsed("ThingTemplates/P.T", "Bad"),
+            1,
+            "another collection"
+        );
+    }
+
+    #[test]
+    fn lint_warning_and_off_change_only_the_configured_rule() {
+        let (_dir, root, _) = live_solution();
+        std::fs::write(
+            root.join("twaco.toml"),
+            "[lint.rules.\"format.will-not-parse\"]\nseverity = \"warn\"\n\n[[project]]\nname = \"P\"\n",
+        )
+        .unwrap();
+        let warned = Solution::load(&root.join("twaco.toml")).unwrap();
+        let report = run(&warned);
+        let formatting = report
+            .gates
+            .iter()
+            .find(|gate| gate.name == "formatting")
+            .unwrap();
+        assert!(formatting.findings.is_empty());
+        assert_eq!(formatting.warnings.len(), 1);
+        assert!(!formatting.blocks());
+
+        std::fs::write(
+            root.join("twaco.toml"),
+            "[lint.rules.\"format.will-not-parse\"]\nseverity = \"off\"\n\n[[project]]\nname = \"P\"\n",
+        )
+        .unwrap();
+        let off = Solution::load(&root.join("twaco.toml")).unwrap();
+        let report = run(&off);
+        let formatting = report
+            .gates
+            .iter()
+            .find(|gate| gate.name == "formatting")
+            .unwrap();
+        assert!(formatting.findings.is_empty());
+        assert!(formatting.warnings.is_empty());
     }
 
     #[test]

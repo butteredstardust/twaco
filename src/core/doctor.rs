@@ -201,6 +201,7 @@ pub fn diagnose(root: &Path, profile_name: &str) -> Vec<Item> {
         },
     ));
     items.push(script_style_item(&solution));
+    items.push(item(Health::Ok, "lint", solution.lint_doctor_detail()));
 
     match Baseline::profiles(&solution.root) {
         Ok(mut profiles) => {

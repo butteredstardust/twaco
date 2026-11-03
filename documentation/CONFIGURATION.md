@@ -115,6 +115,18 @@ indent_width = 4              # 2 to 8
 line_width = 100000           # 40 to 100000
 quote_style = "double"        # "double" or "single"
 
+[lint]
+extends = ["house-v1"]        # checks-v1, traps-only-v1, or house-v1; later presets win
+
+[lint.rules."traps.unbounded-loop"]
+severity = "warn"             # "error", "warn", or "off"
+
+[[lint.override]]
+entity = "Things/Acme.Legacy.*"
+service = "Import*"           # optional; otherwise every service
+[lint.override.rules."order.main-code-below-a-helper"]
+severity = "off"
+
 [gates]
 live = false                  # true: every `check` also has the server parse every script
 advisory = []                 # built-in gates that report without failing, e.g. ["code order"]
@@ -366,6 +378,40 @@ fixed so script traps and code order read a stable layout. Scripts still have no
 Changing one of these values makes the next `twaco fmt` rewrite every script it affects. Because
 whitespace inside a script is part of its content, every reformatted service then differs from the
 server until it is deployed.
+
+### `[lint]`
+
+`[lint]` configures the formatting, script-trap and code-order rules individually. Without the
+table, twaco uses `checks-v1`, retaining today's blocking gates. `checks-v1` and `house-v1`
+enable every current rule; `house-v1` will add comment rules in a later release. `traps-only-v1`
+enables only script traps. `extends` is optional and defaults to `checks-v1`; when present it
+cannot be empty, and applies presets in order so later presets win.
+
+Each rule has severity `"error"`, `"warn"`, or `"off"`. `error` is a finding, `warn` is reported
+but does not block, and `off` omits it. Rules may be changed in `[lint.rules]`, then in matching
+`[[lint.override]]` entries in file order. An override requires an `entity` glob over
+`Collection/Name`; `service` is optional and globs the service name. They use the same glob dialect
+as the other selectors: `*` stays within one path component and `**` crosses components. No rule
+options exist yet, so extra rule keys are refused.
+
+| Rule | Gate |
+| --- | --- |
+| `format.unformatted` | formatting |
+| `format.will-not-parse` | formatting |
+| `traps.const-in-loop` | script traps |
+| `traps.const-redeclared` | script traps |
+| `traps.for-in` | script traps |
+| `traps.indexed-rows` | script traps |
+| `traps.nan-risk` | script traps |
+| `traps.read-before-assign` | script traps |
+| `traps.unbounded-loop` | script traps |
+| `order.main-code-below-a-helper` | code order |
+| `order.declaration-between-helpers` | code order |
+
+`[gates].advisory` still makes its whole gate report-only, whatever the rule severities say.
+With a `[lint]` table, a `[[check]]` hook cannot use the name of a lint gate that the table
+enables (`formatting`, `script traps`, or `code order`); rename or remove that hook. Without one,
+every hook name that loaded before still loads.
 
 ### `[gates]`
 

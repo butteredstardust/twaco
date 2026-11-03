@@ -8,6 +8,8 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- `[lint]` configures formatting, script-trap and code-order rules with versioned presets,
+  per-entity/service overrides, warning severity and doctor reporting.
 - `[format.script]` configures service-script indentation, line width and preferred quote style
   for `fmt`, the formatting gate and newly added services.
 - `init` proposes service-script indentation and quote style from the repository, while `doctor`

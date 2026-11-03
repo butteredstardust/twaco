@@ -54,6 +54,9 @@ pub struct Solution {
     /// Which of the built-in gates a plain `twaco check` runs. See [`Gates`].
     #[serde(default)]
     pub gates: Gates,
+    /// Per-rule script lint policy. Its absence retains the historical checks-v1 behaviour.
+    #[serde(default)]
+    pub(crate) lint: Option<Lint>,
     /// TypeScript compiler override used by `twaco types --check`.
     #[serde(default)]
     pub(crate) types: Types,
@@ -186,6 +189,88 @@ pub struct Gates {
     /// vendor schema is not redistributed with a solution or with twaco.
     #[serde(default)]
     pub(crate) structure_xsd: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum Severity {
+    Error,
+    Warn,
+    Off,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Lint {
+    #[serde(default)]
+    pub(crate) extends: Option<Vec<String>>,
+    #[serde(default)]
+    pub(crate) rules: BTreeMap<String, LintRule>,
+    #[serde(default, rename = "override")]
+    pub(crate) overrides: Vec<LintOverride>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct LintOverride {
+    pub(crate) entity: String,
+    #[serde(default)]
+    pub(crate) service: Option<String>,
+    #[serde(default)]
+    pub(crate) rules: BTreeMap<String, LintRule>,
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct LintRule {
+    pub(crate) severity: Option<Severity>,
+    #[serde(flatten)]
+    pub(crate) options: toml::Table,
+}
+
+/// Rule severities resolved once for a check run. Overrides remain ordered deliberately: the
+/// last matching selector wins, without a hidden specificity rule.
+pub(crate) struct EffectiveLint<'a> {
+    base: BTreeMap<&'static str, Severity>,
+    overrides: &'a [LintOverride],
+}
+
+impl<'a> EffectiveLint<'a> {
+    pub(crate) fn severity(&self, id: &str, entity: Option<&str>, service: &str) -> Severity {
+        let mut severity = self.base.get(id).copied().unwrap_or(Severity::Off);
+        let Some(entity) = entity else {
+            return severity;
+        };
+        for override_ in self.overrides {
+            if super::glob::matches(&override_.entity, entity)
+                && override_
+                    .service
+                    .as_ref()
+                    .is_none_or(|pattern| super::glob::matches(pattern, service))
+            {
+                if let Some(rule) = override_.rules.get(id).and_then(|rule| rule.severity) {
+                    severity = rule;
+                }
+            }
+        }
+        severity
+    }
+
+    /// Whether any rule of the gate can report, here or for an entity an override names.
+    pub(crate) fn gate_enabled(&self, gate: &str) -> bool {
+        super::rules::RULES
+            .iter()
+            .filter(|rule| rule.gate == gate)
+            .any(|rule| {
+                self.base.get(rule.id) != Some(&Severity::Off)
+                    || self.overrides.iter().any(|override_| {
+                        override_
+                            .rules
+                            .get(rule.id)
+                            .and_then(|configured| configured.severity)
+                            .is_some_and(|severity| severity != Severity::Off)
+                    })
+            })
+    }
 }
 
 /// Optional TypeScript compiler command. Arguments before twaco's `-p` are allowed.
@@ -717,6 +802,7 @@ impl Solution {
                 });
             }
         }
+        self.validate_lint(path)?;
         if self.types.tsc.as_ref().is_some_and(Vec::is_empty) {
             return Err(ConfigError::EmptyTypesCompiler);
         }
@@ -758,6 +844,144 @@ impl Solution {
             }
         }
         self.deploy_order().map(|_| ())
+    }
+
+    fn validate_lint(&self, path: &Path) -> Result<(), ConfigError> {
+        // Without [lint] the gates are today's, and so is every hook name that loaded before.
+        let Some(lint) = &self.lint else {
+            return Ok(());
+        };
+        let extends: Vec<&str> = lint.extends.as_ref().map_or_else(
+            || vec!["checks-v1"],
+            |values| values.iter().map(String::as_str).collect(),
+        );
+        if lint.extends.as_ref().is_some_and(Vec::is_empty) {
+            return Err(ConfigError::Invalid {
+                path: path.to_path_buf(),
+                why: "lint.extends must not be empty".to_string(),
+            });
+        }
+        for preset in extends {
+            if !super::rules::PRESETS.contains(&preset) {
+                return Err(ConfigError::Invalid {
+                    path: path.to_path_buf(),
+                    why: format!("unknown lint preset {preset:?}"),
+                });
+            }
+        }
+        let validate_rules = |rules: &BTreeMap<String, LintRule>| -> Result<(), ConfigError> {
+            for (id, rule) in rules {
+                if super::rules::by_id(id).is_none() {
+                    return Err(ConfigError::Invalid {
+                        path: path.to_path_buf(),
+                        why: format!("unknown lint rule {id:?}"),
+                    });
+                }
+                if let Some(key) = rule.options.keys().next() {
+                    return Err(ConfigError::Invalid {
+                        path: path.to_path_buf(),
+                        why: format!("rule {id} takes no option {key}"),
+                    });
+                }
+            }
+            Ok(())
+        };
+        validate_rules(&lint.rules)?;
+        let mut selectors = BTreeSet::new();
+        for override_ in &lint.overrides {
+            if override_.entity.trim().is_empty() {
+                return Err(ConfigError::Invalid {
+                    path: path.to_path_buf(),
+                    why: "lint override needs a non-empty entity".to_string(),
+                });
+            }
+            let selector = (
+                override_.entity.as_str(),
+                override_.service.as_deref().unwrap_or(""),
+            );
+            if !selectors.insert(selector) {
+                return Err(ConfigError::Invalid {
+                    path: path.to_path_buf(),
+                    why: format!(
+                        "two lint overrides use the same entity and service selectors: {:?}, {:?}",
+                        selector.0, selector.1
+                    ),
+                });
+            }
+            validate_rules(&override_.rules)?;
+        }
+        let effective = self.effective_lint();
+        for check in &self.checks {
+            if super::rules::LINT_GATE_LABELS.contains(&check.name.as_str())
+                && effective.gate_enabled(&check.name)
+            {
+                return Err(ConfigError::Invalid {
+                    path: path.to_path_buf(),
+                    why: format!("[[check]] {:?} has the name of a built-in gate that [lint] enables; rename or remove the hook", check.name),
+                });
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn effective_lint(&self) -> EffectiveLint<'_> {
+        let mut base = super::rules::RULES
+            .iter()
+            .map(|rule| (rule.id, Severity::Off))
+            .collect::<BTreeMap<_, _>>();
+        if let Some(lint) = &self.lint {
+            let presets: Vec<&str> = lint.extends.as_ref().map_or_else(
+                || vec!["checks-v1"],
+                |values| values.iter().map(String::as_str).collect(),
+            );
+            for preset in presets {
+                for rule in super::rules::RULES {
+                    base.insert(
+                        rule.id,
+                        super::rules::preset(preset, rule).expect("validated lint preset"),
+                    );
+                }
+            }
+            for (id, rule) in &lint.rules {
+                if let Some(severity) = rule.severity {
+                    base.insert(
+                        super::rules::by_id(id).expect("validated lint rule").id,
+                        severity,
+                    );
+                }
+            }
+            EffectiveLint {
+                base,
+                overrides: &lint.overrides,
+            }
+        } else {
+            for rule in super::rules::RULES {
+                base.insert(rule.id, Severity::Error);
+            }
+            EffectiveLint {
+                base,
+                overrides: &[],
+            }
+        }
+    }
+
+    pub(crate) fn lint_doctor_detail(&self) -> String {
+        let Some(lint) = &self.lint else {
+            return "checks-v1 (default: no [lint]); house-v1 adds the comment rules".to_string();
+        };
+        let presets = lint
+            .extends
+            .as_ref()
+            .map_or_else(|| "checks-v1".to_string(), |values| values.join(", "));
+        let mut detail = format!("{presets} (from [lint])");
+        if !lint.rules.is_empty() || !lint.overrides.is_empty() {
+            detail.push_str(&format!(
+                ", {} rule(s) changed by [lint.rules], {} override(s)",
+                lint.rules.len(),
+                lint.overrides.len()
+            ));
+        }
+        detail
     }
 
     /// The profile's patches that name no Mashup among `entities`. A misspelled patch would
@@ -889,6 +1113,107 @@ mod tests {
         s.root = PathBuf::from(".");
         s.validate(Path::new("twaco.toml"))?;
         Ok(s)
+    }
+
+    #[test]
+    fn lint_presets_rules_and_overrides_resolve_in_order() {
+        let configured = solution(
+            r#"[lint]
+extends = ["traps-only-v1", "checks-v1"]
+[lint.rules."traps.for-in"]
+severity = "warn"
+[[lint.override]]
+entity = "Things/P.*"
+[lint.override.rules."traps.for-in"]
+severity = "off"
+[[lint.override]]
+entity = "Things/P.*"
+service = "Import*"
+[lint.override.rules."traps.for-in"]
+severity = "error"
+
+[[project]]
+name = "P"
+"#,
+        )
+        .unwrap();
+        let lint = configured.effective_lint();
+        assert_eq!(
+            lint.severity("format.unformatted", None, "Run"),
+            Severity::Error
+        );
+        assert_eq!(
+            lint.severity("traps.for-in", Some("Things/Else"), "Run"),
+            Severity::Warn
+        );
+        assert_eq!(
+            lint.severity("traps.for-in", Some("Things/P.Legacy"), "Run"),
+            Severity::Off
+        );
+        assert_eq!(
+            lint.severity("traps.for-in", Some("Things/P.Legacy"), "ImportOld"),
+            Severity::Error
+        );
+        let traps_only =
+            solution("[lint]\nextends = [\"traps-only-v1\"]\n[[project]]\nname = \"P\"\n").unwrap();
+        assert_eq!(
+            traps_only
+                .effective_lint()
+                .severity("format.unformatted", None, ""),
+            Severity::Off
+        );
+    }
+
+    #[test]
+    fn lint_validation_names_every_bad_configuration() {
+        for (text, expected) in [
+            ("[lint]\nextends = []\n", "extends"),
+            ("[lint]\nextends = [\"missing\"]\n", "unknown lint preset"),
+            ("[lint.rules.\"nope\"]\nseverity = \"error\"\n", "unknown lint rule"),
+            ("[lint.rules.\"traps.for-in\"]\nlimit = 1\n", "takes no option limit"),
+            ("[[lint.override]]\nentity = \"\"\n", "non-empty entity"),
+            ("[[lint.override]]\nentity = \"Things/P.*\"\n[[lint.override]]\nentity = \"Things/P.*\"\n", "same entity and service"),
+        ] {
+            let error = solution(&format!("{text}\n[[project]]\nname = \"P\"\n"))
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains(expected), "{error}");
+        }
+    }
+
+    #[test]
+    fn lint_hook_names_clash_only_when_enabled() {
+        let error = solution("[lint]\nextends = [\"checks-v1\"]\n[[check]]\nname = \"formatting\"\ncommand = [\"x\"]\n[[project]]\nname = \"P\"\n").unwrap_err().to_string();
+        assert!(error.contains("has the name of a built-in gate"));
+        solution("[lint]\nextends = [\"traps-only-v1\"]\n[[check]]\nname = \"formatting\"\ncommand = [\"x\"]\n[[check]]\nname = \"comments\"\ncommand = [\"x\"]\n[[project]]\nname = \"P\"\n").unwrap();
+        // No [lint]: today's gates, and a hook that loaded before still loads.
+        solution(
+            "[[check]]
+name = \"formatting\"
+command = [\"x\"]
+[[project]]
+name = \"P\"
+",
+        )
+        .unwrap();
+        // An override that turns a rule on for one entity enables its gate.
+        let error = solution(
+            "[lint]
+extends = [\"traps-only-v1\"]
+[[lint.override]]
+entity = \"Things/P.*\"
+[lint.override.rules.\"format.unformatted\"]
+severity = \"warn\"
+[[check]]
+name = \"formatting\"
+command = [\"x\"]
+[[project]]
+name = \"P\"
+",
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("has the name of a built-in gate"), "{error}");
     }
 
     #[test]

@@ -150,6 +150,9 @@ pub(crate) fn check_tool(
             if !gate.gates_the_run {
                 entry["advisory"] = json!(true);
             }
+            if !gate.warnings.is_empty() {
+                entry["warnings"] = json!(gate.warnings.len());
+            }
             // What the gate said beside its findings: hook summaries, and notes such as the
             // untranslated and unreferenced localization tokens.
             if detail && !gate.prose.is_empty() {
@@ -172,6 +175,15 @@ pub(crate) fn check_tool(
             .map(|f| json!({ "gate": f.gate, "file": f.file, "line": f.line, "rule": f.rule, "message": f.message }))
             .collect();
         result["failures"] = json!(findings);
+        let warnings: Vec<Value> = report
+            .gates
+            .iter()
+            .flat_map(|gate| &gate.warnings)
+            .map(|f| json!({ "gate": f.gate, "file": f.file, "line": f.line, "rule": f.rule, "message": f.message }))
+            .collect();
+        if !warnings.is_empty() {
+            result["warnings"] = json!(warnings);
+        }
     }
     Ok(result)
 }
