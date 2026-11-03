@@ -6,6 +6,8 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.1.51] - 2026-11-03
+
 ### Added
 
 - `[lint]` configures the script rules one by one: presets (`checks-v1`, today's gates and what a
@@ -1552,6 +1554,7 @@ The first public release.
 - `mcp` serves 39 tools over stdio to MCP clients, with compact summaries, validated arguments
   and dry runs by default for tools that can write to a server.
 
+[0.1.51]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.51
 [0.1.50]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.50
 [0.1.49]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.49
 [0.1.48]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.48
