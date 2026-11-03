@@ -8,22 +8,30 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
-- The `comment header` gate holds each service's leading JSDoc to its definition.xml (one
-  @function, @param in ordinal order, @returns naming the result DataShape), new services get a
-  generated header when the rule is on, and `twaco lint fix-headers [--apply]` (MCP
-  `lint_fix_headers`) repairs existing headers without rewriting their text.
-- Configurable comment budget and prose lint rules, including per-rule thresholds and word-list
-  options, with `house-v1` severities and focused `twaco lint` selection.
-- `twaco lint` and the read-only MCP `lint` tool report configurable script rules, explain their
-  summaries and show each resolved severity's origin.
-- `[lint]` configures formatting, script-trap and code-order rules with versioned presets,
-  per-entity/service overrides, warning severity and doctor reporting.
-- Service scripts can suppress named script lint findings inline with a required reason; malformed
-  or unused suppressions are reported.
-- `[format.script]` configures service-script indentation, line width and preferred quote style
-  for `fmt`, the formatting gate and newly added services.
-- `init` proposes service-script indentation and quote style from the repository, while `doctor`
-  and the formatting gate warn when configured style would rewrite most scripts.
+- `[lint]` configures the script rules one by one: presets (`checks-v1`, today's gates and what a
+  solution without the table keeps; `house-v1`, which `init` now writes; `traps-only-v1`), then
+  `error`, `warn` or `off` per rule in `[lint.rules]` and per entity or service in
+  `[[lint.override]]`. A `warn` finding is reported without failing `check`. `doctor` names the
+  preset in effect.
+- `house-v1` adds three comment gates. `comment header` holds each service's leading JSDoc to its
+  definition.xml: one `@function`, `@param` in ordinal order, `@returns` naming the result
+  DataShape, the first statement right after it, and its line width. `comment budget` limits
+  header prose, `//` runs and the comment share. `comment prose` holds comments to a house style
+  (no `--` asides, no history, short single-instruction sentences, no hedges; condition first,
+  active voice, short noun runs and one word per concept as warnings). Thresholds and word lists
+  are options in `[lint.rules]`.
+- `twaco lint` runs the script rules alone, reporting each finding with its rule id and severity,
+  narrowed by `--entity`, `--service` and `--rule`; `--json` prints JSON Lines, `--explain` says
+  why a rule exists and `--print-config` where each severity comes from. MCP `lint` does the same.
+- `twaco lint fix-headers [--apply]` (MCP `lint_fix_headers`, a dry run by default) repairs
+  service headers from definition.xml, moving each existing tag whole and generating only what is
+  missing. `entity edit ... service add` writes the header for a new service when the rule is on.
+- `// twaco-lint-disable-next-line <rule>: <reason>` and `twaco-lint-disable` / `-enable`
+  suppress a named script-trap or code-order finding; a malformed directive, or one that
+  suppresses nothing, is reported.
+- `[format.script]` sets service-script indentation, line width and preferred quote style for
+  `fmt`, the formatting gate and newly added services. `init` proposes them from the scripts it
+  finds, and `doctor` and the formatting gate say when the setting differs from most scripts.
 
 ### Fixed
 

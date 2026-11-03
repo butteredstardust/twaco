@@ -92,6 +92,7 @@ item's signature needs it). An item that only unit tests use is `#[cfg(test)]`.
 | Module | Command |
 | --- | --- |
 | `check`, `lint`, `fmt`, `order`, `validate` | `check`, `fmt`: the gates, script traps, formatting (dprint's TypeScript formatter), code order, project validation |
+| `rules`, `lint_report`, `suppress`, `comments`, `header` | `lint`, `lint fix-headers`: the rule registry and presets behind `[lint]`, inline suppressions, the comment budget and prose rules, and service headers checked against and repaired from definition.xml |
 | `types` (+ `types_base.d.ts`) | `types`: declarations from the entities and the server's metadata; `--check` runs TypeScript once over every service |
 | `baseline`, `status`, `push` | `entity status`, `entity push`: the three-way comparison and conflict refusal |
 | `bundle`, `deploy` | `bundle`, `deploy`: ordered bundles, live parse, import, read-back, deploy services, baseline |

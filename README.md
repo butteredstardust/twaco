@@ -42,6 +42,10 @@ to install.
 - **Catch problems before the server does.** `check` runs every gate in one pass: sidecars in
   sync, formatting, script traps, mashup bindings, localization tokens, structure against
   ThingWorx's export schema, and your own hooks. `types --check` type-checks scripts.
+- **Your house style, enforced.** `[lint]` sets each script rule to error, warn or off, per
+  solution or per entity: formatting, script traps, code order, and (with `house-v1`) service
+  headers held to their definitions and a comment budget and prose style. `lint fix-headers`
+  repairs headers.
 - **Deploy without clobbering.** `deploy` has the server parse every script, refuses when
   someone changed an entity since your last deploy, and reads back what it imported.
 - **Take in a designer's work.** `adopt` compares a Composer export with the repository and
