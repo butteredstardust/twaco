@@ -2863,6 +2863,7 @@ dependencies = [
  "percent-encoding",
  "petgraph",
  "proptest",
+ "regex",
  "roxmltree",
  "schemars",
  "scraper",

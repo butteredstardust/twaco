@@ -474,7 +474,7 @@
           "type": "string"
         },
         "rules": {
-          "description": "Full rule ids or groups (format, traps, order).",
+          "description": "Full rule ids or groups (format, traps, order, comments, comments.budget, comments.prose).",
           "type": "array",
           "items": {
             "type": "string"

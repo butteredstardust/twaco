@@ -456,7 +456,7 @@ pub(crate) const USAGE: &[Usage] = &[
                               report configurable script rules; advisory gates do not change severity
       --entity <name>         Collection/Name glob
       --service <name>        service folder glob
-      --rule <id>             rule id or group (format, traps, order), repeatable
+      --rule <id>             rule id or group (format, traps, order, comments), repeatable
       --explain <id>          explain a rule id or group
       --print-config          show resolved severity and its origin
       --json                  findings as JSON Lines; with --print-config, a JSON array"#,

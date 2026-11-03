@@ -141,6 +141,8 @@ pub(crate) const BUILT_IN_GATES: &[&str] = &[
     "formatting",
     "script traps",
     "code order",
+    "comment budget",
+    "comment prose",
     "project",
     "project dependencies",
     "mashup bindings",
@@ -188,6 +190,19 @@ pub fn run(solution: &Solution) -> CheckReport {
         structure_gate(solution, &discovery),
     ] {
         report.gates.push(as_configured(solution, gate));
+    }
+    if lint.gate_enabled("comment budget") {
+        report.gates.insert(
+            5,
+            as_configured(solution, comment_budget_with(solution, &discovery, &lint)),
+        );
+    }
+    if lint.gate_enabled("comment prose") {
+        let index = usize::from(lint.gate_enabled("comment budget")) + 5;
+        report.gates.insert(
+            index,
+            as_configured(solution, comment_prose_with(solution, &discovery, &lint)),
+        );
     }
     for hook in &solution.checks {
         report.gates.push(run_hook(solution, hook));
@@ -1060,6 +1075,81 @@ pub(crate) fn code_order_with(
     result
 }
 
+pub(crate) fn comment_budget_with(
+    solution: &Solution,
+    discovered: &workspace::Discovery,
+    lint: &EffectiveLint<'_>,
+) -> GateResult {
+    comment_gate(
+        solution,
+        discovered,
+        lint,
+        "comment budget",
+        |measure, policy| {
+            super::comments::findings(measure, policy)
+                .into_iter()
+                .filter(|finding| matches!(finding.rule, "jsdoc-prose" | "line-run" | "ratio"))
+                .collect()
+        },
+    )
+}
+
+pub(crate) fn comment_prose_with(
+    solution: &Solution,
+    discovered: &workspace::Discovery,
+    lint: &EffectiveLint<'_>,
+) -> GateResult {
+    comment_gate(
+        solution,
+        discovered,
+        lint,
+        "comment prose",
+        |measure, policy| {
+            super::comments::findings(measure, policy)
+                .into_iter()
+                .filter(|finding| !matches!(finding.rule, "jsdoc-prose" | "line-run" | "ratio"))
+                .collect()
+        },
+    )
+}
+
+fn comment_gate(
+    solution: &Solution,
+    discovered: &workspace::Discovery,
+    lint: &EffectiveLint<'_>,
+    gate: &str,
+    findings: impl Fn(
+        &super::comments::Measure,
+        &super::comments::CommentPolicy,
+    ) -> Vec<super::comments::CommentFinding>,
+) -> GateResult {
+    let mut result = GateResult::passed(gate, 0);
+    if !lint.gate_enabled(gate) {
+        return result;
+    }
+    for (path, source) in scripts(solution, &mut result) {
+        result.examined += 1;
+        let measure = super::comments::measure(&source.replace("\r\n", "\n"));
+        for finding in findings(&measure, lint.comment_policy()) {
+            lint_finding(
+                &mut result,
+                lint,
+                script_entity(solution, discovered, &path),
+                gate,
+                finding.rule,
+                Finding {
+                    gate: gate.to_string(),
+                    file: relative(solution, &path),
+                    line: finding.line,
+                    rule: finding.rule.to_string(),
+                    message: finding.message,
+                },
+            );
+        }
+    }
+    result
+}
+
 pub(crate) fn script_entity<'a>(
     solution: &Solution,
     discovered: &'a workspace::Discovery,
@@ -1717,7 +1807,13 @@ mod tests {
         .unwrap();
         let report = run(&solution);
         let names: Vec<&str> = report.gates.iter().map(|gate| gate.name.as_str()).collect();
-        assert_eq!(names, BUILT_IN_GATES);
+        // The comment gates run only when [lint] enables them.
+        let default: Vec<&str> = BUILT_IN_GATES
+            .iter()
+            .copied()
+            .filter(|gate| !gate.starts_with("comment "))
+            .collect();
+        assert_eq!(names, default);
 
         let project: Vec<(String, String, String)> = report
             .gates
@@ -1831,6 +1927,149 @@ mod tests {
             formatting.findings
         );
         assert!(script_traps(&solution).blocks());
+    }
+
+    #[test]
+    fn no_lint_table_resolves_exactly_as_checks_v1() {
+        let (_dir, root, without) = live_solution();
+        std::fs::write(
+            root.join("twaco.toml"),
+            "[lint]
+extends = [\"checks-v1\"]
+
+[[project]]
+name = \"P\"
+",
+        )
+        .unwrap();
+        let with = Solution::load(&root.join("twaco.toml")).unwrap();
+        for rule in crate::core::rules::RULES {
+            assert_eq!(
+                without.effective_lint().severity(rule.id, None, ""),
+                with.effective_lint().severity(rule.id, None, ""),
+                "{}",
+                rule.id
+            );
+        }
+    }
+
+    #[test]
+    fn comment_gates_run_only_when_lint_enables_them() {
+        let (_dir, root, solution) = live_solution();
+        std::fs::write(
+            root.join("src/P.T/services/Bad/script.js"),
+            "// one
+// two
+// three
+// It was written by a script if needed.
+result = 1;",
+        )
+        .unwrap();
+        let names = |solution: &Solution| -> Vec<String> {
+            run(solution)
+                .gates
+                .into_iter()
+                .map(|gate| gate.name)
+                .collect()
+        };
+        assert!(!names(&solution)
+            .iter()
+            .any(|name| name.starts_with("comment")));
+
+        std::fs::write(
+            root.join("twaco.toml"),
+            "[lint]
+extends = [\"house-v1\"]
+
+[[project]]
+name = \"P\"
+",
+        )
+        .unwrap();
+        let house = Solution::load(&root.join("twaco.toml")).unwrap();
+        let report = run(&house);
+        let gate = |name: &str| report.gates.iter().find(|gate| gate.name == name).unwrap();
+        let budget = gate("comment budget");
+        assert_eq!(
+            budget
+                .findings
+                .iter()
+                .map(|f| f.rule.as_str())
+                .collect::<Vec<_>>(),
+            ["line-run"]
+        );
+        let prose = gate("comment prose");
+        assert!(prose.findings.is_empty(), "{:?}", prose.findings);
+        let mut warned: Vec<&str> = prose.warnings.iter().map(|f| f.rule.as_str()).collect();
+        warned.sort();
+        assert_eq!(warned, ["condition", "passive"]);
+        let order: Vec<String> = names(&house);
+        let at = |name: &str| order.iter().position(|gate| gate == name).unwrap();
+        assert!(
+            at("code order") < at("comment budget") && at("comment budget") < at("comment prose")
+        );
+
+        std::fs::write(
+            root.join("twaco.toml"),
+            "[lint]
+extends = [\"house-v1\"]
+[[lint.override]]
+entity = \"Things/P.T\"
+[lint.override.rules.\"comments.budget.line-run\"]
+severity = \"off\"
+
+[[project]]
+name = \"P\"
+",
+        )
+        .unwrap();
+        let exempt = Solution::load(&root.join("twaco.toml")).unwrap();
+        let report = run(&exempt);
+        let budget = report
+            .gates
+            .iter()
+            .find(|gate| gate.name == "comment budget")
+            .unwrap();
+        assert!(budget.findings.is_empty(), "{:?}", budget.findings);
+    }
+
+    #[test]
+    fn a_comment_budget_hook_loads_until_house_v1_runs_the_gate_itself() {
+        let (_dir, root, _) = live_solution();
+        let hook = "[[check]]
+name = \"comment budget\"
+command = [\"x\"]
+
+[[project]]
+name = \"P\"
+";
+        std::fs::write(root.join("twaco.toml"), hook).unwrap();
+        Solution::load(&root.join("twaco.toml")).unwrap();
+        std::fs::write(
+            root.join("twaco.toml"),
+            format!(
+                "[lint]
+extends = [\"checks-v1\"]
+
+{hook}"
+            ),
+        )
+        .unwrap();
+        Solution::load(&root.join("twaco.toml")).unwrap();
+        std::fs::write(
+            root.join("twaco.toml"),
+            format!(
+                "[lint]
+extends = [\"house-v1\"]
+
+{hook}"
+            ),
+        )
+        .unwrap();
+        let error = Solution::load(&root.join("twaco.toml"))
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("comment budget"), "{error}");
     }
 
     #[test]

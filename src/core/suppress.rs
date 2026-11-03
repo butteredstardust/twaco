@@ -172,6 +172,9 @@ fn ids(
         } else if id.starts_with("format.") {
             "formatting cannot be suppressed inline; use [lint.rules] or [[lint.override]]"
                 .to_string()
+        } else if id.starts_with("comments.") {
+            "comment rules cannot be suppressed inline; reword the comment or use [[lint.override]]"
+                .to_string()
         } else if matches!(id.as_str(), "traps.suppression" | "order.suppression") {
             format!("{id} cannot be suppressed")
         } else if rules::by_id(id).is_none() {
@@ -247,6 +250,10 @@ second();
             (
                 "// twaco-lint-disable order.suppression: reason",
                 "cannot be suppressed",
+            ),
+            (
+                "// twaco-lint-disable comments.prose.hedge: reason",
+                "comment rules cannot be suppressed inline",
             ),
         ] {
             let directives = parse(source);

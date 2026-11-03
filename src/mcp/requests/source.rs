@@ -52,7 +52,7 @@ pub(crate) struct LintRequest {
     /// Service folder glob.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) service: Absent<String>,
-    /// Full rule ids or groups (format, traps, order).
+    /// Full rule ids or groups (format, traps, order, comments, comments.budget, comments.prose).
     #[serde(default)]
     pub(crate) rules: Vec<String>,
     /// Explain one rule id or group instead of running lint.

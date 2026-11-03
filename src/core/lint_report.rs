@@ -58,6 +58,8 @@ pub fn run(solution: &Solution, request: &LintRequest) -> Result<LintReport, Str
         check::formatting_with(solution, &discovery, &lint),
         check::script_traps_with(solution, &discovery, &lint),
         check::code_order_with(solution, &discovery, &lint),
+        check::comment_budget_with(solution, &discovery, &lint),
+        check::comment_prose_with(solution, &discovery, &lint),
     ];
     let scripts = script_addresses(solution, &discovery, request);
     let mut report = LintReport {
@@ -234,6 +236,12 @@ mod tests {
         assert!(selected_rules(&["unknown".to_string()])
             .unwrap_err()
             .contains("unknown"));
+        assert_eq!(
+            selected_rules(&["comments.prose".to_string()])
+                .unwrap()
+                .len(),
+            9
+        );
     }
 
     /// Two entities with one script each, and a sidecar whose entity file is missing.

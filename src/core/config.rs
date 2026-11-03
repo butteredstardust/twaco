@@ -233,6 +233,7 @@ pub(crate) struct EffectiveLint<'a> {
     base: BTreeMap<&'static str, Severity>,
     origins: BTreeMap<&'static str, String>,
     overrides: &'a [LintOverride],
+    comment_policy: super::comments::CommentPolicy,
 }
 
 impl<'a> EffectiveLint<'a> {
@@ -292,6 +293,10 @@ impl<'a> EffectiveLint<'a> {
                             .is_some_and(|severity| severity != Severity::Off)
                     })
             })
+    }
+
+    pub(crate) fn comment_policy(&self) -> &super::comments::CommentPolicy {
+        &self.comment_policy
     }
 }
 
@@ -891,24 +896,71 @@ impl Solution {
                 });
             }
         }
-        let validate_rules = |rules: &BTreeMap<String, LintRule>| -> Result<(), ConfigError> {
+        let validate_rules = |rules: &BTreeMap<String, LintRule>,
+                              override_: bool|
+         -> Result<(), ConfigError> {
             for (id, rule) in rules {
-                if super::rules::by_id(id).is_none() {
+                let Some(known) = super::rules::by_id(id) else {
                     return Err(ConfigError::Invalid {
                         path: path.to_path_buf(),
                         why: format!("unknown lint rule {id:?}"),
                     });
-                }
-                if let Some(key) = rule.options.keys().next() {
+                };
+                if override_ && !rule.options.is_empty() {
                     return Err(ConfigError::Invalid {
                         path: path.to_path_buf(),
-                        why: format!("rule {id} takes no option {key}"),
+                        why: "options are set in [lint.rules], not in an override".to_string(),
                     });
+                }
+                for (key, value) in &rule.options {
+                    let Some(option) = known.options.iter().find(|option| option.name == key)
+                    else {
+                        return Err(ConfigError::Invalid {
+                            path: path.to_path_buf(),
+                            why: format!("rule {id} takes no option {key}"),
+                        });
+                    };
+                    let valid = match option.kind {
+                        super::rules::OptionKind::Int { minimum } => {
+                            value.as_integer().is_some_and(|number| number >= minimum)
+                        }
+                        super::rules::OptionKind::Float { minimum, maximum } => number(value)
+                            .is_some_and(|number| number >= minimum && number <= maximum),
+                        super::rules::OptionKind::Phrases => string_list(value).is_some(),
+                        super::rules::OptionKind::Sets => string_sets(value).is_some(),
+                    };
+                    if !valid {
+                        let requirement = match option.kind {
+                            super::rules::OptionKind::Int { minimum } => {
+                                format!("an integer at least {minimum}")
+                            }
+                            super::rules::OptionKind::Float { minimum, maximum } => {
+                                format!("a number from {minimum} to {maximum}")
+                            }
+                            super::rules::OptionKind::Phrases => "an array of strings".to_string(),
+                            super::rules::OptionKind::Sets => {
+                                "an array of arrays of strings".to_string()
+                            }
+                        };
+                        return Err(ConfigError::Invalid {
+                            path: path.to_path_buf(),
+                            why: format!("{id}.{key} must be {requirement}"),
+                        });
+                    }
+                }
+                for key in rule.options.keys().filter(|key| key.ends_with("_extend")) {
+                    let replace = format!("{}_replace", key.trim_end_matches("_extend"));
+                    if rule.options.contains_key(&replace) {
+                        return Err(ConfigError::Invalid {
+                            path: path.to_path_buf(),
+                            why: format!("{id}.{key} and {id}.{replace} cannot both be set"),
+                        });
+                    }
                 }
             }
             Ok(())
         };
-        validate_rules(&lint.rules)?;
+        validate_rules(&lint.rules, false)?;
         let mut selectors = BTreeSet::new();
         for override_ in &lint.overrides {
             if override_.entity.trim().is_empty() {
@@ -930,7 +982,7 @@ impl Solution {
                     ),
                 });
             }
-            validate_rules(&override_.rules)?;
+            validate_rules(&override_.rules, true)?;
         }
         let effective = self.effective_lint();
         for check in &self.checks {
@@ -985,15 +1037,21 @@ impl Solution {
                 base,
                 origins,
                 overrides: &lint.overrides,
+                comment_policy: comment_policy(&lint.rules),
             }
         } else {
+            // No [lint] is checks-v1, resolved the one way a preset is.
             for rule in super::rules::RULES {
-                base.insert(rule.id, Severity::Error);
+                base.insert(
+                    rule.id,
+                    super::rules::preset("checks-v1", rule).expect("a built-in preset"),
+                );
             }
             EffectiveLint {
                 base,
                 origins,
                 overrides: &[],
+                comment_policy: super::comments::CommentPolicy::default(),
             }
         }
     }
@@ -1115,6 +1173,110 @@ impl Solution {
     }
 }
 
+/// A TOML number, so `max_ratio = 1` means what `max_ratio = 1.0` does.
+fn number(value: &toml::Value) -> Option<f64> {
+    value
+        .as_float()
+        .or_else(|| value.as_integer().map(|number| number as f64))
+}
+
+fn string_list(value: &toml::Value) -> Option<Vec<String>> {
+    value
+        .as_array()?
+        .iter()
+        .map(|value| value.as_str().map(str::to_string))
+        .collect()
+}
+
+fn string_sets(value: &toml::Value) -> Option<Vec<Vec<String>>> {
+    value.as_array()?.iter().map(string_list).collect()
+}
+
+fn deduplicate(values: impl IntoIterator<Item = String>) -> Vec<String> {
+    let mut seen = BTreeSet::new();
+    values
+        .into_iter()
+        .filter(|value| seen.insert(value.to_ascii_lowercase()))
+        .collect()
+}
+
+fn phrase_option(policy: &mut Vec<String>, rule: &LintRule, stem: &str) {
+    let replace = format!("{stem}_replace");
+    let extend = format!("{stem}_extend");
+    if let Some(values) = rule.options.get(&replace).and_then(string_list) {
+        *policy = deduplicate(values);
+    } else if let Some(values) = rule.options.get(&extend).and_then(string_list) {
+        *policy = deduplicate(policy.iter().cloned().chain(values));
+    }
+}
+
+fn set_option(policy: &mut Vec<Vec<String>>, rule: &LintRule) {
+    let values = rule
+        .options
+        .get("sets_replace")
+        .and_then(string_sets)
+        .or_else(|| rule.options.get("sets_extend").and_then(string_sets));
+    let Some(values) = values else { return };
+    let values: Vec<_> = values.into_iter().map(deduplicate).collect();
+    if rule.options.contains_key("sets_replace") {
+        *policy = values;
+    } else {
+        policy.extend(values);
+    }
+    let mut seen = BTreeSet::new();
+    policy.retain(|set| {
+        seen.insert(
+            set.iter()
+                .map(|term| term.to_ascii_lowercase())
+                .collect::<Vec<_>>()
+                .join("\u{1f}"),
+        )
+    });
+}
+
+fn comment_policy(rules: &BTreeMap<String, LintRule>) -> super::comments::CommentPolicy {
+    let mut policy = super::comments::CommentPolicy::uncompiled();
+    let integer = |id: &str, key: &str| {
+        rules
+            .get(id)
+            .and_then(|rule| rule.options.get(key))
+            .and_then(toml::Value::as_integer)
+            .and_then(|value| usize::try_from(value).ok())
+    };
+    let float = |id: &str, key: &str| {
+        rules
+            .get(id)
+            .and_then(|rule| rule.options.get(key))
+            .and_then(number)
+    };
+    policy.jsdoc_max_lines =
+        integer("comments.budget.jsdoc-prose", "max_lines").unwrap_or(policy.jsdoc_max_lines);
+    policy.line_run_max_lines =
+        integer("comments.budget.line-run", "max_lines").unwrap_or(policy.line_run_max_lines);
+    policy.ratio_max = float("comments.budget.ratio", "max_ratio").unwrap_or(policy.ratio_max);
+    policy.ratio_min_code_lines =
+        integer("comments.budget.ratio", "min_code_lines").unwrap_or(policy.ratio_min_code_lines);
+    policy.instruction_max_words = integer("comments.prose.length", "instruction_max_words")
+        .unwrap_or(policy.instruction_max_words);
+    policy.description_max_words = integer("comments.prose.length", "description_max_words")
+        .unwrap_or(policy.description_max_words);
+    policy.noun_max_run = integer("comments.prose.nouns", "max_run").unwrap_or(policy.noun_max_run);
+    if let Some(rule) = rules.get("comments.prose.length") {
+        phrase_option(&mut policy.imperatives, rule, "imperatives");
+    }
+    if let Some(rule) = rules.get("comments.prose.history") {
+        phrase_option(&mut policy.history, rule, "phrases");
+    }
+    if let Some(rule) = rules.get("comments.prose.hedge") {
+        phrase_option(&mut policy.hedges, rule, "phrases");
+    }
+    if let Some(rule) = rules.get("comments.prose.synonym") {
+        set_option(&mut policy.synonyms, rule);
+    }
+    policy.compile();
+    policy
+}
+
 impl Coded for ConfigError {
     fn code(&self) -> ErrorCode {
         match self {
@@ -1195,6 +1357,62 @@ name = "P"
                 .severity("format.unformatted", None, ""),
             Severity::Off
         );
+    }
+
+    #[test]
+    fn comment_options_validate_and_resolve_once() {
+        let configured = solution(
+            r#"[lint]
+extends = ["house-v1"]
+[lint.rules."comments.prose.history"]
+phrases_replace = ["Now"]
+[lint.rules."comments.prose.length"]
+imperatives_extend = ["Deploy", "deploy"]
+instruction_max_words = 4
+[lint.rules."comments.prose.synonym"]
+sets_replace = [["alpha", "beta"]]
+
+[[project]]
+name = "P"
+"#,
+        )
+        .unwrap();
+        let policy = configured.effective_lint().comment_policy().clone();
+        assert_eq!(policy.history, vec!["Now"]);
+        assert_eq!(policy.instruction_max_words, 4);
+        assert_eq!(
+            policy
+                .imperatives
+                .iter()
+                .filter(|word| word.eq_ignore_ascii_case("deploy"))
+                .count(),
+            1
+        );
+        assert_eq!(
+            policy.synonyms,
+            vec![vec!["alpha".to_string(), "beta".to_string()]]
+        );
+        for (text, expected) in [
+            (
+                "[lint.rules.\"comments.budget.line-run\"]\nmax_lines = 0\n",
+                "comments.budget.line-run.max_lines must be an integer at least 1",
+            ),
+            (
+                "[lint.rules.\"comments.prose.hedge\"]\nphrases_extend = [1]\n",
+                "comments.prose.hedge.phrases_extend must be an array of strings",
+            ),
+            (
+                "[lint.rules.\"comments.prose.history\"]\nphrases_extend = [\"old\"]\nphrases_replace = [\"new\"]\n",
+                "cannot both be set",
+            ),
+            (
+                "[[lint.override]]\nentity = \"Things/*\"\n[lint.override.rules.\"comments.prose.hedge\"]\nphrases_extend = [\"perhaps\"]\n",
+                "options are set in [lint.rules], not in an override",
+            ),
+        ] {
+            let error = solution(&format!("{text}\n[[project]]\nname = \"P\"\n")).unwrap_err();
+            assert!(error.to_string().contains(expected), "{error}");
+        }
     }
 
     #[test]

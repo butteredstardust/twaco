@@ -381,25 +381,30 @@ server until it is deployed.
 
 ### `[lint]`
 
-`[lint]` configures the formatting, script-trap and code-order rules individually. Without the
-table, twaco uses `checks-v1`, retaining today's blocking gates. `checks-v1` and `house-v1`
-enable every current rule; `house-v1` will add comment rules in a later release. `traps-only-v1`
-enables only script traps. `extends` is optional and defaults to `checks-v1`; when present it
-cannot be empty, and applies presets in order so later presets win.
+`[lint]` configures the formatting, script-trap, code-order and comment rules individually.
+Without the table, twaco uses `checks-v1`: every formatting, script-trap and code-order rule, as
+the gates have always run, and no comment rule. `house-v1`, which `twaco init` writes, adds the
+comment budget and prose rules below. `traps-only-v1` enables only script traps. `extends` is
+optional and defaults to `checks-v1`; when present it cannot be empty, and applies presets in
+order so later presets win.
 
 Each rule has severity `"error"`, `"warn"`, or `"off"`. `error` is a finding, `warn` is reported
 but does not block, and `off` omits it. Rules may be changed in `[lint.rules]`, then in matching
 `[[lint.override]]` entries in file order. An override requires an `entity` glob over
 `Collection/Name`; `service` is optional and globs the service name. They use the same glob dialect
-as the other selectors: `*` stays within one path component and `**` crosses components. No rule
-options exist yet, so extra rule keys are refused.
+as the other selectors: `*` stays within one path component and `**` crosses components. Rule
+options belong only in `[lint.rules]`; an override may set only severity. `*_extend` appends
+case-insensitively deduplicated phrases or sets, while `*_replace` replaces the built-in list;
+the two forms cannot be used together.
 
 #### Suppressing one finding
 
 Use `// twaco-lint-disable-next-line traps.for-in: verified legacy behaviour` to suppress named
 rules on the next non-blank, non-`//` line, or `// twaco-lint-disable traps.for-in: verified legacy
 behaviour` through `// twaco-lint-enable traps.for-in`. Disable directives need a non-blank reason,
-and `format.*` rules cannot be suppressed inline; use `[lint.rules]` or `[[lint.override]]` instead.
+and `format.*` and `comments.*` rules cannot be suppressed inline; use `[lint.rules]` or
+`[[lint.override]]` instead. Comment rules are a house comment style: reword the comment when one
+reports.
 A malformed directive, or one that suppresses nothing, is itself reported.
 
 | Rule | Gate |
@@ -417,12 +422,52 @@ A malformed directive, or one that suppresses nothing, is itself reported.
 | `order.main-code-below-a-helper` | code order |
 | `order.declaration-between-helpers` | code order |
 | `order.suppression` | code order |
+| `comments.budget.jsdoc-prose` | comment budget |
+| `comments.budget.line-run` | comment budget |
+| `comments.budget.ratio` | comment budget |
+| `comments.prose.em-dash` | comment prose |
+| `comments.prose.history` | comment prose |
+| `comments.prose.length` | comment prose |
+| `comments.prose.bundled` | comment prose |
+| `comments.prose.hedge` | comment prose |
+| `comments.prose.condition` | comment prose |
+| `comments.prose.passive` | comment prose |
+| `comments.prose.nouns` | comment prose |
+| `comments.prose.synonym` | comment prose |
+
+In `house-v1`, every comment budget rule and `em-dash`, `history`, `length`, `bundled`, and
+`hedge` is an error; `condition`, `passive`, `nouns`, and `synonym` are warnings.
+
+| Rule option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `comments.budget.jsdoc-prose.max_lines` | integer ≥ 0 | `2` | Header prose lines allowed before tags. |
+| `comments.budget.line-run.max_lines` | integer ≥ 1 | `2` | Consecutive `//` lines allowed. |
+| `comments.budget.ratio.max_ratio` | float 0–1 | `0.40` | Largest comment share. |
+| `comments.budget.ratio.min_code_lines` | integer ≥ 0 | `15` | Code lines needed before judging the ratio. |
+| `comments.prose.length.instruction_max_words` | integer ≥ 1 | `20` | Word cap for imperative sentences. |
+| `comments.prose.length.description_max_words` | integer ≥ 1 | `25` | Word cap for other sentences. |
+| `comments.prose.length.imperatives_extend` / `_replace` | string array | built-in list | Add or replace imperative words. |
+| `comments.prose.history.phrases_extend` / `_replace` | string array | built-in list | Add or replace history phrases. |
+| `comments.prose.hedge.phrases_extend` / `_replace` | string array | built-in list | Add or replace hedge phrases. |
+| `comments.prose.synonym.sets_extend` / `_replace` | string-array array | built-in sets | Add or replace equivalent-word sets. |
+| `comments.prose.nouns.max_run` | integer ≥ 1 | `3` | Nouns allowed before the next one reports. |
+
+```toml
+[lint.rules."comments.prose.length"]
+description_max_words = 30
+imperatives_extend = ["deploy"]
+
+[lint.rules."comments.prose.hedge"]
+phrases_replace = ["basically", "simply"]
+```
 
 `[gates].advisory` still makes its whole gate report-only, whatever the rule severities say.
 Run `twaco lint --print-config` to see each rule's resolved severity and where it came from.
 With a `[lint]` table, a `[[check]]` hook cannot use the name of a lint gate that the table
-enables (`formatting`, `script traps`, or `code order`); rename or remove that hook. Without one,
-every hook name that loaded before still loads.
+enables (`formatting`, `script traps`, `code order`, `comment budget` or `comment prose`); rename
+or remove that hook, since twaco then runs that gate itself. Without one, every hook name that
+loaded before still loads. The comment gates appear in `check` only when `[lint]` enables one of
+their rules.
 
 ### `[gates]`
 

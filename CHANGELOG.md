@@ -8,6 +8,8 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- Configurable comment budget and prose lint rules, including per-rule thresholds and word-list
+  options, with `house-v1` severities and focused `twaco lint` selection.
 - `twaco lint` and the read-only MCP `lint` tool report configurable script rules, explain their
   summaries and show each resolved severity's origin.
 - `[lint]` configures formatting, script-trap and code-order rules with versioned presets,

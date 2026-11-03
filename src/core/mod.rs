@@ -17,6 +17,7 @@ pub mod check;
 pub(crate) mod child;
 pub(crate) mod codes;
 pub mod commands;
+pub(crate) mod comments;
 pub mod config;
 pub mod config_table;
 pub(crate) mod contained_check;
