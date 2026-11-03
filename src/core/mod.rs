@@ -97,6 +97,7 @@ pub mod sidecar;
 pub mod splice;
 pub mod status;
 pub(crate) mod structure;
+pub(crate) mod suppress;
 pub mod sync;
 pub mod testing;
 pub mod trace;

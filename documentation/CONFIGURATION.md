@@ -394,6 +394,14 @@ but does not block, and `off` omits it. Rules may be changed in `[lint.rules]`, 
 as the other selectors: `*` stays within one path component and `**` crosses components. No rule
 options exist yet, so extra rule keys are refused.
 
+#### Suppressing one finding
+
+Use `// twaco-lint-disable-next-line traps.for-in: verified legacy behaviour` to suppress named
+rules on the next non-blank, non-`//` line, or `// twaco-lint-disable traps.for-in: verified legacy
+behaviour` through `// twaco-lint-enable traps.for-in`. Disable directives need a non-blank reason,
+and `format.*` rules cannot be suppressed inline; use `[lint.rules]` or `[[lint.override]]` instead.
+A malformed directive, or one that suppresses nothing, is itself reported.
+
 | Rule | Gate |
 | --- | --- |
 | `format.unformatted` | formatting |
@@ -405,8 +413,10 @@ options exist yet, so extra rule keys are refused.
 | `traps.nan-risk` | script traps |
 | `traps.read-before-assign` | script traps |
 | `traps.unbounded-loop` | script traps |
+| `traps.suppression` | script traps |
 | `order.main-code-below-a-helper` | code order |
 | `order.declaration-between-helpers` | code order |
+| `order.suppression` | code order |
 
 `[gates].advisory` still makes its whole gate report-only, whatever the rule severities say.
 With a `[lint]` table, a `[[check]]` hook cannot use the name of a lint gate that the table

@@ -67,6 +67,12 @@ pub(crate) const RULES: &[Rule] = &[
         summary: "A loop has no evident terminating condition.",
     },
     Rule {
+        id: "traps.suppression",
+        gate: "script traps",
+        rule: "suppression",
+        summary: "A twaco-lint directive is malformed or suppresses nothing.",
+    },
+    Rule {
         id: "order.main-code-below-a-helper",
         gate: "code order",
         rule: "main-code-below-a-helper",
@@ -77,6 +83,12 @@ pub(crate) const RULES: &[Rule] = &[
         gate: "code order",
         rule: "declaration-between-helpers",
         summary: "A declaration sits between helper functions.",
+    },
+    Rule {
+        id: "order.suppression",
+        gate: "code order",
+        rule: "suppression",
+        summary: "A twaco-lint directive is malformed or suppresses nothing.",
     },
 ];
 
@@ -126,8 +138,10 @@ mod tests {
             ("script traps", "nan-risk"),
             ("script traps", "read-before-assign"),
             ("script traps", "unbounded-loop"),
+            ("script traps", "suppression"),
             ("code order", "main-code-below-a-helper"),
             ("code order", "declaration-between-helpers"),
+            ("code order", "suppression"),
         ];
         for (gate, rule) in emitted {
             assert!(

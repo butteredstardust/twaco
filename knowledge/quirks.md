@@ -258,6 +258,9 @@ The logging aspect has no effect without a configured value stream.
 
 ThingWorx's engine scopes const like function scope; avoid relying on block-scoped JavaScript
 semantics and account for the resulting duplicate-declaration and loop-capture consequences.
+To keep one such finding on purpose, put `// twaco-lint-disable-next-line traps.const-in-loop:
+<reason>` on its own line above the code; twaco reports a directive that is malformed or
+suppresses nothing.
 
 ## NaN in a result fails the service
 

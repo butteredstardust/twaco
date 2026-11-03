@@ -876,7 +876,16 @@ fn script_traps_with(
     let mut result = GateResult::passed("script traps", 0);
     for (path, source) in scripts(solution, &mut result) {
         result.examined += 1;
-        for trap in super::lint::lint(&source.replace("\r\n", "\n")) {
+        let source = source.replace("\r\n", "\n");
+        let mut directives = source
+            .contains("twaco-lint-")
+            .then(|| super::suppress::parse(&source));
+        for trap in super::lint::lint(&source) {
+            if directives.as_mut().is_some_and(|directives| {
+                directives.suppresses(&format!("traps.{}", trap.rule), trap.line)
+            }) {
+                continue;
+            }
             lint_finding(
                 &mut result,
                 lint,
@@ -891,6 +900,40 @@ fn script_traps_with(
                     message: trap.message,
                 },
             );
+        }
+        if let Some(directives) = &directives {
+            for problem in directives.malformed() {
+                lint_finding(
+                    &mut result,
+                    lint,
+                    script_entity(solution, discovered, &path),
+                    "script traps",
+                    "suppression",
+                    Finding {
+                        gate: "script traps".to_string(),
+                        file: relative(solution, &path),
+                        line: problem.line,
+                        rule: "suppression".to_string(),
+                        message: problem.message.clone(),
+                    },
+                );
+            }
+            for problem in directives.unused("traps.") {
+                lint_finding(
+                    &mut result,
+                    lint,
+                    script_entity(solution, discovered, &path),
+                    "script traps",
+                    "suppression",
+                    Finding {
+                        gate: "script traps".to_string(),
+                        file: relative(solution, &path),
+                        line: problem.line,
+                        rule: "suppression".to_string(),
+                        message: problem.message,
+                    },
+                );
+            }
         }
     }
     result
@@ -970,7 +1013,16 @@ fn code_order_with(
     let mut result = GateResult::passed("code order", 0);
     for (path, source) in scripts(solution, &mut result) {
         result.examined += 1;
-        for misplaced in super::order::check(&source.replace("\r\n", "\n")) {
+        let source = source.replace("\r\n", "\n");
+        let mut directives = source
+            .contains("twaco-lint-")
+            .then(|| super::suppress::parse(&source));
+        for misplaced in super::order::check(&source) {
+            if directives.as_mut().is_some_and(|directives| {
+                directives.suppresses(&format!("order.{}", misplaced.rule), misplaced.line)
+            }) {
+                continue;
+            }
             lint_finding(
                 &mut result,
                 lint,
@@ -985,6 +1037,24 @@ fn code_order_with(
                     message: misplaced.message,
                 },
             );
+        }
+        if let Some(directives) = &directives {
+            for problem in directives.unused("order.") {
+                lint_finding(
+                    &mut result,
+                    lint,
+                    script_entity(solution, discovered, &path),
+                    "code order",
+                    "suppression",
+                    Finding {
+                        gate: "code order".to_string(),
+                        file: relative(solution, &path),
+                        line: problem.line,
+                        rule: "suppression".to_string(),
+                        message: problem.message,
+                    },
+                );
+            }
         }
     }
     result
@@ -1836,6 +1906,126 @@ name = \"P\"
             .unwrap();
         assert!(formatting.findings.is_empty());
         assert!(formatting.warnings.is_empty());
+    }
+
+    #[test]
+    fn script_lint_directives_suppress_raw_findings_before_severity() {
+        let (_dir, root, solution) = live_solution();
+        std::fs::write(
+            root.join("src/P.T/services/Bad/script.js"),
+            "// twaco-lint-disable-next-line traps.for-in: platform compatibility\nfor (var key in rows) { rows[i]; }\n",
+        )
+        .unwrap();
+        let traps = script_traps(&solution);
+        assert!(traps
+            .findings
+            .iter()
+            .all(|finding| finding.rule != "for-in"));
+        assert!(traps
+            .warnings
+            .iter()
+            .all(|finding| finding.rule != "for-in"));
+        assert_eq!(
+            traps
+                .findings
+                .iter()
+                .map(|finding| finding.rule.as_str())
+                .collect::<Vec<_>>(),
+            ["indexed-rows"]
+        );
+    }
+
+    #[test]
+    fn a_script_without_directives_keeps_its_existing_traps() {
+        let (_dir, root, solution) = live_solution();
+        std::fs::write(
+            root.join("src/P.T/services/Bad/script.js"),
+            "for (var key in map) {}\n",
+        )
+        .unwrap();
+        assert_eq!(
+            script_traps(&solution)
+                .findings
+                .iter()
+                .map(|finding| finding.rule.as_str())
+                .collect::<Vec<_>>(),
+            ["for-in"]
+        );
+    }
+
+    #[test]
+    fn script_lint_directives_report_malformed_and_unused_by_their_owners() {
+        let (_dir, root, solution) = live_solution();
+        for source in [
+            "// twaco-lint-disable missing: reason\nresult = 1;\n",
+            "// twaco-lint-disable all: reason\nresult = 1;\n",
+            "// twaco-lint-disable format.unformatted: reason\nresult = 1;\n",
+            "// twaco-lint-disable traps.for-in\nresult = 1;\n",
+            "// twaco-lint-enable traps.for-in\nresult = 1;\n",
+            "// twaco-lint-unknown traps.for-in: reason\nresult = 1;\n",
+            "// twaco-lint-disable : reason\nresult = 1;\n",
+            "// twaco-lint-disable traps.suppression: reason\nresult = 1;\n",
+        ] {
+            std::fs::write(root.join("src/P.T/services/Bad/script.js"), source).unwrap();
+            let traps = script_traps(&solution);
+            assert_eq!(traps.findings.len(), 1, "{source}: {:?}", traps.findings);
+            assert_eq!(traps.findings[0].rule, "suppression", "{source}");
+            assert_eq!(traps.findings[0].line, 1, "{source}");
+        }
+
+        std::fs::write(
+            root.join("src/P.T/services/Bad/script.js"),
+            "// twaco-lint-disable-next-line traps.for-in: no longer needed\nresult = 1;\n",
+        )
+        .unwrap();
+        let traps = script_traps(&solution);
+        assert_eq!(traps.findings.len(), 1);
+        assert_eq!(traps.findings[0].rule, "suppression");
+
+        std::fs::write(
+            root.join("src/P.T/services/Bad/script.js"),
+            "// twaco-lint-disable order.main-code-below-a-helper: no longer needed\nfunction helper() {}\n// twaco-lint-enable order.main-code-below-a-helper\n",
+        )
+        .unwrap();
+        let order = code_order(&solution);
+        assert_eq!(order.findings.len(), 1, "{:?}", order.findings);
+        assert_eq!(order.findings[0].rule, "suppression");
+        assert_eq!(order.findings[0].line, 1);
+    }
+
+    #[test]
+    fn a_suppression_counts_when_its_rule_is_off_and_can_be_warned_itself() {
+        let (_dir, root, _) = live_solution();
+        std::fs::write(
+            root.join("twaco.toml"),
+            "[lint.rules.\"traps.for-in\"]\nseverity = \"off\"\n\n[[project]]\nname = \"P\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("src/P.T/services/Bad/script.js"),
+            "// twaco-lint-disable-next-line traps.for-in: platform compatibility\nfor (var key in map) {}\n",
+        )
+        .unwrap();
+        let configured = Solution::load(&root.join("twaco.toml")).unwrap();
+        let traps = script_traps(&configured);
+        assert!(traps.findings.is_empty(), "{:?}", traps.findings);
+        assert!(traps.warnings.is_empty(), "{:?}", traps.warnings);
+
+        std::fs::write(
+            root.join("twaco.toml"),
+            "[lint.rules.\"traps.suppression\"]\nseverity = \"warn\"\n\n[[project]]\nname = \"P\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("src/P.T/services/Bad/script.js"),
+            "// twaco-lint-disable unknown: reason\nresult = 1;\n",
+        )
+        .unwrap();
+        let configured = Solution::load(&root.join("twaco.toml")).unwrap();
+        let traps = script_traps(&configured);
+        assert!(traps.findings.is_empty());
+        assert_eq!(traps.warnings.len(), 1);
+        assert_eq!(traps.warnings[0].rule, "suppression");
     }
 
     #[test]
