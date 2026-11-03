@@ -58,6 +58,7 @@ pub fn run(solution: &Solution, request: &LintRequest) -> Result<LintReport, Str
         check::formatting_with(solution, &discovery, &lint),
         check::script_traps_with(solution, &discovery, &lint),
         check::code_order_with(solution, &discovery, &lint),
+        check::comment_header_with(solution, &discovery, &lint),
         check::comment_budget_with(solution, &discovery, &lint),
         check::comment_prose_with(solution, &discovery, &lint),
     ];
@@ -140,34 +141,49 @@ fn selected_rules(entries: &[String]) -> Result<Vec<&'static str>, String> {
     Ok(selected)
 }
 
-/// The scripts the request covers, as the gates name them: every sidecar script `check` reads,
-/// so a script whose entity file is missing is linted too unless an entity filter is given.
+/// The scripts the request covers, as the gates name them.
 fn script_addresses(
     solution: &Solution,
     discovery: &workspace::Discovery,
     request: &LintRequest,
 ) -> Vec<String> {
+    selected_scripts(
+        solution,
+        discovery,
+        request.entity.as_deref(),
+        request.service.as_deref(),
+    )
+    .into_iter()
+    .map(|path| check::relative(solution, &path))
+    .collect()
+}
+
+/// Every sidecar script `check` reads that the filters select, with its `Collection/Name` when
+/// its entity file is found. A script whose entity is missing is selected unless an entity filter
+/// is given.
+pub(crate) fn selected_scripts(
+    solution: &Solution,
+    discovery: &workspace::Discovery,
+    entity: Option<&str>,
+    service: Option<&str>,
+) -> Vec<std::path::PathBuf> {
     workspace::script_files(solution)
         .files
         .into_iter()
         .filter(|path| {
-            let entity = check::script_entity(solution, discovery, path)
+            let address = check::script_entity(solution, discovery, path)
                 .map(|(collection, name)| format!("{collection}/{name}"));
-            let service = path
+            let name = path
                 .parent()
                 .and_then(Path::file_name)
                 .map(|name| name.to_string_lossy().into_owned())
                 .unwrap_or_default();
-            request.entity.as_deref().is_none_or(|pattern| {
-                entity
+            entity.is_none_or(|pattern| {
+                address
                     .as_deref()
-                    .is_some_and(|entity| glob::matches(pattern, entity))
-            }) && request
-                .service
-                .as_deref()
-                .is_none_or(|pattern| glob::matches(pattern, &service))
+                    .is_some_and(|address| glob::matches(pattern, address))
+            }) && service.is_none_or(|pattern| glob::matches(pattern, &name))
         })
-        .map(|path| check::relative(solution, &path))
         .collect()
 }
 

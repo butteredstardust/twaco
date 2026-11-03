@@ -8,6 +8,10 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- The `comment header` gate holds each service's leading JSDoc to its definition.xml (one
+  @function, @param in ordinal order, @returns naming the result DataShape), new services get a
+  generated header when the rule is on, and `twaco lint fix-headers [--apply]` (MCP
+  `lint_fix_headers`) repairs existing headers without rewriting their text.
 - Configurable comment budget and prose lint rules, including per-rule thresholds and word-list
   options, with `house-v1` severities and focused `twaco lint` selection.
 - `twaco lint` and the read-only MCP `lint` tool report configurable script rules, explain their

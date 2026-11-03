@@ -218,6 +218,65 @@ fn service_add_uses_the_configured_quote_style() {
 }
 
 #[test]
+fn service_add_writes_a_header_when_the_contract_rule_is_on() {
+    let (_dir, old_solution) = fixture();
+    std::fs::write(
+        old_solution.root.join("twaco.toml"),
+        "[solution]
+src = \"src\"
+
+[lint]
+extends = [\"house-v1\"]
+
+[[project]]
+name = \"Acme.Orders\"
+root = \"app\"
+",
+    )
+    .unwrap();
+    let solution = Solution::load(&old_solution.root.join("twaco.toml")).unwrap();
+    family(&solution);
+    let mut add = service("ReadRows", "result = rows;");
+    add.parameters = vec![
+        "limit:INTEGER".into(),
+        "rows:INFOTABLE:Acme.Orders.Row_DS".into(),
+    ];
+    add.returns = Some("INFOTABLE:Acme.Orders.Row_DS".into());
+    add.description = Some("Read rows".into());
+    run(&solution, "Acme.Orders.Press", Action::ServiceAdd(add));
+    let script = std::fs::read_to_string(
+        solution
+            .src_root()
+            .join("Acme.Orders.Press/services/ReadRows/script.js"),
+    )
+    .unwrap();
+    assert!(
+        script.starts_with(
+            "/**
+ * Read rows
+ *
+ * @function ReadRows
+ * @param {number} limit -
+ * @param {Object} rows -
+ * @returns {Object} An InfoTable shaped by Acme.Orders.Row_DS.
+ */
+"
+        ),
+        "{script}"
+    );
+    let report = crate::core::lint_report::run(
+        &solution,
+        &crate::core::lint_report::LintRequest {
+            rules: vec!["comments.header".to_string()],
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert!(report.findings.is_empty(), "{:?}", report.findings);
+    assert_in_step(&solution);
+}
+
+#[test]
 fn service_add_refuses_clashes_bad_types_and_hosts() {
     let (_dir, solution) = fixture();
     family(&solution);

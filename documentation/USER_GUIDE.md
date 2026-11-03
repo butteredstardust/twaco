@@ -309,7 +309,11 @@ to read the reason for a rule. `--print-config` shows every resolved severity an
 from. `--json` writes JSON Lines findings only, so it is suitable as a `[[check]]` command. Unlike
 `check`, `[gates].advisory` does not apply: lint reports the configured rule severity directly. With
 `house-v1`, comment budget and prose checks use the configured house style; select all prose rules
-with `--rule comments.prose`, and tune their thresholds and word lists in `[lint.rules]`.
+with `--rule comments.prose`, and tune their thresholds and word lists in `[lint.rules]`. The
+comment-header rules also hold the leading JSDoc to `definition.xml`; `twaco lint fix-headers`
+shows contract repairs, and `twaco lint fix-headers --apply` writes them to sidecar `script.js`
+files, moving each existing tag whole and generating only what is missing (see
+[Configuration](CONFIGURATION.md#service-headers)). `twaco sync` then writes them into the XML.
 
 | Gate | Fails when |
 | --- | --- |

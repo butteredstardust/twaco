@@ -255,6 +255,10 @@ second();
                 "// twaco-lint-disable comments.prose.hedge: reason",
                 "comment rules cannot be suppressed inline",
             ),
+            (
+                "// twaco-lint-disable comments.header.contract: reason",
+                "comment rules cannot be suppressed inline",
+            ),
         ] {
             let directives = parse(source);
             assert_eq!(directives.malformed.len(), 1, "{source}");

@@ -47,6 +47,7 @@ pub(crate) mod git;
 pub mod gitignore;
 pub(crate) mod glob;
 pub mod guide;
+pub(crate) mod header;
 pub mod help;
 pub mod impact;
 pub mod imports;

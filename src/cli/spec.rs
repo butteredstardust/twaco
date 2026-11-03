@@ -462,6 +462,17 @@ pub(crate) const USAGE: &[Usage] = &[
       --json                  findings as JSON Lines; with --print-config, a JSON array"#,
     },
     Usage {
+        path: "lint fix-headers",
+        group: 1,
+        text: r#"  lint fix-headers [--entity <name>] [--service <name>] [--apply] [--json]
+                              bring each service's JSDoc header to its definition.xml: @function,
+                              @param in ordinal order, @returns; plans by default
+      --entity <name>         Collection/Name glob
+      --service <name>        service folder glob
+      --apply                 write the repaired scripts
+      --json                  print the plan or result as JSON"#,
+    },
+    Usage {
         path: "types",
         group: 1,
         text: r#"  types [--check [--json]|--platform] [--profile <name>]

@@ -21,6 +21,7 @@ pub(crate) struct RuleOption {
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum OptionKind {
+    Bool,
     Int { minimum: i64 },
     Float { minimum: f64, maximum: f64 },
     Phrases,
@@ -28,6 +29,16 @@ pub(crate) enum OptionKind {
 }
 
 const NO_OPTIONS: &[RuleOption] = &[];
+const HEADER_CONTRACT_OPTIONS: &[RuleOption] = &[RuleOption {
+    name: "require_result_shape",
+    kind: OptionKind::Bool,
+    default: "true",
+}];
+const HEADER_WRAP_OPTIONS: &[RuleOption] = &[RuleOption {
+    name: "max_columns",
+    kind: OptionKind::Int { minimum: 40 },
+    default: "100",
+}];
 const JSDOC_OPTIONS: &[RuleOption] = &[RuleOption {
     name: "max_lines",
     kind: OptionKind::Int { minimum: 0 },
@@ -200,6 +211,9 @@ pub(crate) const RULES: &[Rule] = &[
     Rule { id: "comments.budget.jsdoc-prose", gate: "comment budget", rule: "jsdoc-prose", summary: "The header comment has more prose than its API tags need.", options: JSDOC_OPTIONS },
     Rule { id: "comments.budget.line-run", gate: "comment budget", rule: "line-run", summary: "A run of line comments is detached from the code it should explain.", options: LINE_RUN_OPTIONS },
     Rule { id: "comments.budget.ratio", gate: "comment budget", rule: "ratio", summary: "Comments occupy too much of a script that has enough code to judge.", options: RATIO_OPTIONS },
+    Rule { id: "comments.header.contract", gate: "comment header", rule: "contract", summary: "The leading JSDoc header matches the service definition.", options: HEADER_CONTRACT_OPTIONS },
+    Rule { id: "comments.header.first-statement", gate: "comment header", rule: "first-statement", summary: "The first statement follows the leading JSDoc header directly.", options: NO_OPTIONS },
+    Rule { id: "comments.header.wrap", gate: "comment header", rule: "wrap", summary: "A leading JSDoc header line is too long.", options: HEADER_WRAP_OPTIONS },
     Rule { id: "comments.prose.em-dash", gate: "comment prose", rule: "em-dash", summary: "A \"--\" aside is a second thought bolted on; split the sentence.", options: NO_OPTIONS },
     Rule { id: "comments.prose.history", gate: "comment prose", rule: "history", summary: "A comment describes what the code used to do instead of what it does.", options: PHRASE_OPTIONS },
     Rule { id: "comments.prose.length", gate: "comment prose", rule: "length", summary: "A comment sentence is too long to scan beside the code.", options: LENGTH_OPTIONS },

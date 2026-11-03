@@ -141,6 +141,7 @@ pub(crate) const BUILT_IN_GATES: &[&str] = &[
     "formatting",
     "script traps",
     "code order",
+    "comment header",
     "comment budget",
     "comment prose",
     "project",
@@ -202,6 +203,15 @@ pub fn run(solution: &Solution) -> CheckReport {
         report.gates.insert(
             index,
             as_configured(solution, comment_prose_with(solution, &discovery, &lint)),
+        );
+    }
+    if lint.gate_enabled("comment header") {
+        let index = usize::from(lint.gate_enabled("comment budget"))
+            + usize::from(lint.gate_enabled("comment prose"))
+            + 5;
+        report.gates.insert(
+            index,
+            as_configured(solution, comment_header_with(solution, &discovery, &lint)),
         );
     }
     for hook in &solution.checks {
@@ -1092,6 +1102,49 @@ pub(crate) fn comment_budget_with(
                 .collect()
         },
     )
+}
+
+pub(crate) fn comment_header_with(
+    solution: &Solution,
+    discovered: &workspace::Discovery,
+    lint: &EffectiveLint<'_>,
+) -> GateResult {
+    let mut result = GateResult::passed("comment header", 0);
+    if !lint.gate_enabled("comment header") {
+        return result;
+    }
+    for (path, source) in scripts(solution, &mut result) {
+        result.examined += 1;
+        let service = path
+            .parent()
+            .and_then(Path::file_name)
+            .and_then(|name| name.to_str());
+        let definition = path
+            .parent()
+            .map(|folder| folder.join("definition.xml"))
+            .and_then(|path| std::fs::read_to_string(path).ok())
+            .and_then(|source| super::header::definition(&source));
+        let Some(service) = service else { continue };
+        for finding in
+            super::header::findings(&source, service, definition.as_ref(), lint.header_policy())
+        {
+            lint_finding(
+                &mut result,
+                lint,
+                script_entity(solution, discovered, &path),
+                "comment header",
+                finding.rule,
+                Finding {
+                    gate: "comment header".to_string(),
+                    file: relative(solution, &path),
+                    line: finding.line,
+                    rule: finding.rule.to_string(),
+                    message: finding.message,
+                },
+            );
+        }
+    }
+    result
 }
 
 pub(crate) fn comment_prose_with(
@@ -2031,6 +2084,59 @@ name = \"P\"
             .find(|gate| gate.name == "comment budget")
             .unwrap();
         assert!(budget.findings.is_empty(), "{:?}", budget.findings);
+    }
+
+    #[test]
+    fn the_header_gate_holds_a_script_to_its_definition_under_house_v1() {
+        let (_dir, root, without) = live_solution();
+        let folder = root.join("src/P.T/services/Bad");
+        std::fs::write(
+            folder.join("definition.xml"),
+            "<ServiceDefinition name=\"Bad\"><ResultType baseType=\"NOTHING\" name=\"result\" ordinal=\"0\"></ResultType><ParameterDefinitions><FieldDefinition baseType=\"STRING\" name=\"who\" ordinal=\"1\"></FieldDefinition></ParameterDefinitions></ServiceDefinition>",
+        )
+        .unwrap();
+        std::fs::write(folder.join("script.js"), "result = who;").unwrap();
+        assert!(!run(&without)
+            .gates
+            .iter()
+            .any(|gate| gate.name == "comment header"));
+
+        std::fs::write(
+            root.join("twaco.toml"),
+            "[lint]
+extends = [\"house-v1\"]
+
+[[project]]
+name = \"P\"
+",
+        )
+        .unwrap();
+        let house = Solution::load(&root.join("twaco.toml")).unwrap();
+        let report = run(&house);
+        let names: Vec<&str> = report.gates.iter().map(|gate| gate.name.as_str()).collect();
+        let at = |name: &str| names.iter().position(|gate| *gate == name).unwrap();
+        assert!(at("comment prose") < at("comment header"), "{names:?}");
+        let header = &report.gates[at("comment header")];
+        assert_eq!(header.findings.len(), 1, "{:?}", header.findings);
+        assert!(header.findings[0].message.contains("fix-headers"));
+
+        std::fs::write(
+            folder.join("script.js"),
+            "/**
+ * @function Bad
+ * @param {string} who -
+ * @returns {void}
+ */
+result = who;",
+        )
+        .unwrap();
+        let report = run(&house);
+        let header = report
+            .gates
+            .iter()
+            .find(|gate| gate.name == "comment header")
+            .unwrap();
+        assert!(header.findings.is_empty(), "{:?}", header.findings);
     }
 
     #[test]

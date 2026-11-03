@@ -130,6 +130,10 @@ impl Command {
             Command::Sync(_) => "sync",
             Command::Fmt(_) => "fmt",
             Command::Check(_) => "check",
+            Command::Lint(super::lint::Lint {
+                action: Some(super::lint::LintAction::FixHeaders(_)),
+                ..
+            }) => "lint fix-headers",
             Command::Lint(_) => "lint",
             Command::Types(_) => "types",
             Command::Users(_) => "users",

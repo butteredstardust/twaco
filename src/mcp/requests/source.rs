@@ -113,6 +113,20 @@ pub(crate) struct FmtRequest {
 
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct LintFixHeadersRequest {
+    /// Collection/Name glob.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) entity: Absent<String>,
+    /// Service folder glob.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) service: Absent<String>,
+    /// Plan only when true (the default); false writes the repaired scripts.
+    #[serde(default = "default_true")]
+    pub(crate) dry_run: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct DeployRequest {
     #[serde(default = "default_true")]
     pub(crate) dry_run: bool,

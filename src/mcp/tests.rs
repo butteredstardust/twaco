@@ -1133,6 +1133,7 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
             "types",
             "check",
             "lint",
+            "lint_fix_headers",
             "status",
             "entity_pull",
             "sync",
@@ -3862,4 +3863,44 @@ for (var k in m) {
         json!({"explain": "traps.for-in", "print_config": true}),
     );
     assert!(failed, "{refused}");
+}
+
+#[test]
+fn lint_fix_headers_plans_by_default() {
+    let (_dir, root) = solution_dir();
+    std::fs::write(
+        root.join("twaco.toml"),
+        "[lint]
+extends = [\"house-v1\"]
+
+[[project]]
+name = \"P\"
+",
+    )
+    .unwrap();
+    let folder = root.join("src/P.T/services/Run");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(
+        folder.join("definition.xml"),
+        "<ServiceDefinition name=\"Run\"><ResultType baseType=\"NOTHING\" name=\"result\" ordinal=\"0\"></ResultType><ParameterDefinitions></ParameterDefinitions></ServiceDefinition>",
+    )
+    .unwrap();
+    std::fs::write(folder.join("script.js"), "result = 1;").unwrap();
+    let (failed, plan) = call_tool(&root, "lint_fix_headers", json!({}));
+    assert!(!failed, "{plan}");
+    assert_eq!(plan["dry_run"], true);
+    assert_eq!(plan["changed"], 1, "{plan}");
+    assert_eq!(
+        std::fs::read_to_string(folder.join("script.js")).unwrap(),
+        "result = 1;"
+    );
+    let (failed, applied) = call_tool(&root, "lint_fix_headers", json!({"dry_run": false}));
+    assert!(!failed, "{applied}");
+    assert!(std::fs::read_to_string(folder.join("script.js"))
+        .unwrap()
+        .starts_with(
+            "/**
+ * @function Run
+"
+        ));
 }

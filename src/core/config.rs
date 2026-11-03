@@ -234,6 +234,7 @@ pub(crate) struct EffectiveLint<'a> {
     origins: BTreeMap<&'static str, String>,
     overrides: &'a [LintOverride],
     comment_policy: super::comments::CommentPolicy,
+    header_policy: super::header::HeaderPolicy,
 }
 
 impl<'a> EffectiveLint<'a> {
@@ -297,6 +298,10 @@ impl<'a> EffectiveLint<'a> {
 
     pub(crate) fn comment_policy(&self) -> &super::comments::CommentPolicy {
         &self.comment_policy
+    }
+
+    pub(crate) fn header_policy(&self) -> &super::header::HeaderPolicy {
+        &self.header_policy
     }
 }
 
@@ -924,6 +929,7 @@ impl Solution {
                         super::rules::OptionKind::Int { minimum } => {
                             value.as_integer().is_some_and(|number| number >= minimum)
                         }
+                        super::rules::OptionKind::Bool => value.as_bool().is_some(),
                         super::rules::OptionKind::Float { minimum, maximum } => number(value)
                             .is_some_and(|number| number >= minimum && number <= maximum),
                         super::rules::OptionKind::Phrases => string_list(value).is_some(),
@@ -934,6 +940,7 @@ impl Solution {
                             super::rules::OptionKind::Int { minimum } => {
                                 format!("an integer at least {minimum}")
                             }
+                            super::rules::OptionKind::Bool => "a boolean".to_string(),
                             super::rules::OptionKind::Float { minimum, maximum } => {
                                 format!("a number from {minimum} to {maximum}")
                             }
@@ -1038,6 +1045,7 @@ impl Solution {
                 origins,
                 overrides: &lint.overrides,
                 comment_policy: comment_policy(&lint.rules),
+                header_policy: header_policy(&lint.rules),
             }
         } else {
             // No [lint] is checks-v1, resolved the one way a preset is.
@@ -1052,6 +1060,7 @@ impl Solution {
                 origins,
                 overrides: &[],
                 comment_policy: super::comments::CommentPolicy::default(),
+                header_policy: super::header::HeaderPolicy::default(),
             }
         }
     }
@@ -1277,6 +1286,28 @@ fn comment_policy(rules: &BTreeMap<String, LintRule>) -> super::comments::Commen
     policy
 }
 
+fn header_policy(rules: &BTreeMap<String, LintRule>) -> super::header::HeaderPolicy {
+    let mut policy = super::header::HeaderPolicy::default();
+    if let Some(rule) = rules.get("comments.header.contract") {
+        if let Some(value) = rule
+            .options
+            .get("require_result_shape")
+            .and_then(toml::Value::as_bool)
+        {
+            policy.require_result_shape = value;
+        }
+    }
+    if let Some(value) = rules
+        .get("comments.header.wrap")
+        .and_then(|rule| rule.options.get("max_columns"))
+        .and_then(toml::Value::as_integer)
+        .and_then(|value| usize::try_from(value).ok())
+    {
+        policy.max_columns = value;
+    }
+    policy
+}
+
 impl Coded for ConfigError {
     fn code(&self) -> ErrorCode {
         match self {
@@ -1400,6 +1431,10 @@ name = "P"
             (
                 "[lint.rules.\"comments.prose.hedge\"]\nphrases_extend = [1]\n",
                 "comments.prose.hedge.phrases_extend must be an array of strings",
+            ),
+            (
+                "[lint.rules.\"comments.header.contract\"]\nrequire_result_shape = \"yes\"\n",
+                "comments.header.contract.require_result_shape must be a boolean",
             ),
             (
                 "[lint.rules.\"comments.prose.history\"]\nphrases_extend = [\"old\"]\nphrases_replace = [\"new\"]\n",

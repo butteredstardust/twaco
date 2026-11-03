@@ -140,6 +140,7 @@ const ADDITIVE: &[&str] = &[
 const IDEMPOTENT: &[&str] = &[
     "types",
     "fmt",
+    "lint_fix_headers",
     "extract",
     "sync",
     "status",
@@ -316,6 +317,13 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             source::lint_tool,
         )
         .with_output::<outputs::LintResult>(),
+        solution_tool::<source_requests::LintFixHeadersRequest>(
+            "lint_fix_headers",
+            "Bring each service's leading JSDoc header to its definition.xml: one @function, one @param per input in ordinal order, and @returns naming the result DataShape. Existing tags keep their text and move whole; prose is never rewritten. Skips services whose comments.header.contract rule is off. dry_run defaults to true; false writes the scripts under the workspace lock.",
+            false,
+            source::lint_fix_headers_tool,
+        )
+        .with_output::<outputs::LintFixHeadersResult>(),
         solution_progress_tool::<entity_requests::StatusRequest>(
             "status",
             "Compare entities with the server and the recorded baseline: in-sync, local-changed, server-changed, both-changed, not-on-server, or no baseline yet. Lists every entity that needs attention.",
@@ -970,6 +978,7 @@ pub(crate) const GROUPS: &[(&str, &[&str])] = &[
             "types",
             "check",
             "lint",
+            "lint_fix_headers",
             "status",
             "sync",
             "extract",

@@ -640,6 +640,109 @@
     }
   },
   {
+    "name": "lint_fix_headers",
+    "description": "Bring each service's leading JSDoc header to its definition.xml: one @function, one @param per input in ordinal order, and @returns naming the result DataShape. Existing tags keep their text and move whole; prose is never rewritten. Skips services whose comments.header.contract rule is off. dry_run defaults to true; false writes the scripts under the workspace lock.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "entity": {
+          "description": "Collection/Name glob.",
+          "type": "string"
+        },
+        "service": {
+          "description": "Service folder glob.",
+          "type": "string"
+        },
+        "dry_run": {
+          "description": "Plan only when true (the default); false writes the repaired scripts.",
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "openWorldHint": false,
+      "destructiveHint": true,
+      "idempotentHint": true
+    },
+    "outputSchema": {
+      "required": [
+        "summary",
+        "ok",
+        "dry_run",
+        "examined",
+        "changed",
+        "scripts",
+        "failed"
+      ],
+      "properties": {
+        "summary": {
+          "type": "string"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "examined": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "changed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "scripts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "file": {
+                "type": "string"
+              },
+              "changes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "not_fixable": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "file",
+              "changes",
+              "not_fixable"
+            ]
+          }
+        },
+        "failed": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
     "name": "status",
     "description": "Compare entities with the server and the recorded baseline: in-sync, local-changed, server-changed, both-changed, not-on-server, or no baseline yet. Lists every entity that needs attention.",
     "inputSchema": {

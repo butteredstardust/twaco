@@ -2052,3 +2052,51 @@ fn lint_prints_json_lines_and_exits_one_only_on_an_error() {
         "{explained}"
     );
 }
+
+#[test]
+fn lint_fix_headers_plans_with_exit_one_then_applies_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::fs::write(
+        root.join("twaco.toml"),
+        "[lint]
+extends = [\"house-v1\"]
+
+[[project]]
+name = \"P\"
+",
+    )
+    .unwrap();
+    let folder = root.join("src/P.T/services/Run");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(
+        folder.join("definition.xml"),
+        "<ServiceDefinition name=\"Run\"><ResultType baseType=\"NOTHING\" name=\"result\" ordinal=\"0\"></ResultType><ParameterDefinitions></ParameterDefinitions></ServiceDefinition>",
+    )
+    .unwrap();
+    std::fs::write(folder.join("script.js"), "result = 1;").unwrap();
+    let run = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_twaco"))
+            .args(args)
+            .current_dir(root)
+            .env_clear()
+            .output()
+            .unwrap()
+    };
+    let plan = run(&["lint", "fix-headers"]);
+    assert_eq!(plan.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&plan.stdout).contains("would fix"));
+    assert_eq!(
+        std::fs::read_to_string(folder.join("script.js")).unwrap(),
+        "result = 1;"
+    );
+    assert_eq!(
+        run(&["lint", "fix-headers", "--apply"]).status.code(),
+        Some(0)
+    );
+    assert_eq!(run(&["lint", "fix-headers"]).status.code(), Some(0));
+    assert_eq!(
+        run(&["lint", "--rule", "comments.header"]).status.code(),
+        Some(0)
+    );
+}

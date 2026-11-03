@@ -296,6 +296,25 @@ pub(crate) struct ExtractResult {
 }
 
 #[derive(Serialize, JsonSchema)]
+pub(crate) struct LintFixHeadersResult {
+    summary: String,
+    ok: bool,
+    dry_run: bool,
+    examined: u64,
+    changed: u64,
+    scripts: Vec<FixedHeader>,
+    failed: Vec<String>,
+    notices: Notices,
+}
+
+#[derive(Serialize, JsonSchema)]
+struct FixedHeader {
+    file: String,
+    changes: Vec<String>,
+    not_fixable: Vec<String>,
+}
+
+#[derive(Serialize, JsonSchema)]
 pub(crate) struct FmtResult {
     ok: bool,
     check: bool,

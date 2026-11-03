@@ -1,7 +1,7 @@
 use super::entity::{refusal_code, tool_targets};
 use super::requests::source::{
-    CheckRequest, DeployRequest, ExtractRequest, FmtRequest, LintRequest, SyncRequest, TypesAction,
-    TypesRequest,
+    CheckRequest, DeployRequest, ExtractRequest, FmtRequest, LintFixHeadersRequest, LintRequest,
+    SyncRequest, TypesAction, TypesRequest,
 };
 use super::{
     add_notices, check, client, commands, deploy, json, push, relative, server, types, Mode,
@@ -186,6 +186,45 @@ pub(crate) fn check_tool(
             result["warnings"] = json!(warnings);
         }
     }
+    Ok(result)
+}
+
+pub(crate) fn lint_fix_headers_tool(
+    solution: &Solution,
+    request: LintFixHeadersRequest,
+) -> Result<Value, ToolError> {
+    let apply = !request.dry_run;
+    let fix = commands::lint_fix::FixHeadersRequest {
+        mode: if apply { Mode::Apply } else { Mode::Plan },
+        entity: request.entity.as_ref().cloned(),
+        service: request.service.as_ref().cloned(),
+        lock_label: "mcp lint_fix_headers",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome =
+        commands::lint_fix::execute(solution, &fix, &mut notices).map_err(ToolError::coded)?;
+    let changed = outcome.changed();
+    let summary = match (changed, apply) {
+        (0, _) => format!("{} header(s) match their definitions", outcome.examined),
+        (_, false) => format!(
+            "{changed} of {} header(s) to fix; dry_run: false writes them",
+            outcome.examined
+        ),
+        (_, true) => format!(
+            "fixed {changed} of {} header(s); sync writes them into the entity XML",
+            outcome.examined
+        ),
+    };
+    let mut result = json!({
+        "summary": summary,
+        "ok": outcome.failed.is_empty(),
+        "dry_run": !apply,
+        "examined": outcome.examined,
+        "changed": changed,
+        "scripts": outcome.scripts,
+        "failed": outcome.failed,
+    });
+    add_notices(&mut result, &notices);
     Ok(result)
 }
 

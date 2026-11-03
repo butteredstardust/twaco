@@ -43,6 +43,7 @@ when the command is asked to write. A local output named by an option is include
 | `fmt` | best-effort batch | best-effort batch | script sidecars | Earlier scripts remain formatted; retry reported scripts. | `core/commands/fmt.rs: execute` |
 | `check` | read-only | read-only | none | Retry freely. | `core/check.rs: run` |
 | `lint` | read-only | read-only | none | Retry freely. | `core/lint_report.rs: run` |
+| `lint fix-headers` | read-only | best-effort batch | script sidecars | Each script is written atomically; earlier scripts remain fixed. Retry reported scripts. | `core/commands/lint_fix.rs: execute` |
 | `requirements init` | read-only | single-file atomic | new `requirements.toml` | Creation is atomic and refuses an existing file; inspect it and use requirements check. | `core/commands/requirements.rs: execute_init` |
 | `requirements check` | read-only | read-only | none; optional server reads | Retry freely. Server read errors block. | `core/commands/requirements.rs: execute_check` |
 | `bundle` | read-only | single-file atomic | generated bundle and optional handoff | The generated bundle is old or new; an applied handoff is available as a base. Retry freely. | `core/commands/bundle.rs: execute` |
@@ -217,6 +218,7 @@ when the command is asked to write. A local output named by an option is include
 | `types` | best-effort batch | best-effort batch | declarations or platform cache | Every action can regenerate declarations; inspect completed files and retry. | `core/commands/types.rs: execute` |
 | `check` | read-only | read-only | none | Retry freely. | `mcp/source.rs: check_tool` |
 | `lint` | read-only | read-only | none | Retry freely. | `mcp/source.rs: lint_tool` |
+| `lint_fix_headers` | read-only | best-effort batch | script sidecars | Each script is written atomically; earlier scripts remain fixed. Retry reported scripts. | `core/commands/lint_fix.rs: execute` |
 | `status` | read-only | single-file atomic | baseline | `record: true` replaces one baseline atomically; retry freely. | `core/commands/status.rs: execute` |
 | `entity_pull` | read-only | multi-file atomic | entity XML, sidecars, baseline | An applied pull takes one workspace lock; rerun after resolving a reported sidecar failure. | `core/commands/pull.rs: execute` |
 | `sync` | best-effort batch | best-effort batch | entity XML, declarations | Each entity file is written once, atomically, with every kind of sidecar that synced (a kind that is refused is reported, and the others are still written); earlier entities remain synced. Retry failed entities. | `core/commands/sync.rs: execute` |
