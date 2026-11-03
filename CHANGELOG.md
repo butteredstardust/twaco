@@ -8,6 +8,11 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [0.1.52] - 2026-11-03
 
+### Changed
+
+- `zip` 9.0.5 (from 9.0.4), a bug-fix release. It corrects the file mode type on NetBSD and
+  OpenBSD, and stops a raw copy from writing a duplicate AES extra field.
+
 ## [0.1.51] - 2026-11-03
 
 ### Added
