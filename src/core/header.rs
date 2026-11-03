@@ -458,21 +458,18 @@ pub(crate) fn repair(
         out.replace('\n', ending)
     };
     let mut used = vec![false; groups.len()];
-    let mut tags = String::new();
 
     let functions: Vec<usize> = (0..groups.len())
         .filter(|&index| groups[index].name == "function")
         .collect();
-    match functions.as_slice() {
-        [one] if groups[*one].value == service => {
-            tags.push_str(&groups[*one].lines.concat());
-        }
+    let function = match functions.as_slice() {
+        [one] if groups[*one].value == service => groups[*one].lines.concat(),
         _ => {
-            tags.push_str(&format!(" * @function {service}{ending}"));
             repair.changes.push(format!("set @function to {service}"));
+            format!(" * @function {service}{ending}")
         }
-    }
-    for index in functions {
+    };
+    for &index in &functions {
         used[index] = true;
     }
 
@@ -482,6 +479,7 @@ pub(crate) fn repair(
         .filter_map(|group| param_name(&group.value).map(str::to_string))
         .filter(|name| definition.inputs.iter().any(|field| &field.name == name))
         .collect();
+    let mut params = String::new();
     for field in &definition.inputs {
         let found = (0..groups.len()).find(|&index| {
             !used[index]
@@ -491,7 +489,7 @@ pub(crate) fn repair(
         match found {
             Some(index) => {
                 used[index] = true;
-                tags.push_str(&groups[index].lines.concat());
+                params.push_str(&groups[index].lines.concat());
             }
             None => {
                 let prefix = format!(
@@ -499,7 +497,7 @@ pub(crate) fn repair(
                     jsdoc_type(&field.base_type),
                     field.name
                 );
-                tags.push_str(&generated(prefix, &field.description));
+                params.push_str(&generated(prefix, &field.description));
                 repair.changes.push(format!("added @param {}", field.name));
             }
         }
@@ -537,7 +535,7 @@ pub(crate) fn repair(
 
     let returns = (0..groups.len())
         .find(|&index| !used[index] && matches!(groups[index].name.as_str(), "returns" | "return"));
-    match returns {
+    let returns_text = match returns {
         Some(index) => {
             used[index] = true;
             let group = &groups[index];
@@ -562,13 +560,24 @@ pub(crate) fn repair(
                 } else {
                     format!(" Shaped by {shape}.")
                 };
-                let line_ending = &lines[last][lines[last].trim_end_matches(['\r', '\n']).len()..];
-                lines[last] = format!("{text}{added}{line_ending}");
+                let line_ending =
+                    lines[last][lines[last].trim_end_matches(['\r', '\n']).len()..].to_string();
+                let ending = if line_ending.is_empty() {
+                    "\n"
+                } else {
+                    &line_ending
+                };
+                // Too long with the name on it: the name continues on a line of its own.
+                lines[last] = if text.chars().count() + added.chars().count() > policy.max_columns {
+                    format!("{text}{ending} *  {added}{line_ending}")
+                } else {
+                    format!("{text}{added}{line_ending}")
+                };
                 repair
                     .changes
                     .push(format!("named the result DataShape {shape} in @returns"));
             }
-            tags.push_str(&lines.concat());
+            lines.concat()
         }
         None => {
             let prefix = format!(
@@ -580,15 +589,47 @@ pub(crate) fn repair(
                 .as_ref()
                 .map(|shape| format!("An InfoTable shaped by {shape}."))
                 .unwrap_or_else(|| definition.result.description.clone());
-            tags.push_str(&generated(prefix, &text));
             repair.changes.push("added @returns".to_string());
+            generated(prefix, &text)
         }
-    }
+    };
+
+    // Each tag stays where it is: the @function and @returns in their own places, the inputs in
+    // the place of the first @param. Only a tag the header lacks takes a new place, as the
+    // generated header orders them.
+    let mut pieces: Vec<(&str, String)> = Vec::new();
+    let mut emitted_params = false;
     for (index, group) in groups.iter().enumerate() {
-        if !used[index] {
-            tags.push_str(&group.lines.concat());
+        match group.name.as_str() {
+            "function" if Some(&index) == functions.first() => {
+                pieces.push(("function", function.clone()));
+            }
+            "function" => {}
+            "param" if !emitted_params => {
+                emitted_params = true;
+                pieces.push(("params", params.clone()));
+            }
+            "param" => {}
+            _ if Some(index) == returns => pieces.push(("returns", returns_text.clone())),
+            _ if !used[index] => pieces.push(("other", group.lines.concat())),
+            _ => {}
         }
     }
+    let at = |pieces: &Vec<(&str, String)>, kind: &str| pieces.iter().position(|(k, _)| *k == kind);
+    if functions.is_empty() {
+        pieces.insert(0, ("function", function));
+    }
+    if !emitted_params && !params.is_empty() {
+        let after = at(&pieces, "function").map_or(0, |index| index + 1);
+        pieces.insert(after, ("params", params));
+    }
+    if returns.is_none() {
+        let after = at(&pieces, "params")
+            .or_else(|| at(&pieces, "function"))
+            .map_or(pieces.len(), |index| index + 1);
+        pieces.insert(after, ("returns", returns_text));
+    }
+    let tags: String = pieces.into_iter().map(|(_, text)| text).collect();
 
     // Prose with no tags below it needs the blank line the generated header has.
     let separator = region == close
@@ -763,6 +804,47 @@ mod tests {
             .fixed
             .unwrap()
             .contains(" * @returns {Object} An InfoTable shaped by Acme.Rows.\n"));
+    }
+
+    #[test]
+    fn repair_leaves_a_header_the_gate_accepts_as_it_is() {
+        // @param above @function is not what the generator writes, and not what the gate asks.
+        let source = "/**\n * @param {number} a - one\n * @param {string} b - two\n * @function Run\n * @returns {Object} Acme.Rows\n */\ngo();";
+        assert!(findings(
+            source,
+            "Run",
+            Some(&sample_definition()),
+            &HeaderPolicy::default()
+        )
+        .is_empty());
+        assert_eq!(fixed(source), Repair::default());
+        // Out of order, the inputs are reordered in place, and the rest stays where it is.
+        let swapped = source.replacen(
+            "{number} a - one\n * @param {string} b - two",
+            "{string} b - two\n * @param {number} a - one",
+            1,
+        );
+        assert_eq!(fixed(&swapped).fixed.as_deref(), Some(source));
+    }
+
+    #[test]
+    fn a_data_shape_name_that_would_overflow_the_line_continues_below_it() {
+        let returns = format!(" * @returns {{Object}} {}.", "word ".repeat(14).trim_end());
+        let source = format!(
+            "/**\n * @function Run\n * @param {{number}} a -\n * @param {{string}} b -\n{returns}\n */\ngo();"
+        );
+        let repaired = fixed(&source).fixed.unwrap();
+        assert!(
+            repaired.contains(&format!("{returns}\n *   Shaped by Acme.Rows.\n */")),
+            "{repaired}"
+        );
+        assert!(findings(
+            &repaired,
+            "Run",
+            Some(&sample_definition()),
+            &HeaderPolicy::default()
+        )
+        .is_empty());
     }
 
     #[test]
