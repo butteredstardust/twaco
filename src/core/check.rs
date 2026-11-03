@@ -798,7 +798,9 @@ fn scripts(solution: &Solution, result: &mut GateResult) -> Vec<(PathBuf, String
 fn formatting(solution: &Solution) -> GateResult {
     let mut result = GateResult::passed("formatting", 0);
     let style = format_js::Style::from(&solution.format.script);
-    for (path, source) in scripts(solution, &mut result) {
+    let scripts = scripts(solution, &mut result);
+    let survey = format_js::survey(scripts.iter().map(|(_, source)| source.as_str()));
+    for (path, source) in scripts {
         result.examined += 1;
         match format_js::format(&source.replace("\r\n", "\n"), &style) {
             Ok(None) => {}
@@ -817,6 +819,12 @@ fn formatting(solution: &Solution) -> GateResult {
                 message: e,
             }),
         }
+    }
+    if !result.findings.is_empty() {
+        result.prose.extend(format_js::style_mismatches(
+            &survey,
+            &solution.format.script,
+        ));
     }
     result
 }
@@ -1663,13 +1671,19 @@ mod tests {
         )
         .unwrap();
         let configured = Solution::load(&dir.path().join("twaco.toml")).unwrap();
-        assert!(formatting(&configured).findings.is_empty());
+        let matching = formatting(&configured);
+        assert!(matching.findings.is_empty());
+        assert!(matching.prose.is_empty());
 
         std::fs::write(dir.path().join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
         let default = Solution::load(&dir.path().join("twaco.toml")).unwrap();
-        assert!(formatting(&default).findings.iter().any(
+        let mismatched = formatting(&default);
+        assert!(mismatched.findings.iter().any(
             |finding| finding.rule == "unformatted" && finding.file.ends_with("Run/script.js")
         ));
+        assert!(mismatched.prose.iter().any(|message| message.contains(
+            "1 of 1 indented scripts use 2 spaces but [format.script] indent_width = 4"
+        )));
     }
 
     #[cfg(unix)]

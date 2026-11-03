@@ -355,6 +355,10 @@ from 2 through 8 (default `4`), and `line_width` is an integer from 40 through 1
 `100000`). `quote_style` is `"double"` by default or `"single"`; `"single"` asks dprint to
 prefer single quotes while still avoiding escapes when the other quote is cleaner.
 
+`init` proposes `indent_width` and `quote_style` from the scripts it finds. `doctor` and the
+formatting gate say when the configured setting differs from most scripts, before a format run
+silently rewrites them.
+
 Trailing commas stay disabled because Rhino rejects them in a call. Semicolons and braces stay
 fixed so script traps and code order read a stable layout. Scripts still have no final newline so
 `fmt` remains a fixed point of extraction.

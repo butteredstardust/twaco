@@ -16,9 +16,166 @@ use dprint_plugin_typescript::configuration::{
     TrailingCommas, UseBraces,
 };
 use dprint_plugin_typescript::FormatTextOptions;
+use std::collections::BTreeMap;
 use std::path::Path;
 
-use super::config;
+use super::{config, sidecar};
+
+/// The script styles found in a set of service bodies.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(crate) struct Survey {
+    pub(crate) scripts: usize,
+    pub(crate) indent: BTreeMap<u8, usize>,
+    pub(crate) tabs: usize,
+    pub(crate) double: usize,
+    pub(crate) single: usize,
+}
+
+impl Survey {
+    pub(crate) fn majority_indent(&self) -> Option<(u8, usize, usize)> {
+        let determined = self.indent.values().sum();
+        let (&width, &count) = self.indent.iter().max_by_key(|(_, count)| *count)?;
+        (count > determined / 2).then_some((width, count, determined))
+    }
+
+    pub(crate) fn majority_quote(&self) -> Option<(config::QuoteStyle, usize, usize)> {
+        let determined = self.double + self.single;
+        let (style, count) = if self.double > self.single {
+            (config::QuoteStyle::Double, self.double)
+        } else {
+            (config::QuoteStyle::Single, self.single)
+        };
+        (count > determined / 2).then_some((style, count, determined))
+    }
+}
+
+/// Survey the script style without parsing or changing the scripts.
+pub(crate) fn survey<'a>(scripts: impl IntoIterator<Item = &'a str>) -> Survey {
+    let mut found = Survey::default();
+    for script in scripts {
+        found.scripts += 1;
+        survey_indent(script, &mut found);
+        match quote_style(script) {
+            Some(config::QuoteStyle::Double) => found.double += 1,
+            Some(config::QuoteStyle::Single) => found.single += 1,
+            None => {}
+        }
+    }
+    found
+}
+
+fn survey_indent(script: &str, found: &mut Survey) {
+    let script = sidecar::dedent(script);
+    let mut smallest = None;
+    for line in script.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('*') {
+            continue;
+        }
+        if line.starts_with('\t') {
+            found.tabs += 1;
+            return;
+        }
+        let spaces = line.len() - line.trim_start_matches(' ').len();
+        if spaces > 0 {
+            smallest = Some(smallest.map_or(spaces, |current: usize| current.min(spaces)));
+        }
+    }
+    if let Some(width @ 1..=8) = smallest.and_then(|width| u8::try_from(width).ok()) {
+        *found.indent.entry(width).or_default() += 1;
+    }
+}
+
+fn quote_style(script: &str) -> Option<config::QuoteStyle> {
+    let bytes = script.as_bytes();
+    let mut at = 0;
+    let (mut double, mut single) = (0, 0);
+    while at < bytes.len() {
+        match bytes[at] {
+            b'/' if bytes.get(at + 1) == Some(&b'/') => {
+                at += 2;
+                while at < bytes.len() && bytes[at] != b'\n' {
+                    at += 1;
+                }
+            }
+            b'/' if bytes.get(at + 1) == Some(&b'*') => {
+                at += 2;
+                while at + 1 < bytes.len() && (bytes[at], bytes[at + 1]) != (b'*', b'/') {
+                    at += 1;
+                }
+                at = (at + 2).min(bytes.len());
+            }
+            b'\'' | b'"' => {
+                let quote = bytes[at];
+                if quote == b'\'' {
+                    single += 1;
+                } else {
+                    double += 1;
+                }
+                at += 1;
+                while at < bytes.len() {
+                    if bytes[at] == b'\\' {
+                        at += 2;
+                    } else if bytes[at] == quote {
+                        at += 1;
+                        break;
+                    } else {
+                        at += 1;
+                    }
+                }
+            }
+            b'`' => {
+                at += 1;
+                while at < bytes.len() {
+                    if bytes[at] == b'\\' {
+                        at += 2;
+                    } else if bytes[at] == b'`' {
+                        at += 1;
+                        break;
+                    } else {
+                        at += 1;
+                    }
+                }
+            }
+            _ => at += 1,
+        }
+    }
+    match double.cmp(&single) {
+        std::cmp::Ordering::Greater => Some(config::QuoteStyle::Double),
+        std::cmp::Ordering::Less => Some(config::QuoteStyle::Single),
+        std::cmp::Ordering::Equal => None,
+    }
+}
+
+/// Explain format settings that would restyle most of the repository's scripts.
+pub(crate) fn style_mismatches(survey: &Survey, configured: &config::ScriptFormat) -> Vec<String> {
+    let mut messages = Vec::new();
+    if let Some((width, count, determined)) = survey.majority_indent() {
+        if width != configured.indent_width {
+            messages.push(format!(
+                "{count} of {determined} indented scripts use {width} spaces but [format.script] indent_width = {}: `twaco fmt` would rewrite them, and each rewritten service differs from the server until deployed",
+                configured.indent_width
+            ));
+        }
+    }
+    if let Some((quote, count, determined)) = survey.majority_quote() {
+        if quote != configured.quote_style {
+            messages.push(format!(
+                "{count} of {determined} scripts with strings use {} quotes but [format.script] quote_style = \"{}\": `twaco fmt` would rewrite them, and each rewritten service differs from the server until deployed",
+                quote_name(quote),
+                quote_name(configured.quote_style)
+            ));
+        }
+    }
+    messages
+}
+
+pub(crate) fn quote_name(style: config::QuoteStyle) -> &'static str {
+    match style {
+        config::QuoteStyle::Double => "double",
+        config::QuoteStyle::Single => "single",
+    }
+}
 
 /// How a project wants its scripts formatted.
 #[derive(Debug, PartialEq, Eq)]
@@ -100,6 +257,52 @@ pub(crate) fn format_raw(source: &str, style: &Style) -> Result<Option<String>, 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn survey_finds_indent_widths_and_ignores_comment_continuations() {
+        let found = survey([
+            "if (ok) {\n  result = 1;\n}",
+            "if (ok) {\n    result = 1;\n}",
+            "/**\n * documentation\n */\nresult = 1;",
+            "if (ok) {\n\tresult = 1;\n}",
+            "result = 1;",
+            "\n            if (ok) {\n              result = 1;\n            }\n",
+        ]);
+        assert_eq!(found.scripts, 6);
+        assert_eq!(found.indent.get(&2), Some(&2));
+        assert_eq!(found.indent.get(&4), Some(&1));
+        assert!(!found.indent.contains_key(&1));
+        assert_eq!(found.tabs, 1);
+    }
+
+    #[test]
+    fn survey_counts_quotes_without_reading_comments_templates_or_escapes() {
+        let found = survey([
+            "var a = \"double\"; var b = \"again\";",
+            "var a = 'single';",
+            "var a = 'one'; var b = \"two\";",
+            "var a = \"escaped \\\" quote\"; // 'comment'\n/* \"comment\" */\nvar b = `template ' \"`;",
+        ]);
+        assert_eq!((found.double, found.single), (2, 1));
+    }
+
+    #[test]
+    fn survey_majorities_require_more_than_half_of_determined_scripts() {
+        let majority = survey([
+            "if (ok) {\n  result = \"yes\";\n}",
+            "if (ok) {\n  result = \"yes\";\n}",
+            "if (ok) {\n    result = 'yes';\n}",
+        ]);
+        assert_eq!(majority.majority_indent(), Some((2, 2, 3)));
+        assert_eq!(
+            majority.majority_quote(),
+            Some((config::QuoteStyle::Double, 2, 3))
+        );
+
+        let tied = survey(["  var a = \"yes\";", "    var a = 'yes';"]);
+        assert_eq!(tied.majority_indent(), None);
+        assert_eq!(tied.majority_quote(), None);
+    }
 
     #[test]
     fn configurable_indent_and_quotes_are_applied() {

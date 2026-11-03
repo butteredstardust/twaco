@@ -8,7 +8,7 @@
 
 use super::baseline::{Baseline, LEGACY_RELATIVE_PATH};
 use super::config::Solution;
-use super::{gitignore, lock, profile, server, workspace};
+use super::{fmt, gitignore, lock, profile, server, workspace};
 use serde_json::{json, Value};
 use std::path::Path;
 use std::time::Instant;
@@ -200,6 +200,7 @@ pub fn diagnose(root: &Path, profile_name: &str) -> Vec<Item> {
             "flush left"
         },
     ));
+    items.push(script_style_item(&solution));
 
     match Baseline::profiles(&solution.root) {
         Ok(mut profiles) => {
@@ -270,6 +271,61 @@ pub fn diagnose(root: &Path, profile_name: &str) -> Vec<Item> {
         Err(error) => items.push(item(Health::Fail, "server", error.to_string())),
     }
     items
+}
+
+fn script_style_item(solution: &Solution) -> Item {
+    let scripts = workspace::script_files(solution)
+        .files
+        .into_iter()
+        .filter_map(|path| std::fs::read_to_string(path).ok())
+        .map(|source| workspace::without_bom(&source).to_string())
+        .collect::<Vec<_>>();
+    let survey = fmt::survey(scripts.iter().map(String::as_str));
+    let mismatches = fmt::style_mismatches(&survey, &solution.format.script);
+    if !mismatches.is_empty() {
+        return item(Health::Warn, "script style", mismatches.join("; "));
+    }
+    if survey.scripts == 0 {
+        return item(
+            Health::Ok,
+            "script style",
+            format!(
+                "{} spaces, {} quotes; no sidecar scripts",
+                solution.format.script.indent_width,
+                fmt::quote_name(solution.format.script.quote_style)
+            ),
+        );
+    }
+    let indent = survey.majority_indent().map_or_else(
+        || format!("{} spaces", solution.format.script.indent_width),
+        |(width, _, _)| format!("{width} spaces"),
+    );
+    let quotes = survey.majority_quote().map_or_else(
+        || {
+            format!(
+                "{} quotes",
+                fmt::quote_name(solution.format.script.quote_style)
+            )
+        },
+        |(style, _, _)| format!("{} quotes", fmt::quote_name(style)),
+    );
+    let evidence = match (survey.majority_indent(), survey.majority_quote()) {
+        (Some((_, count, determined)), Some(_)) => {
+            format!("as {count} of {determined} scripts")
+        }
+        (Some((_, count, determined)), None) => {
+            format!("as {count} of {determined} indented scripts")
+        }
+        (None, Some((_, count, determined))) => {
+            format!("as {count} of {determined} scripts with strings")
+        }
+        (None, None) => "with no majority style".to_string(),
+    };
+    item(
+        Health::Ok,
+        "script style",
+        format!("{indent}, {quotes}, {evidence}"),
+    )
 }
 
 /// The server's ThingWorx version, against the one the widget catalogue describes: mashup
@@ -594,6 +650,41 @@ parts=['members', 'property-values', 'run-time-permissions']
             items.iter().all(|i| i.subject != "server"),
             "no server check without a profile"
         );
+    }
+
+    #[test]
+    fn script_style_warns_when_the_config_would_reformat_most_sidecars() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
+        let script = dir.path().join("src/P.T/services/Run/script.js");
+        std::fs::create_dir_all(script.parent().unwrap()).unwrap();
+        std::fs::write(
+            script,
+            "if (ok) {\n  result = 'one';\n}\nif (again) {\n  result = 'two';\n}",
+        )
+        .unwrap();
+
+        let item = diagnose(dir.path(), "missing")
+            .into_iter()
+            .find(|item| item.subject == "script style")
+            .unwrap();
+        assert_eq!(item.health, Health::Warn);
+        assert!(item
+            .detail
+            .contains("1 of 1 indented scripts use 2 spaces but [format.script] indent_width = 4"));
+        assert!(item.detail.contains("1 of 1 scripts with strings use single quotes but [format.script] quote_style = \"double\""));
+    }
+
+    #[test]
+    fn script_style_without_sidecars_is_healthy() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
+        let item = diagnose(dir.path(), "missing")
+            .into_iter()
+            .find(|item| item.subject == "script style")
+            .unwrap();
+        assert_eq!(item.health, Health::Ok);
+        assert_eq!(item.detail, "4 spaces, double quotes; no sidecar scripts");
     }
 
     #[test]

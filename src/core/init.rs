@@ -9,7 +9,7 @@
 //! `Things/X.xml` is. That keeps out bundles in `dist`, designer exports, and sidecar fragments,
 //! which are XML too but not a project's source.
 
-use super::entity;
+use super::{entity, fmt};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -48,6 +48,7 @@ pub fn propose(root: &Path) -> Proposal {
 /// on-disk walker makes `init --from-server` and ordinary `init` make precisely the same choice.
 pub(crate) fn propose_files(root: &Path, files: Vec<(PathBuf, Vec<u8>)>) -> Proposal {
     let mut projects: BTreeMap<String, Found> = BTreeMap::new();
+    let mut scripts = Vec::new();
     let mut undeclared = 0usize;
     for (path, bytes) in files {
         let Ok(info) = entity::parse(&bytes) else {
@@ -66,9 +67,11 @@ pub(crate) fn propose_files(root: &Path, files: Vec<(PathBuf, Vec<u8>)>) -> Prop
         }
         let found = projects.entry(info.project).or_default();
         *found.roots.entry(project_root).or_default() += 1;
-        let (indented, flush) = payload_layout(&bytes);
+        let payloads = code_payloads(&bytes);
+        let (indented, flush) = payload_layout(&payloads);
         found.indented += indented;
         found.flush += flush;
+        scripts.extend(payloads);
     }
 
     let mut proposal = Proposal {
@@ -137,6 +140,14 @@ pub(crate) fn propose_files(root: &Path, files: Vec<(PathBuf, Vec<u8>)>) -> Prop
         "script payloads: {indented} indented, {flush} flush left, so indent_cdata_payload = {indent}{}",
         if indent { " (a compatibility layout)" } else { "" }
     ));
+    let survey = fmt::survey(scripts.iter().map(String::as_str));
+    let script_indent = survey.majority_indent().map_or(4, |(width, _, _)| width);
+    let script_quote = survey
+        .majority_quote()
+        .map_or(super::config::QuoteStyle::Double, |(style, _, _)| style);
+    proposal
+        .notes
+        .push(script_style_note(&survey, script_indent, script_quote));
     if undeclared > 0 {
         proposal.notes.push(format!(
             "{undeclared} entity file(s) declare no projectName and belong to no project"
@@ -150,9 +161,10 @@ pub(crate) fn propose_files(root: &Path, files: Vec<(PathBuf, Vec<u8>)>) -> Prop
 
     let name = projects.keys().next().cloned().unwrap_or_default();
     let mut toml = format!(
-        "# Proposed by `twaco init`. Read it before committing it.\n\n[solution]\nname = {}\nsrc = {}\n\n[format]\nindent_cdata_payload = {indent}\n",
+        "# Proposed by `twaco init`. Read it before committing it.\n\n[solution]\nname = {}\nsrc = {}\n\n[format]\nindent_cdata_payload = {indent}\n\n[format.script]\nindent_width = {script_indent}\nquote_style = \"{}\"\n",
         quote(&name),
-        quote(&src)
+        quote(&src),
+        fmt::quote_name(script_quote)
     );
     for (project, found) in &projects {
         let (main_root, count) = found
@@ -235,9 +247,9 @@ fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
 
 /// How many service script payloads in a document start indented, and how many flush left, by
 /// their first non-blank line.
-fn payload_layout(bytes: &[u8]) -> (usize, usize) {
+fn code_payloads(bytes: &[u8]) -> Vec<String> {
     let text = String::from_utf8_lossy(bytes);
-    let (mut indented, mut flush) = (0, 0);
+    let mut payloads = Vec::new();
     let mut rest = text.as_ref();
     while let Some(at) = rest.find("<code>") {
         rest = &rest[at + "<code>".len()..];
@@ -250,6 +262,14 @@ fn payload_layout(bytes: &[u8]) -> (usize, usize) {
         }
         let body = &rest[open + "<![CDATA[".len()..];
         let payload = &body[..body.find("]]>").unwrap_or(body.len())];
+        payloads.push(payload.to_string());
+    }
+    payloads
+}
+
+fn payload_layout(payloads: &[String]) -> (usize, usize) {
+    let (mut indented, mut flush) = (0, 0);
+    for payload in payloads {
         if let Some(line) = payload.lines().find(|l| !l.trim().is_empty()) {
             if line.starts_with([' ', '\t']) {
                 indented += 1;
@@ -259,6 +279,62 @@ fn payload_layout(bytes: &[u8]) -> (usize, usize) {
         }
     }
     (indented, flush)
+}
+
+fn script_style_note(
+    survey: &fmt::Survey,
+    indent_width: u8,
+    quote_style: super::config::QuoteStyle,
+) -> String {
+    let indent = match survey.majority_indent() {
+        Some((width, count, determined)) => format!(
+            "{count} of {determined} indented scripts use {width} spaces, so indent_width = {width}"
+        ),
+        None => format!(
+            "no majority ({}); the default {indent_width} is proposed for indent_width",
+            indent_counts(survey)
+        ),
+    };
+    let quotes = match survey.majority_quote() {
+        Some((style, count, determined)) => format!(
+            "{count} of {determined} scripts with strings use {} quotes, so quote_style = \"{}\"",
+            fmt::quote_name(style),
+            fmt::quote_name(style)
+        ),
+        None => format!(
+            "no majority ({}); the default \"{}\" is proposed for quote_style",
+            quote_counts(survey),
+            fmt::quote_name(quote_style)
+        ),
+    };
+    let tabs = if survey.tabs == 0 {
+        String::new()
+    } else {
+        format!("; {} use tabs, which twaco does not write", survey.tabs)
+    };
+    format!(
+        "script style: {indent}; {quotes}{tabs}; line_width is not inferred; the default keeps lines unwrapped"
+    )
+}
+
+fn indent_counts(survey: &fmt::Survey) -> String {
+    if survey.indent.is_empty() {
+        "no indented scripts".to_string()
+    } else {
+        survey
+            .indent
+            .iter()
+            .map(|(width, count)| format!("{count} use {width} spaces"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+}
+
+fn quote_counts(survey: &fmt::Survey) -> String {
+    match (survey.double, survey.single) {
+        (0, 0) => "no scripts with strings".to_string(),
+        (double, single) => format!("{double} use double quotes, {single} use single quotes"),
+    }
 }
 
 /// The files that route an agent to what it needs, for a solution of these projects: an
@@ -422,6 +498,9 @@ mod tests {
         assert!(proposal.toml.contains("name = \"UI\"\nroot = \"ui\""));
         assert!(proposal.toml.contains("src = \"backend/src\""));
         assert!(proposal.toml.contains("indent_cdata_payload = false"));
+        assert!(proposal
+            .toml
+            .contains("[format.script]\nindent_width = 4\nquote_style = \"double\""));
         assert!(
             proposal.toml.contains("depends_on"),
             "a multi-project solution is told about deploy order"
@@ -491,6 +570,74 @@ mod tests {
         let proposal = propose(&root);
         assert!(proposal.toml.contains("root = \".\""));
         assert!(proposal.toml.contains("indent_cdata_payload = true"));
+    }
+
+    #[test]
+    fn script_style_is_proposed_from_two_space_single_quote_payloads() {
+        let root_guard = tempfile::tempdir().unwrap();
+        let root = root_guard.path();
+        write(
+            root.join("Things/P.A.xml"),
+            &thing("P.A", "P", "\n  if (ok) {\n    result = 'one';\n  }\n"),
+        );
+        write(
+            root.join("Things/P.B.xml"),
+            &thing("P.B", "P", "\n  if (ok) {\n    result = 'two';\n  }\n"),
+        );
+
+        let proposal = propose(root);
+        assert!(proposal
+            .toml
+            .contains("[format.script]\nindent_width = 2\nquote_style = \"single\""));
+        assert!(proposal.notes.iter().any(|note| {
+            note.contains("2 of 2 indented scripts use 2 spaces")
+                && note.contains("2 of 2 scripts with strings use single quotes")
+                && note.contains("line_width is not inferred")
+        }));
+    }
+
+    #[test]
+    fn mixed_script_styles_propose_defaults_and_explain_the_tie() {
+        let root_guard = tempfile::tempdir().unwrap();
+        let root = root_guard.path();
+        write(
+            root.join("Things/P.A.xml"),
+            &thing("P.A", "P", "\n  if (ok) {\n    result = \"one\";\n  }\n"),
+        );
+        write(
+            root.join("Things/P.B.xml"),
+            &thing(
+                "P.B",
+                "P",
+                "\n    if (ok) {\n        result = 'two';\n    }\n",
+            ),
+        );
+
+        let proposal = propose(root);
+        assert!(proposal
+            .toml
+            .contains("[format.script]\nindent_width = 4\nquote_style = \"double\""));
+        assert!(proposal
+            .notes
+            .iter()
+            .any(|note| note.contains("no majority (1 use 2 spaces, 1 use 4 spaces)")));
+    }
+
+    #[test]
+    fn scripts_without_style_evidence_propose_defaults() {
+        let root_guard = tempfile::tempdir().unwrap();
+        let root = root_guard.path();
+        write(root.join("Things/P.A.xml"), &thing("P.A", "P", ""));
+
+        let proposal = propose(root);
+        assert!(proposal
+            .toml
+            .contains("[format.script]\nindent_width = 4\nquote_style = \"double\""));
+        assert!(proposal
+            .notes
+            .iter()
+            .any(|note| note.contains("no indented scripts")
+                && note.contains("no scripts with strings")));
     }
 
     #[test]

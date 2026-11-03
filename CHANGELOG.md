@@ -10,6 +10,8 @@ All notable changes to twaco are recorded here. The format follows
 
 - `[format.script]` configures service-script indentation, line width and preferred quote style
   for `fmt`, the formatting gate and newly added services.
+- `init` proposes service-script indentation and quote style from the repository, while `doctor`
+  and the formatting gate warn when configured style would rewrite most scripts.
 
 ### Fixed
 
