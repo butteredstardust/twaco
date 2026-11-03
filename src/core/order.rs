@@ -65,6 +65,12 @@ pub(crate) fn check(text: &str) -> Vec<Misplaced> {
 ///
 /// Brace depth is counted with string and comment contents removed, so a brace inside a message
 /// does not open a block.
+/// A line the formatter wrapped out of the statement above it: indented although no brace is
+/// open, or the `)` or `]` that closes a wrapped list. Formatted top-level code starts in column 0.
+pub(crate) fn continues_a_statement(raw: &str) -> bool {
+    raw.starts_with(char::is_whitespace) || raw.starts_with(')') || raw.starts_with(']')
+}
+
 fn classify(text: &str) -> Vec<(usize, Kind)> {
     let mut out = Vec::new();
     let mut depth = 0usize;
@@ -87,7 +93,11 @@ fn classify(text: &str) -> Vec<(usize, Kind)> {
             if !stripped.contains("*/") {
                 in_block_comment = true;
             }
-        } else if depth == 0 && !stripped.is_empty() && !stripped.starts_with("//") {
+        } else if depth == 0
+            && !stripped.is_empty()
+            && !stripped.starts_with("//")
+            && !continues_a_statement(raw)
+        {
             kind = if is_function(stripped) {
                 Kind::Function
             } else if is_declaration(stripped) {
@@ -228,5 +238,53 @@ mod tests {
             "got {}",
             found[0].message
         );
+    }
+
+    #[test]
+    fn every_configurable_style_finds_the_same_order() {
+        // `[format.script]` decides where lines break; a 40-column width wraps each sample.
+        let samples = [
+            (
+                "const someVeryLongResultName = someVeryLongHelperName(firstArgument, secondArgument);
+result = someVeryLongResultName;
+function someVeryLongHelperName(someVeryLongParameter, anotherVeryLongParameter) {
+    return someVeryLongParameter + anotherVeryLongParameter;
+}",
+                vec![],
+            ),
+            (
+                "function someVeryLongHelperName(someVeryLongParameter, anotherVeryLongParameter) {
+    return someVeryLongParameter;
+}
+result = someVeryLongHelperName(someVeryLongArgument, anotherVeryLongArgument);",
+                vec!["main-code-below-a-helper"],
+            ),
+            (
+                "result = someVeryLongHelperName();
+function someVeryLongHelperName() {
+    return 1;
+}
+const someVeryLongConstantName = someVeryLongFactoryName(someVeryLongArgument);
+function another() {
+    return 2;
+}",
+                vec!["declaration-between-helpers"],
+            ),
+        ];
+        let styles = [(4, 100_000), (4, 40), (2, 100_000), (2, 40)].map(|(indent, width)| {
+            crate::core::fmt::Style::from(&crate::core::config::ScriptFormat {
+                indent_width: indent,
+                line_width: width,
+                quote_style: crate::core::config::QuoteStyle::Double,
+            })
+        });
+        for (sample, expected) in samples {
+            for style in &styles {
+                let text = crate::core::fmt::format(sample, style)
+                    .unwrap()
+                    .unwrap_or_else(|| sample.to_string());
+                assert_eq!(rules(&text), expected, "{text}");
+            }
+        }
     }
 }

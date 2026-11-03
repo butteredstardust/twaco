@@ -11,6 +11,13 @@ All notable changes to twaco are recorded here. The format follows
 - `[format.script]` configures service-script indentation, line width and preferred quote style
   for `fmt`, the formatting gate and newly added services.
 
+### Fixed
+
+- The script-trap and code-order gates read a statement the formatter wrapped over several lines
+  as one statement, so a narrow `line_width` finds the same traps as the default. Code order no
+  longer reports each continuation line of a wrapped statement (such as a ternary's `?` and `:`
+  lines) as main code of its own.
+
 ## [0.1.50] - 2026-10-30
 
 ### Fixed
