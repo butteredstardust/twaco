@@ -71,7 +71,7 @@ Download the installer for your platform from the
 | Linux x64 (other) | `twaco-<version>-x86_64.AppImage` |
 
 - The macOS package is unsigned: right-click it and choose Open.
-- Linux builds need glibc 2.35 or later (Ubuntu 22.04).
+- Linux builds need glibc 2.39 or later (Ubuntu 24.04, Debian 13).
 - Each release also has a plain archive per platform. Or build from source:
   `cargo install --git https://github.com/butteredstardust/twaco`.
 
