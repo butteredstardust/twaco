@@ -12,23 +12,35 @@
 //! Do not mistake a clean `fmt` for a working service.
 
 use dprint_plugin_typescript::configuration::{
-    Configuration, ConfigurationBuilder, QuoteStyle, SemiColons, TrailingCommas, UseBraces,
+    Configuration, ConfigurationBuilder, QuoteStyle as DprintQuoteStyle, SemiColons,
+    TrailingCommas, UseBraces,
 };
 use dprint_plugin_typescript::FormatTextOptions;
 use std::path::Path;
 
+use super::config;
+
 /// How a project wants its scripts formatted.
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Style {
     pub(crate) indent_width: u8,
     /// jsbeautifier is configured with no wrapping, so the default is effectively unlimited.
     pub(crate) line_width: u32,
+    pub(crate) quote_style: config::QuoteStyle,
 }
 
 impl Default for Style {
     fn default() -> Self {
-        Style {
-            indent_width: 4,
-            line_width: 100_000,
+        Self::from(&config::ScriptFormat::default())
+    }
+}
+
+impl From<&config::ScriptFormat> for Style {
+    fn from(script: &config::ScriptFormat) -> Self {
+        Self {
+            indent_width: script.indent_width,
+            line_width: script.line_width,
+            quote_style: script.quote_style,
         }
     }
 }
@@ -43,7 +55,10 @@ impl Style {
             .trailing_commas(TrailingCommas::Never)
             // Pinned so a dprint upgrade cannot silently restyle every script in every project.
             // Only trailing commas are syntax-critical; the rest is determinism.
-            .quote_style(QuoteStyle::PreferDouble)
+            .quote_style(match self.quote_style {
+                config::QuoteStyle::Double => DprintQuoteStyle::PreferDouble,
+                config::QuoteStyle::Single => DprintQuoteStyle::PreferSingle,
+            })
             .semi_colons(SemiColons::Always)
             .use_braces(UseBraces::Always)
             // Line endings are the sidecar writer's business, not the formatter's.
@@ -85,6 +100,27 @@ pub(crate) fn format_raw(source: &str, style: &Style) -> Result<Option<String>, 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn configurable_indent_and_quotes_are_applied() {
+        let style = Style::from(&config::ScriptFormat {
+            indent_width: 2,
+            line_width: 100_000,
+            quote_style: config::QuoteStyle::Single,
+        });
+        assert_eq!(
+            format("if(true){result=\"ready\";result=\"again\";}", &style).unwrap(),
+            Some("if (true) {\n  result = 'ready';\n  result = 'again';\n}".to_string())
+        );
+    }
+
+    #[test]
+    fn the_default_style_matches_the_default_configuration() {
+        assert_eq!(
+            Style::default(),
+            Style::from(&config::ScriptFormat::default())
+        );
+    }
 
     #[test]
     fn a_call_argument_list_never_gets_a_trailing_comma() {

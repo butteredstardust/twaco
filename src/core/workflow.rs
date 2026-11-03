@@ -843,7 +843,7 @@ pub struct FmtOutcome {
 /// could leave a script truncated.
 pub(crate) fn fmt(solution: &Solution, check: bool) -> FmtOutcome {
     let mut outcome = FmtOutcome::default();
-    let style = super::fmt::Style::default();
+    let style = super::fmt::Style::from(&solution.format.script);
     let tree = super::workspace::script_files(solution);
     for why in &tree.unreadable {
         outcome
@@ -970,6 +970,31 @@ mod tests {
         ).unwrap();
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
         (root_guard, root, solution)
+    }
+
+    #[test]
+    fn fmt_uses_the_configured_indent_width() {
+        let (_dir, root, _) = service_fixture("configured-fmt");
+        std::fs::write(
+            root.join("twaco.toml"),
+            "[format.script]\nindent_width = 2\n\n[[project]]\nname = \"P\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("src/T/services/Run/script.js"),
+            "if (true) {\n    result = 1;\n}",
+        )
+        .unwrap();
+        let solution = Solution::load(&root.join("twaco.toml")).unwrap();
+
+        let formatted = fmt(&solution, false);
+        assert_eq!(formatted.changed.len(), 1, "{:?}", formatted.log);
+        assert_eq!(
+            std::fs::read_to_string(root.join("src/T/services/Run/script.js")).unwrap(),
+            "if (true) {\n  result = 1;\n}"
+        );
+        let checked = fmt(&solution, true);
+        assert!(checked.changed.is_empty(), "{:?}", checked.log);
     }
 
     fn entities(solution: &Solution) -> Vec<EntityFile> {

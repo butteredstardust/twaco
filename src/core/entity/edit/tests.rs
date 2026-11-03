@@ -192,6 +192,32 @@ fn service_add_formats_the_script_as_fmt_would() {
 }
 
 #[test]
+fn service_add_uses_the_configured_quote_style() {
+    let (_dir, old_solution) = fixture();
+    std::fs::write(
+        old_solution.root.join("twaco.toml"),
+        "[solution]\nsrc = \"src\"\n\n[format.script]\nquote_style = \"single\"\n\n[[project]]\nname = \"Acme.Orders\"\nroot = \"app\"\n",
+    )
+    .unwrap();
+    let solution = Solution::load(&old_solution.root.join("twaco.toml")).unwrap();
+    family(&solution);
+    run(
+        &solution,
+        "Acme.Orders.Press",
+        Action::ServiceAdd(service("Greet", "result=\"hi \"+who")),
+    );
+    let script = solution
+        .src_root()
+        .join("Acme.Orders.Press/services/Greet/script.js");
+    assert_eq!(
+        std::fs::read_to_string(script).unwrap(),
+        "result = 'hi ' + who;"
+    );
+    assert!(file(&solution, "Things", "Acme.Orders.Press").contains("result = 'hi ' + who;"));
+    assert_in_step(&solution);
+}
+
+#[test]
 fn service_add_refuses_clashes_bad_types_and_hosts() {
     let (_dir, solution) = fixture();
     family(&solution);

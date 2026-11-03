@@ -110,6 +110,11 @@ ui_collections = ["Mashups", "StyleThemes", "MediaEntities"]  # what a designer 
 [format]
 indent_cdata_payload = false  # true keeps scripts indented to their <code> element
 
+[format.script]
+indent_width = 4              # 2 to 8
+line_width = 100000           # 40 to 100000
+quote_style = "double"        # "double" or "single"
+
 [gates]
 live = false                  # true: every `check` also has the server parse every script
 advisory = []                 # built-in gates that report without failing, e.g. ["code order"]
@@ -344,6 +349,19 @@ XML, as some older tools wrote them. The default, `false`, writes them flush lef
 proposes whichever the repository already uses, so adopting twaco never relayouts a
 repository on its own. `twaco sync --all --relayout` moves a repository to the configured
 layout once.
+
+`[format.script]` controls the formatter for every service script. `indent_width` is an integer
+from 2 through 8 (default `4`), and `line_width` is an integer from 40 through 100000 (default
+`100000`). `quote_style` is `"double"` by default or `"single"`; `"single"` asks dprint to
+prefer single quotes while still avoiding escapes when the other quote is cleaner.
+
+Trailing commas stay disabled because Rhino rejects them in a call. Semicolons and braces stay
+fixed so script traps and code order read a stable layout. Scripts still have no final newline so
+`fmt` remains a fixed point of extraction.
+
+Changing one of these values makes the next `twaco fmt` rewrite every script it affects. Because
+whitespace inside a script is part of its content, every reformatted service then differs from the
+server until it is deployed.
 
 ### `[gates]`
 

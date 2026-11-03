@@ -1826,11 +1826,11 @@ impl Edit2<'_> {
         let definition = ServiceDefinition::from_request(service, self.found, &mut plan.warnings)?;
         // Formatted as `twaco fmt` would, so the formatting gate passes straight away; code that
         // does not parse is kept as given for the gates to report.
-        let code =
-            match crate::core::fmt::format(&service.code, &crate::core::fmt::Style::default()) {
-                Ok(Some(formatted)) => formatted,
-                Ok(None) | Err(_) => service.code.clone(),
-            };
+        let style = crate::core::fmt::Style::from(&self.solution.format.script);
+        let code = match crate::core::fmt::format(&service.code, &style) {
+            Ok(Some(formatted)) => formatted,
+            Ok(None) | Err(_) => service.code.clone(),
+        };
         let mut sidecars = service_sidecars(doc)?;
         sidecars.insert(
             service.name.clone(),

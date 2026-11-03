@@ -6,6 +6,11 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `[format.script]` configures service-script indentation, line width and preferred quote style
+  for `fmt`, the formatting gate and newly added services.
+
 ## [0.1.50] - 2026-10-30
 
 ### Fixed

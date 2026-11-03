@@ -112,6 +112,35 @@ pub(crate) struct Format {
     /// Preserve the legacy, XML-aligned script layout instead of writing scripts flush left.
     #[serde(default)]
     pub(crate) indent_cdata_payload: bool,
+    /// Formatter choices shared by every service script in the solution.
+    #[serde(default)]
+    pub(crate) script: ScriptFormat,
+}
+
+/// Formatter choices whose defaults retain the established service-script layout.
+#[derive(Debug, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub(crate) struct ScriptFormat {
+    pub(crate) indent_width: u8,
+    pub(crate) line_width: u32,
+    pub(crate) quote_style: QuoteStyle,
+}
+
+impl Default for ScriptFormat {
+    fn default() -> Self {
+        Self {
+            indent_width: 4,
+            line_width: 100_000,
+            quote_style: QuoteStyle::Double,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum QuoteStyle {
+    Double,
+    Single,
 }
 
 /// Decisions a project has already made about a designer's export.
@@ -588,6 +617,25 @@ impl Solution {
             });
         }
         check_contained("solution.src", &self.solution.src)?;
+        let script = &self.format.script;
+        if !(2..=8).contains(&script.indent_width) {
+            return Err(ConfigError::Invalid {
+                path: path.to_path_buf(),
+                why: format!(
+                    "format.script.indent_width = {} must be from 2 to 8",
+                    script.indent_width
+                ),
+            });
+        }
+        if !(40..=100_000).contains(&script.line_width) {
+            return Err(ConfigError::Invalid {
+                path: path.to_path_buf(),
+                why: format!(
+                    "format.script.line_width = {} must be from 40 to 100000",
+                    script.line_width
+                ),
+            });
+        }
         for gate in &self.gates.advisory {
             if !super::check::BUILT_IN_GATES.contains(&gate.as_str()) {
                 return Err(ConfigError::Invalid {
@@ -1001,6 +1049,48 @@ name = \"Only\"
             solution("[format]\nindent_cdata_payload = true\n\n[[project]]\nname = \"Only\"\n")
                 .unwrap();
         assert!(indented.format.indent_cdata_payload);
+    }
+
+    #[test]
+    fn script_formatting_defaults_parses_and_refuses_invalid_values() {
+        let default = solution("[[project]]\nname = \"Only\"\n").unwrap();
+        assert_eq!(default.format.script.indent_width, 4);
+        assert_eq!(default.format.script.line_width, 100_000);
+        assert_eq!(default.format.script.quote_style, QuoteStyle::Double);
+
+        let configured = solution(
+            "[format.script]\nindent_width = 2\nline_width = 80\nquote_style = \"single\"\n\n[[project]]\nname = \"Only\"\n",
+        )
+        .unwrap();
+        assert_eq!(configured.format.script.indent_width, 2);
+        assert_eq!(configured.format.script.line_width, 80);
+        assert_eq!(configured.format.script.quote_style, QuoteStyle::Single);
+
+        for (key, value, range) in [
+            ("indent_width", "1", "from 2 to 8"),
+            ("indent_width", "9", "from 2 to 8"),
+            ("line_width", "39", "from 40 to 100000"),
+            ("line_width", "100001", "from 40 to 100000"),
+        ] {
+            let error = solution(&format!(
+                "[format.script]\n{key} = {value}\n\n[[project]]\nname = \"Only\"\n"
+            ))
+            .unwrap_err()
+            .to_string();
+            assert!(error.contains(key), "{error}");
+            assert!(error.contains(value), "{error}");
+            assert!(error.contains(range), "{error}");
+        }
+
+        for (key, value) in [("unknown", "true"), ("quote_style", "\"other\"")] {
+            let error = solution(&format!(
+                "[format.script]\n{key} = {value}\n\n[[project]]\nname = \"Only\"\n"
+            ))
+            .unwrap_err()
+            .to_string();
+            assert!(error.contains(key), "{error}");
+            assert!(error.contains(value.trim_matches('\"')), "{error}");
+        }
     }
 
     #[test]

@@ -797,7 +797,7 @@ fn scripts(solution: &Solution, result: &mut GateResult) -> Vec<(PathBuf, String
 /// Service scripts that the formatter would change.
 fn formatting(solution: &Solution) -> GateResult {
     let mut result = GateResult::passed("formatting", 0);
-    let style = format_js::Style::default();
+    let style = format_js::Style::from(&solution.format.script);
     for (path, source) in scripts(solution, &mut result) {
         result.examined += 1;
         match format_js::format(&source.replace("\r\n", "\n"), &style) {
@@ -1649,6 +1649,27 @@ mod tests {
             formatting.findings
         );
         assert!(script_traps(&solution).blocks());
+    }
+
+    #[test]
+    fn formatting_uses_the_configured_indent_width() {
+        let dir = tempfile::tempdir().unwrap();
+        let script = dir.path().join("src/P.T/services/Run/script.js");
+        std::fs::create_dir_all(script.parent().unwrap()).unwrap();
+        std::fs::write(&script, "if (true) {\n  result = 1;\n}").unwrap();
+        std::fs::write(
+            dir.path().join("twaco.toml"),
+            "[format.script]\nindent_width = 2\n\n[[project]]\nname = \"P\"\n",
+        )
+        .unwrap();
+        let configured = Solution::load(&dir.path().join("twaco.toml")).unwrap();
+        assert!(formatting(&configured).findings.is_empty());
+
+        std::fs::write(dir.path().join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
+        let default = Solution::load(&dir.path().join("twaco.toml")).unwrap();
+        assert!(formatting(&default).findings.iter().any(
+            |finding| finding.rule == "unformatted" && finding.file.ends_with("Run/script.js")
+        ));
     }
 
     #[cfg(unix)]
