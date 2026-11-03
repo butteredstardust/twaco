@@ -1132,6 +1132,8 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
             "projects",
             "types",
             "check",
+            "lint",
+            "lint_fix_headers",
             "status",
             "entity_pull",
             "sync",
@@ -2204,6 +2206,8 @@ fn what_the_stable_tools_return_fits_the_output_schema_they_publish() {
         ("projects", json!({})),
         ("check", json!({})),
         ("check", json!({"detail": true})),
+        ("lint", json!({})),
+        ("lint", json!({"print_config": true})),
         ("sync", json!({"all": true, "check": true})),
         ("extract", json!({"entity": "P.T"})),
         ("fmt", json!({"check": true})),
@@ -3819,4 +3823,84 @@ fn check_with_detail_gives_each_gate_its_notes() {
         .as_str()
         .is_some_and(|note| note.starts_with("requirements:")));
     assert!(notes(false).is_null(), "a summary leaves the notes out");
+}
+
+#[test]
+fn lint_tool_returns_what_the_core_finds() {
+    let (_dir, root) = solution_dir();
+    let script = root.join("src/P.T/services/Run");
+    std::fs::create_dir_all(&script).unwrap();
+    std::fs::write(
+        script.join("script.js"),
+        "while (more()) {
+    step();
+}
+for (var k in m) {
+    use(k);
+}",
+    )
+    .unwrap();
+    let (failed, body) = call_tool(&root, "lint", json!({"rules": ["traps"]}));
+    assert!(!failed, "{body}");
+    let solution = crate::core::config::Solution::load(&root.join("twaco.toml")).unwrap();
+    let core = crate::core::lint_report::run(
+        &solution,
+        &crate::core::lint_report::LintRequest {
+            rules: vec!["traps".to_string()],
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        body["findings"],
+        serde_json::to_value(&core.findings).unwrap()
+    );
+    assert_eq!(body["errors"], 2, "{body}");
+
+    let (failed, refused) = call_tool(
+        &root,
+        "lint",
+        json!({"explain": "traps.for-in", "print_config": true}),
+    );
+    assert!(failed, "{refused}");
+}
+
+#[test]
+fn lint_fix_headers_plans_by_default() {
+    let (_dir, root) = solution_dir();
+    std::fs::write(
+        root.join("twaco.toml"),
+        "[lint]
+extends = [\"house-v1\"]
+
+[[project]]
+name = \"P\"
+",
+    )
+    .unwrap();
+    let folder = root.join("src/P.T/services/Run");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(
+        folder.join("definition.xml"),
+        "<ServiceDefinition name=\"Run\"><ResultType baseType=\"NOTHING\" name=\"result\" ordinal=\"0\"></ResultType><ParameterDefinitions></ParameterDefinitions></ServiceDefinition>",
+    )
+    .unwrap();
+    std::fs::write(folder.join("script.js"), "result = 1;").unwrap();
+    let (failed, plan) = call_tool(&root, "lint_fix_headers", json!({}));
+    assert!(!failed, "{plan}");
+    assert_eq!(plan["dry_run"], true);
+    assert_eq!(plan["changed"], 1, "{plan}");
+    assert_eq!(
+        std::fs::read_to_string(folder.join("script.js")).unwrap(),
+        "result = 1;"
+    );
+    let (failed, applied) = call_tool(&root, "lint_fix_headers", json!({"dry_run": false}));
+    assert!(!failed, "{applied}");
+    assert!(std::fs::read_to_string(folder.join("script.js"))
+        .unwrap()
+        .starts_with(
+            "/**
+ * @function Run
+"
+        ));
 }

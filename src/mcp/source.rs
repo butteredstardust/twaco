@@ -1,6 +1,7 @@
 use super::entity::{refusal_code, tool_targets};
 use super::requests::source::{
-    CheckRequest, DeployRequest, ExtractRequest, FmtRequest, SyncRequest, TypesAction, TypesRequest,
+    CheckRequest, DeployRequest, ExtractRequest, FmtRequest, LintFixHeadersRequest, LintRequest,
+    SyncRequest, TypesAction, TypesRequest,
 };
 use super::{
     add_notices, check, client, commands, deploy, json, push, relative, server, types, Mode,
@@ -150,6 +151,9 @@ pub(crate) fn check_tool(
             if !gate.gates_the_run {
                 entry["advisory"] = json!(true);
             }
+            if !gate.warnings.is_empty() {
+                entry["warnings"] = json!(gate.warnings.len());
+            }
             // What the gate said beside its findings: hook summaries, and notes such as the
             // untranslated and unreferenced localization tokens.
             if detail && !gate.prose.is_empty() {
@@ -172,8 +176,108 @@ pub(crate) fn check_tool(
             .map(|f| json!({ "gate": f.gate, "file": f.file, "line": f.line, "rule": f.rule, "message": f.message }))
             .collect();
         result["failures"] = json!(findings);
+        let warnings: Vec<Value> = report
+            .gates
+            .iter()
+            .flat_map(|gate| &gate.warnings)
+            .map(|f| json!({ "gate": f.gate, "file": f.file, "line": f.line, "rule": f.rule, "message": f.message }))
+            .collect();
+        if !warnings.is_empty() {
+            result["warnings"] = json!(warnings);
+        }
     }
     Ok(result)
+}
+
+pub(crate) fn lint_fix_headers_tool(
+    solution: &Solution,
+    request: LintFixHeadersRequest,
+) -> Result<Value, ToolError> {
+    let apply = !request.dry_run;
+    let fix = commands::lint_fix::FixHeadersRequest {
+        mode: if apply { Mode::Apply } else { Mode::Plan },
+        entity: request.entity.as_ref().cloned(),
+        service: request.service.as_ref().cloned(),
+        lock_label: "mcp lint_fix_headers",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome =
+        commands::lint_fix::execute(solution, &fix, &mut notices).map_err(ToolError::coded)?;
+    let changed = outcome.changed();
+    let summary = match (changed, apply) {
+        (0, _) => format!("{} header(s) match their definitions", outcome.examined),
+        (_, false) => format!(
+            "{changed} of {} header(s) to fix; dry_run: false writes them",
+            outcome.examined
+        ),
+        (_, true) => format!(
+            "fixed {changed} of {} header(s); sync writes them into the entity XML",
+            outcome.examined
+        ),
+    };
+    let mut result = json!({
+        "summary": summary,
+        "ok": outcome.failed.is_empty(),
+        "dry_run": !apply,
+        "examined": outcome.examined,
+        "changed": changed,
+        "scripts": outcome.scripts,
+        "failed": outcome.failed,
+    });
+    add_notices(&mut result, &notices);
+    Ok(result)
+}
+
+pub(crate) fn lint_tool(solution: &Solution, request: LintRequest) -> Result<Value, ToolError> {
+    let explain = request.explain.as_ref();
+    if (explain.is_some() && (request.print_config || !request.rules.is_empty()))
+        || (request.print_config && !request.rules.is_empty())
+    {
+        return Err(ToolError::invalid(
+            "explain and print_config are mutually exclusive and neither may be combined with rules",
+        ));
+    }
+    if let Some(id) = explain {
+        let rules = crate::core::lint_report::explain(solution, id).map_err(ToolError::invalid)?;
+        return Ok(json!({
+            "summary": format!("{} rule(s) explained", rules.len()),
+            "explain": rules,
+        }));
+    }
+    if request.print_config {
+        let config = crate::core::lint_report::effective_config(
+            solution,
+            request.entity.as_ref().map(String::as_str),
+            request.service.as_ref().map(String::as_str),
+        );
+        return Ok(json!({
+            "summary": format!("{} rule(s) configured", config.len()),
+            "config": config,
+        }));
+    }
+    let report = crate::core::lint_report::run(
+        solution,
+        &crate::core::lint_report::LintRequest {
+            entity: request.entity.as_ref().cloned(),
+            service: request.service.as_ref().cloned(),
+            rules: request.rules,
+        },
+    )
+    .map_err(ToolError::invalid)?;
+    let errors = report
+        .findings
+        .iter()
+        .filter(|finding| finding.severity == "error")
+        .count();
+    let warnings = report.findings.len() - errors;
+    Ok(json!({
+        "summary": format!("{errors} error(s), {warnings} warning(s) in {} script(s)", report.examined),
+        "examined": report.examined,
+        "errors": errors,
+        "warnings": warnings,
+        "findings": report.findings,
+        "broken": report.broken,
+    }))
 }
 
 pub(crate) fn sync_tool(solution: &Solution, arguments: SyncRequest) -> Result<Value, ToolError> {

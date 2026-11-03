@@ -54,6 +54,9 @@ pub struct Solution {
     /// Which of the built-in gates a plain `twaco check` runs. See [`Gates`].
     #[serde(default)]
     pub gates: Gates,
+    /// Per-rule script lint policy. Its absence retains the historical checks-v1 behaviour.
+    #[serde(default)]
+    pub(crate) lint: Option<Lint>,
     /// TypeScript compiler override used by `twaco types --check`.
     #[serde(default)]
     pub(crate) types: Types,
@@ -112,6 +115,35 @@ pub(crate) struct Format {
     /// Preserve the legacy, XML-aligned script layout instead of writing scripts flush left.
     #[serde(default)]
     pub(crate) indent_cdata_payload: bool,
+    /// Formatter choices shared by every service script in the solution.
+    #[serde(default)]
+    pub(crate) script: ScriptFormat,
+}
+
+/// Formatter choices whose defaults retain the established service-script layout.
+#[derive(Debug, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub(crate) struct ScriptFormat {
+    pub(crate) indent_width: u8,
+    pub(crate) line_width: u32,
+    pub(crate) quote_style: QuoteStyle,
+}
+
+impl Default for ScriptFormat {
+    fn default() -> Self {
+        Self {
+            indent_width: 4,
+            line_width: 100_000,
+            quote_style: QuoteStyle::Double,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum QuoteStyle {
+    Double,
+    Single,
 }
 
 /// Decisions a project has already made about a designer's export.
@@ -157,6 +189,120 @@ pub struct Gates {
     /// vendor schema is not redistributed with a solution or with twaco.
     #[serde(default)]
     pub(crate) structure_xsd: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum Severity {
+    Error,
+    Warn,
+    Off,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Lint {
+    #[serde(default)]
+    pub(crate) extends: Option<Vec<String>>,
+    #[serde(default)]
+    pub(crate) rules: BTreeMap<String, LintRule>,
+    #[serde(default, rename = "override")]
+    pub(crate) overrides: Vec<LintOverride>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct LintOverride {
+    pub(crate) entity: String,
+    #[serde(default)]
+    pub(crate) service: Option<String>,
+    #[serde(default)]
+    pub(crate) rules: BTreeMap<String, LintRule>,
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct LintRule {
+    pub(crate) severity: Option<Severity>,
+    #[serde(flatten)]
+    pub(crate) options: toml::Table,
+}
+
+/// Rule severities resolved once for a check run. Overrides remain ordered deliberately: the
+/// last matching selector wins, without a hidden specificity rule.
+pub(crate) struct EffectiveLint<'a> {
+    base: BTreeMap<&'static str, Severity>,
+    origins: BTreeMap<&'static str, String>,
+    overrides: &'a [LintOverride],
+    comment_policy: super::comments::CommentPolicy,
+    header_policy: super::header::HeaderPolicy,
+}
+
+impl<'a> EffectiveLint<'a> {
+    pub(crate) fn severity(&self, id: &str, entity: Option<&str>, service: &str) -> Severity {
+        self.severity_with_origin(id, entity, service).0
+    }
+
+    /// Resolve a severity with the last configuration source that set it.
+    pub(crate) fn severity_with_origin(
+        &self,
+        id: &str,
+        entity: Option<&str>,
+        service: &str,
+    ) -> (Severity, String) {
+        let mut severity = self.base.get(id).copied().unwrap_or(Severity::Off);
+        let mut origin = self
+            .origins
+            .get(id)
+            .cloned()
+            .unwrap_or_else(|| "checks-v1 (default)".to_string());
+        let Some(entity) = entity else {
+            return (severity, origin);
+        };
+        for (number, override_) in self.overrides.iter().enumerate() {
+            if super::glob::matches(&override_.entity, entity)
+                && override_
+                    .service
+                    .as_ref()
+                    .is_none_or(|pattern| super::glob::matches(pattern, service))
+            {
+                if let Some(rule) = override_.rules.get(id).and_then(|rule| rule.severity) {
+                    severity = rule;
+                    origin = format!(
+                        "[[lint.override]] #{} (entity = {}, service = {})",
+                        number + 1,
+                        override_.entity,
+                        override_.service.as_deref().unwrap_or("*")
+                    );
+                }
+            }
+        }
+        (severity, origin)
+    }
+
+    /// Whether any rule of the gate can report, here or for an entity an override names.
+    pub(crate) fn gate_enabled(&self, gate: &str) -> bool {
+        super::rules::RULES
+            .iter()
+            .filter(|rule| rule.gate == gate)
+            .any(|rule| {
+                self.base.get(rule.id) != Some(&Severity::Off)
+                    || self.overrides.iter().any(|override_| {
+                        override_
+                            .rules
+                            .get(rule.id)
+                            .and_then(|configured| configured.severity)
+                            .is_some_and(|severity| severity != Severity::Off)
+                    })
+            })
+    }
+
+    pub(crate) fn comment_policy(&self) -> &super::comments::CommentPolicy {
+        &self.comment_policy
+    }
+
+    pub(crate) fn header_policy(&self) -> &super::header::HeaderPolicy {
+        &self.header_policy
+    }
 }
 
 /// Optional TypeScript compiler command. Arguments before twaco's `-p` are allowed.
@@ -588,6 +734,25 @@ impl Solution {
             });
         }
         check_contained("solution.src", &self.solution.src)?;
+        let script = &self.format.script;
+        if !(2..=8).contains(&script.indent_width) {
+            return Err(ConfigError::Invalid {
+                path: path.to_path_buf(),
+                why: format!(
+                    "format.script.indent_width = {} must be from 2 to 8",
+                    script.indent_width
+                ),
+            });
+        }
+        if !(40..=100_000).contains(&script.line_width) {
+            return Err(ConfigError::Invalid {
+                path: path.to_path_buf(),
+                why: format!(
+                    "format.script.line_width = {} must be from 40 to 100000",
+                    script.line_width
+                ),
+            });
+        }
         for gate in &self.gates.advisory {
             if !super::check::BUILT_IN_GATES.contains(&gate.as_str()) {
                 return Err(ConfigError::Invalid {
@@ -669,6 +834,7 @@ impl Solution {
                 });
             }
         }
+        self.validate_lint(path)?;
         if self.types.tsc.as_ref().is_some_and(Vec::is_empty) {
             return Err(ConfigError::EmptyTypesCompiler);
         }
@@ -710,6 +876,212 @@ impl Solution {
             }
         }
         self.deploy_order().map(|_| ())
+    }
+
+    fn validate_lint(&self, path: &Path) -> Result<(), ConfigError> {
+        // Without [lint] the gates are today's, and so is every hook name that loaded before.
+        let Some(lint) = &self.lint else {
+            return Ok(());
+        };
+        let extends: Vec<&str> = lint.extends.as_ref().map_or_else(
+            || vec!["checks-v1"],
+            |values| values.iter().map(String::as_str).collect(),
+        );
+        if lint.extends.as_ref().is_some_and(Vec::is_empty) {
+            return Err(ConfigError::Invalid {
+                path: path.to_path_buf(),
+                why: "lint.extends must not be empty".to_string(),
+            });
+        }
+        for preset in extends {
+            if !super::rules::PRESETS.contains(&preset) {
+                return Err(ConfigError::Invalid {
+                    path: path.to_path_buf(),
+                    why: format!("unknown lint preset {preset:?}"),
+                });
+            }
+        }
+        let validate_rules = |rules: &BTreeMap<String, LintRule>,
+                              override_: bool|
+         -> Result<(), ConfigError> {
+            for (id, rule) in rules {
+                let Some(known) = super::rules::by_id(id) else {
+                    return Err(ConfigError::Invalid {
+                        path: path.to_path_buf(),
+                        why: format!("unknown lint rule {id:?}"),
+                    });
+                };
+                if override_ && !rule.options.is_empty() {
+                    return Err(ConfigError::Invalid {
+                        path: path.to_path_buf(),
+                        why: "options are set in [lint.rules], not in an override".to_string(),
+                    });
+                }
+                for (key, value) in &rule.options {
+                    let Some(option) = known.options.iter().find(|option| option.name == key)
+                    else {
+                        return Err(ConfigError::Invalid {
+                            path: path.to_path_buf(),
+                            why: format!("rule {id} takes no option {key}"),
+                        });
+                    };
+                    let valid = match option.kind {
+                        super::rules::OptionKind::Int { minimum } => {
+                            value.as_integer().is_some_and(|number| number >= minimum)
+                        }
+                        super::rules::OptionKind::Bool => value.as_bool().is_some(),
+                        super::rules::OptionKind::Float { minimum, maximum } => number(value)
+                            .is_some_and(|number| number >= minimum && number <= maximum),
+                        super::rules::OptionKind::Phrases => string_list(value).is_some(),
+                        super::rules::OptionKind::Sets => string_sets(value).is_some(),
+                    };
+                    if !valid {
+                        let requirement = match option.kind {
+                            super::rules::OptionKind::Int { minimum } => {
+                                format!("an integer at least {minimum}")
+                            }
+                            super::rules::OptionKind::Bool => "a boolean".to_string(),
+                            super::rules::OptionKind::Float { minimum, maximum } => {
+                                format!("a number from {minimum} to {maximum}")
+                            }
+                            super::rules::OptionKind::Phrases => "an array of strings".to_string(),
+                            super::rules::OptionKind::Sets => {
+                                "an array of arrays of strings".to_string()
+                            }
+                        };
+                        return Err(ConfigError::Invalid {
+                            path: path.to_path_buf(),
+                            why: format!("{id}.{key} must be {requirement}"),
+                        });
+                    }
+                }
+                for key in rule.options.keys().filter(|key| key.ends_with("_extend")) {
+                    let replace = format!("{}_replace", key.trim_end_matches("_extend"));
+                    if rule.options.contains_key(&replace) {
+                        return Err(ConfigError::Invalid {
+                            path: path.to_path_buf(),
+                            why: format!("{id}.{key} and {id}.{replace} cannot both be set"),
+                        });
+                    }
+                }
+            }
+            Ok(())
+        };
+        validate_rules(&lint.rules, false)?;
+        let mut selectors = BTreeSet::new();
+        for override_ in &lint.overrides {
+            if override_.entity.trim().is_empty() {
+                return Err(ConfigError::Invalid {
+                    path: path.to_path_buf(),
+                    why: "lint override needs a non-empty entity".to_string(),
+                });
+            }
+            let selector = (
+                override_.entity.as_str(),
+                override_.service.as_deref().unwrap_or(""),
+            );
+            if !selectors.insert(selector) {
+                return Err(ConfigError::Invalid {
+                    path: path.to_path_buf(),
+                    why: format!(
+                        "two lint overrides use the same entity and service selectors: {:?}, {:?}",
+                        selector.0, selector.1
+                    ),
+                });
+            }
+            validate_rules(&override_.rules, true)?;
+        }
+        let effective = self.effective_lint();
+        for check in &self.checks {
+            if super::rules::LINT_GATE_LABELS.contains(&check.name.as_str())
+                && effective.gate_enabled(&check.name)
+            {
+                return Err(ConfigError::Invalid {
+                    path: path.to_path_buf(),
+                    why: format!("[[check]] {:?} has the name of a built-in gate that [lint] enables; rename or remove the hook", check.name),
+                });
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn effective_lint(&self) -> EffectiveLint<'_> {
+        let mut base = super::rules::RULES
+            .iter()
+            .map(|rule| (rule.id, Severity::Off))
+            .collect::<BTreeMap<_, _>>();
+        let mut origins = super::rules::RULES
+            .iter()
+            .map(|rule| (rule.id, "checks-v1 (default)".to_string()))
+            .collect::<BTreeMap<_, _>>();
+        if let Some(lint) = &self.lint {
+            let presets: Vec<&str> = lint.extends.as_ref().map_or_else(
+                || vec!["checks-v1"],
+                |values| values.iter().map(String::as_str).collect(),
+            );
+            for preset in presets {
+                for rule in super::rules::RULES {
+                    base.insert(
+                        rule.id,
+                        super::rules::preset(preset, rule).expect("validated lint preset"),
+                    );
+                    origins.insert(rule.id, preset.to_string());
+                }
+            }
+            for (id, rule) in &lint.rules {
+                if let Some(severity) = rule.severity {
+                    base.insert(
+                        super::rules::by_id(id).expect("validated lint rule").id,
+                        severity,
+                    );
+                    origins.insert(
+                        super::rules::by_id(id).expect("validated lint rule").id,
+                        "[lint.rules]".to_string(),
+                    );
+                }
+            }
+            EffectiveLint {
+                base,
+                origins,
+                overrides: &lint.overrides,
+                comment_policy: comment_policy(&lint.rules),
+                header_policy: header_policy(&lint.rules),
+            }
+        } else {
+            // No [lint] is checks-v1, resolved the one way a preset is.
+            for rule in super::rules::RULES {
+                base.insert(
+                    rule.id,
+                    super::rules::preset("checks-v1", rule).expect("a built-in preset"),
+                );
+            }
+            EffectiveLint {
+                base,
+                origins,
+                overrides: &[],
+                comment_policy: super::comments::CommentPolicy::default(),
+                header_policy: super::header::HeaderPolicy::default(),
+            }
+        }
+    }
+
+    pub(crate) fn lint_doctor_detail(&self) -> String {
+        let Some(lint) = &self.lint else {
+            return "checks-v1 (default: no [lint]); house-v1 adds the comment rules".to_string();
+        };
+        let presets = lint
+            .extends
+            .as_ref()
+            .map_or_else(|| "checks-v1".to_string(), |values| values.join(", "));
+        let mut detail = format!("{presets} (from [lint])");
+        if !lint.rules.is_empty() || !lint.overrides.is_empty() {
+            detail.push_str(&format!(
+                ", {} rule(s) changed by [lint.rules], {} override(s)",
+                lint.rules.len(),
+                lint.overrides.len()
+            ));
+        }
+        detail
     }
 
     /// The profile's patches that name no Mashup among `entities`. A misspelled patch would
@@ -810,6 +1182,132 @@ impl Solution {
     }
 }
 
+/// A TOML number, so `max_ratio = 1` means what `max_ratio = 1.0` does.
+fn number(value: &toml::Value) -> Option<f64> {
+    value
+        .as_float()
+        .or_else(|| value.as_integer().map(|number| number as f64))
+}
+
+fn string_list(value: &toml::Value) -> Option<Vec<String>> {
+    value
+        .as_array()?
+        .iter()
+        .map(|value| value.as_str().map(str::to_string))
+        .collect()
+}
+
+fn string_sets(value: &toml::Value) -> Option<Vec<Vec<String>>> {
+    value.as_array()?.iter().map(string_list).collect()
+}
+
+fn deduplicate(values: impl IntoIterator<Item = String>) -> Vec<String> {
+    let mut seen = BTreeSet::new();
+    values
+        .into_iter()
+        .filter(|value| seen.insert(value.to_ascii_lowercase()))
+        .collect()
+}
+
+fn phrase_option(policy: &mut Vec<String>, rule: &LintRule, stem: &str) {
+    let replace = format!("{stem}_replace");
+    let extend = format!("{stem}_extend");
+    if let Some(values) = rule.options.get(&replace).and_then(string_list) {
+        *policy = deduplicate(values);
+    } else if let Some(values) = rule.options.get(&extend).and_then(string_list) {
+        *policy = deduplicate(policy.iter().cloned().chain(values));
+    }
+}
+
+fn set_option(policy: &mut Vec<Vec<String>>, rule: &LintRule) {
+    let values = rule
+        .options
+        .get("sets_replace")
+        .and_then(string_sets)
+        .or_else(|| rule.options.get("sets_extend").and_then(string_sets));
+    let Some(values) = values else { return };
+    let values: Vec<_> = values.into_iter().map(deduplicate).collect();
+    if rule.options.contains_key("sets_replace") {
+        *policy = values;
+    } else {
+        policy.extend(values);
+    }
+    let mut seen = BTreeSet::new();
+    policy.retain(|set| {
+        seen.insert(
+            set.iter()
+                .map(|term| term.to_ascii_lowercase())
+                .collect::<Vec<_>>()
+                .join("\u{1f}"),
+        )
+    });
+}
+
+fn comment_policy(rules: &BTreeMap<String, LintRule>) -> super::comments::CommentPolicy {
+    let mut policy = super::comments::CommentPolicy::uncompiled();
+    let integer = |id: &str, key: &str| {
+        rules
+            .get(id)
+            .and_then(|rule| rule.options.get(key))
+            .and_then(toml::Value::as_integer)
+            .and_then(|value| usize::try_from(value).ok())
+    };
+    let float = |id: &str, key: &str| {
+        rules
+            .get(id)
+            .and_then(|rule| rule.options.get(key))
+            .and_then(number)
+    };
+    policy.jsdoc_max_lines =
+        integer("comments.budget.jsdoc-prose", "max_lines").unwrap_or(policy.jsdoc_max_lines);
+    policy.line_run_max_lines =
+        integer("comments.budget.line-run", "max_lines").unwrap_or(policy.line_run_max_lines);
+    policy.ratio_max = float("comments.budget.ratio", "max_ratio").unwrap_or(policy.ratio_max);
+    policy.ratio_min_code_lines =
+        integer("comments.budget.ratio", "min_code_lines").unwrap_or(policy.ratio_min_code_lines);
+    policy.instruction_max_words = integer("comments.prose.length", "instruction_max_words")
+        .unwrap_or(policy.instruction_max_words);
+    policy.description_max_words = integer("comments.prose.length", "description_max_words")
+        .unwrap_or(policy.description_max_words);
+    policy.noun_max_run = integer("comments.prose.nouns", "max_run").unwrap_or(policy.noun_max_run);
+    if let Some(rule) = rules.get("comments.prose.length") {
+        phrase_option(&mut policy.imperatives, rule, "imperatives");
+    }
+    if let Some(rule) = rules.get("comments.prose.history") {
+        phrase_option(&mut policy.history, rule, "phrases");
+    }
+    if let Some(rule) = rules.get("comments.prose.hedge") {
+        phrase_option(&mut policy.hedges, rule, "phrases");
+    }
+    if let Some(rule) = rules.get("comments.prose.synonym") {
+        set_option(&mut policy.synonyms, rule);
+    }
+    policy.compile();
+    policy
+}
+
+fn header_policy(rules: &BTreeMap<String, LintRule>) -> super::header::HeaderPolicy {
+    let mut policy = super::header::HeaderPolicy::default();
+    if let Some(rule) = rules.get("comments.header.contract") {
+        if let Some(value) = rule
+            .options
+            .get("require_result_shape")
+            .and_then(toml::Value::as_bool)
+        {
+            policy.require_result_shape = value;
+        }
+    }
+    if let Some(value) = rules
+        .get("comments.header.wrap")
+        .and_then(|rule| rule.options.get("max_columns"))
+        .and_then(toml::Value::as_integer)
+        .and_then(|value| usize::try_from(value).ok())
+    {
+        policy.max_columns = value;
+    }
+    policy
+}
+
 impl Coded for ConfigError {
     fn code(&self) -> ErrorCode {
         match self {
@@ -841,6 +1339,199 @@ mod tests {
         s.root = PathBuf::from(".");
         s.validate(Path::new("twaco.toml"))?;
         Ok(s)
+    }
+
+    #[test]
+    fn lint_presets_rules_and_overrides_resolve_in_order() {
+        let configured = solution(
+            r#"[lint]
+extends = ["traps-only-v1", "checks-v1"]
+[lint.rules."traps.for-in"]
+severity = "warn"
+[[lint.override]]
+entity = "Things/P.*"
+[lint.override.rules."traps.for-in"]
+severity = "off"
+[[lint.override]]
+entity = "Things/P.*"
+service = "Import*"
+[lint.override.rules."traps.for-in"]
+severity = "error"
+
+[[project]]
+name = "P"
+"#,
+        )
+        .unwrap();
+        let lint = configured.effective_lint();
+        assert_eq!(
+            lint.severity("format.unformatted", None, "Run"),
+            Severity::Error
+        );
+        assert_eq!(
+            lint.severity("traps.for-in", Some("Things/Else"), "Run"),
+            Severity::Warn
+        );
+        assert_eq!(
+            lint.severity("traps.for-in", Some("Things/P.Legacy"), "Run"),
+            Severity::Off
+        );
+        assert_eq!(
+            lint.severity("traps.for-in", Some("Things/P.Legacy"), "ImportOld"),
+            Severity::Error
+        );
+        let traps_only =
+            solution("[lint]\nextends = [\"traps-only-v1\"]\n[[project]]\nname = \"P\"\n").unwrap();
+        assert_eq!(
+            traps_only
+                .effective_lint()
+                .severity("format.unformatted", None, ""),
+            Severity::Off
+        );
+    }
+
+    #[test]
+    fn comment_options_validate_and_resolve_once() {
+        let configured = solution(
+            r#"[lint]
+extends = ["house-v1"]
+[lint.rules."comments.prose.history"]
+phrases_replace = ["Now"]
+[lint.rules."comments.prose.length"]
+imperatives_extend = ["Deploy", "deploy"]
+instruction_max_words = 4
+[lint.rules."comments.prose.synonym"]
+sets_replace = [["alpha", "beta"]]
+
+[[project]]
+name = "P"
+"#,
+        )
+        .unwrap();
+        let policy = configured.effective_lint().comment_policy().clone();
+        assert_eq!(policy.history, vec!["Now"]);
+        assert_eq!(policy.instruction_max_words, 4);
+        assert_eq!(
+            policy
+                .imperatives
+                .iter()
+                .filter(|word| word.eq_ignore_ascii_case("deploy"))
+                .count(),
+            1
+        );
+        assert_eq!(
+            policy.synonyms,
+            vec![vec!["alpha".to_string(), "beta".to_string()]]
+        );
+        for (text, expected) in [
+            (
+                "[lint.rules.\"comments.budget.line-run\"]\nmax_lines = 0\n",
+                "comments.budget.line-run.max_lines must be an integer at least 1",
+            ),
+            (
+                "[lint.rules.\"comments.prose.hedge\"]\nphrases_extend = [1]\n",
+                "comments.prose.hedge.phrases_extend must be an array of strings",
+            ),
+            (
+                "[lint.rules.\"comments.header.contract\"]\nrequire_result_shape = \"yes\"\n",
+                "comments.header.contract.require_result_shape must be a boolean",
+            ),
+            (
+                "[lint.rules.\"comments.prose.history\"]\nphrases_extend = [\"old\"]\nphrases_replace = [\"new\"]\n",
+                "cannot both be set",
+            ),
+            (
+                "[[lint.override]]\nentity = \"Things/*\"\n[lint.override.rules.\"comments.prose.hedge\"]\nphrases_extend = [\"perhaps\"]\n",
+                "options are set in [lint.rules], not in an override",
+            ),
+        ] {
+            let error = solution(&format!("{text}\n[[project]]\nname = \"P\"\n")).unwrap_err();
+            assert!(error.to_string().contains(expected), "{error}");
+        }
+    }
+
+    #[test]
+    fn lint_origin_records_the_last_matching_source() {
+        let configured = solution(
+            r#"[lint]
+extends = ["traps-only-v1"]
+[lint.rules."traps.for-in"]
+severity = "warn"
+[[lint.override]]
+entity = "Things/P.*"
+service = "Run"
+[lint.override.rules."traps.for-in"]
+severity = "error"
+[[project]]
+name = "P"
+"#,
+        )
+        .unwrap();
+        let lint = configured.effective_lint();
+        assert_eq!(
+            lint.severity_with_origin("format.unformatted", None, "").1,
+            "traps-only-v1"
+        );
+        assert_eq!(
+            lint.severity_with_origin("traps.for-in", None, "").1,
+            "[lint.rules]"
+        );
+        assert!(lint
+            .severity_with_origin("traps.for-in", Some("Things/P.T"), "Run")
+            .1
+            .starts_with("[[lint.override]] #1"));
+    }
+
+    #[test]
+    fn lint_validation_names_every_bad_configuration() {
+        for (text, expected) in [
+            ("[lint]\nextends = []\n", "extends"),
+            ("[lint]\nextends = [\"missing\"]\n", "unknown lint preset"),
+            ("[lint.rules.\"nope\"]\nseverity = \"error\"\n", "unknown lint rule"),
+            ("[lint.rules.\"traps.for-in\"]\nlimit = 1\n", "takes no option limit"),
+            ("[[lint.override]]\nentity = \"\"\n", "non-empty entity"),
+            ("[[lint.override]]\nentity = \"Things/P.*\"\n[[lint.override]]\nentity = \"Things/P.*\"\n", "same entity and service"),
+        ] {
+            let error = solution(&format!("{text}\n[[project]]\nname = \"P\"\n"))
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains(expected), "{error}");
+        }
+    }
+
+    #[test]
+    fn lint_hook_names_clash_only_when_enabled() {
+        let error = solution("[lint]\nextends = [\"checks-v1\"]\n[[check]]\nname = \"formatting\"\ncommand = [\"x\"]\n[[project]]\nname = \"P\"\n").unwrap_err().to_string();
+        assert!(error.contains("has the name of a built-in gate"));
+        solution("[lint]\nextends = [\"traps-only-v1\"]\n[[check]]\nname = \"formatting\"\ncommand = [\"x\"]\n[[check]]\nname = \"comments\"\ncommand = [\"x\"]\n[[project]]\nname = \"P\"\n").unwrap();
+        // No [lint]: today's gates, and a hook that loaded before still loads.
+        solution(
+            "[[check]]
+name = \"formatting\"
+command = [\"x\"]
+[[project]]
+name = \"P\"
+",
+        )
+        .unwrap();
+        // An override that turns a rule on for one entity enables its gate.
+        let error = solution(
+            "[lint]
+extends = [\"traps-only-v1\"]
+[[lint.override]]
+entity = \"Things/P.*\"
+[lint.override.rules.\"format.unformatted\"]
+severity = \"warn\"
+[[check]]
+name = \"formatting\"
+command = [\"x\"]
+[[project]]
+name = \"P\"
+",
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("has the name of a built-in gate"), "{error}");
     }
 
     #[test]
@@ -1001,6 +1692,48 @@ name = \"Only\"
             solution("[format]\nindent_cdata_payload = true\n\n[[project]]\nname = \"Only\"\n")
                 .unwrap();
         assert!(indented.format.indent_cdata_payload);
+    }
+
+    #[test]
+    fn script_formatting_defaults_parses_and_refuses_invalid_values() {
+        let default = solution("[[project]]\nname = \"Only\"\n").unwrap();
+        assert_eq!(default.format.script.indent_width, 4);
+        assert_eq!(default.format.script.line_width, 100_000);
+        assert_eq!(default.format.script.quote_style, QuoteStyle::Double);
+
+        let configured = solution(
+            "[format.script]\nindent_width = 2\nline_width = 80\nquote_style = \"single\"\n\n[[project]]\nname = \"Only\"\n",
+        )
+        .unwrap();
+        assert_eq!(configured.format.script.indent_width, 2);
+        assert_eq!(configured.format.script.line_width, 80);
+        assert_eq!(configured.format.script.quote_style, QuoteStyle::Single);
+
+        for (key, value, range) in [
+            ("indent_width", "1", "from 2 to 8"),
+            ("indent_width", "9", "from 2 to 8"),
+            ("line_width", "39", "from 40 to 100000"),
+            ("line_width", "100001", "from 40 to 100000"),
+        ] {
+            let error = solution(&format!(
+                "[format.script]\n{key} = {value}\n\n[[project]]\nname = \"Only\"\n"
+            ))
+            .unwrap_err()
+            .to_string();
+            assert!(error.contains(key), "{error}");
+            assert!(error.contains(value), "{error}");
+            assert!(error.contains(range), "{error}");
+        }
+
+        for (key, value) in [("unknown", "true"), ("quote_style", "\"other\"")] {
+            let error = solution(&format!(
+                "[format.script]\n{key} = {value}\n\n[[project]]\nname = \"Only\"\n"
+            ))
+            .unwrap_err()
+            .to_string();
+            assert!(error.contains(key), "{error}");
+            assert!(error.contains(value.trim_matches('\"')), "{error}");
+        }
     }
 
     #[test]

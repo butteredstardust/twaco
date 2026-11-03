@@ -6,6 +6,13 @@ use crate::core::mashup::templates::Visibility;
 use serde_json::json;
 use std::path::Path;
 
+/// Whether a test holds a gate to passing. Not `project`: the fixtures' services have no
+/// implementations, which only that gate minds. Not `structure`: it runs only where an export XSD
+/// is installed (`TWACO_STRUCTURE_XSD`), so judging it would pass or fail by machine.
+fn judged(gate: &crate::core::check::GateResult) -> bool {
+    !matches!(gate.name.as_str(), "project" | "structure")
+}
+
 fn write(root: &Path, relative: &str, text: &str) {
     let path = root.join(relative);
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -436,7 +443,7 @@ fn sidebar_menus_are_service_calls_bound_and_loaded_like_bind_and_on() {
         .gates
         .iter()
         // The fixture declares service definitions only, which the project gate reports.
-        .filter(|gate| !gate.ok() && gate.name != "project")
+        .filter(|gate| !gate.ok() && judged(gate))
         .collect();
     assert!(failing.is_empty(), "{failing:?}");
     let description = crate::core::mashup::describe::describe(&solution, "Acme.Nav_MU").unwrap();
@@ -972,7 +979,7 @@ fn bindings_to_parameters_and_from_selected_rows_reuse_calls_and_pass_the_gates(
         .gates
         .iter()
         // The fixture's services have no implementations, which only the project gate minds.
-        .filter(|gate| !gate.ok() && gate.name != "project")
+        .filter(|gate| !gate.ok() && judged(gate))
         .map(|gate| format!("{}: {:?} {:?}", gate.name, gate.findings, gate.broken))
         .collect();
     assert!(failing.is_empty(), "{failing:?}");
@@ -1260,7 +1267,7 @@ fn events_use_composer_keys_and_describe_their_wiring() {
     let failing: Vec<_> = crate::core::check::run(&solution)
         .gates
         .into_iter()
-        .filter(|gate| !gate.ok() && gate.name != "project")
+        .filter(|gate| !gate.ok() && judged(gate))
         .collect();
     assert!(failing.is_empty(), "{failing:?}");
 }
@@ -2163,7 +2170,7 @@ fn adding_a_parameter_refreshes_every_container_of_the_mashup_and_keeps_static_v
     let failing: Vec<_> = crate::core::check::run(&solution)
         .gates
         .into_iter()
-        .filter(|gate| !gate.ok() && gate.name != "project")
+        .filter(|gate| !gate.ok() && judged(gate))
         .collect();
     assert!(failing.is_empty(), "{failing:?}");
     let described = crate::core::mashup::describe::describe(&solution, "Acme.Board_MU").unwrap();
@@ -2709,7 +2716,7 @@ fn a_tabs_page_shows_a_mashup_in_each_tab_as_composer_lays_them_out() {
     let failing: Vec<_> = crate::core::check::run(&solution)
         .gates
         .into_iter()
-        .filter(|gate| !gate.ok() && gate.name != "project")
+        .filter(|gate| !gate.ok() && judged(gate))
         .collect();
     // The one finding is the made-up label token, which the solution's table does not have.
     assert_eq!(failing.len(), 1, "{failing:?}");
@@ -2937,7 +2944,7 @@ fn an_expression_goes_beside_the_layout_with_its_inputs_and_wires_like_composers
     let failing: Vec<_> = crate::core::check::run(&solution)
         .gates
         .into_iter()
-        .filter(|gate| !gate.ok() && gate.name != "project")
+        .filter(|gate| !gate.ok() && judged(gate))
         .collect();
     assert!(failing.is_empty(), "{failing:?}");
 }
@@ -3155,7 +3162,7 @@ fn a_child_event_is_a_timestamped_parameter_and_a_parent_reacts_through_an_event
     let failing: Vec<_> = crate::core::check::run(&solution)
         .gates
         .into_iter()
-        .filter(|gate| !gate.ok() && gate.name != "project")
+        .filter(|gate| !gate.ok() && judged(gate))
         .collect();
     assert!(failing.is_empty(), "{failing:?}");
     // An input is not an event, and neither is a name the child lacks.
@@ -3568,7 +3575,7 @@ fn each_recipe_writes_the_wiring_real_mashups_use() {
     let failing: Vec<_> = crate::core::check::run(&solution)
         .gates
         .into_iter()
-        .filter(|gate| !gate.ok() && gate.name != "project")
+        .filter(|gate| !gate.ok() && judged(gate))
         .collect();
     assert!(failing.is_empty(), "{failing:?}");
 }
@@ -3801,7 +3808,7 @@ fn chart_columns_and_picker_recipes_configure_widgets_from_the_result_shape() {
     let failing: Vec<_> = crate::core::check::run(&solution)
         .gates
         .into_iter()
-        .filter(|gate| !gate.ok() && gate.name != "project")
+        .filter(|gate| !gate.ok() && judged(gate))
         .collect();
     assert!(failing.is_empty(), "{failing:?}");
     // Refusals: a field the result lacks, a pie without a value, a value on a bar, a wrong

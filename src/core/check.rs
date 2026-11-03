@@ -5,7 +5,7 @@
 //! file. Structured findings keep large check results compact and machine-readable.
 
 use super::child::{credential_values, redact, run_to_completion, strip_credentials};
-use super::config::Solution;
+use super::config::{EffectiveLint, Severity, Solution};
 use super::progress::{self, Progress};
 use super::{agents_check, bindings, fmt as format_js, network, structure, sync, types, workspace};
 use std::collections::{BTreeMap, BTreeSet};
@@ -51,6 +51,8 @@ pub struct GateResult {
     /// What the gate looked at, for a summary line that means something.
     pub examined: usize,
     pub findings: Vec<Finding>,
+    /// Configured report-only lint findings. They are informational and never block a run.
+    pub warnings: Vec<Finding>,
     /// Whatever the gate printed that was not a finding. Kept so a passing hook's own summary
     /// -- "123 scripts, 0 failing" -- stays readable rather than being silently discarded.
     pub prose: Vec<String>,
@@ -68,6 +70,7 @@ impl GateResult {
             name: name.to_string(),
             examined,
             findings: Vec::new(),
+            warnings: Vec::new(),
             prose: Vec::new(),
             broken: None,
             skipped: None,
@@ -138,6 +141,9 @@ pub(crate) const BUILT_IN_GATES: &[&str] = &[
     "formatting",
     "script traps",
     "code order",
+    "comment header",
+    "comment budget",
+    "comment prose",
     "project",
     "project dependencies",
     "mashup bindings",
@@ -164,13 +170,14 @@ fn as_configured(solution: &Solution, mut gate: GateResult) -> GateResult {
 pub fn run(solution: &Solution) -> CheckReport {
     let discovery = workspace::discover(solution);
     let (model, _) = types::load_model(solution);
+    let lint = solution.effective_lint();
     let mut report = CheckReport::default();
     for gate in [
         line_endings(solution),
         sidecars_in_sync(solution, &discovery),
-        formatting(solution),
-        script_traps(solution),
-        code_order(solution),
+        formatting_with(solution, &discovery, &lint),
+        script_traps_with(solution, &discovery, &lint),
+        code_order_with(solution, &discovery, &lint),
         project_validation(solution, &discovery),
         project_dependencies(solution, &discovery, &model),
         mashup_bindings(solution, &discovery, &model),
@@ -184,6 +191,28 @@ pub fn run(solution: &Solution) -> CheckReport {
         structure_gate(solution, &discovery),
     ] {
         report.gates.push(as_configured(solution, gate));
+    }
+    if lint.gate_enabled("comment budget") {
+        report.gates.insert(
+            5,
+            as_configured(solution, comment_budget_with(solution, &discovery, &lint)),
+        );
+    }
+    if lint.gate_enabled("comment prose") {
+        let index = usize::from(lint.gate_enabled("comment budget")) + 5;
+        report.gates.insert(
+            index,
+            as_configured(solution, comment_prose_with(solution, &discovery, &lint)),
+        );
+    }
+    if lint.gate_enabled("comment header") {
+        let index = usize::from(lint.gate_enabled("comment budget"))
+            + usize::from(lint.gate_enabled("comment prose"))
+            + 5;
+        report.gates.insert(
+            index,
+            as_configured(solution, comment_header_with(solution, &discovery, &lint)),
+        );
     }
     for hook in &solution.checks {
         report.gates.push(run_hook(solution, hook));
@@ -795,28 +824,60 @@ fn scripts(solution: &Solution, result: &mut GateResult) -> Vec<(PathBuf, String
 }
 
 /// Service scripts that the formatter would change.
+#[cfg(test)]
 fn formatting(solution: &Solution) -> GateResult {
+    let discovered = workspace::discover(solution);
+    formatting_with(solution, &discovered, &solution.effective_lint())
+}
+
+pub(crate) fn formatting_with(
+    solution: &Solution,
+    discovered: &workspace::Discovery,
+    lint: &EffectiveLint<'_>,
+) -> GateResult {
     let mut result = GateResult::passed("formatting", 0);
-    let style = format_js::Style::default();
-    for (path, source) in scripts(solution, &mut result) {
+    let style = format_js::Style::from(&solution.format.script);
+    let scripts = scripts(solution, &mut result);
+    let survey = format_js::survey(scripts.iter().map(|(_, source)| source.as_str()));
+    for (path, source) in scripts {
         result.examined += 1;
         match format_js::format(&source.replace("\r\n", "\n"), &style) {
             Ok(None) => {}
-            Ok(Some(_)) => result.findings.push(Finding {
-                gate: "formatting".to_string(),
-                file: relative(solution, &path),
-                line: 0,
-                rule: "unformatted".to_string(),
-                message: "run `twaco fmt`".to_string(),
-            }),
-            Err(e) => result.findings.push(Finding {
-                gate: "formatting".to_string(),
-                file: relative(solution, &path),
-                line: 0,
-                rule: "will-not-parse".to_string(),
-                message: e,
-            }),
+            Ok(Some(_)) => lint_finding(
+                &mut result,
+                lint,
+                script_entity(solution, discovered, &path),
+                "formatting",
+                "unformatted",
+                Finding {
+                    gate: "formatting".to_string(),
+                    file: relative(solution, &path),
+                    line: 0,
+                    rule: "unformatted".to_string(),
+                    message: "run `twaco fmt`".to_string(),
+                },
+            ),
+            Err(e) => lint_finding(
+                &mut result,
+                lint,
+                script_entity(solution, discovered, &path),
+                "formatting",
+                "will-not-parse",
+                Finding {
+                    gate: "formatting".to_string(),
+                    file: relative(solution, &path),
+                    line: 0,
+                    rule: "will-not-parse".to_string(),
+                    message: e,
+                },
+            ),
         }
+    }
+    if !result.findings.is_empty() {
+        result.prose.extend(format_js::style_mismatches(
+            &survey,
+            &solution.format.script,
+        ));
     }
     result
 }
@@ -826,19 +887,81 @@ fn formatting(solution: &Solution) -> GateResult {
 const OUTPUT_CAP: usize = 1024 * 1024;
 
 /// Traps in the script engine that compile cleanly and then misbehave at runtime.
+#[cfg(test)]
 fn script_traps(solution: &Solution) -> GateResult {
+    let discovered = workspace::discover(solution);
+    script_traps_with(solution, &discovered, &solution.effective_lint())
+}
+
+pub(crate) fn script_traps_with(
+    solution: &Solution,
+    discovered: &workspace::Discovery,
+    lint: &EffectiveLint<'_>,
+) -> GateResult {
     let mut result = GateResult::passed("script traps", 0);
     for (path, source) in scripts(solution, &mut result) {
         result.examined += 1;
-        for trap in super::lint::lint(&source.replace("\r\n", "\n")) {
-            result.findings.push(Finding {
-                gate: "script traps".to_string(),
-                file: relative(solution, &path),
-                line: trap.line,
-                rule: trap.rule.to_string(),
-                message: trap.message,
-            });
+        let mark = (result.findings.len(), result.warnings.len());
+        let source = source.replace("\r\n", "\n");
+        let mut directives = source
+            .contains("twaco-lint-")
+            .then(|| super::suppress::parse(&source));
+        for trap in super::lint::lint(&source) {
+            if directives.as_mut().is_some_and(|directives| {
+                directives.suppresses(&format!("traps.{}", trap.rule), trap.line)
+            }) {
+                continue;
+            }
+            lint_finding(
+                &mut result,
+                lint,
+                script_entity(solution, discovered, &path),
+                "script traps",
+                trap.rule,
+                Finding {
+                    gate: "script traps".to_string(),
+                    file: relative(solution, &path),
+                    line: trap.line,
+                    rule: trap.rule.to_string(),
+                    message: trap.message,
+                },
+            );
         }
+        if let Some(directives) = &directives {
+            for problem in directives.malformed() {
+                lint_finding(
+                    &mut result,
+                    lint,
+                    script_entity(solution, discovered, &path),
+                    "script traps",
+                    "suppression",
+                    Finding {
+                        gate: "script traps".to_string(),
+                        file: relative(solution, &path),
+                        line: problem.line,
+                        rule: "suppression".to_string(),
+                        message: problem.message.clone(),
+                    },
+                );
+            }
+            for problem in directives.unused("traps.") {
+                lint_finding(
+                    &mut result,
+                    lint,
+                    script_entity(solution, discovered, &path),
+                    "script traps",
+                    "suppression",
+                    Finding {
+                        gate: "script traps".to_string(),
+                        file: relative(solution, &path),
+                        line: problem.line,
+                        rule: "suppression".to_string(),
+                        message: problem.message,
+                    },
+                );
+            }
+        }
+        in_line_order(&mut result, mark);
     }
     result
 }
@@ -902,21 +1025,234 @@ fn result_shapes(solution: &Solution, model: &types::Model) -> GateResult {
 }
 
 /// Main code above its helpers, so a service reads in the order it runs.
+#[cfg(test)]
+#[allow(dead_code)]
 fn code_order(solution: &Solution) -> GateResult {
+    let discovered = workspace::discover(solution);
+    code_order_with(solution, &discovered, &solution.effective_lint())
+}
+
+pub(crate) fn code_order_with(
+    solution: &Solution,
+    discovered: &workspace::Discovery,
+    lint: &EffectiveLint<'_>,
+) -> GateResult {
     let mut result = GateResult::passed("code order", 0);
     for (path, source) in scripts(solution, &mut result) {
         result.examined += 1;
-        for misplaced in super::order::check(&source.replace("\r\n", "\n")) {
-            result.findings.push(Finding {
-                gate: "code order".to_string(),
-                file: relative(solution, &path),
-                line: misplaced.line,
-                rule: misplaced.rule.to_string(),
-                message: misplaced.message,
-            });
+        let mark = (result.findings.len(), result.warnings.len());
+        let source = source.replace("\r\n", "\n");
+        let mut directives = source
+            .contains("twaco-lint-")
+            .then(|| super::suppress::parse(&source));
+        for misplaced in super::order::check(&source) {
+            if directives.as_mut().is_some_and(|directives| {
+                directives.suppresses(&format!("order.{}", misplaced.rule), misplaced.line)
+            }) {
+                continue;
+            }
+            lint_finding(
+                &mut result,
+                lint,
+                script_entity(solution, discovered, &path),
+                "code order",
+                misplaced.rule,
+                Finding {
+                    gate: "code order".to_string(),
+                    file: relative(solution, &path),
+                    line: misplaced.line,
+                    rule: misplaced.rule.to_string(),
+                    message: misplaced.message,
+                },
+            );
+        }
+        if let Some(directives) = &directives {
+            for problem in directives.unused("order.") {
+                lint_finding(
+                    &mut result,
+                    lint,
+                    script_entity(solution, discovered, &path),
+                    "code order",
+                    "suppression",
+                    Finding {
+                        gate: "code order".to_string(),
+                        file: relative(solution, &path),
+                        line: problem.line,
+                        rule: "suppression".to_string(),
+                        message: problem.message,
+                    },
+                );
+            }
+        }
+        in_line_order(&mut result, mark);
+    }
+    result
+}
+
+/// One script's findings in line order, from where `mark` says its findings start, so a
+/// directive's own finding reads where the directive is rather than after the rule findings.
+fn in_line_order(result: &mut GateResult, mark: (usize, usize)) {
+    result.findings[mark.0..].sort_by_key(|finding| finding.line);
+    result.warnings[mark.1..].sort_by_key(|finding| finding.line);
+}
+
+pub(crate) fn comment_budget_with(
+    solution: &Solution,
+    discovered: &workspace::Discovery,
+    lint: &EffectiveLint<'_>,
+) -> GateResult {
+    comment_gate(
+        solution,
+        discovered,
+        lint,
+        "comment budget",
+        |measure, policy| {
+            super::comments::findings(measure, policy)
+                .into_iter()
+                .filter(|finding| matches!(finding.rule, "jsdoc-prose" | "line-run" | "ratio"))
+                .collect()
+        },
+    )
+}
+
+pub(crate) fn comment_header_with(
+    solution: &Solution,
+    discovered: &workspace::Discovery,
+    lint: &EffectiveLint<'_>,
+) -> GateResult {
+    let mut result = GateResult::passed("comment header", 0);
+    if !lint.gate_enabled("comment header") {
+        return result;
+    }
+    for (path, source) in scripts(solution, &mut result) {
+        result.examined += 1;
+        let service = path
+            .parent()
+            .and_then(Path::file_name)
+            .and_then(|name| name.to_str());
+        let definition = path
+            .parent()
+            .map(|folder| folder.join("definition.xml"))
+            .and_then(|path| std::fs::read_to_string(path).ok())
+            .and_then(|source| super::header::definition(&source));
+        let Some(service) = service else { continue };
+        for finding in
+            super::header::findings(&source, service, definition.as_ref(), lint.header_policy())
+        {
+            lint_finding(
+                &mut result,
+                lint,
+                script_entity(solution, discovered, &path),
+                "comment header",
+                finding.rule,
+                Finding {
+                    gate: "comment header".to_string(),
+                    file: relative(solution, &path),
+                    line: finding.line,
+                    rule: finding.rule.to_string(),
+                    message: finding.message,
+                },
+            );
         }
     }
     result
+}
+
+pub(crate) fn comment_prose_with(
+    solution: &Solution,
+    discovered: &workspace::Discovery,
+    lint: &EffectiveLint<'_>,
+) -> GateResult {
+    comment_gate(
+        solution,
+        discovered,
+        lint,
+        "comment prose",
+        |measure, policy| {
+            super::comments::findings(measure, policy)
+                .into_iter()
+                .filter(|finding| !matches!(finding.rule, "jsdoc-prose" | "line-run" | "ratio"))
+                .collect()
+        },
+    )
+}
+
+fn comment_gate(
+    solution: &Solution,
+    discovered: &workspace::Discovery,
+    lint: &EffectiveLint<'_>,
+    gate: &str,
+    findings: impl Fn(
+        &super::comments::Measure,
+        &super::comments::CommentPolicy,
+    ) -> Vec<super::comments::CommentFinding>,
+) -> GateResult {
+    let mut result = GateResult::passed(gate, 0);
+    if !lint.gate_enabled(gate) {
+        return result;
+    }
+    for (path, source) in scripts(solution, &mut result) {
+        result.examined += 1;
+        let measure = super::comments::measure(&source.replace("\r\n", "\n"));
+        for finding in findings(&measure, lint.comment_policy()) {
+            lint_finding(
+                &mut result,
+                lint,
+                script_entity(solution, discovered, &path),
+                gate,
+                finding.rule,
+                Finding {
+                    gate: gate.to_string(),
+                    file: relative(solution, &path),
+                    line: finding.line,
+                    rule: finding.rule.to_string(),
+                    message: finding.message,
+                },
+            );
+        }
+    }
+    result
+}
+
+pub(crate) fn script_entity<'a>(
+    solution: &Solution,
+    discovered: &'a workspace::Discovery,
+    path: &Path,
+) -> Option<(&'a str, &'a str)> {
+    discovered.entities.iter().find_map(|entity| {
+        let services = workspace::services_dir(solution, entity);
+        path.strip_prefix(services).ok().and_then(|rest| {
+            (rest.file_name().is_some_and(|name| name == "script.js"))
+                .then_some((entity.info.collection.as_str(), entity.info.name.as_str()))
+        })
+    })
+}
+
+fn lint_finding(
+    result: &mut GateResult,
+    lint: &EffectiveLint<'_>,
+    entity: Option<(&str, &str)>,
+    gate: &str,
+    rule: &str,
+    finding: Finding,
+) {
+    let Some(rule) = super::rules::RULES
+        .iter()
+        .find(|known| known.gate == gate && known.rule == rule)
+    else {
+        result.findings.push(finding);
+        return;
+    };
+    let entity = entity.map(|(collection, name)| format!("{collection}/{name}"));
+    match lint.severity(
+        rule.id,
+        entity.as_deref(),
+        finding.file.rsplit('/').nth(1).unwrap_or(""),
+    ) {
+        Severity::Error => result.findings.push(finding),
+        Severity::Warn => result.warnings.push(finding),
+        Severity::Off => {}
+    }
 }
 
 /// Whether the entity files agree with themselves and with each other.
@@ -1432,7 +1768,7 @@ pub(crate) fn parse_finding(gate: &str, line: &str) -> Option<Finding> {
 }
 
 /// A path as the user would recognise it: relative to the solution when it is inside one.
-fn relative(solution: &Solution, path: &Path) -> String {
+pub(crate) fn relative(solution: &Solution, path: &Path) -> String {
     path.strip_prefix(&solution.root)
         .unwrap_or(path)
         .display()
@@ -1535,7 +1871,13 @@ mod tests {
         .unwrap();
         let report = run(&solution);
         let names: Vec<&str> = report.gates.iter().map(|gate| gate.name.as_str()).collect();
-        assert_eq!(names, BUILT_IN_GATES);
+        // The comment gates run only when [lint] enables them.
+        let default: Vec<&str> = BUILT_IN_GATES
+            .iter()
+            .copied()
+            .filter(|gate| !gate.starts_with("comment "))
+            .collect();
+        assert_eq!(names, default);
 
         let project: Vec<(String, String, String)> = report
             .gates
@@ -1649,6 +1991,441 @@ mod tests {
             formatting.findings
         );
         assert!(script_traps(&solution).blocks());
+    }
+
+    #[test]
+    fn no_lint_table_resolves_exactly_as_checks_v1() {
+        let (_dir, root, without) = live_solution();
+        std::fs::write(
+            root.join("twaco.toml"),
+            "[lint]
+extends = [\"checks-v1\"]
+
+[[project]]
+name = \"P\"
+",
+        )
+        .unwrap();
+        let with = Solution::load(&root.join("twaco.toml")).unwrap();
+        for rule in crate::core::rules::RULES {
+            assert_eq!(
+                without.effective_lint().severity(rule.id, None, ""),
+                with.effective_lint().severity(rule.id, None, ""),
+                "{}",
+                rule.id
+            );
+        }
+    }
+
+    #[test]
+    fn comment_gates_run_only_when_lint_enables_them() {
+        let (_dir, root, solution) = live_solution();
+        std::fs::write(
+            root.join("src/P.T/services/Bad/script.js"),
+            "// one
+// two
+// three
+// It was written by a script if needed.
+result = 1;",
+        )
+        .unwrap();
+        let names = |solution: &Solution| -> Vec<String> {
+            run(solution)
+                .gates
+                .into_iter()
+                .map(|gate| gate.name)
+                .collect()
+        };
+        assert!(!names(&solution)
+            .iter()
+            .any(|name| name.starts_with("comment")));
+
+        std::fs::write(
+            root.join("twaco.toml"),
+            "[lint]
+extends = [\"house-v1\"]
+
+[[project]]
+name = \"P\"
+",
+        )
+        .unwrap();
+        let house = Solution::load(&root.join("twaco.toml")).unwrap();
+        let report = run(&house);
+        let gate = |name: &str| report.gates.iter().find(|gate| gate.name == name).unwrap();
+        let budget = gate("comment budget");
+        assert_eq!(
+            budget
+                .findings
+                .iter()
+                .map(|f| f.rule.as_str())
+                .collect::<Vec<_>>(),
+            ["line-run"]
+        );
+        let prose = gate("comment prose");
+        assert!(prose.findings.is_empty(), "{:?}", prose.findings);
+        let mut warned: Vec<&str> = prose.warnings.iter().map(|f| f.rule.as_str()).collect();
+        warned.sort();
+        assert_eq!(warned, ["condition", "passive"]);
+        let order: Vec<String> = names(&house);
+        let at = |name: &str| order.iter().position(|gate| gate == name).unwrap();
+        assert!(
+            at("code order") < at("comment budget") && at("comment budget") < at("comment prose")
+        );
+
+        std::fs::write(
+            root.join("twaco.toml"),
+            "[lint]
+extends = [\"house-v1\"]
+[[lint.override]]
+entity = \"Things/P.T\"
+[lint.override.rules.\"comments.budget.line-run\"]
+severity = \"off\"
+
+[[project]]
+name = \"P\"
+",
+        )
+        .unwrap();
+        let exempt = Solution::load(&root.join("twaco.toml")).unwrap();
+        let report = run(&exempt);
+        let budget = report
+            .gates
+            .iter()
+            .find(|gate| gate.name == "comment budget")
+            .unwrap();
+        assert!(budget.findings.is_empty(), "{:?}", budget.findings);
+    }
+
+    #[test]
+    fn the_header_gate_holds_a_script_to_its_definition_under_house_v1() {
+        let (_dir, root, without) = live_solution();
+        let folder = root.join("src/P.T/services/Bad");
+        std::fs::write(
+            folder.join("definition.xml"),
+            "<ServiceDefinition name=\"Bad\"><ResultType baseType=\"NOTHING\" name=\"result\" ordinal=\"0\"></ResultType><ParameterDefinitions><FieldDefinition baseType=\"STRING\" name=\"who\" ordinal=\"1\"></FieldDefinition></ParameterDefinitions></ServiceDefinition>",
+        )
+        .unwrap();
+        std::fs::write(folder.join("script.js"), "result = who;").unwrap();
+        assert!(!run(&without)
+            .gates
+            .iter()
+            .any(|gate| gate.name == "comment header"));
+
+        std::fs::write(
+            root.join("twaco.toml"),
+            "[lint]
+extends = [\"house-v1\"]
+
+[[project]]
+name = \"P\"
+",
+        )
+        .unwrap();
+        let house = Solution::load(&root.join("twaco.toml")).unwrap();
+        let report = run(&house);
+        let names: Vec<&str> = report.gates.iter().map(|gate| gate.name.as_str()).collect();
+        let at = |name: &str| names.iter().position(|gate| *gate == name).unwrap();
+        assert!(at("comment prose") < at("comment header"), "{names:?}");
+        let header = &report.gates[at("comment header")];
+        assert_eq!(header.findings.len(), 1, "{:?}", header.findings);
+        assert!(header.findings[0].message.contains("fix-headers"));
+
+        std::fs::write(
+            folder.join("script.js"),
+            "/**
+ * @function Bad
+ * @param {string} who -
+ * @returns {void}
+ */
+result = who;",
+        )
+        .unwrap();
+        let report = run(&house);
+        let header = report
+            .gates
+            .iter()
+            .find(|gate| gate.name == "comment header")
+            .unwrap();
+        assert!(header.findings.is_empty(), "{:?}", header.findings);
+    }
+
+    #[test]
+    fn a_comment_budget_hook_loads_until_house_v1_runs_the_gate_itself() {
+        let (_dir, root, _) = live_solution();
+        let hook = "[[check]]
+name = \"comment budget\"
+command = [\"x\"]
+
+[[project]]
+name = \"P\"
+";
+        std::fs::write(root.join("twaco.toml"), hook).unwrap();
+        Solution::load(&root.join("twaco.toml")).unwrap();
+        std::fs::write(
+            root.join("twaco.toml"),
+            format!(
+                "[lint]
+extends = [\"checks-v1\"]
+
+{hook}"
+            ),
+        )
+        .unwrap();
+        Solution::load(&root.join("twaco.toml")).unwrap();
+        std::fs::write(
+            root.join("twaco.toml"),
+            format!(
+                "[lint]
+extends = [\"house-v1\"]
+
+{hook}"
+            ),
+        )
+        .unwrap();
+        let error = Solution::load(&root.join("twaco.toml"))
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("comment budget"), "{error}");
+    }
+
+    #[test]
+    fn a_lint_override_applies_only_to_the_entity_it_names() {
+        let (_dir, root, _) = live_solution();
+        let unparsed = |entity: &str, service: &str| {
+            std::fs::write(
+                root.join("twaco.toml"),
+                format!(
+                    "[lint]
+[[lint.override]]
+entity = \"{entity}\"
+service = \"{service}\"
+[lint.override.rules.\"format.will-not-parse\"]
+severity = \"off\"
+
+[[project]]
+name = \"P\"
+"
+                ),
+            )
+            .unwrap();
+            let solution = Solution::load(&root.join("twaco.toml")).unwrap();
+            run(&solution)
+                .gates
+                .into_iter()
+                .find(|gate| gate.name == "formatting")
+                .unwrap()
+                .findings
+                .len()
+        };
+        assert_eq!(unparsed("Things/P.*", "Bad"), 0);
+        assert_eq!(unparsed("Things/P.T", "B*"), 0);
+        assert_eq!(unparsed("Things/P.T", "Good"), 1, "another service");
+        assert_eq!(unparsed("Things/Other", "Bad"), 1, "another entity");
+        assert_eq!(
+            unparsed("ThingTemplates/P.T", "Bad"),
+            1,
+            "another collection"
+        );
+    }
+
+    #[test]
+    fn lint_warning_and_off_change_only_the_configured_rule() {
+        let (_dir, root, _) = live_solution();
+        std::fs::write(
+            root.join("twaco.toml"),
+            "[lint.rules.\"format.will-not-parse\"]\nseverity = \"warn\"\n\n[[project]]\nname = \"P\"\n",
+        )
+        .unwrap();
+        let warned = Solution::load(&root.join("twaco.toml")).unwrap();
+        let report = run(&warned);
+        let formatting = report
+            .gates
+            .iter()
+            .find(|gate| gate.name == "formatting")
+            .unwrap();
+        assert!(formatting.findings.is_empty());
+        assert_eq!(formatting.warnings.len(), 1);
+        assert!(!formatting.blocks());
+
+        std::fs::write(
+            root.join("twaco.toml"),
+            "[lint.rules.\"format.will-not-parse\"]\nseverity = \"off\"\n\n[[project]]\nname = \"P\"\n",
+        )
+        .unwrap();
+        let off = Solution::load(&root.join("twaco.toml")).unwrap();
+        let report = run(&off);
+        let formatting = report
+            .gates
+            .iter()
+            .find(|gate| gate.name == "formatting")
+            .unwrap();
+        assert!(formatting.findings.is_empty());
+        assert!(formatting.warnings.is_empty());
+    }
+
+    #[test]
+    fn script_lint_directives_suppress_raw_findings_before_severity() {
+        let (_dir, root, solution) = live_solution();
+        std::fs::write(
+            root.join("src/P.T/services/Bad/script.js"),
+            "// twaco-lint-disable-next-line traps.for-in: platform compatibility\nfor (var key in rows) { rows[i]; }\n",
+        )
+        .unwrap();
+        let traps = script_traps(&solution);
+        assert!(traps
+            .findings
+            .iter()
+            .all(|finding| finding.rule != "for-in"));
+        assert!(traps
+            .warnings
+            .iter()
+            .all(|finding| finding.rule != "for-in"));
+        assert_eq!(
+            traps
+                .findings
+                .iter()
+                .map(|finding| finding.rule.as_str())
+                .collect::<Vec<_>>(),
+            ["indexed-rows"]
+        );
+    }
+
+    #[test]
+    fn a_directive_finding_reads_in_line_order_with_the_rule_findings() {
+        let (_dir, root, solution) = live_solution();
+        std::fs::write(
+            root.join("src/P.T/services/Bad/script.js"),
+            "// twaco-lint-disable-next-line traps.nan-risk: nothing to hide\nresult = 1;\nfor (var key in map) {}\n",
+        )
+        .unwrap();
+        let traps = script_traps(&solution);
+        let lines: Vec<(usize, &str)> = traps
+            .findings
+            .iter()
+            .map(|finding| (finding.line, finding.rule.as_str()))
+            .collect();
+        assert_eq!(lines, [(1, "suppression"), (3, "for-in")]);
+    }
+
+    #[test]
+    fn a_script_without_directives_keeps_its_existing_traps() {
+        let (_dir, root, solution) = live_solution();
+        std::fs::write(
+            root.join("src/P.T/services/Bad/script.js"),
+            "for (var key in map) {}\n",
+        )
+        .unwrap();
+        assert_eq!(
+            script_traps(&solution)
+                .findings
+                .iter()
+                .map(|finding| finding.rule.as_str())
+                .collect::<Vec<_>>(),
+            ["for-in"]
+        );
+    }
+
+    #[test]
+    fn script_lint_directives_report_malformed_and_unused_by_their_owners() {
+        let (_dir, root, solution) = live_solution();
+        for source in [
+            "// twaco-lint-disable missing: reason\nresult = 1;\n",
+            "// twaco-lint-disable all: reason\nresult = 1;\n",
+            "// twaco-lint-disable format.unformatted: reason\nresult = 1;\n",
+            "// twaco-lint-disable traps.for-in\nresult = 1;\n",
+            "// twaco-lint-enable traps.for-in\nresult = 1;\n",
+            "// twaco-lint-unknown traps.for-in: reason\nresult = 1;\n",
+            "// twaco-lint-disable : reason\nresult = 1;\n",
+            "// twaco-lint-disable traps.suppression: reason\nresult = 1;\n",
+        ] {
+            std::fs::write(root.join("src/P.T/services/Bad/script.js"), source).unwrap();
+            let traps = script_traps(&solution);
+            assert_eq!(traps.findings.len(), 1, "{source}: {:?}", traps.findings);
+            assert_eq!(traps.findings[0].rule, "suppression", "{source}");
+            assert_eq!(traps.findings[0].line, 1, "{source}");
+        }
+
+        std::fs::write(
+            root.join("src/P.T/services/Bad/script.js"),
+            "// twaco-lint-disable-next-line traps.for-in: no longer needed\nresult = 1;\n",
+        )
+        .unwrap();
+        let traps = script_traps(&solution);
+        assert_eq!(traps.findings.len(), 1);
+        assert_eq!(traps.findings[0].rule, "suppression");
+
+        std::fs::write(
+            root.join("src/P.T/services/Bad/script.js"),
+            "// twaco-lint-disable order.main-code-below-a-helper: no longer needed\nfunction helper() {}\n// twaco-lint-enable order.main-code-below-a-helper\n",
+        )
+        .unwrap();
+        let order = code_order(&solution);
+        assert_eq!(order.findings.len(), 1, "{:?}", order.findings);
+        assert_eq!(order.findings[0].rule, "suppression");
+        assert_eq!(order.findings[0].line, 1);
+    }
+
+    #[test]
+    fn a_suppression_counts_when_its_rule_is_off_and_can_be_warned_itself() {
+        let (_dir, root, _) = live_solution();
+        std::fs::write(
+            root.join("twaco.toml"),
+            "[lint.rules.\"traps.for-in\"]\nseverity = \"off\"\n\n[[project]]\nname = \"P\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("src/P.T/services/Bad/script.js"),
+            "// twaco-lint-disable-next-line traps.for-in: platform compatibility\nfor (var key in map) {}\n",
+        )
+        .unwrap();
+        let configured = Solution::load(&root.join("twaco.toml")).unwrap();
+        let traps = script_traps(&configured);
+        assert!(traps.findings.is_empty(), "{:?}", traps.findings);
+        assert!(traps.warnings.is_empty(), "{:?}", traps.warnings);
+
+        std::fs::write(
+            root.join("twaco.toml"),
+            "[lint.rules.\"traps.suppression\"]\nseverity = \"warn\"\n\n[[project]]\nname = \"P\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("src/P.T/services/Bad/script.js"),
+            "// twaco-lint-disable unknown: reason\nresult = 1;\n",
+        )
+        .unwrap();
+        let configured = Solution::load(&root.join("twaco.toml")).unwrap();
+        let traps = script_traps(&configured);
+        assert!(traps.findings.is_empty());
+        assert_eq!(traps.warnings.len(), 1);
+        assert_eq!(traps.warnings[0].rule, "suppression");
+    }
+
+    #[test]
+    fn formatting_uses_the_configured_indent_width() {
+        let dir = tempfile::tempdir().unwrap();
+        let script = dir.path().join("src/P.T/services/Run/script.js");
+        std::fs::create_dir_all(script.parent().unwrap()).unwrap();
+        std::fs::write(&script, "if (true) {\n  result = 1;\n}").unwrap();
+        std::fs::write(
+            dir.path().join("twaco.toml"),
+            "[format.script]\nindent_width = 2\n\n[[project]]\nname = \"P\"\n",
+        )
+        .unwrap();
+        let configured = Solution::load(&dir.path().join("twaco.toml")).unwrap();
+        let matching = formatting(&configured);
+        assert!(matching.findings.is_empty());
+        assert!(matching.prose.is_empty());
+
+        std::fs::write(dir.path().join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
+        let default = Solution::load(&dir.path().join("twaco.toml")).unwrap();
+        let mismatched = formatting(&default);
+        assert!(mismatched.findings.iter().any(
+            |finding| finding.rule == "unformatted" && finding.file.ends_with("Run/script.js")
+        ));
+        assert!(mismatched.prose.iter().any(|message| message.contains(
+            "1 of 1 indented scripts use 2 spaces but [format.script] indent_width = 4"
+        )));
     }
 
     #[cfg(unix)]

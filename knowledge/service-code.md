@@ -54,6 +54,10 @@ comment block there. Wrap JSDoc prose and tag descriptions at 100 columns. A hel
 only when its types, side effects, failure mode, or fallback affect safe use; do not duplicate it
 in an explanatory comment immediately before the helper.
 
+With `[lint] extends = ["house-v1"]`, `twaco check` holds the header to its definition.xml and the
+comments to the house budget and prose rules; `twaco lint fix-headers --apply` repairs the header
+tags (order, missing or extra @param, @returns) without rewriting their text.
+
 Comments preserve reasons: a verified engine limitation, DataShape constraint, intentional
 fallback, or trade-off. Remove narration, decorative dividers, duplicate headers, and obvious
 AddRow type labels. A type comment can be worthwhile at a real coercion boundary, such as changing

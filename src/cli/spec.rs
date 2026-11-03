@@ -450,6 +450,29 @@ pub(crate) const USAGE: &[Usage] = &[
       --live                  also parse every script on the server (fails closed)"#,
     },
     Usage {
+        path: "lint",
+        group: 1,
+        text: r#"  lint [--entity <name>] [--service <name>] [--rule <id>]... [--json]
+                              report configurable script rules; advisory gates do not change severity
+      --entity <name>         Collection/Name glob
+      --service <name>        service folder glob
+      --rule <id>             rule id or group (format, traps, order, comments), repeatable
+      --explain <id>          explain a rule id or group
+      --print-config          show resolved severity and its origin
+      --json                  findings as JSON Lines; with --print-config, a JSON array"#,
+    },
+    Usage {
+        path: "lint fix-headers",
+        group: 1,
+        text: r#"  lint fix-headers [--entity <name>] [--service <name>] [--apply] [--json]
+                              bring each service's JSDoc header to its definition.xml: @function,
+                              @param in ordinal order, @returns; plans by default
+      --entity <name>         Collection/Name glob
+      --service <name>        service folder glob
+      --apply                 write the repaired scripts
+      --json                  print the plan or result as JSON"#,
+    },
+    Usage {
         path: "types",
         group: 1,
         text: r#"  types [--check [--json]|--platform] [--profile <name>]

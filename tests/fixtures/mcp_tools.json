@@ -460,6 +460,294 @@
     }
   },
   {
+    "name": "lint",
+    "description": "Run the configurable formatting, script-trap and code-order rules without changing the workspace. entity and service narrow reported scripts; rules accepts full ids or format, traps and order. explain gives rule summaries and resolved severity; print_config gives every rule's severity and origin. [gates].advisory does not apply to lint.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "entity": {
+          "description": "Collection/Name glob.",
+          "type": "string"
+        },
+        "service": {
+          "description": "Service folder glob.",
+          "type": "string"
+        },
+        "rules": {
+          "description": "Full rule ids or groups (format, traps, order, comments, comments.budget, comments.prose).",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "explain": {
+          "description": "Explain one rule id or group instead of running lint.",
+          "type": "string"
+        },
+        "print_config": {
+          "description": "Return the resolved severity and its source for every rule.",
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "summary"
+      ],
+      "properties": {
+        "summary": {
+          "type": "string"
+        },
+        "examined": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "errors": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "warnings": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "findings": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "object",
+            "properties": {
+              "gate": {
+                "type": "string"
+              },
+              "file": {
+                "type": "string"
+              },
+              "line": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "rule": {
+                "type": "string"
+              },
+              "severity": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "gate",
+              "file",
+              "line",
+              "rule",
+              "severity",
+              "message"
+            ]
+          }
+        },
+        "broken": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "explain": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "gate": {
+                "type": "string"
+              },
+              "summary": {
+                "type": "string"
+              },
+              "severity": {
+                "type": "string"
+              },
+              "origin": {
+                "type": "string"
+              },
+              "advisory": {
+                "description": "`[gates] advisory` names the rule's gate, so `check` reports it without failing.",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id",
+              "gate",
+              "summary",
+              "severity",
+              "origin",
+              "advisory"
+            ]
+          }
+        },
+        "config": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "object",
+            "properties": {
+              "rule": {
+                "type": "string"
+              },
+              "gate": {
+                "type": "string"
+              },
+              "severity": {
+                "type": "string"
+              },
+              "origin": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "rule",
+              "gate",
+              "severity",
+              "origin"
+            ]
+          }
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "lint_fix_headers",
+    "description": "Bring each service's leading JSDoc header to its definition.xml: one @function, one @param per input in ordinal order, and @returns naming the result DataShape. Existing tags keep their text and move whole; prose is never rewritten. Skips services whose comments.header.contract rule is off. dry_run defaults to true; false writes the scripts under the workspace lock.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "entity": {
+          "description": "Collection/Name glob.",
+          "type": "string"
+        },
+        "service": {
+          "description": "Service folder glob.",
+          "type": "string"
+        },
+        "dry_run": {
+          "description": "Plan only when true (the default); false writes the repaired scripts.",
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "openWorldHint": false,
+      "destructiveHint": true,
+      "idempotentHint": true
+    },
+    "outputSchema": {
+      "required": [
+        "summary",
+        "ok",
+        "dry_run",
+        "examined",
+        "changed",
+        "scripts",
+        "failed"
+      ],
+      "properties": {
+        "summary": {
+          "type": "string"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "examined": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "changed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "scripts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "file": {
+                "type": "string"
+              },
+              "changes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "not_fixable": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "file",
+              "changes",
+              "not_fixable"
+            ]
+          }
+        },
+        "failed": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
     "name": "status",
     "description": "Compare entities with the server and the recorded baseline: in-sync, local-changed, server-changed, both-changed, not-on-server, or no baseline yet. Lists every entity that needs attention.",
     "inputSchema": {

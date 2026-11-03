@@ -2361,7 +2361,8 @@ mod tests {
         let failing: Vec<_> = crate::core::check::run(&solution)
             .gates
             .into_iter()
-            .filter(|gate| !gate.ok() && gate.name != "project")
+            // Not `structure`: it runs only where an export XSD is installed, so it would judge by machine.
+            .filter(|gate| !gate.ok() && !matches!(gate.name.as_str(), "project" | "structure"))
             .collect();
         // This fixture intentionally has no service implementations, which only the project gate reports.
         assert!(failing.is_empty(), "{failing:?}");

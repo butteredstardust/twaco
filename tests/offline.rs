@@ -1981,3 +1981,122 @@ fn mashup_add_reports_an_extension_widget() {
         "{stdout}"
     );
 }
+
+#[test]
+fn lint_prints_json_lines_and_exits_one_only_on_an_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
+    let script = root.join("src/P.T/services/Run");
+    std::fs::create_dir_all(&script).unwrap();
+    std::fs::write(
+        script.join("script.js"),
+        "for (var k in m) {\n    use(k);\n}",
+    )
+    .unwrap();
+    let run = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_twaco"))
+            .args(args)
+            .current_dir(root)
+            .env_clear()
+            .output()
+            .unwrap()
+    };
+
+    let json = run(&["lint", "--json"]);
+    assert_eq!(json.status.code(), Some(1));
+    let lines: Vec<serde_json::Value> = String::from_utf8_lossy(&json.stdout)
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    let keys: Vec<&str> = lines[0]
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(keys.len(), 6, "{keys:?}");
+    for key in ["gate", "file", "line", "rule", "severity", "message"] {
+        assert!(keys.contains(&key), "{keys:?}");
+    }
+    assert_eq!(lines[0]["rule"], "traps.for-in");
+
+    let human = run(&["lint"]);
+    assert!(
+        String::from_utf8_lossy(&human.stdout).contains("1 error(s), 0 warning(s) in 1 script(s)")
+    );
+    assert_eq!(run(&["lint", "--rule", "order"]).status.code(), Some(0));
+    assert_eq!(
+        run(&["lint", "--rule", "traps.nope"]).status.code(),
+        Some(2)
+    );
+
+    std::fs::write(
+        root.join("twaco.toml"),
+        "[lint.rules.\"traps.for-in\"]\nseverity = \"warn\"\n\n[[project]]\nname = \"P\"\n",
+    )
+    .unwrap();
+    assert_eq!(
+        run(&["lint"]).status.code(),
+        Some(0),
+        "a warning does not fail"
+    );
+    let config = String::from_utf8_lossy(&run(&["lint", "--print-config"]).stdout).into_owned();
+    assert!(config.contains("traps.for-in"), "{config}");
+    assert!(config.contains("\"warn\"  # [lint.rules]"), "{config}");
+    let explained =
+        String::from_utf8_lossy(&run(&["lint", "--explain", "traps.for-in"]).stdout).into_owned();
+    assert!(
+        explained.contains("syntax error in the ThingWorx script engine"),
+        "{explained}"
+    );
+}
+
+#[test]
+fn lint_fix_headers_plans_with_exit_one_then_applies_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::fs::write(
+        root.join("twaco.toml"),
+        "[lint]
+extends = [\"house-v1\"]
+
+[[project]]
+name = \"P\"
+",
+    )
+    .unwrap();
+    let folder = root.join("src/P.T/services/Run");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(
+        folder.join("definition.xml"),
+        "<ServiceDefinition name=\"Run\"><ResultType baseType=\"NOTHING\" name=\"result\" ordinal=\"0\"></ResultType><ParameterDefinitions></ParameterDefinitions></ServiceDefinition>",
+    )
+    .unwrap();
+    std::fs::write(folder.join("script.js"), "result = 1;").unwrap();
+    let run = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_twaco"))
+            .args(args)
+            .current_dir(root)
+            .env_clear()
+            .output()
+            .unwrap()
+    };
+    let plan = run(&["lint", "fix-headers"]);
+    assert_eq!(plan.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&plan.stdout).contains("would fix"));
+    assert_eq!(
+        std::fs::read_to_string(folder.join("script.js")).unwrap(),
+        "result = 1;"
+    );
+    assert_eq!(
+        run(&["lint", "fix-headers", "--apply"]).status.code(),
+        Some(0)
+    );
+    assert_eq!(run(&["lint", "fix-headers"]).status.code(), Some(0));
+    assert_eq!(
+        run(&["lint", "--rule", "comments.header"]).status.code(),
+        Some(0)
+    );
+}

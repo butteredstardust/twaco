@@ -9,6 +9,7 @@
 //! brace depth, and a rule that reads like the code it is about is easier to trust than an AST
 //! walk nobody revisits.
 
+use super::order::continues_a_statement;
 use std::collections::{BTreeMap, BTreeSet};
 
 /// One trap, in one place.
@@ -49,17 +50,23 @@ fn is_comment(stripped: &str) -> bool {
 fn const_in_loop(lines: &[&str]) -> Vec<Trap> {
     let mut traps = Vec::new();
     let mut loop_indent: Option<usize> = None;
+    // A loop header a narrow line width wrapped is not its body: its `) {` sits at the loop's
+    // own indentation and would otherwise end the loop before the body starts.
+    let mut header_end = 0;
     for (index, line) in lines.iter().enumerate() {
         let stripped = line.trim();
-        if stripped.is_empty() || stripped.starts_with("//") {
+        if index < header_end || stripped.is_empty() || stripped.starts_with("//") {
             continue;
         }
         if loop_indent.is_some_and(|open| indent_of(line) <= open) {
             loop_indent = None;
         }
         if starts_loop(stripped) {
+            // Capped: an unbalanced `(` in a string runs the header to the end of the file.
+            header_end =
+                (index + condition(&lines[index..]).matches('\n').count() + 1).min(lines.len());
             // A one-line loop has no body to trip over.
-            loop_indent = if stripped.ends_with('}') {
+            loop_indent = if lines[header_end - 1].trim().ends_with('}') {
                 None
             } else {
                 Some(indent_of(line))
@@ -142,7 +149,8 @@ fn per_line_rules(lines: &[&str], whole: &str) -> Vec<Trap> {
         }
         let number = index + 1;
 
-        if is_for_in(stripped) {
+        let wrapped_for_in = || is_for_in(&unwrapped(&lines[index..]));
+        if is_for_in(stripped) || (starts_loop(stripped) && wrapped_for_in()) {
             traps.push(Trap {
                 line: number,
                 rule: "for-in",
@@ -164,7 +172,7 @@ fn per_line_rules(lines: &[&str], whole: &str) -> Vec<Trap> {
         }
         if stripped.starts_with("while")
             && stripped[5..].trim_start().starts_with('(')
-            && !stripped.contains("false")
+            && !condition(&lines[index..]).contains("false")
         {
             traps.push(Trap {
                 line: number,
@@ -181,7 +189,13 @@ fn per_line_rules(lines: &[&str], whole: &str) -> Vec<Trap> {
         if writes_rows {
             // Every one on the line: `a: Number(x + 1), b: Number(y)` has a real finding after
             // an expression that is not one.
-            for argument in numbers_into_rows(stripped) {
+            // `key: Number(` with its argument wrapped onto the lines below.
+            let property = if stripped.ends_with('(') {
+                unwrapped(&lines[index..])
+            } else {
+                stripped.to_string()
+            };
+            for argument in numbers_into_rows(&property) {
                 traps.push(Trap {
                     line: number,
                     rule: "nan-risk",
@@ -195,6 +209,44 @@ fn per_line_rules(lines: &[&str], whole: &str) -> Vec<Trap> {
         }
     }
     traps
+}
+
+/// A wrapped condition longer than this is not one the formatter wrote.
+const CONDITION_LINES: usize = 64;
+
+/// The parenthesised condition that opens the first line, whole even when a narrow
+/// `[format.script] line_width` has wrapped it over several lines.
+fn condition(lines: &[&str]) -> String {
+    let mut text = String::new();
+    let mut depth = 0usize;
+    // Bounded, so a script of unclosed `while (` lines is not read to its end once per line.
+    for line in lines.iter().take(CONDITION_LINES) {
+        for c in line.chars() {
+            text.push(c);
+            match c {
+                '(' => depth += 1,
+                ')' if depth == 1 => return text,
+                ')' => depth = depth.saturating_sub(1),
+                _ => {}
+            }
+        }
+        text.push('\n');
+    }
+    text
+}
+
+/// [`condition`] back on one line, as the default unlimited line width writes it. The formatter
+/// breaks at a space, inside brackets, or before a `.` member access.
+fn unwrapped(lines: &[&str]) -> String {
+    let mut out = String::new();
+    for part in condition(lines).lines().map(str::trim) {
+        let joins_tight = out.ends_with(['(', '[', '.']) || part.starts_with(['.', ')', ']', ',']);
+        if !out.is_empty() && !joins_tight {
+            out.push(' ');
+        }
+        out.push_str(part);
+    }
+    out
 }
 
 /// A top-level statement that reads a name only a later statement fills in.
@@ -302,7 +354,7 @@ fn top_level_statements(lines: &[&str]) -> Vec<(usize, Vec<String>)> {
         if stripped.is_empty() {
             continue;
         }
-        if indent_of(line) == 0 && !is_comment(stripped) {
+        if !continues_a_statement(line) && !is_comment(stripped) {
             groups.push((index + 1, vec![line.to_string()]));
         } else if let Some(last) = groups.last_mut() {
             last.1.push(line.to_string());
@@ -317,8 +369,14 @@ fn helper_readers(lines: &[&str]) -> BTreeMap<String, BTreeSet<String>> {
     let mut current: Option<String> = None;
     let mut shadowed: BTreeSet<String> = BTreeSet::new();
 
-    for line in lines {
-        if let Some((name, parameters)) = top_function(line) {
+    for (index, line) in lines.iter().enumerate() {
+        // The whole parameter list, which a narrow line width may have wrapped.
+        let header = if line.starts_with("function ") {
+            unwrapped(&lines[index..])
+        } else {
+            line.to_string()
+        };
+        if let Some((name, parameters)) = top_function(&header) {
             current = Some(name.clone());
             shadowed = parameters;
             readers.entry(name).or_default();
@@ -328,7 +386,7 @@ fn helper_readers(lines: &[&str]) -> BTreeMap<String, BTreeSet<String>> {
             continue;
         };
         let stripped = line.trim();
-        if indent_of(line) == 0
+        if !continues_a_statement(line)
             && !stripped.is_empty()
             && !stripped.starts_with('}')
             && !is_comment(stripped)
@@ -726,6 +784,18 @@ mod tests {
             vec!["unbounded-loop"]
         );
         assert!(rules("while (false) {\n    never();\n}\n").is_empty());
+        // Unclosed conditions on every line: each is read a bounded way, not to the end.
+        let unclosed = "while (\n".repeat(20_000);
+        assert_eq!(rules(&unclosed).len(), 20_000);
+        // A `(` in a string never balances; the rules still finish.
+        assert!(rules("for (const c of \"a(b\") {\n    use(c);\n}").is_empty());
+        // The same loop as a narrow line width wraps it.
+        assert!(rules("while (\n    more()\n    && false\n) {\n    never();\n}\n").is_empty());
+        assert_eq!(
+            rules("while (\n    more()\n) {\n    step();\n}\n// false\n"),
+            vec!["unbounded-loop"],
+            "the condition ends at its closing parenthesis"
+        );
     }
 
     #[test]
@@ -873,5 +943,82 @@ mod tests {
         let traps = lint("for (var i = 0; i < 3; i++) {\n    const x = i;\n}\n");
         assert_eq!(traps[0].line, 2);
         assert_eq!(traps[0].source, "const x = i;");
+    }
+
+    #[test]
+    fn every_configurable_style_finds_the_same_traps() {
+        // The rules read lines, and `[format.script]` decides where lines break. Each sample is
+        // long enough that a 40-column width wraps it.
+        let samples = [
+            (
+                "for (let index = 0; index < someVeryLongCollectionName.length; index++) {\n    const someVeryLongConstantName = someVeryLongCollectionName[0] * otherFactor;\n}",
+                vec!["const-in-loop"],
+            ),
+            (
+                "for (let index = 0; index < someVeryLongCollectionName.length; index++) {\n    someVeryLongCollectionName.forEach((entry) => {\n        const fine = entry;\n    });\n}",
+                vec![],
+            ),
+            (
+                "function someVeryLongHelperName() {\n    if (someVeryLongConditionName && anotherLongCondition) {\n        const repeated = 1;\n    }\n    if (someOtherVeryLongConditionName) {\n        const repeated = 2;\n    }\n}",
+                vec!["const-redeclared"],
+            ),
+            (
+                "for (const someVeryLongKeyName in someVeryLongMapName) {\n    useTheKey(someVeryLongKeyName, someVeryLongMapName);\n}",
+                vec!["for-in"],
+            ),
+            (
+                "var someVeryLongRowName = someVeryLongResultName.rows[index].someVeryLongFieldName;",
+                vec!["indexed-rows"],
+            ),
+            (
+                "while (someVeryLongConditionName() && anotherVeryLongConditionName()) {\n    step();\n}",
+                vec!["unbounded-loop"],
+            ),
+            (
+                "while (someVeryLongConditionName() && anotherVeryLongConditionName === false) {\n    step();\n}",
+                vec![],
+            ),
+            (
+                "out.AddRow({
+    someVeryLongColumnName: Number(someVeryLongRowName.someVeryLongValueName)
+});",
+                vec!["nan-risk"],
+            ),
+            (
+                "let action;\nconst someVeryLongIndexName = requiredIndex(action, \"someVeryLongSourceName\");\naction = JSON.parse(someVeryLongInputName);",
+                vec!["read-before-assign"],
+            ),
+            (
+                "let action;
+const someVeryLongIndexName = someVeryLongHelperName(firstArgument, secondArgument);
+action = JSON.parse(someVeryLongInputName);
+function someVeryLongHelperName(someVeryLongParameter, anotherVeryLongParameter) {
+    return action.someVeryLongPropertyName;
+}",
+                vec!["read-before-assign"],
+            ),
+        ];
+        let styles = [(4, 100_000), (4, 40), (2, 100_000), (2, 40)].map(|(indent, width)| {
+            crate::core::fmt::Style::from(&crate::core::config::ScriptFormat {
+                indent_width: indent,
+                line_width: width,
+                quote_style: crate::core::config::QuoteStyle::Double,
+            })
+        });
+        for (sample, expected) in samples {
+            let found: Vec<Vec<&str>> = styles
+                .iter()
+                .map(|style| {
+                    let text = crate::core::fmt::format(sample, style)
+                        .unwrap()
+                        .unwrap_or_else(|| sample.to_string());
+                    rules(&text)
+                })
+                .collect();
+            assert!(
+                found.iter().all(|rules| *rules == expected),
+                "{sample}\n{found:?}"
+            );
+        }
     }
 }

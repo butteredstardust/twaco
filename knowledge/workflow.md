@@ -13,6 +13,8 @@ define, or one `[call] read_only` in twaco.toml lists) and plans any other.
 - `twaco projects`: the solution's projects and their deploy order.
 - `twaco doctor`: what resolved, whether the server answers, what is missing.
 - `twaco check`: every offline gate, one exit code. Run it before and after a change.
+- `twaco lint`: the script rules alone, each finding with its rule id and severity;
+  `--explain <rule>` says why a rule exists, `--print-config` where its severity comes from.
 - `twaco entity status --all`: which entities differ between the repository and the server.
 - `twaco catalog`: every service, where it lives, its signature and what it is for.
   `twaco catalog <Entity>.<Service> --body` (or a service name only one entity declares) gives

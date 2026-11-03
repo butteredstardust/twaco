@@ -1,7 +1,7 @@
 == twaco
 usage: twaco <command>
 settings: version disable-help-subcommand subcommand-required arg-required-else-help
-subcommands: access adopt agent appkey block bundle call catalog check completions config-table contract copy datatable db deploy docs doctor entity export ext extract fmt guide handoff help impact import init javadoc localization logs mashup mcp mcp-namespace media menu model move network new package permissions projects rename repo reproject requirements retemplate scheduler search settings state style sync test thing timer trace types unused update users widgets
+subcommands: access adopt agent appkey block bundle call catalog check completions config-table contract copy datatable db deploy docs doctor entity export ext extract fmt guide handoff help impact import init javadoc lint localization logs mashup mcp mcp-namespace media menu model move network new package permissions projects rename repo reproject requirements retemplate scheduler search settings state style sync test thing timer trace types unused update users widgets
 arg --help
     action: Help
     value_name: -
@@ -64,6 +64,21 @@ help:
 |   fmt [--check]               format service scripts
 |   check [--detail]            every gate, one exit code
 |       --live                  also parse every script on the server (fails closed)
+|   lint [--entity <name>] [--service <name>] [--rule <id>]... [--json]
+|                               report configurable script rules; advisory gates do not change severity
+|       --entity <name>         Collection/Name glob
+|       --service <name>        service folder glob
+|       --rule <id>             rule id or group (format, traps, order, comments), repeatable
+|       --explain <id>          explain a rule id or group
+|       --print-config          show resolved severity and its origin
+|       --json                  findings as JSON Lines; with --print-config, a JSON array
+|   lint fix-headers [--entity <name>] [--service <name>] [--apply] [--json]
+|                               bring each service's JSDoc header to its definition.xml: @function,
+|                               @param in ordinal order, @returns; plans by default
+|       --entity <name>         Collection/Name glob
+|       --service <name>        service folder glob
+|       --apply                 write the repaired scripts
+|       --json                  print the plan or result as JSON
 |   types [--check [--json]|--platform] [--profile <name>]
 |                               generate declarations; --check runs TypeScript once; --platform caches
 |                               the server's templates, shapes, resources and extension widgets
@@ -6124,6 +6139,223 @@ help:
 |       --profile <name>        SDK from this profile when --sdk and TWACO_SDK are unset; --refresh is ignored for an SDK
 | 
 |   --profile <name>            the server profile (default: default)
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
+== twaco lint
+usage: twaco lint [--entity <name>] [--service <name>] [--rule <id>]... [--json]
+settings: disable-version-flag disable-help-subcommand
+subcommands: fix-headers
+arg --entity
+    action: Append
+    value_name: name
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: accepted
+    given bare: InvalidValue
+arg --explain
+    action: Set
+    value_name: id
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+arg --json
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --print-config
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --rule
+    action: Append
+    value_name: id
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: accepted
+    given bare: InvalidValue
+arg --service
+    action: Set
+    value_name: name
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+help:
+|   lint [--entity <name>] [--service <name>] [--rule <id>]... [--json]
+|                               report configurable script rules; advisory gates do not change severity
+|       --entity <name>         Collection/Name glob
+|       --service <name>        service folder glob
+|       --rule <id>             rule id or group (format, traps, order, comments), repeatable
+|       --explain <id>          explain a rule id or group
+|       --print-config          show resolved severity and its origin
+|       --json                  findings as JSON Lines; with --print-config, a JSON array
+| 
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
+== twaco lint fix-headers
+usage: twaco lint fix-headers [--entity <name>] [--service <name>] [--apply] [--json]
+settings: disable-version-flag disable-help-subcommand
+subcommands: 
+arg --apply
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --entity
+    action: Append
+    value_name: name
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: accepted
+    given bare: InvalidValue
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+arg --json
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --service
+    action: Set
+    value_name: name
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+help:
+|   lint fix-headers [--entity <name>] [--service <name>] [--apply] [--json]
+|                               bring each service's JSDoc header to its definition.xml: @function,
+|                               @param in ordinal order, @returns; plans by default
+|       --entity <name>         Collection/Name glob
+|       --service <name>        service folder glob
+|       --apply                 write the repaired scripts
+|       --json                  print the plan or result as JSON
+| 
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
 

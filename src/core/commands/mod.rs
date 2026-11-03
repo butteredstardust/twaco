@@ -20,6 +20,7 @@ pub mod fmt;
 pub mod handoff;
 pub mod imports;
 pub mod init_server;
+pub mod lint_fix;
 pub mod localization;
 pub mod logs;
 pub mod mashup;

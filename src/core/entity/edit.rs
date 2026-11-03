@@ -9,6 +9,7 @@
 
 use crate::core::catalog;
 use crate::core::codes::{Coded, ErrorCode};
+use crate::core::config::Severity;
 use crate::core::config::Solution;
 use crate::core::entity;
 use crate::core::entity::key::EntityKey;
@@ -1824,19 +1825,37 @@ impl Edit2<'_> {
         let model = Model::build(self.solution, self.found)?;
         refuse_clash(&model, doc, std::slice::from_ref(&service.name))?;
         let definition = ServiceDefinition::from_request(service, self.found, &mut plan.warnings)?;
+        let definition_xml = definition.xml()?;
         // Formatted as `twaco fmt` would, so the formatting gate passes straight away; code that
         // does not parse is kept as given for the gates to report.
-        let code =
-            match crate::core::fmt::format(&service.code, &crate::core::fmt::Style::default()) {
-                Ok(Some(formatted)) => formatted,
-                Ok(None) | Err(_) => service.code.clone(),
-            };
+        let style = crate::core::fmt::Style::from(&self.solution.format.script);
+        let mut code = match crate::core::fmt::format(&service.code, &style) {
+            Ok(Some(formatted)) => formatted,
+            Ok(None) | Err(_) => service.code.clone(),
+        };
+        let entity = format!("{}/{}", doc.file.info.collection, doc.file.info.name);
+        if self.solution.effective_lint().severity(
+            "comments.header.contract",
+            Some(&entity),
+            &service.name,
+        ) != Severity::Off
+        {
+            if let Some(header_definition) = crate::core::header::definition(&definition_xml) {
+                let header = crate::core::header::generate(
+                    &service.name,
+                    &header_definition,
+                    self.solution.effective_lint().header_policy(),
+                    "\n",
+                );
+                code = format!("{header}{code}");
+            }
+        }
         let mut sidecars = service_sidecars(doc)?;
         sidecars.insert(
             service.name.clone(),
             ServiceSidecar {
                 name: service.name.clone(),
-                definition: definition.xml()?,
+                definition: definition_xml.clone(),
                 script: code.clone(),
             },
         );
@@ -1877,7 +1896,7 @@ impl Edit2<'_> {
             created_sidecar(
                 folder.join("definition.xml"),
                 doc.label(),
-                definition.xml()?.into_bytes(),
+                definition_xml.into_bytes(),
             ),
             created_sidecar(folder.join("script.js"), doc.label(), code.into_bytes()),
         ]);

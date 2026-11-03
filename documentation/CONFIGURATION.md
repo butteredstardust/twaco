@@ -110,6 +110,23 @@ ui_collections = ["Mashups", "StyleThemes", "MediaEntities"]  # what a designer 
 [format]
 indent_cdata_payload = false  # true keeps scripts indented to their <code> element
 
+[format.script]
+indent_width = 4              # 2 to 8
+line_width = 100000           # 40 to 100000
+quote_style = "double"        # "double" or "single"
+
+[lint]
+extends = ["house-v1"]        # checks-v1, traps-only-v1, or house-v1; later presets win
+
+[lint.rules."traps.unbounded-loop"]
+severity = "warn"             # "error", "warn", or "off"
+
+[[lint.override]]
+entity = "Things/Acme.Legacy.*"
+service = "Import*"           # optional; otherwise every service
+[lint.override.rules."order.main-code-below-a-helper"]
+severity = "off"
+
 [gates]
 live = false                  # true: every `check` also has the server parse every script
 advisory = []                 # built-in gates that report without failing, e.g. ["code order"]
@@ -345,6 +362,136 @@ proposes whichever the repository already uses, so adopting twaco never relayout
 repository on its own. `twaco sync --all --relayout` moves a repository to the configured
 layout once.
 
+`[format.script]` controls the formatter for every service script. `indent_width` is an integer
+from 2 through 8 (default `4`), and `line_width` is an integer from 40 through 100000 (default
+`100000`). `quote_style` is `"double"` by default or `"single"`; `"single"` asks dprint to
+prefer single quotes while still avoiding escapes when the other quote is cleaner.
+
+`init` proposes `indent_width` and `quote_style` from the scripts it finds. `doctor` and the
+formatting gate say when the configured setting differs from most scripts, before a format run
+silently rewrites them.
+
+Trailing commas stay disabled because Rhino rejects them in a call. Semicolons and braces stay
+fixed so script traps and code order read a stable layout. Scripts still have no final newline so
+`fmt` remains a fixed point of extraction.
+
+Changing one of these values makes the next `twaco fmt` rewrite every script it affects. Because
+whitespace inside a script is part of its content, every reformatted service then differs from the
+server until it is deployed.
+
+### `[lint]`
+
+`[lint]` configures the formatting, script-trap, code-order and comment rules individually.
+Without the table, twaco uses `checks-v1`: every formatting, script-trap and code-order rule, as
+the gates have always run, and no comment rule. `house-v1`, which `twaco init` writes, adds the
+comment header, budget and prose rules below. `traps-only-v1` enables only script traps.
+`extends` is optional and defaults to `checks-v1`; when present it cannot be empty, and applies
+presets in order so later presets win.
+
+Each rule has severity `"error"`, `"warn"`, or `"off"`. `error` is a finding, `warn` is reported
+but does not block, and `off` omits it. Rules may be changed in `[lint.rules]`, then in matching
+`[[lint.override]]` entries in file order. An override requires an `entity` glob over
+`Collection/Name`; `service` is optional and globs the service name. They use the same glob dialect
+as the other selectors: `*` stays within one path component and `**` crosses components. Rule
+options belong only in `[lint.rules]`; an override may set only severity. `*_extend` appends
+case-insensitively deduplicated phrases or sets, while `*_replace` replaces the built-in list;
+the two forms cannot be used together.
+
+#### Suppressing one finding
+
+Use `// twaco-lint-disable-next-line traps.for-in: verified legacy behaviour` to suppress named
+rules on the next non-blank, non-`//` line, or `// twaco-lint-disable traps.for-in: verified legacy
+behaviour` through `// twaco-lint-enable traps.for-in`. Disable directives need a non-blank reason,
+and `format.*` and `comments.*` rules cannot be suppressed inline; use `[lint.rules]` or
+`[[lint.override]]` instead. Comment rules are a house comment style: reword the comment when one
+reports.
+A malformed directive, or one that suppresses nothing, is itself reported.
+
+| Rule | Gate |
+| --- | --- |
+| `format.unformatted` | formatting |
+| `format.will-not-parse` | formatting |
+| `traps.const-in-loop` | script traps |
+| `traps.const-redeclared` | script traps |
+| `traps.for-in` | script traps |
+| `traps.indexed-rows` | script traps |
+| `traps.nan-risk` | script traps |
+| `traps.read-before-assign` | script traps |
+| `traps.unbounded-loop` | script traps |
+| `traps.suppression` | script traps |
+| `order.main-code-below-a-helper` | code order |
+| `order.declaration-between-helpers` | code order |
+| `order.suppression` | code order |
+| `comments.budget.jsdoc-prose` | comment budget |
+| `comments.budget.line-run` | comment budget |
+| `comments.budget.ratio` | comment budget |
+| `comments.header.contract` | comment header |
+| `comments.header.first-statement` | comment header |
+| `comments.header.wrap` | comment header |
+| `comments.prose.em-dash` | comment prose |
+| `comments.prose.history` | comment prose |
+| `comments.prose.length` | comment prose |
+| `comments.prose.bundled` | comment prose |
+| `comments.prose.hedge` | comment prose |
+| `comments.prose.condition` | comment prose |
+| `comments.prose.passive` | comment prose |
+| `comments.prose.nouns` | comment prose |
+| `comments.prose.synonym` | comment prose |
+
+In `house-v1`, the three header rules, every comment budget rule and `em-dash`, `history`,
+`length`, `bundled`, and `hedge` are errors; `condition`, `passive`, `nouns`, and `synonym` are
+warnings.
+
+#### Service headers
+
+A service script starts with a JSDoc header that its `definition.xml` holds it to: one
+`@function` naming the service, one `@param` per input in `ordinal` order (the XML lists inputs
+alphabetically, so the order is the attribute's), and one `@returns`, which names the full
+DataShape when the result has one. The first statement follows the header directly.
+
+When the contract rule is on, `entity edit ... service add` writes the header for a new service from
+its definition: the description as prose, then `@function`, `@param {type} name - description` lines
+and `@returns`. `twaco lint fix-headers` plans the same repair for existing scripts and `--apply`
+writes it under the workspace lock. It sets `@function` to the service's name and otherwise moves
+each existing tag whole, with its text as written, generates only what is missing, removes a
+`@param` that names no input and a second `@returns`, and never rewrites prose; a comment above the
+first statement or a line too long is reported for a person to fix. Services whose contract rule
+is off are left alone.
+Run `twaco sync` afterwards to write the scripts into the entity XML.
+
+| Rule option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `comments.budget.jsdoc-prose.max_lines` | integer ≥ 0 | `2` | Header prose lines allowed before tags. |
+| `comments.budget.line-run.max_lines` | integer ≥ 1 | `2` | `//` lines allowed in one run; a blank line does not end a run, code does. |
+| `comments.budget.ratio.max_ratio` | float 0–1 | `0.40` | Largest comment share. |
+| `comments.budget.ratio.min_code_lines` | integer ≥ 0 | `15` | Code lines needed before judging the ratio. |
+| `comments.prose.length.instruction_max_words` | integer ≥ 1 | `20` | Word cap for imperative sentences. |
+| `comments.prose.length.description_max_words` | integer ≥ 1 | `25` | Word cap for other sentences. |
+| `comments.prose.length.imperatives_extend` / `_replace` | string array | built-in list | Add or replace imperative words. |
+| `comments.prose.history.phrases_extend` / `_replace` | string array | built-in list | Add or replace history phrases. |
+| `comments.prose.hedge.phrases_extend` / `_replace` | string array | built-in list | Add or replace hedge phrases. |
+| `comments.prose.synonym.sets_extend` / `_replace` | string-array array | built-in sets | Add or replace equivalent-word sets. |
+| `comments.prose.nouns.max_run` | integer ≥ 1 | `3` | Nouns allowed before the next one reports. |
+| `comments.header.contract.require_result_shape` | boolean | `true` | `@returns` names the result DataShape when there is one. |
+| `comments.header.wrap.max_columns` | integer ≥ 40 | `100` | Longest header line; generated headers wrap at it. |
+
+```toml
+[lint.rules."comments.prose.length"]
+description_max_words = 30
+imperatives_extend = ["deploy"]
+
+[lint.rules."comments.prose.hedge"]
+phrases_replace = ["basically", "simply"]
+```
+
+`[gates].advisory` still makes its whole gate report-only, whatever the rule severities say.
+Run `twaco lint --print-config` to see each rule's resolved severity and where it came from.
+With a `[lint]` table, a `[[check]]` hook cannot use the name of a lint gate that the table
+enables (`formatting`, `script traps`, `code order`, `comment budget` or `comment prose`); rename
+or remove that hook, since twaco then runs that gate itself. Without one, every hook name that
+loaded before still loads. The comment gates appear in `check` only when `[lint]` enables one of
+their rules.
+
 ### `[gates]`
 
 `live = true` makes every `twaco check` also send every script to the server's parser, as
@@ -360,7 +507,8 @@ it does not copy it into the repository.
 `advisory` names built-in gates whose findings are reported (as `warn`) without failing
 `check` or blocking `deploy`: `line endings`, `sidecars`, `formatting`, `script traps`,
 `code order`, `project`, `project dependencies`, `mashup bindings`, `mashup content`, `contained mashups`, `localization tokens`,
-`result shapes`, `networks`, `requirements`, `ai references`, `structure`. The live parse is not among them: `deploy` always has the server
+`result shapes`, `networks`, `requirements`, `ai references`, `structure`, and the comment gates
+`comment budget`, `comment prose` and `comment header` when `[lint]` enables them. The live parse is not among them: `deploy` always has the server
 parse every script, and stops on a script it refuses. It is for a solution adopting twaco over code written
 before those gates existed; take a gate off the list once its findings are fixed. A gate that
 cannot run still fails, and a name that is not a gate is refused.

@@ -300,6 +300,35 @@ Both commands work through MCP as `requirements_init` (dry run by default) and `
 with `gate = false` reports its findings without failing the run. `--detail` lists every finding;
 without it, each gate gives a summary.
 
+### Focused script lint
+
+`twaco lint` runs the formatting, script-trap, code-order and enabled comment rules, reporting each
+finding at the configured rule severity. Narrow it with `--entity <Collection/Name-glob>` or
+`--service <glob>`, select a rule or a group (`format`, `traps`, `order`, `comments`) with `--rule`,
+and use `--explain` to read the reason for a rule. `--print-config` shows every resolved severity
+and where it came from. `--json` writes JSON Lines findings only, so it is suitable as a `[[check]]`
+command. Unlike `check`, `[gates].advisory` does not apply: lint reports the configured rule
+severity directly. With `house-v1`, comment budget and prose checks use the configured house style;
+select all prose rules with `--rule comments.prose`, and tune their thresholds and word lists in
+`[lint.rules]`. The comment-header rules also hold the leading JSDoc to `definition.xml`; `twaco
+lint fix-headers` shows contract repairs, and `twaco lint fix-headers --apply` writes them to
+sidecar `script.js` files, correcting `@function`, moving each existing tag whole and generating
+only what is missing (see [Configuration](CONFIGURATION.md#service-headers)). `twaco sync` then
+writes them into the XML.
+
+#### Adopting house-v1 in an existing solution
+
+A solution without `[lint]` keeps today's gates (`checks-v1`). To take up the full house style:
+
+1. Add `[lint] extends = ["house-v1"]` to `twaco.toml`. If a `[[check]]` hook is named
+   `comment budget`, `comment prose` or `comment header`, remove it first: twaco now runs that
+   gate itself, and refuses a hook with its name.
+2. `twaco lint --rule comments` lists what the comment rules find, by rule.
+3. `twaco lint fix-headers` shows the header repairs; `--apply` writes them, then `twaco sync`.
+4. Fix the rest by hand, or keep a legacy entity out of a rule with `[[lint.override]]`, and set
+   a rule you do not want to `warn` or `off` in `[lint.rules]`.
+5. Every script the repair or a reworded comment changes differs from the server until deployed.
+
 | Gate | Fails when |
 | --- | --- |
 | line endings | a file mixes CRLF and LF, which is a tool's half-rewrite. Files the solution's own `.gitignore` files match are skipped (patterns only: a tracked file that matches one is skipped too), and so is anything a `.ignore` file lists, for tracked files kept verbatim such as raw exports. Ignore files above the solution and global excludes do not count |

@@ -342,7 +342,7 @@ fn print_gate_line(gate: &twaco::core::check::GateResult, width: usize) {
             gate.name,
             width = width
         ),
-        None if gate.findings.is_empty() => println!(
+        None if gate.findings.is_empty() && gate.warnings.is_empty() => println!(
             "  {} {:<width$} {} examined",
             style::ok(&format!("{:<7}", "ok")),
             gate.name,
@@ -351,7 +351,15 @@ fn print_gate_line(gate: &twaco::core::check::GateResult, width: usize) {
         ),
         // A check that reports without blocking says so, rather than reading as a failure
         // someone has to chase.
-        None => {
+        None if gate.findings.is_empty() => println!(
+            "  {} {:<width$} {} warning(s) in {} examined",
+            style::warn(&format!("{:<7}", "warn")),
+            gate.name,
+            gate.warnings.len(),
+            gate.examined,
+            width = width
+        ),
+        None if gate.warnings.is_empty() => {
             let (word, paint): (_, fn(&str) -> String) = if gate.gates_the_run {
                 ("FAIL", style::fail)
             } else {
@@ -362,6 +370,22 @@ fn print_gate_line(gate: &twaco::core::check::GateResult, width: usize) {
                 paint(&format!("{word:<7}")),
                 gate.name,
                 gate.findings.len(),
+                gate.examined,
+                width = width
+            );
+        }
+        None => {
+            let (word, paint): (_, fn(&str) -> String) = if gate.gates_the_run {
+                ("FAIL", style::fail)
+            } else {
+                ("warn", style::warn)
+            };
+            println!(
+                "  {} {:<width$} {} finding(s), {} warning(s) in {} examined",
+                paint(&format!("{word:<7}")),
+                gate.name,
+                gate.findings.len(),
+                gate.warnings.len(),
                 gate.examined,
                 width = width
             );
@@ -422,6 +446,9 @@ pub(crate) fn check(solution: &Solution, args: &Check) -> u8 {
             }
             for finding in &gate.findings {
                 println!("    {finding}");
+            }
+            for warning in &gate.warnings {
+                println!("    warning: {warning}");
             }
         }
     }
@@ -509,6 +536,9 @@ fn print_check_report(report: &twaco::core::check::CheckReport, detail: bool) {
             }
             for finding in &gate.findings {
                 println!("    {finding}");
+            }
+            for warning in &gate.warnings {
+                println!("    warning: {warning}");
             }
         }
     }
