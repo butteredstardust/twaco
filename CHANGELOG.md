@@ -20,6 +20,8 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Changed
 
+- A solution whose projects depend on each other in a cycle loads: reading, checking and editing
+  work, and only what needs a deploy order (deploy, bundle) refuses it.
 - `mashup bind` binds a scalar service result (`data:<Entity>.<Service>.result`), a STRING into
   an entity-name property such as THINGNAME or MASHUPNAME, and one number type into another, as
   Composer does.
