@@ -124,7 +124,7 @@ pub(super) fn bind_in(
     }
     let from_base = base(&from);
     let to_base = base(&to);
-    if from_base != to_base && to_base != "STRING" {
+    if !compatible(from_base, to_base) {
         return Err(AuthoringError::Refused(format!(
             "{} is {} but {} is {}",
             from_raw, from_base, to_raw, to_base
@@ -225,6 +225,18 @@ pub(super) fn bind_in(
         warnings,
         refreshed,
     })
+}
+
+/// Whether ThingWorx carries a `from` value into a `to` property: the same type, anything into
+/// a STRING, a string into an entity name (a THINGNAME, MASHUPNAME, ... is a string), and one
+/// number type into another.
+fn compatible(from: &str, to: &str) -> bool {
+    let name = |base: &str| base.ends_with("NAME");
+    let number = |base: &str| matches!(base, "NUMBER" | "INTEGER" | "LONG");
+    from == to
+        || to == "STRING"
+        || (name(to) && (from == "STRING" || name(from)))
+        || (number(from) && number(to))
 }
 
 /// Bind the one dynamic source entity slot.  It is deliberately not a normal service parameter:

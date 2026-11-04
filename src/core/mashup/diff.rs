@@ -134,9 +134,10 @@ impl crate::core::codes::Coded for DiffError {
 // Composer allocator/display metadata and properties that have no effect in a responsive child.
 // Composer editor state: the version that last saved the widget, the designer's lock and label,
 // the icon its palette shows, which container it last split, its migration flag, and the base
-// type it copies from a picker's bound display field.
+// type it copies from a picker's bound display field, and the alignment it remembers.
 const IGNORED_PROPERTIES: &[&str] = &[
     "UpdatedAfterRefactor",
+    "prev-align",
     "DisplayFieldBaseType",
     "Id",
     "id_index",
@@ -538,6 +539,24 @@ fn strip_identity(value: &mut Value) {
         {
             if let Some(item) = item.as_object_mut() {
                 item.remove("Id");
+                // Composer spellings of one binding: an empty member written or left out, a
+                // SourceName repeating SourceId, and `property` or `Property`.
+                item.retain(|key, value| value != "" && key != "SourceName");
+                for map in item
+                    .get_mut("PropertyMaps")
+                    .and_then(Value::as_array_mut)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_object_mut)
+                {
+                    for kind in ["SourcePropertyType", "TargetPropertyType"] {
+                        if let Some(Value::String(text)) = map.get_mut(kind) {
+                            if text == "Property" {
+                                *text = "property".into();
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -1245,6 +1264,26 @@ mod tests {
                 .summary
                 .executable,
             1
+        );
+    }
+
+    #[test]
+    fn composer_spellings_of_one_binding_are_the_same_binding() {
+        let mut left = mashup(json!([]));
+        left["DataBindings"] = json!([{"SourceArea": "Mashup", "SourceId": "mashup-root", "SourceSection": "",
+            "PropertyMaps": [{"SourceProperty": "Manager", "SourcePropertyType": "property", "TargetProperty": "value"}],
+            "TargetArea": "Data", "TargetId": "EntityName", "TargetSection": "S", "SourceName": "Get"}]);
+        let mut right = mashup(json!([]));
+        right["DataBindings"] = json!([{"SourceArea": "Mashup", "SourceDetails": "", "SourceId": "mashup-root",
+            "SourceSection": "", "PropertyMaps": [{"SourceProperty": "Manager", "SourcePropertyType": "Property",
+            "TargetProperty": "value"}], "TargetArea": "Data", "TargetId": "EntityName", "TargetSection": "S"}]);
+        assert!(compare("a", "b", &left, &right, None, None, Tier::All).equal);
+        right["DataBindings"][0]["PropertyMaps"][0]["TargetProperty"] = json!("other");
+        assert_eq!(
+            compare("a", "b", &left, &right, None, None, Tier::All)
+                .summary
+                .executable,
+            2
         );
     }
 

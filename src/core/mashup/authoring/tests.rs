@@ -4894,3 +4894,25 @@ fn a_scalar_result_binds_as_its_result_field() {
     .to_string();
     assert!(error.contains("result"), "{error}");
 }
+
+#[test]
+fn strings_bind_into_entity_names_and_numbers_into_numbers() {
+    let (_dir, solution) = source_fixture();
+    // STRING into THINGNAME, NUMBER into LONG: ThingWorx carries both.
+    bind(&solution, "ui:ptcstextfield-3.Text", "mashup:Manager").unwrap();
+    bind(
+        &solution,
+        "mashup:Count",
+        "data:Acme.Orders.Manager.GetOrder.id",
+    )
+    .unwrap();
+    // Text is no number.
+    let error = bind(
+        &solution,
+        "ui:ptcstextfield-3.Text",
+        "data:Acme.Orders.Manager.SaveOrder.id",
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("is STRING but"), "{error}");
+}
