@@ -6,8 +6,28 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `twaco mashup new --from <mashup>` (MCP `mashup_new` `from`) copies a repository mashup's
+  authored design without bundling a kit, and `twaco mashup source retarget` (MCP
+  `mashup_source_retarget`) safely points its compatible data sources at another entity.
+- `twaco mashup source` (MCP `mashup_source_add`, `mashup_source_list`, and
+  `mashup_source_remove`) authors explicit static and dynamic ThingWorx data sources.
+- `twaco mashup set` (MCP `mashup_set`) changes checked widget and root properties, including
+  structured JSON values, managed mashup CSS, the root's master and chart series fields and
+  axis bounds.
+- `twaco mashup diff` (MCP `mashup_diff`) compares repository mashups by executable wiring,
+  layout and visual content, ignoring Composer-generated identifiers and the defaults and editor
+  state Composer saves, so a mashup rebuilt with twaco commands can be checked against the
+  original.
+
 ### Changed
 
+- A solution whose projects depend on each other in a cycle loads: reading, checking and editing
+  work, and only what needs a deploy order (deploy, bundle) refuses it.
+- `mashup bind` binds a scalar service result (`data:<Entity>.<Service>.result`), a STRING into
+  an entity-name property such as THINGNAME or MASHUPNAME, and one number type into another, as
+  Composer does.
 - Linux builds need glibc 2.39 or later (Ubuntu 24.04, Debian 13), from glibc 2.35 (Ubuntu
   22.04). The builds run on Ubuntu 24.04, because GitHub deprecates its Ubuntu 22.04 runner.
 

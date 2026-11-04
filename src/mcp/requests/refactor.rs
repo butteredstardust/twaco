@@ -1,4 +1,4 @@
-use super::common::{default_true, Absent};
+use super::common::{default_true, free_object, Absent};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -271,6 +271,18 @@ pub(crate) struct MashupDescribeRequest {
 
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct MashupDiffRequest {
+    /// The left repository mashup name.
+    pub(crate) mashup_a: String,
+    /// The right repository mashup name.
+    pub(crate) mashup_b: String,
+    /// `executable`, `layout`, `visual` or `all`; defaults to all.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) tier: Absent<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct MashupValidateRequest {
     /// One mashup's name; omit it with all.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
@@ -310,6 +322,9 @@ pub(crate) struct MashupNewRequest {
     /// An embedded layout template name or alias; default `blank`.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) template: Absent<String>,
+    /// A repository mashup to copy. It is exclusive with template, layout, menus, theme, master, params and tabs.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) from: Absent<String>,
     /// Compatibility alias for template.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) layout: Absent<String>,
@@ -785,6 +800,20 @@ pub(crate) struct MashupAddRequest {
 
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct MashupSetRequest {
+    /// The existing mashup's name.
+    pub(crate) mashup: String,
+    /// An exact widget Id, DisplayName, or the one widget of a type.
+    pub(crate) widget: String,
+    /// Exact property names and their JSON values. Strings use the same syntax as CLI --prop.
+    #[schemars(schema_with = "free_object")]
+    pub(crate) properties: BTreeMap<String, serde_json::Value>,
+    #[serde(default = "default_true")]
+    pub(crate) dry_run: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct MashupAddContainedRequest {
     /// The mashup that will hold the contained child.
     pub(crate) mashup: String,
@@ -931,6 +960,75 @@ pub(crate) struct MashupBindRequest {
     pub(crate) from: String,
     /// A target address as `mashup describe` prints it.
     pub(crate) to: String,
+    #[serde(default = "default_true")]
+    pub(crate) dry_run: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MashupSourceAddRequest {
+    /// The existing mashup's name.
+    pub(crate) mashup: String,
+    /// The Thing, ThingTemplate or ThingShape whose service the call runs.
+    pub(crate) entity: String,
+    /// The service to call.
+    pub(crate) service: String,
+    /// A ThingTemplate's call that runs on the Thing bound to EntityName; a ThingShape's call
+    /// always does.
+    #[serde(default)]
+    pub(crate) dynamic: bool,
+    /// The call's own name; the service name (then `_2`, ...) when absent.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) alias: Absent<String>,
+    /// For a dynamic kind: the THINGNAME or STRING address that names the Thing it runs on.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) entity_from: Absent<String>,
+    /// Run the call again every this many seconds; never when absent.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) every: Absent<u32>,
+    /// Cache the call's results.
+    #[serde(default)]
+    pub(crate) cache: bool,
+    /// Service parameters the cache is keyed on; needs cache.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) cache_keys: Absent<Vec<String>>,
+    /// `INSTANCE`, `SESSION` or `USER`; needs cache.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) cache_strategy: Absent<String>,
+    /// How many result sets to cache; needs cache.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) max_result_sets: Absent<u32>,
+    #[serde(default = "default_true")]
+    pub(crate) dry_run: bool,
+}
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MashupSourceRetargetRequest {
+    /// The existing mashup.
+    pub(crate) mashup: String,
+    /// The Thing, ThingTemplate or ThingShape currently used by its source sections.
+    pub(crate) from: String,
+    /// The replacement entity, in the same collection.
+    pub(crate) to: String,
+    #[serde(default = "default_true")]
+    pub(crate) dry_run: bool,
+}
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MashupSourceListRequest {
+    /// The existing mashup's name.
+    pub(crate) mashup: String,
+}
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MashupSourceRemoveRequest {
+    /// The existing mashup's name.
+    pub(crate) mashup: String,
+    /// The data call address, as mashup_describe prints it.
+    pub(crate) address: String,
+    /// Also remove the bindings and events proven to name the call.
+    #[serde(default)]
+    pub(crate) cascade: bool,
     #[serde(default = "default_true")]
     pub(crate) dry_run: bool,
 }

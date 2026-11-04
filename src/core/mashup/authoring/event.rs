@@ -96,7 +96,9 @@ pub(crate) fn plan_event(
     )?;
     let content = document.to_content();
     let css = match &child.sidecars {
-        Some(sidecars) => sidecars.css.clone(),
+        Some(sidecars) => {
+            String::from_utf8(sidecars.css_after.clone()).expect("a mashup stylesheet is UTF-8")
+        }
         None => {
             mashup::extract(&child.entity_after)
                 .map_err(AuthoringError::Mashup)?

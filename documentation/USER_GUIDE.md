@@ -66,7 +66,7 @@ until `--apply`; `sync` and `deploy` take them to the server.
 | Thing, ThingTemplate, ThingShape | `new thing`, `new thing-template`, `new thing-shape` | `catalog`, `impact`, `entity get` | `thing shape add\|remove`, `retemplate`, `reproject`, `rename entity` | `entity delete` |
 | DataShape | `new data-shape` | `src/<DataShape>/fields.json` | edit `fields.json` + `sync` (its DataTables and Streams follow); `rename field` | `entity delete` |
 | DataTable, Stream, ValueStream | `new data-table`, `new stream`, `new value-stream` | `datatable.json`, `db query` | `datatable.json` + `sync`; `datatable copy` for rows | `entity delete` |
-| Mashup | `mashup new` (14 templates), `mashup add-contained` | `mashup describe`, `mashup validate` | `mashup add`, `bind`, `on`, `param`, `event`, `recipe` | `entity delete` |
+| Mashup | `mashup new` (14 templates), `mashup add-contained` | `mashup describe`, `diff`, `validate` | `mashup add`, `bind`, `on`, `param`, `event`, `recipe` | `entity delete` |
 | Timer, Scheduler | `new timer`, `new scheduler` | the entity's XML | `timer set`, `scheduler set` | `entity delete` |
 | Style, theme, state, menu, media | `new style`, `new theme`, `new state`, `new menu`, `new media` | the entity's XML | `style set`, `state set`, `menu item add\|remove`, `media set` | `entity delete` |
 | Network (asset hierarchy) | `new network`, `network import` | `network list`, `network show` | `network add`, `network move` | `network remove` (connections, never the Things) |
@@ -1046,6 +1046,21 @@ StyleTheme in the solution; twaco never creates one. Nothing is granted visibili
 `--project` may be left out when the solution has one project. A name that is already a mashup, or
 files already in the way, are refused.
 
+### Starting from an existing mashup
+
+Keep design kits in the solution: copy a reference page, retarget its calls, then set the dynamic
+manager when it has one.
+
+```sh
+twaco mashup new Acme.App.Orders_MU --from Acme.App.Reference_MU --apply
+twaco mashup source retarget Acme.App.Orders_MU --from Acme.App.Reference.Manager --to Acme.App.Orders.Manager --apply
+twaco mashup param set Acme.App.Orders_MU Manager --default Acme.App.Orders.Manager --apply
+```
+
+The copy preserves layout, styles, CSS, parameters, data sources and wiring; only the mashup's
+identity changes. Retarget refuses incompatible collections, missing service contracts and an
+existing target section rather than merging it.
+
 ### Contained mashups and parameters
 
 A contained mashup receives only the parameters its container declares. Add one from a mashup in
@@ -1083,7 +1098,29 @@ next to. A matching row or column accepts the sibling directly. When its directi
 makes a row or column and gives both widgets their own containers; it also wraps existing leaf
 siblings where that is needed to preserve responsive layout. A widget that can fill fills only
 when alone in its container. `--label` selects the first available LabelText, Label, Text or Title
-property; `--prop Name=value` changes a simple catalogue default property with its expected type.
+property; `--prop Name=value` changes a catalogue property with its expected type. Structured
+properties take JSON, including a grid's column format:
+
+```sh
+twaco mashup add Acme.App.Orders_MU grid --prop 'ColumnFormat={"formatInfo":[]}' --apply
+```
+
+Use `mashup set` to change existing widgets exactly by id or unambiguous display name. It accepts
+several properties in one edit and plans unless `--apply`:
+
+```sh
+twaco mashup set Acme.App.Orders_MU flexcontainer-2 --prop flex-grow=2 --prop flex-direction=column --prop 'StyleProperties={"gap":"4px"}' --apply
+twaco mashup set Acme.App.Orders_MU mashup-root --prop 'CustomMashupCss=.orders { color: red; }' --apply
+```
+
+The root accepts StyleProperties (which also hold per-widget styles, keyed by widget id),
+CustomClass, DisableLegacyCustomClassStyles, CustomMashupCss, `Master` (the master mashup it
+opens in) and any scalar property it already has; a parameter's default goes through
+`mashup param set --default`. A chart's series fields (`DataField<N>`) and fixed axis bounds
+(`YAxis<N>MinimumValue`, `YAxis<N>MaximumValue`) are accepted for the series and axes the chart
+has, though the catalogue lists no default for them. Setting a container's `flex-size` also sets
+the palette icon Composer saves with it. In a managed mashup, CustomMashupCss writes `mashup/custom.css`, not a
+content.json key; sync then fills the XML copy.
 Managed mashups update `content.json` and the entity in one transaction; unmanaged mashups update
 only their entity file. If sidecars and entity content disagree, resolve it first with `sync` or
 `extract`.
@@ -1106,6 +1143,37 @@ extension code there, and `mashup add` reads its web-component configurations
 widget also gets `UseTheme`, as Composer gives it. The cache holds what the server of the
 profile last given to `types --platform` had installed; run it again against the server the
 mashup is for.
+
+### Data sources
+
+```sh
+twaco mashup source add Acme.App.Orders_MU Acme.App.Orders.Manager GetOrders --apply
+twaco mashup param add Acme.App.Orders_MU Manager --type THINGNAME --default Acme.App.Orders.Manager --apply
+twaco mashup source add Acme.App.Orders_MU Acme.App.Orders_TS GetOrders --entity-from mashup:Manager --apply
+twaco mashup source list Acme.App.Orders_MU
+```
+
+A mashup calls a service through a data source. A Thing's call runs on that Thing; so does a
+ThingTemplate's (template services such as `GetImplementingThings`). A ThingShape's call, and a
+ThingTemplate's with `--dynamic`, is dynamic: it runs on the Thing that a binding to
+`data:<Entity>[EntityName]` names, usually a `THINGNAME` mashup parameter such as `Manager`.
+`--entity-from` writes that binding in the same edit; twaco never creates the parameter for you.
+Later, `mashup bind --from <address> --to data:<Entity>[EntityName]` binds or rebinds it from a
+`THINGNAME` or `STRING` parameter, widget property or result field. A dynamic call with no entity
+cannot run: `mashup on` refuses it as a handler and `mashup bind` warns. `mashup bind` still
+creates a missing Thing call by itself; template and shape calls need `source add` first.
+
+`--as <new>` names a second call of the same service. `--every <seconds>` polls the call;
+`--cache` writes ThingWorx's call caching, keyed on declared service parameters
+(`--cache-key`). `mashup source list` shows each call and what sets its entity (`fixed` for a
+static one, `UNBOUND` when nothing does); `mashup source remove <mashup> <address> --cascade`
+also removes the bindings and events proven to name the call, and the entity binding with the
+section's last call.
+
+`mashup source retarget <mashup> --from <Entity> --to <Entity>` changes every matching source
+section in one edit, rewrites its data bindings and events, and preserves dynamic `EntityName`
+bindings. It refuses a target that lacks a called service or a used parameter of the same base
+type.
 
 ### Binding
 
@@ -1262,6 +1330,23 @@ the mashup names differently from its service is `data:<Entity>.<Service>[as <na
 selected rows `data:<Entity>.<Service>[SelectedRows].<field>`, and the entity a shape's data source
 runs on `data:<Entity>[EntityName]`. A property map after a binding's first is listed as ignored,
 since the runtime applies only the first.
+
+### Comparing mashups
+
+```sh
+twaco mashup diff Acme.App.Orders_MU Acme.App.OrdersNext_MU --tier layout
+```
+
+`mashup diff` compares repository mashups without treating Composer's allocated widget and UUID
+identifiers as a change. Widgets pair by aligning sibling types, so one extra container is one
+difference; sibling order counts, while bindings, events, calls and parameters compare without
+order. What Composer saves but nothing shows is not a difference: editor state (`_baseVersion`,
+`isLocked`, `DisplayName`, `iconClass`, `LastContainer`), a property only one side writes at its
+empty or default value, numbered chart settings past the chart's series, axis or reference-line
+count, caching switched off, and the styles of widgets that no longer exist. It reports
+executable wiring, layout and visual differences separately;
+`--tier executable`, `layout`, `visual` or `all` selects what controls its exit status. `--json`
+returns the same deterministic report as MCP `mashup_diff`.
 
 ## Moving entities to another project
 

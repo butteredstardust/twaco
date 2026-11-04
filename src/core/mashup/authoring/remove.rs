@@ -289,6 +289,32 @@ fn endpoint_location(
     end: &End,
 ) -> Result<(String, String), AuthoringError> {
     match end {
+        End::Data {
+            entity_name: true,
+            entity,
+            ..
+        } => {
+            let section = document.value()["Data"]
+                .as_object()
+                .into_iter()
+                .flatten()
+                .find(|(_, value)| {
+                    value["DataName"]
+                        .as_str()
+                        .is_some_and(|name| name.ends_with(&format!("_{entity}")))
+                        && matches!(
+                            value["EntityType"].as_str(),
+                            Some("DynamicThingShapes" | "DynamicThingTemplates")
+                        )
+                })
+                .map(|(key, _)| key.clone())
+                .ok_or_else(|| {
+                    AuthoringError::Unknown(
+                        "the addressed dynamic data source is not in this mashup".into(),
+                    )
+                })?;
+            Ok((section, "EntityName".into()))
+        }
         End::Data { .. } => existing_data_call(document, end)?.ok_or_else(|| {
             AuthoringError::Unknown("the addressed data call is not in this mashup".into())
         }),

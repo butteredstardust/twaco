@@ -162,6 +162,10 @@ usage: twaco <command>
                               what a mashup holds and how it is wired, without its XML: the widget tree,
                               each service it calls with what sets each parameter (or that nothing does),
                               each binding and each event, in the addresses mashup bind and on take
+  mashup diff <a> <b> [--tier <tier>] [--json]
+                              compare two repository mashups by executable wiring, responsive layout and visual
+                              content; ignores Composer-generated identifiers; exits 1 when the selected tier differs
+      --tier <tier>           executable, layout, visual or all (default all)
   mashup add <mashup> <widget> [--in <container> | --right-of <widget> | --left-of <widget> | --above <widget> | --below <widget>]
       [--label <text>] [--prop <name=value>]... [--input <name:TYPE>]... [--apply] [--json]
                               add a catalogue widget, or one an [[extension]] project defines, to a
@@ -174,6 +178,35 @@ usage: twaco <command>
       --prop <name=value>     set one simple default property, repeatable; an extension widget's
                               property with no default takes JSON
       --input <name:TYPE>     an expression's or validator's input, repeatable
+  mashup set <mashup> <widget> --prop <name=value>... [--apply] [--json]
+                              set checked properties on one exact widget; structured properties take JSON;
+                              plan unless --apply
+      --prop <name=value>     set one property, repeatable; objects and arrays are JSON
+  mashup source add <mashup> <entity> <service> [--dynamic] [--as <new>] [--entity-from <address>]
+      [--every <seconds>] [--cache [--cache-key <parameter>]...]
+      [--cache-strategy <INSTANCE|SESSION|USER>] [--max-result-sets <n>] [--apply] [--json]
+                              call a Thing's, ThingTemplate's or ThingShape's service from a mashup;
+                              a shape's call is dynamic: it runs on the Thing its EntityName binding
+                              names; plan unless --apply
+      --dynamic               a ThingTemplate's call runs on a Thing bound to EntityName, not on
+                              the template
+      --as <new>              name the call (the service name, then _2, ... by default)
+      --entity-from <address> bind a dynamic source EntityName from a THINGNAME or STRING source
+      --every <seconds>       run the call again at this interval
+      --cache                 write call caching; cache options require it
+      --cache-key <parameter> a declared service parameter, repeatable
+      --cache-strategy <kind> INSTANCE, SESSION or USER
+      --max-result-sets <n>   maximum cached result sets
+  mashup source list <mashup> [--json]
+                              list each static or dynamic data-source call
+  mashup source remove <mashup> <address> [--cascade] [--apply] [--json]
+                              remove one explicit data-source call; plan unless --apply
+      --cascade                remove proven bindings and events that name the call
+  mashup source retarget <mashup> --from <address> --to <address> [--apply] [--json]
+                              point matching data-source sections at another Thing, ThingTemplate or
+                              ThingShape; plan unless --apply
+      --from <address>        source entity the mashup currently calls
+      --to <address>          replacement entity in the same collection
   mashup add-contained <parent> <child> [--in <container> | --right-of <widget> | --left-of <widget> | --above <widget> | --below <widget>]
       [--set <parameter=value>]... [--apply] [--json]
                               add a child mashup as a contained mashup; plan unless --apply
@@ -242,12 +275,13 @@ usage: twaco <command>
       --when <address>        the event in this mashup that fires it, as mashup on --event takes it
   mashup templates [<name>] [--json]
                               list the embedded responsive mashup templates and their slots
-  mashup new <name> [--project <name>] [--template <name>] [--primary-menu <address>]
+  mashup new <name> [--project <name>] [--from <address> | --template <name>] [--primary-menu <address>]
       [--secondary-menu <address>] [--theme <StyleTheme>] [--master]
       [--visibility <principal>]... [--param <name:TYPE[:DIRECTION]|name:INFOTABLE:DataShape[:DIRECTION]>]... [--tab <Label=Mashup>]...
       [--apply] [--json]
                               create a ThingWorx 10.2 responsive mashup as Composer would: its entity file
                               and its content sidecars; plan unless --apply
+      --from <address>        copy a repository mashup exactly, except identity and permissions
       --template              layout template name or alias (default: blank); see mashup templates
       --layout                compatibility alias for --template
       --primary-menu          required INFOTABLE service result for a template's menu bar

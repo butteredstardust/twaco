@@ -47,6 +47,10 @@ fn entities(solution: &Solution, project: Option<&str>) -> Result<Vec<EntityFile
             found.unreadable.join("; ")
         )));
     }
+    // Entities go in deploy order; a dependency cycle has none.
+    solution
+        .deploy_order()
+        .map_err(|e| PackageError::Invalid(e.to_string()))?;
     let order = super::bundle::source_files(solution);
     let mut chosen: Vec<EntityFile> = found
         .entities

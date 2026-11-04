@@ -1744,6 +1744,10 @@
           "description": "An embedded layout template name or alias; default `blank`.",
           "type": "string"
         },
+        "from": {
+          "description": "A repository mashup to copy. It is exclusive with template, layout, menus, theme, master, params and tabs.",
+          "type": "string"
+        },
         "layout": {
           "description": "Compatibility alias for template.",
           "type": "string"
@@ -1855,6 +1859,30 @@
           "type": "boolean",
           "default": true
         }
+      }
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "openWorldHint": false,
+      "destructiveHint": true,
+      "idempotentHint": false
+    }
+  },
+  {
+    "name": "mashup_set",
+    "description": "Set checked properties on one exact mashup widget. Structured properties take JSON objects or arrays; root CSS updates custom.css. A dry run unless dry_run is false; apply takes the workspace lock and writes the entity and managed sidecars together.",
+    "inputSchema": {
+      "required": ["mashup", "widget", "properties"],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "mashup": { "description": "The existing mashup's name.", "type": "string" },
+        "widget": { "description": "An exact widget Id, DisplayName, or the one widget of a type.", "type": "string" },
+        "properties": {
+          "description": "Exact property names and their JSON values. Strings use the same syntax as CLI --prop.",
+          "type": "object"
+        },
+        "dry_run": { "type": "boolean", "default": true }
       }
     },
     "annotations": {
@@ -2133,6 +2161,21 @@
       "readOnlyHint": true,
       "openWorldHint": false
     }
+  },
+  {
+    "name": "mashup_diff",
+    "description": "Compare two repository mashups by executable wiring, layout and visual content. Composer-generated widget and UUID identifiers are ignored; arrays retain their authored order. tier is executable, layout, visual or all (the default). Read-only.",
+    "inputSchema": {
+      "required": ["mashup_a", "mashup_b"],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "mashup_a": { "description": "The left repository mashup name.", "type": "string" },
+        "mashup_b": { "description": "The right repository mashup name.", "type": "string" },
+        "tier": { "description": "`executable`, `layout`, `visual` or `all`; defaults to all.", "type": "string" }
+      }
+    },
+    "annotations": { "readOnlyHint": true, "openWorldHint": false }
   },
   {
     "name": "reproject",

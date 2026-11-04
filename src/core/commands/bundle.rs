@@ -120,6 +120,10 @@ pub fn execute(
             "--handoff cannot be combined with --changed-since, --exclude or --profile".to_string(),
         ));
     }
+    // A bundle imports projects in deploy order; a dependency cycle has none.
+    solution
+        .deploy_order()
+        .map_err(|error| BundleCommandError::Selection(error.to_string()))?;
     let _lock = match request.mode {
         Mode::Plan => None,
         Mode::Apply => Some(
@@ -263,6 +267,45 @@ mod tests {
             Err(BundleCommandError::Lock(_))
         ));
         drop(held);
+    }
+
+    #[test]
+    fn a_dependency_cycle_has_no_bundle() {
+        let root_guard = tempfile::tempdir().unwrap();
+        let root = root_guard.path();
+        std::fs::write(
+            root.join("twaco.toml"),
+            "[[project]]
+name = \"A\"
+root = \"a\"
+depends_on = [\"B\"]
+
+[[project]]
+name = \"B\"
+root = \"b\"
+depends_on = [\"A\"]
+",
+        )
+        .unwrap();
+        let solution = Solution::load(&root.join("twaco.toml")).unwrap();
+        let request = BundleRequest {
+            backend_only: false,
+            handoff: None,
+            changed_since: None,
+            exclude: Vec::new(),
+            out: None,
+            profile: None,
+            mode: Mode::Plan,
+            lock_label: "bundle",
+        };
+        let Err(error) = execute(&solution, &request, &mut Notices::default()) else {
+            panic!("a cycle was bundled");
+        };
+        assert!(error.to_string().contains("cycle"), "{error}");
+        let error = crate::core::package::source_control(&solution, None)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("cycle"), "{error}");
     }
 
     fn git(root: &std::path::Path, arguments: &[&str]) {

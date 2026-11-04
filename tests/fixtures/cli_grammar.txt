@@ -183,6 +183,10 @@ help:
 |                               what a mashup holds and how it is wired, without its XML: the widget tree,
 |                               each service it calls with what sets each parameter (or that nothing does),
 |                               each binding and each event, in the addresses mashup bind and on take
+|   mashup diff <a> <b> [--tier <tier>] [--json]
+|                               compare two repository mashups by executable wiring, responsive layout and visual
+|                               content; ignores Composer-generated identifiers; exits 1 when the selected tier differs
+|       --tier <tier>           executable, layout, visual or all (default all)
 |   mashup add <mashup> <widget> [--in <container> | --right-of <widget> | --left-of <widget> | --above <widget> | --below <widget>]
 |       [--label <text>] [--prop <name=value>]... [--input <name:TYPE>]... [--apply] [--json]
 |                               add a catalogue widget, or one an [[extension]] project defines, to a
@@ -195,6 +199,35 @@ help:
 |       --prop <name=value>     set one simple default property, repeatable; an extension widget's
 |                               property with no default takes JSON
 |       --input <name:TYPE>     an expression's or validator's input, repeatable
+|   mashup set <mashup> <widget> --prop <name=value>... [--apply] [--json]
+|                               set checked properties on one exact widget; structured properties take JSON;
+|                               plan unless --apply
+|       --prop <name=value>     set one property, repeatable; objects and arrays are JSON
+|   mashup source add <mashup> <entity> <service> [--dynamic] [--as <new>] [--entity-from <address>]
+|       [--every <seconds>] [--cache [--cache-key <parameter>]...]
+|       [--cache-strategy <INSTANCE|SESSION|USER>] [--max-result-sets <n>] [--apply] [--json]
+|                               call a Thing's, ThingTemplate's or ThingShape's service from a mashup;
+|                               a shape's call is dynamic: it runs on the Thing its EntityName binding
+|                               names; plan unless --apply
+|       --dynamic               a ThingTemplate's call runs on a Thing bound to EntityName, not on
+|                               the template
+|       --as <new>              name the call (the service name, then _2, ... by default)
+|       --entity-from <address> bind a dynamic source EntityName from a THINGNAME or STRING source
+|       --every <seconds>       run the call again at this interval
+|       --cache                 write call caching; cache options require it
+|       --cache-key <parameter> a declared service parameter, repeatable
+|       --cache-strategy <kind> INSTANCE, SESSION or USER
+|       --max-result-sets <n>   maximum cached result sets
+|   mashup source list <mashup> [--json]
+|                               list each static or dynamic data-source call
+|   mashup source remove <mashup> <address> [--cascade] [--apply] [--json]
+|                               remove one explicit data-source call; plan unless --apply
+|       --cascade                remove proven bindings and events that name the call
+|   mashup source retarget <mashup> --from <address> --to <address> [--apply] [--json]
+|                               point matching data-source sections at another Thing, ThingTemplate or
+|                               ThingShape; plan unless --apply
+|       --from <address>        source entity the mashup currently calls
+|       --to <address>          replacement entity in the same collection
 |   mashup add-contained <parent> <child> [--in <container> | --right-of <widget> | --left-of <widget> | --above <widget> | --below <widget>]
 |       [--set <parameter=value>]... [--apply] [--json]
 |                               add a child mashup as a contained mashup; plan unless --apply
@@ -263,12 +296,13 @@ help:
 |       --when <address>        the event in this mashup that fires it, as mashup on --event takes it
 |   mashup templates [<name>] [--json]
 |                               list the embedded responsive mashup templates and their slots
-|   mashup new <name> [--project <name>] [--template <name>] [--primary-menu <address>]
+|   mashup new <name> [--project <name>] [--from <address> | --template <name>] [--primary-menu <address>]
 |       [--secondary-menu <address>] [--theme <StyleTheme>] [--master]
 |       [--visibility <principal>]... [--param <name:TYPE[:DIRECTION]|name:INFOTABLE:DataShape[:DIRECTION]>]... [--tab <Label=Mashup>]...
 |       [--apply] [--json]
 |                               create a ThingWorx 10.2 responsive mashup as Composer would: its entity file
 |                               and its content sidecars; plan unless --apply
+|       --from <address>        copy a repository mashup exactly, except identity and permissions
 |       --template              layout template name or alias (default: blank); see mashup templates
 |       --layout                compatibility alias for --template
 |       --primary-menu          required INFOTABLE service result for a template's menu bar
@@ -6903,7 +6937,7 @@ help:
 == twaco mashup
 usage: twaco mashup <command>
 settings: disable-version-flag disable-help-subcommand subcommand-required arg-required-else-help
-subcommands: add add-contained bind describe event new off on param recipe remove templates unbind validate
+subcommands: add add-contained bind describe diff event new off on param recipe remove set source templates unbind validate
 arg --help
     action: Help
     value_name: -
@@ -6926,6 +6960,10 @@ help:
 |                               what a mashup holds and how it is wired, without its XML: the widget tree,
 |                               each service it calls with what sets each parameter (or that nothing does),
 |                               each binding and each event, in the addresses mashup bind and on take
+|   mashup diff <a> <b> [--tier <tier>] [--json]
+|                               compare two repository mashups by executable wiring, responsive layout and visual
+|                               content; ignores Composer-generated identifiers; exits 1 when the selected tier differs
+|       --tier <tier>           executable, layout, visual or all (default all)
 |   mashup add <mashup> <widget> [--in <container> | --right-of <widget> | --left-of <widget> | --above <widget> | --below <widget>]
 |       [--label <text>] [--prop <name=value>]... [--input <name:TYPE>]... [--apply] [--json]
 |                               add a catalogue widget, or one an [[extension]] project defines, to a
@@ -6938,6 +6976,35 @@ help:
 |       --prop <name=value>     set one simple default property, repeatable; an extension widget's
 |                               property with no default takes JSON
 |       --input <name:TYPE>     an expression's or validator's input, repeatable
+|   mashup set <mashup> <widget> --prop <name=value>... [--apply] [--json]
+|                               set checked properties on one exact widget; structured properties take JSON;
+|                               plan unless --apply
+|       --prop <name=value>     set one property, repeatable; objects and arrays are JSON
+|   mashup source add <mashup> <entity> <service> [--dynamic] [--as <new>] [--entity-from <address>]
+|       [--every <seconds>] [--cache [--cache-key <parameter>]...]
+|       [--cache-strategy <INSTANCE|SESSION|USER>] [--max-result-sets <n>] [--apply] [--json]
+|                               call a Thing's, ThingTemplate's or ThingShape's service from a mashup;
+|                               a shape's call is dynamic: it runs on the Thing its EntityName binding
+|                               names; plan unless --apply
+|       --dynamic               a ThingTemplate's call runs on a Thing bound to EntityName, not on
+|                               the template
+|       --as <new>              name the call (the service name, then _2, ... by default)
+|       --entity-from <address> bind a dynamic source EntityName from a THINGNAME or STRING source
+|       --every <seconds>       run the call again at this interval
+|       --cache                 write call caching; cache options require it
+|       --cache-key <parameter> a declared service parameter, repeatable
+|       --cache-strategy <kind> INSTANCE, SESSION or USER
+|       --max-result-sets <n>   maximum cached result sets
+|   mashup source list <mashup> [--json]
+|                               list each static or dynamic data-source call
+|   mashup source remove <mashup> <address> [--cascade] [--apply] [--json]
+|                               remove one explicit data-source call; plan unless --apply
+|       --cascade                remove proven bindings and events that name the call
+|   mashup source retarget <mashup> --from <address> --to <address> [--apply] [--json]
+|                               point matching data-source sections at another Thing, ThingTemplate or
+|                               ThingShape; plan unless --apply
+|       --from <address>        source entity the mashup currently calls
+|       --to <address>          replacement entity in the same collection
 |   mashup add-contained <parent> <child> [--in <container> | --right-of <widget> | --left-of <widget> | --above <widget> | --below <widget>]
 |       [--set <parameter=value>]... [--apply] [--json]
 |                               add a child mashup as a contained mashup; plan unless --apply
@@ -7006,12 +7073,13 @@ help:
 |       --when <address>        the event in this mashup that fires it, as mashup on --event takes it
 |   mashup templates [<name>] [--json]
 |                               list the embedded responsive mashup templates and their slots
-|   mashup new <name> [--project <name>] [--template <name>] [--primary-menu <address>]
+|   mashup new <name> [--project <name>] [--from <address> | --template <name>] [--primary-menu <address>]
 |       [--secondary-menu <address>] [--theme <StyleTheme>] [--master]
 |       [--visibility <principal>]... [--param <name:TYPE[:DIRECTION]|name:INFOTABLE:DataShape[:DIRECTION]>]... [--tab <Label=Mashup>]...
 |       [--apply] [--json]
 |                               create a ThingWorx 10.2 responsive mashup as Composer would: its entity file
 |                               and its content sidecars; plan unless --apply
+|       --from <address>        copy a repository mashup exactly, except identity and permissions
 |       --template              layout template name or alias (default: blank); see mashup templates
 |       --layout                compatibility alias for --template
 |       --primary-menu          required INFOTABLE service result for a template's menu bar
@@ -7535,6 +7603,86 @@ help:
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
 
+== twaco mashup diff
+usage: twaco mashup diff <a> <b> [--tier <tier>] [--json]
+settings: disable-version-flag disable-help-subcommand
+subcommands: 
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+arg --json
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --tier
+    action: Set
+    value_name: tier
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg <operands>
+    action: Append
+    value_name: operand
+    num_args: 0..
+    allow_hyphen_values: no
+    allow_negative_numbers: yes
+    required: no
+    default: -
+    index: 1
+    other: -
+help:
+|   mashup diff <a> <b> [--tier <tier>] [--json]
+|                               compare two repository mashups by executable wiring, responsive layout and visual
+|                               content; ignores Composer-generated identifiers; exits 1 when the selected tier differs
+|       --tier <tier>           executable, layout, visual or all (default all)
+| 
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
 == twaco mashup event
 usage: twaco mashup event add <mashup> <name> --when <address> [--apply] [--json]
 settings: disable-version-flag disable-help-subcommand
@@ -7628,7 +7776,7 @@ help:
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
 
 == twaco mashup new
-usage: twaco mashup new <name> [--project <name>] [--template <name>] [--primary-menu <address>]
+usage: twaco mashup new <name> [--project <name>] [--from <address> | --template <name>] [--primary-menu <address>]
 settings: disable-version-flag disable-help-subcommand
 subcommands: 
 arg --apply
@@ -7642,6 +7790,18 @@ arg --apply
     index: -
     other: -
     given twice: accepted
+arg --from
+    action: Set
+    value_name: address
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 arg --help
     action: Help
     value_name: -
@@ -7817,12 +7977,13 @@ arg <operands>
     index: 1
     other: -
 help:
-|   mashup new <name> [--project <name>] [--template <name>] [--primary-menu <address>]
+|   mashup new <name> [--project <name>] [--from <address> | --template <name>] [--primary-menu <address>]
 |       [--secondary-menu <address>] [--theme <StyleTheme>] [--master]
 |       [--visibility <principal>]... [--param <name:TYPE[:DIRECTION]|name:INFOTABLE:DataShape[:DIRECTION]>]... [--tab <Label=Mashup>]...
 |       [--apply] [--json]
 |                               create a ThingWorx 10.2 responsive mashup as Composer would: its entity file
 |                               and its content sidecars; plan unless --apply
+|       --from <address>        copy a repository mashup exactly, except identity and permissions
 |       --template              layout template name or alias (default: blank); see mashup templates
 |       --layout                compatibility alias for --template
 |       --primary-menu          required INFOTABLE service result for a template's menu bar
@@ -8681,6 +8842,563 @@ help:
 |                               remove a widget or subtree; refuses wiring and unknown references unless --cascade;
 |                               plan unless --apply
 |       --cascade                also remove proven bindings and event handlers; leave data calls for review
+| 
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
+== twaco mashup set
+usage: twaco mashup set <mashup> <widget> --prop <name=value>... [--apply] [--json]
+settings: disable-version-flag disable-help-subcommand
+subcommands: 
+arg --apply
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+arg --json
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --prop
+    action: Append
+    value_name: name=value
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: accepted
+    given bare: InvalidValue
+arg <operands>
+    action: Append
+    value_name: operand
+    num_args: 0..
+    allow_hyphen_values: no
+    allow_negative_numbers: yes
+    required: no
+    default: -
+    index: 1
+    other: -
+help:
+|   mashup set <mashup> <widget> --prop <name=value>... [--apply] [--json]
+|                               set checked properties on one exact widget; structured properties take JSON;
+|                               plan unless --apply
+|       --prop <name=value>     set one property, repeatable; objects and arrays are JSON
+| 
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
+== twaco mashup source
+usage: twaco mashup source <command>
+settings: disable-version-flag disable-help-subcommand subcommand-required arg-required-else-help
+subcommands: add list remove retarget
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+help:
+| usage: twaco mashup source <command>
+| 
+| 
+|   --project <name>            narrow to one project of the solution
+|   --profile <name>            the server profile (default: default)
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
+== twaco mashup source add
+usage: twaco mashup source add <mashup> <entity> <service> [--dynamic] [--as <new>] [--entity-from <address>]
+settings: disable-version-flag disable-help-subcommand
+subcommands: 
+arg --apply
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --as
+    action: Set
+    value_name: new
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --cache
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --cache-key
+    action: Append
+    value_name: parameter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: accepted
+    given bare: InvalidValue
+arg --cache-strategy
+    action: Set
+    value_name: INSTANCE|SESSION|USER
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --dynamic
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --entity-from
+    action: Set
+    value_name: address
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --every
+    action: Set
+    value_name: seconds
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+arg --json
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --max-result-sets
+    action: Set
+    value_name: n
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg <operands>
+    action: Append
+    value_name: operand
+    num_args: 0..
+    allow_hyphen_values: no
+    allow_negative_numbers: yes
+    required: no
+    default: -
+    index: 1
+    other: -
+help:
+|   mashup source add <mashup> <entity> <service> [--dynamic] [--as <new>] [--entity-from <address>]
+|       [--every <seconds>] [--cache [--cache-key <parameter>]...]
+|       [--cache-strategy <INSTANCE|SESSION|USER>] [--max-result-sets <n>] [--apply] [--json]
+|                               call a Thing's, ThingTemplate's or ThingShape's service from a mashup;
+|                               a shape's call is dynamic: it runs on the Thing its EntityName binding
+|                               names; plan unless --apply
+|       --dynamic               a ThingTemplate's call runs on a Thing bound to EntityName, not on
+|                               the template
+|       --as <new>              name the call (the service name, then _2, ... by default)
+|       --entity-from <address> bind a dynamic source EntityName from a THINGNAME or STRING source
+|       --every <seconds>       run the call again at this interval
+|       --cache                 write call caching; cache options require it
+|       --cache-key <parameter> a declared service parameter, repeatable
+|       --cache-strategy <kind> INSTANCE, SESSION or USER
+|       --max-result-sets <n>   maximum cached result sets
+| 
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
+== twaco mashup source list
+usage: twaco mashup source list <mashup> [--json]
+settings: disable-version-flag disable-help-subcommand
+subcommands: 
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+arg --json
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg <operands>
+    action: Append
+    value_name: operand
+    num_args: 0..
+    allow_hyphen_values: no
+    allow_negative_numbers: yes
+    required: no
+    default: -
+    index: 1
+    other: -
+help:
+|   mashup source list <mashup> [--json]
+|                               list each static or dynamic data-source call
+| 
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
+== twaco mashup source remove
+usage: twaco mashup source remove <mashup> <address> [--cascade] [--apply] [--json]
+settings: disable-version-flag disable-help-subcommand
+subcommands: 
+arg --apply
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --cascade
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+arg --json
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg <operands>
+    action: Append
+    value_name: operand
+    num_args: 0..
+    allow_hyphen_values: no
+    allow_negative_numbers: yes
+    required: no
+    default: -
+    index: 1
+    other: -
+help:
+|   mashup source remove <mashup> <address> [--cascade] [--apply] [--json]
+|                               remove one explicit data-source call; plan unless --apply
+|       --cascade                remove proven bindings and events that name the call
+| 
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
+== twaco mashup source retarget
+usage: twaco mashup source retarget <mashup> --from <address> --to <address> [--apply] [--json]
+settings: disable-version-flag disable-help-subcommand
+subcommands: 
+arg --apply
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --from
+    action: Set
+    value_name: address
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+arg --json
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --to
+    action: Set
+    value_name: address
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg <operands>
+    action: Append
+    value_name: operand
+    num_args: 0..
+    allow_hyphen_values: no
+    allow_negative_numbers: yes
+    required: no
+    default: -
+    index: 1
+    other: -
+help:
+|   mashup source retarget <mashup> --from <address> --to <address> [--apply] [--json]
+|                               point matching data-source sections at another Thing, ThingTemplate or
+|                               ThingShape; plan unless --apply
+|       --from <address>        source entity the mashup currently calls
+|       --to <address>          replacement entity in the same collection
 | 
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)

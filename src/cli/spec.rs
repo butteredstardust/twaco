@@ -280,6 +280,16 @@ pub(crate) fn matched(matches: &clap::ArgMatches) -> (&'static str, &clap::ArgMa
         return (command.path, sub);
     }
     let (second, leaf) = sub.subcommand().expect("a family requires a command");
+    // A family's own family, as `mashup source add` is: its rows name all three words.
+    if let Some((third, deeper)) = leaf.subcommand() {
+        if let Some(nested) = USAGE.iter().find(|c| {
+            let mut words = c.path.split(' ');
+            (words.next(), words.next(), words.next(), words.next())
+                == (Some(first), Some(second), Some(third), None)
+        }) {
+            return (nested.path, deeper);
+        }
+    }
     let command = USAGE
         .iter()
         .find(|c| c.path.split_once(' ') == Some((first, second)))
@@ -677,6 +687,14 @@ pub(crate) const USAGE: &[Usage] = &[
                               each binding and each event, in the addresses mashup bind and on take"#,
     },
     Usage {
+        path: "mashup diff",
+        group: 1,
+        text: r#"  mashup diff <a> <b> [--tier <tier>] [--json]
+                              compare two repository mashups by executable wiring, responsive layout and visual
+                              content; ignores Composer-generated identifiers; exits 1 when the selected tier differs
+      --tier <tier>           executable, layout, visual or all (default all)"#,
+    },
+    Usage {
         path: "mashup add",
         group: 1,
         text: r#"  mashup add <mashup> <widget> [--in <container> | --right-of <widget> | --left-of <widget> | --above <widget> | --below <widget>]
@@ -691,6 +709,55 @@ pub(crate) const USAGE: &[Usage] = &[
       --prop <name=value>     set one simple default property, repeatable; an extension widget's
                               property with no default takes JSON
       --input <name:TYPE>     an expression's or validator's input, repeatable"#,
+    },
+    Usage {
+        path: "mashup set",
+        group: 1,
+        text: r#"  mashup set <mashup> <widget> --prop <name=value>... [--apply] [--json]
+                              set checked properties on one exact widget; structured properties take JSON;
+                              plan unless --apply
+      --prop <name=value>     set one property, repeatable; objects and arrays are JSON"#,
+    },
+    Usage {
+        path: "mashup source add",
+        group: 1,
+        text: r#"  mashup source add <mashup> <entity> <service> [--dynamic] [--as <new>] [--entity-from <address>]
+      [--every <seconds>] [--cache [--cache-key <parameter>]...]
+      [--cache-strategy <INSTANCE|SESSION|USER>] [--max-result-sets <n>] [--apply] [--json]
+                              call a Thing's, ThingTemplate's or ThingShape's service from a mashup;
+                              a shape's call is dynamic: it runs on the Thing its EntityName binding
+                              names; plan unless --apply
+      --dynamic               a ThingTemplate's call runs on a Thing bound to EntityName, not on
+                              the template
+      --as <new>              name the call (the service name, then _2, ... by default)
+      --entity-from <address> bind a dynamic source EntityName from a THINGNAME or STRING source
+      --every <seconds>       run the call again at this interval
+      --cache                 write call caching; cache options require it
+      --cache-key <parameter> a declared service parameter, repeatable
+      --cache-strategy <kind> INSTANCE, SESSION or USER
+      --max-result-sets <n>   maximum cached result sets"#,
+    },
+    Usage {
+        path: "mashup source list",
+        group: 1,
+        text: r#"  mashup source list <mashup> [--json]
+                              list each static or dynamic data-source call"#,
+    },
+    Usage {
+        path: "mashup source remove",
+        group: 1,
+        text: r#"  mashup source remove <mashup> <address> [--cascade] [--apply] [--json]
+                              remove one explicit data-source call; plan unless --apply
+      --cascade                remove proven bindings and events that name the call"#,
+    },
+    Usage {
+        path: "mashup source retarget",
+        group: 1,
+        text: r#"  mashup source retarget <mashup> --from <address> --to <address> [--apply] [--json]
+                              point matching data-source sections at another Thing, ThingTemplate or
+                              ThingShape; plan unless --apply
+      --from <address>        source entity the mashup currently calls
+      --to <address>          replacement entity in the same collection"#,
     },
     Usage {
         path: "mashup add-contained",
@@ -803,12 +870,13 @@ pub(crate) const USAGE: &[Usage] = &[
     Usage {
         path: "mashup new",
         group: 1,
-        text: r#"  mashup new <name> [--project <name>] [--template <name>] [--primary-menu <address>]
+        text: r#"  mashup new <name> [--project <name>] [--from <address> | --template <name>] [--primary-menu <address>]
       [--secondary-menu <address>] [--theme <StyleTheme>] [--master]
       [--visibility <principal>]... [--param <name:TYPE[:DIRECTION]|name:INFOTABLE:DataShape[:DIRECTION]>]... [--tab <Label=Mashup>]...
       [--apply] [--json]
                               create a ThingWorx 10.2 responsive mashup as Composer would: its entity file
                               and its content sidecars; plan unless --apply
+      --from <address>        copy a repository mashup exactly, except identity and permissions
       --template              layout template name or alias (default: blank); see mashup templates
       --layout                compatibility alias for --template
       --primary-menu          required INFOTABLE service result for a template's menu bar

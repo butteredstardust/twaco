@@ -572,6 +572,13 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             refactor::mashup_add_tool,
         )
         .with_output::<outputs::MashupAddResult>(),
+        solution_tool::<refactor_requests::MashupSetRequest>(
+            "mashup_set",
+            "Set checked properties on one exact mashup widget. Structured properties take JSON objects or arrays; root CSS updates custom.css. A dry run unless dry_run is false; apply takes the workspace lock and writes the entity and managed sidecars together.",
+            false,
+            refactor::mashup_set_tool,
+        )
+        .with_output::<outputs::MashupSetResult>(),
         solution_tool::<refactor_requests::MashupAddContainedRequest>(
             "mashup_add_contained",
             "Add a repository mashup as a contained mashup. Its visible child parameters become container properties; set supplies static values for visible input parameters. With no placement it goes in center. A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
@@ -586,6 +593,24 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             refactor::mashup_bind_tool,
         )
         .with_output::<outputs::MashupBindResult>(),
+        solution_tool::<refactor_requests::MashupSourceAddRequest>(
+            "mashup_source_add",
+            "Call a Thing's, ThingTemplate's or ThingShape's service from a mashup. A shape's call, and a template's with dynamic, runs on the Thing an EntityName binding names; entity_from (a THINGNAME or STRING address such as mashup:Manager) writes that binding too. A dry run unless dry_run is false; apply writes the entity and managed content sidecar together.",
+            false,
+            refactor::mashup_source_add_tool,
+        ).with_output::<outputs::MashupSourceAddResult>(),
+        solution_tool::<refactor_requests::MashupSourceRetargetRequest>(
+            "mashup_source_retarget",
+            "Retarget matching data-source sections from one Thing, ThingTemplate or ThingShape to another in the same collection, keeping calls and dynamic EntityName bindings. A dry run unless dry_run is false; apply writes the entity and managed content sidecar together.",
+            false,
+            refactor::mashup_source_retarget_tool,
+        ).with_output::<outputs::MashupSourceRetargetResult>(),
+        solution_tool::<refactor_requests::MashupSourceListRequest>(
+            "mashup_source_list", "List explicit mashup data source calls. Read-only; no server.", true, refactor::mashup_source_list_tool,
+        ).with_output::<outputs::MashupSourceListResult>(),
+        solution_tool::<refactor_requests::MashupSourceRemoveRequest>(
+            "mashup_source_remove", "Remove one explicit mashup data source call. cascade removes only bindings and events proven to name it. A dry run unless dry_run is false; apply writes the entity and managed content sidecar together.", false, refactor::mashup_source_remove_tool,
+        ).with_output::<outputs::MashupSourceRemoveResult>(),
         solution_tool::<refactor_requests::MashupOnRequest>(
             "mashup_on",
             "Run a data call or widget service when one mashup event fires. Triggers are ui:<widget>.<Event>, mashup:Loaded, or an existing data:<Entity>.<Service>[as alias].ServiceInvokeCompleted, AllDataChanged or SelectedRowsChanged; handlers are data calls or widget services. A missing Thing handler call is created; templates and shapes need an existing call. A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
@@ -656,6 +681,13 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             refactor::mashup_describe_tool,
         )
         .with_output::<outputs::MashupDescribeResult>(),
+        solution_tool::<refactor_requests::MashupDiffRequest>(
+            "mashup_diff",
+            "Compare two repository mashups by executable wiring, layout and visual content. Composer-generated widget and UUID identifiers are ignored; arrays retain their authored order. tier is executable, layout, visual or all (the default). Read-only.",
+            true,
+            refactor::mashup_diff_tool,
+        )
+        .with_output::<outputs::MashupDiffResult>(),
         solution_tool::<refactor_requests::ReprojectRequest>(
             "reproject",
             "Move entities to another project of the solution: their projectName, and their files under that project's root (sidecars stay). The plan names each reference the move puts outside the deploy order, with the depends_on that allows it. A dry run unless dry_run is false; an apply takes the workspace lock and writes every file or none.",
@@ -1035,8 +1067,13 @@ pub(crate) const GROUPS: &[(&str, &[&str])] = &[
             "mashup_new",
             "mashup_templates",
             "mashup_add",
+            "mashup_set",
             "mashup_add_contained",
             "mashup_bind",
+            "mashup_source_add",
+            "mashup_source_retarget",
+            "mashup_source_list",
+            "mashup_source_remove",
             "mashup_on",
             "mashup_remove",
             "mashup_unbind",
@@ -1047,6 +1084,7 @@ pub(crate) const GROUPS: &[(&str, &[&str])] = &[
             "mashup_event",
             "mashup_validate",
             "mashup_describe",
+            "mashup_diff",
         ],
     ),
     (

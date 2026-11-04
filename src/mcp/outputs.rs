@@ -1265,6 +1265,31 @@ pub(crate) struct MashupDescribeResult {
 }
 
 #[derive(Serialize, JsonSchema)]
+pub(crate) struct MashupDiffResult {
+    a: String,
+    b: String,
+    tier: String,
+    equal: bool,
+    summary: MashupDiffSummary,
+    differences: Vec<MashupDifference>,
+}
+
+#[derive(Serialize, JsonSchema)]
+struct MashupDiffSummary {
+    executable: u64,
+    layout: u64,
+    visual: u64,
+}
+
+#[derive(Serialize, JsonSchema)]
+struct MashupDifference {
+    tier: String,
+    path: String,
+    left: Option<Value>,
+    right: Option<Value>,
+}
+
+#[derive(Serialize, JsonSchema)]
 pub(crate) struct MashupValidateResult {
     problems: u64,
     mashups: Vec<MashupValidateEntry>,
@@ -1327,6 +1352,19 @@ pub(crate) struct MashupAddResult {
 }
 
 #[derive(Serialize, JsonSchema)]
+pub(crate) struct MashupSetResult {
+    applied: bool,
+    dry_run: bool,
+    mashup: String,
+    widget: String,
+    #[serde(rename = "type")]
+    type_id: String,
+    changed: Vec<Value>,
+    files: Vec<String>,
+    notices: Notices,
+}
+
+#[derive(Serialize, JsonSchema)]
 pub(crate) struct MashupBindResult {
     applied: bool,
     dry_run: bool,
@@ -1337,6 +1375,57 @@ pub(crate) struct MashupBindResult {
     new_source: Option<String>,
     warnings: Vec<String>,
     refreshed: Vec<Value>,
+    files: Vec<String>,
+    notices: Notices,
+}
+
+#[derive(Serialize, JsonSchema)]
+pub(crate) struct MashupSourceAddResult {
+    applied: bool,
+    dry_run: bool,
+    mashup: String,
+    section: String,
+    call: String,
+    files: Vec<String>,
+    notices: Notices,
+}
+#[derive(Serialize, JsonSchema)]
+pub(crate) struct MashupSourceRetargetResult {
+    applied: bool,
+    dry_run: bool,
+    mashup: String,
+    from: String,
+    to: String,
+    sections: Vec<Value>,
+    bindings_rewritten: usize,
+    events_rewritten: usize,
+    files: Vec<String>,
+    notices: Notices,
+}
+#[derive(Serialize, JsonSchema)]
+pub(crate) struct MashupSourceListResult {
+    mashup: String,
+    sources: Vec<MashupSourceRow>,
+}
+#[derive(Serialize, JsonSchema)]
+pub(crate) struct MashupSourceRow {
+    kind: String,
+    entity: String,
+    service: String,
+    alias: String,
+    entity_from: String,
+    refresh: u64,
+    cache: bool,
+}
+#[derive(Serialize, JsonSchema)]
+pub(crate) struct MashupSourceRemoveResult {
+    applied: bool,
+    dry_run: bool,
+    mashup: String,
+    section: String,
+    call: String,
+    bindings_removed: usize,
+    events_removed: usize,
     files: Vec<String>,
     notices: Notices,
 }

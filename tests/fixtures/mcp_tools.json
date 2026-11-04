@@ -5016,6 +5016,10 @@
           "description": "An embedded layout template name or alias; default `blank`.",
           "type": "string"
         },
+        "from": {
+          "description": "A repository mashup to copy. It is exclusive with template, layout, menus, theme, master, params and tabs.",
+          "type": "string"
+        },
         "layout": {
           "description": "Compatibility alias for template.",
           "type": "string"
@@ -5362,6 +5366,91 @@
     }
   },
   {
+    "name": "mashup_set",
+    "description": "Set checked properties on one exact mashup widget. Structured properties take JSON objects or arrays; root CSS updates custom.css. A dry run unless dry_run is false; apply takes the workspace lock and writes the entity and managed sidecars together.",
+    "inputSchema": {
+      "required": [
+        "mashup",
+        "widget",
+        "properties"
+      ],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "mashup": {
+          "description": "The existing mashup's name.",
+          "type": "string"
+        },
+        "widget": {
+          "description": "An exact widget Id, DisplayName, or the one widget of a type.",
+          "type": "string"
+        },
+        "properties": {
+          "description": "Exact property names and their JSON values. Strings use the same syntax as CLI --prop.",
+          "type": "object"
+        },
+        "dry_run": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "openWorldHint": false,
+      "destructiveHint": true,
+      "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "applied",
+        "dry_run",
+        "mashup",
+        "widget",
+        "type",
+        "changed",
+        "files"
+      ],
+      "properties": {
+        "applied": {
+          "type": "boolean"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "mashup": {
+          "type": "string"
+        },
+        "widget": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "changed": {
+          "type": "array",
+          "items": true
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
     "name": "mashup_add_contained",
     "description": "Add a repository mashup as a contained mashup. Its visible child parameters become container properties; set supplies static values for visible input parameters. With no placement it goes in center. A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
     "inputSchema": {
@@ -5563,6 +5652,382 @@
         "refreshed": {
           "type": "array",
           "items": true
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "mashup_source_add",
+    "description": "Call a Thing's, ThingTemplate's or ThingShape's service from a mashup. A shape's call, and a template's with dynamic, runs on the Thing an EntityName binding names; entity_from (a THINGNAME or STRING address such as mashup:Manager) writes that binding too. A dry run unless dry_run is false; apply writes the entity and managed content sidecar together.",
+    "inputSchema": {
+      "required": [
+        "mashup",
+        "entity",
+        "service"
+      ],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "mashup": {
+          "description": "The existing mashup's name.",
+          "type": "string"
+        },
+        "entity": {
+          "description": "The Thing, ThingTemplate or ThingShape whose service the call runs.",
+          "type": "string"
+        },
+        "service": {
+          "description": "The service to call.",
+          "type": "string"
+        },
+        "dynamic": {
+          "description": "A ThingTemplate's call that runs on the Thing bound to EntityName; a ThingShape's call\nalways does.",
+          "type": "boolean",
+          "default": false
+        },
+        "alias": {
+          "description": "The call's own name; the service name (then `_2`, ...) when absent.",
+          "type": "string"
+        },
+        "entity_from": {
+          "description": "For a dynamic kind: the THINGNAME or STRING address that names the Thing it runs on.",
+          "type": "string"
+        },
+        "every": {
+          "description": "Run the call again every this many seconds; never when absent.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "cache": {
+          "description": "Cache the call's results.",
+          "type": "boolean",
+          "default": false
+        },
+        "cache_keys": {
+          "description": "Service parameters the cache is keyed on; needs cache.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "cache_strategy": {
+          "description": "`INSTANCE`, `SESSION` or `USER`; needs cache.",
+          "type": "string"
+        },
+        "max_result_sets": {
+          "description": "How many result sets to cache; needs cache.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "dry_run": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "openWorldHint": false,
+      "destructiveHint": true,
+      "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "applied",
+        "dry_run",
+        "mashup",
+        "section",
+        "call",
+        "files"
+      ],
+      "properties": {
+        "applied": {
+          "type": "boolean"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "mashup": {
+          "type": "string"
+        },
+        "section": {
+          "type": "string"
+        },
+        "call": {
+          "type": "string"
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "mashup_source_retarget",
+    "description": "Retarget matching data-source sections from one Thing, ThingTemplate or ThingShape to another in the same collection, keeping calls and dynamic EntityName bindings. A dry run unless dry_run is false; apply writes the entity and managed content sidecar together.",
+    "inputSchema": {
+      "required": [
+        "mashup",
+        "from",
+        "to"
+      ],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "mashup": {
+          "description": "The existing mashup.",
+          "type": "string"
+        },
+        "from": {
+          "description": "The Thing, ThingTemplate or ThingShape currently used by its source sections.",
+          "type": "string"
+        },
+        "to": {
+          "description": "The replacement entity, in the same collection.",
+          "type": "string"
+        },
+        "dry_run": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "openWorldHint": false,
+      "destructiveHint": true,
+      "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "applied",
+        "dry_run",
+        "mashup",
+        "from",
+        "to",
+        "sections",
+        "bindings_rewritten",
+        "events_rewritten",
+        "files"
+      ],
+      "properties": {
+        "applied": {
+          "type": "boolean"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "mashup": {
+          "type": "string"
+        },
+        "from": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        },
+        "sections": {
+          "type": "array",
+          "items": true
+        },
+        "bindings_rewritten": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "events_rewritten": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "mashup_source_list",
+    "description": "List explicit mashup data source calls. Read-only; no server.",
+    "inputSchema": {
+      "required": [
+        "mashup"
+      ],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "mashup": {
+          "description": "The existing mashup's name.",
+          "type": "string"
+        }
+      }
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "mashup",
+        "sources"
+      ],
+      "properties": {
+        "mashup": {
+          "type": "string"
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string"
+              },
+              "entity": {
+                "type": "string"
+              },
+              "service": {
+                "type": "string"
+              },
+              "alias": {
+                "type": "string"
+              },
+              "entity_from": {
+                "type": "string"
+              },
+              "refresh": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "cache": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "kind",
+              "entity",
+              "service",
+              "alias",
+              "entity_from",
+              "refresh",
+              "cache"
+            ]
+          }
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "mashup_source_remove",
+    "description": "Remove one explicit mashup data source call. cascade removes only bindings and events proven to name it. A dry run unless dry_run is false; apply writes the entity and managed content sidecar together.",
+    "inputSchema": {
+      "required": [
+        "mashup",
+        "address"
+      ],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "mashup": {
+          "description": "The existing mashup's name.",
+          "type": "string"
+        },
+        "address": {
+          "description": "The data call address, as mashup_describe prints it.",
+          "type": "string"
+        },
+        "cascade": {
+          "description": "Also remove the bindings and events proven to name the call.",
+          "type": "boolean",
+          "default": false
+        },
+        "dry_run": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "openWorldHint": false,
+      "destructiveHint": true,
+      "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "applied",
+        "dry_run",
+        "mashup",
+        "section",
+        "call",
+        "bindings_removed",
+        "events_removed",
+        "files"
+      ],
+      "properties": {
+        "applied": {
+          "type": "boolean"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "mashup": {
+          "type": "string"
+        },
+        "section": {
+          "type": "string"
+        },
+        "call": {
+          "type": "string"
+        },
+        "bindings_removed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "events_removed": {
+          "type": "integer",
+          "minimum": 0
         },
         "files": {
           "type": "array",
@@ -6597,6 +7062,103 @@
           "type": "array",
           "items": {
             "type": "string"
+          }
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "mashup_diff",
+    "description": "Compare two repository mashups by executable wiring, layout and visual content. Composer-generated widget and UUID identifiers are ignored; arrays retain their authored order. tier is executable, layout, visual or all (the default). Read-only.",
+    "inputSchema": {
+      "required": [
+        "mashup_a",
+        "mashup_b"
+      ],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "mashup_a": {
+          "description": "The left repository mashup name.",
+          "type": "string"
+        },
+        "mashup_b": {
+          "description": "The right repository mashup name.",
+          "type": "string"
+        },
+        "tier": {
+          "description": "`executable`, `layout`, `visual` or `all`; defaults to all.",
+          "type": "string"
+        }
+      }
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "a",
+        "b",
+        "tier",
+        "equal",
+        "summary",
+        "differences"
+      ],
+      "properties": {
+        "a": {
+          "type": "string"
+        },
+        "b": {
+          "type": "string"
+        },
+        "tier": {
+          "type": "string"
+        },
+        "equal": {
+          "type": "boolean"
+        },
+        "summary": {
+          "type": "object",
+          "properties": {
+            "executable": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "layout": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "visual": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "executable",
+            "layout",
+            "visual"
+          ]
+        },
+        "differences": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "tier": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "left": true,
+              "right": true
+            },
+            "required": [
+              "tier",
+              "path"
+            ]
           }
         }
       },

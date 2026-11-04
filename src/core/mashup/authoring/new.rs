@@ -11,7 +11,7 @@ use crate::core::lock::WorkspaceLock;
 use crate::core::mashup::edit::MashupDocument;
 use crate::core::mashup::templates::{MashupKind, Visibility};
 use crate::core::transaction::Transaction;
-use crate::core::{mashup, types, widgets, workspace};
+use crate::core::{mashup, scan, splice, types, widgets, workspace};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
@@ -39,6 +39,8 @@ pub struct NewRequest {
     pub params: Vec<String>,
     /// `Label=Mashup` (or `Label` for an empty tab), one per tab, for a template with a tab set.
     pub tabs: Vec<String>,
+    /// An existing repository mashup whose design is copied verbatim.
+    pub from: Option<String>,
 }
 
 #[derive(Debug)]
@@ -91,6 +93,9 @@ pub(crate) fn plan_new(
     solution: &Solution,
     request: &NewRequest,
 ) -> Result<NewPlan, AuthoringError> {
+    if request.from.is_some() {
+        return plan_copy(solution, request);
+    }
     let template = mashup::templates::layout(&request.template)
         .map_err(AuthoringError::Invalid)?
         .ok_or_else(|| AuthoringError::Invalid(unknown_template(&request.template)))?;
@@ -295,6 +300,242 @@ pub(crate) fn plan_new(
         menus,
         tabs,
     })
+}
+
+/// Copy an authored mashup without ever rebuilding its entity XML.  Only identity and the
+/// deliberately non-portable permission material are spliced.
+fn plan_copy(solution: &Solution, request: &NewRequest) -> Result<NewPlan, AuthoringError> {
+    let from = request.from.as_deref().expect("checked");
+    // A copy keeps the reference's design; a flag that would shape a new one has no meaning.
+    let conflicting = [
+        (request.template != "blank", "--template"),
+        (request.master, "--master"),
+        (!request.params.is_empty(), "--param"),
+        (!request.tabs.is_empty(), "--tab"),
+        (request.primary_menu.is_some(), "--primary-menu"),
+        (request.secondary_menu.is_some(), "--secondary-menu"),
+        (request.theme.is_some(), "--theme"),
+    ];
+    if let Some((_, flag)) = conflicting.iter().find(|(set, _)| *set) {
+        return Err(AuthoringError::Invalid(format!(
+            "--from copies {from} as it is; {flag} cannot be combined with it"
+        )));
+    }
+    EntityKey::new("Mashups", request.name.as_str())
+        .map_err(|error| AuthoringError::Invalid(format!("not a mashup name: {error}")))?;
+    if !crate::core::adopt::is_file_name(&request.name) {
+        return Err(AuthoringError::Invalid(format!(
+            "{:?} cannot be a file name on every platform; leave out / \\ : * ? \" < > | and a device name such as CON",
+            request.name
+        )));
+    }
+    let project = match &request.project {
+        Some(name) => solution.project(name).ok_or_else(|| {
+            AuthoringError::Unknown(format!("twaco.toml declares no project {name}"))
+        })?,
+        None => match solution.projects.as_slice() {
+            [only] => only,
+            _ => {
+                return Err(AuthoringError::Invalid(
+                    "name the project the mashup belongs to with --project".into(),
+                ))
+            }
+        },
+    };
+    if !project.collections.is_empty() && !project.collections.iter().any(|c| c == "Mashups") {
+        return Err(AuthoringError::Invalid(format!(
+            "project {} keeps only {}; add Mashups to its collections first",
+            project.name,
+            project.collections.join(", ")
+        )));
+    }
+    let entities = workspace::entities(solution);
+    if let Some(existing) = entities
+        .iter()
+        .find(|e| e.info.collection == "Mashups" && e.info.name.eq_ignore_ascii_case(&request.name))
+    {
+        let how = if existing.info.name == request.name {
+            String::new()
+        } else {
+            format!(
+                " as {}, which ThingWorx takes for the same name",
+                existing.info.name
+            )
+        };
+        return Err(AuthoringError::Exists(format!(
+            "mashup {} already exists{how}: {}",
+            request.name,
+            solution.relative(&existing.path)
+        )));
+    }
+    let visibility = request
+        .visibility
+        .iter()
+        .map(|text| parse_visibility(text))
+        .collect::<Result<Vec<_>, _>>()?;
+    let loaded = load_existing(solution, from)?;
+    let entity = copied_entity(
+        &loaded.entity_before,
+        &request.name,
+        &project.name,
+        &visibility,
+    )?;
+    let document = parse_loaded(&loaded)?;
+    let entity_path = solution
+        .project_root(project)
+        .join("Mashups")
+        .join(format!("{}.xml", request.name));
+    let dir = solution.src_root().join(&request.name).join("mashup");
+    let content_path = dir.join("content.json");
+    let css_path = dir.join("custom.css");
+    for path in [&entity_path, &content_path, &css_path] {
+        if path.symlink_metadata().is_ok() {
+            return Err(AuthoringError::Exists(format!(
+                "{} already exists",
+                path.display()
+            )));
+        }
+    }
+    // The source has already been checked by load_existing. Re-extracting proves the spliced
+    // XML still represents exactly the sidecars we will create.
+    let extracted = mashup::extract(&entity).map_err(AuthoringError::Mashup)?;
+    if extracted != loaded.assets {
+        return Err(AuthoringError::Refused(format!(
+            "{from}: copying its identity changed mashup content; twaco will not re-serialise it"
+        )));
+    }
+    Ok(NewPlan {
+        name: request.name.clone(),
+        project: project.name.clone(),
+        template: mashup::templates::layout("blank")
+            .expect("valid blank template")
+            .expect("embedded blank"),
+        master: false,
+        theme: String::new(),
+        visibility,
+        entity_path,
+        content_path,
+        css_path,
+        entity,
+        assets: loaded.assets,
+        widgets: document.widgets(),
+        menus: Vec::new(),
+        tabs: Vec::new(),
+    })
+}
+
+fn copied_entity(
+    src: &[u8],
+    name: &str,
+    project: &str,
+    visibility: &[Visibility],
+) -> Result<Vec<u8>, AuthoringError> {
+    let scanned = scan::scan(src)
+        .map_err(|e| AuthoringError::Unreadable(format!("mashup XML cannot be scanned: {e}")))?;
+    let tokens = &scanned.tokens;
+    let mashup = tokens
+        .iter()
+        .find(|token| token.kind == scan::Kind::Start && token.name.of(src) == b"Mashup")
+        .ok_or_else(|| AuthoringError::Refused("reference has no Mashup element".into()))?;
+    let mut edits = Vec::new();
+    for (attribute, value) in [
+        ("name", name),
+        ("projectName", project),
+        ("description", ""),
+    ] {
+        let span = scan::attribute(src, mashup, attribute)
+            .map_err(|e| AuthoringError::Unreadable(e.to_string()))?
+            .ok_or_else(|| {
+                AuthoringError::Refused(format!("reference Mashup has no {attribute} attribute"))
+            })?;
+        let escaped =
+            scan::escape_attribute(value).map_err(|e| AuthoringError::Invalid(e.to_string()))?;
+        edits.push(splice::Edit::new(span, escaped.into_bytes()));
+    }
+    // What the reference grants goes: every Principal inside its permission blocks, and a
+    // configuration table that names principals. The blocks themselves stay as Composer writes
+    // them (empty `<Create></Create>`, `<Visibility></Visibility>` and so on).
+    let mut inside_permissions = 0usize;
+    let mut principal_start: Option<usize> = None;
+    let mut table_start: Option<usize> = None;
+    let mut table_names_principal = false;
+    for (index, token) in tokens.iter().enumerate() {
+        let tag = token.name.of(src);
+        let permissions = matches!(
+            tag,
+            b"RunTimePermissions" | b"DesignTimePermissions" | b"VisibilityPermissions"
+        );
+        match token.kind {
+            scan::Kind::Start if permissions => inside_permissions += 1,
+            scan::Kind::End if permissions => {
+                inside_permissions = inside_permissions.saturating_sub(1)
+            }
+            scan::Kind::Start if inside_permissions > 0 && tag == b"Principal" => {
+                principal_start = Some(index)
+            }
+            scan::Kind::End if tag == b"Principal" => {
+                if let Some(start) = principal_start.take() {
+                    let span = scan::Span::new(tokens[start].span.start, token.span.end);
+                    edits.push(splice::Edit::new(span, Vec::new()));
+                }
+            }
+            scan::Kind::Empty if inside_permissions > 0 && tag == b"Principal" => {
+                edits.push(splice::Edit::new(token.span, Vec::new()));
+            }
+            scan::Kind::Start if inside_permissions == 0 && tag == b"ConfigurationTable" => {
+                table_start = Some(index);
+                table_names_principal = false;
+            }
+            // A Principal element in a table, not text that mentions one.
+            scan::Kind::Start | scan::Kind::Empty
+                if table_start.is_some() && tag == b"Principal" =>
+            {
+                table_names_principal = true
+            }
+            scan::Kind::End if tag == b"ConfigurationTable" => {
+                if let Some(start) = table_start.take() {
+                    if table_names_principal {
+                        let span = scan::Span::new(tokens[start].span.start, token.span.end);
+                        edits.push(splice::Edit::new(span, Vec::new()));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    if !visibility.is_empty() {
+        let at = tokens
+            .iter()
+            .find(|token| {
+                token.kind == scan::Kind::Start
+                    && token.name.of(src) == b"ConfigurationTableDefinitions"
+            })
+            .map(|token| token.span.start)
+            .ok_or_else(|| {
+                AuthoringError::Refused(
+                    "reference has no ConfigurationTableDefinitions insertion point for visibility"
+                        .into(),
+                )
+            })?;
+        let principals = visibility
+            .iter()
+            .map(|principal| {
+                Ok(format!(
+                    "\n                <Principal isPermitted=\"true\" name=\"{}\" type=\"{}\"></Principal>",
+                    scan::escape_attribute(&principal.name)
+                        .map_err(|e| AuthoringError::Invalid(e.to_string()))?,
+                    scan::escape_attribute(&principal.kind)
+                        .map_err(|e| AuthoringError::Invalid(e.to_string()))?,
+                ))
+            })
+            .collect::<Result<String, AuthoringError>>()?;
+        edits.push(splice::Edit::new(
+            scan::Span::new(at, at),
+            format!("            <VisibilityPermissions>{principals}\n            </VisibilityPermissions>\n            "),
+        ));
+    }
+    splice::splice(src, &edits)
+        .map_err(|e| AuthoringError::Refused(format!("reference XML cannot be copied safely: {e}")))
 }
 
 /// The content of a new mashup.

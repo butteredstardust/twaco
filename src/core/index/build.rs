@@ -424,6 +424,9 @@ impl Builder<'_> {
     fn finish(mut self, files: Vec<workspace::EntityFile>) -> Index {
         let deploy_order = match self.solution.deploy_order() {
             Ok(order) => order.iter().map(|project| project.name.clone()).collect(),
+            // A cycle has no deploy order: reports show none, and nothing in the solution is
+            // unreadable because of it.
+            Err(crate::core::config::ConfigError::DependencyCycle { .. }) => Vec::new(),
             Err(error) => {
                 self.unreadable.push(Unreadable {
                     what: crate::core::config::CONFIG_FILE.to_string(),

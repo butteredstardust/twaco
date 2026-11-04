@@ -3,6 +3,7 @@ use super::*;
 use crate::core::mashup::describe::mashup_parameters;
 use crate::core::mashup::edit::Placement;
 use crate::core::mashup::templates::Visibility;
+use crate::core::widgets;
 use serde_json::json;
 use std::path::Path;
 
@@ -42,6 +43,7 @@ fn request(name: &str) -> NewRequest {
         visibility: Vec::new(),
         params: Vec::new(),
         tabs: Vec::new(),
+        from: None,
     }
 }
 
@@ -85,6 +87,30 @@ fn a_blank_mashup_is_three_files_that_sync_agrees_with() {
     assert!(workspace::entities(&solution)
         .iter()
         .any(|e| e.info.collection == "Mashups" && e.info.name == "Acme.Orders_MU"));
+}
+
+#[test]
+fn copying_a_mashup_keeps_its_sidecars_and_content() {
+    let (_dir, solution) = one_project();
+    let source = plan_new(&solution, &request("Acme.Reference_MU")).unwrap();
+    apply_new(&solution, &source, &lock(&solution)).unwrap();
+    let mut copy = request("Acme.Copy_MU");
+    copy.from = Some("Acme.Reference_MU".into());
+    let plan = plan_new(&solution, &copy).unwrap();
+    assert_eq!(plan.assets, source.assets);
+    assert!(String::from_utf8_lossy(&plan.entity).contains("name=\"Acme.Copy_MU\""));
+    assert!(
+        String::from_utf8_lossy(&plan.entity).contains("<RunTimePermissions></RunTimePermissions>")
+    );
+    apply_new(&solution, &plan, &lock(&solution)).unwrap();
+    assert_eq!(
+        std::fs::read(source.content_path).unwrap(),
+        std::fs::read(plan.content_path).unwrap()
+    );
+    assert_eq!(
+        std::fs::read(source.css_path).unwrap(),
+        std::fs::read(plan.css_path).unwrap()
+    );
 }
 
 #[test]
@@ -714,6 +740,173 @@ fn add_request(mashup: &str, widget: &str) -> AddRequest {
         label: None,
         properties: Vec::new(),
     }
+}
+
+#[test]
+fn prop_parses_the_structured_values_composer_uses() {
+    let widget = |name| widgets::catalog().by_type(name).unwrap();
+    assert_eq!(
+        property_value(
+            widget("ptcsdropdown"),
+            "ItemMeta",
+            json!(r#"{"type":"text"}"#)
+        )
+        .unwrap(),
+        json!({"type": "text"})
+    );
+    assert_eq!(
+        property_value(widget("ptcstabset"), "Items", json!("[]")).unwrap(),
+        json!([])
+    );
+    assert_eq!(
+        property_value(
+            widget("ptcsgrid"),
+            "ColumnFormat",
+            json!(r#"{"formatInfo":[]}"#)
+        )
+        .unwrap(),
+        json!({"formatInfo": []})
+    );
+    assert_eq!(
+        property_value(
+            widget("ptcskpidial"),
+            "TargetFormat",
+            json!(r#"{"FieldName":"x"}"#)
+        )
+        .unwrap(),
+        json!({"FieldName": "x"})
+    );
+    assert_eq!(
+        property_value(
+            widget("ptcskpidial"),
+            "TargetFormat_StateParameters",
+            json!("[]")
+        )
+        .unwrap(),
+        json!([])
+    );
+    assert_eq!(
+        property_value(
+            widget("ptcsvaluedisplay"),
+            "ValueFormat",
+            json!(r#"{"FormatString":"0"}"#)
+        )
+        .unwrap(),
+        json!({"FormatString": "0"})
+    );
+    assert_eq!(
+        property_value(widget("ptcskpidial"), "ValueFormat", json!("0000.0")).unwrap(),
+        json!("0000.0")
+    );
+}
+
+#[test]
+fn structured_prop_errors_name_the_json_and_shape_needed() {
+    let dial = widgets::catalog().by_type("ptcskpidial").unwrap();
+    assert_eq!(
+        property_value(dial, "TargetFormat", json!("plain"))
+            .unwrap_err()
+            .to_string(),
+        "TargetFormat is structured; --prop TargetFormat=<JSON> needs valid JSON"
+    );
+    assert_eq!(
+        property_value(dial, "TargetFormat_StateParameters", json!(r#"{"x":1}"#))
+            .unwrap_err()
+            .to_string(),
+        "TargetFormat_StateParameters must be a JSON array"
+    );
+}
+
+#[test]
+fn cli_text_follows_the_default_type_when_there_is_no_base_type() {
+    let flex = widgets::catalog().by_type("flexcontainer").unwrap();
+    assert_eq!(
+        property_value(flex, "flex-grow", json!("2")).unwrap(),
+        json!(2)
+    );
+    assert_eq!(
+        property_value(flex, "flex-grow", json!("x"))
+            .unwrap_err()
+            .to_string(),
+        "flex-grow must be a JSON number"
+    );
+    let (name, default) = flex
+        .defaults
+        .iter()
+        .find(|(_, value)| value.is_boolean())
+        .expect("a flexcontainer boolean default");
+    let flipped = !default.as_bool().unwrap();
+    assert_eq!(
+        property_value(flex, name, json!(flipped.to_string())).unwrap(),
+        json!(flipped)
+    );
+}
+
+#[test]
+fn set_changes_a_flex_container_and_keeps_root_css_in_its_sidecar() {
+    let (_dir, solution) = one_project();
+    let name = "Acme.Orders_MU";
+    apply_new(
+        &solution,
+        &plan_new(&solution, &request(name)).unwrap(),
+        &lock(&solution),
+    )
+    .unwrap();
+    let set = plan_set(
+        &solution,
+        &SetRequest {
+            mashup: name.into(),
+            widget: "flexcontainer-2".into(),
+            properties: vec![
+                ("flex-grow".into(), json!(2)),
+                ("flex-direction".into(), json!("column")),
+                ("StyleProperties".into(), json!({"gap": "4px"})),
+            ],
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        set.changed.len(),
+        2,
+        "column is already the blank template's direction"
+    );
+    apply_edit(&solution, set.edit.as_ref().unwrap(), &lock(&solution)).unwrap();
+    let root = plan_set(
+        &solution,
+        &SetRequest {
+            mashup: name.into(),
+            widget: "mashup-root".into(),
+            properties: vec![
+                ("CustomClass".into(), json!("app")),
+                ("CustomMashupCss".into(), json!(".app { color: red; }")),
+            ],
+        },
+    )
+    .unwrap();
+    apply_edit(&solution, root.edit.as_ref().unwrap(), &lock(&solution)).unwrap();
+    let directory = solution.src_root().join("Acme.Orders_MU/mashup");
+    let content = std::fs::read_to_string(directory.join("content.json")).unwrap();
+    assert!(!content.contains("CustomMashupCss"), "{content}");
+    assert_eq!(
+        std::fs::read_to_string(directory.join("custom.css")).unwrap(),
+        ".app { color: red; }\n"
+    );
+    let entity = std::fs::read(solution.root.join("acme/Mashups/Acme.Orders_MU.xml")).unwrap();
+    assert_eq!(
+        mashup::extract(&entity).unwrap().css,
+        ".app { color: red; }\n"
+    );
+    let no_change = plan_set(
+        &solution,
+        &SetRequest {
+            mashup: name.into(),
+            widget: "mashup-root".into(),
+            properties: vec![("CustomClass".into(), json!("app"))],
+        },
+    )
+    .unwrap();
+    assert!(no_change.changed.is_empty());
+    assert!(no_change.edit.is_none());
 }
 
 #[test]
@@ -1946,7 +2139,13 @@ fn add_contained_beside_a_label_uses_the_normal_placement_rules() {
         .iter()
         .map(|widget| widget["Properties"]["Id"].as_str().unwrap())
         .collect::<Vec<_>>();
-    assert_eq!(ids, ["ptcslabel-3", "mashupcontainer-4"]);
+    // A contained mashup can fill, so it gets a container of its own beside the label's.
+    assert_eq!(ids, ["flexcontainer-5", "flexcontainer-6"]);
+    let row = &value["UI"]["Widgets"][0]["Widgets"];
+    assert_eq!(row[0]["Widgets"][0]["Properties"]["Id"], "ptcslabel-3");
+    let contained = &row[1]["Widgets"][0]["Properties"];
+    assert_eq!(contained["Id"], "mashupcontainer-4");
+    assert_eq!(contained["ResponsiveLayout"], true);
 }
 
 #[test]
@@ -4133,4 +4332,1009 @@ fn a_new_mashup_differing_only_in_case_is_refused() {
             .contains("already exists as Acme.Orders_MU, which ThingWorx takes for the same name"),
         "{error}"
     );
+}
+
+/// `bind_fixture` plus a ThingTemplate with GetLines, and THINGNAME `Manager` and NUMBER `Count`
+/// parameters on the mashup.
+fn source_fixture() -> (tempfile::TempDir, Solution) {
+    let (dir, solution) = bind_fixture();
+    write(
+        dir.path(),
+        "acme/ThingTemplates/Acme.Orders.Line_TT.xml",
+        r#"<Entities><ThingTemplates><ThingTemplate name="Acme.Orders.Line_TT" projectName="Acme" baseThingTemplate="GenericThing"><ThingShape><ServiceDefinitions>
+            <ServiceDefinition name="GetLines"><ResultType baseType="INFOTABLE" aspect.dataShape="Acme.Orders.Order_DS"/></ServiceDefinition>
+            </ServiceDefinitions><ServiceImplementations/></ThingShape></ThingTemplate></ThingTemplates></Entities>"#,
+    );
+    for (name, base) in [("Manager", "THINGNAME"), ("Count", "NUMBER")] {
+        let mut add = param_request("Acme.Orders_MU", ParameterAction::Add, name);
+        add.base_type = Some(base.into());
+        param(&solution, &add).unwrap();
+    }
+    (dir, solution)
+}
+
+fn source_request(entity: &str, service: &str) -> SourceAddRequest {
+    SourceAddRequest {
+        mashup: "Acme.Orders_MU".into(),
+        entity: entity.into(),
+        service: service.into(),
+        dynamic: false,
+        alias: None,
+        entity_from: None,
+        refresh: None,
+        cache: false,
+        cache_keys: Vec::new(),
+        cache_strategy: None,
+        max_result_sets: None,
+    }
+}
+
+fn add_source(
+    solution: &Solution,
+    request: &SourceAddRequest,
+) -> Result<SourceAddPlan, AuthoringError> {
+    let plan = plan_source_add(solution, request)?;
+    apply_edit(solution, &plan.edit, &lock(solution))?;
+    Ok(plan)
+}
+
+fn content_value(solution: &Solution) -> Value {
+    serde_json::from_str(&sidecar_content(solution)).unwrap()
+}
+
+fn problems(solution: &Solution) -> Vec<String> {
+    let mut found = Vec::new();
+    crate::core::mashup::validate::check_content(&sidecar_content(solution), &mut found);
+    found.into_iter().map(|problem| problem.rule).collect()
+}
+
+#[test]
+fn source_add_writes_each_kind_as_composer_does() {
+    let (_dir, solution) = source_fixture();
+    let mut dynamic_template = source_request("Acme.Orders.Line_TT", "GetLines");
+    dynamic_template.dynamic = true;
+    for (request, key, kind) in [
+        (
+            source_request("Acme.Orders.Manager", "GetOrders"),
+            "Things_Acme.Orders.Manager",
+            "Things",
+        ),
+        (
+            source_request("Acme.Orders.Line_TT", "GetLines"),
+            "ThingTemplates_Acme.Orders.Line_TT",
+            "ThingTemplates",
+        ),
+        (
+            dynamic_template,
+            "DynamicThingTemplates_Acme.Orders.Line_TT",
+            "DynamicThingTemplates",
+        ),
+        // A shape's call is dynamic without being asked.
+        (
+            source_request("Acme.Orders.Audit_TS", "GetLog"),
+            "DynamicThingShapes_Acme.Orders.Audit_TS",
+            "DynamicThingShapes",
+        ),
+    ] {
+        let plan = add_source(&solution, &request).unwrap();
+        assert_eq!(plan.section, key);
+        let section = &content_value(&solution)["Data"][key];
+        let keys: Vec<&String> = section.as_object().unwrap().keys().collect();
+        assert_eq!(
+            keys,
+            [
+                "DataName",
+                "EntityName",
+                "EntityType",
+                "Id",
+                "RefreshInterval",
+                "Services"
+            ]
+        );
+        assert_eq!(section["DataName"], key);
+        // Dynamic sections name their shape or template too, as Composer writes them.
+        assert_eq!(section["EntityName"], request.entity.as_str());
+        assert_eq!(section["EntityType"], kind);
+        let call = &section["Services"][0];
+        let keys: Vec<&String> = call.as_object().unwrap().keys().collect();
+        assert_eq!(
+            keys,
+            [
+                "APIMethod",
+                "Characteristic",
+                "Id",
+                "Name",
+                "Parameters",
+                "RefreshInterval",
+                "Target"
+            ]
+        );
+        assert_eq!(call["Name"], request.service.as_str());
+        assert_eq!(call["Target"], request.service.as_str());
+    }
+    let mut thing = source_request("Acme.Orders.Manager", "GetOrder");
+    thing.dynamic = true;
+    let error = plan_source_add(&solution, &thing).unwrap_err().to_string();
+    assert!(error.contains("leave out --dynamic"), "{error}");
+    let error = plan_source_add(&solution, &source_request("Acme.Orders.Order_DS", "x"))
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("Acme.Orders.Order_DS"), "{error}");
+    let error = plan_source_add(&solution, &source_request("Acme.Orders.Manager", "Nope"))
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("is not a service"), "{error}");
+}
+
+#[test]
+fn source_retarget_rewrites_data_bindings_and_events() {
+    let (dir, solution) = source_fixture();
+    write(
+        dir.path(),
+        "acme/Things/Acme.Orders.Replacement.xml",
+        r#"<Entities><Things><Thing name="Acme.Orders.Replacement" projectName="Acme"><ThingShape><ServiceDefinitions><ServiceDefinition name="GetOrders"><ResultType baseType="INFOTABLE" aspect.dataShape="Acme.Orders.Order_DS"/></ServiceDefinition></ServiceDefinitions></ThingShape></Thing></Things></Entities>"#,
+    );
+    add_source(
+        &solution,
+        &source_request("Acme.Orders.Manager", "GetOrders"),
+    )
+    .unwrap();
+    let binding = bind(
+        &solution,
+        "data:Acme.Orders.Manager.GetOrders",
+        "ui:ptcsgrid-5.Data",
+    )
+    .unwrap();
+    apply_edit(&solution, &binding.edit, &lock(&solution)).unwrap();
+    let event = on(
+        &solution,
+        "mashup:Loaded",
+        "data:Acme.Orders.Manager.GetOrders",
+    )
+    .unwrap();
+    apply_edit(&solution, &event.edit, &lock(&solution)).unwrap();
+    let plan = plan_source_retarget(
+        &solution,
+        &SourceRetargetRequest {
+            mashup: "Acme.Orders_MU".into(),
+            from: "Acme.Orders.Manager".into(),
+            to: "Acme.Orders.Replacement".into(),
+        },
+    )
+    .unwrap();
+    assert_eq!(plan.bindings_rewritten, 1);
+    assert_eq!(plan.events_rewritten, 1);
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    let value = content_value(&solution);
+    let key = "Things_Acme.Orders.Replacement";
+    assert_eq!(value["Data"][key]["DataName"], key);
+    assert_eq!(value["Data"][key]["EntityName"], "Acme.Orders.Replacement");
+    assert_eq!(value["DataBindings"][0]["SourceSection"], key);
+    assert_eq!(value["Events"][0]["EventHandlerId"], key);
+}
+
+#[test]
+fn entity_from_writes_the_call_and_its_entity_binding_in_one_edit() {
+    let (_dir, solution) = source_fixture();
+    let mut request = source_request("Acme.Orders.Audit_TS", "GetLog");
+    request.entity_from = Some("mashup:Missing".into());
+    let error = plan_source_add(&solution, &request)
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("twaco mashup param add Acme.Orders_MU Missing --type THINGNAME"),
+        "{error}"
+    );
+    request.entity_from = Some("mashup:Count".into());
+    let error = plan_source_add(&solution, &request)
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("is NUMBER; a dynamic source entity needs THINGNAME or STRING"),
+        "{error}"
+    );
+    let mut fixed = source_request("Acme.Orders.Manager", "GetOrders");
+    fixed.entity_from = Some("mashup:Manager".into());
+    let error = plan_source_add(&solution, &fixed).unwrap_err().to_string();
+    assert!(error.contains("runs on itself"), "{error}");
+    request.entity_from = Some("mashup:Manager".into());
+    add_source(&solution, &request).unwrap();
+    let value = content_value(&solution);
+    let binding = &value["DataBindings"][0];
+    assert_eq!(binding["SourceArea"], "Mashup");
+    assert_eq!(binding["SourceId"], "mashup-root");
+    assert_eq!(binding["TargetArea"], "Data");
+    assert_eq!(binding["TargetId"], "EntityName");
+    assert_eq!(
+        binding["TargetSection"],
+        "DynamicThingShapes_Acme.Orders.Audit_TS"
+    );
+    assert_eq!(
+        binding["PropertyMaps"][0],
+        json!({"SourceProperty": "Manager", "SourcePropertyBaseType": "THINGNAME",
+               "SourcePropertyType": "Property", "TargetProperty": "value",
+               "TargetPropertyBaseType": "THINGNAME", "TargetPropertyType": "Entity"})
+    );
+    // describe prints the address bind and unbind take, and the mashup is valid.
+    let described = crate::core::mashup::describe::describe(&solution, "Acme.Orders_MU").unwrap();
+    let rendered = crate::core::mashup::describe::render(&described);
+    assert!(
+        rendered.contains("mashup:Manager -> data:Acme.Orders.Audit_TS[EntityName]"),
+        "{rendered}"
+    );
+    assert!(problems(&solution).is_empty(), "{:?}", problems(&solution));
+    // One entity per section.
+    let error = bind(
+        &solution,
+        "mashup:Manager",
+        "data:Acme.Orders.Audit_TS[EntityName]",
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("already takes its entity"), "{error}");
+}
+
+#[test]
+fn calls_append_name_and_cache_as_composer_does() {
+    let (_dir, solution) = source_fixture();
+    add_source(
+        &solution,
+        &source_request("Acme.Orders.Manager", "GetOrders"),
+    )
+    .unwrap();
+    let second = plan_source_add(
+        &solution,
+        &source_request("Acme.Orders.Manager", "GetOrders"),
+    )
+    .unwrap()
+    .call;
+    assert_eq!(
+        second, "GetOrders_2",
+        "a second call of one service gets the next name"
+    );
+    let mut named = source_request("Acme.Orders.Manager", "GetOrder");
+    named.alias = Some("GetOrders".into());
+    assert_eq!(
+        plan_source_add(&solution, &named).unwrap_err().code(),
+        ErrorCode::AlreadyExists
+    );
+    let mut cached = source_request("Acme.Orders.Manager", "GetOrder");
+    cached.cache_keys = vec!["id".into()];
+    assert_eq!(
+        plan_source_add(&solution, &cached).unwrap_err().to_string(),
+        "cache options need --cache"
+    );
+    cached.cache = true;
+    cached.cache_keys = vec!["nope".into()];
+    let error = plan_source_add(&solution, &cached).unwrap_err().to_string();
+    assert!(error.contains("no parameter nope"), "{error}");
+    cached.cache_keys = vec!["id".into()];
+    cached.refresh = Some(30);
+    add_source(&solution, &cached).unwrap();
+    let value = content_value(&solution);
+    let section = &value["Data"]["Things_Acme.Orders.Manager"];
+    let calls = section["Services"].as_array().unwrap();
+    assert_eq!(calls.len(), 2, "one section, two calls");
+    assert_eq!(
+        calls[1]["Caching"],
+        json!({"cache": true, "cacheKeyParams": ["id"], "cacheStrategy": "INSTANCE", "maxResultSets": "10"})
+    );
+    assert_eq!(calls[1]["RefreshInterval"], 30);
+    assert_eq!(section["RefreshInterval"], 0);
+}
+
+#[test]
+fn dynamic_calls_need_their_entity_to_run() {
+    let (_dir, solution) = source_fixture();
+    // Without a call, bind points at source add.
+    let error = bind(
+        &solution,
+        "data:Acme.Orders.Audit_TS.GetLog",
+        "ui:ptcsgrid-5.Data",
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(
+        error.contains("add its call with twaco mashup source add"),
+        "{error}"
+    );
+    add_source(&solution, &source_request("Acme.Orders.Audit_TS", "GetLog")).unwrap();
+    let plan = bind(
+        &solution,
+        "data:Acme.Orders.Audit_TS.GetLog",
+        "ui:ptcsgrid-5.Data",
+    )
+    .unwrap();
+    assert!(
+        plan.warnings
+            .iter()
+            .any(|warning| warning.contains("has no EntityName binding")),
+        "{:?}",
+        plan.warnings
+    );
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    assert_eq!(problems(&solution), ["unbound-dynamic-entity"]);
+    let error = on(
+        &solution,
+        "mashup:Loaded",
+        "data:Acme.Orders.Audit_TS.GetLog",
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("has no EntityName binding"), "{error}");
+    // A static section's entity is fixed.
+    add_source(
+        &solution,
+        &source_request("Acme.Orders.Manager", "GetOrders"),
+    )
+    .unwrap();
+    let error = bind(
+        &solution,
+        "mashup:Manager",
+        "data:Acme.Orders.Manager[EntityName]",
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("is static"), "{error}");
+    let plan = bind(
+        &solution,
+        "mashup:Manager",
+        "data:Acme.Orders.Audit_TS[EntityName]",
+    )
+    .unwrap();
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    let plan = on(
+        &solution,
+        "mashup:Loaded",
+        "data:Acme.Orders.Audit_TS.GetLog",
+    )
+    .unwrap();
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    assert!(problems(&solution).is_empty(), "{:?}", problems(&solution));
+}
+
+#[test]
+fn an_entity_comes_from_a_result_field_and_an_alias_picks_the_section() {
+    let (_dir, solution) = source_fixture();
+    let mut dynamic = source_request("Acme.Orders.Line_TT", "GetLines");
+    dynamic.dynamic = true;
+    dynamic.alias = Some("lines".into());
+    add_source(&solution, &dynamic).unwrap();
+    let mut other = source_request("Acme.Orders.Line_TT", "GetLines");
+    other.dynamic = true;
+    other.alias = Some("more".into());
+    add_source(&solution, &other).unwrap();
+    // Two calls in one dynamic section: one section, so no [as] is needed for its entity.
+    let plan = bind(
+        &solution,
+        "data:Acme.Orders.Manager.GetOrders.note",
+        "data:Acme.Orders.Line_TT[EntityName]",
+    )
+    .unwrap();
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    let value = content_value(&solution);
+    let binding = value["DataBindings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|binding| binding["TargetId"] == "EntityName")
+        .unwrap()
+        .clone();
+    assert_eq!(
+        binding["TargetSection"],
+        "DynamicThingTemplates_Acme.Orders.Line_TT"
+    );
+    assert_eq!(binding["SourceArea"], "Data");
+    assert_eq!(binding["SourceSection"], "Things_Acme.Orders.Manager");
+    assert_eq!(
+        binding["PropertyMaps"][0]["SourcePropertyBaseType"],
+        "STRING"
+    );
+    // With a ThingShape's dynamic section and another for the same name absent, a wrong alias
+    // names no call.
+    let error = bind(
+        &solution,
+        "mashup:Manager",
+        "data:Acme.Orders.Audit_TS[as nothing][EntityName]",
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("no dynamic source"), "{error}");
+}
+
+#[test]
+fn source_remove_takes_the_entity_binding_with_the_last_call_only() {
+    let (_dir, solution) = source_fixture();
+    let mut request = source_request("Acme.Orders.Audit_TS", "GetLog");
+    request.entity_from = Some("mashup:Manager".into());
+    add_source(&solution, &request).unwrap();
+    request.entity_from = None;
+    request.alias = Some("log2".into());
+    add_source(&solution, &request).unwrap();
+    let plan = bind(
+        &solution,
+        "data:Acme.Orders.Audit_TS.GetLog[as log2]",
+        "ui:ptcsgrid-5.Data",
+    )
+    .unwrap();
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    let remove = |address: &str, cascade: bool| {
+        plan_source_remove(
+            &solution,
+            &SourceRemoveRequest {
+                mashup: "Acme.Orders_MU".into(),
+                address: address.into(),
+                cascade,
+            },
+        )
+    };
+    // GetLog has nothing of its own: removing it keeps the entity the other call needs.
+    let plan = remove("data:Acme.Orders.Audit_TS.GetLog[as GetLog]", false).unwrap();
+    assert_eq!((plan.bindings_removed, plan.events_removed), (0, 0));
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    assert_eq!(
+        content_value(&solution)["DataBindings"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    let error = remove("data:Acme.Orders.Audit_TS.GetLog", false)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("use --cascade"), "{error}");
+    let plan = remove("data:Acme.Orders.Audit_TS.GetLog", true).unwrap();
+    assert_eq!(
+        plan.bindings_removed, 2,
+        "its grid binding and the section's entity binding"
+    );
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    let value = content_value(&solution);
+    assert!(value["Data"]
+        .get("DynamicThingShapes_Acme.Orders.Audit_TS")
+        .is_none());
+    assert_eq!(value["DataBindings"], json!([]));
+}
+
+#[test]
+fn source_list_says_what_sets_each_entity_and_a_plan_writes_nothing() {
+    let (_dir, solution) = source_fixture();
+    let before = sidecar_content(&solution);
+    plan_source_add(
+        &solution,
+        &source_request("Acme.Orders.Manager", "GetOrders"),
+    )
+    .unwrap();
+    assert_eq!(sidecar_content(&solution), before, "a plan writes nothing");
+    add_source(
+        &solution,
+        &source_request("Acme.Orders.Manager", "GetOrders"),
+    )
+    .unwrap();
+    add_source(&solution, &source_request("Acme.Orders.Audit_TS", "GetLog")).unwrap();
+    let mut template = source_request("Acme.Orders.Line_TT", "GetLines");
+    template.dynamic = true;
+    template.entity_from = Some("mashup:Manager".into());
+    add_source(&solution, &template).unwrap();
+    let mut rows: Vec<(String, String, String)> = list_sources(&solution, "Acme.Orders_MU")
+        .unwrap()
+        .into_iter()
+        .map(|row| (row.kind, row.alias, row.entity_from))
+        .collect();
+    rows.sort();
+    let expected: Vec<(String, String, String)> = [
+        ("dynamic-shape", "GetLog", "UNBOUND"),
+        ("dynamic-template", "GetLines", "mashup:Manager"),
+        ("things", "GetOrders", "fixed"),
+    ]
+    .into_iter()
+    .map(|(a, b, c)| (a.into(), b.into(), c.into()))
+    .collect();
+    assert_eq!(rows, expected);
+}
+
+#[test]
+fn chart_series_fields_root_properties_and_fixed_icons_are_settable() {
+    let (_dir, solution) = one_project();
+    let name = "Acme.Orders_MU";
+    apply_new(
+        &solution,
+        &plan_new(&solution, &request(name)).unwrap(),
+        &lock(&solution),
+    )
+    .unwrap();
+    let mut add = add_request(name, "ptcschartcombo");
+    add.properties = vec![("DataField2".into(), "Speed".into())];
+    let chart = plan_add(&solution, &add).unwrap();
+    apply_edit(&solution, &chart.edit, &lock(&solution)).unwrap();
+    let id = chart.placed.id.clone();
+    let set = |widget: &str, properties: Vec<(&str, Value)>| {
+        plan_set(
+            &solution,
+            &SetRequest {
+                mashup: name.into(),
+                widget: widget.into(),
+                properties: properties
+                    .into_iter()
+                    .map(|(key, value)| (key.to_string(), value))
+                    .collect(),
+            },
+        )
+    };
+    // A series field exists for every series the chart has a label for, and no further.
+    let plan = set(&id, vec![("DataField3", json!("Battery"))]).unwrap();
+    assert_eq!(plan.changed[0].after, json!("Battery"));
+    let error = set(&id, vec![("DataField", json!("x"))])
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("has no property DataField"), "{error}");
+    let error = set(&id, vec![("DataField999", json!("x"))])
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("has no property DataField999"), "{error}");
+    // Fixed axis bounds are numbers, for the axes the chart has.
+    let plan = set(&id, vec![("YAxis1MinimumValue", json!("0"))]).unwrap();
+    assert_eq!(plan.changed[0].after, json!(0));
+    let error = set(&id, vec![("YAxis1MaximumValue", json!("high"))])
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("must be a JSON number"), "{error}");
+    let content: Value =
+        serde_json::from_slice(&chart.edit.sidecars.as_ref().unwrap().content_after).unwrap();
+    let document = mashup::edit::parse(&content.to_string()).unwrap();
+    let path = document.find(&id).unwrap().path;
+    assert_eq!(document.at(&path)["Properties"]["DataField2"], "Speed");
+    // The root takes Master and the scalar properties it has; parameters and twaco's keys no.
+    let plan = set(
+        "mashup-root",
+        vec![
+            ("Master", json!("Acme.Main_MM")),
+            ("Title", json!("Orders")),
+        ],
+    )
+    .unwrap();
+    assert_eq!(plan.changed.len(), 2);
+    let error = set("mashup-root", vec![("id_index", json!(9))])
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("not id_index"), "{error}");
+    let error = set("mashup-root", vec![("NoSuchThing", json!("x"))])
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("not NoSuchThing"), "{error}");
+    // A fixed container gets Composer's fixed icon, and loses it again.
+    let plan = set("flexcontainer-2", vec![("flex-size", json!("fixed"))]).unwrap();
+    let icon = plan
+        .changed
+        .iter()
+        .find(|change| change.property == "iconClass")
+        .unwrap();
+    assert_eq!(icon.after, "widgets-flexcontainer-fixed");
+    apply_edit(&solution, plan.edit.as_ref().unwrap(), &lock(&solution)).unwrap();
+    let plan = set("flexcontainer-2", vec![("flex-size", json!("default"))]).unwrap();
+    let icon = plan
+        .changed
+        .iter()
+        .find(|change| change.property == "iconClass")
+        .unwrap();
+    assert_eq!(icon.after, "widgets-flexcontainer");
+}
+
+#[test]
+fn root_parameter_defaults_are_set_through_mashup_param() {
+    let (_dir, solution) = source_fixture();
+    let error = plan_set(
+        &solution,
+        &SetRequest {
+            mashup: "Acme.Orders_MU".into(),
+            widget: "mashup-root".into(),
+            properties: vec![("Manager".into(), json!("Acme.Orders.Manager"))],
+        },
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("use mashup param set --default"), "{error}");
+}
+
+#[test]
+fn a_scalar_result_binds_as_its_result_field() {
+    let (dir, solution) = bind_fixture();
+    write(
+        dir.path(),
+        "acme/Things/Acme.Orders.Titles.xml",
+        r#"<Entities><Things><Thing name="Acme.Orders.Titles" projectName="Acme"><ThingShape><ServiceDefinitions>
+            <ServiceDefinition name="GetTitle"><ResultType baseType="STRING"/></ServiceDefinition>
+            </ServiceDefinitions><ServiceImplementations/></ThingShape></Thing></Things></Entities>"#,
+    );
+    let plan = bind(
+        &solution,
+        "data:Acme.Orders.Titles.GetTitle.result",
+        "ui:ptcslabel-4.LabelText",
+    )
+    .unwrap();
+    let value: Value =
+        serde_json::from_slice(&plan.edit.sidecars.as_ref().unwrap().content_after).unwrap();
+    let binding = &value["DataBindings"][0];
+    assert_eq!(binding["SourceDetails"], "AllData");
+    assert_eq!(
+        binding["PropertyMaps"][0],
+        json!({"SourceProperty": "result", "SourcePropertyBaseType": "STRING",
+               "SourcePropertyType": "Field", "TargetProperty": "LabelText",
+               "TargetPropertyBaseType": "STRING", "TargetPropertyType": "property"})
+    );
+    // An infotable result's fields come from its DataShape; `result` is not one of them.
+    let error = bind(
+        &solution,
+        "data:Acme.Orders.Manager.GetOrders.result",
+        "ui:ptcslabel-4.LabelText",
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("result"), "{error}");
+}
+
+#[test]
+fn strings_bind_into_entity_names_and_numbers_into_numbers() {
+    let (_dir, solution) = source_fixture();
+    // STRING into THINGNAME, NUMBER into LONG: ThingWorx carries both.
+    bind(&solution, "ui:ptcstextfield-3.Text", "mashup:Manager").unwrap();
+    bind(
+        &solution,
+        "mashup:Count",
+        "data:Acme.Orders.Manager.GetOrder.id",
+    )
+    .unwrap();
+    // Text is no number.
+    let error = bind(
+        &solution,
+        "ui:ptcstextfield-3.Text",
+        "data:Acme.Orders.Manager.SaveOrder.id",
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("is STRING but"), "{error}");
+}
+
+#[test]
+fn cache_strategies_are_composers_three() {
+    let (_dir, solution) = source_fixture();
+    let mut cached = source_request("Acme.Orders.Manager", "GetOrders");
+    cached.cache = true;
+    cached.cache_strategy = Some("INVALID".into());
+    let error = plan_source_add(&solution, &cached).unwrap_err().to_string();
+    assert!(
+        error.contains("INSTANCE, SESSION or USER, not INVALID"),
+        "{error}"
+    );
+    cached.cache_strategy = Some("SESSION".into());
+    let plan = plan_source_add(&solution, &cached).unwrap();
+    let value: Value =
+        serde_json::from_slice(&plan.edit.sidecars.as_ref().unwrap().content_after).unwrap();
+    assert_eq!(
+        value["Data"]["Things_Acme.Orders.Manager"]["Services"][0]["Caching"]["cacheStrategy"],
+        "SESSION"
+    );
+}
+
+#[test]
+fn source_remove_takes_only_a_call_address() {
+    let (_dir, solution) = source_fixture();
+    add_source(
+        &solution,
+        &source_request("Acme.Orders.Manager", "GetOrders"),
+    )
+    .unwrap();
+    for address in [
+        "data:Acme.Orders.Manager.GetOrders[SelectedRows].note",
+        "data:Acme.Orders.Manager.GetOrders.note",
+        "data:Acme.Orders.Manager[EntityName]",
+    ] {
+        let error = plan_source_remove(
+            &solution,
+            &SourceRemoveRequest {
+                mashup: "Acme.Orders_MU".into(),
+                address: address.into(),
+                cascade: true,
+            },
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(
+            error.contains("takes a data call address"),
+            "{address}: {error}"
+        );
+    }
+}
+
+#[test]
+fn an_entity_from_a_source_that_cannot_run_is_warned_or_refused() {
+    let (dir, solution) = source_fixture();
+    write(
+        dir.path(),
+        "acme/ThingShapes/Acme.Orders.Pick_TS.xml",
+        r#"<Entities><ThingShapes><ThingShape name="Acme.Orders.Pick_TS" projectName="Acme"><ServiceDefinitions>
+            <ServiceDefinition name="GetLine"><ResultType baseType="THINGNAME"/></ServiceDefinition>
+            </ServiceDefinitions></ThingShape></ThingShapes></Entities>"#,
+    );
+    // An unbound dynamic call's result naming another dynamic call's Thing.
+    add_source(&solution, &source_request("Acme.Orders.Pick_TS", "GetLine")).unwrap();
+    add_source(&solution, &source_request("Acme.Orders.Audit_TS", "GetLog")).unwrap();
+    let plan = bind(
+        &solution,
+        "data:Acme.Orders.Pick_TS.GetLine.result",
+        "data:Acme.Orders.Audit_TS[EntityName]",
+    )
+    .unwrap();
+    assert!(
+        plan.warnings.iter().any(|warning| warning
+            .contains("DynamicThingShapes_Acme.Orders.Pick_TS has no EntityName binding")),
+        "{:?}",
+        plan.warnings
+    );
+    let mut request = source_request("Acme.Orders.Line_TT", "GetLines");
+    request.dynamic = true;
+    request.entity_from = Some("data:Acme.Orders.Pick_TS.GetLine.result".into());
+    let error = plan_source_add(&solution, &request)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("cannot run until one is added"), "{error}");
+}
+
+#[test]
+fn a_copy_changes_only_identity_and_drops_permissions() {
+    let (dir, solution) = one_project();
+    let source = plan_new(&solution, &request("Acme.Reference_MU")).unwrap();
+    apply_new(&solution, &source, &lock(&solution)).unwrap();
+    // The reference carries a description and run-time permissions.
+    let path = source.entity_path.clone();
+    let xml = std::fs::read_to_string(&path).unwrap();
+    let described = xml.replacen("description=\"\"", "description=\"Orders board\"", 1);
+    let with_permissions = described.replacen(
+        "<RunTimePermissions></RunTimePermissions>",
+        "<RunTimePermissions><Permissions resourceName=\"*\"><PropertyRead><Principal isPermitted=\"true\" name=\"Acme.Users\" type=\"Group\"></Principal></PropertyRead></Permissions></RunTimePermissions>",
+        1,
+    );
+    assert_ne!(with_permissions, xml, "the fixture edits applied");
+    std::fs::write(&path, &with_permissions).unwrap();
+    let _ = dir;
+    let mut copy = request("Acme.Copy_MU");
+    copy.from = Some("Acme.Reference_MU".into());
+    let plan = plan_new(&solution, &copy).unwrap();
+    let copied = String::from_utf8(plan.entity.clone()).unwrap();
+    assert!(
+        !copied.contains("Acme.Users"),
+        "what the reference granted is gone"
+    );
+    assert!(copied.contains("<RunTimePermissions><Permissions resourceName=\"*\"><PropertyRead></PropertyRead></Permissions></RunTimePermissions>"));
+    assert!(!copied.contains("Orders board"));
+    // Undo the identity change: what is left is the reference without its permissions.
+    let expected = with_permissions
+        .replacen("name=\"Acme.Reference_MU\"", "name=\"Acme.Copy_MU\"", 1)
+        .replacen("description=\"Orders board\"", "description=\"\"", 1)
+        .replacen(
+            "<Principal isPermitted=\"true\" name=\"Acme.Users\" type=\"Group\"></Principal>",
+            "",
+            1,
+        );
+    assert_eq!(copied, expected);
+    // A plan writes nothing.
+    assert!(!plan.entity_path.exists());
+    apply_new(&solution, &plan, &lock(&solution)).unwrap();
+    let diff = crate::core::mashup::diff::diff(
+        &solution,
+        "Acme.Reference_MU",
+        "Acme.Copy_MU",
+        crate::core::mashup::diff::Tier::All,
+    )
+    .unwrap();
+    assert!(diff.equal, "{:?}", diff.differences);
+    // The name is now taken.
+    let error = plan_new(&solution, &copy).unwrap_err();
+    assert_eq!(error.code(), ErrorCode::AlreadyExists, "{error}");
+}
+
+#[test]
+fn a_copy_refuses_flags_that_shape_a_new_mashup() {
+    let (_dir, solution) = one_project();
+    let source = plan_new(&solution, &request("Acme.Reference_MU")).unwrap();
+    apply_new(&solution, &source, &lock(&solution)).unwrap();
+    let mut copy = request("Acme.Copy_MU");
+    copy.from = Some("Acme.Reference_MU".into());
+    copy.params = vec!["id:LONG".into()];
+    let error = plan_new(&solution, &copy).unwrap_err().to_string();
+    assert!(error.contains("--param cannot be combined"), "{error}");
+    copy.params.clear();
+    copy.template = "sidebar".into();
+    let error = plan_new(&solution, &copy).unwrap_err().to_string();
+    assert!(error.contains("--template cannot be combined"), "{error}");
+    copy.template = "blank".into();
+    copy.from = Some("Acme.Missing_MU".into());
+    assert!(plan_new(&solution, &copy).is_err());
+}
+
+#[test]
+fn retarget_keeps_a_dynamic_entity_and_refuses_what_the_new_entity_lacks() {
+    let (dir, solution) = source_fixture();
+    write(
+        dir.path(),
+        "acme/ThingShapes/Acme.Orders.Other_TS.xml",
+        r#"<Entities><ThingShapes><ThingShape name="Acme.Orders.Other_TS" projectName="Acme"><ServiceDefinitions>
+            <ServiceDefinition name="GetLog"><ResultType baseType="INFOTABLE" aspect.dataShape="Acme.Orders.Order_DS"/></ServiceDefinition>
+            </ServiceDefinitions></ThingShape></ThingShapes></Entities>"#,
+    );
+    write(
+        dir.path(),
+        "acme/ThingShapes/Acme.Orders.Bare_TS.xml",
+        r#"<Entities><ThingShapes><ThingShape name="Acme.Orders.Bare_TS" projectName="Acme"><ServiceDefinitions>
+            </ServiceDefinitions></ThingShape></ThingShapes></Entities>"#,
+    );
+    let mut request = source_request("Acme.Orders.Audit_TS", "GetLog");
+    request.entity_from = Some("mashup:Manager".into());
+    add_source(&solution, &request).unwrap();
+    let retarget = |from: &str, to: &str| {
+        plan_source_retarget(
+            &solution,
+            &SourceRetargetRequest {
+                mashup: "Acme.Orders_MU".into(),
+                from: from.into(),
+                to: to.into(),
+            },
+        )
+    };
+    let error = retarget("Acme.Orders.Audit_TS", "Acme.Orders.Bare_TS")
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("Acme.Orders.Bare_TS has no service GetLog"),
+        "{error}"
+    );
+    let error = retarget("Acme.Orders.Audit_TS", "Acme.Orders.Manager")
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("matching Thing, ThingTemplate or ThingShape"),
+        "{error}"
+    );
+    let before = sidecar_content(&solution);
+    let plan = retarget("Acme.Orders.Audit_TS", "Acme.Orders.Other_TS").unwrap();
+    assert!(plan.dynamic);
+    assert_eq!(sidecar_content(&solution), before, "a plan writes nothing");
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    let value = content_value(&solution);
+    let key = "DynamicThingShapes_Acme.Orders.Other_TS";
+    assert_eq!(value["Data"][key]["EntityName"], "Acme.Orders.Other_TS");
+    assert_eq!(
+        value["DataBindings"][0]["TargetSection"], key,
+        "the Manager still names its Thing"
+    );
+    assert!(problems(&solution).is_empty(), "{:?}", problems(&solution));
+    // Back again would collide with nothing; onto an existing section is refused.
+    add_source(&solution, &source_request("Acme.Orders.Audit_TS", "GetLog")).unwrap();
+    let error = retarget("Acme.Orders.Audit_TS", "Acme.Orders.Other_TS")
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("already exists"), "{error}");
+}
+
+#[test]
+fn retarget_refuses_a_parameter_of_another_type() {
+    let (dir, solution) = source_fixture();
+    write(
+        dir.path(),
+        "acme/Things/Acme.Orders.Textual.xml",
+        r#"<Entities><Things><Thing name="Acme.Orders.Textual" projectName="Acme"><ThingShape><ServiceDefinitions>
+            <ServiceDefinition name="GetOrder"><ParameterDefinitions><FieldDefinition name="id" baseType="BOOLEAN"/></ParameterDefinitions><ResultType baseType="INFOTABLE" aspect.dataShape="Acme.Orders.Order_DS"/></ServiceDefinition>
+            </ServiceDefinitions><ServiceImplementations/></ThingShape></Thing></Things></Entities>"#,
+    );
+    add_source(
+        &solution,
+        &source_request("Acme.Orders.Manager", "GetOrder"),
+    )
+    .unwrap();
+    let plan = bind(
+        &solution,
+        "mashup:Count",
+        "data:Acme.Orders.Manager.GetOrder.id",
+    )
+    .unwrap();
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    let error = plan_source_retarget(
+        &solution,
+        &SourceRetargetRequest {
+            mashup: "Acme.Orders_MU".into(),
+            from: "Acme.Orders.Manager".into(),
+            to: "Acme.Orders.Textual".into(),
+        },
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(
+        error.contains("parameter id is BOOLEAN, not NUMBER"),
+        "{error}"
+    );
+}
+
+#[test]
+fn retarget_accepts_what_bind_accepts_and_checks_values_the_call_sets() {
+    let (dir, solution) = source_fixture();
+    // GetOrder(id LONG) moves to a Thing whose GetOrder takes a NUMBER id: a number fits.
+    write(
+        dir.path(),
+        "acme/Things/Acme.Orders.Numeric.xml",
+        r#"<Entities><Things><Thing name="Acme.Orders.Numeric" projectName="Acme"><ThingShape><ServiceDefinitions>
+            <ServiceDefinition name="GetOrder"><ParameterDefinitions><FieldDefinition name="id" baseType="NUMBER"/></ParameterDefinitions><ResultType baseType="INFOTABLE" aspect.dataShape="Acme.Orders.Order_DS"/></ServiceDefinition>
+            </ServiceDefinitions><ServiceImplementations/></ThingShape></Thing></Things></Entities>"#,
+    );
+    add_source(
+        &solution,
+        &source_request("Acme.Orders.Manager", "GetOrder"),
+    )
+    .unwrap();
+    let plan = bind(
+        &solution,
+        "mashup:Count",
+        "data:Acme.Orders.Manager.GetOrder.id",
+    )
+    .unwrap();
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    let retarget = |to: &str| {
+        plan_source_retarget(
+            &solution,
+            &SourceRetargetRequest {
+                mashup: "Acme.Orders_MU".into(),
+                from: "Acme.Orders.Manager".into(),
+                to: to.into(),
+            },
+        )
+    };
+    retarget("Acme.Orders.Numeric").unwrap();
+    // A value the call sets itself must suit the new type.
+    let content_path = solution
+        .src_root()
+        .join("Acme.Orders_MU/mashup/content.json");
+    let mut value: Value = serde_json::from_str(&sidecar_content(&solution)).unwrap();
+    value["Data"]["Things_Acme.Orders.Manager"]["Services"][0]["Parameters"] = json!({"id": "abc"});
+    std::fs::write(&content_path, serde_json::to_string_pretty(&value).unwrap()).unwrap();
+    // As `twaco sync` would: splice the edited content into the entity.
+    let entity_path = dir.path().join("acme/Mashups/Acme.Orders_MU.xml");
+    let assets = workspace::read_mashup(&solution.src_root().join("Acme.Orders_MU/mashup"))
+        .unwrap()
+        .unwrap();
+    let (synced, _) =
+        crate::core::mashup::sync(&std::fs::read(&entity_path).unwrap(), &assets).unwrap();
+    std::fs::write(&entity_path, synced).unwrap();
+    let error = retarget("Acme.Orders.Numeric").unwrap_err().to_string();
+    assert!(
+        error.contains("parameter id is NUMBER; the call sets it to \"abc\""),
+        "{error}"
+    );
+}
+
+#[test]
+fn a_copy_escapes_its_names_and_keeps_tables_that_only_mention_principals() {
+    let (_dir, solution) = one_project();
+    let source = plan_new(&solution, &request("Acme.Reference_MU")).unwrap();
+    apply_new(&solution, &source, &lock(&solution)).unwrap();
+    // A table whose text mentions a Principal grants nothing.
+    let xml = std::fs::read_to_string(&source.entity_path).unwrap();
+    let mentioned = xml.replacen(
+        "<iosShortcutIconTitle></iosShortcutIconTitle>",
+        "<iosShortcutIconTitle><![CDATA[<Principal> docs]]></iosShortcutIconTitle>",
+        1,
+    );
+    assert_ne!(mentioned, xml);
+    std::fs::write(&source.entity_path, &mentioned).unwrap();
+    let mut copy = request("Acme.R&D_MU");
+    copy.from = Some("Acme.Reference_MU".into());
+    let plan = plan_new(&solution, &copy).unwrap();
+    let copied = String::from_utf8(plan.entity.clone()).unwrap();
+    assert!(
+        copied.contains("name=\"Acme.R&amp;D_MU\""),
+        "the name is escaped"
+    );
+    assert!(
+        copied.contains("name=\"MobileSettings\""),
+        "the table stays"
+    );
+    assert!(copied.contains("<Principal> docs"));
 }

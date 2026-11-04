@@ -258,6 +258,47 @@ fn mashup_add_plan_and_apply_match_mcp() {
 }
 
 #[test]
+fn mashup_diff_matches_mcp_and_uses_selected_tier_for_exit_status() {
+    let cli_scratch = prepared_mashup();
+    let mcp_scratch = prepared_mashup();
+    cli_scratch.ok(&["mashup", "new", "Acme.Other_MU", "--apply"]);
+    cli_scratch.ok(&["mashup", "add", "Acme.Other_MU", "button", "--apply"]);
+    mcp_scratch.ok(&["mashup", "new", "Acme.Other_MU", "--apply"]);
+    mcp_scratch.ok(&["mashup", "add", "Acme.Other_MU", "button", "--apply"]);
+    let cli = cli_scratch.cli_json(&[
+        "mashup",
+        "diff",
+        "Acme.Orders_MU",
+        "Acme.Other_MU",
+        "--tier",
+        "visual",
+        "--json",
+    ]);
+    let mcp = mcp_scratch.mcp(
+        "mashup_diff",
+        json!({"mashup_a":"Acme.Orders_MU", "mashup_b":"Acme.Other_MU", "tier":"visual"}),
+    );
+    assert_agree(
+        "mashup diff",
+        cli,
+        mcp,
+        &["a", "b", "tier", "equal", "summary", "differences"],
+        cli_scratch.tree(),
+        mcp_scratch.tree(),
+    );
+    let layout = cli_scratch.run(&[
+        "mashup",
+        "diff",
+        "Acme.Orders_MU",
+        "Acme.Other_MU",
+        "--tier",
+        "layout",
+        "--json",
+    ]);
+    assert_eq!(layout.status.code(), Some(1));
+}
+
+#[test]
 fn sync_check_matches_mcp() {
     sync_case(
         "check",

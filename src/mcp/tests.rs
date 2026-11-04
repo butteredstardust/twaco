@@ -1170,8 +1170,13 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
             "mashup_new",
             "mashup_templates",
             "mashup_add",
+            "mashup_set",
             "mashup_add_contained",
             "mashup_bind",
+            "mashup_source_add",
+            "mashup_source_retarget",
+            "mashup_source_list",
+            "mashup_source_remove",
             "mashup_on",
             "mashup_remove",
             "mashup_unbind",
@@ -1182,6 +1187,7 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
             "mashup_event",
             "mashup_validate",
             "mashup_describe",
+            "mashup_diff",
             "reproject",
             "retemplate",
             "config_table",
@@ -1248,8 +1254,12 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
         "entity_edit",
         "mashup_new",
         "mashup_add",
+        "mashup_set",
         "mashup_add_contained",
         "mashup_bind",
+        "mashup_source_add",
+        "mashup_source_retarget",
+        "mashup_source_remove",
         "mashup_on",
         "mashup_remove",
         "mashup_unbind",
@@ -2281,8 +2291,16 @@ fn what_the_offline_tools_return_fits_the_output_schema_they_publish() {
         ("mashup_validate", json!({"all": true})),
         ("mashup_describe", json!({"mashup": "P.Board_MU"})),
         (
+            "mashup_diff",
+            json!({"mashup_a": "P.Board_MU", "mashup_b": "P.Board_MU"}),
+        ),
+        (
             "mashup_add",
             json!({"mashup": "P.Board_MU", "widget": "button"}),
+        ),
+        (
+            "mashup_set",
+            json!({"mashup": "P.Board_MU", "widget": "mashup-root", "properties": {"StyleProperties": {"gap": "4px"}}}),
         ),
         (
             "mashup_add_contained",
@@ -3295,6 +3313,70 @@ fn mashup_bind_adds_a_thing_call_after_creating_a_grid() {
         bound["structuredContent"]["new_source"],
         "Acme.Orders.Manager.GetOrders"
     );
+}
+
+#[test]
+fn mashup_source_tools_add_list_and_remove_a_dynamic_call() {
+    let (_dir, root) = solution_dir();
+    std::fs::create_dir_all(root.join("ThingShapes")).unwrap();
+    std::fs::write(
+        root.join("ThingShapes/Acme.Orders_TS.xml"),
+        r#"<Entities><ThingShapes><ThingShape name="Acme.Orders_TS" projectName="P"><ServiceDefinitions><ServiceDefinition name="GetOrders"><ResultType baseType="INFOTABLE"/></ServiceDefinition></ServiceDefinitions></ThingShape></ThingShapes></Entities>"#,
+    )
+    .unwrap();
+    let new = call(
+        &root,
+        "mashup_new",
+        json!({"name": "Acme.Orders_MU", "params": ["Manager:THINGNAME"], "dry_run": false}),
+    );
+    assert_eq!(new["isError"], false, "{new}");
+    let arguments = json!({"mashup": "Acme.Orders_MU", "entity": "Acme.Orders_TS",
+        "service": "GetOrders", "alias": "orders", "entity_from": "mashup:Manager"});
+    let planned = call(&root, "mashup_source_add", arguments.clone());
+    assert_eq!(planned["isError"], false, "{planned}");
+    assert_eq!(planned["structuredContent"]["dry_run"], true);
+    let listed = call(
+        &root,
+        "mashup_source_list",
+        json!({"mashup": "Acme.Orders_MU"}),
+    );
+    assert_eq!(
+        listed["structuredContent"]["sources"],
+        json!([]),
+        "a dry run writes nothing"
+    );
+    let mut apply = arguments;
+    apply["dry_run"] = json!(false);
+    let applied = call(&root, "mashup_source_add", apply);
+    assert_eq!(applied["isError"], false, "{applied}");
+    assert_eq!(
+        applied["structuredContent"]["section"],
+        "DynamicThingShapes_Acme.Orders_TS"
+    );
+    let listed = call(
+        &root,
+        "mashup_source_list",
+        json!({"mashup": "Acme.Orders_MU"}),
+    );
+    assert_eq!(
+        listed["structuredContent"]["sources"],
+        json!([{"kind": "dynamic-shape", "entity": "Acme.Orders_TS", "service": "GetOrders",
+            "alias": "orders", "entity_from": "mashup:Manager", "refresh": 0, "cache": false}])
+    );
+    let removed = call(
+        &root,
+        "mashup_source_remove",
+        json!({"mashup": "Acme.Orders_MU", "address": "data:Acme.Orders_TS.GetOrders[as orders]",
+            "cascade": true, "dry_run": false}),
+    );
+    assert_eq!(removed["isError"], false, "{removed}");
+    assert_eq!(removed["structuredContent"]["bindings_removed"], 1);
+    let listed = call(
+        &root,
+        "mashup_source_list",
+        json!({"mashup": "Acme.Orders_MU"}),
+    );
+    assert_eq!(listed["structuredContent"]["sources"], json!([]));
 }
 
 #[test]

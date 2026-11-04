@@ -43,9 +43,10 @@ use cli::lint::lint;
 use cli::localization::localization_cmd;
 use cli::mashup::{
     mashup_add_cmd, mashup_add_contained_cmd, mashup_bind_cmd, mashup_describe_cmd,
-    mashup_event_cmd, mashup_new_cmd, mashup_off_cmd, mashup_on_cmd, mashup_param_cmd,
-    mashup_recipe_cmd, mashup_remove_cmd, mashup_templates_cmd, mashup_unbind_cmd,
-    mashup_validate_cmd, Mashup,
+    mashup_diff_cmd, mashup_event_cmd, mashup_new_cmd, mashup_off_cmd, mashup_on_cmd,
+    mashup_param_cmd, mashup_recipe_cmd, mashup_remove_cmd, mashup_set_cmd, mashup_source_add_cmd,
+    mashup_source_list_cmd, mashup_source_remove_cmd, mashup_source_retarget_cmd,
+    mashup_templates_cmd, mashup_unbind_cmd, mashup_validate_cmd, Mashup, MashupSourceCommand,
 };
 use cli::network::network_cmd;
 use cli::refactor::{
@@ -273,6 +274,15 @@ fn dispatch(command: Command) -> u8 {
         Command::Mashup(Mashup::Templates(templates)) => mashup_templates_cmd(&templates),
         Command::Mashup(mashup) => run(|solution| match &mashup {
             Mashup::Add(add) => mashup_add_cmd(solution, add),
+            Mashup::Set(set) => mashup_set_cmd(solution, set),
+            Mashup::Source(source) => match &source.command {
+                MashupSourceCommand::Add(add) => mashup_source_add_cmd(solution, add),
+                MashupSourceCommand::List(list) => mashup_source_list_cmd(solution, list),
+                MashupSourceCommand::Remove(remove) => mashup_source_remove_cmd(solution, remove),
+                MashupSourceCommand::Retarget(retarget) => {
+                    mashup_source_retarget_cmd(solution, retarget)
+                }
+            },
             Mashup::AddContained(add) => mashup_add_contained_cmd(solution, add),
             Mashup::Bind(bind) => mashup_bind_cmd(solution, bind),
             Mashup::On(on) => mashup_on_cmd(solution, on),
@@ -284,6 +294,7 @@ fn dispatch(command: Command) -> u8 {
             Mashup::Recipe(recipe) => mashup_recipe_cmd(solution, recipe),
             Mashup::New(new) => mashup_new_cmd(solution, new),
             Mashup::Describe(describe) => mashup_describe_cmd(solution, describe),
+            Mashup::Diff(diff) => mashup_diff_cmd(solution, diff),
             Mashup::Validate(validate) => mashup_validate_cmd(solution, validate),
             Mashup::Templates(_) => unreachable!("the templates need no solution"),
         }),

@@ -11,7 +11,10 @@ use twaco::core::mashup::edit::{Placement, Side};
 pub(crate) enum Mashup {
     Validate(MashupValidate),
     Describe(MashupDescribe),
+    Diff(MashupDiff),
     Add(MashupAdd),
+    Set(MashupSet),
+    Source(MashupSource),
     AddContained(MashupAddContained),
     Bind(MashupBind),
     On(MashupOn),
@@ -31,7 +34,10 @@ impl Mashup {
         match self {
             Mashup::Validate(_) => "mashup validate",
             Mashup::Describe(_) => "mashup describe",
+            Mashup::Diff(_) => "mashup diff",
             Mashup::Add(_) => "mashup add",
+            Mashup::Set(_) => "mashup set",
+            Mashup::Source(source) => source.path(),
             Mashup::AddContained(_) => "mashup add-contained",
             Mashup::Bind(_) => "mashup bind",
             Mashup::On(_) => "mashup on",
@@ -45,6 +51,90 @@ impl Mashup {
             Mashup::New(_) => "mashup new",
         }
     }
+}
+
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct MashupSource {
+    #[command(subcommand)]
+    pub(crate) command: MashupSourceCommand,
+}
+impl MashupSource {
+    fn path(&self) -> &'static str {
+        match self.command {
+            MashupSourceCommand::Add(_) => "mashup source add",
+            MashupSourceCommand::List(_) => "mashup source list",
+            MashupSourceCommand::Remove(_) => "mashup source remove",
+            MashupSourceCommand::Retarget(_) => "mashup source retarget",
+        }
+    }
+}
+#[derive(Debug, clap::Subcommand)]
+pub(crate) enum MashupSourceCommand {
+    Add(MashupSourceAdd),
+    List(MashupSourceList),
+    Remove(MashupSourceRemove),
+    Retarget(MashupSourceRetarget),
+}
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct MashupSourceAdd {
+    #[arg(long = "dynamic")]
+    pub(crate) dynamic: bool,
+    #[arg(long = "as", value_name = "new")]
+    pub(crate) alias: Option<String>,
+    #[arg(long = "entity-from", value_name = "address")]
+    pub(crate) entity_from: Option<String>,
+    #[arg(long = "every", value_name = "seconds")]
+    pub(crate) every: Option<u32>,
+    #[arg(long = "cache")]
+    pub(crate) cache: bool,
+    #[arg(long = "cache-key", value_name = "parameter")]
+    pub(crate) cache_keys: Vec<String>,
+    #[arg(long = "cache-strategy", value_name = "INSTANCE|SESSION|USER")]
+    pub(crate) cache_strategy: Option<String>,
+    #[arg(long = "max-result-sets", value_name = "n")]
+    pub(crate) max_result_sets: Option<u32>,
+    #[command(flatten)]
+    pub(crate) apply: Apply,
+    #[command(flatten)]
+    pub(crate) json: Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct MashupSourceList {
+    #[command(flatten)]
+    pub(crate) json: Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct MashupSourceRemove {
+    #[arg(long = "cascade")]
+    pub(crate) cascade: bool,
+    #[command(flatten)]
+    pub(crate) apply: Apply,
+    #[command(flatten)]
+    pub(crate) json: Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct MashupSourceRetarget {
+    #[arg(long = "from", value_name = "address")]
+    pub(crate) from: Option<String>,
+    #[arg(long = "to", value_name = "address")]
+    pub(crate) to: Option<String>,
+    #[command(flatten)]
+    pub(crate) apply: Apply,
+    #[command(flatten)]
+    pub(crate) json: Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
 }
 
 /// `twaco mashup validate <mashup>|--all`.
@@ -61,6 +151,18 @@ pub(crate) struct MashupValidate {
 #[derive(Debug, clap::Args)]
 #[group(skip)]
 pub(crate) struct MashupDescribe {
+    #[command(flatten)]
+    pub(crate) json: Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
+/// `twaco mashup diff <a> <b>`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct MashupDiff {
+    #[arg(long = "tier", value_name = "tier")]
+    pub(crate) tier: Option<String>,
     #[command(flatten)]
     pub(crate) json: Json,
     #[arg(id = "operands", value_name = "operand")]
@@ -95,6 +197,20 @@ pub(crate) struct MashupAdd {
     pub(crate) props: Vec<String>,
     #[arg(long = "input", value_name = "name:TYPE")]
     pub(crate) inputs: Vec<String>,
+    #[command(flatten)]
+    pub(crate) apply: Apply,
+    #[command(flatten)]
+    pub(crate) json: Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
+/// `twaco mashup set <mashup> <widget>`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct MashupSet {
+    #[arg(long = "prop", value_name = "name=value")]
+    pub(crate) props: Vec<String>,
     #[command(flatten)]
     pub(crate) apply: Apply,
     #[command(flatten)]
@@ -325,6 +441,8 @@ pub(crate) struct MashupNew {
     pub(crate) project: Project,
     #[arg(long = "template", value_name = "name")]
     pub(crate) template: Option<String>,
+    #[arg(long = "from", value_name = "address")]
+    pub(crate) from: Option<String>,
     #[arg(long = "layout", value_name = "layout")]
     pub(crate) layout: Option<String>,
     #[arg(long = "primary-menu", value_name = "address")]
@@ -359,6 +477,23 @@ pub(crate) fn mashup_new_cmd(solution: &Solution, args: &MashupNew) -> u8 {
         eprintln!("{} give --template or --layout, not both", style::prefix());
         return FAILED;
     }
+    if args.from.is_some() {
+        for (flag, present) in [
+            ("--template", args.template.is_some()),
+            ("--layout", args.layout.is_some()),
+            ("--master", args.master),
+            ("--param", !args.params.is_empty()),
+            ("--tab", !args.tabs.is_empty()),
+            ("--primary-menu", args.primary_menu.is_some()),
+            ("--secondary-menu", args.secondary_menu.is_some()),
+            ("--theme", args.theme.is_some()),
+        ] {
+            if present {
+                eprintln!("{} --from cannot be used with {flag}", style::prefix());
+                return FAILED;
+            }
+        }
+    }
     let template = args
         .template
         .as_ref()
@@ -378,6 +513,7 @@ pub(crate) fn mashup_new_cmd(solution: &Solution, args: &MashupNew) -> u8 {
             visibility: args.visibility.clone(),
             params: args.params.clone(),
             tabs: args.tabs.clone(),
+            from: args.from.clone(),
         },
         mode: if apply { Mode::Apply } else { Mode::Plan },
         lock_label: "mashup new",
@@ -982,6 +1118,94 @@ pub(crate) fn mashup_add_cmd(solution: &Solution, args: &MashupAdd) -> u8 {
     OK
 }
 
+/// `twaco mashup set <mashup> <widget>`: set checked widget properties in one edit.
+pub(crate) fn mashup_set_cmd(solution: &Solution, args: &MashupSet) -> u8 {
+    let [mashup_name, widget] = args.operands.as_slice() else {
+        eprintln!("{} mashup set needs <mashup> and <widget>", style::prefix());
+        return FAILED;
+    };
+    let properties = match args
+        .props
+        .iter()
+        .map(|text| {
+            text.split_once('=')
+                .map(|(name, value)| {
+                    (
+                        name.to_string(),
+                        serde_json::Value::String(value.to_string()),
+                    )
+                })
+                .ok_or_else(|| format!("--prop {text:?} must be Name=value"))
+        })
+        .collect::<Result<Vec<_>, _>>()
+    {
+        Ok(properties) if !properties.is_empty() => properties,
+        Ok(_) => {
+            eprintln!("{} mashup set needs --prop <name=value>", style::prefix());
+            return FAILED;
+        }
+        Err(error) => {
+            eprintln!("{} {error}", style::prefix());
+            return FAILED;
+        }
+    };
+    let request = commands::mashup::MashupSetRequest {
+        request: mashup::authoring::SetRequest {
+            mashup: mashup_name.clone(),
+            widget: widget.clone(),
+            properties,
+        },
+        mode: if args.apply.apply {
+            Mode::Apply
+        } else {
+            Mode::Plan
+        },
+        lock_label: "mashup set",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome = match commands::mashup::set(solution, &request, &mut notices) {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            print_notices(&notices);
+            eprintln!("{} {error}", style::prefix());
+            return FAILED;
+        }
+    };
+    print_notices(&notices);
+    let report = mashup::authoring::set_plan_json(solution, &outcome.plan, outcome.applied);
+    if args.json.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report).expect("a set plan serialises")
+        );
+    } else if outcome.plan.changed.is_empty() {
+        println!(
+            "unchanged {} in {}",
+            outcome.plan.widget, outcome.plan.mashup
+        );
+    } else {
+        for change in &outcome.plan.changed {
+            let after = compact_json(&change.after);
+            println!(
+                "{} {}.{} = {after}",
+                if outcome.applied { "set" } else { "would set" },
+                outcome.plan.widget,
+                change.property
+            );
+        }
+    }
+    OK
+}
+
+fn compact_json(value: &serde_json::Value) -> String {
+    let text = value.to_string();
+    if text.chars().count() <= 120 {
+        text
+    } else {
+        format!("{}…", text.chars().take(119).collect::<String>())
+    }
+}
+
 /// `twaco mashup add-contained <parent> <child>`: place a child mashup as a container.
 pub(crate) fn mashup_add_contained_cmd(solution: &Solution, args: &MashupAddContained) -> u8 {
     let [mashup, child] = args.operands.as_slice() else {
@@ -1214,6 +1438,221 @@ pub(crate) fn mashup_bind_cmd(solution: &Solution, args: &MashupBind) -> u8 {
     );
     if !outcome.applied {
         println!("run again with --apply to write it");
+    }
+    OK
+}
+
+pub(crate) fn mashup_source_add_cmd(solution: &Solution, args: &MashupSourceAdd) -> u8 {
+    let [mashup, entity, service] = args.operands.as_slice() else {
+        eprintln!(
+            "{} mashup source add needs <mashup> <entity> <service>",
+            style::prefix()
+        );
+        return FAILED;
+    };
+    let request = commands::mashup::MashupSourceAddRequest {
+        request: mashup::authoring::SourceAddRequest {
+            mashup: mashup.clone(),
+            entity: entity.clone(),
+            service: service.clone(),
+            dynamic: args.dynamic,
+            alias: args.alias.clone(),
+            entity_from: args.entity_from.clone(),
+            refresh: args.every,
+            cache: args.cache,
+            cache_keys: args.cache_keys.clone(),
+            cache_strategy: args.cache_strategy.clone(),
+            max_result_sets: args.max_result_sets,
+        },
+        mode: if args.apply.apply {
+            Mode::Apply
+        } else {
+            Mode::Plan
+        },
+        lock_label: "mashup source add",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome = match commands::mashup::source_add(solution, &request, &mut notices) {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            print_notices(&notices);
+            eprintln!("{} {error}", style::prefix());
+            return FAILED;
+        }
+    };
+    print_notices(&notices);
+    let report = serde_json::json!({"applied":outcome.applied,"mashup":outcome.plan.edit.mashup,"section":outcome.plan.section,"call":outcome.plan.call,"files":edit_files(solution,&outcome.plan.edit)});
+    if args.json.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report).expect("a source plan serialises")
+        );
+    } else {
+        println!(
+            "{} source {} in {}",
+            if outcome.applied {
+                "added"
+            } else {
+                "would add"
+            },
+            outcome.plan.call,
+            outcome.plan.section
+        );
+        if !outcome.applied {
+            println!("run again with --apply to write it");
+        }
+    }
+    OK
+}
+
+pub(crate) fn mashup_source_retarget_cmd(solution: &Solution, args: &MashupSourceRetarget) -> u8 {
+    let [mashup] = args.operands.as_slice() else {
+        eprintln!("{} mashup source retarget needs <mashup>", style::prefix());
+        return FAILED;
+    };
+    let (Some(from), Some(to)) = (&args.from, &args.to) else {
+        eprintln!(
+            "{} mashup source retarget needs --from <Entity> and --to <Entity>",
+            style::prefix()
+        );
+        return FAILED;
+    };
+    let request = commands::mashup::MashupSourceRetargetRequest {
+        request: mashup::authoring::SourceRetargetRequest {
+            mashup: mashup.clone(),
+            from: from.clone(),
+            to: to.clone(),
+        },
+        mode: if args.apply.apply {
+            Mode::Apply
+        } else {
+            Mode::Plan
+        },
+        lock_label: "mashup source retarget",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome = match commands::mashup::source_retarget(solution, &request, &mut notices) {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            print_notices(&notices);
+            eprintln!("{} {error}", style::prefix());
+            return FAILED;
+        }
+    };
+    print_notices(&notices);
+    let report = serde_json::json!({"applied":outcome.applied,"mashup":mashup,"from":from,"to":to,"sections":outcome.plan.sections.iter().map(|(from_key,to_key)| serde_json::json!({"from_key":from_key,"to_key":to_key})).collect::<Vec<_>>(),"bindings_rewritten":outcome.plan.bindings_rewritten,"events_rewritten":outcome.plan.events_rewritten,"files":edit_files(solution,&outcome.plan.edit)});
+    if args.json.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report).expect("a retarget plan serialises")
+        );
+    } else {
+        println!(
+            "{} {} source section(s)",
+            if outcome.applied {
+                "retargeted"
+            } else {
+                "would retarget"
+            },
+            outcome.plan.sections.len()
+        );
+        if outcome.plan.dynamic {
+            println!("  dynamic source: set its Thing with `twaco mashup param set {mashup} Manager --default <Thing>`");
+        }
+        if !outcome.applied {
+            println!("run again with --apply to write it");
+        }
+    }
+    OK
+}
+
+pub(crate) fn mashup_source_list_cmd(solution: &Solution, args: &MashupSourceList) -> u8 {
+    let [mashup] = args.operands.as_slice() else {
+        eprintln!("{} mashup source list needs <mashup>", style::prefix());
+        return FAILED;
+    };
+    let sources = match commands::mashup::source_list(solution, mashup) {
+        Ok(sources) => sources,
+        Err(error) => {
+            eprintln!("{} {error}", style::prefix());
+            return FAILED;
+        }
+    };
+    if args.json.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(
+                &serde_json::json!({"mashup": mashup, "sources": sources})
+            )
+            .expect("sources serialise")
+        );
+    } else {
+        for source in sources {
+            println!(
+                "{} {}.{} [as {}] entity:{} refresh:{} cache:{}",
+                source.kind,
+                source.entity,
+                source.service,
+                source.alias,
+                source.entity_from,
+                source.refresh,
+                if source.cache { "on" } else { "off" }
+            );
+        }
+    }
+    OK
+}
+
+pub(crate) fn mashup_source_remove_cmd(solution: &Solution, args: &MashupSourceRemove) -> u8 {
+    let [mashup, address] = args.operands.as_slice() else {
+        eprintln!(
+            "{} mashup source remove needs <mashup> <address>",
+            style::prefix()
+        );
+        return FAILED;
+    };
+    let request = commands::mashup::MashupSourceRemoveRequest {
+        request: mashup::authoring::SourceRemoveRequest {
+            mashup: mashup.clone(),
+            address: address.clone(),
+            cascade: args.cascade,
+        },
+        mode: if args.apply.apply {
+            Mode::Apply
+        } else {
+            Mode::Plan
+        },
+        lock_label: "mashup source remove",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome = match commands::mashup::source_remove(solution, &request, &mut notices) {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            print_notices(&notices);
+            eprintln!("{} {error}", style::prefix());
+            return FAILED;
+        }
+    };
+    print_notices(&notices);
+    let report = serde_json::json!({"applied":outcome.applied,"mashup":mashup,"section":outcome.plan.section,"call":outcome.plan.call,"bindings_removed":outcome.plan.bindings_removed,"events_removed":outcome.plan.events_removed,"files":edit_files(solution,&outcome.plan.edit)});
+    if args.json.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report).expect("source remove serialises")
+        );
+    } else {
+        println!(
+            "{} {}",
+            if outcome.applied {
+                "removed"
+            } else {
+                "would remove"
+            },
+            address
+        );
+        if !outcome.applied {
+            println!("run again with --apply to write it");
+        }
     }
     OK
 }
@@ -1551,6 +1990,43 @@ pub(crate) fn mashup_describe_cmd(solution: &Solution, args: &MashupDescribe) ->
                 print!("{}", twaco::core::mashup::describe::render(&description));
             }
             OK
+        }
+        Err(error) => {
+            eprintln!("{} {error}", style::prefix());
+            FAILED
+        }
+    }
+}
+
+/// `twaco mashup diff <a> <b>`: compare authored semantics, not Composer allocator state.
+pub(crate) fn mashup_diff_cmd(solution: &Solution, args: &MashupDiff) -> u8 {
+    let [a, b] = args.operands.as_slice() else {
+        eprintln!("{} mashup diff needs <a> and <b>", style::prefix());
+        return FAILED;
+    };
+    let value = args.tier.as_deref().unwrap_or("all");
+    let Some(tier) = twaco::core::mashup::diff::Tier::parse(value) else {
+        eprintln!(
+            "{} --tier must be executable, layout, visual or all (got {value})",
+            style::prefix()
+        );
+        return FAILED;
+    };
+    match twaco::core::mashup::diff::diff(solution, a, b, tier) {
+        Ok(result) => {
+            if args.json.json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&result).expect("a diff serialises")
+                );
+            } else {
+                print!("{}", twaco::core::mashup::diff::render(&result));
+            }
+            if result.equal {
+                OK
+            } else {
+                DRIFT
+            }
         }
         Err(error) => {
             eprintln!("{} {error}", style::prefix());

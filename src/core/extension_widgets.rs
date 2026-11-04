@@ -494,20 +494,6 @@ impl Parts {
     }
 }
 
-/// The empty value of a base type whose JSON form is a plain value: the JSON type `--prop` reads
-/// a property's text as when the widget declares no default.
-pub(crate) fn empty_value(base_type: &str) -> Option<Value> {
-    match base_type {
-        "STRING" | "TEXT" | "HTML" | "HYPERLINK" | "IMAGELINK" | "MASHUPNAME" | "THINGNAME"
-        | "SERVICENAME" | "PROPERTYNAME" | "STYLEDEFINITION" | "STATEDEFINITION"
-        | "RENDERERWITHSTATE" | "THINGTEMPLATENAME" | "THINGSHAPENAME" | "USERNAME"
-        | "GROUPNAME" | "MEDIAENTITYNAME" | "LOCALIZATIONTOKEN" => Some(Value::from("")),
-        "NUMBER" | "INTEGER" | "LONG" => Some(Value::from(0)),
-        "BOOLEAN" => Some(Value::from(false)),
-        _ => None,
-    }
-}
-
 /// The object literal a function returns: `function () { return {...}; }`.
 fn returned_object(function: &Function) -> Option<&ObjectLit> {
     function.body.as_ref()?.stmts.iter().find_map(|statement| {

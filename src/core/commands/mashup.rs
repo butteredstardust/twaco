@@ -42,6 +42,24 @@ pub struct MashupAddOutcome {
 }
 
 #[derive(Clone, Debug)]
+pub struct MashupSetRequest {
+    pub request: mashup::authoring::SetRequest,
+    pub mode: Mode,
+    pub lock_label: &'static str,
+}
+
+#[derive(Debug)]
+pub struct MashupSetOutcome {
+    pub plan: mashup::authoring::SetPlan,
+    pub applied: bool,
+    #[allow(
+        dead_code,
+        reason = "the command facade's Effects (COMMAND_FACADE.md); no adapter reads it yet"
+    )]
+    pub(crate) effects: Effects,
+}
+
+#[derive(Clone, Debug)]
 pub struct MashupAddContainedRequest {
     pub request: mashup::authoring::AddContainedRequest,
     pub mode: Mode,
@@ -69,6 +87,55 @@ pub struct MashupBindRequest {
 #[derive(Debug)]
 pub struct MashupBindOutcome {
     pub plan: mashup::authoring::BindPlan,
+    pub applied: bool,
+    #[allow(
+        dead_code,
+        reason = "the command facade's Effects (COMMAND_FACADE.md); no adapter reads it yet"
+    )]
+    pub(crate) effects: Effects,
+}
+
+#[derive(Clone, Debug)]
+pub struct MashupSourceAddRequest {
+    pub request: mashup::authoring::SourceAddRequest,
+    pub mode: Mode,
+    pub lock_label: &'static str,
+}
+#[derive(Debug)]
+pub struct MashupSourceAddOutcome {
+    pub plan: mashup::authoring::SourceAddPlan,
+    pub applied: bool,
+    #[allow(
+        dead_code,
+        reason = "the command facade's Effects (COMMAND_FACADE.md); no adapter reads it yet"
+    )]
+    pub(crate) effects: Effects,
+}
+#[derive(Clone, Debug)]
+pub struct MashupSourceRemoveRequest {
+    pub request: mashup::authoring::SourceRemoveRequest,
+    pub mode: Mode,
+    pub lock_label: &'static str,
+}
+#[derive(Debug)]
+pub struct MashupSourceRemoveOutcome {
+    pub plan: mashup::authoring::SourceRemovePlan,
+    pub applied: bool,
+    #[allow(
+        dead_code,
+        reason = "the command facade's Effects (COMMAND_FACADE.md); no adapter reads it yet"
+    )]
+    pub(crate) effects: Effects,
+}
+#[derive(Clone, Debug)]
+pub struct MashupSourceRetargetRequest {
+    pub request: mashup::authoring::SourceRetargetRequest,
+    pub mode: Mode,
+    pub lock_label: &'static str,
+}
+#[derive(Debug)]
+pub struct MashupSourceRetargetOutcome {
+    pub plan: mashup::authoring::SourceRetargetPlan,
     pub applied: bool,
     #[allow(
         dead_code,
@@ -250,6 +317,39 @@ pub fn add(
 }
 
 /// Plan without a lock; to apply, lock first and plan again from what is on disk then.
+pub fn set(
+    solution: &Solution,
+    request: &MashupSetRequest,
+    notices: &mut Notices,
+) -> Result<MashupSetOutcome, MashupCommandError> {
+    match request.mode {
+        Mode::Plan => Ok(MashupSetOutcome {
+            plan: mashup::authoring::plan_set(solution, &request.request)
+                .map_err(MashupCommandError::Authoring)?,
+            applied: false,
+            effects: Effects::new(Access::Read, Access::None),
+        }),
+        Mode::Apply => {
+            let lock = lock_workspace(solution, request.lock_label, notices)
+                .map_err(MashupCommandError::Lock)?;
+            let reloaded = Solution::load(&solution.root.join(config::CONFIG_FILE))
+                .map_err(MashupCommandError::Config)?;
+            let plan = mashup::authoring::plan_set(&reloaded, &request.request)
+                .map_err(MashupCommandError::Authoring)?;
+            if let Some(edit) = &plan.edit {
+                mashup::authoring::apply_edit(&reloaded, edit, &lock)
+                    .map_err(MashupCommandError::Authoring)?;
+            }
+            Ok(MashupSetOutcome {
+                plan,
+                applied: true,
+                effects: Effects::new(Access::Write, Access::None),
+            })
+        }
+    }
+}
+
+/// Plan without a lock; to apply, lock first and plan again from what is on disk then.
 pub fn add_contained(
     solution: &Solution,
     request: &MashupAddContainedRequest,
@@ -309,6 +409,103 @@ pub fn bind(
             })
         }
     }
+}
+
+pub fn source_add(
+    solution: &Solution,
+    request: &MashupSourceAddRequest,
+    notices: &mut Notices,
+) -> Result<MashupSourceAddOutcome, MashupCommandError> {
+    match request.mode {
+        Mode::Plan => Ok(MashupSourceAddOutcome {
+            plan: mashup::authoring::plan_source_add(solution, &request.request)
+                .map_err(MashupCommandError::Authoring)?,
+            applied: false,
+            effects: Effects::new(Access::Read, Access::None),
+        }),
+        Mode::Apply => {
+            let lock = lock_workspace(solution, request.lock_label, notices)
+                .map_err(MashupCommandError::Lock)?;
+            let reloaded = Solution::load(&solution.root.join(config::CONFIG_FILE))
+                .map_err(MashupCommandError::Config)?;
+            let plan = mashup::authoring::plan_source_add(&reloaded, &request.request)
+                .map_err(MashupCommandError::Authoring)?;
+            mashup::authoring::apply_edit(&reloaded, &plan.edit, &lock)
+                .map_err(MashupCommandError::Authoring)?;
+            Ok(MashupSourceAddOutcome {
+                plan,
+                applied: true,
+                effects: Effects::new(Access::Write, Access::None),
+            })
+        }
+    }
+}
+
+pub fn source_remove(
+    solution: &Solution,
+    request: &MashupSourceRemoveRequest,
+    notices: &mut Notices,
+) -> Result<MashupSourceRemoveOutcome, MashupCommandError> {
+    match request.mode {
+        Mode::Plan => Ok(MashupSourceRemoveOutcome {
+            plan: mashup::authoring::plan_source_remove(solution, &request.request)
+                .map_err(MashupCommandError::Authoring)?,
+            applied: false,
+            effects: Effects::new(Access::Read, Access::None),
+        }),
+        Mode::Apply => {
+            let lock = lock_workspace(solution, request.lock_label, notices)
+                .map_err(MashupCommandError::Lock)?;
+            let reloaded = Solution::load(&solution.root.join(config::CONFIG_FILE))
+                .map_err(MashupCommandError::Config)?;
+            let plan = mashup::authoring::plan_source_remove(&reloaded, &request.request)
+                .map_err(MashupCommandError::Authoring)?;
+            mashup::authoring::apply_edit(&reloaded, &plan.edit, &lock)
+                .map_err(MashupCommandError::Authoring)?;
+            Ok(MashupSourceRemoveOutcome {
+                plan,
+                applied: true,
+                effects: Effects::new(Access::Write, Access::None),
+            })
+        }
+    }
+}
+
+pub fn source_retarget(
+    solution: &Solution,
+    request: &MashupSourceRetargetRequest,
+    notices: &mut Notices,
+) -> Result<MashupSourceRetargetOutcome, MashupCommandError> {
+    match request.mode {
+        Mode::Plan => Ok(MashupSourceRetargetOutcome {
+            plan: mashup::authoring::plan_source_retarget(solution, &request.request)
+                .map_err(MashupCommandError::Authoring)?,
+            applied: false,
+            effects: Effects::new(Access::Read, Access::None),
+        }),
+        Mode::Apply => {
+            let lock = lock_workspace(solution, request.lock_label, notices)
+                .map_err(MashupCommandError::Lock)?;
+            let reloaded = Solution::load(&solution.root.join(config::CONFIG_FILE))
+                .map_err(MashupCommandError::Config)?;
+            let plan = mashup::authoring::plan_source_retarget(&reloaded, &request.request)
+                .map_err(MashupCommandError::Authoring)?;
+            mashup::authoring::apply_edit(&reloaded, &plan.edit, &lock)
+                .map_err(MashupCommandError::Authoring)?;
+            Ok(MashupSourceRetargetOutcome {
+                plan,
+                applied: true,
+                effects: Effects::new(Access::Write, Access::None),
+            })
+        }
+    }
+}
+
+pub fn source_list(
+    solution: &Solution,
+    mashup: &str,
+) -> Result<Vec<mashup::authoring::SourceInfo>, MashupCommandError> {
+    mashup::authoring::list_sources(solution, mashup).map_err(MashupCommandError::Authoring)
 }
 
 /// Plan without a lock; to apply, lock first and plan again from what is on disk then.
