@@ -4857,3 +4857,40 @@ fn root_parameter_defaults_are_set_through_mashup_param() {
     .to_string();
     assert!(error.contains("use mashup param set --default"), "{error}");
 }
+
+#[test]
+fn a_scalar_result_binds_as_its_result_field() {
+    let (dir, solution) = bind_fixture();
+    write(
+        dir.path(),
+        "acme/Things/Acme.Orders.Titles.xml",
+        r#"<Entities><Things><Thing name="Acme.Orders.Titles" projectName="Acme"><ThingShape><ServiceDefinitions>
+            <ServiceDefinition name="GetTitle"><ResultType baseType="STRING"/></ServiceDefinition>
+            </ServiceDefinitions><ServiceImplementations/></ThingShape></Thing></Things></Entities>"#,
+    );
+    let plan = bind(
+        &solution,
+        "data:Acme.Orders.Titles.GetTitle.result",
+        "ui:ptcslabel-4.LabelText",
+    )
+    .unwrap();
+    let value: Value =
+        serde_json::from_slice(&plan.edit.sidecars.as_ref().unwrap().content_after).unwrap();
+    let binding = &value["DataBindings"][0];
+    assert_eq!(binding["SourceDetails"], "AllData");
+    assert_eq!(
+        binding["PropertyMaps"][0],
+        json!({"SourceProperty": "result", "SourcePropertyBaseType": "STRING",
+               "SourcePropertyType": "Field", "TargetProperty": "LabelText",
+               "TargetPropertyBaseType": "STRING", "TargetPropertyType": "property"})
+    );
+    // An infotable result's fields come from its DataShape; `result` is not one of them.
+    let error = bind(
+        &solution,
+        "data:Acme.Orders.Manager.GetOrders.result",
+        "ui:ptcslabel-4.LabelText",
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("result"), "{error}");
+}

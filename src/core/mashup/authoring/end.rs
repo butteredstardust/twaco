@@ -198,6 +198,12 @@ pub(super) fn resolve_end(
                             .and_then(|shape| shape.fields.iter().find(|field| field.name == name));
                         match (field, shape) {
                             (Some(field), _) => (field.base_type.clone(), "Field".to_string()),
+                            // A scalar result arrives as the one field `result` of its rows.
+                            (None, None)
+                                if name == "result" && found.result.base_type != "INFOTABLE" =>
+                            {
+                                (found.result.base_type.clone(), "Field".to_string())
+                            }
                             _ if found.parameters.iter().any(|p| p.name == name) => {
                                 return Err(AuthoringError::Invalid(format!(
                                     "data:{entity_service}.{name} is a parameter, not a data source"
