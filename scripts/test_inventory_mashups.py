@@ -99,6 +99,14 @@ class InventoryTest(unittest.TestCase):
         r = self.report()
         self.assertEqual((r["mashups"], r["copies_skipped"]), (1, 1))
 
+    def test_the_same_name_in_two_roots_is_two_mashups(self):
+        self.sidecar("Acme.A_MU", CONTENT)
+        other = tempfile.TemporaryDirectory()
+        self.addCleanup(other.cleanup)
+        write(os.path.join(other.name, "src", "Acme.A_MU", "mashup", "content.json"), json.dumps(CONTENT))
+        r = inv.inventory([self.root, other.name], {"flexcontainer", "ptcsgrid"})
+        self.assertEqual((r["mashups"], r["copies_skipped"]), (2, 0))
+
     def test_reports_duplicate_keys_and_malformed_json(self):
         write(os.path.join(self.root, "src", "Acme.Dup_MU", "mashup", "content.json"), '{"UI": {}, "UI": {}}')
         write(os.path.join(self.root, "src", "Acme.Bad_MU", "mashup", "content.json"), "{not json")

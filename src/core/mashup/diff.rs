@@ -1288,6 +1288,26 @@ mod tests {
     }
 
     #[test]
+    fn an_empty_source_property_is_the_whole_result_and_stays_a_difference() {
+        let binding = |maps: Value| {
+            json!({"SourceArea": "Data", "SourceId": "Get", "SourceSection": "Things_Acme.M",
+                "TargetArea": "UI", "TargetId": "grid", "PropertyMaps": maps})
+        };
+        let mut left = mashup(json!([]));
+        left["DataBindings"] = json!([binding(
+            json!([{"SourceProperty": "", "TargetProperty": "Data"}])
+        )]);
+        let mut right = mashup(json!([]));
+        right["DataBindings"] = json!([binding(json!([{"TargetProperty": "Data"}]))]);
+        assert_eq!(
+            compare("a", "b", &left, &right, None, None, Tier::All)
+                .summary
+                .executable,
+            2
+        );
+    }
+
+    #[test]
     fn a_responsive_root_ignores_its_childrens_coordinates_and_styles_follow_widget_pairs() {
         let mut left = mashup(json!([widget(
             "container-2",

@@ -131,6 +131,13 @@ pub(crate) fn plan_source_add(
     {
         return Err(AuthoringError::Invalid("cache options need --cache".into()));
     }
+    if let Some(strategy) = &request.cache_strategy {
+        if !["INSTANCE", "SESSION", "USER"].contains(&strategy.as_str()) {
+            return Err(AuthoringError::Invalid(format!(
+                "--cache-strategy is INSTANCE, SESSION or USER, not {strategy}"
+            )));
+        }
+    }
     let loaded = load_existing(solution, &request.mashup)?;
     let mut document = parse_loaded(&loaded)?;
     let (model, _) = types::load_model(solution);
@@ -280,7 +287,7 @@ pub(crate) fn plan_source_add(
                 return Err(AuthoringError::Unknown(format!("mashup has no parameter {name}; add it with `twaco mashup param add {} {name} --type THINGNAME --default <Thing>`", request.mashup)));
             }
         }
-        super::bind::bind_entity_slot(
+        let warnings = super::bind::bind_entity_slot(
             &mut document,
             solution,
             &parameters,
@@ -289,6 +296,12 @@ pub(crate) fn plan_source_add(
             from,
             &request.entity,
         )?;
+        // A source that cannot run names no Thing: refuse rather than plan a dead call.
+        if let Some(warning) = warnings.into_iter().next() {
+            return Err(AuthoringError::Refused(format!(
+                "--entity-from {from}: {warning}"
+            )));
+        }
     }
     Ok(SourceAddPlan {
         edit: finish_edit(loaded, document, "mashup source add")?,
@@ -381,16 +394,23 @@ pub(crate) fn plan_source_remove(
         entity_service,
         alias,
         entity_name: false,
-        ..
+        selected_rows: false,
+        member: None,
     } = parse_address(&request.address).map_err(|e| AuthoringError::Invalid(e.to_string()))?
     else {
         return Err(AuthoringError::Invalid(
-            "source remove needs a data call address".into(),
+            "source remove takes a data call address, data:<Entity>.<Service>[as <alias>], not a field, selected rows or EntityName".into(),
         ));
     };
     let (model, _) = types::load_model(solution);
     let platform = types::cached_platform(solution);
     let (entity, service) = super::resolve_service(&model, platform.as_ref(), &entity_service)?;
+    // `Entity.Service.field` parses as one dotted name; what resolves must be all of it.
+    if entity_service != format!("{}.{service}", entity.name) {
+        return Err(AuthoringError::Invalid(
+            "source remove takes a data call address, data:<Entity>.<Service>[as <alias>], not a field, selected rows or EntityName".into(),
+        ));
+    }
     let matches: Vec<(String, String)> = document.value()["Data"]
         .as_object()
         .into_iter()

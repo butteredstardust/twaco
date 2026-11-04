@@ -128,11 +128,12 @@ def inventory(roots, catalog):
     mashups, malformed, seen, copies = [], [], set(), 0
     for root in roots:
         for name, path, text, css_sidecar in documents(root):
-            # Build trees hold copies of the same entity; count each mashup once (first path wins).
-            if name in seen:
+            # Build trees hold copies of the same entity; count each mashup once per root (first
+            # path wins). Another root's mashup of the same name is another solution's.
+            if (root, name) in seen:
                 copies += 1
                 continue
-            seen.add(name)
+            seen.add((root, name))
             duplicates = []
             try:
                 doc = json.loads(text, object_pairs_hook=no_duplicate_keys(duplicates))

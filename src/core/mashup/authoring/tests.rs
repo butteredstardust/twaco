@@ -4922,3 +4922,88 @@ fn strings_bind_into_entity_names_and_numbers_into_numbers() {
     .to_string();
     assert!(error.contains("is STRING but"), "{error}");
 }
+
+#[test]
+fn cache_strategies_are_composers_three() {
+    let (_dir, solution) = source_fixture();
+    let mut cached = source_request("Acme.Orders.Manager", "GetOrders");
+    cached.cache = true;
+    cached.cache_strategy = Some("INVALID".into());
+    let error = plan_source_add(&solution, &cached).unwrap_err().to_string();
+    assert!(
+        error.contains("INSTANCE, SESSION or USER, not INVALID"),
+        "{error}"
+    );
+    cached.cache_strategy = Some("SESSION".into());
+    let plan = plan_source_add(&solution, &cached).unwrap();
+    let value: Value =
+        serde_json::from_slice(&plan.edit.sidecars.as_ref().unwrap().content_after).unwrap();
+    assert_eq!(
+        value["Data"]["Things_Acme.Orders.Manager"]["Services"][0]["Caching"]["cacheStrategy"],
+        "SESSION"
+    );
+}
+
+#[test]
+fn source_remove_takes_only_a_call_address() {
+    let (_dir, solution) = source_fixture();
+    add_source(
+        &solution,
+        &source_request("Acme.Orders.Manager", "GetOrders"),
+    )
+    .unwrap();
+    for address in [
+        "data:Acme.Orders.Manager.GetOrders[SelectedRows].note",
+        "data:Acme.Orders.Manager.GetOrders.note",
+        "data:Acme.Orders.Manager[EntityName]",
+    ] {
+        let error = plan_source_remove(
+            &solution,
+            &SourceRemoveRequest {
+                mashup: "Acme.Orders_MU".into(),
+                address: address.into(),
+                cascade: true,
+            },
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(
+            error.contains("takes a data call address"),
+            "{address}: {error}"
+        );
+    }
+}
+
+#[test]
+fn an_entity_from_a_source_that_cannot_run_is_warned_or_refused() {
+    let (dir, solution) = source_fixture();
+    write(
+        dir.path(),
+        "acme/ThingShapes/Acme.Orders.Pick_TS.xml",
+        r#"<Entities><ThingShapes><ThingShape name="Acme.Orders.Pick_TS" projectName="Acme"><ServiceDefinitions>
+            <ServiceDefinition name="GetLine"><ResultType baseType="THINGNAME"/></ServiceDefinition>
+            </ServiceDefinitions></ThingShape></ThingShapes></Entities>"#,
+    );
+    // An unbound dynamic call's result naming another dynamic call's Thing.
+    add_source(&solution, &source_request("Acme.Orders.Pick_TS", "GetLine")).unwrap();
+    add_source(&solution, &source_request("Acme.Orders.Audit_TS", "GetLog")).unwrap();
+    let plan = bind(
+        &solution,
+        "data:Acme.Orders.Pick_TS.GetLine.result",
+        "data:Acme.Orders.Audit_TS[EntityName]",
+    )
+    .unwrap();
+    assert!(
+        plan.warnings.iter().any(|warning| warning
+            .contains("DynamicThingShapes_Acme.Orders.Pick_TS has no EntityName binding")),
+        "{:?}",
+        plan.warnings
+    );
+    let mut request = source_request("Acme.Orders.Line_TT", "GetLines");
+    request.dynamic = true;
+    request.entity_from = Some("data:Acme.Orders.Pick_TS.GetLine.result".into());
+    let error = plan_source_add(&solution, &request)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("cannot run until one is added"), "{error}");
+}

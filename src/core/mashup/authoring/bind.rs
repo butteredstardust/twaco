@@ -335,6 +335,13 @@ fn bind_entity_end(
         )));
     }
     let (source_section, source_id, _) = data_call(document, from)?;
+    let mut warnings = Vec::new();
+    if matches!(from, End::Data { .. }) && super::source::unbound_dynamic(document, &source_section)
+    {
+        warnings.push(format!(
+            "{source_section} has no EntityName binding and cannot run until one is added"
+        ));
+    }
     let mut map = Map::new();
     insert(
         &mut map,
@@ -385,7 +392,7 @@ fn bind_entity_end(
     insert(&mut binding, "TargetId", Value::String("EntityName".into()));
     insert(&mut binding, "TargetSection", Value::String(section));
     document.bindings_mut().push(Value::Object(binding));
-    Ok(Vec::new())
+    Ok(warnings)
 }
 
 pub(super) fn bind_entity_slot(
@@ -396,7 +403,7 @@ pub(super) fn bind_entity_slot(
     platform: Option<&types::Platform>,
     from_raw: &str,
     entity: &str,
-) -> Result<(), AuthoringError> {
+) -> Result<Vec<String>, AuthoringError> {
     let context = AuthoringContext {
         parameters,
         model,
@@ -429,8 +436,7 @@ pub(super) fn bind_entity_slot(
         &to,
         from_raw,
         &format!("data:{entity}[EntityName]"),
-    )?;
-    Ok(())
+    )
 }
 
 pub(super) fn data_call(
