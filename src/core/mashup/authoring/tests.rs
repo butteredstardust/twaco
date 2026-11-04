@@ -5223,7 +5223,7 @@ fn retarget_refuses_a_parameter_of_another_type() {
         dir.path(),
         "acme/Things/Acme.Orders.Textual.xml",
         r#"<Entities><Things><Thing name="Acme.Orders.Textual" projectName="Acme"><ThingShape><ServiceDefinitions>
-            <ServiceDefinition name="GetOrder"><ParameterDefinitions><FieldDefinition name="id" baseType="STRING"/></ParameterDefinitions><ResultType baseType="INFOTABLE" aspect.dataShape="Acme.Orders.Order_DS"/></ServiceDefinition>
+            <ServiceDefinition name="GetOrder"><ParameterDefinitions><FieldDefinition name="id" baseType="BOOLEAN"/></ParameterDefinitions><ResultType baseType="INFOTABLE" aspect.dataShape="Acme.Orders.Order_DS"/></ServiceDefinition>
             </ServiceDefinitions><ServiceImplementations/></ThingShape></Thing></Things></Entities>"#,
     );
     add_source(
@@ -5249,7 +5249,92 @@ fn retarget_refuses_a_parameter_of_another_type() {
     .unwrap_err()
     .to_string();
     assert!(
-        error.contains("parameter id is STRING, not LONG"),
+        error.contains("parameter id is BOOLEAN, not NUMBER"),
         "{error}"
     );
+}
+
+#[test]
+fn retarget_accepts_what_bind_accepts_and_checks_values_the_call_sets() {
+    let (dir, solution) = source_fixture();
+    // GetOrder(id LONG) moves to a Thing whose GetOrder takes a NUMBER id: a number fits.
+    write(
+        dir.path(),
+        "acme/Things/Acme.Orders.Numeric.xml",
+        r#"<Entities><Things><Thing name="Acme.Orders.Numeric" projectName="Acme"><ThingShape><ServiceDefinitions>
+            <ServiceDefinition name="GetOrder"><ParameterDefinitions><FieldDefinition name="id" baseType="NUMBER"/></ParameterDefinitions><ResultType baseType="INFOTABLE" aspect.dataShape="Acme.Orders.Order_DS"/></ServiceDefinition>
+            </ServiceDefinitions><ServiceImplementations/></ThingShape></Thing></Things></Entities>"#,
+    );
+    add_source(
+        &solution,
+        &source_request("Acme.Orders.Manager", "GetOrder"),
+    )
+    .unwrap();
+    let plan = bind(
+        &solution,
+        "mashup:Count",
+        "data:Acme.Orders.Manager.GetOrder.id",
+    )
+    .unwrap();
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    let retarget = |to: &str| {
+        plan_source_retarget(
+            &solution,
+            &SourceRetargetRequest {
+                mashup: "Acme.Orders_MU".into(),
+                from: "Acme.Orders.Manager".into(),
+                to: to.into(),
+            },
+        )
+    };
+    retarget("Acme.Orders.Numeric").unwrap();
+    // A value the call sets itself must suit the new type.
+    let content_path = solution
+        .src_root()
+        .join("Acme.Orders_MU/mashup/content.json");
+    let mut value: Value = serde_json::from_str(&sidecar_content(&solution)).unwrap();
+    value["Data"]["Things_Acme.Orders.Manager"]["Services"][0]["Parameters"] = json!({"id": "abc"});
+    std::fs::write(&content_path, serde_json::to_string_pretty(&value).unwrap()).unwrap();
+    // As `twaco sync` would: splice the edited content into the entity.
+    let entity_path = dir.path().join("acme/Mashups/Acme.Orders_MU.xml");
+    let assets = workspace::read_mashup(&solution.src_root().join("Acme.Orders_MU/mashup"))
+        .unwrap()
+        .unwrap();
+    let (synced, _) =
+        crate::core::mashup::sync(&std::fs::read(&entity_path).unwrap(), &assets).unwrap();
+    std::fs::write(&entity_path, synced).unwrap();
+    let error = retarget("Acme.Orders.Numeric").unwrap_err().to_string();
+    assert!(
+        error.contains("parameter id is NUMBER; the call sets it to \"abc\""),
+        "{error}"
+    );
+}
+
+#[test]
+fn a_copy_escapes_its_names_and_keeps_tables_that_only_mention_principals() {
+    let (_dir, solution) = one_project();
+    let source = plan_new(&solution, &request("Acme.Reference_MU")).unwrap();
+    apply_new(&solution, &source, &lock(&solution)).unwrap();
+    // A table whose text mentions a Principal grants nothing.
+    let xml = std::fs::read_to_string(&source.entity_path).unwrap();
+    let mentioned = xml.replacen(
+        "<iosShortcutIconTitle></iosShortcutIconTitle>",
+        "<iosShortcutIconTitle><![CDATA[<Principal> docs]]></iosShortcutIconTitle>",
+        1,
+    );
+    assert_ne!(mentioned, xml);
+    std::fs::write(&source.entity_path, &mentioned).unwrap();
+    let mut copy = request("Acme.R&D_MU");
+    copy.from = Some("Acme.Reference_MU".into());
+    let plan = plan_new(&solution, &copy).unwrap();
+    let copied = String::from_utf8(plan.entity.clone()).unwrap();
+    assert!(
+        copied.contains("name=\"Acme.R&amp;D_MU\""),
+        "the name is escaped"
+    );
+    assert!(
+        copied.contains("name=\"MobileSettings\""),
+        "the table stays"
+    );
+    assert!(copied.contains("<Principal> docs"));
 }

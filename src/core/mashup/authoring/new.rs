@@ -448,7 +448,9 @@ fn copied_entity(
             .ok_or_else(|| {
                 AuthoringError::Refused(format!("reference Mashup has no {attribute} attribute"))
             })?;
-        edits.push(splice::Edit::new(span, value.as_bytes()));
+        let escaped =
+            scan::escape_attribute(value).map_err(|e| AuthoringError::Invalid(e.to_string()))?;
+        edits.push(splice::Edit::new(span, escaped.into_bytes()));
     }
     // What the reference grants goes: every Principal inside its permission blocks, and a
     // configuration table that names principals. The blocks themselves stay as Composer writes
@@ -456,6 +458,7 @@ fn copied_entity(
     let mut inside_permissions = 0usize;
     let mut principal_start: Option<usize> = None;
     let mut table_start: Option<usize> = None;
+    let mut table_names_principal = false;
     for (index, token) in tokens.iter().enumerate() {
         let tag = token.name.of(src);
         let permissions = matches!(
@@ -480,16 +483,19 @@ fn copied_entity(
                 edits.push(splice::Edit::new(token.span, Vec::new()));
             }
             scan::Kind::Start if inside_permissions == 0 && tag == b"ConfigurationTable" => {
-                table_start = Some(index)
+                table_start = Some(index);
+                table_names_principal = false;
+            }
+            // A Principal element in a table, not text that mentions one.
+            scan::Kind::Start | scan::Kind::Empty
+                if table_start.is_some() && tag == b"Principal" =>
+            {
+                table_names_principal = true
             }
             scan::Kind::End if tag == b"ConfigurationTable" => {
                 if let Some(start) = table_start.take() {
-                    let span = scan::Span::new(tokens[start].span.start, token.span.end);
-                    let bytes = span.of(src);
-                    if bytes
-                        .windows(b"<Principal".len())
-                        .any(|x| x == b"<Principal")
-                    {
+                    if table_names_principal {
+                        let span = scan::Span::new(tokens[start].span.start, token.span.end);
                         edits.push(splice::Edit::new(span, Vec::new()));
                     }
                 }

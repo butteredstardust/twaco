@@ -1542,7 +1542,7 @@ fn value_streams_data_things_networks_menus_masters_and_members_are_structural()
 }
 
 #[test]
-fn a_project_cycle_leaves_the_index_complete_in_declared_order() {
+fn a_project_cycle_leaves_the_index_complete_with_no_deploy_order() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     std::fs::write(
@@ -1553,5 +1553,5 @@ fn a_project_cycle_leaves_the_index_complete_in_declared_order() {
     let solution = Solution::load(&root.join("twaco.toml")).unwrap();
     let index = Index::build(&solution);
     assert!(index.is_complete(), "{:?}", index.unreadable());
-    assert_eq!(index.deploy_order(), ["B", "A"]);
+    assert!(index.deploy_order().is_empty());
 }

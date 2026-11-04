@@ -641,6 +641,29 @@ pub(crate) fn plan_source_retarget(
                     }
                 }
             }
+            // A value the call sets itself must suit the new parameter's type.
+            for (name, value) in call["Parameters"].as_object().into_iter().flatten() {
+                let Some(expected) = service.parameters.iter().find(|p| p.name == *name) else {
+                    continue; // reported as missing below
+                };
+                let text = value
+                    .as_str()
+                    .map(str::to_string)
+                    .unwrap_or_else(|| value.to_string());
+                let fits = match expected.value.base_type.as_str() {
+                    "NUMBER" | "INTEGER" | "LONG" => {
+                        value.is_number() || text.trim().parse::<f64>().is_ok()
+                    }
+                    "BOOLEAN" => value.is_boolean() || matches!(text.as_str(), "true" | "false"),
+                    _ => true,
+                };
+                if !fits {
+                    return Err(AuthoringError::Refused(format!(
+                        "{}.{service_name} parameter {name} is {}; the call sets it to {value}",
+                        request.to, expected.value.base_type
+                    )));
+                }
+            }
             for parameter in used {
                 let expected = service
                     .parameters
@@ -667,11 +690,18 @@ pub(crate) fn plan_source_retarget(
                             .flatten()
                             .filter(|map| map["TargetProperty"] == parameter)
                         {
-                            if let Some(actual) = map["TargetPropertyBaseType"]
+                            // What the binding carries must reach the new parameter, by the
+                            // rule `mashup bind` applies.
+                            let carried = map["SourcePropertyBaseType"]
                                 .as_str()
                                 .filter(|x| !x.is_empty())
-                            {
-                                if actual != expected.value.base_type {
+                                .or_else(|| {
+                                    map["TargetPropertyBaseType"]
+                                        .as_str()
+                                        .filter(|x| !x.is_empty())
+                                });
+                            if let Some(actual) = carried {
+                                if !super::bind::compatible(actual, &expected.value.base_type) {
                                     return Err(AuthoringError::Refused(format!(
                                         "{}.{} parameter {} is {}, not {}",
                                         request.to,

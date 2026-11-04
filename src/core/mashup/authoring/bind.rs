@@ -230,7 +230,7 @@ pub(super) fn bind_in(
 /// Whether ThingWorx carries a `from` value into a `to` property: the same type, anything into
 /// a STRING, a string into an entity name (a THINGNAME, MASHUPNAME, ... is a string), and one
 /// number type into another.
-fn compatible(from: &str, to: &str) -> bool {
+pub(super) fn compatible(from: &str, to: &str) -> bool {
     let name = |base: &str| base.ends_with("NAME");
     let number = |base: &str| matches!(base, "NUMBER" | "INTEGER" | "LONG");
     from == to

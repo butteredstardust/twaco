@@ -399,8 +399,9 @@ fn verify(bytes: &[u8], expected: &BTreeMap<(String, String), usize>) -> Result<
 /// same bytes.
 pub(crate) fn source_files(solution: &Solution) -> Vec<PathBuf> {
     // Projects in deploy order, so a dependency's entities precede the entities that bind to
-    // them within each collection. Falls back to declaration order only when the order cannot
-    // be computed, which validation already refuses to load.
+    // them within each collection. Falls back to declaration order only for a dependency cycle,
+    // which has no order: what imports (bundle, package, deploy) refuses a cycle first; reports
+    // and checks only read the files.
     let ordered: Vec<&super::config::Project> = solution
         .deploy_order()
         .unwrap_or_else(|_| solution.projects.iter().collect());
