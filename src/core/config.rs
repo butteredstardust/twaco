@@ -875,7 +875,10 @@ impl Solution {
                 }
             }
         }
-        self.deploy_order().map(|_| ())
+        // A dependency cycle is not refused here: only what needs a deploy order (deploy, bundle)
+        // refuses it, so a solution whose projects depend on each other can still be read,
+        // checked and edited.
+        Ok(())
     }
 
     fn validate_lint(&self, path: &Path) -> Result<(), ConfigError> {
@@ -1781,11 +1784,14 @@ name = \"Only\"
     }
 
     #[test]
-    fn a_cycle_is_reported_not_resolved() {
+    fn a_cycle_loads_but_has_no_deploy_order() {
         let s = solution(
             "[[project]]\nname = \"A\"\ndepends_on = [\"B\"]\n\n[[project]]\nname = \"B\"\ndepends_on = [\"A\"]\n",
         );
-        assert!(matches!(s, Err(ConfigError::DependencyCycle { .. })));
+        assert!(matches!(
+            s.unwrap().deploy_order(),
+            Err(ConfigError::DependencyCycle { .. })
+        ));
     }
 
     #[test]
