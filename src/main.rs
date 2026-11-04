@@ -43,9 +43,9 @@ use cli::lint::lint;
 use cli::localization::localization_cmd;
 use cli::mashup::{
     mashup_add_cmd, mashup_add_contained_cmd, mashup_bind_cmd, mashup_describe_cmd,
-    mashup_event_cmd, mashup_new_cmd, mashup_off_cmd, mashup_on_cmd, mashup_param_cmd,
-    mashup_recipe_cmd, mashup_remove_cmd, mashup_templates_cmd, mashup_unbind_cmd,
-    mashup_validate_cmd, Mashup,
+    mashup_diff_cmd, mashup_event_cmd, mashup_new_cmd, mashup_off_cmd, mashup_on_cmd,
+    mashup_param_cmd, mashup_recipe_cmd, mashup_remove_cmd, mashup_templates_cmd,
+    mashup_unbind_cmd, mashup_validate_cmd, Mashup,
 };
 use cli::network::network_cmd;
 use cli::refactor::{
@@ -284,6 +284,7 @@ fn dispatch(command: Command) -> u8 {
             Mashup::Recipe(recipe) => mashup_recipe_cmd(solution, recipe),
             Mashup::New(new) => mashup_new_cmd(solution, new),
             Mashup::Describe(describe) => mashup_describe_cmd(solution, describe),
+            Mashup::Diff(diff) => mashup_diff_cmd(solution, diff),
             Mashup::Validate(validate) => mashup_validate_cmd(solution, validate),
             Mashup::Templates(_) => unreachable!("the templates need no solution"),
         }),

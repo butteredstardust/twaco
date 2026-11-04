@@ -12,6 +12,7 @@
 pub(crate) mod address;
 pub mod authoring;
 pub mod describe;
+pub mod diff;
 pub mod edit;
 pub(crate) mod templates;
 pub mod templates_view;

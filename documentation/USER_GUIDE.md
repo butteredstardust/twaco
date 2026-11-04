@@ -66,7 +66,7 @@ until `--apply`; `sync` and `deploy` take them to the server.
 | Thing, ThingTemplate, ThingShape | `new thing`, `new thing-template`, `new thing-shape` | `catalog`, `impact`, `entity get` | `thing shape add\|remove`, `retemplate`, `reproject`, `rename entity` | `entity delete` |
 | DataShape | `new data-shape` | `src/<DataShape>/fields.json` | edit `fields.json` + `sync` (its DataTables and Streams follow); `rename field` | `entity delete` |
 | DataTable, Stream, ValueStream | `new data-table`, `new stream`, `new value-stream` | `datatable.json`, `db query` | `datatable.json` + `sync`; `datatable copy` for rows | `entity delete` |
-| Mashup | `mashup new` (14 templates), `mashup add-contained` | `mashup describe`, `mashup validate` | `mashup add`, `bind`, `on`, `param`, `event`, `recipe` | `entity delete` |
+| Mashup | `mashup new` (14 templates), `mashup add-contained` | `mashup describe`, `diff`, `validate` | `mashup add`, `bind`, `on`, `param`, `event`, `recipe` | `entity delete` |
 | Timer, Scheduler | `new timer`, `new scheduler` | the entity's XML | `timer set`, `scheduler set` | `entity delete` |
 | Style, theme, state, menu, media | `new style`, `new theme`, `new state`, `new menu`, `new media` | the entity's XML | `style set`, `state set`, `menu item add\|remove`, `media set` | `entity delete` |
 | Network (asset hierarchy) | `new network`, `network import` | `network list`, `network show` | `network add`, `network move` | `network remove` (connections, never the Things) |
@@ -1262,6 +1262,19 @@ the mashup names differently from its service is `data:<Entity>.<Service>[as <na
 selected rows `data:<Entity>.<Service>[SelectedRows].<field>`, and the entity a shape's data source
 runs on `data:<Entity>[EntityName]`. A property map after a binding's first is listed as ignored,
 since the runtime applies only the first.
+
+### Comparing mashups
+
+```sh
+twaco mashup diff Acme.App.Orders_MU Acme.App.OrdersNext_MU --tier layout
+```
+
+`mashup diff` compares repository mashups without treating Composer's allocated widget and UUID
+identifiers as a change. Widgets pair by aligning sibling types, so one extra container is one
+difference; sibling order counts, while bindings, events, calls and parameters compare without
+order. It reports executable wiring, layout and visual differences separately;
+`--tier executable`, `layout`, `visual` or `all` selects what controls its exit status. `--json`
+returns the same deterministic report as MCP `mashup_diff`.
 
 ## Moving entities to another project
 

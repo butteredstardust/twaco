@@ -2135,6 +2135,21 @@
     }
   },
   {
+    "name": "mashup_diff",
+    "description": "Compare two repository mashups by executable wiring, layout and visual content. Composer-generated widget and UUID identifiers are ignored; arrays retain their authored order. tier is executable, layout, visual or all (the default). Read-only.",
+    "inputSchema": {
+      "required": ["mashup_a", "mashup_b"],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "mashup_a": { "description": "The left repository mashup name.", "type": "string" },
+        "mashup_b": { "description": "The right repository mashup name.", "type": "string" },
+        "tier": { "description": "`executable`, `layout`, `visual` or `all`; defaults to all.", "type": "string" }
+      }
+    },
+    "annotations": { "readOnlyHint": true, "openWorldHint": false }
+  },
+  {
     "name": "reproject",
     "description": "Move entities to another project of the solution: their projectName, and their files under that project's root (sidecars stay). The plan names each reference the move puts outside the deploy order, with the depends_on that allows it. A dry run unless dry_run is false; an apply takes the workspace lock and writes every file or none.",
     "inputSchema": {

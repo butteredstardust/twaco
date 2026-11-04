@@ -186,6 +186,7 @@ when the command is asked to write. A local output named by an option is include
 | `state set` | read-only | multi-file atomic | entity XML | Every file is rewritten in one journaled transaction, or none is; a file edited since the plan read it is refused. Retry. | `core/commands/entity_edit.rs: execute` |
 | `retemplate` | read-only | single-file atomic | one entity XML | The entity is old or new; retry freely. | `core/commands/retemplate.rs: execute` |
 | `mashup describe` | read-only | read-only | none | Retry freely. | `core/mashup_describe.rs: describe` |
+| `mashup diff` | read-only | read-only | none | Retry freely. | `core/mashup/diff.rs: diff` |
 | `mashup validate` | read-only | read-only | none | Retry freely. | `core/mashup_validate.rs: validate` |
 | `widgets` | read-only | read-only | none | Retry freely. | `core/widgets_view.rs: list` |
 | `mashup templates` | read-only | read-only | none | Retry freely. | `core/mashup_templates_view.rs: list` |
@@ -259,6 +260,7 @@ when the command is asked to write. A local output named by an option is include
 | `entity_edit` | read-only | multi-file atomic | entity XML, service sidecars, Things inheriting it | Every file is rewritten in one journaled transaction, or none is; a file edited since the plan read it is refused. Retry. | `core/commands/entity_edit.rs: execute` |
 | `retemplate` | read-only | single-file atomic | one entity XML | The entity is old or new; retry freely. | `core/commands/retemplate.rs: execute` |
 | `mashup_describe` | read-only | read-only | none | Retry freely. | `core/mashup_describe.rs: describe` |
+| `mashup_diff` | read-only | read-only | none | Retry freely. | `core/mashup/diff.rs: diff` |
 | `mashup_validate` | read-only | read-only | none | Retry freely. | `core/mashup_validate.rs: validate` |
 | `widgets` | read-only | read-only | none | Retry freely. | `core/widgets_view.rs: list` |
 | `mashup_templates` | read-only | read-only | none | Retry freely. | `core/mashup_templates_view.rs: list` |

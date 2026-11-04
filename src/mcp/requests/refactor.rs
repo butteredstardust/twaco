@@ -271,6 +271,18 @@ pub(crate) struct MashupDescribeRequest {
 
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct MashupDiffRequest {
+    /// The left repository mashup name.
+    pub(crate) mashup_a: String,
+    /// The right repository mashup name.
+    pub(crate) mashup_b: String,
+    /// `executable`, `layout`, `visual` or `all`; defaults to all.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) tier: Absent<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct MashupValidateRequest {
     /// One mashup's name; omit it with all.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]

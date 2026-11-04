@@ -1,8 +1,8 @@
 use super::requests::refactor::{
     AdoptApplyRequest, AdoptKind, AdoptReportRequest, AdoptTakeSide, EntityEditAction,
     EntityEditRequest, EntityNewRequest, HandoffAction, HandoffRequest, MashupAddContainedRequest,
-    MashupAddRequest, MashupBindRequest, MashupDescribeRequest, MashupEventRequest,
-    MashupNewRequest, MashupOffRequest, MashupOnRequest, MashupParameterAction,
+    MashupAddRequest, MashupBindRequest, MashupDescribeRequest, MashupDiffRequest,
+    MashupEventRequest, MashupNewRequest, MashupOffRequest, MashupOnRequest, MashupParameterAction,
     MashupParameterRequest, MashupRecipeRequest, MashupRemoveRequest, MashupTemplatesRequest,
     MashupUnbindRequest, MashupValidateRequest, MoveMemberAction, MoveMemberRequest,
     NewBuildingBlockRequest, RenameRequest, ReprojectRequest, RetemplateRequest, WidgetsRequest,
@@ -417,6 +417,23 @@ pub(crate) fn mashup_describe_tool(
         crate::core::mashup::describe::describe(solution, nonempty(&arguments.mashup, "mashup")?)
             .map_err(ToolError::coded)?;
     Ok(serde_json::to_value(description).expect("a description serialises"))
+}
+
+pub(crate) fn mashup_diff_tool(
+    solution: &Solution,
+    arguments: MashupDiffRequest,
+) -> Result<Value, ToolError> {
+    let tier = arguments.tier.as_ref().map(String::as_str).unwrap_or("all");
+    let tier = crate::core::mashup::diff::Tier::parse(tier)
+        .ok_or_else(|| ToolError::invalid("tier must be executable, layout, visual or all"))?;
+    let result = crate::core::mashup::diff::diff(
+        solution,
+        nonempty(&arguments.mashup_a, "mashup_a")?,
+        nonempty(&arguments.mashup_b, "mashup_b")?,
+        tier,
+    )
+    .map_err(ToolError::coded)?;
+    Ok(serde_json::to_value(result).expect("a diff serialises"))
 }
 
 pub(crate) fn mashup_validate_tool(

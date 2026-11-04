@@ -6,6 +6,11 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `twaco mashup diff` (MCP `mashup_diff`) compares repository mashups by executable wiring,
+  layout and visual content while ignoring Composer-generated identifiers.
+
 ### Changed
 
 - Linux builds need glibc 2.39 or later (Ubuntu 24.04, Debian 13), from glibc 2.35 (Ubuntu

@@ -677,6 +677,14 @@ pub(crate) const USAGE: &[Usage] = &[
                               each binding and each event, in the addresses mashup bind and on take"#,
     },
     Usage {
+        path: "mashup diff",
+        group: 1,
+        text: r#"  mashup diff <a> <b> [--tier <tier>] [--json]
+                              compare two repository mashups by executable wiring, responsive layout and visual
+                              content; ignores Composer-generated identifiers; exits 1 when the selected tier differs
+      --tier <tier>           executable, layout, visual or all (default all)"#,
+    },
+    Usage {
         path: "mashup add",
         group: 1,
         text: r#"  mashup add <mashup> <widget> [--in <container> | --right-of <widget> | --left-of <widget> | --above <widget> | --below <widget>]

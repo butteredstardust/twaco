@@ -175,6 +175,10 @@ mashup describe <mashup> [--json]
                             what a mashup holds and how it is wired, without its XML: the widget tree,
                             each service it calls with what sets each parameter (or that nothing does),
                             each binding and each event, in the addresses mashup bind and on take
+mashup diff <a> <b> [--tier <tier>] [--json]
+                            compare two repository mashups by executable wiring, responsive layout and visual
+                            content; ignores Composer-generated identifiers; exits 1 when the selected tier differs
+    --tier <tier>           executable, layout, visual or all (default all)
 mashup add <mashup> <widget> [--in <container> | --right-of <widget> | --left-of <widget> | --above <widget> | --below <widget>]
     [--label <text>] [--prop <name=value>]... [--input <name:TYPE>]... [--apply] [--json]
                             add a catalogue widget, or one an [[extension]] project defines, to a

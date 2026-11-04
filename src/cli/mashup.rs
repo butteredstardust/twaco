@@ -11,6 +11,7 @@ use twaco::core::mashup::edit::{Placement, Side};
 pub(crate) enum Mashup {
     Validate(MashupValidate),
     Describe(MashupDescribe),
+    Diff(MashupDiff),
     Add(MashupAdd),
     AddContained(MashupAddContained),
     Bind(MashupBind),
@@ -31,6 +32,7 @@ impl Mashup {
         match self {
             Mashup::Validate(_) => "mashup validate",
             Mashup::Describe(_) => "mashup describe",
+            Mashup::Diff(_) => "mashup diff",
             Mashup::Add(_) => "mashup add",
             Mashup::AddContained(_) => "mashup add-contained",
             Mashup::Bind(_) => "mashup bind",
@@ -61,6 +63,18 @@ pub(crate) struct MashupValidate {
 #[derive(Debug, clap::Args)]
 #[group(skip)]
 pub(crate) struct MashupDescribe {
+    #[command(flatten)]
+    pub(crate) json: Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
+/// `twaco mashup diff <a> <b>`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct MashupDiff {
+    #[arg(long = "tier", value_name = "tier")]
+    pub(crate) tier: Option<String>,
     #[command(flatten)]
     pub(crate) json: Json,
     #[arg(id = "operands", value_name = "operand")]
@@ -1551,6 +1565,43 @@ pub(crate) fn mashup_describe_cmd(solution: &Solution, args: &MashupDescribe) ->
                 print!("{}", twaco::core::mashup::describe::render(&description));
             }
             OK
+        }
+        Err(error) => {
+            eprintln!("{} {error}", style::prefix());
+            FAILED
+        }
+    }
+}
+
+/// `twaco mashup diff <a> <b>`: compare authored semantics, not Composer allocator state.
+pub(crate) fn mashup_diff_cmd(solution: &Solution, args: &MashupDiff) -> u8 {
+    let [a, b] = args.operands.as_slice() else {
+        eprintln!("{} mashup diff needs <a> and <b>", style::prefix());
+        return FAILED;
+    };
+    let value = args.tier.as_deref().unwrap_or("all");
+    let Some(tier) = twaco::core::mashup::diff::Tier::parse(value) else {
+        eprintln!(
+            "{} --tier must be executable, layout, visual or all (got {value})",
+            style::prefix()
+        );
+        return FAILED;
+    };
+    match twaco::core::mashup::diff::diff(solution, a, b, tier) {
+        Ok(result) => {
+            if args.json.json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&result).expect("a diff serialises")
+                );
+            } else {
+                print!("{}", twaco::core::mashup::diff::render(&result));
+            }
+            if result.equal {
+                OK
+            } else {
+                DRIFT
+            }
         }
         Err(error) => {
             eprintln!("{} {error}", style::prefix());

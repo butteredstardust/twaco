@@ -656,6 +656,13 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             refactor::mashup_describe_tool,
         )
         .with_output::<outputs::MashupDescribeResult>(),
+        solution_tool::<refactor_requests::MashupDiffRequest>(
+            "mashup_diff",
+            "Compare two repository mashups by executable wiring, layout and visual content. Composer-generated widget and UUID identifiers are ignored; arrays retain their authored order. tier is executable, layout, visual or all (the default). Read-only.",
+            true,
+            refactor::mashup_diff_tool,
+        )
+        .with_output::<outputs::MashupDiffResult>(),
         solution_tool::<refactor_requests::ReprojectRequest>(
             "reproject",
             "Move entities to another project of the solution: their projectName, and their files under that project's root (sidecars stay). The plan names each reference the move puts outside the deploy order, with the depends_on that allows it. A dry run unless dry_run is false; an apply takes the workspace lock and writes every file or none.",
@@ -1047,6 +1054,7 @@ pub(crate) const GROUPS: &[(&str, &[&str])] = &[
             "mashup_event",
             "mashup_validate",
             "mashup_describe",
+            "mashup_diff",
         ],
     ),
     (

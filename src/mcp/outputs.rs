@@ -1265,6 +1265,31 @@ pub(crate) struct MashupDescribeResult {
 }
 
 #[derive(Serialize, JsonSchema)]
+pub(crate) struct MashupDiffResult {
+    a: String,
+    b: String,
+    tier: String,
+    equal: bool,
+    summary: MashupDiffSummary,
+    differences: Vec<MashupDifference>,
+}
+
+#[derive(Serialize, JsonSchema)]
+struct MashupDiffSummary {
+    executable: u64,
+    layout: u64,
+    visual: u64,
+}
+
+#[derive(Serialize, JsonSchema)]
+struct MashupDifference {
+    tier: String,
+    path: String,
+    left: Option<Value>,
+    right: Option<Value>,
+}
+
+#[derive(Serialize, JsonSchema)]
 pub(crate) struct MashupValidateResult {
     problems: u64,
     mashups: Vec<MashupValidateEntry>,
