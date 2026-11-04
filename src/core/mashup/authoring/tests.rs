@@ -2114,7 +2114,13 @@ fn add_contained_beside_a_label_uses_the_normal_placement_rules() {
         .iter()
         .map(|widget| widget["Properties"]["Id"].as_str().unwrap())
         .collect::<Vec<_>>();
-    assert_eq!(ids, ["ptcslabel-3", "mashupcontainer-4"]);
+    // A contained mashup can fill, so it gets a container of its own beside the label's.
+    assert_eq!(ids, ["flexcontainer-5", "flexcontainer-6"]);
+    let row = &value["UI"]["Widgets"][0]["Widgets"];
+    assert_eq!(row[0]["Widgets"][0]["Properties"]["Id"], "ptcslabel-3");
+    let contained = &row[1]["Widgets"][0]["Properties"];
+    assert_eq!(contained["Id"], "mashupcontainer-4");
+    assert_eq!(contained["ResponsiveLayout"], true);
 }
 
 #[test]

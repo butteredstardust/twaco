@@ -92,6 +92,10 @@ pub enum Placement {
     Beside { anchor: String, side: Side },
 }
 
+/// What a fixed row adds to its tallest widget: real rows of 34px fields are 45-49px, of 37px
+/// labels 47px.
+const ROW_MARGIN: f64 = 12.0;
+
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct Placed {
     /// The id of the new widget.
@@ -377,9 +381,75 @@ impl MashupDocument {
         widget: &Widget,
         placement: &Placement,
     ) -> Result<Placed, EditError> {
-        match placement {
+        let placed = match placement {
             Placement::In(target) => self.place_in(widget, target),
             Placement::Beside { anchor, side } => self.place_beside(widget, anchor, *side),
+        }?;
+        self.fix_rows(&placed);
+        Ok(placed)
+    }
+
+    /// Give the rows this placement made or added to the height of their widgets, as real
+    /// mashups do (a header or a filter bar is a fixed row; what fills grows): a container in a
+    /// column that holds only fixed-size widgets becomes a fixed row of the tallest one's height
+    /// plus a margin. Only containers the placement created or put the new widget in are
+    /// touched, and a row only ever grows, so a size someone chose survives.
+    fn fix_rows(&mut self, placed: &Placed) {
+        let mut touched = placed.containers.clone();
+        if let Ok(new) = self.find(&placed.id) {
+            if let Some((_, parent)) = new.path.split_last() {
+                touched.push(widget_id(self.at(parent)).to_string());
+            }
+        }
+        for id in touched {
+            let Ok(container) = self.find(&id) else {
+                continue;
+            };
+            let Some((_, parent)) = container.path.split_last() else {
+                continue;
+            };
+            if container.type_id != "flexcontainer"
+                || self.at(parent)["Properties"]["flex-direction"] != "column"
+            {
+                continue;
+            }
+            let node = self.at(&container.path);
+            let kids = children(node);
+            let fixed_leaves = !kids.is_empty()
+                && kids
+                    .iter()
+                    .all(|kid| type_of(kid) != Some("flexcontainer") && !fills(kid));
+            let tallest = kids
+                .iter()
+                .map(content_height)
+                .collect::<Option<Vec<f64>>>()
+                .and_then(|heights| heights.into_iter().reduce(f64::max));
+            let (Some(tallest), true) = (tallest, fixed_leaves) else {
+                continue;
+            };
+            let height = (tallest + ROW_MARGIN).ceil();
+            let current = node["Properties"]["flex-min-height"]
+                .as_str()
+                .and_then(|text| text.strip_suffix("px"))
+                .and_then(|number| number.parse::<f64>().ok());
+            let is_fixed = node["Properties"]["flex-size"] == "fixed";
+            if is_fixed && current.is_some_and(|current| current >= height) {
+                continue;
+            }
+            // Only a growing container (no size, or the default one) becomes a fixed row.
+            let size = &node["Properties"]["flex-size"];
+            if !is_fixed && !(size.is_null() || size == "default") {
+                continue;
+            }
+            let size = Value::from(format!("{height}px"));
+            self.set_property(&container.path, "flex-size", Value::from("fixed"));
+            self.set_property(&container.path, "flex-min-height", size.clone());
+            self.set_property(&container.path, "flex-max-height", size);
+            self.set_property(
+                &container.path,
+                "iconClass",
+                Value::from("widgets-flexcontainer-fixed"),
+            );
         }
     }
 
@@ -467,7 +537,10 @@ impl MashupDocument {
         let direction = parent["Properties"]["flex-direction"]
             .as_str()
             .map(str::to_string);
+        // A widget that can fill gets a container of its own, where it fills, rather than a
+        // fixed size among siblings.
         let sibling_possible = !fills(self.at(&anchor.path))
+            && !(widget.auto_resize && widget.type_id != "flexcontainer")
             && (direction.as_deref() == Some(side.axis()) || parent_children.len() == 1);
         let anchor_is_container = anchor.type_id == "flexcontainer";
         let new_is_container = widget.type_id == "flexcontainer";
@@ -764,6 +837,56 @@ fn widget_id(widget: &Value) -> &str {
     widget["Properties"]["Id"]
         .as_str()
         .expect("checked: a widget has an Id")
+}
+
+/// How tall a fixed-size widget renders, with its vertical margins: its own `Height` when
+/// Composer saved one, or what the 10.2 widget is measured at in real mashups (an input is a
+/// 34px field, with a 22px label above it when it has one). `None` for a widget whose height is
+/// not known, so its row is left as it is.
+fn content_height(widget: &Value) -> Option<f64> {
+    let properties = &widget["Properties"];
+    let own = properties["Height"].as_f64();
+    let measured = || -> Option<f64> {
+        let labelled = properties["Label"]
+            .as_str()
+            .is_some_and(|label| !label.is_empty());
+        Some(match type_of(widget)? {
+            "ptcslabel" => match properties["LabelType"].as_str() {
+                Some("header") => 45.0,
+                _ => 36.0,
+            },
+            "ptcsbutton" | "ptcsicon" | "ptcsdivider" | "ptcstogglebutton" => 34.0,
+            "ptcslink" => 37.0,
+            "ptcsimage" => 68.0,
+            "ptcscheckbox" | "ptcsradio" => 24.0,
+            "ptcstextfield" | "ptcsdropdown" | "ptcsdatepicker" | "ptcscombobox"
+            | "ptcsnumericentry" => {
+                if labelled {
+                    56.0
+                } else {
+                    34.0
+                }
+            }
+            _ => return None,
+        })
+    };
+    let height = own.or_else(measured)?;
+    Some(height + vertical_margin(properties["Margin"].as_str().unwrap_or("")))
+}
+
+/// The top plus bottom of a CSS margin shorthand in pixels: `5`, `0 10`, `0 10 15` or
+/// `0 10 15 10`.
+fn vertical_margin(margin: &str) -> f64 {
+    let sides: Vec<f64> = margin
+        .split_whitespace()
+        .map(|side| side.trim_end_matches("px").parse().unwrap_or(0.0))
+        .collect();
+    match sides.as_slice() {
+        [all] => all * 2.0,
+        [vertical, _] => vertical * 2.0,
+        [top, _, bottom] | [top, _, bottom, _] => top + bottom,
+        _ => 0.0,
+    }
 }
 
 fn fills(widget: &Value) -> bool {
@@ -1368,6 +1491,126 @@ mod tests {
         );
         assert_eq!(child_ids(&document, "flexcontainer-7"), ["ptcslabel-5"]);
         assert!(document.problems().is_empty());
+    }
+
+    #[test]
+    fn a_widget_that_can_fill_gets_a_container_of_its_own_beside_fixed_widgets() {
+        let column = container(
+            "flexcontainer-2",
+            "center",
+            "column",
+            r#"{"Properties":{"Id":"ptcstextfield-3","Type":"ptcstextfield","ResponsiveLayout":false},"Widgets":[]},
+               {"Properties":{"Id":"ptcsbutton-4","Type":"ptcsbutton","ResponsiveLayout":false},"Widgets":[]}"#,
+        );
+        let mut document = document(&column, 4);
+        let placed = document
+            .place(
+                catalogue_widget("ptcsgrid"),
+                &Placement::Beside {
+                    anchor: "ptcstextfield-3".into(),
+                    side: Side::Below,
+                },
+            )
+            .unwrap();
+        let grid = document.find(&placed.id).unwrap();
+        let parent = &grid.path[..grid.path.len() - 1];
+        assert_eq!(
+            children(document.at(parent)).len(),
+            1,
+            "alone in its container"
+        );
+        assert_eq!(
+            document.at(&grid.path)["Properties"]["ResponsiveLayout"],
+            true
+        );
+        assert!(document.problems().is_empty());
+    }
+
+    #[test]
+    fn rows_of_fixed_widgets_in_a_column_get_their_widgets_height() {
+        // A labelled field (56) with a 5px margin all round, plus the row margin: 78px.
+        let column = container("flexcontainer-2", "center", "column", "");
+        let mut document = document(&column, 2);
+        let field = document
+            .place(
+                catalogue_widget("ptcstextfield"),
+                &Placement::In("flexcontainer-2".into()),
+            )
+            .unwrap();
+        let path = document.find(&field.id).unwrap().path;
+        document.set_property(&path, "Label", Value::from("Filter"));
+        let grid = document
+            .place(
+                catalogue_widget("ptcsgrid"),
+                &Placement::Beside {
+                    anchor: field.id.clone(),
+                    side: Side::Below,
+                },
+            )
+            .unwrap();
+        let row = document.find(&field.id).unwrap().path;
+        let row = document.at(&row[..row.len() - 1])["Properties"].clone();
+        assert_eq!(row["flex-size"], "fixed");
+        assert_eq!(row["flex-min-height"], "78px");
+        assert_eq!(row["flex-max-height"], "78px");
+        assert_eq!(row["iconClass"], "widgets-flexcontainer-fixed");
+        // The grid's container grows.
+        let filled = document.find(&grid.id).unwrap().path;
+        let filled = &document.at(&filled[..filled.len() - 1])["Properties"];
+        assert_ne!(filled["flex-size"], "fixed");
+        // A row someone made taller keeps its height when a smaller widget joins it.
+        let row_path = {
+            let found = document.find(&field.id).unwrap().path;
+            found[..found.len() - 1].to_vec()
+        };
+        document.set_property(&row_path, "flex-min-height", Value::from("120px"));
+        document.set_property(&row_path, "flex-max-height", Value::from("120px"));
+        document
+            .place(
+                catalogue_widget("ptcsbutton"),
+                &Placement::Beside {
+                    anchor: field.id.clone(),
+                    side: Side::Right,
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            document.at(&row_path)["Properties"]["flex-min-height"],
+            "120px"
+        );
+    }
+
+    #[test]
+    fn a_row_with_a_widget_of_unknown_height_is_left_growing() {
+        let column = container("flexcontainer-2", "center", "column", "");
+        let mut document = document(&column, 2);
+        let first = document
+            .place(
+                catalogue_widget("ptcsslider"),
+                &Placement::In("flexcontainer-2".into()),
+            )
+            .unwrap();
+        document
+            .place(
+                catalogue_widget("ptcschartbar"),
+                &Placement::Beside {
+                    anchor: first.id.clone(),
+                    side: Side::Below,
+                },
+            )
+            .unwrap();
+        let path = document.find(&first.id).unwrap().path;
+        let row = &document.at(&path[..path.len() - 1])["Properties"];
+        assert_ne!(row["flex-size"], "fixed");
+    }
+
+    #[test]
+    fn vertical_margins_read_the_css_shorthand() {
+        assert_eq!(vertical_margin("5"), 10.0);
+        assert_eq!(vertical_margin("0 10"), 0.0);
+        assert_eq!(vertical_margin("0 10 15"), 15.0);
+        assert_eq!(vertical_margin("20 0 0 0"), 20.0);
+        assert_eq!(vertical_margin(""), 0.0);
     }
 
     #[test]
