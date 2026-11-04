@@ -1540,3 +1540,18 @@ fn value_streams_data_things_networks_menus_masters_and_members_are_structural()
     // A hyperlink item opens a URL, not the mashup it happens to name.
     assert!(!has("Menus/P.Main", "Mashups/P.Frame", EdgeKind::MenuItem));
 }
+
+#[test]
+fn a_project_cycle_leaves_the_index_complete_in_declared_order() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::fs::write(
+        root.join("twaco.toml"),
+        "[[project]]\nname = \"B\"\nroot = \"b\"\ndepends_on = [\"A\"]\n\n[[project]]\nname = \"A\"\nroot = \"a\"\ndepends_on = [\"B\"]\n",
+    )
+    .unwrap();
+    let solution = Solution::load(&root.join("twaco.toml")).unwrap();
+    let index = Index::build(&solution);
+    assert!(index.is_complete(), "{:?}", index.unreadable());
+    assert_eq!(index.deploy_order(), ["B", "A"]);
+}

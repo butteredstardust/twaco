@@ -188,18 +188,12 @@ pub(crate) fn check_content(content: &str, problems: &mut Vec<Problem>) {
         |section: &str, call: &str| calls.get(section).is_some_and(|names| names.contains(call));
     for (key, section) in value["Data"].as_object().into_iter().flatten() {
         let kind = section["EntityType"].as_str().unwrap_or_default();
-        if !matches!(
-            kind,
-            "Things"
-                | "ThingTemplates"
-                | "DynamicThingTemplates"
-                | "DynamicThingShapes"
-                | "Session"
-                | "UserExtensions"
-        ) {
+        // ThingWorx has more source kinds than twaco authors (Networks, Resources, ...): only a
+        // source that names none is a problem.
+        if kind.is_empty() {
             problems.push(problem(
                 "unknown-entity-type",
-                format!("data source {key} has unknown EntityType {kind}"),
+                format!("data source {key} has no EntityType"),
             ));
         }
         if section["DataName"].as_str() != Some(key) {
@@ -765,13 +759,19 @@ mod tests {
             ),
             ["entity-binding-into-static-section"]
         );
+        // A kind twaco does not author is still a kind.
+        assert!(rules(
+            section("Networks_Acme.Net", "Networks", one.clone()),
+            json!([])
+        )
+        .is_empty());
         let mut renamed = section(
             key,
             "DynamicThingShapes",
             json!([{"Name": "List"}, {"Name": "List"}]),
         );
         renamed[key]["DataName"] = json!("Other");
-        renamed[key]["EntityType"] = json!("Sideways");
+        renamed[key]["EntityType"] = json!("");
         assert_eq!(
             rules(renamed, json!([])),
             [

@@ -424,6 +424,14 @@ impl Builder<'_> {
     fn finish(mut self, files: Vec<workspace::EntityFile>) -> Index {
         let deploy_order = match self.solution.deploy_order() {
             Ok(order) => order.iter().map(|project| project.name.clone()).collect(),
+            // A cycle has no deploy order, but the index orders projects only for reports:
+            // twaco.toml's own order stands in, and nothing in the solution is unreadable.
+            Err(crate::core::config::ConfigError::DependencyCycle { .. }) => self
+                .solution
+                .projects
+                .iter()
+                .map(|project| project.name.clone())
+                .collect(),
             Err(error) => {
                 self.unreadable.push(Unreadable {
                     what: crate::core::config::CONFIG_FILE.to_string(),
