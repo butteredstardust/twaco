@@ -593,6 +593,18 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             refactor::mashup_bind_tool,
         )
         .with_output::<outputs::MashupBindResult>(),
+        solution_tool::<refactor_requests::MashupSourceAddRequest>(
+            "mashup_source_add",
+            "Call a Thing's, ThingTemplate's or ThingShape's service from a mashup. A shape's call, and a template's with dynamic, runs on the Thing an EntityName binding names; entity_from (a THINGNAME or STRING address such as mashup:Manager) writes that binding too. A dry run unless dry_run is false; apply writes the entity and managed content sidecar together.",
+            false,
+            refactor::mashup_source_add_tool,
+        ).with_output::<outputs::MashupSourceAddResult>(),
+        solution_tool::<refactor_requests::MashupSourceListRequest>(
+            "mashup_source_list", "List explicit mashup data source calls. Read-only; no server.", true, refactor::mashup_source_list_tool,
+        ).with_output::<outputs::MashupSourceListResult>(),
+        solution_tool::<refactor_requests::MashupSourceRemoveRequest>(
+            "mashup_source_remove", "Remove one explicit mashup data source call. cascade removes only bindings and events proven to name it. A dry run unless dry_run is false; apply writes the entity and managed content sidecar together.", false, refactor::mashup_source_remove_tool,
+        ).with_output::<outputs::MashupSourceRemoveResult>(),
         solution_tool::<refactor_requests::MashupOnRequest>(
             "mashup_on",
             "Run a data call or widget service when one mashup event fires. Triggers are ui:<widget>.<Event>, mashup:Loaded, or an existing data:<Entity>.<Service>[as alias].ServiceInvokeCompleted, AllDataChanged or SelectedRowsChanged; handlers are data calls or widget services. A missing Thing handler call is created; templates and shapes need an existing call. A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
@@ -1052,6 +1064,9 @@ pub(crate) const GROUPS: &[(&str, &[&str])] = &[
             "mashup_set",
             "mashup_add_contained",
             "mashup_bind",
+            "mashup_source_add",
+            "mashup_source_list",
+            "mashup_source_remove",
             "mashup_on",
             "mashup_remove",
             "mashup_unbind",

@@ -27,6 +27,7 @@ pub(super) enum End {
         service: String,
         requested_alias: Option<String>,
         selected_rows: bool,
+        entity_name: bool,
         member: Option<String>,
         base: String,
         property_type: String,
@@ -133,8 +134,36 @@ pub(super) fn resolve_end(
             entity_service,
             alias,
             selected_rows,
+            entity_name,
             member,
         } => {
+            if entity_name {
+                if source {
+                    return Err(AuthoringError::Invalid(
+                        "EntityName is a data target, not a source".into(),
+                    ));
+                }
+                let entity = model
+                    .entities
+                    .iter()
+                    .find(|entity| entity.name == entity_service)
+                    .ok_or_else(|| {
+                        AuthoringError::Unknown(format!(
+                            "no entity {entity_service} in the solution"
+                        ))
+                    })?;
+                return Ok(End::Data {
+                    entity: entity.name.clone(),
+                    collection: entity.collection.clone(),
+                    service: String::new(),
+                    requested_alias: alias,
+                    selected_rows: false,
+                    entity_name: true,
+                    member: Some("EntityName".into()),
+                    base: "THINGNAME".into(),
+                    property_type: "Entity".into(),
+                });
+            }
             if !source && selected_rows {
                 return Err(AuthoringError::Invalid(
                     "SelectedRows is a data source, not a parameter target".into(),
@@ -198,6 +227,7 @@ pub(super) fn resolve_end(
                     service,
                     requested_alias: alias,
                     selected_rows,
+                    entity_name: false,
                     member,
                     base,
                     property_type,
@@ -224,6 +254,7 @@ pub(super) fn resolve_end(
                     service,
                     requested_alias: alias,
                     selected_rows,
+                    entity_name: false,
                     member: Some(name),
                     base: parameter.value.base_type.clone(),
                     property_type: "Parameter".into(),
@@ -478,6 +509,9 @@ pub(super) fn source_property_type(end: &End) -> &str {
 pub(super) fn target_property_type(end: &End) -> &str {
     match end {
         End::Ui { .. } | End::Mashup { .. } => "property",
+        End::Data {
+            entity_name: true, ..
+        } => "Entity",
         End::Data { .. } => "Parameter",
     }
 }

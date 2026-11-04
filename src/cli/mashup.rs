@@ -14,6 +14,7 @@ pub(crate) enum Mashup {
     Diff(MashupDiff),
     Add(MashupAdd),
     Set(MashupSet),
+    Source(MashupSource),
     AddContained(MashupAddContained),
     Bind(MashupBind),
     On(MashupOn),
@@ -36,6 +37,7 @@ impl Mashup {
             Mashup::Diff(_) => "mashup diff",
             Mashup::Add(_) => "mashup add",
             Mashup::Set(_) => "mashup set",
+            Mashup::Source(source) => source.path(),
             Mashup::AddContained(_) => "mashup add-contained",
             Mashup::Bind(_) => "mashup bind",
             Mashup::On(_) => "mashup on",
@@ -49,6 +51,74 @@ impl Mashup {
             Mashup::New(_) => "mashup new",
         }
     }
+}
+
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct MashupSource {
+    #[command(subcommand)]
+    pub(crate) command: MashupSourceCommand,
+}
+impl MashupSource {
+    fn path(&self) -> &'static str {
+        match self.command {
+            MashupSourceCommand::Add(_) => "mashup source add",
+            MashupSourceCommand::List(_) => "mashup source list",
+            MashupSourceCommand::Remove(_) => "mashup source remove",
+        }
+    }
+}
+#[derive(Debug, clap::Subcommand)]
+pub(crate) enum MashupSourceCommand {
+    Add(MashupSourceAdd),
+    List(MashupSourceList),
+    Remove(MashupSourceRemove),
+}
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct MashupSourceAdd {
+    #[arg(long = "dynamic")]
+    pub(crate) dynamic: bool,
+    #[arg(long = "as", value_name = "new")]
+    pub(crate) alias: Option<String>,
+    #[arg(long = "entity-from", value_name = "address")]
+    pub(crate) entity_from: Option<String>,
+    #[arg(long = "every", value_name = "seconds")]
+    pub(crate) every: Option<u32>,
+    #[arg(long = "cache")]
+    pub(crate) cache: bool,
+    #[arg(long = "cache-key", value_name = "parameter")]
+    pub(crate) cache_keys: Vec<String>,
+    #[arg(long = "cache-strategy", value_name = "INSTANCE|SESSION|USER")]
+    pub(crate) cache_strategy: Option<String>,
+    #[arg(long = "max-result-sets", value_name = "n")]
+    pub(crate) max_result_sets: Option<u32>,
+    #[command(flatten)]
+    pub(crate) apply: Apply,
+    #[command(flatten)]
+    pub(crate) json: Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct MashupSourceList {
+    #[command(flatten)]
+    pub(crate) json: Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct MashupSourceRemove {
+    #[arg(long = "cascade")]
+    pub(crate) cascade: bool,
+    #[command(flatten)]
+    pub(crate) apply: Apply,
+    #[command(flatten)]
+    pub(crate) json: Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
 }
 
 /// `twaco mashup validate <mashup>|--all`.
@@ -1332,6 +1402,160 @@ pub(crate) fn mashup_bind_cmd(solution: &Solution, args: &MashupBind) -> u8 {
     );
     if !outcome.applied {
         println!("run again with --apply to write it");
+    }
+    OK
+}
+
+pub(crate) fn mashup_source_add_cmd(solution: &Solution, args: &MashupSourceAdd) -> u8 {
+    let [mashup, entity, service] = args.operands.as_slice() else {
+        eprintln!(
+            "{} mashup source add needs <mashup> <entity> <service>",
+            style::prefix()
+        );
+        return FAILED;
+    };
+    let request = commands::mashup::MashupSourceAddRequest {
+        request: mashup::authoring::SourceAddRequest {
+            mashup: mashup.clone(),
+            entity: entity.clone(),
+            service: service.clone(),
+            dynamic: args.dynamic,
+            alias: args.alias.clone(),
+            entity_from: args.entity_from.clone(),
+            refresh: args.every,
+            cache: args.cache,
+            cache_keys: args.cache_keys.clone(),
+            cache_strategy: args.cache_strategy.clone(),
+            max_result_sets: args.max_result_sets,
+        },
+        mode: if args.apply.apply {
+            Mode::Apply
+        } else {
+            Mode::Plan
+        },
+        lock_label: "mashup source add",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome = match commands::mashup::source_add(solution, &request, &mut notices) {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            print_notices(&notices);
+            eprintln!("{} {error}", style::prefix());
+            return FAILED;
+        }
+    };
+    print_notices(&notices);
+    let report = serde_json::json!({"applied":outcome.applied,"mashup":outcome.plan.edit.mashup,"section":outcome.plan.section,"call":outcome.plan.call,"files":edit_files(solution,&outcome.plan.edit)});
+    if args.json.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report).expect("a source plan serialises")
+        );
+    } else {
+        println!(
+            "{} source {} in {}",
+            if outcome.applied {
+                "added"
+            } else {
+                "would add"
+            },
+            outcome.plan.call,
+            outcome.plan.section
+        );
+        if !outcome.applied {
+            println!("run again with --apply to write it");
+        }
+    }
+    OK
+}
+
+pub(crate) fn mashup_source_list_cmd(solution: &Solution, args: &MashupSourceList) -> u8 {
+    let [mashup] = args.operands.as_slice() else {
+        eprintln!("{} mashup source list needs <mashup>", style::prefix());
+        return FAILED;
+    };
+    let sources = match commands::mashup::source_list(solution, mashup) {
+        Ok(sources) => sources,
+        Err(error) => {
+            eprintln!("{} {error}", style::prefix());
+            return FAILED;
+        }
+    };
+    if args.json.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(
+                &serde_json::json!({"mashup": mashup, "sources": sources})
+            )
+            .expect("sources serialise")
+        );
+    } else {
+        for source in sources {
+            println!(
+                "{} {}.{} [as {}] entity:{} refresh:{} cache:{}",
+                source.kind,
+                source.entity,
+                source.service,
+                source.alias,
+                source.entity_from,
+                source.refresh,
+                if source.cache { "on" } else { "off" }
+            );
+        }
+    }
+    OK
+}
+
+pub(crate) fn mashup_source_remove_cmd(solution: &Solution, args: &MashupSourceRemove) -> u8 {
+    let [mashup, address] = args.operands.as_slice() else {
+        eprintln!(
+            "{} mashup source remove needs <mashup> <address>",
+            style::prefix()
+        );
+        return FAILED;
+    };
+    let request = commands::mashup::MashupSourceRemoveRequest {
+        request: mashup::authoring::SourceRemoveRequest {
+            mashup: mashup.clone(),
+            address: address.clone(),
+            cascade: args.cascade,
+        },
+        mode: if args.apply.apply {
+            Mode::Apply
+        } else {
+            Mode::Plan
+        },
+        lock_label: "mashup source remove",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome = match commands::mashup::source_remove(solution, &request, &mut notices) {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            print_notices(&notices);
+            eprintln!("{} {error}", style::prefix());
+            return FAILED;
+        }
+    };
+    print_notices(&notices);
+    let report = serde_json::json!({"applied":outcome.applied,"mashup":mashup,"section":outcome.plan.section,"call":outcome.plan.call,"bindings_removed":outcome.plan.bindings_removed,"events_removed":outcome.plan.events_removed,"files":edit_files(solution,&outcome.plan.edit)});
+    if args.json.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report).expect("source remove serialises")
+        );
+    } else {
+        println!(
+            "{} {}",
+            if outcome.applied {
+                "removed"
+            } else {
+                "would remove"
+            },
+            address
+        );
+        if !outcome.applied {
+            println!("run again with --apply to write it");
+        }
     }
     OK
 }

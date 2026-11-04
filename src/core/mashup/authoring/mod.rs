@@ -25,6 +25,7 @@ mod parameter;
 mod recipes;
 mod remove;
 mod set;
+mod source;
 
 pub use add::{add_contained_plan_json, add_plan_json, AddContainedRequest, AddRequest};
 pub(crate) use add::{
@@ -59,6 +60,11 @@ pub(crate) use remove::{plan_off, plan_remove, plan_unbind, OffPlan, RemovePlan,
 pub use remove::{OffRequest, RemoveRequest, UnbindRequest};
 pub(crate) use set::{plan_set, SetPlan};
 pub use set::{set_plan_json, SetRequest};
+pub use source::SourceInfo;
+pub(crate) use source::{
+    list_sources, plan_source_add, plan_source_remove, SourceAddPlan, SourceRemovePlan,
+};
+pub use source::{SourceAddRequest, SourceRemoveRequest};
 
 #[derive(Debug)]
 pub struct SidecarEdit {

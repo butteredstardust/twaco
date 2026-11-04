@@ -101,6 +101,21 @@ pub(super) fn bind_in(
         false,
         &mut refreshed,
     )?;
+    if matches!(
+        &to,
+        End::Data {
+            entity_name: true,
+            ..
+        }
+    ) {
+        return bind_entity_end(document, solution, context, &from, &to, from_raw, to_raw).map(
+            |warnings| BindIn {
+                new_source: None,
+                warnings,
+                refreshed,
+            },
+        );
+    }
     if !allowed(&from, &to) {
         return Err(AuthoringError::Invalid(format!(
             "{} cannot bind to {}",
@@ -131,7 +146,7 @@ pub(super) fn bind_in(
             from_raw, to_raw
         )));
     }
-    let warnings = if has_source(document, &to, &target_section, &target_id) {
+    let mut warnings = if has_source(document, &to, &target_section, &target_id) {
         vec![format!(
             "{} already has another source; ThingWorx applies whichever value arrives last",
             to_raw
@@ -139,6 +154,13 @@ pub(super) fn bind_in(
     } else {
         Vec::new()
     };
+    for (end, section) in [(&from, &source_section), (&to, &target_section)] {
+        if matches!(end, End::Data { .. }) && super::source::unbound_dynamic(document, section) {
+            warnings.push(format!(
+                "{section} has no EntityName binding and cannot run until one is added"
+            ));
+        }
+    }
     let mut binding = Map::new();
     insert(
         &mut binding,
@@ -205,6 +227,200 @@ pub(super) fn bind_in(
     })
 }
 
+/// Bind the one dynamic source entity slot.  It is deliberately not a normal service parameter:
+/// Composer writes `Entity` and the runtime allows a THINGNAME or STRING selector only.
+fn bind_entity_end(
+    document: &mut MashupDocument,
+    _solution: Option<&Solution>,
+    _context: &AuthoringContext<'_>,
+    from: &End,
+    to: &End,
+    from_raw: &str,
+    to_raw: &str,
+) -> Result<Vec<String>, AuthoringError> {
+    let End::Data {
+        entity,
+        requested_alias,
+        ..
+    } = to
+    else {
+        unreachable!()
+    };
+    let sections: Vec<String> = document.value()["Data"]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter(|(_, section)| {
+            section["EntityType"]
+                .as_str()
+                .is_some_and(|kind| matches!(kind, "DynamicThingShapes" | "DynamicThingTemplates"))
+                && section["DataName"]
+                    .as_str()
+                    .is_some_and(|name| name.ends_with(&format!("_{entity}")))
+        })
+        .map(|(key, _)| key.clone())
+        .collect();
+    let section = match sections.as_slice() {
+        [] => {
+            let static_section = document.value()["Data"]
+                .as_object()
+                .into_iter()
+                .flatten()
+                .find(|(_, section)| {
+                    section["DataName"]
+                        .as_str()
+                        .is_some_and(|name| name.ends_with(&format!("_{entity}")))
+                });
+            if let Some((name, _)) = static_section {
+                return Err(AuthoringError::Refused(format!(
+                    "{name} is static; its EntityName is fixed by mashup source add"
+                )));
+            }
+            return Err(AuthoringError::Unknown(format!(
+                "no dynamic source for {entity}"
+            )));
+        }
+        [only] => only.clone(),
+        many => {
+            // `[as alias]` picks the section that holds the call of that name.
+            let Some(alias) = requested_alias else {
+                return Err(AuthoringError::Ambiguous(format!(
+                    "{to_raw} needs [as <alias>] because this mashup has several sources for {entity}"
+                )));
+            };
+            many.iter()
+                .find(|key| {
+                    document.value()["Data"][key.as_str()]["Services"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .any(|call| call["Name"] == *alias)
+                })
+                .cloned()
+                .ok_or_else(|| {
+                    AuthoringError::Unknown(format!(
+                        "no source for {entity} has a call named {alias}"
+                    ))
+                })?
+        }
+    };
+    let base = base(from);
+    if !matches!(base, "THINGNAME" | "STRING") {
+        return Err(AuthoringError::Refused(format!(
+            "{from_raw} is {base}; a dynamic source entity needs THINGNAME or STRING"
+        )));
+    }
+    if document.value()["DataBindings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .any(|binding| {
+            crate::core::mashup::authoring::source::entity_slot_binding(binding, &section)
+        })
+    {
+        return Err(AuthoringError::Refused(format!(
+            "{section} already takes its entity from an address; mashup unbind it first"
+        )));
+    }
+    let (source_section, source_id, _) = data_call(document, from)?;
+    let mut map = Map::new();
+    insert(
+        &mut map,
+        "SourceProperty",
+        Value::String(property(from).into()),
+    );
+    insert(
+        &mut map,
+        "SourcePropertyBaseType",
+        Value::String(base.into()),
+    );
+    insert(
+        &mut map,
+        "SourcePropertyType",
+        Value::String(source_property_type(from).into()),
+    );
+    insert(&mut map, "TargetProperty", Value::String("value".into()));
+    insert(
+        &mut map,
+        "TargetPropertyBaseType",
+        Value::String("THINGNAME".into()),
+    );
+    insert(
+        &mut map,
+        "TargetPropertyType",
+        Value::String("Entity".into()),
+    );
+    let mut binding = Map::new();
+    insert(
+        &mut binding,
+        "Id",
+        Value::String(Uuid::new_v4().to_string()),
+    );
+    insert(
+        &mut binding,
+        "PropertyMaps",
+        Value::Array(vec![Value::Object(map)]),
+    );
+    insert(&mut binding, "SourceArea", Value::String(area(from).into()));
+    insert(
+        &mut binding,
+        "SourceDetails",
+        Value::String(details(from).into()),
+    );
+    insert(&mut binding, "SourceId", Value::String(source_id));
+    insert(&mut binding, "SourceSection", Value::String(source_section));
+    insert(&mut binding, "TargetArea", Value::String("Data".into()));
+    insert(&mut binding, "TargetId", Value::String("EntityName".into()));
+    insert(&mut binding, "TargetSection", Value::String(section));
+    document.bindings_mut().push(Value::Object(binding));
+    Ok(Vec::new())
+}
+
+pub(super) fn bind_entity_slot(
+    document: &mut MashupDocument,
+    solution: &Solution,
+    parameters: &[crate::core::mashup::describe::MashupParameter],
+    model: &types::Model,
+    platform: Option<&types::Platform>,
+    from_raw: &str,
+    entity: &str,
+) -> Result<(), AuthoringError> {
+    let context = AuthoringContext {
+        parameters,
+        model,
+        platform,
+    };
+    let from = resolve_end(
+        document,
+        Some(solution),
+        &context,
+        parse_address(from_raw).map_err(|e| AuthoringError::Invalid(e.to_string()))?,
+        true,
+        &mut Vec::new(),
+    )?;
+    let to = End::Data {
+        entity: entity.into(),
+        collection: String::new(),
+        service: String::new(),
+        requested_alias: None,
+        selected_rows: false,
+        entity_name: true,
+        member: Some("EntityName".into()),
+        base: "THINGNAME".into(),
+        property_type: "Entity".into(),
+    };
+    bind_entity_end(
+        document,
+        Some(solution),
+        &context,
+        &from,
+        &to,
+        from_raw,
+        &format!("data:{entity}[EntityName]"),
+    )?;
+    Ok(())
+}
+
 pub(super) fn data_call(
     document: &mut MashupDocument,
     end: &End,
@@ -231,7 +447,12 @@ pub(super) fn data_call(
         return Ok((section, call, None));
     }
     if collection != "Things" {
-        return Err(AuthoringError::Refused(format!("{entity} is a template/shape: its data source needs the entity it runs on bound first (twaco does not create that yet); add the call in Composer once")));
+        let kind = if collection == "ThingShapes" {
+            "dynamic-shape"
+        } else {
+            "template or dynamic-template"
+        };
+        return Err(AuthoringError::Refused(format!("{entity} is a {collection}: add its call with twaco mashup source add <mashup> {entity} {service} --kind {kind} first")));
     }
     let key = format!("Things_{entity}");
     let data = document.data_mut();

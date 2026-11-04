@@ -186,6 +186,91 @@ pub(crate) fn check_content(content: &str, problems: &mut Vec<Problem>) {
         .collect();
     let call_exists =
         |section: &str, call: &str| calls.get(section).is_some_and(|names| names.contains(call));
+    for (key, section) in value["Data"].as_object().into_iter().flatten() {
+        let kind = section["EntityType"].as_str().unwrap_or_default();
+        if !matches!(
+            kind,
+            "Things"
+                | "ThingTemplates"
+                | "DynamicThingTemplates"
+                | "DynamicThingShapes"
+                | "Session"
+                | "UserExtensions"
+        ) {
+            problems.push(problem(
+                "unknown-entity-type",
+                format!("data source {key} has unknown EntityType {kind}"),
+            ));
+        }
+        if section["DataName"].as_str() != Some(key) {
+            problems.push(problem(
+                "data-name-mismatch",
+                format!("data source {key} has DataName {}", section["DataName"]),
+            ));
+        }
+        let mut names = BTreeSet::new();
+        for call in section["Services"].as_array().into_iter().flatten() {
+            if let Some(name) = call["Name"].as_str() {
+                if !names.insert(name) {
+                    problems.push(problem(
+                        "duplicate-call-name",
+                        format!("data source {key} has two calls named {name}"),
+                    ));
+                }
+            }
+        }
+        let entity_bindings = value["DataBindings"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|binding| {
+                binding["TargetArea"] == "Data"
+                    && binding["TargetSection"] == *key
+                    && binding["TargetId"] == "EntityName"
+            })
+            .count();
+        // A dynamic section nothing wires is dead but harmless (real repositories keep some);
+        // one whose calls run or feed something cannot work without its entity.
+        let wired = value["DataBindings"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|binding| {
+                (binding["SourceArea"] == "Data" && binding["SourceSection"] == *key)
+                    || (binding["TargetArea"] == "Data"
+                        && binding["TargetSection"] == *key
+                        && binding["TargetId"] != "EntityName")
+            })
+            || value["Events"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .any(|event| {
+                    (event["EventHandlerArea"] == "Data" && event["EventHandlerId"] == *key)
+                        || (event["EventTriggerArea"] == "Data"
+                            && event["EventTriggerSection"] == *key)
+                });
+        if matches!(kind, "DynamicThingTemplates" | "DynamicThingShapes") {
+            if entity_bindings == 0 && wired {
+                problems.push(problem(
+                    "unbound-dynamic-entity",
+                    format!("dynamic data source {key} has no EntityName binding"),
+                ));
+            }
+            if entity_bindings > 1 {
+                problems.push(problem(
+                    "multiple-dynamic-entity-bindings",
+                    format!("dynamic data source {key} has {entity_bindings} EntityName bindings"),
+                ));
+            }
+        }
+        if matches!(kind, "Things" | "ThingTemplates") && entity_bindings > 0 {
+            problems.push(problem(
+                "entity-binding-into-static-section",
+                format!("static data source {key} has an EntityName binding"),
+            ));
+        }
+    }
     // Bindings: each end exists and the catalogue contract allows it.
     for binding in value["DataBindings"].as_array().into_iter().flatten() {
         let id = binding["Id"].as_str().unwrap_or("a binding");
@@ -558,23 +643,31 @@ mod tests {
             3,
         );
         assert_eq!(rules(&empty), ["no-property-map"]);
-        // Not problems: dynamic sources with no entity, numbered properties, action events, resets.
+        // Not problems: numbered properties, action events, resets, a bound dynamic source.
         let allowed = json!({
             "UI": {"Properties": {"Id": "mashup-root", "Type": "mashup", "id_index": 2},
                 "Widgets": [{"Properties": {"Id": "flexcontainer-2", "Type": "flexcontainer"}, "Widgets": [
                     widget("ptcstabset", "ptcstabset-3"), widget("ptcstoolbar", "ptcstoolbar-4"),
                     widget("ptcsdatepicker", "ptcsdatepicker-5")]}]},
-            "Data": {"DynamicThingShapes_Acme.S": {"EntityName": "", "EntityType": "DynamicThingShapes",
-                "Services": [{"Name": "List"}]}},
+            "Data": {"DynamicThingShapes_Acme.S": {"DataName": "DynamicThingShapes_Acme.S", "EntityName": "Acme.S",
+                "EntityType": "DynamicThingShapes", "Services": [{"Name": "List"}]}},
             "DataBindings": [{"Id": "b", "PropertyMaps": [{"SourceProperty": "Visible", "TargetProperty": "Tab2Visible"}],
                 "SourceArea": "Data", "SourceSection": "DynamicThingShapes_Acme.S", "SourceId": "List",
-                "TargetArea": "UI", "TargetId": "ptcstabset-3"}],
+                "TargetArea": "UI", "TargetId": "ptcstabset-3"},
+                {"Id": "e1", "PropertyMaps": [{"SourceProperty": "Manager", "TargetProperty": "value"}],
+                "SourceArea": "Mashup", "SourceId": "mashup-root", "TargetArea": "Data",
+                "TargetSection": "DynamicThingShapes_Acme.S", "TargetId": "EntityName"}],
             "Events": [{"Id": "e", "EventTriggerArea": "UI", "EventTriggerId": "ptcstoolbar-4", "EventTriggerEvent": "ViewB_Clicked",
                 "EventHandlerArea": "UI", "EventHandlerId": "ptcsdatepicker-5", "EventHandlerService": "ResetToDefaultValue"}],
             "mashupType": "mashup"
         })
         .to_string();
-        assert!(rules(&allowed).is_empty(), "{:?}", rules(&allowed));
+        assert_eq!(
+            rules(&allowed),
+            Vec::<String>::new(),
+            "{:?}",
+            rules(&allowed)
+        );
         let twice = content(
             json!([
                 widget("ptcsbutton", "ptcsbutton-3"),
@@ -621,6 +714,71 @@ mod tests {
         assert_eq!(
             rules(&content(chart(true), bind("DataSource01"), json!([]), 4)),
             ["unknown-property"]
+        );
+    }
+
+    #[test]
+    fn data_sources_name_themselves_and_wired_dynamic_ones_have_one_entity() {
+        let rules = |data: Value, bindings: Value| {
+            let mut problems = Vec::new();
+            let content = json!({"UI": {"Properties": {"Id": "mashup-root", "Type": "mashup", "id_index": 1}, "Widgets": []},
+                "Data": data, "DataBindings": bindings, "Events": [], "mashupType": "mashup"});
+            check_content(&content.to_string(), &mut problems);
+            let mut found: Vec<String> = problems.into_iter().map(|p| p.rule.to_string()).collect();
+            found.sort();
+            found
+        };
+        let section = |key: &str, kind: &str, calls: Value| json!({key: {"DataName": key, "EntityName": "Acme.S", "EntityType": kind, "Services": calls}});
+        let entity = |section: &str| {
+            json!({"Id": "e", "PropertyMaps": [{"SourceProperty": "Manager", "TargetProperty": "value"}],
+                "SourceArea": "Mashup", "SourceId": "mashup-root", "TargetArea": "Data",
+                "TargetSection": section, "TargetId": "EntityName"})
+        };
+        let feeds = |section: &str| {
+            json!({"Id": "f", "PropertyMaps": [{"SourceProperty": "x", "TargetProperty": "y"}],
+                "SourceArea": "Data", "SourceSection": section, "SourceId": "List", "TargetArea": "Mashup",
+                "TargetId": "mashup-root"})
+        };
+        let key = "DynamicThingShapes_Acme.S";
+        let one = json!([{"Name": "List", "Target": "List"}]);
+        // Unbound and unused: dead, not reported. Unbound and wired: reported.
+        assert!(rules(section(key, "DynamicThingShapes", one.clone()), json!([])).is_empty());
+        assert_eq!(
+            rules(
+                section(key, "DynamicThingShapes", one.clone()),
+                json!([feeds(key)])
+            ),
+            ["unbound-dynamic-entity"]
+        );
+        assert_eq!(
+            rules(
+                section(key, "DynamicThingShapes", one.clone()),
+                json!([feeds(key), entity(key), entity(key)])
+            ),
+            ["multiple-dynamic-entity-bindings"]
+        );
+        let fixed = "Things_Acme.S";
+        assert_eq!(
+            rules(
+                section(fixed, "Things", one.clone()),
+                json!([entity(fixed)])
+            ),
+            ["entity-binding-into-static-section"]
+        );
+        let mut renamed = section(
+            key,
+            "DynamicThingShapes",
+            json!([{"Name": "List"}, {"Name": "List"}]),
+        );
+        renamed[key]["DataName"] = json!("Other");
+        renamed[key]["EntityType"] = json!("Sideways");
+        assert_eq!(
+            rules(renamed, json!([])),
+            [
+                "data-name-mismatch",
+                "duplicate-call-name",
+                "unknown-entity-type"
+            ]
         );
     }
 }

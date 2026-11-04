@@ -720,7 +720,23 @@ impl Addresses<'_> {
             // A shape's or template's data source takes the entity it runs on from a binding
             // to `EntityName`, not to a service.
             "Data" if self.is_entity_slot(section, id) => {
-                format!("data:{}[{id}]", self.entity(section))
+                let entity = self.entity(section);
+                let same = self
+                    .sections
+                    .values()
+                    .filter(|found| found.entity == entity)
+                    .count();
+                if same > 1 {
+                    let alias = self
+                        .sections
+                        .get(section)
+                        .and_then(|found| found.services.first())
+                        .map(|call| call.instance.as_str())
+                        .unwrap_or_default();
+                    format!("data:{entity}[as {alias}][{id}]")
+                } else {
+                    format!("data:{entity}[{id}]")
+                }
             }
             "Data" => {
                 let rows = match details {

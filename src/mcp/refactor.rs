@@ -4,6 +4,7 @@ use super::requests::refactor::{
     MashupAddRequest, MashupBindRequest, MashupDescribeRequest, MashupDiffRequest,
     MashupEventRequest, MashupNewRequest, MashupOffRequest, MashupOnRequest, MashupParameterAction,
     MashupParameterRequest, MashupRecipeRequest, MashupRemoveRequest, MashupSetRequest,
+    MashupSourceAddRequest, MashupSourceListRequest, MashupSourceRemoveRequest,
     MashupTemplatesRequest, MashupUnbindRequest, MashupValidateRequest, MoveMemberAction,
     MoveMemberRequest, NewBuildingBlockRequest, RenameRequest, ReprojectRequest, RetemplateRequest,
     WidgetsRequest,
@@ -828,6 +829,65 @@ pub(crate) fn mashup_bind_tool(
         "refreshed": outcome.plan.refreshed,
         "files": files,
     });
+    add_notices(&mut result, &notices);
+    Ok(result)
+}
+
+pub(crate) fn mashup_source_add_tool(
+    solution: &Solution,
+    arguments: MashupSourceAddRequest,
+) -> Result<Value, ToolError> {
+    let dry_run = arguments.dry_run;
+    let request = commands::mashup::MashupSourceAddRequest {
+        request: crate::core::mashup::authoring::SourceAddRequest {
+            mashup: nonempty(&arguments.mashup, "mashup")?.into(),
+            entity: nonempty(&arguments.entity, "entity")?.into(),
+            service: nonempty(&arguments.service, "service")?.into(),
+            dynamic: arguments.dynamic,
+            alias: arguments.alias.as_ref().cloned(),
+            entity_from: arguments.entity_from.as_ref().cloned(),
+            refresh: arguments.every.as_ref().copied(),
+            cache: arguments.cache,
+            cache_keys: arguments.cache_keys.items().to_vec(),
+            cache_strategy: arguments.cache_strategy.as_ref().cloned(),
+            max_result_sets: arguments.max_result_sets.as_ref().copied(),
+        },
+        mode: if dry_run { Mode::Plan } else { Mode::Apply },
+        lock_label: "mcp mashup_source_add",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome =
+        commands::mashup::source_add(solution, &request, &mut notices).map_err(ToolError::coded)?;
+    let mut result = json!({"applied":outcome.applied,"dry_run":dry_run,"mashup":outcome.plan.edit.mashup,"section":outcome.plan.section,"call":outcome.plan.call,"files":files(solution,&outcome.plan.edit)});
+    add_notices(&mut result, &notices);
+    Ok(result)
+}
+pub(crate) fn mashup_source_list_tool(
+    solution: &Solution,
+    arguments: MashupSourceListRequest,
+) -> Result<Value, ToolError> {
+    let sources = commands::mashup::source_list(solution, nonempty(&arguments.mashup, "mashup")?)
+        .map_err(ToolError::coded)?;
+    Ok(json!({"mashup": arguments.mashup, "sources": sources}))
+}
+pub(crate) fn mashup_source_remove_tool(
+    solution: &Solution,
+    arguments: MashupSourceRemoveRequest,
+) -> Result<Value, ToolError> {
+    let dry_run = arguments.dry_run;
+    let request = commands::mashup::MashupSourceRemoveRequest {
+        request: crate::core::mashup::authoring::SourceRemoveRequest {
+            mashup: nonempty(&arguments.mashup, "mashup")?.into(),
+            address: nonempty(&arguments.address, "address")?.into(),
+            cascade: arguments.cascade,
+        },
+        mode: if dry_run { Mode::Plan } else { Mode::Apply },
+        lock_label: "mcp mashup_source_remove",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome = commands::mashup::source_remove(solution, &request, &mut notices)
+        .map_err(ToolError::coded)?;
+    let mut result = json!({"applied":outcome.applied,"dry_run":dry_run,"mashup":arguments.mashup,"section":outcome.plan.section,"call":outcome.plan.call,"bindings_removed":outcome.plan.bindings_removed,"events_removed":outcome.plan.events_removed,"files":files(solution,&outcome.plan.edit)});
     add_notices(&mut result, &notices);
     Ok(result)
 }

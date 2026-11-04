@@ -1124,6 +1124,32 @@ widget also gets `UseTheme`, as Composer gives it. The cache holds what the serv
 profile last given to `types --platform` had installed; run it again against the server the
 mashup is for.
 
+### Data sources
+
+```sh
+twaco mashup source add Acme.App.Orders_MU Acme.App.Orders.Manager GetOrders --apply
+twaco mashup param add Acme.App.Orders_MU Manager --type THINGNAME --default Acme.App.Orders.Manager --apply
+twaco mashup source add Acme.App.Orders_MU Acme.App.Orders_TS GetOrders --entity-from mashup:Manager --apply
+twaco mashup source list Acme.App.Orders_MU
+```
+
+A mashup calls a service through a data source. A Thing's call runs on that Thing; so does a
+ThingTemplate's (template services such as `GetImplementingThings`). A ThingShape's call, and a
+ThingTemplate's with `--dynamic`, is dynamic: it runs on the Thing that a binding to
+`data:<Entity>[EntityName]` names, usually a `THINGNAME` mashup parameter such as `Manager`.
+`--entity-from` writes that binding in the same edit; twaco never creates the parameter for you.
+Later, `mashup bind --from <address> --to data:<Entity>[EntityName]` binds or rebinds it from a
+`THINGNAME` or `STRING` parameter, widget property or result field. A dynamic call with no entity
+cannot run: `mashup on` refuses it as a handler and `mashup bind` warns. `mashup bind` still
+creates a missing Thing call by itself; template and shape calls need `source add` first.
+
+`--as <new>` names a second call of the same service. `--every <seconds>` polls the call;
+`--cache` writes ThingWorx's call caching, keyed on declared service parameters
+(`--cache-key`). `mashup source list` shows each call and what sets its entity (`fixed` for a
+static one, `UNBOUND` when nothing does); `mashup source remove <mashup> <address> --cascade`
+also removes the bindings and events proven to name the call, and the entity binding with the
+section's last call.
+
 ### Binding
 
 ```sh

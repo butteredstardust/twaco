@@ -280,6 +280,16 @@ pub(crate) fn matched(matches: &clap::ArgMatches) -> (&'static str, &clap::ArgMa
         return (command.path, sub);
     }
     let (second, leaf) = sub.subcommand().expect("a family requires a command");
+    // A family's own family, as `mashup source add` is: its rows name all three words.
+    if let Some((third, deeper)) = leaf.subcommand() {
+        if let Some(nested) = USAGE.iter().find(|c| {
+            let mut words = c.path.split(' ');
+            (words.next(), words.next(), words.next(), words.next())
+                == (Some(first), Some(second), Some(third), None)
+        }) {
+            return (nested.path, deeper);
+        }
+    }
     let command = USAGE
         .iter()
         .find(|c| c.path.split_once(' ') == Some((first, second)))
@@ -707,6 +717,38 @@ pub(crate) const USAGE: &[Usage] = &[
                               set checked properties on one exact widget; structured properties take JSON;
                               plan unless --apply
       --prop <name=value>     set one property, repeatable; objects and arrays are JSON"#,
+    },
+    Usage {
+        path: "mashup source add",
+        group: 1,
+        text: r#"  mashup source add <mashup> <entity> <service> [--dynamic] [--as <new>] [--entity-from <address>]
+      [--every <seconds>] [--cache [--cache-key <parameter>]...]
+      [--cache-strategy <INSTANCE|SESSION|USER>] [--max-result-sets <n>] [--apply] [--json]
+                              call a Thing's, ThingTemplate's or ThingShape's service from a mashup;
+                              a shape's call is dynamic: it runs on the Thing its EntityName binding
+                              names; plan unless --apply
+      --dynamic               a ThingTemplate's call runs on a Thing bound to EntityName, not on
+                              the template
+      --as <new>              name the call (the service name, then _2, ... by default)
+      --entity-from <address> bind a dynamic source EntityName from a THINGNAME or STRING source
+      --every <seconds>       run the call again at this interval
+      --cache                 write call caching; cache options require it
+      --cache-key <parameter> a declared service parameter, repeatable
+      --cache-strategy <kind> INSTANCE, SESSION or USER
+      --max-result-sets <n>   maximum cached result sets"#,
+    },
+    Usage {
+        path: "mashup source list",
+        group: 1,
+        text: r#"  mashup source list <mashup> [--json]
+                              list each static or dynamic data-source call"#,
+    },
+    Usage {
+        path: "mashup source remove",
+        group: 1,
+        text: r#"  mashup source remove <mashup> <address> [--cascade] [--apply] [--json]
+                              remove one explicit data-source call; plan unless --apply
+      --cascade                remove proven bindings and events that name the call"#,
     },
     Usage {
         path: "mashup add-contained",

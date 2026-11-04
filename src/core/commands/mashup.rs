@@ -96,6 +96,39 @@ pub struct MashupBindOutcome {
 }
 
 #[derive(Clone, Debug)]
+pub struct MashupSourceAddRequest {
+    pub request: mashup::authoring::SourceAddRequest,
+    pub mode: Mode,
+    pub lock_label: &'static str,
+}
+#[derive(Debug)]
+pub struct MashupSourceAddOutcome {
+    pub plan: mashup::authoring::SourceAddPlan,
+    pub applied: bool,
+    #[allow(
+        dead_code,
+        reason = "the command facade's Effects (COMMAND_FACADE.md); no adapter reads it yet"
+    )]
+    pub(crate) effects: Effects,
+}
+#[derive(Clone, Debug)]
+pub struct MashupSourceRemoveRequest {
+    pub request: mashup::authoring::SourceRemoveRequest,
+    pub mode: Mode,
+    pub lock_label: &'static str,
+}
+#[derive(Debug)]
+pub struct MashupSourceRemoveOutcome {
+    pub plan: mashup::authoring::SourceRemovePlan,
+    pub applied: bool,
+    #[allow(
+        dead_code,
+        reason = "the command facade's Effects (COMMAND_FACADE.md); no adapter reads it yet"
+    )]
+    pub(crate) effects: Effects,
+}
+
+#[derive(Clone, Debug)]
 pub struct MashupOnRequest {
     pub request: mashup::authoring::OnRequest,
     pub mode: Mode,
@@ -360,6 +393,73 @@ pub fn bind(
             })
         }
     }
+}
+
+pub fn source_add(
+    solution: &Solution,
+    request: &MashupSourceAddRequest,
+    notices: &mut Notices,
+) -> Result<MashupSourceAddOutcome, MashupCommandError> {
+    match request.mode {
+        Mode::Plan => Ok(MashupSourceAddOutcome {
+            plan: mashup::authoring::plan_source_add(solution, &request.request)
+                .map_err(MashupCommandError::Authoring)?,
+            applied: false,
+            effects: Effects::new(Access::Read, Access::None),
+        }),
+        Mode::Apply => {
+            let lock = lock_workspace(solution, request.lock_label, notices)
+                .map_err(MashupCommandError::Lock)?;
+            let reloaded = Solution::load(&solution.root.join(config::CONFIG_FILE))
+                .map_err(MashupCommandError::Config)?;
+            let plan = mashup::authoring::plan_source_add(&reloaded, &request.request)
+                .map_err(MashupCommandError::Authoring)?;
+            mashup::authoring::apply_edit(&reloaded, &plan.edit, &lock)
+                .map_err(MashupCommandError::Authoring)?;
+            Ok(MashupSourceAddOutcome {
+                plan,
+                applied: true,
+                effects: Effects::new(Access::Write, Access::None),
+            })
+        }
+    }
+}
+
+pub fn source_remove(
+    solution: &Solution,
+    request: &MashupSourceRemoveRequest,
+    notices: &mut Notices,
+) -> Result<MashupSourceRemoveOutcome, MashupCommandError> {
+    match request.mode {
+        Mode::Plan => Ok(MashupSourceRemoveOutcome {
+            plan: mashup::authoring::plan_source_remove(solution, &request.request)
+                .map_err(MashupCommandError::Authoring)?,
+            applied: false,
+            effects: Effects::new(Access::Read, Access::None),
+        }),
+        Mode::Apply => {
+            let lock = lock_workspace(solution, request.lock_label, notices)
+                .map_err(MashupCommandError::Lock)?;
+            let reloaded = Solution::load(&solution.root.join(config::CONFIG_FILE))
+                .map_err(MashupCommandError::Config)?;
+            let plan = mashup::authoring::plan_source_remove(&reloaded, &request.request)
+                .map_err(MashupCommandError::Authoring)?;
+            mashup::authoring::apply_edit(&reloaded, &plan.edit, &lock)
+                .map_err(MashupCommandError::Authoring)?;
+            Ok(MashupSourceRemoveOutcome {
+                plan,
+                applied: true,
+                effects: Effects::new(Access::Write, Access::None),
+            })
+        }
+    }
+}
+
+pub fn source_list(
+    solution: &Solution,
+    mashup: &str,
+) -> Result<Vec<mashup::authoring::SourceInfo>, MashupCommandError> {
+    mashup::authoring::list_sources(solution, mashup).map_err(MashupCommandError::Authoring)
 }
 
 /// Plan without a lock; to apply, lock first and plan again from what is on disk then.

@@ -963,6 +963,63 @@ pub(crate) struct MashupBindRequest {
 
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct MashupSourceAddRequest {
+    /// The existing mashup's name.
+    pub(crate) mashup: String,
+    /// The Thing, ThingTemplate or ThingShape whose service the call runs.
+    pub(crate) entity: String,
+    /// The service to call.
+    pub(crate) service: String,
+    /// A ThingTemplate's call that runs on the Thing bound to EntityName; a ThingShape's call
+    /// always does.
+    #[serde(default)]
+    pub(crate) dynamic: bool,
+    /// The call's own name; the service name (then `_2`, ...) when absent.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) alias: Absent<String>,
+    /// For a dynamic kind: the THINGNAME or STRING address that names the Thing it runs on.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) entity_from: Absent<String>,
+    /// Run the call again every this many seconds; never when absent.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) every: Absent<u32>,
+    /// Cache the call's results.
+    #[serde(default)]
+    pub(crate) cache: bool,
+    /// Service parameters the cache is keyed on; needs cache.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) cache_keys: Absent<Vec<String>>,
+    /// `INSTANCE`, `SESSION` or `USER`; needs cache.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) cache_strategy: Absent<String>,
+    /// How many result sets to cache; needs cache.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) max_result_sets: Absent<u32>,
+    #[serde(default = "default_true")]
+    pub(crate) dry_run: bool,
+}
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MashupSourceListRequest {
+    /// The existing mashup's name.
+    pub(crate) mashup: String,
+}
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MashupSourceRemoveRequest {
+    /// The existing mashup's name.
+    pub(crate) mashup: String,
+    /// The data call address, as mashup_describe prints it.
+    pub(crate) address: String,
+    /// Also remove the bindings and events proven to name the call.
+    #[serde(default)]
+    pub(crate) cascade: bool,
+    #[serde(default = "default_true")]
+    pub(crate) dry_run: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct MashupOnRequest {
     /// The existing mashup's name.
     pub(crate) mashup: String,

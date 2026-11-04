@@ -182,6 +182,26 @@ usage: twaco <command>
                               set checked properties on one exact widget; structured properties take JSON;
                               plan unless --apply
       --prop <name=value>     set one property, repeatable; objects and arrays are JSON
+  mashup source add <mashup> <entity> <service> [--dynamic] [--as <new>] [--entity-from <address>]
+      [--every <seconds>] [--cache [--cache-key <parameter>]...]
+      [--cache-strategy <INSTANCE|SESSION|USER>] [--max-result-sets <n>] [--apply] [--json]
+                              call a Thing's, ThingTemplate's or ThingShape's service from a mashup;
+                              a shape's call is dynamic: it runs on the Thing its EntityName binding
+                              names; plan unless --apply
+      --dynamic               a ThingTemplate's call runs on a Thing bound to EntityName, not on
+                              the template
+      --as <new>              name the call (the service name, then _2, ... by default)
+      --entity-from <address> bind a dynamic source EntityName from a THINGNAME or STRING source
+      --every <seconds>       run the call again at this interval
+      --cache                 write call caching; cache options require it
+      --cache-key <parameter> a declared service parameter, repeatable
+      --cache-strategy <kind> INSTANCE, SESSION or USER
+      --max-result-sets <n>   maximum cached result sets
+  mashup source list <mashup> [--json]
+                              list each static or dynamic data-source call
+  mashup source remove <mashup> <address> [--cascade] [--apply] [--json]
+                              remove one explicit data-source call; plan unless --apply
+      --cascade                remove proven bindings and events that name the call
   mashup add-contained <parent> <child> [--in <container> | --right-of <widget> | --left-of <widget> | --above <widget> | --below <widget>]
       [--set <parameter=value>]... [--apply] [--json]
                               add a child mashup as a contained mashup; plan unless --apply

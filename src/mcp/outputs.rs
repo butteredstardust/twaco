@@ -1380,6 +1380,44 @@ pub(crate) struct MashupBindResult {
 }
 
 #[derive(Serialize, JsonSchema)]
+pub(crate) struct MashupSourceAddResult {
+    applied: bool,
+    dry_run: bool,
+    mashup: String,
+    section: String,
+    call: String,
+    files: Vec<String>,
+    notices: Notices,
+}
+#[derive(Serialize, JsonSchema)]
+pub(crate) struct MashupSourceListResult {
+    mashup: String,
+    sources: Vec<MashupSourceRow>,
+}
+#[derive(Serialize, JsonSchema)]
+pub(crate) struct MashupSourceRow {
+    kind: String,
+    entity: String,
+    service: String,
+    alias: String,
+    entity_from: String,
+    refresh: u64,
+    cache: bool,
+}
+#[derive(Serialize, JsonSchema)]
+pub(crate) struct MashupSourceRemoveResult {
+    applied: bool,
+    dry_run: bool,
+    mashup: String,
+    section: String,
+    call: String,
+    bindings_removed: usize,
+    events_removed: usize,
+    files: Vec<String>,
+    notices: Notices,
+}
+
+#[derive(Serialize, JsonSchema)]
 pub(crate) struct MashupOnResult {
     applied: bool,
     dry_run: bool,

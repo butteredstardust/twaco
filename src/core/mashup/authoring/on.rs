@@ -195,6 +195,11 @@ pub(super) fn on_in(
     let trigger = resolve_trigger(document, context.model, context.platform, event_raw)?;
     let handler = resolve_handler(document, context.model, context.platform, invoke_raw)?;
     let (handler_section, handler_id, new_source) = data_call(document, &handler)?;
+    if matches!(handler, End::Data { .. })
+        && super::source::unbound_dynamic(document, &handler_section)
+    {
+        return Err(AuthoringError::Refused(format!("{handler_section} has no EntityName binding; bind a THINGNAME or STRING source to data:<entity>[EntityName] first")));
+    }
     // A data handler is addressed by its section and the call's alias; a widget handler by the
     // widget's id and the widget's own service.
     let (handler_section, handler_service) = if matches!(handler, End::Data { .. }) {
@@ -404,6 +409,7 @@ fn resolve_data_call(
         entity_service,
         alias,
         selected_rows,
+        entity_name,
         member,
     } = address
     else {
@@ -411,7 +417,7 @@ fn resolve_data_call(
             "event data addresses name a service call".into(),
         ));
     };
-    if selected_rows || member.is_some() {
+    if entity_name || selected_rows || member.is_some() {
         return Err(AuthoringError::Invalid(
             "event data addresses name a service call".into(),
         ));
@@ -423,6 +429,7 @@ fn resolve_data_call(
         service,
         requested_alias: alias,
         selected_rows: false,
+        entity_name: false,
         member: None,
         base: String::new(),
         property_type: String::new(),

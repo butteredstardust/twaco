@@ -17,6 +17,7 @@ pub(crate) enum Address {
         entity_service: String,
         alias: Option<String>,
         selected_rows: bool,
+        entity_name: bool,
         member: Option<String>,
     },
 }
@@ -60,13 +61,14 @@ pub(crate) fn parse_address(text: &str) -> Result<Address, AddressError> {
 }
 
 fn data(rest: &str) -> Option<Address> {
-    // `head[as alias][SelectedRows].member`: either bracket may be left out, in that order.
+    // `head[as alias][SelectedRows].member` and `entity[as alias][EntityName]`.
     let (head, mut tail) = match rest.find('[') {
         Some(at) => (&rest[..at], &rest[at..]),
         None => (rest, ""),
     };
     let mut alias = None;
     let mut selected_rows = false;
+    let mut entity_name = false;
     if let Some(after) = tail.strip_prefix("[as ") {
         let (name, after) = after.split_once(']')?;
         if name.is_empty() || name.trim() != name || name.contains('[') {
@@ -79,7 +81,17 @@ fn data(rest: &str) -> Option<Address> {
         selected_rows = true;
         tail = after;
     }
-    if head.is_empty() || !head.contains('.') || head.split('.').any(str::is_empty) {
+    if let Some(after) = tail.strip_prefix("[EntityName]") {
+        entity_name = true;
+        tail = after;
+    }
+    if head.is_empty()
+        || head.split('.').any(str::is_empty)
+        || (!entity_name && !head.contains('.'))
+    {
+        return None;
+    }
+    if entity_name && (selected_rows || !tail.is_empty()) {
         return None;
     }
     let member = match tail {
@@ -93,6 +105,7 @@ fn data(rest: &str) -> Option<Address> {
         entity_service: head.to_string(),
         alias,
         selected_rows,
+        entity_name,
         member,
     })
 }
@@ -122,6 +135,7 @@ mod tests {
                 entity_service: "Acme.Orders.Manager.GetOrders".into(),
                 alias: None,
                 selected_rows: false,
+                entity_name: false,
                 member: None
             }
         );
@@ -131,6 +145,7 @@ mod tests {
                 entity_service: "Acme.Orders.Manager.GetOrders.note".into(),
                 alias: None,
                 selected_rows: false,
+                entity_name: false,
                 member: None
             }
         );
@@ -140,6 +155,7 @@ mod tests {
                 entity_service: "Acme.Orders.Manager.GetOrders".into(),
                 alias: Some("orders".into()),
                 selected_rows: false,
+                entity_name: false,
                 member: Some("note".into())
             }
         );
@@ -149,6 +165,7 @@ mod tests {
                 entity_service: "Acme.Orders.Manager.GetOrders".into(),
                 alias: None,
                 selected_rows: true,
+                entity_name: false,
                 member: Some("note".into())
             }
         );
@@ -160,6 +177,7 @@ mod tests {
                 entity_service: "Acme.Orders.Manager.GetOrders".into(),
                 alias: Some("orders".into()),
                 selected_rows: true,
+                entity_name: false,
                 member: Some("note".into())
             }
         );
@@ -186,5 +204,30 @@ mod tests {
         ] {
             assert!(parse_address(address).is_err(), "{address}");
         }
+    }
+
+    #[test]
+    fn parses_entity_slot_targets() {
+        assert_eq!(
+            parse_address("data:Acme.Orders_TS[EntityName]").unwrap(),
+            Address::Data {
+                entity_service: "Acme.Orders_TS".into(),
+                alias: None,
+                selected_rows: false,
+                entity_name: true,
+                member: None
+            }
+        );
+        assert_eq!(
+            parse_address("data:Acme.Orders_TS[as orders][EntityName]").unwrap(),
+            Address::Data {
+                entity_service: "Acme.Orders_TS".into(),
+                alias: Some("orders".into()),
+                selected_rows: false,
+                entity_name: true,
+                member: None
+            }
+        );
+        assert!(parse_address("data:Acme.Orders_TS[SelectedRows][EntityName]").is_err());
     }
 }
