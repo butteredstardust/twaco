@@ -24,9 +24,12 @@ mod on;
 mod parameter;
 mod recipes;
 mod remove;
+mod set;
 
 pub use add::{add_contained_plan_json, add_plan_json, AddContainedRequest, AddRequest};
-pub(crate) use add::{function_property, plan_add, plan_add_contained, AddContainedPlan, AddPlan};
+pub(crate) use add::{
+    function_property, plan_add, plan_add_contained, property_value, AddContainedPlan, AddPlan,
+};
 pub use bind::BindRequest;
 use bind::{bind_in, data_call, existing_data_call};
 pub(crate) use bind::{plan_bind, BindPlan};
@@ -54,19 +57,17 @@ pub(crate) use recipes::{plan_recipe, RecipePlan};
 pub use recipes::{recipe_plan_json, Recipe, RecipeArgs, RecipeRequest, RECIPES};
 pub(crate) use remove::{plan_off, plan_remove, plan_unbind, OffPlan, RemovePlan, UnbindPlan};
 pub use remove::{OffRequest, RemoveRequest, UnbindRequest};
+pub(crate) use set::{plan_set, SetPlan};
+pub use set::{set_plan_json, SetRequest};
 
 #[derive(Debug)]
 pub struct SidecarEdit {
     pub content_path: PathBuf,
     pub(crate) content_before: Vec<u8>,
     pub(crate) content_after: Vec<u8>,
-    #[allow(
-        dead_code,
-        reason = "read only by Debug; the stylesheet's path travels with the edit"
-    )]
     pub(crate) css_path: PathBuf,
-    /// The stylesheet is retained while content changes.
-    pub(crate) css: String,
+    pub(crate) css_before: Vec<u8>,
+    pub(crate) css_after: Vec<u8>,
 }
 
 #[derive(Debug)]
@@ -86,7 +87,7 @@ struct ExistingMashup {
     entity_path: PathBuf,
     entity_before: Vec<u8>,
     assets: mashup::Assets,
-    sidecars: Option<(PathBuf, Vec<u8>, PathBuf)>,
+    sidecars: Option<(PathBuf, Vec<u8>, PathBuf, Vec<u8>)>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -154,9 +155,13 @@ fn load_existing(solution: &Solution, mashup_name: &str) -> Result<ExistingMashu
             let content_before = std::fs::read(&content_path).map_err(|error| {
                 AuthoringError::Unreadable(format!("{}: {error}", content_path.display()))
             })?;
+            let css_path = directory.join("custom.css");
+            let css_before = std::fs::read(&css_path).map_err(|error| {
+                AuthoringError::Unreadable(format!("{}: {error}", css_path.display()))
+            })?;
             (
                 assets,
-                Some((content_path, content_before, directory.join("custom.css"))),
+                Some((content_path, content_before, css_path, css_before)),
             )
         }
         None => (
@@ -189,32 +194,60 @@ fn finish_edit(
     document: MashupDocument,
     command: &'static str,
 ) -> Result<EditPlan, AuthoringError> {
+    finish_edit_with_css(loaded, document, command, None)
+}
+
+/// Put changed content and, when requested, the stylesheet back through sync.
+fn finish_edit_with_css(
+    loaded: ExistingMashup,
+    document: MashupDocument,
+    command: &'static str,
+    css: Option<String>,
+) -> Result<EditPlan, AuthoringError> {
     let content = document.to_content();
     let assets_after = mashup::Assets {
         content: content.clone(),
-        css: loaded.assets.css.clone(),
+        css: css.unwrap_or_else(|| loaded.assets.css.clone()),
     };
     let (entity_after, _) =
         mashup::sync(&loaded.entity_before, &assets_after).map_err(AuthoringError::Mashup)?;
-    if mashup::extract(&entity_after)
+    let mut extracted = mashup::extract(&entity_after)
         .map_err(AuthoringError::Mashup)?
-        .content
-        != content
+        .content;
+    // Managed content deliberately leaves CSS in custom.css; sync fills the XML's top-level
+    // copy from that file, so remove that generated copy before proving content round-trips.
+    if loaded.sidecars.is_some()
+        && !serde_json::from_str::<Value>(&content)
+            .expect("mashup content serialises as JSON")
+            .as_object()
+            .expect("mashup content is an object")
+            .contains_key("CustomMashupCss")
     {
+        let mut value: Value =
+            serde_json::from_str(&extracted).expect("mashup extract returns JSON it formatted");
+        value
+            .as_object_mut()
+            .expect("mashup content is an object")
+            .remove("CustomMashupCss");
+        extracted = mashup::to_sidecar(&value);
+    }
+    if extracted != content {
         return Err(AuthoringError::Invalid(format!(
             "{}: mashup content did not round-trip through the entity file",
             loaded.mashup
         )));
     }
-    let sidecars = loaded
-        .sidecars
-        .map(|(content_path, content_before, css_path)| SidecarEdit {
-            content_path,
-            content_before,
-            content_after: content.into_bytes(),
-            css_path,
-            css: loaded.assets.css,
-        });
+    let sidecars =
+        loaded.sidecars.map(
+            |(content_path, content_before, css_path, css_before)| SidecarEdit {
+                content_path,
+                content_before,
+                content_after: content.into_bytes(),
+                css_path,
+                css_before,
+                css_after: assets_after.css.into_bytes(),
+            },
+        );
     Ok(EditPlan {
         command,
         mashup: loaded.mashup,
@@ -250,14 +283,25 @@ pub(crate) fn apply_edit(
         )
         .map_err(AuthoringError::Write)?;
     if let Some(sidecars) = &plan.sidecars {
-        transaction
-            .replace_file(
-                &sidecars.content_path,
-                &sidecars.content_before,
-                // An edited content.json keeps the byte-order mark it had.
-                workspace::keeping_bom(&sidecars.content_path, sidecars.content_after.clone()),
-            )
-            .map_err(AuthoringError::Write)?;
+        if sidecars.content_before != sidecars.content_after {
+            transaction
+                .replace_file(
+                    &sidecars.content_path,
+                    &sidecars.content_before,
+                    // An edited content.json keeps the byte-order mark it had.
+                    workspace::keeping_bom(&sidecars.content_path, sidecars.content_after.clone()),
+                )
+                .map_err(AuthoringError::Write)?;
+        }
+        if sidecars.css_before != sidecars.css_after {
+            transaction
+                .replace_file(
+                    &sidecars.css_path,
+                    &sidecars.css_before,
+                    workspace::keeping_bom(&sidecars.css_path, sidecars.css_after.clone()),
+                )
+                .map_err(AuthoringError::Write)?;
+        }
     }
     transaction.apply(lock).map_err(AuthoringError::Write)?;
     Ok(())

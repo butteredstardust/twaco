@@ -701,6 +701,14 @@ pub(crate) const USAGE: &[Usage] = &[
       --input <name:TYPE>     an expression's or validator's input, repeatable"#,
     },
     Usage {
+        path: "mashup set",
+        group: 1,
+        text: r#"  mashup set <mashup> <widget> --prop <name=value>... [--apply] [--json]
+                              set checked properties on one exact widget; structured properties take JSON;
+                              plan unless --apply
+      --prop <name=value>     set one property, repeatable; objects and arrays are JSON"#,
+    },
+    Usage {
         path: "mashup add-contained",
         group: 1,
         text: r#"  mashup add-contained <parent> <child> [--in <container> | --right-of <widget> | --left-of <widget> | --above <widget> | --below <widget>]

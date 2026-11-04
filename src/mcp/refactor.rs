@@ -3,9 +3,10 @@ use super::requests::refactor::{
     EntityEditRequest, EntityNewRequest, HandoffAction, HandoffRequest, MashupAddContainedRequest,
     MashupAddRequest, MashupBindRequest, MashupDescribeRequest, MashupDiffRequest,
     MashupEventRequest, MashupNewRequest, MashupOffRequest, MashupOnRequest, MashupParameterAction,
-    MashupParameterRequest, MashupRecipeRequest, MashupRemoveRequest, MashupTemplatesRequest,
-    MashupUnbindRequest, MashupValidateRequest, MoveMemberAction, MoveMemberRequest,
-    NewBuildingBlockRequest, RenameRequest, ReprojectRequest, RetemplateRequest, WidgetsRequest,
+    MashupParameterRequest, MashupRecipeRequest, MashupRemoveRequest, MashupSetRequest,
+    MashupTemplatesRequest, MashupUnbindRequest, MashupValidateRequest, MoveMemberAction,
+    MoveMemberRequest, NewBuildingBlockRequest, RenameRequest, ReprojectRequest, RetemplateRequest,
+    WidgetsRequest,
 };
 use super::source::add_types_refresh;
 use super::{
@@ -568,6 +569,33 @@ pub(crate) fn mashup_add_tool(
         commands::mashup::add(solution, &request, &mut notices).map_err(ToolError::coded)?;
     let mut result =
         crate::core::mashup::authoring::add_plan_json(solution, &outcome.plan, outcome.applied);
+    result["dry_run"] = json!(dry_run);
+    add_notices(&mut result, &notices);
+    Ok(result)
+}
+
+pub(crate) fn mashup_set_tool(
+    solution: &Solution,
+    arguments: MashupSetRequest,
+) -> Result<Value, ToolError> {
+    let dry_run = arguments.dry_run;
+    if arguments.properties.is_empty() {
+        return Err(ToolError::invalid("properties must not be empty"));
+    }
+    let request = commands::mashup::MashupSetRequest {
+        request: crate::core::mashup::authoring::SetRequest {
+            mashup: nonempty(&arguments.mashup, "mashup")?.to_string(),
+            widget: nonempty(&arguments.widget, "widget")?.to_string(),
+            properties: arguments.properties.into_iter().collect(),
+        },
+        mode: if dry_run { Mode::Plan } else { Mode::Apply },
+        lock_label: "mcp mashup_set",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome =
+        commands::mashup::set(solution, &request, &mut notices).map_err(ToolError::coded)?;
+    let mut result =
+        crate::core::mashup::authoring::set_plan_json(solution, &outcome.plan, outcome.applied);
     result["dry_run"] = json!(dry_run);
     add_notices(&mut result, &notices);
     Ok(result)

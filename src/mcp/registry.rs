@@ -572,6 +572,13 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             refactor::mashup_add_tool,
         )
         .with_output::<outputs::MashupAddResult>(),
+        solution_tool::<refactor_requests::MashupSetRequest>(
+            "mashup_set",
+            "Set checked properties on one exact mashup widget. Structured properties take JSON objects or arrays; root CSS updates custom.css. A dry run unless dry_run is false; apply takes the workspace lock and writes the entity and managed sidecars together.",
+            false,
+            refactor::mashup_set_tool,
+        )
+        .with_output::<outputs::MashupSetResult>(),
         solution_tool::<refactor_requests::MashupAddContainedRequest>(
             "mashup_add_contained",
             "Add a repository mashup as a contained mashup. Its visible child parameters become container properties; set supplies static values for visible input parameters. With no placement it goes in center. A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
@@ -1042,6 +1049,7 @@ pub(crate) const GROUPS: &[(&str, &[&str])] = &[
             "mashup_new",
             "mashup_templates",
             "mashup_add",
+            "mashup_set",
             "mashup_add_contained",
             "mashup_bind",
             "mashup_on",

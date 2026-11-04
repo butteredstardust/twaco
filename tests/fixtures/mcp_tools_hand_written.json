@@ -1865,6 +1865,30 @@
     }
   },
   {
+    "name": "mashup_set",
+    "description": "Set checked properties on one exact mashup widget. Structured properties take JSON objects or arrays; root CSS updates custom.css. A dry run unless dry_run is false; apply takes the workspace lock and writes the entity and managed sidecars together.",
+    "inputSchema": {
+      "required": ["mashup", "widget", "properties"],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "mashup": { "description": "The existing mashup's name.", "type": "string" },
+        "widget": { "description": "An exact widget Id, DisplayName, or the one widget of a type.", "type": "string" },
+        "properties": {
+          "description": "Exact property names and their JSON values. Strings use the same syntax as CLI --prop.",
+          "type": "object"
+        },
+        "dry_run": { "type": "boolean", "default": true }
+      }
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "openWorldHint": false,
+      "destructiveHint": true,
+      "idempotentHint": false
+    }
+  },
+  {
     "name": "mashup_add_contained",
     "description": "Add a repository mashup as a contained mashup. Its visible child parameters become container properties; set supplies static values for visible input parameters. With no placement it goes in center. A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
     "inputSchema": {

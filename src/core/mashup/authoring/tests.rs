@@ -3,6 +3,7 @@ use super::*;
 use crate::core::mashup::describe::mashup_parameters;
 use crate::core::mashup::edit::Placement;
 use crate::core::mashup::templates::Visibility;
+use crate::core::widgets;
 use serde_json::json;
 use std::path::Path;
 
@@ -714,6 +715,173 @@ fn add_request(mashup: &str, widget: &str) -> AddRequest {
         label: None,
         properties: Vec::new(),
     }
+}
+
+#[test]
+fn prop_parses_the_structured_values_composer_uses() {
+    let widget = |name| widgets::catalog().by_type(name).unwrap();
+    assert_eq!(
+        property_value(
+            widget("ptcsdropdown"),
+            "ItemMeta",
+            json!(r#"{"type":"text"}"#)
+        )
+        .unwrap(),
+        json!({"type": "text"})
+    );
+    assert_eq!(
+        property_value(widget("ptcstabset"), "Items", json!("[]")).unwrap(),
+        json!([])
+    );
+    assert_eq!(
+        property_value(
+            widget("ptcsgrid"),
+            "ColumnFormat",
+            json!(r#"{"formatInfo":[]}"#)
+        )
+        .unwrap(),
+        json!({"formatInfo": []})
+    );
+    assert_eq!(
+        property_value(
+            widget("ptcskpidial"),
+            "TargetFormat",
+            json!(r#"{"FieldName":"x"}"#)
+        )
+        .unwrap(),
+        json!({"FieldName": "x"})
+    );
+    assert_eq!(
+        property_value(
+            widget("ptcskpidial"),
+            "TargetFormat_StateParameters",
+            json!("[]")
+        )
+        .unwrap(),
+        json!([])
+    );
+    assert_eq!(
+        property_value(
+            widget("ptcsvaluedisplay"),
+            "ValueFormat",
+            json!(r#"{"FormatString":"0"}"#)
+        )
+        .unwrap(),
+        json!({"FormatString": "0"})
+    );
+    assert_eq!(
+        property_value(widget("ptcskpidial"), "ValueFormat", json!("0000.0")).unwrap(),
+        json!("0000.0")
+    );
+}
+
+#[test]
+fn structured_prop_errors_name_the_json_and_shape_needed() {
+    let dial = widgets::catalog().by_type("ptcskpidial").unwrap();
+    assert_eq!(
+        property_value(dial, "TargetFormat", json!("plain"))
+            .unwrap_err()
+            .to_string(),
+        "TargetFormat is structured; --prop TargetFormat=<JSON> needs valid JSON"
+    );
+    assert_eq!(
+        property_value(dial, "TargetFormat_StateParameters", json!(r#"{"x":1}"#))
+            .unwrap_err()
+            .to_string(),
+        "TargetFormat_StateParameters must be a JSON array"
+    );
+}
+
+#[test]
+fn cli_text_follows_the_default_type_when_there_is_no_base_type() {
+    let flex = widgets::catalog().by_type("flexcontainer").unwrap();
+    assert_eq!(
+        property_value(flex, "flex-grow", json!("2")).unwrap(),
+        json!(2)
+    );
+    assert_eq!(
+        property_value(flex, "flex-grow", json!("x"))
+            .unwrap_err()
+            .to_string(),
+        "flex-grow must be a JSON number"
+    );
+    let (name, default) = flex
+        .defaults
+        .iter()
+        .find(|(_, value)| value.is_boolean())
+        .expect("a flexcontainer boolean default");
+    let flipped = !default.as_bool().unwrap();
+    assert_eq!(
+        property_value(flex, name, json!(flipped.to_string())).unwrap(),
+        json!(flipped)
+    );
+}
+
+#[test]
+fn set_changes_a_flex_container_and_keeps_root_css_in_its_sidecar() {
+    let (_dir, solution) = one_project();
+    let name = "Acme.Orders_MU";
+    apply_new(
+        &solution,
+        &plan_new(&solution, &request(name)).unwrap(),
+        &lock(&solution),
+    )
+    .unwrap();
+    let set = plan_set(
+        &solution,
+        &SetRequest {
+            mashup: name.into(),
+            widget: "flexcontainer-2".into(),
+            properties: vec![
+                ("flex-grow".into(), json!(2)),
+                ("flex-direction".into(), json!("column")),
+                ("StyleProperties".into(), json!({"gap": "4px"})),
+            ],
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        set.changed.len(),
+        2,
+        "column is already the blank template's direction"
+    );
+    apply_edit(&solution, set.edit.as_ref().unwrap(), &lock(&solution)).unwrap();
+    let root = plan_set(
+        &solution,
+        &SetRequest {
+            mashup: name.into(),
+            widget: "mashup-root".into(),
+            properties: vec![
+                ("CustomClass".into(), json!("app")),
+                ("CustomMashupCss".into(), json!(".app { color: red; }")),
+            ],
+        },
+    )
+    .unwrap();
+    apply_edit(&solution, root.edit.as_ref().unwrap(), &lock(&solution)).unwrap();
+    let directory = solution.src_root().join("Acme.Orders_MU/mashup");
+    let content = std::fs::read_to_string(directory.join("content.json")).unwrap();
+    assert!(!content.contains("CustomMashupCss"), "{content}");
+    assert_eq!(
+        std::fs::read_to_string(directory.join("custom.css")).unwrap(),
+        ".app { color: red; }\n"
+    );
+    let entity = std::fs::read(solution.root.join("acme/Mashups/Acme.Orders_MU.xml")).unwrap();
+    assert_eq!(
+        mashup::extract(&entity).unwrap().css,
+        ".app { color: red; }\n"
+    );
+    let no_change = plan_set(
+        &solution,
+        &SetRequest {
+            mashup: name.into(),
+            widget: "mashup-root".into(),
+            properties: vec![("CustomClass".into(), json!("app"))],
+        },
+    )
+    .unwrap();
+    assert!(no_change.changed.is_empty());
+    assert!(no_change.edit.is_none());
 }
 
 #[test]

@@ -8,6 +8,8 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- `twaco mashup set` (MCP `mashup_set`) changes checked widget and root properties, including
+  structured JSON values and managed mashup CSS.
 - `twaco mashup diff` (MCP `mashup_diff`) compares repository mashups by executable wiring,
   layout and visual content while ignoring Composer-generated identifiers.
 

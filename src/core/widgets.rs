@@ -42,7 +42,7 @@ pub(crate) struct Dropped {
     pub(crate) flexcontainer: Map<String, Value>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct Widget {
     /// The `Type` a mashup writes, e.g. `ptcsbutton`.
     #[serde(rename = "type")]

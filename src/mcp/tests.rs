@@ -1170,6 +1170,7 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
             "mashup_new",
             "mashup_templates",
             "mashup_add",
+            "mashup_set",
             "mashup_add_contained",
             "mashup_bind",
             "mashup_on",
@@ -1249,6 +1250,7 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
         "entity_edit",
         "mashup_new",
         "mashup_add",
+        "mashup_set",
         "mashup_add_contained",
         "mashup_bind",
         "mashup_on",
@@ -2288,6 +2290,10 @@ fn what_the_offline_tools_return_fits_the_output_schema_they_publish() {
         (
             "mashup_add",
             json!({"mashup": "P.Board_MU", "widget": "button"}),
+        ),
+        (
+            "mashup_set",
+            json!({"mashup": "P.Board_MU", "widget": "mashup-root", "properties": {"StyleProperties": {"gap": "4px"}}}),
         ),
         (
             "mashup_add_contained",

@@ -13,6 +13,7 @@ pub(crate) enum Mashup {
     Describe(MashupDescribe),
     Diff(MashupDiff),
     Add(MashupAdd),
+    Set(MashupSet),
     AddContained(MashupAddContained),
     Bind(MashupBind),
     On(MashupOn),
@@ -34,6 +35,7 @@ impl Mashup {
             Mashup::Describe(_) => "mashup describe",
             Mashup::Diff(_) => "mashup diff",
             Mashup::Add(_) => "mashup add",
+            Mashup::Set(_) => "mashup set",
             Mashup::AddContained(_) => "mashup add-contained",
             Mashup::Bind(_) => "mashup bind",
             Mashup::On(_) => "mashup on",
@@ -109,6 +111,20 @@ pub(crate) struct MashupAdd {
     pub(crate) props: Vec<String>,
     #[arg(long = "input", value_name = "name:TYPE")]
     pub(crate) inputs: Vec<String>,
+    #[command(flatten)]
+    pub(crate) apply: Apply,
+    #[command(flatten)]
+    pub(crate) json: Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
+/// `twaco mashup set <mashup> <widget>`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct MashupSet {
+    #[arg(long = "prop", value_name = "name=value")]
+    pub(crate) props: Vec<String>,
     #[command(flatten)]
     pub(crate) apply: Apply,
     #[command(flatten)]
@@ -994,6 +1010,94 @@ pub(crate) fn mashup_add_cmd(solution: &Solution, args: &MashupAdd) -> u8 {
         println!("run again with --apply to write it");
     }
     OK
+}
+
+/// `twaco mashup set <mashup> <widget>`: set checked widget properties in one edit.
+pub(crate) fn mashup_set_cmd(solution: &Solution, args: &MashupSet) -> u8 {
+    let [mashup_name, widget] = args.operands.as_slice() else {
+        eprintln!("{} mashup set needs <mashup> and <widget>", style::prefix());
+        return FAILED;
+    };
+    let properties = match args
+        .props
+        .iter()
+        .map(|text| {
+            text.split_once('=')
+                .map(|(name, value)| {
+                    (
+                        name.to_string(),
+                        serde_json::Value::String(value.to_string()),
+                    )
+                })
+                .ok_or_else(|| format!("--prop {text:?} must be Name=value"))
+        })
+        .collect::<Result<Vec<_>, _>>()
+    {
+        Ok(properties) if !properties.is_empty() => properties,
+        Ok(_) => {
+            eprintln!("{} mashup set needs --prop <name=value>", style::prefix());
+            return FAILED;
+        }
+        Err(error) => {
+            eprintln!("{} {error}", style::prefix());
+            return FAILED;
+        }
+    };
+    let request = commands::mashup::MashupSetRequest {
+        request: mashup::authoring::SetRequest {
+            mashup: mashup_name.clone(),
+            widget: widget.clone(),
+            properties,
+        },
+        mode: if args.apply.apply {
+            Mode::Apply
+        } else {
+            Mode::Plan
+        },
+        lock_label: "mashup set",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome = match commands::mashup::set(solution, &request, &mut notices) {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            print_notices(&notices);
+            eprintln!("{} {error}", style::prefix());
+            return FAILED;
+        }
+    };
+    print_notices(&notices);
+    let report = mashup::authoring::set_plan_json(solution, &outcome.plan, outcome.applied);
+    if args.json.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report).expect("a set plan serialises")
+        );
+    } else if outcome.plan.changed.is_empty() {
+        println!(
+            "unchanged {} in {}",
+            outcome.plan.widget, outcome.plan.mashup
+        );
+    } else {
+        for change in &outcome.plan.changed {
+            let after = compact_json(&change.after);
+            println!(
+                "{} {}.{} = {after}",
+                if outcome.applied { "set" } else { "would set" },
+                outcome.plan.widget,
+                change.property
+            );
+        }
+    }
+    OK
+}
+
+fn compact_json(value: &serde_json::Value) -> String {
+    let text = value.to_string();
+    if text.chars().count() <= 120 {
+        text
+    } else {
+        format!("{}…", text.chars().take(119).collect::<String>())
+    }
 }
 
 /// `twaco mashup add-contained <parent> <child>`: place a child mashup as a container.

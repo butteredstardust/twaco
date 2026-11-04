@@ -1083,7 +1083,24 @@ next to. A matching row or column accepts the sibling directly. When its directi
 makes a row or column and gives both widgets their own containers; it also wraps existing leaf
 siblings where that is needed to preserve responsive layout. A widget that can fill fills only
 when alone in its container. `--label` selects the first available LabelText, Label, Text or Title
-property; `--prop Name=value` changes a simple catalogue default property with its expected type.
+property; `--prop Name=value` changes a catalogue property with its expected type. Structured
+properties take JSON, including a grid's column format:
+
+```sh
+twaco mashup add Acme.App.Orders_MU grid --prop 'ColumnFormat={"formatInfo":[]}' --apply
+```
+
+Use `mashup set` to change existing widgets exactly by id or unambiguous display name. It accepts
+several properties in one edit and plans unless `--apply`:
+
+```sh
+twaco mashup set Acme.App.Orders_MU flexcontainer-2 --prop flex-grow=2 --prop flex-direction=column --prop 'StyleProperties={"gap":"4px"}' --apply
+twaco mashup set Acme.App.Orders_MU mashup-root --prop 'CustomMashupCss=.orders { color: red; }' --apply
+```
+
+The root accepts StyleProperties, CustomClass, DisableLegacyCustomClassStyles and
+CustomMashupCss. In a managed mashup, CustomMashupCss writes `mashup/custom.css`, not a
+content.json key; sync then fills the XML copy.
 Managed mashups update `content.json` and the entity in one transaction; unmanaged mashups update
 only their entity file. If sidecars and entity content disagree, resolve it first with `sync` or
 `extract`.

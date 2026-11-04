@@ -1,4 +1,4 @@
-use super::common::{default_true, Absent};
+use super::common::{default_true, free_object, Absent};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -791,6 +791,20 @@ pub(crate) struct MashupAddRequest {
     /// An expression's or validator's inputs as `name:TYPE`.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) inputs: Absent<Vec<String>>,
+    #[serde(default = "default_true")]
+    pub(crate) dry_run: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MashupSetRequest {
+    /// The existing mashup's name.
+    pub(crate) mashup: String,
+    /// An exact widget Id, DisplayName, or the one widget of a type.
+    pub(crate) widget: String,
+    /// Exact property names and their JSON values. Strings use the same syntax as CLI --prop.
+    #[schemars(schema_with = "free_object")]
+    pub(crate) properties: BTreeMap<String, serde_json::Value>,
     #[serde(default = "default_true")]
     pub(crate) dry_run: bool,
 }

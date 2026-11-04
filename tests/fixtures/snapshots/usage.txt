@@ -180,6 +180,10 @@ usage: twaco <command>
       --prop <name=value>     set one simple default property, repeatable; an extension widget's
                               property with no default takes JSON
       --input <name:TYPE>     an expression's or validator's input, repeatable
+  mashup set <mashup> <widget> --prop <name=value>... [--apply] [--json]
+                              set checked properties on one exact widget; structured properties take JSON;
+                              plan unless --apply
+      --prop <name=value>     set one property, repeatable; objects and arrays are JSON
   mashup add-contained <parent> <child> [--in <container> | --right-of <widget> | --left-of <widget> | --above <widget> | --below <widget>]
       [--set <parameter=value>]... [--apply] [--json]
                               add a child mashup as a contained mashup; plan unless --apply

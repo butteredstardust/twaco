@@ -279,20 +279,40 @@ pub(crate) fn plan_add(
         {
             return Err(AuthoringError::Invalid(format!("twaco sets {name}")));
         }
+        if ["_currentParameterDefs", "MashupParameters"].contains(&name.as_str()) {
+            return Err(AuthoringError::Refused(format!(
+                "{name} is managed by mashup param / add-contained / the function-widget inputs; use those"
+            )));
+        }
         let value = match widget.defaults.get(name) {
-            Some(default) => property_value(name, text, default)?,
-            // An extension widget's property with no literal default: read as its base type,
-            // or as JSON (a string when the text is not JSON) for a structured one.
+            Some(_) => property_value(widget, name, Value::String(text.to_string()))?,
+            // Extension definitions have historically accepted arbitrary JSON for an opaque
+            // property. Keep that compatibility when their base type gives us no scalar shape.
             None if widget.extension && widget.property(name).is_some() => {
-                match widget
+                let base = widget
                     .property(name)
-                    .and_then(|contract| contract.base_type.as_deref())
-                    .and_then(extension_widgets::empty_value)
-                {
-                    Some(empty) => property_value(name, text, &empty)?,
-                    None => serde_json::from_str(text)
-                        .unwrap_or_else(|_| Value::String(text.to_string())),
+                    .and_then(|contract| contract.base_type.as_deref());
+                if matches!(
+                    base,
+                    Some(
+                        "BOOLEAN"
+                            | "NUMBER"
+                            | "INTEGER"
+                            | "OBJECT"
+                            | "JSON"
+                            | "STATEFORMATTING"
+                            | "RENDERERWITHSTATE"
+                    )
+                ) {
+                    property_value(widget, name, Value::String(text.to_string()))?
+                } else {
+                    serde_json::from_str(text).unwrap_or_else(|_| Value::String(text.to_string()))
                 }
+            }
+            // Catalogue contracts without literal defaults still have a base type, including
+            // structured formatter values Composer leaves unset on a dropped widget.
+            None if widget.property(name).is_some() => {
+                property_value(widget, name, Value::String(text.to_string()))?
             }
             None => {
                 return Err(AuthoringError::Invalid(format!(
@@ -302,6 +322,9 @@ pub(crate) fn plan_add(
             }
         };
         if let Some(contract) = widget.property(name) {
+            if !contract.editable {
+                return Err(AuthoringError::Refused(format!("{name} is not editable")));
+            }
             if !contract.options.is_empty() && !contract.options.contains(&value) {
                 return Err(AuthoringError::Invalid(format!(
                     "{name} for {} must be one of {}",
@@ -441,16 +464,80 @@ pub(crate) fn plan_add_contained(
     })
 }
 
-fn property_value(name: &str, text: &str, default: &Value) -> Result<Value, AuthoringError> {
-    match default {
-        Value::Bool(_) => match text {
+/// Parse and check a value set by `--prop` or `mashup set`. Strings have CLI syntax; a non-string
+/// value arrived from MCP and is already JSON.
+pub(crate) fn property_value(
+    widget: &widgets::Widget,
+    name: &str,
+    supplied: Value,
+) -> Result<Value, AuthoringError> {
+    let default = widget.defaults.get(name);
+    let contract = widget.property(name);
+    let state_parameters = name
+        .strip_suffix("_StateParameters")
+        .is_some_and(|property| {
+            widget.property(property).is_some_and(|contract| {
+                matches!(
+                    contract.base_type.as_deref(),
+                    Some("STATEFORMATTING" | "RENDERERWITHSTATE")
+                )
+            })
+        });
+    let base = contract.and_then(|contract| contract.base_type.as_deref());
+    let structured = default
+        .is_some_and(|value| value.is_object() || value.is_array() || value.is_null())
+        || matches!(
+            base,
+            Some("OBJECT" | "JSON" | "STATEFORMATTING" | "RENDERERWITHSTATE")
+        )
+        || state_parameters
+        || (!widget.extension && name == "ColumnFormat" && widget.type_id.contains("grid"));
+    let array = default.is_some_and(Value::is_array) || state_parameters;
+    if structured {
+        let value = match supplied {
+            Value::String(text) if matches!(base, Some("RENDERERWITHSTATE")) => {
+                match serde_json::from_str(&text) {
+                    Ok(value @ Value::Object(_)) | Ok(value @ Value::String(_)) => value,
+                    Ok(_) => return Err(shape_error(name, false)),
+                    Err(_) => Value::String(text),
+                }
+            }
+            Value::String(text) => serde_json::from_str(&text).map_err(|_| {
+                AuthoringError::Invalid(format!(
+                    "{name} is structured; --prop {name}=<JSON> needs valid JSON"
+                ))
+            })?,
+            value => value,
+        };
+        if array && !value.is_array() {
+            return Err(shape_error(name, true));
+        }
+        if !array
+            && !value.is_object()
+            && !(matches!(base, Some("RENDERERWITHSTATE")) && value.is_string())
+        {
+            return Err(shape_error(name, false));
+        }
+        return Ok(value);
+    }
+    let text = match supplied {
+        Value::String(text) => text,
+        value => return scalar_value(name, default, base, value),
+    };
+    // The default's own type decides first; the contract's base type only when there is none.
+    let boolean =
+        matches!(default, Some(Value::Bool(_))) || (default.is_none() && base == Some("BOOLEAN"));
+    let number = matches!(default, Some(Value::Number(_)))
+        || (default.is_none() && matches!(base, Some("NUMBER" | "INTEGER")));
+    match () {
+        () if boolean => match text.as_str() {
             "true" => Ok(Value::Bool(true)),
             "false" => Ok(Value::Bool(false)),
             _ => Err(AuthoringError::Invalid(format!(
                 "{name} must be true or false"
             ))),
         },
-        Value::Number(_) => {
+        () if number => {
             if let Ok(number) = text.parse::<i64>() {
                 Ok(Value::from(number))
             } else if let Ok(number) = text.parse::<f64>() {
@@ -463,11 +550,34 @@ fn property_value(name: &str, text: &str, default: &Value) -> Result<Value, Auth
                 )))
             }
         }
-        Value::String(_) => Ok(Value::String(text.to_string())),
-        Value::Object(_) | Value::Array(_) | Value::Null => Err(AuthoringError::Invalid(format!(
-            "{name} is structured; set it in Composer"
+        _ => Ok(Value::String(text)),
+    }
+}
+
+fn scalar_value(
+    name: &str,
+    default: Option<&Value>,
+    base: Option<&str>,
+    value: Value,
+) -> Result<Value, AuthoringError> {
+    match (default, base, &value) {
+        (Some(Value::Bool(_)), _, Value::Bool(_)) | (_, Some("BOOLEAN"), Value::Bool(_)) => {
+            Ok(value)
+        }
+        (Some(Value::Number(_)), _, Value::Number(_))
+        | (_, Some("NUMBER" | "INTEGER"), Value::Number(_)) => Ok(value),
+        (Some(Value::String(_)), _, Value::String(_)) | (_, _, Value::String(_)) => Ok(value),
+        _ => Err(AuthoringError::Invalid(format!(
+            "{name} must be a JSON value of its property type"
         ))),
     }
+}
+
+fn shape_error(name: &str, array: bool) -> AuthoringError {
+    AuthoringError::Invalid(format!(
+        "{name} must be a JSON {}",
+        if array { "array" } else { "object" }
+    ))
 }
 
 /// The add plan as `--json` and MCP report it.
