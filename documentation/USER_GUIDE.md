@@ -1098,8 +1098,13 @@ twaco mashup set Acme.App.Orders_MU flexcontainer-2 --prop flex-grow=2 --prop fl
 twaco mashup set Acme.App.Orders_MU mashup-root --prop 'CustomMashupCss=.orders { color: red; }' --apply
 ```
 
-The root accepts StyleProperties, CustomClass, DisableLegacyCustomClassStyles and
-CustomMashupCss. In a managed mashup, CustomMashupCss writes `mashup/custom.css`, not a
+The root accepts StyleProperties (which also hold per-widget styles, keyed by widget id),
+CustomClass, DisableLegacyCustomClassStyles, CustomMashupCss, `Master` (the master mashup it
+opens in) and any scalar property it already has; a parameter's default goes through
+`mashup param set --default`. A chart's series fields (`DataField<N>`) and fixed axis bounds
+(`YAxis<N>MinimumValue`, `YAxis<N>MaximumValue`) are accepted for the series and axes the chart
+has, though the catalogue lists no default for them. Setting a container's `flex-size` also sets
+the palette icon Composer saves with it. In a managed mashup, CustomMashupCss writes `mashup/custom.css`, not a
 content.json key; sync then fills the XML copy.
 Managed mashups update `content.json` and the entity in one transaction; unmanaged mashups update
 only their entity file. If sidecars and entity content disagree, resolve it first with `sync` or
@@ -1315,7 +1320,11 @@ twaco mashup diff Acme.App.Orders_MU Acme.App.OrdersNext_MU --tier layout
 `mashup diff` compares repository mashups without treating Composer's allocated widget and UUID
 identifiers as a change. Widgets pair by aligning sibling types, so one extra container is one
 difference; sibling order counts, while bindings, events, calls and parameters compare without
-order. It reports executable wiring, layout and visual differences separately;
+order. What Composer saves but nothing shows is not a difference: editor state (`_baseVersion`,
+`isLocked`, `DisplayName`, `iconClass`, `LastContainer`), a property only one side writes at its
+empty or default value, numbered chart settings past the chart's series, axis or reference-line
+count, caching switched off, and the styles of widgets that no longer exist. It reports
+executable wiring, layout and visual differences separately;
 `--tier executable`, `layout`, `visual` or `all` selects what controls its exit status. `--json`
 returns the same deterministic report as MCP `mashup_diff`.
 

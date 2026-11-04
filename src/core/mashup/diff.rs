@@ -132,7 +132,41 @@ impl crate::core::codes::Coded for DiffError {
 }
 
 // Composer allocator/display metadata and properties that have no effect in a responsive child.
-const IGNORED_PROPERTIES: &[&str] = &["Id", "id_index", "__TypeDisplayName"];
+// Composer editor state: the version that last saved the widget, the designer's lock and label,
+// the icon its palette shows, which container it last split, its migration flag, and the base
+// type it copies from a picker's bound display field.
+const IGNORED_PROPERTIES: &[&str] = &[
+    "UpdatedAfterRefactor",
+    "DisplayFieldBaseType",
+    "Id",
+    "id_index",
+    "__TypeDisplayName",
+    "_baseVersion",
+    "isLocked",
+    "DisplayName",
+    "iconClass",
+    "LastContainer",
+];
+/// A value Composer 10.2 saves that the widget catalogue has no default for.
+fn composer_default(type_id: Option<&str>, key: &str, value: &Value) -> bool {
+    match (type_id, key) {
+        (Some("flexcontainer"), "Scrolling") => value == "auto-scroll",
+        (Some("mashup"), "MinimizeDataStorage") => value == &Value::Bool(false),
+        _ => false,
+    }
+}
+// Numbered property families that only count up to their widget's count property: a chart keeps
+// 100 series' and reference lines' settings whatever it shows.
+const COUNTED_FAMILIES: &[(&str, &str)] = &[
+    ("ReferenceLine", "NumberOfReferenceLines"),
+    ("DataSeriesStyle", "NumberOfSeries"),
+    ("DisplaySeries", "NumberOfSeries"),
+    ("DataLabel", "NumberOfSeries"),
+    ("DataField", "NumberOfSeries"),
+    ("Series", "NumberOfSeries"),
+    ("HideYAxis", "NumberOfYaxes"),
+    ("YAxis", "NumberOfYaxes"),
+];
 const LAYOUT_PROPERTIES: &[&str] = &[
     "positioning",
     "overflow",
@@ -433,6 +467,15 @@ fn rewrite_widget_ids(value: &mut Value, ids: &BTreeMap<String, String>) {
 
 fn rewrite_widget_tree(value: Option<&mut Value>, ids: &BTreeMap<String, String>) {
     let Some(value) = value else { return };
+    // The root's StyleProperties keep each styled widget's parts under its id. Composer leaves
+    // the entries of removed widgets behind; they style nothing.
+    if let Some(Value::Object(styled)) = value.pointer_mut("/Properties/StyleProperties/data") {
+        let renamed: Map<String, Value> = std::mem::take(styled)
+            .into_iter()
+            .filter_map(|(id, parts)| ids.get(&id).map(|name| (name.clone(), parts)))
+            .collect();
+        *styled = renamed;
+    }
     if let Some(properties) = value.get_mut("Properties") {
         rewrite_field(properties, "Id", ids);
         rewrite_field(properties, "LastContainer", ids);
@@ -470,6 +513,12 @@ fn strip_identity(value: &mut Value) {
                 for call in calls.iter_mut() {
                     if let Some(call) = call.as_object_mut() {
                         call.remove("Id");
+                        // Composer writes caching switched off; twaco leaves it out. Same call.
+                        if call.get("Caching").and_then(|caching| caching.get("cache"))
+                            == Some(&Value::Bool(false))
+                        {
+                            call.remove("Caching");
+                        }
                     }
                 }
                 calls.sort_by(|a, b| {
@@ -653,7 +702,10 @@ fn compare_widget(
 
 fn responsive(widget: &Value) -> bool {
     widget.pointer("/Properties/ResponsiveLayout") == Some(&Value::Bool(true))
-        && widget.pointer("/Properties/Type").and_then(Value::as_str) == Some("flexcontainer")
+        && matches!(
+            widget.pointer("/Properties/Type").and_then(Value::as_str),
+            Some("flexcontainer" | "mashup")
+        )
 }
 
 fn widget_path(parent: &str, widget: &Value) -> String {
@@ -688,14 +740,10 @@ fn compare_properties(
         .unwrap_or(&empty);
     let keys: std::collections::BTreeSet<_> = left.keys().chain(right.keys()).collect();
     for key in keys {
-        if ignored(
-            key,
-            left.get(key),
-            right.get(key),
-            left.get("Type").and_then(Value::as_str),
-            right.get("Type").and_then(Value::as_str),
-            responsive_child,
-        ) {
+        if ignored(key, responsive_child)
+            || inert(key, left, right)
+            || default_on_one_side(key, left.get(key), right.get(key), left.get("Type"))
+        {
             continue;
         }
         let tier = if function
@@ -717,30 +765,61 @@ fn compare_properties(
     }
 }
 
-fn ignored(
-    key: &str,
-    left: Option<&Value>,
-    right: Option<&Value>,
-    left_type: Option<&str>,
-    right_type: Option<&str>,
-    responsive_child: bool,
-) -> bool {
+fn ignored(key: &str, responsive_child: bool) -> bool {
     IGNORED_PROPERTIES.contains(&key)
-        || (key == "DisplayName"
-            && [left, right]
-                .into_iter()
-                .flatten()
-                .all(|value| display_name_is_allocator(value, left_type.or(right_type))))
         || (responsive_child && matches!(key, "Top" | "Left" | "Width" | "Height"))
 }
 
-fn display_name_is_allocator(value: &Value, type_id: Option<&str>) -> bool {
-    value.as_str().is_some_and(|name| {
-        type_id.is_some_and(|type_id| name.starts_with(&format!("{type_id}-")))
-            && name
-                .rsplit_once('-')
-                .is_some_and(|(kind, number)| !kind.is_empty() && number.parse::<usize>().is_ok())
+/// A numbered family member past its count on both sides, as `ReferenceLine7Axis` with no
+/// reference lines.
+fn inert(key: &str, left: &Map<String, Value>, right: &Map<String, Value>) -> bool {
+    COUNTED_FAMILIES.iter().any(|(prefix, count)| {
+        let Some(rest) = key.strip_prefix(prefix) else {
+            return false;
+        };
+        let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+        let Ok(number) = digits.parse::<u64>() else {
+            return false;
+        };
+        let shown = |side: &Map<String, Value>| side.get(*count).and_then(Value::as_u64);
+        match (shown(left), shown(right)) {
+            (None, None) => false,
+            (l, r) => number > l.unwrap_or(0).max(r.unwrap_or(0)),
+        }
     })
+}
+
+/// A property only one side writes, at its empty or catalogue default value: Composer and twaco
+/// write different subsets of the defaults.
+fn default_on_one_side(
+    key: &str,
+    left: Option<&Value>,
+    right: Option<&Value>,
+    type_id: Option<&Value>,
+) -> bool {
+    let value = match (left, right) {
+        (Some(value), None) | (None, Some(value)) => value,
+        _ => return false,
+    };
+    let empty = match value {
+        Value::Null => true,
+        Value::String(text) => text.is_empty(),
+        Value::Array(items) => items.is_empty(),
+        Value::Object(map) => {
+            map.is_empty()
+                // An empty widget styler.
+                || (map.get("data").is_some_and(|data| data.as_object().is_some_and(Map::is_empty))
+                    && map.keys().all(|key| key == "data" || key == "meta"))
+        }
+        _ => false,
+    };
+    let type_id = type_id.and_then(Value::as_str);
+    empty
+        || type_id
+            .and_then(|type_id| crate::core::widgets::catalog().by_type(type_id))
+            .and_then(|widget| widget.defaults.get(key))
+            == Some(value)
+        || composer_default(type_id, key, value)
 }
 
 fn layout_property(key: &str) -> bool {
@@ -1113,6 +1192,84 @@ mod tests {
         let paths: Vec<_> = result.differences.iter().map(|d| d.path.as_str()).collect();
         assert_eq!(paths, ["UI.Properties._currentParameterDefs.Aardvark"]);
         assert_eq!(result.summary.executable, 1);
+    }
+
+    #[test]
+    fn composer_editor_state_and_one_sided_defaults_are_not_differences() {
+        let chart = |properties: Value| widget("chart", "ptcschartcombo", properties, json!([]));
+        let mut left = mashup(json!([chart(json!({
+            "_baseVersion": "10.2.0-b75", "isLocked": false, "DisplayName": "ptcs-chartcombo-11",
+            "NumberOfReferenceLines": 0, "ReferenceLine7Axis": "yaxis1", "CustomClass": "",
+            "DataSeriesStyle3_StateParameters": [], "NumberOfSeries": 2, "DataField2": "b"
+        }))]));
+        left["UI"]["Properties"]["StyleProperties"] =
+            json!({"data": {}, "meta": {"type": "WidgetStyler", "version": "1.0"}});
+        let right = mashup(json!([chart(json!({
+            "_baseVersion": "10.0.0-b44", "DisplayName": "chart-3", "ReferenceLine7Axis": "xaxis",
+            "NumberOfSeries": 2, "DataField2": "b", "DataField9": "ignored past the count"
+        }))]));
+        let result = compare("a", "b", &left, &right, None, None, Tier::All);
+        assert!(result.equal, "{:?}", result.differences);
+        // Within the count, a series setting is a real difference.
+        let mut changed = right.clone();
+        changed["UI"]["Widgets"][0]["Properties"]["DataField2"] = json!("c");
+        let result = compare("a", "b", &left, &changed, None, None, Tier::All);
+        let paths: Vec<_> = result.differences.iter().map(|d| d.path.as_str()).collect();
+        assert_eq!(paths, ["UI/w1(ptcschartcombo).Properties.DataField2"]);
+    }
+
+    #[test]
+    fn caching_switched_off_and_composer_saved_defaults_are_not_differences() {
+        let call = |caching: Option<Value>| {
+            let mut call = json!({"Name": "Get", "Target": "Get"});
+            if let Some(caching) = caching {
+                call["Caching"] = caching;
+            }
+            call
+        };
+        let mut left = mashup(json!([widget(
+            "c",
+            "flexcontainer",
+            json!({"Scrolling": "auto-scroll"}),
+            json!([])
+        )]));
+        left["UI"]["Properties"]["MinimizeDataStorage"] = json!(false);
+        left["Data"] = json!({"Things_Acme.M": {"Services": [call(Some(json!({"cache": false, "cacheKeyParams": []})))]}});
+        let mut right = mashup(json!([widget("d", "flexcontainer", json!({}), json!([]))]));
+        right["Data"] = json!({"Things_Acme.M": {"Services": [call(None)]}});
+        assert!(compare("a", "b", &left, &right, None, None, Tier::All).equal);
+        // Caching switched on is a real difference.
+        right["Data"]["Things_Acme.M"]["Services"][0]["Caching"] = json!({"cache": true});
+        assert_eq!(
+            compare("a", "b", &left, &right, None, None, Tier::All)
+                .summary
+                .executable,
+            1
+        );
+    }
+
+    #[test]
+    fn a_responsive_root_ignores_its_childrens_coordinates_and_styles_follow_widget_pairs() {
+        let mut left = mashup(json!([widget(
+            "container-2",
+            "flexcontainer",
+            json!({"Top": 0, "Left": 0}),
+            json!([])
+        )]));
+        left["UI"]["Properties"]["ResponsiveLayout"] = json!(true);
+        left["UI"]["Properties"]["StyleProperties"] =
+            json!({"data": {"container-2": {"widget": "flex-container"}}, "meta": {}});
+        let mut right = mashup(json!([widget(
+            "flexcontainer-9",
+            "flexcontainer",
+            json!({}),
+            json!([])
+        )]));
+        right["UI"]["Properties"]["ResponsiveLayout"] = json!(true);
+        right["UI"]["Properties"]["StyleProperties"] =
+            json!({"data": {"flexcontainer-9": {"widget": "flex-container"}}, "meta": {}});
+        let result = compare("a", "b", &left, &right, None, None, Tier::All);
+        assert!(result.equal, "{:?}", result.differences);
     }
 
     #[test]

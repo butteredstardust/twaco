@@ -11,9 +11,12 @@ All notable changes to twaco are recorded here. The format follows
 - `twaco mashup source` (MCP `mashup_source_add`, `mashup_source_list`, and
   `mashup_source_remove`) authors explicit static and dynamic ThingWorx data sources.
 - `twaco mashup set` (MCP `mashup_set`) changes checked widget and root properties, including
-  structured JSON values and managed mashup CSS.
+  structured JSON values, managed mashup CSS, the root's master and chart series fields and
+  axis bounds.
 - `twaco mashup diff` (MCP `mashup_diff`) compares repository mashups by executable wiring,
-  layout and visual content while ignoring Composer-generated identifiers.
+  layout and visual content, ignoring Composer-generated identifiers and the defaults and editor
+  state Composer saves, so a mashup rebuilt with twaco commands can be checked against the
+  original.
 
 ### Changed
 

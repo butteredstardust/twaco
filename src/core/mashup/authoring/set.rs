@@ -79,16 +79,18 @@ pub(crate) fn plan_set(
                 }
                 continue;
             }
-            if ![
-                "StyleProperties",
-                "CustomClass",
-                "DisableLegacyCustomClassStyles",
-            ]
-            .contains(&name.as_str())
-            {
-                return Err(AuthoringError::Refused("mashup-root properties are StyleProperties, CustomClass, DisableLegacyCustomClassStyles and CustomMashupCss".into()));
+            let current = document.at(&found.path)["Properties"].get(name).cloned();
+            let parameter = document.value()["UI"]["Properties"]["_currentParameterDefs"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .any(|definition| definition["ParameterName"] == name.as_str());
+            if parameter {
+                return Err(AuthoringError::Refused(format!(
+                    "{name} is a mashup parameter's default; use mashup param set --default"
+                )));
             }
-            let root_widget = root_contract(name)?;
+            let root_widget = root_contract(name, current.as_ref())?;
             let value = property_value(&root_widget, name, supplied.clone())?;
             change_property(&mut document, &found.path, name, value, &mut changed);
             continue;
@@ -111,6 +113,7 @@ pub(crate) fn plan_set(
         }
         let known = widget.defaults.contains_key(name)
             || widget.property(name).is_some()
+            || widget.numbered_default(name).is_some()
             || is_state_parameters(widget, name);
         if !known {
             return Err(AuthoringError::Invalid(format!(
@@ -141,6 +144,27 @@ pub(crate) fn plan_set(
         }
         change_property(&mut document, &found.path, name, value, &mut changed);
     }
+    // Composer shows a fixed-size container with its own palette icon and saves it that way.
+    if found.type_id == "flexcontainer" {
+        if let Some(size) = changed
+            .iter()
+            .find(|change| change.property == "flex-size")
+            .map(|change| change.after.clone())
+        {
+            let icon = if size == "fixed" {
+                "widgets-flexcontainer-fixed"
+            } else {
+                "widgets-flexcontainer"
+            };
+            change_property(
+                &mut document,
+                &found.path,
+                "iconClass",
+                Value::String(icon.into()),
+                &mut changed,
+            );
+        }
+    }
     let edit = if changed.is_empty() {
         None
     } else if let Some(css) = css {
@@ -167,7 +191,9 @@ pub(crate) fn plan_set(
     })
 }
 
-fn root_contract(name: &str) -> Result<widgets::Widget, AuthoringError> {
+/// What the root takes: its styling, `Master` (the master mashup it opens in), and any other
+/// scalar property it already has, typed by its current value. twaco's own keys stay refused.
+fn root_contract(name: &str, current: Option<&Value>) -> Result<widgets::Widget, AuthoringError> {
     let mut widget = widgets::catalog()
         .by_type("flexcontainer")
         .expect("catalogue has flexcontainer")
@@ -179,9 +205,25 @@ fn root_contract(name: &str) -> Result<widgets::Widget, AuthoringError> {
     widget
         .defaults
         .insert("DisableLegacyCustomClassStyles".into(), json!(false));
-    if !widget.defaults.contains_key(name) {
-        return Err(AuthoringError::Invalid(format!(
-            "mashup-root has no property {name}"
+    widget.defaults.insert("Master".into(), json!(""));
+    let reserved = [
+        "Id",
+        "Type",
+        "DisplayName",
+        "ResponsiveLayout",
+        "id_index",
+        "_currentParameterDefs",
+        "MashupParameters",
+    ]
+    .contains(&name);
+    if !reserved && !widget.defaults.contains_key(name) {
+        if let Some(value @ (Value::String(_) | Value::Bool(_) | Value::Number(_))) = current {
+            widget.defaults.insert(name.into(), value.clone());
+        }
+    }
+    if reserved || !widget.defaults.contains_key(name) {
+        return Err(AuthoringError::Refused(format!(
+            "mashup-root takes StyleProperties, CustomClass, DisableLegacyCustomClassStyles, CustomMashupCss, Master and the scalar properties it already has, not {name}"
         )));
     }
     Ok(widget)

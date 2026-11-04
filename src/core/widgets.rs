@@ -223,6 +223,35 @@ impl Widget {
             .or_else(|| catalog().base_properties.get(name))
     }
 
+    /// The empty value of a numbered property Composer adds only once it is used, so the
+    /// catalogue has no default for it: a chart's `DataField<N>` (series N's field) and
+    /// `YAxis<N>MinimumValue`/`MaximumValue` (fixed axis bounds). The catalogue's own
+    /// `DataLabel<N>` or `YAxis<N>Label` proves the index exists.
+    pub(crate) fn numbered_default(&self, name: &str) -> Option<Value> {
+        const FAMILIES: &[(&str, &str, &str, &str)] = &[
+            ("DataField", "", "DataLabel", ""),
+            ("YAxis", "MinimumValue", "YAxis", "Label"),
+            ("YAxis", "MaximumValue", "YAxis", "Label"),
+        ];
+        FAMILIES
+            .iter()
+            .find_map(|(prefix, suffix, witness, witness_suffix)| {
+                let number = name.strip_prefix(prefix)?.strip_suffix(suffix)?;
+                (!number.is_empty()
+                    && number.bytes().all(|b| b.is_ascii_digit())
+                    && self
+                        .defaults
+                        .contains_key(&format!("{witness}{number}{witness_suffix}")))
+                .then(|| {
+                    if suffix.is_empty() {
+                        Value::String(String::new())
+                    } else {
+                        Value::from(0)
+                    }
+                })
+            })
+    }
+
     pub(crate) fn has_event(&self, name: &str) -> bool {
         self.events
             .as_ref()

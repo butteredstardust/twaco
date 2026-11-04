@@ -314,6 +314,9 @@ pub(crate) fn plan_add(
             None if widget.property(name).is_some() => {
                 property_value(widget, name, Value::String(text.to_string()))?
             }
+            None if widget.numbered_default(name).is_some() => {
+                property_value(widget, name, Value::String(text.to_string()))?
+            }
             None => {
                 return Err(AuthoringError::Invalid(format!(
                     "{} has no property {name}",
@@ -471,7 +474,8 @@ pub(crate) fn property_value(
     name: &str,
     supplied: Value,
 ) -> Result<Value, AuthoringError> {
-    let default = widget.defaults.get(name);
+    let numbered = widget.numbered_default(name);
+    let default = widget.defaults.get(name).or(numbered.as_ref());
     let contract = widget.property(name);
     let state_parameters = name
         .strip_suffix("_StateParameters")

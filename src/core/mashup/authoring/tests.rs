@@ -4754,3 +4754,106 @@ fn source_list_says_what_sets_each_entity_and_a_plan_writes_nothing() {
     .collect();
     assert_eq!(rows, expected);
 }
+
+#[test]
+fn chart_series_fields_root_properties_and_fixed_icons_are_settable() {
+    let (_dir, solution) = one_project();
+    let name = "Acme.Orders_MU";
+    apply_new(
+        &solution,
+        &plan_new(&solution, &request(name)).unwrap(),
+        &lock(&solution),
+    )
+    .unwrap();
+    let mut add = add_request(name, "ptcschartcombo");
+    add.properties = vec![("DataField2".into(), "Speed".into())];
+    let chart = plan_add(&solution, &add).unwrap();
+    apply_edit(&solution, &chart.edit, &lock(&solution)).unwrap();
+    let id = chart.placed.id.clone();
+    let set = |widget: &str, properties: Vec<(&str, Value)>| {
+        plan_set(
+            &solution,
+            &SetRequest {
+                mashup: name.into(),
+                widget: widget.into(),
+                properties: properties
+                    .into_iter()
+                    .map(|(key, value)| (key.to_string(), value))
+                    .collect(),
+            },
+        )
+    };
+    // A series field exists for every series the chart has a label for, and no further.
+    let plan = set(&id, vec![("DataField3", json!("Battery"))]).unwrap();
+    assert_eq!(plan.changed[0].after, json!("Battery"));
+    let error = set(&id, vec![("DataField", json!("x"))])
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("has no property DataField"), "{error}");
+    let error = set(&id, vec![("DataField999", json!("x"))])
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("has no property DataField999"), "{error}");
+    // Fixed axis bounds are numbers, for the axes the chart has.
+    let plan = set(&id, vec![("YAxis1MinimumValue", json!("0"))]).unwrap();
+    assert_eq!(plan.changed[0].after, json!(0));
+    let error = set(&id, vec![("YAxis1MaximumValue", json!("high"))])
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("must be a JSON number"), "{error}");
+    let content: Value =
+        serde_json::from_slice(&chart.edit.sidecars.as_ref().unwrap().content_after).unwrap();
+    let document = mashup::edit::parse(&content.to_string()).unwrap();
+    let path = document.find(&id).unwrap().path;
+    assert_eq!(document.at(&path)["Properties"]["DataField2"], "Speed");
+    // The root takes Master and the scalar properties it has; parameters and twaco's keys no.
+    let plan = set(
+        "mashup-root",
+        vec![
+            ("Master", json!("Acme.Main_MM")),
+            ("Title", json!("Orders")),
+        ],
+    )
+    .unwrap();
+    assert_eq!(plan.changed.len(), 2);
+    let error = set("mashup-root", vec![("id_index", json!(9))])
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("not id_index"), "{error}");
+    let error = set("mashup-root", vec![("NoSuchThing", json!("x"))])
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("not NoSuchThing"), "{error}");
+    // A fixed container gets Composer's fixed icon, and loses it again.
+    let plan = set("flexcontainer-2", vec![("flex-size", json!("fixed"))]).unwrap();
+    let icon = plan
+        .changed
+        .iter()
+        .find(|change| change.property == "iconClass")
+        .unwrap();
+    assert_eq!(icon.after, "widgets-flexcontainer-fixed");
+    apply_edit(&solution, plan.edit.as_ref().unwrap(), &lock(&solution)).unwrap();
+    let plan = set("flexcontainer-2", vec![("flex-size", json!("default"))]).unwrap();
+    let icon = plan
+        .changed
+        .iter()
+        .find(|change| change.property == "iconClass")
+        .unwrap();
+    assert_eq!(icon.after, "widgets-flexcontainer");
+}
+
+#[test]
+fn root_parameter_defaults_are_set_through_mashup_param() {
+    let (_dir, solution) = source_fixture();
+    let error = plan_set(
+        &solution,
+        &SetRequest {
+            mashup: "Acme.Orders_MU".into(),
+            widget: "mashup-root".into(),
+            properties: vec![("Manager".into(), json!("Acme.Orders.Manager"))],
+        },
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("use mashup param set --default"), "{error}");
+}
