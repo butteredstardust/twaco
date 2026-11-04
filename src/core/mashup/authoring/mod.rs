@@ -62,9 +62,10 @@ pub(crate) use set::{plan_set, SetPlan};
 pub use set::{set_plan_json, SetRequest};
 pub use source::SourceInfo;
 pub(crate) use source::{
-    list_sources, plan_source_add, plan_source_remove, SourceAddPlan, SourceRemovePlan,
+    list_sources, plan_source_add, plan_source_remove, plan_source_retarget, SourceAddPlan,
+    SourceRemovePlan, SourceRetargetPlan,
 };
-pub use source::{SourceAddRequest, SourceRemoveRequest};
+pub use source::{SourceAddRequest, SourceRemoveRequest, SourceRetargetRequest};
 
 #[derive(Debug)]
 pub struct SidecarEdit {

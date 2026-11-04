@@ -1046,6 +1046,21 @@ StyleTheme in the solution; twaco never creates one. Nothing is granted visibili
 `--project` may be left out when the solution has one project. A name that is already a mashup, or
 files already in the way, are refused.
 
+### Starting from an existing mashup
+
+Keep design kits in the solution: copy a reference page, retarget its calls, then set the dynamic
+manager when it has one.
+
+```sh
+twaco mashup new Acme.App.Orders_MU --from Acme.App.Reference_MU --apply
+twaco mashup source retarget Acme.App.Orders_MU --from Acme.App.Reference.Manager --to Acme.App.Orders.Manager --apply
+twaco mashup param set Acme.App.Orders_MU Manager --default Acme.App.Orders.Manager --apply
+```
+
+The copy preserves layout, styles, CSS, parameters, data sources and wiring; only the mashup's
+identity changes. Retarget refuses incompatible collections, missing service contracts and an
+existing target section rather than merging it.
+
 ### Contained mashups and parameters
 
 A contained mashup receives only the parameters its container declares. Add one from a mashup in
@@ -1154,6 +1169,11 @@ creates a missing Thing call by itself; template and shape calls need `source ad
 static one, `UNBOUND` when nothing does); `mashup source remove <mashup> <address> --cascade`
 also removes the bindings and events proven to name the call, and the entity binding with the
 section's last call.
+
+`mashup source retarget <mashup> --from <Entity> --to <Entity>` changes every matching source
+section in one edit, rewrites its data bindings and events, and preserves dynamic `EntityName`
+bindings. It refuses a target that lacks a called service or a used parameter of the same base
+type.
 
 ### Binding
 

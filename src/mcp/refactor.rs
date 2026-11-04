@@ -5,9 +5,9 @@ use super::requests::refactor::{
     MashupEventRequest, MashupNewRequest, MashupOffRequest, MashupOnRequest, MashupParameterAction,
     MashupParameterRequest, MashupRecipeRequest, MashupRemoveRequest, MashupSetRequest,
     MashupSourceAddRequest, MashupSourceListRequest, MashupSourceRemoveRequest,
-    MashupTemplatesRequest, MashupUnbindRequest, MashupValidateRequest, MoveMemberAction,
-    MoveMemberRequest, NewBuildingBlockRequest, RenameRequest, ReprojectRequest, RetemplateRequest,
-    WidgetsRequest,
+    MashupSourceRetargetRequest, MashupTemplatesRequest, MashupUnbindRequest,
+    MashupValidateRequest, MoveMemberAction, MoveMemberRequest, NewBuildingBlockRequest,
+    RenameRequest, ReprojectRequest, RetemplateRequest, WidgetsRequest,
 };
 use super::source::add_types_refresh;
 use super::{
@@ -465,6 +465,20 @@ pub(crate) fn mashup_new_tool(
     if !arguments.template.is_absent() && !arguments.layout.is_absent() {
         return Err(ToolError::invalid("give template or layout, not both"));
     }
+    if !arguments.from.is_absent()
+        && (!arguments.template.is_absent()
+            || !arguments.layout.is_absent()
+            || !arguments.primary_menu.is_absent()
+            || !arguments.secondary_menu.is_absent()
+            || !arguments.theme.is_absent()
+            || arguments.master
+            || !arguments.params.is_absent()
+            || !arguments.tabs.is_absent())
+    {
+        return Err(ToolError::invalid(
+            "from cannot be used with template, layout, menus, theme, master, params or tabs",
+        ));
+    }
     let template = arguments
         .template
         .as_ref()
@@ -483,6 +497,7 @@ pub(crate) fn mashup_new_tool(
             visibility: arguments.visibility.items().to_vec(),
             params: arguments.params.items().to_vec(),
             tabs: arguments.tabs.items().to_vec(),
+            from: arguments.from.as_ref().cloned(),
         },
         mode: if dry_run { Mode::Plan } else { Mode::Apply },
         lock_label: "mcp mashup_new",
@@ -859,6 +874,27 @@ pub(crate) fn mashup_source_add_tool(
     let outcome =
         commands::mashup::source_add(solution, &request, &mut notices).map_err(ToolError::coded)?;
     let mut result = json!({"applied":outcome.applied,"dry_run":dry_run,"mashup":outcome.plan.edit.mashup,"section":outcome.plan.section,"call":outcome.plan.call,"files":files(solution,&outcome.plan.edit)});
+    add_notices(&mut result, &notices);
+    Ok(result)
+}
+pub(crate) fn mashup_source_retarget_tool(
+    solution: &Solution,
+    arguments: MashupSourceRetargetRequest,
+) -> Result<Value, ToolError> {
+    let dry_run = arguments.dry_run;
+    let request = commands::mashup::MashupSourceRetargetRequest {
+        request: crate::core::mashup::authoring::SourceRetargetRequest {
+            mashup: nonempty(&arguments.mashup, "mashup")?.into(),
+            from: nonempty(&arguments.from, "from")?.into(),
+            to: nonempty(&arguments.to, "to")?.into(),
+        },
+        mode: if dry_run { Mode::Plan } else { Mode::Apply },
+        lock_label: "mcp mashup_source_retarget",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome = commands::mashup::source_retarget(solution, &request, &mut notices)
+        .map_err(ToolError::coded)?;
+    let mut result = json!({"mashup":arguments.mashup,"from":arguments.from,"to":arguments.to,"sections":outcome.plan.sections.iter().map(|(from_key,to_key)| json!({"from_key":from_key,"to_key":to_key})).collect::<Vec<_>>(),"bindings_rewritten":outcome.plan.bindings_rewritten,"events_rewritten":outcome.plan.events_rewritten,"files":files(solution,&outcome.plan.edit),"applied":outcome.applied,"dry_run":dry_run});
     add_notices(&mut result, &notices);
     Ok(result)
 }

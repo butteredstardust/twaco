@@ -215,6 +215,11 @@ mashup source list <mashup> [--json]
 mashup source remove <mashup> <address> [--cascade] [--apply] [--json]
                             remove one explicit data-source call; plan unless --apply
     --cascade                remove proven bindings and events that name the call
+mashup source retarget <mashup> --from <address> --to <address> [--apply] [--json]
+                            point matching data-source sections at another Thing, ThingTemplate or
+                            ThingShape; plan unless --apply
+    --from <address>        source entity the mashup currently calls
+    --to <address>          replacement entity in the same collection
 mashup add-contained <parent> <child> [--in <container> | --right-of <widget> | --left-of <widget> | --above <widget> | --below <widget>]
     [--set <parameter=value>]... [--apply] [--json]
                             add a child mashup as a contained mashup; plan unless --apply
@@ -283,12 +288,13 @@ mashup event add <mashup> <name> --when <address> [--apply] [--json]
     --when <address>        the event in this mashup that fires it, as mashup on --event takes it
 mashup templates [<name>] [--json]
                             list the embedded responsive mashup templates and their slots
-mashup new <name> [--project <name>] [--template <name>] [--primary-menu <address>]
+mashup new <name> [--project <name>] [--from <address> | --template <name>] [--primary-menu <address>]
     [--secondary-menu <address>] [--theme <StyleTheme>] [--master]
     [--visibility <principal>]... [--param <name:TYPE[:DIRECTION]|name:INFOTABLE:DataShape[:DIRECTION]>]... [--tab <Label=Mashup>]...
     [--apply] [--json]
                             create a ThingWorx 10.2 responsive mashup as Composer would: its entity file
                             and its content sidecars; plan unless --apply
+    --from <address>        copy a repository mashup exactly, except identity and permissions
     --template              layout template name or alias (default: blank); see mashup templates
     --layout                compatibility alias for --template
     --primary-menu          required INFOTABLE service result for a template's menu bar

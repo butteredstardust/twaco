@@ -599,6 +599,12 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             false,
             refactor::mashup_source_add_tool,
         ).with_output::<outputs::MashupSourceAddResult>(),
+        solution_tool::<refactor_requests::MashupSourceRetargetRequest>(
+            "mashup_source_retarget",
+            "Retarget matching data-source sections from one Thing, ThingTemplate or ThingShape to another in the same collection, keeping calls and dynamic EntityName bindings. A dry run unless dry_run is false; apply writes the entity and managed content sidecar together.",
+            false,
+            refactor::mashup_source_retarget_tool,
+        ).with_output::<outputs::MashupSourceRetargetResult>(),
         solution_tool::<refactor_requests::MashupSourceListRequest>(
             "mashup_source_list", "List explicit mashup data source calls. Read-only; no server.", true, refactor::mashup_source_list_tool,
         ).with_output::<outputs::MashupSourceListResult>(),
@@ -1065,6 +1071,7 @@ pub(crate) const GROUPS: &[(&str, &[&str])] = &[
             "mashup_add_contained",
             "mashup_bind",
             "mashup_source_add",
+            "mashup_source_retarget",
             "mashup_source_list",
             "mashup_source_remove",
             "mashup_on",

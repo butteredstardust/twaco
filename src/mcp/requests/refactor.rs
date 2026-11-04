@@ -322,6 +322,9 @@ pub(crate) struct MashupNewRequest {
     /// An embedded layout template name or alias; default `blank`.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) template: Absent<String>,
+    /// A repository mashup to copy. It is exclusive with template, layout, menus, theme, master, params and tabs.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) from: Absent<String>,
     /// Compatibility alias for template.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) layout: Absent<String>,
@@ -995,6 +998,18 @@ pub(crate) struct MashupSourceAddRequest {
     /// How many result sets to cache; needs cache.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) max_result_sets: Absent<u32>,
+    #[serde(default = "default_true")]
+    pub(crate) dry_run: bool,
+}
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MashupSourceRetargetRequest {
+    /// The existing mashup.
+    pub(crate) mashup: String,
+    /// The Thing, ThingTemplate or ThingShape currently used by its source sections.
+    pub(crate) from: String,
+    /// The replacement entity, in the same collection.
+    pub(crate) to: String,
     #[serde(default = "default_true")]
     pub(crate) dry_run: bool,
 }

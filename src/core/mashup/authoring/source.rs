@@ -83,6 +83,20 @@ pub struct SourceRemovePlan {
     pub bindings_removed: usize,
     pub events_removed: usize,
 }
+#[derive(Clone, Debug)]
+pub struct SourceRetargetRequest {
+    pub mashup: String,
+    pub from: String,
+    pub to: String,
+}
+#[derive(Debug)]
+pub struct SourceRetargetPlan {
+    pub edit: EditPlan,
+    pub sections: Vec<(String, String)>,
+    pub bindings_rewritten: usize,
+    pub events_rewritten: usize,
+    pub dynamic: bool,
+}
 #[derive(Clone, Debug, Serialize)]
 pub struct SourceInfo {
     pub kind: String,
@@ -514,5 +528,220 @@ pub(crate) fn plan_source_remove(
         call,
         bindings_removed: binding_indexes.len(),
         events_removed: event_indexes.len(),
+    })
+}
+
+/// Change the entity behind complete data-source sections, preserving their Composer ids,
+/// calls and dynamic EntityName feeds.
+pub(crate) fn plan_source_retarget(
+    solution: &Solution,
+    request: &SourceRetargetRequest,
+) -> Result<SourceRetargetPlan, AuthoringError> {
+    let loaded = load_existing(solution, &request.mashup)?;
+    let mut document = parse_loaded(&loaded)?;
+    let (model, _) = types::load_model(solution);
+    let platform = types::cached_platform(solution);
+    let from_entity = model
+        .entities
+        .iter()
+        .find(|entity| entity.name == request.from)
+        .ok_or_else(|| {
+            AuthoringError::Unknown(format!("no entity {} in the solution", request.from))
+        })?;
+    let to_entity = model
+        .entities
+        .iter()
+        .find(|entity| entity.name == request.to)
+        .ok_or_else(|| {
+            AuthoringError::Unknown(format!("no entity {} in the solution", request.to))
+        })?;
+    if from_entity.collection != to_entity.collection
+        || !matches!(
+            from_entity.collection.as_str(),
+            "Things" | "ThingTemplates" | "ThingShapes"
+        )
+    {
+        return Err(AuthoringError::Refused(format!(
+            "{} is in {}; {} is in {}; retarget needs matching Thing, ThingTemplate or ThingShape collections",
+            request.from, from_entity.collection, request.to, to_entity.collection
+        )));
+    }
+    let candidates: Vec<(String, String, bool)> = document.value()["Data"]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter_map(|(key, section)| {
+            let kind = section["EntityType"].as_str()?;
+            let allowed = match from_entity.collection.as_str() {
+                "Things" => kind == "Things",
+                "ThingTemplates" => matches!(kind, "ThingTemplates" | "DynamicThingTemplates"),
+                "ThingShapes" => kind == "DynamicThingShapes",
+                _ => false,
+            };
+            if allowed && section["EntityName"] == request.from {
+                Some((key.clone(), kind.to_string(), dynamic_section(section)))
+            } else {
+                None
+            }
+        })
+        .collect();
+    if candidates.is_empty() {
+        return Err(AuthoringError::Unknown(format!(
+            "{} has no data source for {}",
+            request.mashup, request.from
+        )));
+    }
+    let mut sections = Vec::new();
+    for (old, kind, _) in &candidates {
+        let new = format!("{kind}_{}", request.to);
+        if document.value()["Data"].get(&new).is_some() {
+            return Err(AuthoringError::Refused(format!(
+                "{new} already exists; merging data sources is out of scope"
+            )));
+        }
+        sections.push((old.clone(), new));
+    }
+    // Check every service and every value that this mashup supplies before changing any key.
+    for (old, _, _) in &candidates {
+        let section = &document.value()["Data"][old];
+        for call in section["Services"].as_array().into_iter().flatten() {
+            let service_name = call["Target"].as_str().unwrap_or("");
+            let service = catalog::lookup_service(
+                to_entity,
+                &model.entities,
+                platform.as_ref(),
+                service_name,
+            )
+            .service
+            .ok_or_else(|| {
+                AuthoringError::Refused(format!(
+                    "{} has no service {service_name}, which {} calls",
+                    request.to, request.mashup
+                ))
+            })?;
+            let mut used: Vec<String> = call["Parameters"]
+                .as_object()
+                .into_iter()
+                .flatten()
+                .map(|(name, _)| name.clone())
+                .collect();
+            for binding in document.value()["DataBindings"]
+                .as_array()
+                .into_iter()
+                .flatten()
+            {
+                if binding["TargetArea"] == "Data"
+                    && binding["TargetSection"] == *old
+                    && binding["TargetId"] == call["Name"]
+                {
+                    for map in binding["PropertyMaps"].as_array().into_iter().flatten() {
+                        if let Some(name) = map["TargetProperty"].as_str() {
+                            used.push(name.into());
+                        }
+                    }
+                }
+            }
+            for parameter in used {
+                let expected = service
+                    .parameters
+                    .iter()
+                    .find(|p| p.name == parameter)
+                    .ok_or_else(|| {
+                        AuthoringError::Refused(format!(
+                            "{}.{} is missing parameter {}",
+                            request.to, service_name, parameter
+                        ))
+                    })?;
+                for binding in document.value()["DataBindings"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                {
+                    if binding["TargetArea"] == "Data"
+                        && binding["TargetSection"] == *old
+                        && binding["TargetId"] == call["Name"]
+                    {
+                        for map in binding["PropertyMaps"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .filter(|map| map["TargetProperty"] == parameter)
+                        {
+                            if let Some(actual) = map["TargetPropertyBaseType"]
+                                .as_str()
+                                .filter(|x| !x.is_empty())
+                            {
+                                if actual != expected.value.base_type {
+                                    return Err(AuthoringError::Refused(format!(
+                                        "{}.{} parameter {} is {}, not {}",
+                                        request.to,
+                                        service_name,
+                                        parameter,
+                                        expected.value.base_type,
+                                        actual
+                                    )));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let mut bindings_rewritten = 0;
+    let mut events_rewritten = 0;
+    let changes: std::collections::BTreeMap<_, _> = sections.iter().cloned().collect();
+    for binding in document.bindings_mut() {
+        let mut changed = false;
+        for field in ["SourceSection", "TargetSection"] {
+            if binding["SourceArea"] == "Data" && field == "SourceSection"
+                || binding["TargetArea"] == "Data" && field == "TargetSection"
+            {
+                if let Some(next) = binding[field].as_str().and_then(|old| changes.get(old)) {
+                    binding[field] = Value::String(next.clone());
+                    changed = true;
+                }
+            }
+        }
+        if changed {
+            bindings_rewritten += 1;
+        }
+    }
+    for event in document.events_mut() {
+        let mut changed = false;
+        if event["EventHandlerArea"] == "Data" {
+            if let Some(next) = event["EventHandlerId"]
+                .as_str()
+                .and_then(|old| changes.get(old))
+            {
+                event["EventHandlerId"] = Value::String(next.clone());
+                changed = true;
+            }
+        }
+        if event["EventTriggerArea"] == "Data" {
+            if let Some(next) = event["EventTriggerSection"]
+                .as_str()
+                .and_then(|old| changes.get(old))
+            {
+                event["EventTriggerSection"] = Value::String(next.clone());
+                changed = true;
+            }
+        }
+        if changed {
+            events_rewritten += 1;
+        }
+    }
+    for (old, new) in &sections {
+        let mut section = document.data_mut().remove(old).expect("identified above");
+        section["DataName"] = Value::String(new.clone());
+        section["EntityName"] = Value::String(request.to.clone());
+        document.data_mut().insert(new.clone(), section);
+    }
+    Ok(SourceRetargetPlan {
+        edit: finish_edit(loaded, document, "mashup source retarget")?,
+        sections,
+        bindings_rewritten,
+        events_rewritten,
+        dynamic: candidates.iter().any(|(_, _, dynamic)| *dynamic),
     })
 }

@@ -65,6 +65,7 @@ impl MashupSource {
             MashupSourceCommand::Add(_) => "mashup source add",
             MashupSourceCommand::List(_) => "mashup source list",
             MashupSourceCommand::Remove(_) => "mashup source remove",
+            MashupSourceCommand::Retarget(_) => "mashup source retarget",
         }
     }
 }
@@ -73,6 +74,7 @@ pub(crate) enum MashupSourceCommand {
     Add(MashupSourceAdd),
     List(MashupSourceList),
     Remove(MashupSourceRemove),
+    Retarget(MashupSourceRetarget),
 }
 #[derive(Debug, clap::Args)]
 #[group(skip)]
@@ -113,6 +115,20 @@ pub(crate) struct MashupSourceList {
 pub(crate) struct MashupSourceRemove {
     #[arg(long = "cascade")]
     pub(crate) cascade: bool,
+    #[command(flatten)]
+    pub(crate) apply: Apply,
+    #[command(flatten)]
+    pub(crate) json: Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct MashupSourceRetarget {
+    #[arg(long = "from", value_name = "address")]
+    pub(crate) from: Option<String>,
+    #[arg(long = "to", value_name = "address")]
+    pub(crate) to: Option<String>,
     #[command(flatten)]
     pub(crate) apply: Apply,
     #[command(flatten)]
@@ -425,6 +441,8 @@ pub(crate) struct MashupNew {
     pub(crate) project: Project,
     #[arg(long = "template", value_name = "name")]
     pub(crate) template: Option<String>,
+    #[arg(long = "from", value_name = "address")]
+    pub(crate) from: Option<String>,
     #[arg(long = "layout", value_name = "layout")]
     pub(crate) layout: Option<String>,
     #[arg(long = "primary-menu", value_name = "address")]
@@ -459,6 +477,23 @@ pub(crate) fn mashup_new_cmd(solution: &Solution, args: &MashupNew) -> u8 {
         eprintln!("{} give --template or --layout, not both", style::prefix());
         return FAILED;
     }
+    if args.from.is_some() {
+        for (flag, present) in [
+            ("--template", args.template.is_some()),
+            ("--layout", args.layout.is_some()),
+            ("--master", args.master),
+            ("--param", !args.params.is_empty()),
+            ("--tab", !args.tabs.is_empty()),
+            ("--primary-menu", args.primary_menu.is_some()),
+            ("--secondary-menu", args.secondary_menu.is_some()),
+            ("--theme", args.theme.is_some()),
+        ] {
+            if present {
+                eprintln!("{} --from cannot be used with {flag}", style::prefix());
+                return FAILED;
+            }
+        }
+    }
     let template = args
         .template
         .as_ref()
@@ -478,6 +513,7 @@ pub(crate) fn mashup_new_cmd(solution: &Solution, args: &MashupNew) -> u8 {
             visibility: args.visibility.clone(),
             params: args.params.clone(),
             tabs: args.tabs.clone(),
+            from: args.from.clone(),
         },
         mode: if apply { Mode::Apply } else { Mode::Plan },
         lock_label: "mashup new",
@@ -1462,6 +1498,67 @@ pub(crate) fn mashup_source_add_cmd(solution: &Solution, args: &MashupSourceAdd)
             outcome.plan.call,
             outcome.plan.section
         );
+        if !outcome.applied {
+            println!("run again with --apply to write it");
+        }
+    }
+    OK
+}
+
+pub(crate) fn mashup_source_retarget_cmd(solution: &Solution, args: &MashupSourceRetarget) -> u8 {
+    let [mashup] = args.operands.as_slice() else {
+        eprintln!("{} mashup source retarget needs <mashup>", style::prefix());
+        return FAILED;
+    };
+    let (Some(from), Some(to)) = (&args.from, &args.to) else {
+        eprintln!(
+            "{} mashup source retarget needs --from <Entity> and --to <Entity>",
+            style::prefix()
+        );
+        return FAILED;
+    };
+    let request = commands::mashup::MashupSourceRetargetRequest {
+        request: mashup::authoring::SourceRetargetRequest {
+            mashup: mashup.clone(),
+            from: from.clone(),
+            to: to.clone(),
+        },
+        mode: if args.apply.apply {
+            Mode::Apply
+        } else {
+            Mode::Plan
+        },
+        lock_label: "mashup source retarget",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome = match commands::mashup::source_retarget(solution, &request, &mut notices) {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            print_notices(&notices);
+            eprintln!("{} {error}", style::prefix());
+            return FAILED;
+        }
+    };
+    print_notices(&notices);
+    let report = serde_json::json!({"applied":outcome.applied,"mashup":mashup,"from":from,"to":to,"sections":outcome.plan.sections.iter().map(|(from_key,to_key)| serde_json::json!({"from_key":from_key,"to_key":to_key})).collect::<Vec<_>>(),"bindings_rewritten":outcome.plan.bindings_rewritten,"events_rewritten":outcome.plan.events_rewritten,"files":edit_files(solution,&outcome.plan.edit)});
+    if args.json.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report).expect("a retarget plan serialises")
+        );
+    } else {
+        println!(
+            "{} {} source section(s)",
+            if outcome.applied {
+                "retargeted"
+            } else {
+                "would retarget"
+            },
+            outcome.plan.sections.len()
+        );
+        if outcome.plan.dynamic {
+            println!("  dynamic source: set its Thing with `twaco mashup param set {mashup} Manager --default <Thing>`");
+        }
         if !outcome.applied {
             println!("run again with --apply to write it");
         }

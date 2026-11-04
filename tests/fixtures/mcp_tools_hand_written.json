@@ -1744,6 +1744,10 @@
           "description": "An embedded layout template name or alias; default `blank`.",
           "type": "string"
         },
+        "from": {
+          "description": "A repository mashup to copy. It is exclusive with template, layout, menus, theme, master, params and tabs.",
+          "type": "string"
+        },
         "layout": {
           "description": "Compatibility alias for template.",
           "type": "string"

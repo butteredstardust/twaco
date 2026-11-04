@@ -1390,6 +1390,19 @@ pub(crate) struct MashupSourceAddResult {
     notices: Notices,
 }
 #[derive(Serialize, JsonSchema)]
+pub(crate) struct MashupSourceRetargetResult {
+    applied: bool,
+    dry_run: bool,
+    mashup: String,
+    from: String,
+    to: String,
+    sections: Vec<Value>,
+    bindings_rewritten: usize,
+    events_rewritten: usize,
+    files: Vec<String>,
+    notices: Notices,
+}
+#[derive(Serialize, JsonSchema)]
 pub(crate) struct MashupSourceListResult {
     mashup: String,
     sources: Vec<MashupSourceRow>,

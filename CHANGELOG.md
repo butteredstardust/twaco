@@ -8,6 +8,9 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- `twaco mashup new --from <mashup>` (MCP `mashup_new` `from`) copies a repository mashup's
+  authored design without bundling a kit, and `twaco mashup source retarget` (MCP
+  `mashup_source_retarget`) safely points its compatible data sources at another entity.
 - `twaco mashup source` (MCP `mashup_source_add`, `mashup_source_list`, and
   `mashup_source_remove`) authors explicit static and dynamic ThingWorx data sources.
 - `twaco mashup set` (MCP `mashup_set`) changes checked widget and root properties, including
