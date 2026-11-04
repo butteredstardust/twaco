@@ -20,6 +20,9 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Changed
 
+- `mashup bind` binds a scalar service result (`data:<Entity>.<Service>.result`), a STRING into
+  an entity-name property such as THINGNAME or MASHUPNAME, and one number type into another, as
+  Composer does.
 - Linux builds need glibc 2.39 or later (Ubuntu 24.04, Debian 13), from glibc 2.35 (Ubuntu
   22.04). The builds run on Ubuntu 24.04, because GitHub deprecates its Ubuntu 22.04 runner.
 
