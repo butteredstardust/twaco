@@ -17,6 +17,7 @@ use std::path::PathBuf;
 
 mod add;
 mod bind;
+mod collection;
 mod end;
 mod event;
 mod new;
@@ -34,6 +35,8 @@ pub(crate) use add::{
 pub use bind::BindRequest;
 use bind::{bind_in, data_call, existing_data_call};
 pub(crate) use bind::{plan_bind, BindPlan};
+pub use collection::{collection_add_plan_json, CollectionAddRequest};
+pub(crate) use collection::{plan_collection_add, CollectionAddPlan};
 use end::{
     allowed, area, base, details, menu_service, property, resolve_end, resolve_service,
     source_property_type, target_property_type, End,
@@ -41,7 +44,7 @@ use end::{
 pub(crate) use event::plan_event;
 pub use event::EventRequest;
 pub(crate) use new::{apply_new, parse_visibility, plan_new, NewPlan};
-pub use new::{new_plan_json, template_slots, NewRequest};
+pub use new::{copy_summary_lines, new_plan_json, template_slots, NewRequest};
 #[cfg(test)]
 pub(crate) use new::{validate_template, DEFAULT_THEME};
 use on::on_in;

@@ -327,6 +327,13 @@ impl MashupDocument {
         properties_mut(&mut self.value["UI"])
     }
 
+    /// The root widget's properties.
+    pub(crate) fn root_properties(&self) -> &Map<String, Value> {
+        self.value["UI"]["Properties"]
+            .as_object()
+            .expect("checked: UI.Properties is an object")
+    }
+
     /// Set a top-level key of the document, such as `mashupType`.
     pub(crate) fn set_top(&mut self, key: &str, value: Value) {
         insert_sorted(self.root_mut(), key, value);
@@ -701,7 +708,7 @@ pub(crate) fn new_widget(widget: &Widget, number: u64, alone: bool) -> Value {
     let mut properties: Map<String, Value> = widget.defaults.clone();
     let dropped = if widget.type_id == "flexcontainer" {
         Some(&catalog.dropped.flexcontainer)
-    } else if widget.has_contract() && !widget.function && !widget.extension {
+    } else if widget.has_contract() && !widget.function && !widget.extension && !widget.legacy {
         Some(&catalog.dropped.ptcs)
     } else {
         None

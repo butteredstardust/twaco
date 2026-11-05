@@ -6,6 +6,40 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `mashup source add --on-load` (MCP `mashup_source_add` `on_load`) creates a source call and its
+  `mashup:Loaded` event in one edit. Expression and validator inputs accept typed defaults as
+  `--input name:TYPE=default` (the MCP `inputs` field uses the same grammar).
+- `mashup collection add` (MCP `mashup_collection_add`) adds a collection that repeats a cell
+  mashup for every row of a service result: it maps row fields to the cell's parameters, checks
+  both, and binds the result in one edit.
+- `mashup validate` also reports what the `mashup bindings` gate finds in the mashup, and advises
+  when a number or date chart axis reads a STRING field: Runtime draws only values that read as
+  numbers or dates.
+- The bindings gate checks a chart's series fields (`DataField1` to `DataField<NumberOfSeries>`).
+- `mashup source retarget` refuses a swap whose new result lacks a field the mashup uses, or
+  gives it another base type; its plan carries the chart-axis advice as notes.
+- `deploy --only-projects` is not stopped by the projects it leaves out: their gate findings
+  are warnings, and a `depends_on` cycle among them no longer refuses the deploy.
+- An import the Importer refuses with HTTP 406 now says why, from what the server logged to
+  ApplicationLog at that moment (`entity push`, `deploy`, `import`).
+- `mashup new --from` prints a summary of the copy instead of every copied widget.
+- `mashup set --style-from <mashup>:<widget>` (MCP `style_from`) copies one widget's visual style,
+  its entry in the root's `StyleProperties`, from a reference mashup; setting the root's
+  `StyleTheme` now refuses a theme that is neither the default nor in the solution.
+- `mashup add shape`: the older Composer shape widget (status dots, badges, level fills), with
+  its contract read from the 10.2 installation as Composer writes it.
+
+### Fixed
+
+- `mashup bind` takes any scalar into an ANYSCALAR property, such as a value display's `Data`;
+  it refused a NUMBER.
+- `mashup remove` refused a widget whose `DisplayName` is its own id, such as a shape, as if
+  something else named it.
+- The widget catalogue generator read a function widget's contract up to the next widget in the
+  bundle, which could take in another widget's helper code; it now reads the widget's own body.
+
 ## [0.1.53] - 2026-11-04
 
 ### Added

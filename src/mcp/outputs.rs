@@ -1352,6 +1352,21 @@ pub(crate) struct MashupAddResult {
 }
 
 #[derive(Serialize, JsonSchema)]
+pub(crate) struct MashupCollectionAddResult {
+    applied: bool,
+    dry_run: bool,
+    mashup: String,
+    id: String,
+    cell: String,
+    mappings: Vec<Value>,
+    uid: Option<String>,
+    binding: String,
+    notes: Vec<String>,
+    files: Vec<String>,
+    notices: Notices,
+}
+
+#[derive(Serialize, JsonSchema)]
 pub(crate) struct MashupSetResult {
     applied: bool,
     dry_run: bool,
@@ -1360,6 +1375,8 @@ pub(crate) struct MashupSetResult {
     #[serde(rename = "type")]
     type_id: String,
     changed: Vec<Value>,
+    /// The source style entry and whether it existed, when style_from was supplied.
+    style_copy: Option<Value>,
     files: Vec<String>,
     notices: Notices,
 }
@@ -1386,6 +1403,7 @@ pub(crate) struct MashupSourceAddResult {
     mashup: String,
     section: String,
     call: String,
+    event: Option<String>,
     files: Vec<String>,
     notices: Notices,
 }
@@ -1399,6 +1417,7 @@ pub(crate) struct MashupSourceRetargetResult {
     sections: Vec<Value>,
     bindings_rewritten: usize,
     events_rewritten: usize,
+    notes: Vec<String>,
     files: Vec<String>,
     notices: Notices,
 }

@@ -338,7 +338,7 @@ A solution without `[lint]` keeps today's gates (`checks-v1`). To take up the fu
 | code order | a service's main code is below its helper functions |
 | project | the entity files disagree with themselves or each other: a file named for another entity, two files for one entity, a misfiled or project-less entity, a service declared without its implementation or the reverse, a mashup whose JSON does not parse, a folder under a project root holding entity documents in no collection folder, which deploy and bundle would leave out, or a model tag that is not `Vocabulary:Term` or names a term a fixed vocabulary of the solution lacks |
 | project dependencies | a Thing or ThingTemplate uses a ThingTemplate or ThingShape of another of the solution's projects (as its template, base template or an implemented shape) that its Project file's `dependsOn` does not name. The server adds that project to `dependsOn` when it imports the entity, so the Project reads back not kept; the finding gives the `<project>:<version>` entry to add |
-| mashup bindings | a repository-resolved mashup service, result field or parameter is not declared, or a grid shows a column (its `ColumnFormat`) for a field the result bound to its `Data` does not have; unresolved platform and inherited DataShape details are left unchecked |
+| mashup bindings | a repository-resolved mashup service, result field or parameter is not declared, or a grid, chart or field-setting property names a field the result bound to its `Data` does not have; unresolved platform and inherited DataShape details are left unchecked |
 | mashup content | what `twaco mashup validate` finds in a mashup's content: a binding to a property, event or service its widget or data source does not have, a binding in the wrong direction, mixed container layouts. Widgets outside the catalogue (extensions) are not judged |
 | contained mashups | a binding to a contained mashup's or navigation function's parameter that its copy of the parameters lacks (the value is dropped) or that the mashup it shows no longer declares; `twaco mashup param set <mashup> <parameter>` refreshes every copy; a stale copy nothing binds is only counted |
 | localization tokens | an entity names a `[[token]]` under one of the solution's token prefixes that no Default table file holds (the label would show the raw text), a language table holds a token Default lacks, a token is in one table twice, or a table file cannot be read. Tokens outside the prefixes are the platform's or an extension's and are not checked. Notes, which never fail it: per language table, the solution's tokens it lacks (they show the Default text), and Default tokens no entity names as `[[token]]` or as a bare name |
@@ -459,6 +459,16 @@ name. Without `--apply` it plans and stops. With it, it:
 
 With `--only`, the project's deploy service still runs, but its `post_import` calls are
 skipped: they are written for a whole project's import.
+
+With `--only-projects`, what is wrong in the other projects does not stop the deploy. A gate's
+finding in a file of a project the deploy leaves out (its entity file, or its sidecar folder
+under `src/`) is shown as a warning. A finding twaco cannot place in one project, such as one in
+`twaco.toml`, still blocks, and so does a gate that could not run. Projects the deploy leaves out
+are taken to be on the server already, so a `depends_on` cycle among them does not stop it.
+
+When the Importer refuses an entity, it answers only HTTP 406. twaco then reads the server's
+ApplicationLog for that moment and adds the reason it logged, such as a Thing whose template
+does not exist. When the log says nothing, or twaco may not read it, the error is the 406 alone.
 
 The localization tables are shared by every project, so a deploy of some projects or entities
 (`--only`, `--only-projects`) or of the backend only leaves them to `twaco localization push`.
@@ -1058,8 +1068,14 @@ twaco mashup param set Acme.App.Orders_MU Manager --default Acme.App.Orders.Mana
 ```
 
 The copy preserves layout, styles, CSS, parameters, data sources and wiring; only the mashup's
-identity changes. Retarget refuses incompatible collections, missing service contracts and an
-existing target section rather than merging it.
+identity changes. Retarget refuses incompatible collections, missing service contracts, consumed
+result fields that are missing or change type, and an existing target section rather than merging
+it. Its plan notes when a number or date chart axis receives a STRING field: Runtime can draw it
+only when its values read as numbers or dates.
+
+The text plan for a copy is a short summary: the new mashup and its source, counts for widgets,
+data calls, bindings, events and parameters, and the files it would write. `--json` keeps the
+complete copy plan.
 
 ### Contained mashups and parameters
 
@@ -1101,6 +1117,11 @@ when alone in its container. `--label` selects the first available LabelText, La
 property; `--prop Name=value` changes a catalogue property with its expected type. Structured
 properties take JSON, including a grid's column format:
 
+The catalogue also has the older Composer `shape`: a rectangle, rounded rectangle, circle or
+ellipse (`ShapeType`) for status dots, badges and backgrounds. Its `Data` takes any scalar and its
+`ShapeFormatter` colours it by state; `EnableDynamicFill` with `DynamicRangeMinimum` and
+`DynamicRangeMaximum` fills it like a level gauge. It raises `Clicked` and `DoubleClicked`.
+
 ```sh
 twaco mashup add Acme.App.Orders_MU grid --prop 'ColumnFormat={"formatInfo":[]}' --apply
 ```
@@ -1121,6 +1142,19 @@ opens in) and any scalar property it already has; a parameter's default goes thr
 has, though the catalogue lists no default for them. Setting a container's `flex-size` also sets
 the palette icon Composer saves with it. In a managed mashup, CustomMashupCss writes `mashup/custom.css`, not a
 content.json key; sync then fills the XML copy.
+
+`--style-from <mashup>:<widget>` copies the look of a widget in another mashup, such as a page of
+a design kit, to this one. Composer keeps each widget's visual style on the mashup root, in
+`StyleProperties.data` under the widget's id; the copy replaces only this widget's entry and keeps
+the others. Both widgets must be of one type. A reference widget with no style entry is reported,
+and nothing is written. `--prop` is optional with it, and the two go in one edit:
+
+```sh
+twaco mashup set Acme.App.Orders_MU ptcslabel-3 --style-from Acme.Kit.Page_MU:ptcslabel-12 --apply
+```
+
+Setting the root's `StyleTheme` takes 10.2's default theme or a StyleTheme in the solution, as
+`mashup new --theme` does.
 Managed mashups update `content.json` and the entity in one transaction; unmanaged mashups update
 only their entity file. If sidecars and entity content disagree, resolve it first with `sync` or
 `extract`.
@@ -1144,17 +1178,32 @@ widget also gets `UseTheme`, as Composer gives it. The cache holds what the serv
 profile last given to `types --platform` had installed; run it again against the server the
 mashup is for.
 
+### Collections
+
+Use a collection to render a cell mashup for every row of an existing service result. The cell
+mashup declares the parameters it receives. The source call must already be in the parent mashup.
+
+```sh
+twaco mashup collection add Acme.App.Orders_MU Acme.App.OrderCell_MU \
+  --data data:Acme.App.Orders.Manager.GetOrders --map Name=Title,Status=Status --uid Id --apply
+```
+
+The command adds the collection, records the field-to-parameter mapping as an object, and binds
+the result to `Data` in one edit. It reports when nothing invokes the source call. See
+[Collections: the serialized contract](MASHUP_COLLECTIONS.md) for the stored properties and
+runtime behaviour.
+
 ### Data sources
 
 ```sh
-twaco mashup source add Acme.App.Orders_MU Acme.App.Orders.Manager GetOrders --apply
+twaco mashup source add Acme.App.Orders_MU Acme.App.Orders.Manager GetOrders --on-load --apply
 twaco mashup param add Acme.App.Orders_MU Manager --type THINGNAME --default Acme.App.Orders.Manager --apply
 twaco mashup source add Acme.App.Orders_MU Acme.App.Orders_TS GetOrders --entity-from mashup:Manager --apply
 twaco mashup source list Acme.App.Orders_MU
 ```
 
 A mashup calls a service through a data source. A Thing's call runs on that Thing; so does a
-ThingTemplate's (template services such as `GetImplementingThings`). A ThingShape's call, and a
+ThingTemplate's own or inherited service that twaco can resolve. A ThingShape's call, and a
 ThingTemplate's with `--dynamic`, is dynamic: it runs on the Thing that a binding to
 `data:<Entity>[EntityName]` names, usually a `THINGNAME` mashup parameter such as `Manager`.
 `--entity-from` writes that binding in the same edit; twaco never creates the parameter for you.
@@ -1165,15 +1214,18 @@ creates a missing Thing call by itself; template and shape calls need `source ad
 
 `--as <new>` names a second call of the same service. `--every <seconds>` polls the call;
 `--cache` writes ThingWorx's call caching, keyed on declared service parameters
-(`--cache-key`). `mashup source list` shows each call and what sets its entity (`fixed` for a
+(`--cache-key`). `--on-load` also creates the call's `mashup:Loaded` event in the same edit.
+`mashup source list` shows each call and what sets its entity (`fixed` for a
 static one, `UNBOUND` when nothing does); `mashup source remove <mashup> <address> --cascade`
 also removes the bindings and events proven to name the call, and the entity binding with the
 section's last call.
 
 `mashup source retarget <mashup> --from <Entity> --to <Entity>` changes every matching source
 section in one edit, rewrites its data bindings and events, and preserves dynamic `EntityName`
-bindings. It refuses a target that lacks a called service or a used parameter of the same base
-type.
+bindings. It refuses a target that lacks a called service, a used parameter of the same base type,
+or a consumed result field (numeric result types are interchangeable). When a retarget leaves a
+number or date chart axis on a STRING field, the plan gives the `mashup set` command that changes
+it to a label axis.
 
 ### Binding
 
@@ -1243,7 +1295,7 @@ reacted to the same way; an IN parameter cannot.
 ### Function widgets
 
 ```sh
-twaco mashup add Acme.App.Orders_MU expression --input note:STRING --prop "Expression=Output = note === '';" --prop OutputBaseType=BOOLEAN --apply
+twaco mashup add Acme.App.Orders_MU expression --input note:STRING --input minimum:NUMBER=1 --prop "Expression=Output = note === '';" --prop OutputBaseType=BOOLEAN --apply
 twaco mashup bind Acme.App.Orders_MU --from ui:ptcstextfield-3.Text --to ui:expression2-7.note --apply
 twaco mashup bind Acme.App.Orders_MU --from ui:expression2-7.Output --to ui:ptcsbutton-6.Disabled --apply
 twaco mashup on Acme.App.Orders_MU --event ui:ptcstextfield-3.Changed --invoke ui:expression2-7.Evaluate --apply
@@ -1252,7 +1304,9 @@ twaco mashup on Acme.App.Orders_MU --event ui:ptcstextfield-3.Changed --invoke u
 Expressions, validators, events routers, navigation functions, status messages and auto-refresh
 draw nothing: `mashup add` puts them beside the layout, under the mashup itself, and refuses a place
 in it. An expression's or validator's inputs are declared with `--input name:TYPE` and become its
-bindable targets; an expression's `Output` has the base type its `OutputBaseType` says. An events
+bindable targets. `--input name:TYPE=default` writes a typed default; BOOLEAN, NUMBER, INTEGER,
+LONG and JSON defaults use their matching JSON values, while STRING stays text. An expression's
+`Output` has the base type its `OutputBaseType` says. An events
 router's inputs are `Input1` to `Input<NumberOfInputs>`, of its `DataType`. A navigation function's
 bindable properties include the parameters of the mashup it opens. The legacy `expression` and
 `validator` stay readable in existing mashups; adding either adds `expression2` or `validator2`.
@@ -1295,10 +1349,12 @@ what the next edit would trip over: content that is not a mashup twaco can edit,
 both containers and widgets, bindings and events naming a widget, data source or call the mashup no
 longer has (Composer leaves these behind when a call is removed), a binding against a catalogue
 widget's contract (the wrong direction, a property it lacks, such as a misspelt expression input),
-an event or service a widget lacks, a binding with several property maps, and the contained-mashup
-drift `twaco check` also reports. What it cannot judge, extension and legacy widgets, properties and
-events a widget makes per configured action, a collection's cell parameters, it leaves alone. It
-exits 1 when it finds anything.
+an event or service a widget lacks, a binding with several property maps, the bound service's
+declared fields, and the contained-mashup drift `twaco check` also reports. It also advises when a
+number or date chart axis is configured on a STRING field: the chart renders only values that read
+as numbers or dates, so set the axis to `label` when that is not the data contract. What it cannot
+judge, extension and legacy widgets, properties and events a widget makes per configured action, a
+collection's cell parameters, it leaves alone. It exits 1 when it finds anything.
 
 ### Finding widgets
 

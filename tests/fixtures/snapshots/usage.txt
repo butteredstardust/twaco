@@ -169,7 +169,7 @@ usage: twaco <command>
                               content; ignores Composer-generated identifiers; exits 1 when the selected tier differs
       --tier <tier>           executable, layout, visual or all (default all)
   mashup add <mashup> <widget> [--in <container> | --right-of <widget> | --left-of <widget> | --above <widget> | --below <widget>]
-      [--label <text>] [--prop <name=value>]... [--input <name:TYPE>]... [--apply] [--json]
+      [--label <text>] [--prop <name=value>]... [--input <name:TYPE[=default]>]... [--apply] [--json]
                               add a catalogue widget, or one an [[extension]] project defines, to a
                               mashup; plan unless --apply; a function widget (expression, validator,
                               navigation...) goes beside the layout
@@ -179,12 +179,28 @@ usage: twaco <command>
       --label <text>          set the widget's LabelText, Label, Text or Title property
       --prop <name=value>     set one simple default property, repeatable; an extension widget's
                               property with no default takes JSON
-      --input <name:TYPE>     an expression's or validator's input, repeatable
-  mashup set <mashup> <widget> --prop <name=value>... [--apply] [--json]
+      --input <name:TYPE[=default]>
+                              an expression's or validator's input, with a typed default; repeatable
+  mashup collection add <parent> <cell-mashup> --data <address> --map <value>
+      [--uid <row-field>] [--width <px>] [--height <px>]
+      [--in <container> | --right-of <widget> | --left-of <widget> | --above <widget> | --below <widget>] [--apply] [--json]
+                              add a collection that renders a cell mashup once per service-result row; plan unless --apply
+      --data <address>        an existing whole service result from mashup source add
+      --map <value>           map result fields to cell mashup parameters as row-field=cell-parameter,
+                              separated by commas
+      --uid <row-field>       the row field that identifies each cell
+      --width/--height <px>   positive cell dimensions in pixels
+      --in <container>        add inside a responsive container (center when omitted)
+      --right-of/--left-of/--above/--below <widget>
+                              place beside an existing widget
+  mashup set <mashup> <widget> --prop <name=value>... [--style-from <mashup:widget>] [--apply] [--json]
                               set checked properties on one exact widget; structured properties take JSON;
                               plan unless --apply
       --prop <name=value>     set one property, repeatable; objects and arrays are JSON
-  mashup source add <mashup> <entity> <service> [--dynamic] [--as <new>] [--entity-from <address>]
+      --style-from <mashup:widget>
+                              copy that widget's visual style (its entry in the root's StyleProperties);
+                              with it, --prop is optional
+  mashup source add <mashup> <entity> <service> [--dynamic] [--on-load] [--as <new>] [--entity-from <address>]
       [--every <seconds>] [--cache [--cache-key <parameter>]...]
       [--cache-strategy <INSTANCE|SESSION|USER>] [--max-result-sets <n>] [--apply] [--json]
                               call a Thing's, ThingTemplate's or ThingShape's service from a mashup;
@@ -192,6 +208,7 @@ usage: twaco <command>
                               names; plan unless --apply
       --dynamic               a ThingTemplate's call runs on a Thing bound to EntityName, not on
                               the template
+      --on-load               invoke the call when the mashup finishes loading
       --as <new>              name the call (the service name, then _2, ... by default)
       --entity-from <address> bind a dynamic source EntityName from a THINGNAME or STRING source
       --every <seconds>       run the call again at this interval

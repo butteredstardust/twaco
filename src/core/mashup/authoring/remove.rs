@@ -470,6 +470,14 @@ fn unknown_references(root: &Value, ids: &BTreeSet<String>) -> Vec<String> {
 }
 
 fn scan_ui(value: &Value, ids: &BTreeSet<String>, path: &str, found: &mut Vec<String>) {
+    // What a removed widget holds goes with it. A shape's DisplayName is its Id (shape-8), which
+    // would otherwise read as a reference to itself.
+    if value["Properties"]["Id"]
+        .as_str()
+        .is_some_and(|id| ids.contains(id))
+    {
+        return;
+    }
     if let Some(properties) = value.get("Properties").and_then(Value::as_object) {
         for (key, value) in properties {
             if key != "Id" {

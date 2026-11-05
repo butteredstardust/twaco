@@ -46,6 +46,10 @@ pub struct NewRequest {
 #[derive(Debug)]
 pub struct NewPlan {
     pub name: String,
+    /// The copied mashup, if this plan came from `--from`.
+    pub from: Option<String>,
+    /// Counts for the concise text report of a copied mashup.
+    pub copy_summary: Option<CopySummary>,
     pub project: String,
     pub template: mashup::templates::LayoutTemplate,
     pub master: bool,
@@ -62,6 +66,15 @@ pub struct NewPlan {
     pub menus: Vec<(String, String)>,
     /// Each tab's label and the mashup it shows, for a template with a tab set.
     pub tabs: Vec<(String, Option<String>)>,
+}
+
+#[derive(Debug)]
+pub struct CopySummary {
+    pub widgets: usize,
+    pub data_calls: usize,
+    pub bindings: usize,
+    pub events: usize,
+    pub parameters: usize,
 }
 
 /// `Organization/<name>` or `OrganizationalUnit/<organization>:<unit>`.
@@ -149,21 +162,10 @@ pub(crate) fn plan_new(
             solution.relative(&existing.path)
         )));
     }
-    let theme = match &request.theme {
-        None => DEFAULT_THEME.to_string(),
-        Some(theme) if theme == DEFAULT_THEME => theme.clone(),
-        Some(theme) => {
-            if !entities
-                .iter()
-                .any(|e| e.info.collection == "StyleThemes" && &e.info.name == theme)
-            {
-                return Err(AuthoringError::Unknown(format!(
-                    "no StyleTheme {theme} in the solution; twaco does not create one (the default is {DEFAULT_THEME})"
-                )));
-            }
-            theme.clone()
-        }
-    };
+    let theme = request.theme.as_deref().map_or_else(
+        || Ok(DEFAULT_THEME.to_string()),
+        |theme| validate_theme(solution, theme),
+    )?;
     let visibility = request
         .visibility
         .iter()
@@ -286,6 +288,8 @@ pub(crate) fn plan_new(
     }
     Ok(NewPlan {
         name: request.name.clone(),
+        from: None,
+        copy_summary: None,
         project: project.name.clone(),
         template,
         master: request.master,
@@ -300,6 +304,21 @@ pub(crate) fn plan_new(
         menus,
         tabs,
     })
+}
+
+/// Refuse themes Composer cannot resolve without creating an entity.
+pub(crate) fn validate_theme(solution: &Solution, theme: &str) -> Result<String, AuthoringError> {
+    if theme == DEFAULT_THEME
+        || workspace::entities(solution)
+            .iter()
+            .any(|entity| entity.info.collection == "StyleThemes" && entity.info.name == theme)
+    {
+        Ok(theme.to_string())
+    } else {
+        Err(AuthoringError::Unknown(format!(
+            "no StyleTheme {theme} in the solution; twaco does not create one (the default is {DEFAULT_THEME})"
+        )))
+    }
 }
 
 /// Copy an authored mashup without ever rebuilding its entity XML.  Only identity and the
@@ -404,8 +423,25 @@ fn plan_copy(solution: &Solution, request: &NewRequest) -> Result<NewPlan, Autho
             "{from}: copying its identity changed mashup content; twaco will not re-serialise it"
         )));
     }
+    let content = document.value();
+    let copy_summary = CopySummary {
+        widgets: document.widgets().len().saturating_sub(1),
+        data_calls: content["Data"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .map(|(_, section)| section["Services"].as_array().map_or(0, Vec::len))
+            .sum(),
+        bindings: content["DataBindings"].as_array().map_or(0, Vec::len),
+        events: content["Events"].as_array().map_or(0, Vec::len),
+        parameters: crate::core::mashup::describe::mashup_parameters(&entity)
+            .map_err(AuthoringError::Unreadable)?
+            .len(),
+    };
     Ok(NewPlan {
         name: request.name.clone(),
+        from: Some(from.to_string()),
+        copy_summary: Some(copy_summary),
         project: project.name.clone(),
         template: mashup::templates::layout("blank")
             .expect("valid blank template")
@@ -791,6 +827,33 @@ pub fn new_plan_json(solution: &Solution, plan: &NewPlan, applied: bool) -> Valu
             "property": property,
         })).collect::<Vec<_>>(),
     })
+}
+
+/// The concise text report for `mashup new --from`; JSON keeps the complete plan instead.
+pub fn copy_summary_lines(solution: &Solution, plan: &NewPlan, applied: bool) -> Vec<String> {
+    let source = plan
+        .from
+        .as_deref()
+        .expect("only copied mashups have a copy summary");
+    let summary = plan
+        .copy_summary
+        .as_ref()
+        .expect("only copied mashups have a copy summary");
+    let mut lines = vec![format!(
+        "{} mashup {} from {source}",
+        if applied { "created" } else { "would create" },
+        plan.name
+    )];
+    lines.push(format!(
+        "  widgets: {}; data calls: {}; bindings: {}; events: {}; parameters: {}",
+        summary.widgets, summary.data_calls, summary.bindings, summary.events, summary.parameters
+    ));
+    lines.extend(
+        [&plan.entity_path, &plan.content_path, &plan.css_path]
+            .into_iter()
+            .map(|path| format!("  {}", solution.relative(path))),
+    );
+    lines
 }
 
 /// Slot names in the order a person sees them in the generated document.

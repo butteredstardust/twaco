@@ -7,6 +7,8 @@
 // Function widgets (expressions, validators, navigation...) are older Composer widgets: their
 // properties, events and services come from Common/mashup-common-widgets-builder.js, or from the
 // overlay's `contract` for one whose definition is built at run time (the events router).
+// An older layout widget the overlay marks `builder` (the shape) also takes its contract from
+// the builder file.
 
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -78,17 +80,20 @@ for (const match of sharedText.matchAll(/widgetWrapper\.config\("([a-z0-9]+)",\{
 function builderContract(type) {
   const start = builderText.indexOf(`TW.IDE.Widgets.${type}=`);
   if (start < 0) throw new Error(`the builder does not define ${type}`);
-  const next = builderText.indexOf("TW.IDE.Widgets.", start + type.length + 16);
-  const body = builderText.slice(start, next > 0 ? next : undefined);
+  // The constructor's own body, braces balanced: whatever the bundle puts between it and the
+  // next widget (a helper of another widget, say) is not this widget's.
+  const body = objectAt(builderText, builderText.indexOf("{", start));
   const part = (name) => {
     const at = body.indexOf(`this.${name}=function(){return{`);
     if (at < 0) return {};
     return evaluate(objectAt(body, body.indexOf("{", body.indexOf("return", at))));
   };
+  const widgetProperties = part("widgetProperties");
   return {
-    properties: part("widgetProperties").properties ?? {},
+    properties: widgetProperties.properties ?? {},
     events: part("widgetEvents"),
     services: part("widgetServices"),
+    flags: { supportsAutoResize: widgetProperties.supportsAutoResize },
   };
 }
 
@@ -151,11 +156,15 @@ for (const [type, extra] of Object.entries(overlay.widgets)) {
     auto_resize: extra.auto_resize === true,
     defaults,
   };
+  if (extra.builder === true) entry.legacy = true;
   if (extra.function === true) {
     entry.function = true;
     if (extra.replaced_by) entry.replaced_by = extra.replaced_by;
   }
-  const contract = contracts[type] ?? (extra.function === true ? extra.contract ?? builderContract(type) : undefined);
+  // A function widget, or an older layout widget the overlay marks `builder` (the shape), has its
+  // contract in the builder file rather than in the shared one.
+  const fromBuilder = extra.function === true || extra.builder === true;
+  const contract = contracts[type] ?? (fromBuilder ? extra.contract ?? builderContract(type) : undefined);
   if (contract) {
     const properties = {};
     for (const [name, definition] of Object.entries(contract.properties ?? {})) {

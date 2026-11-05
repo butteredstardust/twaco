@@ -65,7 +65,18 @@ pub(crate) fn run_in(
     discovery: &workspace::Discovery,
     model: &Model,
 ) -> Report {
-    analyse_in(solution, discovery, model).0
+    let platform = types::cached_platform(solution);
+    run_in_with_platform(solution, discovery, model, platform.as_ref())
+}
+
+/// [`run_in`] with the cached platform already loaded by a caller that also needs the resolver.
+pub(crate) fn run_in_with_platform(
+    solution: &Solution,
+    discovery: &workspace::Discovery,
+    model: &Model,
+    platform: Option<&types::Platform>,
+) -> Report {
+    analyse_in(solution, discovery, model, platform).0
 }
 
 pub(crate) fn unused_fields(solution: &Solution) -> FieldsReport {
@@ -80,7 +91,8 @@ pub(crate) fn unused_fields_in(
     discovery: &workspace::Discovery,
     model: &Model,
 ) -> FieldsReport {
-    let (_, usage) = analyse_in(solution, discovery, model);
+    let platform = types::cached_platform(solution);
+    let (_, usage) = analyse_in(solution, discovery, model, platform.as_ref());
     // A field a mashup names anywhere counts as used: a grid's column settings, an expression, a
     // binding from another service. Scripts do not count: the service that fills a field always
     // names it, so every field would look used.
@@ -143,10 +155,10 @@ fn analyse_in(
     solution: &Solution,
     discovery: &workspace::Discovery,
     model: &Model,
+    platform: Option<&types::Platform>,
 ) -> (Report, FieldUsage) {
-    let platform = types::cached_platform(solution);
     let cache_missing = platform.is_none();
-    let resolver = Resolver::new(model, platform.as_ref());
+    let resolver = Resolver::new(model, platform);
     let model = &resolver;
     let mut report = Report {
         problems: Vec::new(),
@@ -327,40 +339,14 @@ fn analyse_in(
         // The fields a widget names of the whole result it is bound to: a grid's columns, a
         // dropdown's display and value, a chart's axis. Each must be a field of that result.
         let columns = named_fields(&content);
-        for binding in content
-            .get("DataBindings")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-        {
-            let text = |key: &str| binding.get(key).and_then(Value::as_str);
-            let (Some("Data"), Some("UI"), Some(section), Some(instance), Some(widget)) = (
-                text("SourceArea"),
-                text("TargetArea"),
-                text("SourceSection"),
-                text("SourceId"),
-                text("TargetId"),
-            ) else {
+        for binding in whole_data_bindings(&content) {
+            let Some(fields) = columns.get(&binding.widget) else {
                 continue;
             };
-            let Some(fields) = columns.get(widget) else {
+            let Some((section, service)) = service_at(&sections, &binding.section, &binding.call)
+            else {
                 continue;
             };
-            let whole = binding
-                .get("PropertyMaps")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-                .any(|map| {
-                    map.get("TargetProperty").and_then(Value::as_str) == Some("Data")
-                        && map.get("SourcePropertyType").and_then(Value::as_str) != Some("Field")
-                });
-            let Some((section, service)) = service_at(&sections, section, instance) else {
-                continue;
-            };
-            if !whole {
-                continue;
-            }
             let lookup = model.service(section, &service.target);
             let site = Site {
                 file: &relative,
@@ -373,7 +359,7 @@ fn analyse_in(
                     &mut report,
                     &mut usage,
                     &site,
-                    (widget, property),
+                    (&binding.widget, property),
                     field,
                     &lookup,
                     model,
@@ -394,7 +380,7 @@ const DATA_FIELD_PROPERTIES: [&str; 4] = ["DisplayField", "ValueField", "XAxisFi
 
 /// The field names each widget's properties hold, by widget id, as `(property, field)`: a
 /// grid's `ColumnFormat` columns, and the `FIELDNAME` properties naming a field of its `Data`.
-fn named_fields(content: &Value) -> BTreeMap<String, Vec<(String, String)>> {
+pub(crate) fn named_fields(content: &Value) -> BTreeMap<String, Vec<(String, String)>> {
     fn walk(widget: &Value, out: &mut BTreeMap<String, Vec<(String, String)>>) {
         let properties = &widget["Properties"];
         if let Some(id) = properties["Id"].as_str() {
@@ -421,6 +407,55 @@ fn named_fields(content: &Value) -> BTreeMap<String, Vec<(String, String)>> {
                     }
                 }
             }
+            // PTCS charts take DataField1 through DataFieldN from their one Data binding. These
+            // are generated properties rather than catalogue properties, so the FIELDNAME test
+            // above cannot see them. MultipleDataSources instead takes DataSourceN bindings.
+            let series_chart = matches!(
+                properties["Type"].as_str(),
+                Some(
+                    "ptcschartbar"
+                        | "ptcschartcombo"
+                        | "ptcschartline"
+                        | "ptcschartpareto"
+                        | "ptcschartwaterfall"
+                )
+            );
+            if series_chart && properties["MultipleDataSources"].as_bool() != Some(true) {
+                let count = properties["NumberOfSeries"]
+                    .as_u64()
+                    .or_else(|| {
+                        properties["NumberOfSeries"]
+                            .as_str()
+                            .and_then(|value| value.trim().parse().ok())
+                    })
+                    .or_else(|| {
+                        contract.and_then(|widget| {
+                            widget.defaults.get("NumberOfSeries")?.as_u64().or_else(|| {
+                                widget
+                                    .defaults
+                                    .get("NumberOfSeries")?
+                                    .as_str()
+                                    .and_then(|value| value.trim().parse().ok())
+                            })
+                        })
+                    })
+                    .unwrap_or(0);
+                // The series the widget holds, not 1..=count: a count is only a number in the
+                // content, and a huge one must not cost a loop that long.
+                let mut series: Vec<(u64, String, String)> = properties
+                    .as_object()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|(name, value)| {
+                        let number: u64 = name.strip_prefix("DataField")?.parse().ok()?;
+                        let field = value.as_str().filter(|field| !field.is_empty())?;
+                        ((1..=count).contains(&number))
+                            .then(|| (number, name.clone(), field.to_string()))
+                    })
+                    .collect();
+                series.sort();
+                fields.extend(series.into_iter().map(|(_, name, field)| (name, field)));
+            }
             if !fields.is_empty() {
                 out.insert(id.to_string(), fields);
             }
@@ -432,6 +467,144 @@ fn named_fields(content: &Value) -> BTreeMap<String, Vec<(String, String)>> {
     let mut out = BTreeMap::new();
     walk(&content["UI"], &mut out);
     out
+}
+
+/// A widget's `Data` binding that carries an entire service result rather than one field.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct WholeDataBinding {
+    pub(crate) widget: String,
+    pub(crate) section: String,
+    pub(crate) call: String,
+}
+
+/// Whole-result data bindings, shared by result-field checks and mashup authoring safeguards.
+pub(crate) fn whole_data_bindings(content: &Value) -> Vec<WholeDataBinding> {
+    content["DataBindings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|binding| {
+            let text = |key: &str| binding[key].as_str().filter(|value| !value.is_empty());
+            let (Some("Data"), Some("UI"), Some(section), Some(call), Some(widget)) = (
+                text("SourceArea"),
+                text("TargetArea"),
+                text("SourceSection"),
+                text("SourceId"),
+                text("TargetId"),
+            ) else {
+                return None;
+            };
+            let whole = binding["PropertyMaps"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .any(|map| {
+                    map["TargetProperty"].as_str() == Some("Data")
+                        && map["SourcePropertyType"].as_str() != Some("Field")
+                });
+            whole.then(|| WholeDataBinding {
+                widget: widget.to_string(),
+                section: section.to_string(),
+                call: call.to_string(),
+            })
+        })
+        .collect()
+}
+
+/// One place a service result field is consumed. `widget` and `property` are present for fields
+/// a widget configures against its whole `Data`; a direct binding is described as `binding`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ResultFieldUser {
+    pub(crate) field: String,
+    pub(crate) user: String,
+    pub(crate) widget: Option<String>,
+    pub(crate) property: Option<String>,
+}
+
+/// Result fields a particular data call feeds, using the same whole-result and named-field rules
+/// as the bindings gate.
+pub(crate) fn result_field_users(
+    content: &Value,
+    section: &str,
+    call: &str,
+) -> Vec<ResultFieldUser> {
+    let mut users = Vec::new();
+    for binding in content["DataBindings"].as_array().into_iter().flatten() {
+        if binding["SourceArea"] != "Data"
+            || binding["SourceSection"] != section
+            || binding["SourceId"] != call
+        {
+            continue;
+        }
+        let name = binding["Id"].as_str().unwrap_or("a binding");
+        for map in binding["PropertyMaps"].as_array().into_iter().flatten() {
+            if map["SourcePropertyType"].as_str() == Some("Field") {
+                if let Some(field) = map["SourceProperty"]
+                    .as_str()
+                    .filter(|field| !field.is_empty())
+                {
+                    users.push(ResultFieldUser {
+                        field: head(field).to_string(),
+                        user: format!("binding {name}"),
+                        widget: None,
+                        property: None,
+                    });
+                }
+            }
+        }
+    }
+    let fields = named_fields(content);
+    for binding in whole_data_bindings(content)
+        .into_iter()
+        .filter(|binding| binding.section == section && binding.call == call)
+    {
+        for (property, field) in fields.get(&binding.widget).into_iter().flatten() {
+            users.push(ResultFieldUser {
+                field: field.clone(),
+                user: format!("{}.{}", binding.widget, property),
+                widget: Some(binding.widget.clone()),
+                property: Some(property.clone()),
+            });
+        }
+    }
+    users
+}
+
+/// The configured (or Composer-default) chart axis kind for a named field property. `number`
+/// and `date` make STRING fields value-dependent; `label` is always safe.
+pub(crate) fn chart_axis_type(
+    content: &Value,
+    widget_id: &str,
+    property: &str,
+) -> Option<(String, String)> {
+    fn walk<'a>(widget: &'a Value, id: &str) -> Option<&'a Value> {
+        if widget["Properties"]["Id"].as_str() == Some(id) {
+            return Some(widget);
+        }
+        widget["Widgets"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find_map(|child| walk(child, id))
+    }
+    let widget = walk(&content["UI"], widget_id)?;
+    let properties = &widget["Properties"];
+    let type_id = properties["Type"].as_str()?;
+    let setting = match (type_id, property) {
+        ("ptcschartline" | "ptcschartcombo", "XAxisField") => "XAxisType",
+        ("ptcschartpie", "DataField") => "DataFieldType",
+        _ => return None,
+    };
+    let value = properties[setting]
+        .as_str()
+        .map(str::to_string)
+        .or_else(|| {
+            super::widgets::catalog()
+                .by_type(type_id)
+                .and_then(|widget| widget.defaults.get(setting).and_then(Value::as_str))
+                .map(str::to_string)
+        })?;
+    Some((setting.to_string(), value.to_ascii_lowercase()))
 }
 
 fn check_column(
@@ -559,7 +732,7 @@ fn collection(kind: &str) -> Option<&'static str> {
     }
 }
 
-fn service_at<'a>(
+pub(crate) fn service_at<'a>(
     sections: &'a BTreeMap<String, Section>,
     section: &str,
     instance: &str,
@@ -628,7 +801,7 @@ impl<'a> Resolver<'a> {
     }
 
     /// A DataShape whose fields are all in the repository: present, and not derived.
-    fn checkable_shape(&self, name: &str) -> Option<&'a DataShape> {
+    pub(crate) fn checkable_shape(&self, name: &str) -> Option<&'a DataShape> {
         self.shapes
             .get(name)
             .copied()
@@ -818,6 +991,32 @@ mod tests {
             })
             .collect();
         assert_eq!(found, [("unknown-column", true)]);
+    }
+
+    #[test]
+    fn a_huge_series_count_reads_only_the_series_a_chart_holds() {
+        let content = serde_json::json!({"UI": {"Properties": {"Id": "mashup-root"}, "Widgets": [
+            {"Properties": {"Id": "ptcschartline-3", "Type": "ptcschartline",
+                "NumberOfSeries": u64::MAX, "DataField1": "a", "DataField12": "b"}, "Widgets": []}
+        ]}});
+        let fields = named_fields(&content);
+        assert_eq!(
+            fields["ptcschartline-3"],
+            [
+                ("DataField1".to_string(), "a".to_string()),
+                ("DataField12".to_string(), "b".to_string())
+            ]
+        );
+    }
+
+    #[test]
+    fn chart_series_fields_follow_the_declared_series_and_data_source_mode() {
+        let content = r#"{"Data":{"Thing":{"EntityName":"P.Thing","EntityType":"Things","Services":[{"Name":"Svc","Target":"Svc"}]}},"UI":{"Properties":{"Id":"mashup-root"},"Widgets":[{"Properties":{"Id":"ptcschartcombo-3","Type":"ptcschartcombo","NumberOfSeries":"2","DataField2":"gone","DataField3":"also-gone"},"Widgets":[]},{"Properties":{"Id":"ptcschartline-4","Type":"ptcschartline","MultipleDataSources":true,"NumberOfSeries":2,"DataField1":"gone"},"Widgets":[]}]},"DataBindings":[{"SourceArea":"Data","SourceSection":"Thing","SourceId":"Svc","TargetArea":"UI","TargetId":"ptcschartcombo-3","PropertyMaps":[{"SourcePropertyType":"InfoTable","TargetProperty":"Data"}]},{"SourceArea":"Data","SourceSection":"Thing","SourceId":"Svc","TargetArea":"UI","TargetId":"ptcschartline-4","PropertyMaps":[{"SourcePropertyType":"InfoTable","TargetProperty":"Data"}]}]}"#;
+        let (_dir, solution) = solution(content);
+        let report = run(&solution);
+        assert_eq!(report.problems.len(), 1, "{:?}", report.problems);
+        assert_eq!(report.problems[0].rule, "unknown-field-property");
+        assert!(report.problems[0].message.contains("DataField2 names gone"));
     }
 
     #[test]

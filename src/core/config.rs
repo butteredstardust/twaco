@@ -1158,9 +1158,29 @@ impl Solution {
     /// sort over `depends_on`. A cycle is reported rather than resolved: there is no correct
     /// order, and picking one would produce an import that fails for a reason nobody can see.
     pub fn deploy_order(&self) -> Result<Vec<&Project>, ConfigError> {
-        let mut pending: BTreeMap<&str, &Project> =
-            self.projects.iter().map(|p| (p.name.as_str(), p)).collect();
-        let mut done: BTreeSet<&str> = BTreeSet::new();
+        self.order_of(|_| true)
+    }
+
+    /// [`Solution::deploy_order`] of some projects only, for a deploy of those: a dependency on
+    /// another project counts as met (a partial deploy takes it to be on the server already),
+    /// so only a cycle through the selected projects has no order.
+    pub fn deploy_order_of(&self, selected: &BTreeSet<&str>) -> Result<Vec<&Project>, ConfigError> {
+        self.order_of(|name| selected.contains(name))
+    }
+
+    fn order_of(&self, include: impl Fn(&str) -> bool) -> Result<Vec<&Project>, ConfigError> {
+        let mut pending: BTreeMap<&str, &Project> = self
+            .projects
+            .iter()
+            .filter(|p| include(&p.name))
+            .map(|p| (p.name.as_str(), p))
+            .collect();
+        let mut done: BTreeSet<&str> = self
+            .projects
+            .iter()
+            .filter(|p| !include(&p.name))
+            .map(|p| p.name.as_str())
+            .collect();
         let mut order: Vec<&Project> = Vec::new();
 
         while !pending.is_empty() {
@@ -1792,6 +1812,29 @@ name = \"Only\"
             s.unwrap().deploy_order(),
             Err(ConfigError::DependencyCycle { .. })
         ));
+    }
+
+    #[test]
+    fn a_partial_deploy_orders_its_projects_past_a_cycle_elsewhere() {
+        let s = solution(
+            "[[project]]\nname = \"A\"\ndepends_on = [\"B\"]\n\n[[project]]\nname = \"B\"\ndepends_on = [\"A\"]\n\n\
+             [[project]]\nname = \"Base\"\n\n[[project]]\nname = \"App\"\ndepends_on = [\"Base\", \"A\"]\n",
+        )
+        .unwrap();
+        let names = |order: Vec<&Project>| order.iter().map(|p| p.name.clone()).collect::<Vec<_>>();
+        let selected: BTreeSet<&str> = ["App", "Base"].into_iter().collect();
+        assert_eq!(
+            names(s.deploy_order_of(&selected).unwrap()),
+            ["Base", "App"]
+        );
+        let app: BTreeSet<&str> = ["App"].into_iter().collect();
+        assert_eq!(names(s.deploy_order_of(&app).unwrap()), ["App"]);
+        let cycle: BTreeSet<&str> = ["A", "B"].into_iter().collect();
+        assert!(matches!(
+            s.deploy_order_of(&cycle),
+            Err(ConfigError::DependencyCycle { .. })
+        ));
+        assert!(s.deploy_order().is_err());
     }
 
     #[test]

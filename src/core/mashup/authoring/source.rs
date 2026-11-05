@@ -1,10 +1,13 @@
 //! Explicit static and dynamic mashup data sources.
 
-use super::{finish_edit, insert, load_existing, parse_loaded, AuthoringError, EditPlan};
+use super::{
+    finish_edit, insert, load_existing, on_in, parse_loaded, AuthoringContext, AuthoringError,
+    EditPlan,
+};
 use crate::core::config::Solution;
 use crate::core::mashup::address::{parse_address, Address};
 use crate::core::mashup::describe::mashup_parameters;
-use crate::core::{catalog, types};
+use crate::core::{bindings, catalog, types};
 use serde::Serialize;
 use serde_json::{Map, Value};
 use uuid::Uuid;
@@ -55,6 +58,8 @@ pub struct SourceAddRequest {
     /// A ThingTemplate's call runs on the Thing an EntityName binding names, not on the
     /// template itself.
     pub dynamic: bool,
+    /// Invoke the new call when the mashup finishes loading.
+    pub on_load: bool,
     pub alias: Option<String>,
     pub entity_from: Option<String>,
     pub refresh: Option<u32>,
@@ -68,6 +73,8 @@ pub struct SourceAddPlan {
     pub edit: EditPlan,
     pub section: String,
     pub call: String,
+    /// The event added with the call, when `on_load` was requested.
+    pub event: Option<String>,
 }
 #[derive(Clone, Debug)]
 pub struct SourceRemoveRequest {
@@ -96,6 +103,7 @@ pub struct SourceRetargetPlan {
     pub bindings_rewritten: usize,
     pub events_rewritten: usize,
     pub dynamic: bool,
+    pub notes: Vec<String>,
 }
 #[derive(Clone, Debug, Serialize)]
 pub struct SourceInfo {
@@ -317,10 +325,28 @@ pub(crate) fn plan_source_add(
             )));
         }
     }
+    let event = if request.on_load {
+        let parameters = Vec::new();
+        let context = AuthoringContext {
+            parameters: &parameters,
+            model: &model,
+            platform: platform.as_ref(),
+        };
+        let invoke = if call == request.service {
+            format!("data:{}.{}", request.entity, request.service)
+        } else {
+            format!("data:{}.{}[as {}]", request.entity, request.service, call)
+        };
+        on_in(&mut document, &context, "mashup:Loaded", &invoke)?;
+        Some(format!("mashup:Loaded -> {invoke}"))
+    } else {
+        None
+    };
     Ok(SourceAddPlan {
         edit: finish_edit(loaded, document, "mashup source add")?,
         section: key,
         call,
+        event,
     })
 }
 
@@ -387,7 +413,7 @@ pub(crate) fn list_sources(
             out.push(SourceInfo {
                 kind: kind.into(),
                 entity: entity.clone(),
-                service: call["Target"].as_str().unwrap_or("").into(),
+                service: call_service(call).into(),
                 alias: call["Name"].as_str().unwrap_or("").into(),
                 entity_from: feed.clone(),
                 refresh: call["RefreshInterval"].as_u64().unwrap_or(0),
@@ -437,7 +463,7 @@ pub(crate) fn plan_source_remove(
                 .into_iter()
                 .flatten()
                 .filter(move |call| {
-                    call["Target"] == *service
+                    call_service(call) == service.as_str()
                         && (data["EntityName"].as_str().unwrap_or("") == entity.name
                             || section.ends_with(&format!("_{}", entity.name)))
                         && alias.as_ref().is_none_or(|alias| call["Name"] == *alias)
@@ -541,6 +567,7 @@ pub(crate) fn plan_source_retarget(
     let mut document = parse_loaded(&loaded)?;
     let (model, _) = types::load_model(solution);
     let platform = types::cached_platform(solution);
+    let resolver = bindings::Resolver::new(&model, platform.as_ref());
     let from_entity = model
         .entities
         .iter()
@@ -602,10 +629,15 @@ pub(crate) fn plan_source_retarget(
         sections.push((old.clone(), new));
     }
     // Check every service and every value that this mashup supplies before changing any key.
+    // Result fields are just as much a contract as parameters: runtime otherwise accepts the
+    // retarget and leaves a widget blank with no useful indication why.
+    let source_sections = bindings::data_sections(document.value());
+    let mut result_refusals = Vec::new();
+    let mut notes = Vec::new();
     for (old, _, _) in &candidates {
         let section = &document.value()["Data"][old];
         for call in section["Services"].as_array().into_iter().flatten() {
-            let service_name = call["Target"].as_str().unwrap_or("");
+            let service_name = call_service(call);
             let service = catalog::lookup_service(
                 to_entity,
                 &model.entities,
@@ -619,6 +651,92 @@ pub(crate) fn plan_source_retarget(
                     request.to, request.mashup
                 ))
             })?;
+            let new_shape = service
+                .result
+                .data_shape
+                .as_deref()
+                .filter(|_| service.result.base_type.eq_ignore_ascii_case("INFOTABLE"))
+                .and_then(|name| resolver.checkable_shape(name));
+            if let (Some(new_shape), Some(source_section), Some(call_name)) =
+                (new_shape, source_sections.get(old), call["Name"].as_str())
+            {
+                let old_shape = resolver
+                    .service(source_section, service_name)
+                    .service
+                    .as_ref()
+                    .filter(|old_service| {
+                        old_service
+                            .result
+                            .base_type
+                            .eq_ignore_ascii_case("INFOTABLE")
+                    })
+                    .and_then(|old_service| old_service.result.data_shape.as_deref())
+                    .and_then(|name| resolver.checkable_shape(name));
+                let mut users: std::collections::BTreeMap<_, Vec<_>> =
+                    std::collections::BTreeMap::new();
+                for user in bindings::result_field_users(document.value(), old, call_name) {
+                    users.entry(user.field.clone()).or_default().push(user);
+                }
+                for (field, users) in users {
+                    let described = users
+                        .iter()
+                        .map(|user| user.user.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    let replacement = new_shape.fields.iter().find(|known| known.name == field);
+                    let Some(replacement) = replacement else {
+                        result_refusals.push(format!(
+                            "result field {field}, used by {described}: {}.{service_name} returns {}, which has no field {field}",
+                            request.to, new_shape.name
+                        ));
+                        continue;
+                    };
+                    if let Some(old_field) = old_shape
+                        .and_then(|shape| shape.fields.iter().find(|known| known.name == field))
+                    {
+                        if !same_result_type(&old_field.base_type, &replacement.base_type) {
+                            result_refusals.push(format!(
+                                "result field {field}, used by {described}: {}.{service_name} returns {} instead of {}",
+                                request.to, replacement.base_type, old_field.base_type
+                            ));
+                        }
+                    }
+                    for user in &users {
+                        let (Some(widget), Some(property)) =
+                            (user.widget.as_deref(), user.property.as_deref())
+                        else {
+                            continue;
+                        };
+                        let Some((setting, axis)) =
+                            bindings::chart_axis_type(document.value(), widget, property)
+                        else {
+                            continue;
+                        };
+                        if matches!(axis.as_str(), "number" | "date")
+                            && replacement.base_type.eq_ignore_ascii_case("STRING")
+                        {
+                            let value_kind = if axis == "date" { "dates" } else { "numbers" };
+                            let fix = if setting == "XAxisType" {
+                                format!(
+                                    "twaco mashup set {} {widget} --prop XAxisType=label --apply",
+                                    request.mashup
+                                )
+                            } else {
+                                format!(
+                                    "twaco mashup set {} {widget} --prop DataFieldType=string --apply",
+                                    request.mashup
+                                )
+                            };
+                            let note = format!(
+                                "{widget}.{property} reads {field} as {axis}; Runtime draws only values that read as {value_kind}; use `{fix}`"
+                            );
+                            if !notes.contains(&note) {
+                                notes.push(note);
+                            }
+                        }
+                    }
+                }
+            }
             let mut used: Vec<String> = call["Parameters"]
                 .as_object()
                 .into_iter()
@@ -718,6 +836,9 @@ pub(crate) fn plan_source_retarget(
             }
         }
     }
+    if !result_refusals.is_empty() {
+        return Err(AuthoringError::Refused(result_refusals.join("\n")));
+    }
     let mut bindings_rewritten = 0;
     let mut events_rewritten = 0;
     let changes: std::collections::BTreeMap<_, _> = sections.iter().cloned().collect();
@@ -773,5 +894,23 @@ pub(crate) fn plan_source_retarget(
         bindings_rewritten,
         events_rewritten,
         dynamic: candidates.iter().any(|(_, _, dynamic)| *dynamic),
+        notes,
     })
+}
+
+/// ThingWorx carries its three scalar number names interchangeably in mashup bindings.
+fn same_result_type(old: &str, new: &str) -> bool {
+    let numeric = |base: &str| matches!(base, "INTEGER" | "LONG" | "NUMBER");
+    old.eq_ignore_ascii_case(new)
+        || (numeric(&old.to_ascii_uppercase()) && numeric(&new.to_ascii_uppercase()))
+}
+
+/// The service a data call runs: its `Target`, or its `Name` when it has no `Target`, as
+/// [`bindings::data_sections`] reads a call.
+fn call_service(call: &Value) -> &str {
+    call["Target"]
+        .as_str()
+        .filter(|target| !target.is_empty())
+        .or_else(|| call["Name"].as_str())
+        .unwrap_or("")
 }

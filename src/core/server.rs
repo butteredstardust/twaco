@@ -317,6 +317,7 @@ impl Client {
             ("X-XSRF-TOKEN", XSRF_VALUE),
             ("X-Requested-With", "XMLHttpRequest"),
         ];
+        let started = crate::core::logs::now_ms();
         let response = transport(
             &self.secrets,
             &self.agent,
@@ -325,7 +326,44 @@ impl Client {
             &headers,
             Some(&body),
         )?;
-        let reply = checked(&self.secrets, Method::Post, url.clone(), response)?;
+        let reply = match checked(&self.secrets, Method::Post, url.clone(), response) {
+            // The Importer's 406 says only that the import failed; ApplicationLog says why.
+            Err(ServerError::Http {
+                method,
+                status: 406,
+                url,
+                body,
+            }) => {
+                let now = || crate::core::logs::now_ms();
+                let reason = crate::core::logs::import_failure(
+                    self,
+                    &self.profile.username,
+                    started,
+                    now(),
+                    crate::core::logs::Wait::default(),
+                    &now,
+                    &std::thread::sleep,
+                );
+                let body = match reason {
+                    Some(reason) => {
+                        let reason = scrub(&self.secrets, &reason);
+                        if body.is_empty() {
+                            format!("the server logged: {reason}")
+                        } else {
+                            format!("{body}; the server logged: {reason}")
+                        }
+                    }
+                    None => body,
+                };
+                return Err(ServerError::Http {
+                    method,
+                    status: 406,
+                    url,
+                    body,
+                });
+            }
+            other => other?,
+        };
         let reply = String::from_utf8(reply).expect("checked validated UTF-8");
         if reply.trim().eq_ignore_ascii_case("success") {
             Ok(())

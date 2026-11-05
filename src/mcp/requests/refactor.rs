@@ -791,9 +791,40 @@ pub(crate) struct MashupAddRequest {
     /// Simple catalogue default properties to set by exact property name.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) properties: Absent<BTreeMap<String, String>>,
-    /// An expression's or validator's inputs as `name:TYPE`.
+    /// An expression's or validator's inputs as `name:TYPE` or `name:TYPE=default`.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) inputs: Absent<Vec<String>>,
+    #[serde(default = "default_true")]
+    pub(crate) dry_run: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MashupCollectionAddRequest {
+    /// The mashup that holds the collection.
+    pub(crate) mashup: String,
+    /// The repository mashup rendered once per row.
+    pub(crate) cell_mashup: String,
+    /// An existing whole service result address.
+    pub(crate) data: String,
+    /// Row fields mapped to cell mashup parameters.
+    pub(crate) map: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) uid: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) width: Absent<u32>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) height: Absent<u32>,
+    #[serde(default, rename = "in", skip_serializing_if = "Absent::is_absent")]
+    pub(crate) container: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) right_of: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) left_of: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) above: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) below: Absent<String>,
     #[serde(default = "default_true")]
     pub(crate) dry_run: bool,
 }
@@ -808,6 +839,9 @@ pub(crate) struct MashupSetRequest {
     /// Exact property names and their JSON values. Strings use the same syntax as CLI --prop.
     #[schemars(schema_with = "free_object")]
     pub(crate) properties: BTreeMap<String, serde_json::Value>,
+    /// Copy this widget's root StyleProperties.data entry, as `<mashup>:<widget>`.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) style_from: Absent<String>,
     #[serde(default = "default_true")]
     pub(crate) dry_run: bool,
 }
@@ -977,6 +1011,9 @@ pub(crate) struct MashupSourceAddRequest {
     /// always does.
     #[serde(default)]
     pub(crate) dynamic: bool,
+    /// Invoke this call when the mashup finishes loading.
+    #[serde(default)]
+    pub(crate) on_load: bool,
     /// The call's own name; the service name (then `_2`, ...) when absent.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) alias: Absent<String>,

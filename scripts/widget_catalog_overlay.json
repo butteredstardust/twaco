@@ -336,6 +336,14 @@
       ],
       "type_display_name": "Video"
     },
+    "shape": {
+      "aliases": [],
+      "type_display_name": "Shape",
+      "builder": true,
+      "overrides": {
+        "ShapeFormatter_StateParameters": []
+      }
+    },
     "expression2": {
       "aliases": [
         "expression-function",

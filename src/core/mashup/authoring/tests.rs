@@ -862,6 +862,7 @@ fn set_changes_a_flex_container_and_keeps_root_css_in_its_sidecar() {
                 ("flex-direction".into(), json!("column")),
                 ("StyleProperties".into(), json!({"gap": "4px"})),
             ],
+            style_from: None,
         },
     )
     .unwrap();
@@ -880,6 +881,7 @@ fn set_changes_a_flex_container_and_keeps_root_css_in_its_sidecar() {
                 ("CustomClass".into(), json!("app")),
                 ("CustomMashupCss".into(), json!(".app { color: red; }")),
             ],
+            style_from: None,
         },
     )
     .unwrap();
@@ -902,6 +904,7 @@ fn set_changes_a_flex_container_and_keeps_root_css_in_its_sidecar() {
             mashup: name.into(),
             widget: "mashup-root".into(),
             properties: vec![("CustomClass".into(), json!("app"))],
+            style_from: None,
         },
     )
     .unwrap();
@@ -3149,6 +3152,60 @@ fn an_expression_goes_beside_the_layout_with_its_inputs_and_wires_like_composers
 }
 
 #[test]
+fn function_input_defaults_keep_their_json_types() {
+    let (_dir, solution) = bind_fixture();
+    let plan = add_function(
+        &solution,
+        "expression2",
+        &[
+            "flag:BOOLEAN=true",
+            "number:NUMBER=2.5",
+            "integer:INTEGER=-2",
+            "long:LONG=3",
+            "json:JSON={\"key\":true}",
+            "text:STRING=a=b",
+        ],
+        &[],
+    )
+    .unwrap();
+    let value: Value = serde_json::from_str(&sidecar_content(&solution)).unwrap();
+    let expression = value["UI"]["Widgets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|widget| widget["Properties"]["Id"] == plan.placed.id)
+        .unwrap();
+    let defaults: std::collections::BTreeMap<_, _> = expression["Properties"]
+        ["_currentParameterDefs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|definition| {
+            (
+                definition["ParameterName"].as_str().unwrap(),
+                definition["DefaultValue"].clone(),
+            )
+        })
+        .collect();
+    assert_eq!(defaults["flag"], serde_json::json!(true));
+    assert_eq!(defaults["number"], serde_json::json!(2.5));
+    assert_eq!(defaults["integer"], serde_json::json!(-2));
+    assert_eq!(defaults["long"], serde_json::json!(3));
+    assert_eq!(defaults["json"], serde_json::json!({"key": true}));
+    assert_eq!(defaults["text"], serde_json::json!("a=b"));
+    let error = plan_add(
+        &solution,
+        &AddRequest {
+            inputs: vec!["flag:BOOLEAN=not-a-boolean".into()],
+            ..add_request("Acme.Orders_MU", "expression2")
+        },
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("BOOLEAN"), "{error}");
+}
+
+#[test]
 fn an_events_router_takes_as_many_inputs_as_it_says_of_its_data_type() {
     let (_dir, solution) = bind_fixture();
     let plan = add_function(
@@ -4359,6 +4416,7 @@ fn source_request(entity: &str, service: &str) -> SourceAddRequest {
         entity: entity.into(),
         service: service.into(),
         dynamic: false,
+        on_load: false,
         alias: None,
         entity_from: None,
         refresh: None,
@@ -4464,6 +4522,36 @@ fn source_add_writes_each_kind_as_composer_does() {
         .unwrap_err()
         .to_string();
     assert!(error.contains("is not a service"), "{error}");
+}
+
+#[test]
+fn source_add_on_load_writes_the_call_and_event_together() {
+    let (_dir, solution) = source_fixture();
+    let before = sidecar_content(&solution);
+    let mut request = source_request("Acme.Orders.Manager", "GetOrders");
+    request.alias = Some("orders".into());
+    request.on_load = true;
+    let plan = plan_source_add(&solution, &request).unwrap();
+    assert_eq!(sidecar_content(&solution), before, "a plan writes nothing");
+    assert_eq!(
+        plan.event.as_deref(),
+        Some("mashup:Loaded -> data:Acme.Orders.Manager.GetOrders[as orders]")
+    );
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    let content = content_value(&solution);
+    assert_eq!(
+        content["Data"]["Things_Acme.Orders.Manager"]["Services"][0]["Name"],
+        "orders"
+    );
+    let event = &content["Events"][0];
+    assert_eq!(event["EventTriggerArea"], "Mashup");
+    assert_eq!(event["EventTriggerEvent"], "Loaded");
+    assert_eq!(event["EventHandlerArea"], "Data");
+    assert_eq!(event["EventHandlerService"], "orders");
+    let error = plan_source_add(&solution, &request)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("already has a call"), "{error}");
 }
 
 #[test]
@@ -4858,6 +4946,7 @@ fn chart_series_fields_root_properties_and_fixed_icons_are_settable() {
                     .into_iter()
                     .map(|(key, value)| (key.to_string(), value))
                     .collect(),
+                style_from: None,
             },
         )
     };
@@ -4929,6 +5018,7 @@ fn root_parameter_defaults_are_set_through_mashup_param() {
             mashup: "Acme.Orders_MU".into(),
             widget: "mashup-root".into(),
             properties: vec![("Manager".into(), json!("Acme.Orders.Manager"))],
+            style_from: None,
         },
     )
     .unwrap_err()
@@ -5100,6 +5190,49 @@ fn a_copy_changes_only_identity_and_drops_permissions() {
     let mut copy = request("Acme.Copy_MU");
     copy.from = Some("Acme.Reference_MU".into());
     let plan = plan_new(&solution, &copy).unwrap();
+    let summary = plan.copy_summary.as_ref().expect("copy summary");
+    assert_eq!(summary.widgets, plan.widgets.len().saturating_sub(1));
+    let content: Value = serde_json::from_str(&plan.assets.content).unwrap();
+    assert_eq!(
+        summary.data_calls,
+        content["Data"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .map(|(_, section)| section["Services"].as_array().map_or(0, Vec::len))
+            .sum::<usize>()
+    );
+    assert_eq!(
+        summary.bindings,
+        content["DataBindings"].as_array().map_or(0, Vec::len)
+    );
+    assert_eq!(
+        summary.events,
+        content["Events"].as_array().map_or(0, Vec::len)
+    );
+    assert_eq!(
+        summary.parameters,
+        crate::core::mashup::describe::mashup_parameters(&plan.entity)
+            .unwrap()
+            .len()
+    );
+    let text = copy_summary_lines(&solution, &plan, false);
+    assert_eq!(
+        text[0],
+        "would create mashup Acme.Copy_MU from Acme.Reference_MU"
+    );
+    assert_eq!(
+        text[1],
+        format!(
+            "  widgets: {}; data calls: {}; bindings: {}; events: {}; parameters: {}",
+            summary.widgets,
+            summary.data_calls,
+            summary.bindings,
+            summary.events,
+            summary.parameters
+        )
+    );
+    assert_eq!(text.len(), 5);
     let copied = String::from_utf8(plan.entity.clone()).unwrap();
     assert!(
         !copied.contains("Acme.Users"),
@@ -5255,6 +5388,153 @@ fn retarget_refuses_a_parameter_of_another_type() {
 }
 
 #[test]
+fn retarget_checks_consumed_result_fields_before_planning_an_edit() {
+    let (dir, solution) = source_fixture();
+    for (name, shape) in [
+        (
+            "Acme.Orders.Missing",
+            r#"<DataShape name="Acme.Orders.Missing_DS"><FieldDefinitions><FieldDefinition name="id" baseType="LONG"/></FieldDefinitions></DataShape>"#,
+        ),
+        (
+            "Acme.Orders.Changed",
+            r#"<DataShape name="Acme.Orders.Changed_DS"><FieldDefinitions><FieldDefinition name="id" baseType="STRING"/><FieldDefinition name="note" baseType="STRING"/></FieldDefinitions></DataShape>"#,
+        ),
+        ("Acme.Orders.Unknown", ""),
+    ] {
+        if !shape.is_empty() {
+            write(
+                dir.path(),
+                &format!("acme/DataShapes/{name}_DS.xml"),
+                &format!("<Entities><DataShapes>{shape}</DataShapes></Entities>"),
+            );
+        }
+        let data_shape = if shape.is_empty() {
+            "Acme.Orders.NotHere_DS".to_string()
+        } else {
+            format!("{name}_DS")
+        };
+        write(
+            dir.path(),
+            &format!("acme/Things/{name}.xml"),
+            &format!(
+                r#"<Entities><Things><Thing name="{name}" projectName="Acme"><ThingShape><ServiceDefinitions><ServiceDefinition name="GetOrders"><ResultType baseType="INFOTABLE" aspect.dataShape="{data_shape}"/></ServiceDefinition></ServiceDefinitions><ServiceImplementations/></ThingShape></Thing></Things></Entities>"#
+            ),
+        );
+    }
+    add_source(
+        &solution,
+        &source_request("Acme.Orders.Manager", "GetOrders"),
+    )
+    .unwrap();
+    let plan = bind(
+        &solution,
+        "data:Acme.Orders.Manager.GetOrders",
+        "ui:ptcsgrid-5.Data",
+    )
+    .unwrap();
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    let content_path = solution
+        .src_root()
+        .join("Acme.Orders_MU/mashup/content.json");
+    let mut value = content_value(&solution);
+    let grid = value["UI"]["Widgets"][0]["Widgets"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|widget| widget["Properties"]["Id"] == "ptcsgrid-5")
+        .unwrap();
+    grid["Properties"]["ColumnFormat"] =
+        json!({"formatInfo": [{"FieldName": "id"}, {"FieldName": "note"}]});
+    std::fs::write(&content_path, serde_json::to_string_pretty(&value).unwrap()).unwrap();
+    let entity_path = dir.path().join("acme/Mashups/Acme.Orders_MU.xml");
+    let assets = workspace::read_mashup(&solution.src_root().join("Acme.Orders_MU/mashup"))
+        .unwrap()
+        .unwrap();
+    let (synced, _) = mashup::sync(&std::fs::read(&entity_path).unwrap(), &assets).unwrap();
+    std::fs::write(&entity_path, synced).unwrap();
+    let retarget = |to: &str| {
+        plan_source_retarget(
+            &solution,
+            &SourceRetargetRequest {
+                mashup: "Acme.Orders_MU".into(),
+                from: "Acme.Orders.Manager".into(),
+                to: to.into(),
+            },
+        )
+    };
+    let before = sidecar_content(&solution);
+    let error = retarget("Acme.Orders.Missing").unwrap_err().to_string();
+    assert!(
+        error.contains("result field note") && error.contains("ptcsgrid-5.ColumnFormat"),
+        "{error}"
+    );
+    assert_eq!(
+        sidecar_content(&solution),
+        before,
+        "a refused plan writes nothing"
+    );
+    let error = retarget("Acme.Orders.Changed").unwrap_err().to_string();
+    assert!(
+        error.contains("result field id") && error.contains("STRING instead of LONG"),
+        "{error}"
+    );
+    assert_eq!(
+        sidecar_content(&solution),
+        before,
+        "a refused plan writes nothing"
+    );
+    // A missing replacement DataShape is deliberately not guessed at.
+    retarget("Acme.Orders.Unknown").unwrap();
+}
+
+#[test]
+fn retarget_notes_when_a_string_chart_axis_depends_on_its_values() {
+    let (dir, solution) = source_fixture();
+    write(
+        dir.path(),
+        "acme/Things/Acme.Orders.Axis.xml",
+        r#"<Entities><Things><Thing name="Acme.Orders.Axis" projectName="Acme"><ThingShape><ServiceDefinitions><ServiceDefinition name="GetOrders"><ResultType baseType="INFOTABLE" aspect.dataShape="Acme.Orders.Order_DS"/></ServiceDefinition></ServiceDefinitions><ServiceImplementations/></ThingShape></Thing></Things></Entities>"#,
+    );
+    add_source(
+        &solution,
+        &source_request("Acme.Orders.Manager", "GetOrders"),
+    )
+    .unwrap();
+    let mut add = add_request("Acme.Orders_MU", "ptcschartline");
+    add.properties = vec![
+        ("XAxisField".into(), "note".into()),
+        ("XAxisType".into(), "number".into()),
+    ];
+    let added = plan_add(&solution, &add).unwrap();
+    let chart = added.widget.clone();
+    apply_edit(&solution, &added.edit, &lock(&solution)).unwrap();
+    let plan = bind(
+        &solution,
+        "data:Acme.Orders.Manager.GetOrders",
+        &format!("ui:{chart}.Data"),
+    )
+    .unwrap();
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    let plan = plan_source_retarget(
+        &solution,
+        &SourceRetargetRequest {
+            mashup: "Acme.Orders_MU".into(),
+            from: "Acme.Orders.Manager".into(),
+            to: "Acme.Orders.Axis".into(),
+        },
+    )
+    .unwrap();
+    assert!(
+        plan.notes
+            .iter()
+            .any(|note| note.contains("values that read as numbers")
+                && note.contains("XAxisType=label")),
+        "{:?}",
+        plan.notes
+    );
+}
+
+#[test]
 fn retarget_accepts_what_bind_accepts_and_checks_values_the_call_sets() {
     let (dir, solution) = source_fixture();
     // GetOrder(id LONG) moves to a Thing whose GetOrder takes a NUMBER id: a number fits.
@@ -5337,4 +5617,640 @@ fn a_copy_escapes_its_names_and_keeps_tables_that_only_mention_principals() {
         "the table stays"
     );
     assert!(copied.contains("<Principal> docs"));
+}
+
+/// The bind fixture, a call of `GetOrders` in its mashup, and a cell mashup with an input per
+/// field and an output.
+fn collection_fixture() -> (tempfile::TempDir, Solution) {
+    let (dir, solution) = bind_fixture();
+    let plan = bind(
+        &solution,
+        "data:Acme.Orders.Manager.GetOrders",
+        "ui:ptcsgrid-5.Data",
+    )
+    .unwrap();
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    let mut cell = request("Acme.OrderCell_MU");
+    cell.params = vec![
+        "Id:LONG:IN".into(),
+        "Note:STRING".into(),
+        "Picked:BOOLEAN:OUT".into(),
+    ];
+    let plan = plan_new(&solution, &cell).unwrap();
+    apply_new(&solution, &plan, &lock(&solution)).unwrap();
+    (dir, solution)
+}
+
+fn collection_request(mappings: &[(&str, &str)]) -> CollectionAddRequest {
+    CollectionAddRequest {
+        mashup: "Acme.Orders_MU".into(),
+        cell: "Acme.OrderCell_MU".into(),
+        data: "data:Acme.Orders.Manager.GetOrders".into(),
+        mappings: mappings
+            .iter()
+            .map(|(field, parameter)| (field.to_string(), parameter.to_string()))
+            .collect(),
+        uid: Some("id".into()),
+        width: Some(200),
+        height: Some(120),
+        placement: None,
+    }
+}
+
+fn tree_bytes(dir: &Path) -> std::collections::BTreeMap<PathBuf, Vec<u8>> {
+    fn walk(dir: &Path, files: &mut std::collections::BTreeMap<PathBuf, Vec<u8>>) {
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                walk(&path, files);
+            } else {
+                files.insert(path.clone(), std::fs::read(&path).unwrap());
+            }
+        }
+    }
+    let mut files = std::collections::BTreeMap::new();
+    walk(dir, &mut files);
+    files
+}
+
+fn collection_properties(solution: &Solution, id: &str) -> Value {
+    fn find(widget: &Value, id: &str) -> Option<Value> {
+        if widget["Properties"]["Id"] == id {
+            return Some(widget["Properties"].clone());
+        }
+        widget["Widgets"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find_map(|child| find(child, id))
+    }
+    let content: Value = serde_json::from_str(&sidecar_content(solution)).unwrap();
+    find(&content["UI"], id).expect("the collection is in the layout")
+}
+
+#[test]
+fn collection_add_writes_the_composer_contract_in_one_edit() {
+    let (dir, solution) = collection_fixture();
+    let before = tree_bytes(dir.path());
+    let plan = plan_collection_add(
+        &solution,
+        &collection_request(&[("id", "Id"), ("note", "Note")]),
+    )
+    .unwrap();
+    assert!(before == tree_bytes(dir.path()), "planning changed a file");
+    assert_eq!(
+        plan.notes.len(),
+        1,
+        "no event runs the call: {:?}",
+        plan.notes
+    );
+    assert!(plan.notes[0].contains("--event mashup:Loaded"));
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+
+    let properties = collection_properties(&solution, &plan.id);
+    assert_eq!(properties["Type"], "ptcscollection");
+    assert_eq!(properties["Mashup"], "Acme.OrderCell_MU");
+    // An object, as Composer stores it, not a JSON string.
+    assert_eq!(
+        properties["MashupPropertyBinding"],
+        json!({"id": "Id", "note": "Note"})
+    );
+    assert_eq!(properties["UIDField"], "id");
+    assert_eq!(properties["CellWidth"], json!(200));
+    assert_eq!(properties["CellHeight"], json!(120));
+    let content: Value = serde_json::from_str(&sidecar_content(&solution)).unwrap();
+    let bound = crate::core::bindings::whole_data_bindings(&content);
+    assert!(
+        bound.iter().any(|binding| binding.widget == plan.id),
+        "{bound:?}"
+    );
+    let report =
+        crate::core::mashup::validate::validate(&solution, Some("Acme.Orders_MU")).unwrap();
+    assert!(report[0].problems.is_empty(), "{:?}", report[0].problems);
+}
+
+#[test]
+fn collection_add_notes_nothing_when_an_event_runs_the_call() {
+    let (_dir, solution) = collection_fixture();
+    let plan = on(
+        &solution,
+        "mashup:Loaded",
+        "data:Acme.Orders.Manager.GetOrders",
+    )
+    .unwrap();
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    let plan = plan_collection_add(&solution, &collection_request(&[("id", "Id")])).unwrap();
+    assert!(plan.notes.is_empty(), "{:?}", plan.notes);
+}
+
+#[test]
+fn collection_add_refuses_what_the_cell_or_the_result_lacks_and_writes_nothing() {
+    let (dir, solution) = collection_fixture();
+    let before = tree_bytes(dir.path());
+    let refused = |request: CollectionAddRequest, expected: &str| {
+        let error = plan_collection_add(&solution, &request)
+            .err()
+            .unwrap_or_else(|| panic!("{expected}: not refused"))
+            .to_string();
+        assert!(error.contains(expected), "{expected}: {error}");
+    };
+    refused(
+        collection_request(&[("id", "Missing")]),
+        "has no parameter Missing",
+    );
+    refused(collection_request(&[("id", "Picked")]), "is an output");
+    refused(collection_request(&[("gone", "Id")]), "has no field gone");
+    refused(
+        collection_request(&[("note", "Id")]),
+        "field note is STRING",
+    );
+    refused(collection_request(&[]), "at least one --map");
+    refused(
+        collection_request(&[("id", "Id"), ("id", "Note")]),
+        "row field id is mapped twice",
+    );
+    refused(
+        collection_request(&[("id", "Id"), ("note", "Id")]),
+        "cell parameter Id is mapped twice",
+    );
+    let mut uid = collection_request(&[("id", "Id")]);
+    uid.uid = Some("gone".into());
+    refused(uid, "has no field gone");
+    let mut size = collection_request(&[("id", "Id")]);
+    size.width = Some(0);
+    refused(size, "positive");
+    let mut itself = collection_request(&[("id", "Id")]);
+    itself.cell = "Acme.Orders_MU".into();
+    refused(itself, "cannot use itself");
+    let mut absent = collection_request(&[("id", "Id")]);
+    absent.cell = "Acme.Nowhere_MU".into();
+    assert!(plan_collection_add(&solution, &absent).is_err());
+    let mut field = collection_request(&[("id", "Id")]);
+    field.data = "data:Acme.Orders.Manager.GetOrders.id".into();
+    refused(field, "INFOTABLE");
+    let mut uncalled = collection_request(&[("id", "Id")]);
+    uncalled.data = "data:Acme.Orders.Manager.GetOrder".into();
+    refused(uncalled, "mashup source add");
+    assert!(before == tree_bytes(dir.path()), "a refusal changed a file");
+}
+
+#[test]
+fn collection_add_checks_fields_of_an_aliased_call_by_its_service() {
+    let (dir, solution) = collection_fixture();
+    // Rename the call: its name no longer matches the service it runs.
+    rewrite_content(dir.path(), |content| {
+        for section in content["Data"].as_object_mut().unwrap().values_mut() {
+            for call in section["Services"].as_array_mut().into_iter().flatten() {
+                if call["Name"] == "GetOrders" {
+                    call["Name"] = json!("Orders");
+                    call["Target"] = json!("GetOrders");
+                }
+            }
+        }
+        for binding in content["DataBindings"].as_array_mut().into_iter().flatten() {
+            if binding["SourceId"] == "GetOrders" {
+                binding["SourceId"] = json!("Orders");
+            }
+        }
+    });
+    let mut request = collection_request(&[("gone", "Id")]);
+    request.data = "data:Acme.Orders.Manager.GetOrders[as Orders]".into();
+    let error = plan_collection_add(&solution, &request)
+        .err()
+        .map(|e| e.to_string());
+    assert!(
+        error
+            .as_deref()
+            .is_some_and(|e| e.contains("has no field gone")),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn validate_reports_collection_maps_the_result_or_the_cell_lacks() {
+    let (dir, solution) = collection_fixture();
+    let plan = plan_collection_add(&solution, &collection_request(&[("id", "Id")])).unwrap();
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    let id = plan.id.clone();
+    rewrite_content(dir.path(), |content| {
+        fn walk(widget: &mut Value, id: &str) {
+            if widget["Properties"]["Id"] == id {
+                widget["Properties"]["MashupPropertyBinding"] =
+                    json!({"id": "Id", "gone": "Note", "note": "NoSuchParameter"});
+            }
+            for child in widget["Widgets"].as_array_mut().into_iter().flatten() {
+                walk(child, id);
+            }
+        }
+        walk(&mut content["UI"], &id);
+    });
+    let report =
+        crate::core::mashup::validate::validate(&solution, Some("Acme.Orders_MU")).unwrap();
+    let found: Vec<(&str, &str)> = report[0]
+        .problems
+        .iter()
+        .map(|p| (p.rule.as_str(), p.message.as_str()))
+        .collect();
+    assert!(
+        found
+            .iter()
+            .any(|(rule, message)| *rule == "unknown-field-property" && message.contains("gone")),
+        "{found:?}"
+    );
+    assert!(
+        found
+            .iter()
+            .any(|(rule, message)| *rule == "unknown-cell-parameter"
+                && message.contains("NoSuchParameter")),
+        "{found:?}"
+    );
+    // Advisory: the bindings gate, which check runs, does not report a cell parameter.
+    assert!(!crate::core::bindings::run(&solution)
+        .problems
+        .iter()
+        .any(|p| p.rule == "unknown-cell-parameter"));
+}
+
+/// Two mashups, each a label in the center; the reference styles its label and its container.
+fn style_fixture() -> (tempfile::TempDir, Solution) {
+    let (dir, solution) = one_project();
+    for name in ["Acme.Ref_MU", "Acme.Target_MU"] {
+        let plan = plan_new(&solution, &request(name)).unwrap();
+        apply_new(&solution, &plan, &lock(&solution)).unwrap();
+        let plan = plan_add(&solution, &add_request(name, "label")).unwrap();
+        apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    }
+    let styles = json!({
+        "meta": {"type": "WidgetStyler", "version": "1.0"},
+        "data": {
+            "ptcslabel-3": {"parts": {"$": {"$": {"color": "rgba(1,2,3,1)"}}}, "widget": "ptcs-label"},
+            "flexcontainer-2": {"parts": {"$": {"$": {"background": "inherit"}}}, "widget": "flex-container"}
+        }
+    });
+    set_and_apply(
+        &solution,
+        "Acme.Ref_MU",
+        "mashup-root",
+        vec![("StyleProperties".into(), styles)],
+        None,
+    )
+    .unwrap();
+    (dir, solution)
+}
+
+fn set_and_apply(
+    solution: &Solution,
+    mashup: &str,
+    widget: &str,
+    properties: Vec<(String, Value)>,
+    style_from: Option<&str>,
+) -> Result<SetPlan, AuthoringError> {
+    let plan = plan_set(
+        solution,
+        &SetRequest {
+            mashup: mashup.into(),
+            widget: widget.into(),
+            properties,
+            style_from: style_from.map(str::to_string),
+        },
+    )?;
+    if let Some(edit) = &plan.edit {
+        apply_edit(solution, edit, &lock(solution)).unwrap();
+    }
+    Ok(plan)
+}
+
+fn root_styles(solution: &Solution, mashup: &str) -> Value {
+    content_of(solution, mashup)["UI"]["Properties"]["StyleProperties"].clone()
+}
+
+#[test]
+fn style_from_copies_one_entry_and_keeps_the_rest() {
+    let (_dir, solution) = style_fixture();
+    // The target already styles its container: that entry and its meta stay.
+    let own = json!({
+        "meta": {"type": "WidgetStyler", "version": "1.0"},
+        "data": {"flexcontainer-2": {"parts": {"$": {"$": {"background": "red"}}}, "widget": "flex-container"}}
+    });
+    set_and_apply(
+        &solution,
+        "Acme.Target_MU",
+        "mashup-root",
+        vec![("StyleProperties".into(), own)],
+        None,
+    )
+    .unwrap();
+    let plan = set_and_apply(
+        &solution,
+        "Acme.Target_MU",
+        "ptcslabel-3",
+        Vec::new(),
+        Some("Acme.Ref_MU:ptcslabel-3"),
+    )
+    .unwrap();
+    assert!(plan.style_copy.as_ref().is_some_and(|copy| copy.copied));
+    let styles = root_styles(&solution, "Acme.Target_MU");
+    assert_eq!(
+        styles["data"]["ptcslabel-3"],
+        root_styles(&solution, "Acme.Ref_MU")["data"]["ptcslabel-3"]
+    );
+    assert_eq!(
+        styles["data"]["flexcontainer-2"]["parts"]["$"]["$"]["background"],
+        "red"
+    );
+    assert_eq!(styles["meta"]["type"], "WidgetStyler");
+
+    // The same copy again changes nothing and writes nothing.
+    let again = plan_set(
+        &solution,
+        &SetRequest {
+            mashup: "Acme.Target_MU".into(),
+            widget: "ptcslabel-3".into(),
+            properties: Vec::new(),
+            style_from: Some("Acme.Ref_MU:ptcslabel-3".into()),
+        },
+    )
+    .unwrap();
+    assert!(again.edit.is_none() && again.changed.is_empty());
+}
+
+#[test]
+fn style_from_creates_the_style_map_and_combines_with_props_in_one_edit() {
+    let (_dir, solution) = style_fixture();
+    assert!(root_styles(&solution, "Acme.Target_MU")
+        .get("data")
+        .is_none());
+    let plan = set_and_apply(
+        &solution,
+        "Acme.Target_MU",
+        "ptcslabel-3",
+        vec![("LabelType".into(), json!("header"))],
+        Some("Acme.Ref_MU:ptcslabel-3"),
+    )
+    .unwrap();
+    assert_eq!(plan.changed.len(), 2, "{:?}", plan.changed);
+    let styles = root_styles(&solution, "Acme.Target_MU");
+    assert_eq!(
+        styles["meta"],
+        json!({"type": "WidgetStyler", "version": "1.0"})
+    );
+    assert_eq!(styles["data"]["ptcslabel-3"]["widget"], "ptcs-label");
+    let content = content_of(&solution, "Acme.Target_MU");
+    assert!(content.to_string().contains("\"LabelType\":\"header\""));
+}
+
+#[test]
+fn style_from_refuses_what_it_cannot_copy_and_copies_nothing_from_an_unstyled_widget() {
+    let (dir, solution) = style_fixture();
+    let before = tree_bytes(dir.path());
+    let attempt = |widget: &str, reference: &str| {
+        plan_set(
+            &solution,
+            &SetRequest {
+                mashup: "Acme.Target_MU".into(),
+                widget: widget.into(),
+                properties: Vec::new(),
+                style_from: Some(reference.into()),
+            },
+        )
+    };
+    for (widget, reference, expected) in [
+        (
+            "ptcslabel-3",
+            "Acme.Ref_MU:flexcontainer-2",
+            "cannot copy style",
+        ),
+        (
+            "ptcslabel-3",
+            "Acme.Nowhere_MU:ptcslabel-3",
+            "Acme.Nowhere_MU",
+        ),
+        ("ptcslabel-3", "Acme.Ref_MU:ptcslabel-99", "ptcslabel-99"),
+        ("ptcslabel-3", "Acme.Ref_MU", "<mashup>:<widget>"),
+    ] {
+        let error = attempt(widget, reference)
+            .err()
+            .unwrap_or_else(|| panic!("{reference}: not refused"))
+            .to_string();
+        assert!(error.contains(expected), "{reference}: {error}");
+    }
+    // The reference's label has a style; the target's label, copied back to the reference,
+    // has none: nothing to copy, nothing written.
+    let plan = plan_set(
+        &solution,
+        &SetRequest {
+            mashup: "Acme.Ref_MU".into(),
+            widget: "ptcslabel-3".into(),
+            properties: Vec::new(),
+            style_from: Some("Acme.Target_MU:ptcslabel-3".into()),
+        },
+    )
+    .unwrap();
+    assert!(plan.style_copy.as_ref().is_some_and(|copy| !copy.copied));
+    assert!(plan.edit.is_none());
+    assert!(
+        before == tree_bytes(dir.path()),
+        "a refusal or a no-op changed a file"
+    );
+}
+
+#[test]
+fn style_from_refuses_a_malformed_style_map() {
+    let (dir, solution) = style_fixture();
+    let path = dir.path().join("src/Acme.Target_MU/mashup/content.json");
+    let mut content: Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    content["UI"]["Properties"]["StyleProperties"] = json!({"data": "not a map"});
+    let text = mashup::edit::parse(&content.to_string())
+        .unwrap()
+        .to_content();
+    std::fs::write(&path, &text).unwrap();
+    let entity = dir.path().join("acme/Mashups/Acme.Target_MU.xml");
+    let css =
+        std::fs::read_to_string(dir.path().join("src/Acme.Target_MU/mashup/custom.css")).unwrap();
+    let (xml, _) = mashup::sync(
+        &std::fs::read(&entity).unwrap(),
+        &mashup::Assets { content: text, css },
+    )
+    .unwrap();
+    std::fs::write(&entity, xml).unwrap();
+    let error = plan_set(
+        &solution,
+        &SetRequest {
+            mashup: "Acme.Target_MU".into(),
+            widget: "ptcslabel-3".into(),
+            properties: Vec::new(),
+            style_from: Some("Acme.Ref_MU:ptcslabel-3".into()),
+        },
+    )
+    .err()
+    .map(|e| e.to_string());
+    assert!(
+        error
+            .as_deref()
+            .is_some_and(|e| e.contains("StyleProperties.data must be an object")),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn setting_the_root_theme_takes_the_default_or_a_solution_theme_only() {
+    let (dir, solution) = style_fixture();
+    let theme = |name: &str| {
+        plan_set(
+            &solution,
+            &SetRequest {
+                mashup: "Acme.Target_MU".into(),
+                widget: "mashup-root".into(),
+                properties: vec![("StyleTheme".into(), json!(name))],
+                style_from: None,
+            },
+        )
+    };
+    assert!(theme(super::new::DEFAULT_THEME).is_ok());
+    let error = theme("Acme.Missing").err().map(|e| e.to_string());
+    assert!(
+        error
+            .as_deref()
+            .is_some_and(|e| e.contains("no StyleTheme Acme.Missing")),
+        "{error:?}"
+    );
+    write(
+        dir.path(),
+        "acme/StyleThemes/Acme.Theme.xml",
+        "<Entities><StyleThemes><StyleTheme name=\"Acme.Theme\" projectName=\"Acme\"></StyleTheme></StyleThemes></Entities>",
+    );
+    assert!(theme("Acme.Theme").is_ok());
+}
+
+/// A mashup with a NUMBER parameter and a shape added as Composer adds one.
+fn shape_fixture() -> (tempfile::TempDir, Solution, String) {
+    let (dir, solution) = one_project();
+    let mut new = request("Acme.Shape_MU");
+    new.params = vec!["Level:NUMBER".into()];
+    let plan = plan_new(&solution, &new).unwrap();
+    apply_new(&solution, &plan, &lock(&solution)).unwrap();
+    let mut add = add_request("Acme.Shape_MU", "shape");
+    add.properties = vec![("ShapeType".into(), "circle".into())];
+    let plan = plan_add(&solution, &add).unwrap();
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    (dir, solution, plan.placed.id)
+}
+
+fn widget_properties(solution: &Solution, mashup: &str, id: &str) -> Value {
+    fn find(widget: &Value, id: &str) -> Option<Value> {
+        if widget["Properties"]["Id"] == id {
+            return Some(widget["Properties"].clone());
+        }
+        widget["Widgets"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find_map(|child| find(child, id))
+    }
+    find(&content_of(solution, mashup)["UI"], id).expect("the widget is in the layout")
+}
+
+#[test]
+fn a_shape_is_added_as_composer_writes_one() {
+    let (_dir, solution, id) = shape_fixture();
+    assert!(id.starts_with("shape-"), "{id}");
+    let properties = widget_properties(&solution, "Acme.Shape_MU", &id);
+    assert_eq!(properties["Type"], "shape");
+    assert_eq!(properties["ShapeType"], "circle");
+    assert_eq!(properties["DisplayName"], json!(id));
+    assert_eq!(properties["__TypeDisplayName"], "Shape");
+    assert_eq!(properties["ShapeFormatter_StateParameters"], json!([]));
+    assert_eq!(properties["ShapeStyle"], "DefaultChartStyle");
+    // Not a PTCS widget: Composer gives it none of what it adds to a dropped PTCS widget.
+    assert!(properties.get("UseTheme").is_none(), "{properties}");
+    let report = crate::core::mashup::validate::validate(&solution, Some("Acme.Shape_MU")).unwrap();
+    assert!(report[0].problems.is_empty(), "{:?}", report[0].problems);
+}
+
+#[test]
+fn a_shape_is_wired_set_and_removed_through_its_contract() {
+    let (_dir, solution, id) = shape_fixture();
+    let plan = plan_bind(
+        &solution,
+        &BindRequest {
+            mashup: "Acme.Shape_MU".into(),
+            from: "mashup:Level".into(),
+            to: format!("ui:{id}.Data"),
+        },
+    )
+    .unwrap();
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    let plan = plan_bind(
+        &solution,
+        &BindRequest {
+            mashup: "Acme.Shape_MU".into(),
+            from: "mashup:Level".into(),
+            to: format!("ui:{id}.DynamicRangeMaximum"),
+        },
+    )
+    .unwrap();
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    let set = |name: &str, value: Value| {
+        plan_set(
+            &solution,
+            &SetRequest {
+                mashup: "Acme.Shape_MU".into(),
+                widget: id.clone(),
+                properties: vec![(name.into(), value)],
+                style_from: None,
+            },
+        )
+    };
+    assert!(set("ShapeType", json!("roundrect")).is_ok());
+    assert!(set("ShapeType", json!("hexagon")).is_err());
+    assert!(set("EnableDynamicFill", json!(true)).is_ok());
+
+    // Its DisplayName is its Id; that is no reference that stops its removal.
+    let plan = plan_remove(
+        &solution,
+        &RemoveRequest {
+            mashup: "Acme.Shape_MU".into(),
+            widget: id.clone(),
+            cascade: true,
+        },
+    )
+    .unwrap();
+    assert_eq!(plan.bindings_removed, 2);
+    apply_edit(&solution, plan.edit.as_ref().unwrap(), &lock(&solution)).unwrap();
+    assert!(!content_of(&solution, "Acme.Shape_MU")
+        .to_string()
+        .contains(&id));
+}
+
+#[test]
+fn source_retarget_reads_a_call_without_a_target_as_its_name() {
+    let (dir, solution) = source_fixture();
+    write(
+        dir.path(),
+        "acme/Things/Acme.Orders.Replacement.xml",
+        r#"<Entities><Things><Thing name="Acme.Orders.Replacement" projectName="Acme"><ThingShape><ServiceDefinitions><ServiceDefinition name="GetOrders"><ResultType baseType="INFOTABLE" aspect.dataShape="Acme.Orders.Order_DS"/></ServiceDefinition></ServiceDefinitions></ThingShape></Thing></Things></Entities>"#,
+    );
+    add_source(
+        &solution,
+        &source_request("Acme.Orders.Manager", "GetOrders"),
+    )
+    .unwrap();
+    // A call Composer wrote without a Target runs the service its Name names.
+    rewrite_content(dir.path(), |content| {
+        for section in content["Data"].as_object_mut().unwrap().values_mut() {
+            for call in section["Services"].as_array_mut().into_iter().flatten() {
+                call.as_object_mut().unwrap().remove("Target");
+            }
+        }
+    });
+    let plan = plan_source_retarget(
+        &solution,
+        &SourceRetargetRequest {
+            mashup: "Acme.Orders_MU".into(),
+            from: "Acme.Orders.Manager".into(),
+            to: "Acme.Orders.Replacement".into(),
+        },
+    );
+    assert!(plan.is_ok(), "{:?}", plan.err().map(|e| e.to_string()));
 }

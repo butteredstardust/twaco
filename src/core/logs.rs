@@ -321,6 +321,80 @@ pub(crate) fn during_call(
     }
 }
 
+// ---- why an import failed -------------------------------------------------------------------
+
+/// What the Importer wrote to ApplicationLog about a failed import between `start_ms` and
+/// `end_ms`: the entries naming an import failure, at most three, each cut short. The Importer
+/// answers a failed import with a bare HTTP 406; the reason is only in this log. Entries another
+/// user wrote are not this import's. `None` when the
+/// log says nothing, or cannot be read: the caller keeps the error it has.
+pub(crate) fn import_failure(
+    remote: &dyn Remote,
+    user: &str,
+    start_ms: i64,
+    end_ms: i64,
+    wait: Wait,
+    now: &dyn Fn() -> i64,
+    sleep: &dyn Fn(Duration),
+) -> Option<String> {
+    let since = start_ms - 1_000;
+    let until = end_ms + 1_000;
+    let read = || -> Option<Vec<String>> {
+        let query = Query {
+            log: "ApplicationLog".to_string(),
+            from_ms: since,
+            to_ms: now() + 1_000,
+            level: None,
+            search: None,
+            user: None,
+            thread: None,
+            origin: None,
+            limit: 200,
+            oldest_first: true,
+        };
+        let mut reasons: Vec<String> = Vec::new();
+        for entry in self::query(remote, &query).ok()?.entries {
+            // The Importer logs one reason several times, wrapped differently each time
+            // ("Invalid request: java.lang.Exception: Import Failed: ..."): keep it once.
+            let Some(at) = entry.content.find("Import Failed:") else {
+                continue;
+            };
+            // Another user's import that failed at the same moment is not this one's reason.
+            let someone_else = !entry.user.is_empty() && !user.is_empty() && entry.user != user;
+            if !(since..=until).contains(&entry.timestamp) || someone_else {
+                continue;
+            }
+            let text = entry.content[at..].trim();
+            let mut cut = text.len().min(400);
+            while !text.is_char_boundary(cut) {
+                cut -= 1;
+            }
+            let reason = if cut < text.len() {
+                format!("{}...", &text[..cut])
+            } else {
+                text.to_string()
+            };
+            if !reasons.contains(&reason) {
+                reasons.push(reason);
+            }
+        }
+        reasons.truncate(3);
+        Some(reasons)
+    };
+    loop {
+        // A log that cannot be read (no permission to it, say) will not become readable.
+        let reasons = read()?;
+        if !reasons.is_empty() {
+            return Some(reasons.join("; "));
+        }
+        let waited = Duration::from_millis(u64::try_from(now() - end_ms).unwrap_or(0));
+        if waited >= wait.most {
+            return None;
+        }
+        sleep(wait.interval);
+    }
+}
+
 // ---- levels ---------------------------------------------------------------------------------
 
 /// A log's level, and the levels set on its subloggers (a class or package within it).
@@ -819,6 +893,71 @@ mod tests {
                 .collect();
             Ok(Some(json!({ "rows": rows })))
         }
+    }
+
+    #[test]
+    fn an_import_failure_is_read_once_from_application_log_or_not_at_all() {
+        let wrapped = "Invalid request: java.lang.Exception: Import Failed: Thing T has an invalid thing template [X]";
+        let late = Late {
+            arrivals: vec![
+                (
+                    10_700,
+                    "ApplicationLog",
+                    row(10_300, "ERROR", "i", "Entity import failed"),
+                ),
+                (
+                    10_700,
+                    "ApplicationLog",
+                    row(
+                        10_310,
+                        "ERROR",
+                        "i",
+                        "Import Failed: Thing T has an invalid thing template [X]",
+                    ),
+                ),
+                (10_700, "ApplicationLog", row(10_320, "ERROR", "i", wrapped)),
+                (
+                    10_700,
+                    "ScriptLog",
+                    row(10_330, "ERROR", "s", "Import Failed: elsewhere"),
+                ),
+                (
+                    10_700,
+                    "ApplicationLog",
+                    json!({ "timestamp": 10_305, "level": "ERROR", "origin": "i",
+                        "content": "Import Failed: another user's import", "thread": "t", "user": "other" }),
+                ),
+                (
+                    0,
+                    "ApplicationLog",
+                    row(2_000, "ERROR", "i", "Import Failed: an older import"),
+                ),
+            ],
+            clock: RefCell::new(10_400),
+            queries: RefCell::new(0),
+        };
+        let now = || *late.clock.borrow();
+        let sleep = |d: Duration| *late.clock.borrow_mut() += i64::try_from(d.as_millis()).unwrap();
+        assert_eq!(
+            import_failure(&late, "u", 10_000, 10_400, Wait::default(), &now, &sleep).as_deref(),
+            Some("Import Failed: Thing T has an invalid thing template [X]")
+        );
+        // It waited for the entry to arrive, and stopped as soon as it did.
+        assert!(*late.clock.borrow() >= 10_700 && *late.clock.borrow() < 11_500);
+
+        let quiet = Late {
+            arrivals: Vec::new(),
+            clock: RefCell::new(0),
+            queries: RefCell::new(0),
+        };
+        let now = || *quiet.clock.borrow();
+        let sleep =
+            |d: Duration| *quiet.clock.borrow_mut() += i64::try_from(d.as_millis()).unwrap();
+        assert_eq!(
+            import_failure(&quiet, "u", 0, 0, Wait::default(), &now, &sleep),
+            None
+        );
+        assert!(*quiet.clock.borrow() <= 3_000, "gave up by three seconds");
     }
 
     #[test]

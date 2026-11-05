@@ -1,10 +1,10 @@
 use super::requests::refactor::{
     AdoptApplyRequest, AdoptKind, AdoptReportRequest, AdoptTakeSide, EntityEditAction,
     EntityEditRequest, EntityNewRequest, HandoffAction, HandoffRequest, MashupAddContainedRequest,
-    MashupAddRequest, MashupBindRequest, MashupDescribeRequest, MashupDiffRequest,
-    MashupEventRequest, MashupNewRequest, MashupOffRequest, MashupOnRequest, MashupParameterAction,
-    MashupParameterRequest, MashupRecipeRequest, MashupRemoveRequest, MashupSetRequest,
-    MashupSourceAddRequest, MashupSourceListRequest, MashupSourceRemoveRequest,
+    MashupAddRequest, MashupBindRequest, MashupCollectionAddRequest, MashupDescribeRequest,
+    MashupDiffRequest, MashupEventRequest, MashupNewRequest, MashupOffRequest, MashupOnRequest,
+    MashupParameterAction, MashupParameterRequest, MashupRecipeRequest, MashupRemoveRequest,
+    MashupSetRequest, MashupSourceAddRequest, MashupSourceListRequest, MashupSourceRemoveRequest,
     MashupSourceRetargetRequest, MashupTemplatesRequest, MashupUnbindRequest,
     MashupValidateRequest, MoveMemberAction, MoveMemberRequest, NewBuildingBlockRequest,
     RenameRequest, ReprojectRequest, RetemplateRequest, WidgetsRequest,
@@ -590,19 +590,87 @@ pub(crate) fn mashup_add_tool(
     Ok(result)
 }
 
+pub(crate) fn mashup_collection_add_tool(
+    solution: &Solution,
+    arguments: MashupCollectionAddRequest,
+) -> Result<Value, ToolError> {
+    let placements = [
+        arguments
+            .container
+            .as_ref()
+            .cloned()
+            .map(crate::core::mashup::edit::Placement::In),
+        arguments
+            .right_of
+            .as_ref()
+            .cloned()
+            .map(|anchor| beside(anchor, crate::core::mashup::edit::Side::Right)),
+        arguments
+            .left_of
+            .as_ref()
+            .cloned()
+            .map(|anchor| beside(anchor, crate::core::mashup::edit::Side::Left)),
+        arguments
+            .above
+            .as_ref()
+            .cloned()
+            .map(|anchor| beside(anchor, crate::core::mashup::edit::Side::Above)),
+        arguments
+            .below
+            .as_ref()
+            .cloned()
+            .map(|anchor| beside(anchor, crate::core::mashup::edit::Side::Below)),
+    ];
+    let supplied: Vec<_> = placements.into_iter().flatten().collect();
+    if supplied.len() > 1 {
+        return Err(ToolError::invalid(
+            "give one of in, right_of, left_of, above, below",
+        ));
+    }
+    let dry_run = arguments.dry_run;
+    let request = commands::mashup::MashupCollectionAddRequest {
+        request: crate::core::mashup::authoring::CollectionAddRequest {
+            mashup: nonempty(&arguments.mashup, "mashup")?.into(),
+            cell: nonempty(&arguments.cell_mashup, "cell_mashup")?.into(),
+            data: nonempty(&arguments.data, "data")?.into(),
+            mappings: arguments.map.into_iter().collect(),
+            uid: arguments.uid.as_ref().cloned(),
+            width: arguments.width.as_ref().copied(),
+            height: arguments.height.as_ref().copied(),
+            placement: supplied.into_iter().next(),
+        },
+        mode: if dry_run { Mode::Plan } else { Mode::Apply },
+        lock_label: "mcp mashup_collection_add",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome = commands::mashup::collection_add(solution, &request, &mut notices)
+        .map_err(ToolError::coded)?;
+    let mut result = crate::core::mashup::authoring::collection_add_plan_json(
+        solution,
+        &outcome.plan,
+        outcome.applied,
+    );
+    result["dry_run"] = json!(dry_run);
+    add_notices(&mut result, &notices);
+    Ok(result)
+}
+
 pub(crate) fn mashup_set_tool(
     solution: &Solution,
     arguments: MashupSetRequest,
 ) -> Result<Value, ToolError> {
     let dry_run = arguments.dry_run;
-    if arguments.properties.is_empty() {
-        return Err(ToolError::invalid("properties must not be empty"));
+    if arguments.properties.is_empty() && arguments.style_from.is_absent() {
+        return Err(ToolError::invalid(
+            "properties and style_from must not both be empty",
+        ));
     }
     let request = commands::mashup::MashupSetRequest {
         request: crate::core::mashup::authoring::SetRequest {
             mashup: nonempty(&arguments.mashup, "mashup")?.to_string(),
             widget: nonempty(&arguments.widget, "widget")?.to_string(),
             properties: arguments.properties.into_iter().collect(),
+            style_from: arguments.style_from.as_ref().cloned(),
         },
         mode: if dry_run { Mode::Plan } else { Mode::Apply },
         lock_label: "mcp mashup_set",
@@ -859,6 +927,7 @@ pub(crate) fn mashup_source_add_tool(
             entity: nonempty(&arguments.entity, "entity")?.into(),
             service: nonempty(&arguments.service, "service")?.into(),
             dynamic: arguments.dynamic,
+            on_load: arguments.on_load,
             alias: arguments.alias.as_ref().cloned(),
             entity_from: arguments.entity_from.as_ref().cloned(),
             refresh: arguments.every.as_ref().copied(),
@@ -873,7 +942,7 @@ pub(crate) fn mashup_source_add_tool(
     let mut notices = commands::Notices::default();
     let outcome =
         commands::mashup::source_add(solution, &request, &mut notices).map_err(ToolError::coded)?;
-    let mut result = json!({"applied":outcome.applied,"dry_run":dry_run,"mashup":outcome.plan.edit.mashup,"section":outcome.plan.section,"call":outcome.plan.call,"files":files(solution,&outcome.plan.edit)});
+    let mut result = json!({"applied":outcome.applied,"dry_run":dry_run,"mashup":outcome.plan.edit.mashup,"section":outcome.plan.section,"call":outcome.plan.call,"event":outcome.plan.event,"files":files(solution,&outcome.plan.edit)});
     add_notices(&mut result, &notices);
     Ok(result)
 }
@@ -894,7 +963,7 @@ pub(crate) fn mashup_source_retarget_tool(
     let mut notices = commands::Notices::default();
     let outcome = commands::mashup::source_retarget(solution, &request, &mut notices)
         .map_err(ToolError::coded)?;
-    let mut result = json!({"mashup":arguments.mashup,"from":arguments.from,"to":arguments.to,"sections":outcome.plan.sections.iter().map(|(from_key,to_key)| json!({"from_key":from_key,"to_key":to_key})).collect::<Vec<_>>(),"bindings_rewritten":outcome.plan.bindings_rewritten,"events_rewritten":outcome.plan.events_rewritten,"files":files(solution,&outcome.plan.edit),"applied":outcome.applied,"dry_run":dry_run});
+    let mut result = json!({"mashup":arguments.mashup,"from":arguments.from,"to":arguments.to,"sections":outcome.plan.sections.iter().map(|(from_key,to_key)| json!({"from_key":from_key,"to_key":to_key})).collect::<Vec<_>>(),"bindings_rewritten":outcome.plan.bindings_rewritten,"events_rewritten":outcome.plan.events_rewritten,"notes":outcome.plan.notes,"files":files(solution,&outcome.plan.edit),"applied":outcome.applied,"dry_run":dry_run});
     add_notices(&mut result, &notices);
     Ok(result)
 }

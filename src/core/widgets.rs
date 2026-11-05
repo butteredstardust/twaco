@@ -72,6 +72,10 @@ pub struct Widget {
     /// A legacy widget that stays readable in existing mashups; adding one adds this instead.
     #[serde(default)]
     pub(crate) replaced_by: Option<String>,
+    /// An older Composer layout widget (the shape), not a PTCS one: Composer gives it none of
+    /// the properties it adds to a dropped PTCS widget.
+    #[serde(default)]
+    pub(crate) legacy: bool,
     /// Defined by one of the solution's extension projects, not shipped with the platform.
     #[serde(skip)]
     pub(crate) extension: bool,
@@ -201,6 +205,7 @@ impl Widget {
             services: None,
             function: false,
             replaced_by: None,
+            legacy: false,
             extension: true,
         }
     }

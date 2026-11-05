@@ -13,6 +13,7 @@ pub(crate) enum Mashup {
     Describe(MashupDescribe),
     Diff(MashupDiff),
     Add(MashupAdd),
+    Collection(MashupCollection),
     Set(MashupSet),
     Source(MashupSource),
     AddContained(MashupAddContained),
@@ -36,6 +37,7 @@ impl Mashup {
             Mashup::Describe(_) => "mashup describe",
             Mashup::Diff(_) => "mashup diff",
             Mashup::Add(_) => "mashup add",
+            Mashup::Collection(collection) => collection.path(),
             Mashup::Set(_) => "mashup set",
             Mashup::Source(source) => source.path(),
             Mashup::AddContained(_) => "mashup add-contained",
@@ -51,6 +53,46 @@ impl Mashup {
             Mashup::New(_) => "mashup new",
         }
     }
+}
+
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct MashupCollection {
+    #[command(subcommand)]
+    pub(crate) command: MashupCollectionCommand,
+}
+impl MashupCollection {
+    fn path(&self) -> &'static str {
+        match self.command {
+            MashupCollectionCommand::Add(_) => "mashup collection add",
+        }
+    }
+}
+#[derive(Debug, clap::Subcommand)]
+pub(crate) enum MashupCollectionCommand {
+    Add(MashupCollectionAdd),
+}
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct MashupCollectionAdd {
+    #[arg(long = "data", value_name = "address")]
+    pub(crate) data: Option<String>,
+    #[arg(long = "map", value_name = "value")]
+    pub(crate) mappings: Option<String>,
+    #[arg(long = "uid", value_name = "row-field")]
+    pub(crate) uid: Option<String>,
+    #[arg(long = "width", value_name = "px")]
+    pub(crate) width: Option<u32>,
+    #[arg(long = "height", value_name = "px")]
+    pub(crate) height: Option<u32>,
+    #[command(flatten)]
+    pub(crate) place: Place,
+    #[command(flatten)]
+    pub(crate) apply: Apply,
+    #[command(flatten)]
+    pub(crate) json: Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
 }
 
 #[derive(Debug, clap::Args)]
@@ -81,6 +123,8 @@ pub(crate) enum MashupSourceCommand {
 pub(crate) struct MashupSourceAdd {
     #[arg(long = "dynamic")]
     pub(crate) dynamic: bool,
+    #[arg(long = "on-load")]
+    pub(crate) on_load: bool,
     #[arg(long = "as", value_name = "new")]
     pub(crate) alias: Option<String>,
     #[arg(long = "entity-from", value_name = "address")]
@@ -211,6 +255,8 @@ pub(crate) struct MashupAdd {
 pub(crate) struct MashupSet {
     #[arg(long = "prop", value_name = "name=value")]
     pub(crate) props: Vec<String>,
+    #[arg(long = "style-from", value_name = "mashup:widget")]
+    pub(crate) style_from: Option<String>,
     #[command(flatten)]
     pub(crate) apply: Apply,
     #[command(flatten)]
@@ -537,6 +583,15 @@ pub(crate) fn mashup_new_cmd(solution: &Solution, args: &MashupNew) -> u8 {
         return OK;
     }
     let plan = &outcome.plan;
+    if plan.from.is_some() {
+        for line in mashup::authoring::copy_summary_lines(solution, plan, outcome.applied) {
+            println!("{line}");
+        }
+        if !outcome.applied {
+            println!("run again with --apply to write it");
+        }
+        return OK;
+    }
     let kind = if plan.master {
         "master mashup"
     } else {
@@ -1118,6 +1173,144 @@ pub(crate) fn mashup_add_cmd(solution: &Solution, args: &MashupAdd) -> u8 {
     OK
 }
 
+/// `twaco mashup collection add`: insert a collection cell and bind its data in one edit.
+pub(crate) fn mashup_collection_add_cmd(solution: &Solution, args: &MashupCollectionAdd) -> u8 {
+    let [mashup_name, cell] = args.operands.as_slice() else {
+        eprintln!(
+            "{} mashup collection add needs <parent> and <cell-mashup>",
+            style::prefix()
+        );
+        return FAILED;
+    };
+    let Some(data) = &args.data else {
+        eprintln!(
+            "{} mashup collection add needs --data <address>",
+            style::prefix()
+        );
+        return FAILED;
+    };
+    let placements: Vec<(&str, &String)> = [
+        ("--in", args.place.inside.as_ref()),
+        ("--right-of", args.place.right_of.as_ref()),
+        ("--left-of", args.place.left_of.as_ref()),
+        ("--above", args.place.above.as_ref()),
+        ("--below", args.place.below.as_ref()),
+    ]
+    .into_iter()
+    .filter_map(|(flag, value)| value.map(|value| (flag, value)))
+    .collect();
+    if placements.len() > 1 {
+        eprintln!(
+            "{} give one of --in, --right-of, --left-of, --above, --below",
+            style::prefix()
+        );
+        return FAILED;
+    }
+    let placement = placements.first().map(|(flag, value)| match *flag {
+        "--in" => Placement::In((*value).clone()),
+        "--right-of" => beside(value, Side::Right),
+        "--left-of" => beside(value, Side::Left),
+        "--above" => beside(value, Side::Above),
+        "--below" => beside(value, Side::Below),
+        _ => unreachable!(),
+    });
+    let mappings = match args
+        .mappings
+        .as_deref()
+        .unwrap_or_default()
+        .split(',')
+        .filter(|text| !text.is_empty())
+        .map(|text| {
+            text.split_once('=')
+                .filter(|(field, parameter)| !field.is_empty() && !parameter.is_empty())
+                .map(|(field, parameter)| (field.to_string(), parameter.to_string()))
+                .ok_or_else(|| format!("--map {text:?} must be row-field=cell-parameter"))
+        })
+        .collect::<Result<Vec<_>, _>>()
+    {
+        Ok(mappings) => mappings,
+        Err(error) => {
+            eprintln!("{} {error}", style::prefix());
+            return FAILED;
+        }
+    };
+    let request = commands::mashup::MashupCollectionAddRequest {
+        request: mashup::authoring::CollectionAddRequest {
+            mashup: mashup_name.clone(),
+            cell: cell.clone(),
+            data: data.clone(),
+            mappings,
+            uid: args.uid.clone(),
+            width: args.width,
+            height: args.height,
+            placement,
+        },
+        mode: if args.apply.apply {
+            Mode::Apply
+        } else {
+            Mode::Plan
+        },
+        lock_label: "mashup collection add",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome = match commands::mashup::collection_add(solution, &request, &mut notices) {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            print_notices(&notices);
+            eprintln!("{} {error}", style::prefix());
+            return FAILED;
+        }
+    };
+    print_notices(&notices);
+    let report =
+        mashup::authoring::collection_add_plan_json(solution, &outcome.plan, outcome.applied);
+    if args.json.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report).expect("a collection plan serialises")
+        );
+        return OK;
+    }
+    println!(
+        "{} collection {} using {}",
+        if outcome.applied {
+            "added"
+        } else {
+            "would add"
+        },
+        outcome.plan.id,
+        outcome.plan.cell
+    );
+    println!(
+        "  mappings: {}",
+        outcome
+            .plan
+            .mappings
+            .iter()
+            .map(|(field, parameter)| format!("{field}={parameter}"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    if let Some(uid) = &outcome.plan.uid {
+        println!("  uid: {uid}");
+    }
+    println!("  binding: {}", outcome.plan.binding);
+    for note in &outcome.plan.notes {
+        println!("  note: {note}");
+    }
+    println!(
+        "  files: {}",
+        report["files"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|value| value.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    OK
+}
+
 /// `twaco mashup set <mashup> <widget>`: set checked widget properties in one edit.
 pub(crate) fn mashup_set_cmd(solution: &Solution, args: &MashupSet) -> u8 {
     let [mashup_name, widget] = args.operands.as_slice() else {
@@ -1139,9 +1332,12 @@ pub(crate) fn mashup_set_cmd(solution: &Solution, args: &MashupSet) -> u8 {
         })
         .collect::<Result<Vec<_>, _>>()
     {
-        Ok(properties) if !properties.is_empty() => properties,
+        Ok(properties) if !properties.is_empty() || args.style_from.is_some() => properties,
         Ok(_) => {
-            eprintln!("{} mashup set needs --prop <name=value>", style::prefix());
+            eprintln!(
+                "{} mashup set needs --prop <name=value> or --style-from <mashup:widget>",
+                style::prefix()
+            );
             return FAILED;
         }
         Err(error) => {
@@ -1154,6 +1350,7 @@ pub(crate) fn mashup_set_cmd(solution: &Solution, args: &MashupSet) -> u8 {
             mashup: mashup_name.clone(),
             widget: widget.clone(),
             properties,
+            style_from: args.style_from.clone(),
         },
         mode: if args.apply.apply {
             Mode::Apply
@@ -1178,6 +1375,38 @@ pub(crate) fn mashup_set_cmd(solution: &Solution, args: &MashupSet) -> u8 {
             "{}",
             serde_json::to_string_pretty(&report).expect("a set plan serialises")
         );
+    } else if let Some(copy) = &outcome.plan.style_copy {
+        if copy.copied {
+            println!(
+                "{} the style of {}:{} to {}:{}",
+                if outcome.applied {
+                    "copied"
+                } else {
+                    "would copy"
+                },
+                copy.reference_mashup,
+                copy.reference_widget,
+                outcome.plan.mashup,
+                outcome.plan.widget
+            );
+        } else {
+            println!(
+                "nothing to copy: {}:{} has no style entry",
+                copy.reference_mashup, copy.reference_widget
+            );
+        }
+        for change in &outcome.plan.changed {
+            if change.property.starts_with("StyleProperties.data.") {
+                continue;
+            }
+            let after = compact_json(&change.after);
+            println!(
+                "{} {}.{} = {after}",
+                if outcome.applied { "set" } else { "would set" },
+                outcome.plan.widget,
+                change.property
+            );
+        }
     } else if outcome.plan.changed.is_empty() {
         println!(
             "unchanged {} in {}",
@@ -1456,6 +1685,7 @@ pub(crate) fn mashup_source_add_cmd(solution: &Solution, args: &MashupSourceAdd)
             entity: entity.clone(),
             service: service.clone(),
             dynamic: args.dynamic,
+            on_load: args.on_load,
             alias: args.alias.clone(),
             entity_from: args.entity_from.clone(),
             refresh: args.every,
@@ -1481,7 +1711,7 @@ pub(crate) fn mashup_source_add_cmd(solution: &Solution, args: &MashupSourceAdd)
         }
     };
     print_notices(&notices);
-    let report = serde_json::json!({"applied":outcome.applied,"mashup":outcome.plan.edit.mashup,"section":outcome.plan.section,"call":outcome.plan.call,"files":edit_files(solution,&outcome.plan.edit)});
+    let report = serde_json::json!({"applied":outcome.applied,"mashup":outcome.plan.edit.mashup,"section":outcome.plan.section,"call":outcome.plan.call,"event":outcome.plan.event,"files":edit_files(solution,&outcome.plan.edit)});
     if args.json.json {
         println!(
             "{}",
@@ -1498,6 +1728,9 @@ pub(crate) fn mashup_source_add_cmd(solution: &Solution, args: &MashupSourceAdd)
             outcome.plan.call,
             outcome.plan.section
         );
+        if let Some(event) = &outcome.plan.event {
+            println!("  event {event}");
+        }
         if !outcome.applied {
             println!("run again with --apply to write it");
         }
@@ -1540,7 +1773,7 @@ pub(crate) fn mashup_source_retarget_cmd(solution: &Solution, args: &MashupSourc
         }
     };
     print_notices(&notices);
-    let report = serde_json::json!({"applied":outcome.applied,"mashup":mashup,"from":from,"to":to,"sections":outcome.plan.sections.iter().map(|(from_key,to_key)| serde_json::json!({"from_key":from_key,"to_key":to_key})).collect::<Vec<_>>(),"bindings_rewritten":outcome.plan.bindings_rewritten,"events_rewritten":outcome.plan.events_rewritten,"files":edit_files(solution,&outcome.plan.edit)});
+    let report = serde_json::json!({"applied":outcome.applied,"mashup":mashup,"from":from,"to":to,"sections":outcome.plan.sections.iter().map(|(from_key,to_key)| serde_json::json!({"from_key":from_key,"to_key":to_key})).collect::<Vec<_>>(),"bindings_rewritten":outcome.plan.bindings_rewritten,"events_rewritten":outcome.plan.events_rewritten,"notes":outcome.plan.notes,"files":edit_files(solution,&outcome.plan.edit)});
     if args.json.json {
         println!(
             "{}",
@@ -1558,6 +1791,9 @@ pub(crate) fn mashup_source_retarget_cmd(solution: &Solution, args: &MashupSourc
         );
         if outcome.plan.dynamic {
             println!("  dynamic source: set its Thing with `twaco mashup param set {mashup} Manager --default <Thing>`");
+        }
+        for note in &outcome.plan.notes {
+            println!("  note: {note}");
         }
         if !outcome.applied {
             println!("run again with --apply to write it");

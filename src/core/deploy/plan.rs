@@ -100,23 +100,24 @@ pub(crate) fn plan_bundles(
     if options.changed_since.is_some() && !options.only.is_empty() {
         return Err("--only cannot be combined with --changed-since".to_string());
     }
-    let order = match solution.deploy_order() {
-        Ok(order) => order,
-        Err(error) => {
-            return Err(format!("{error}"));
+    let mut named = BTreeSet::new();
+    for name in options.only_projects {
+        if solution.project(name).is_none() {
+            return Err(format!("this solution has no project named {name}"));
         }
-    };
-    let selected_projects: BTreeSet<&str> = if options.only_projects.is_empty() {
+        named.insert(name.as_str());
+    }
+    // A cycle among projects this deploy leaves out does not stop it.
+    let order = if named.is_empty() {
+        solution.deploy_order()
+    } else {
+        solution.deploy_order_of(&named)
+    }
+    .map_err(|error| format!("{error}"))?;
+    let selected_projects: BTreeSet<&str> = if named.is_empty() {
         order.iter().map(|project| project.name.as_str()).collect()
     } else {
-        let mut selected = BTreeSet::new();
-        for name in options.only_projects {
-            if solution.project(name).is_none() {
-                return Err(format!("this solution has no project named {name}"));
-            }
-            selected.insert(name.as_str());
-        }
-        selected
+        named
     };
 
     let found = super::workspace::discover(solution);

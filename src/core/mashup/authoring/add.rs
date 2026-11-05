@@ -16,7 +16,7 @@ use std::path::Path;
 pub struct AddRequest {
     pub mashup: String,
     pub widget: String,
-    /// `name:TYPE` inputs of an expression or validator.
+    /// `name:TYPE` or `name:TYPE=default` inputs of an expression or validator.
     pub inputs: Vec<String>,
     pub placement: Option<Placement>,
     pub label: Option<String>,
@@ -87,7 +87,11 @@ fn add_function_widget(
     }
     let mut definitions = Vec::new();
     for text in &request.inputs {
-        let (name, base_type) = text.split_once(':').ok_or_else(|| {
+        let (declaration, default) = match text.split_once('=') {
+            Some((declaration, default)) => (declaration, Some(default)),
+            None => (text.as_str(), None),
+        };
+        let (name, base_type) = declaration.split_once(':').ok_or_else(|| {
             AuthoringError::Invalid(format!("--input {text:?} must be name:TYPE"))
         })?;
         validate_parameter(name, base_type, "IN", Some(""))?;
@@ -99,12 +103,21 @@ fn add_function_widget(
                 "input {name} is given twice"
             )));
         }
+        let default = default
+            .map(|value| {
+                default_value(base_type, value).map_err(|error| {
+                    AuthoringError::Invalid(format!(
+                        "--input {text:?} has an invalid {base_type} default: {error}"
+                    ))
+                })
+            })
+            .transpose()?;
         definitions.push(ParameterDefinition {
             name: name.into(),
             base_type: base_type.into(),
             direction: "IN".into(),
             description: String::new(),
-            default: None,
+            default,
             data_shape: None,
             visible: true,
         });
@@ -114,7 +127,7 @@ fn add_function_widget(
     if takes_inputs {
         let entries = definitions
             .iter()
-            .map(|def| navigation_definition(def, None))
+            .map(|def| navigation_definition(def, def.default.as_ref()))
             .collect();
         mashup::edit::insert_sorted(
             mashup::edit::properties_mut(&mut value),

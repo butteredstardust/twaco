@@ -1851,7 +1851,7 @@
           "additionalProperties": { "type": "string" }
         },
         "inputs": {
-          "description": "An expression's or validator's inputs as `name:TYPE`.",
+          "description": "An expression's or validator's inputs as `name:TYPE` or `name:TYPE=default`.",
           "type": "array",
           "items": { "type": "string" }
         },
@@ -1882,6 +1882,7 @@
           "description": "Exact property names and their JSON values. Strings use the same syntax as CLI --prop.",
           "type": "object"
         },
+        "style_from": { "description": "Copy this widget's root StyleProperties.data entry, as `<mashup>:<widget>`.", "type": "string" },
         "dry_run": { "type": "boolean", "default": true }
       }
     },

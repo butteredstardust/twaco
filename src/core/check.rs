@@ -132,6 +132,96 @@ impl CheckReport {
     pub fn blocks(&self) -> bool {
         self.gates.iter().any(GateResult::blocks)
     }
+
+    /// Narrow the report to a deploy of `projects`: a finding in a file of another project
+    /// becomes a warning, since that project is not deployed. A finding twaco cannot place in a
+    /// project (the solution's configuration, a name two projects share) still blocks, and so
+    /// does a gate that could not run. Returns how many findings were set aside.
+    pub(crate) fn scope_to_projects(&mut self, solution: &Solution, projects: &[String]) -> usize {
+        if projects.is_empty() {
+            return 0;
+        }
+        let owners = file_owners(solution);
+        let mut set_aside = 0;
+        for gate in &mut self.gates {
+            let (kept, other): (Vec<_>, Vec<_>) = std::mem::take(&mut gate.findings)
+                .into_iter()
+                .partition(|finding| {
+                    owner_of(&owners, &finding.file)
+                        .is_none_or(|project| projects.iter().any(|p| p == project))
+                });
+            gate.findings = kept;
+            if other.is_empty() {
+                continue;
+            }
+            set_aside += other.len();
+            let mut by_project: BTreeMap<&str, usize> = BTreeMap::new();
+            for finding in &other {
+                if let Some(project) = owner_of(&owners, &finding.file) {
+                    *by_project.entry(project).or_default() += 1;
+                }
+            }
+            gate.prose.push(format!(
+                "{} finding(s) in projects this deploy leaves out do not block it: {}",
+                other.len(),
+                by_project
+                    .iter()
+                    .map(|(project, count)| format!("{project} ({count})"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+            gate.warnings.extend(other);
+        }
+        set_aside
+    }
+}
+
+/// Which project each entity file and each entity's sidecar folder belongs to, by path relative
+/// to the solution root with `/` separators. A sidecar folder two projects' entities share (one
+/// name in two collections) is left out, so its findings stay unplaced.
+fn file_owners(solution: &Solution) -> BTreeMap<String, Option<String>> {
+    let discovered = workspace::discover(solution);
+    let src = solution
+        .src_root()
+        .strip_prefix(&solution.root)
+        .map(|path| path.to_string_lossy().replace('\\', "/"))
+        .unwrap_or_else(|_| "src".to_string());
+    let mut owners: BTreeMap<String, Option<String>> = BTreeMap::new();
+    for file in &discovered.entities {
+        // Deploy's own rule: an entity belongs to the project its projectName names, and to the
+        // folder it was found under only when it names none.
+        let project = if file.info.project.is_empty() {
+            file.found_under.clone()
+        } else {
+            file.info.project.clone()
+        };
+        let relative = solution.relative(&file.path).replace('\\', "/");
+        owners.insert(relative, Some(project.clone()));
+        let folder = format!("{src}/{}/", file.info.name);
+        owners
+            .entry(folder)
+            .and_modify(|owner| {
+                if owner.as_deref() != Some(project.as_str()) {
+                    *owner = None;
+                }
+            })
+            .or_insert_with(|| Some(project));
+    }
+    owners
+}
+
+/// The project a finding's file belongs to: the entity file itself, or the sidecar folder it is
+/// under.
+fn owner_of<'a>(owners: &'a BTreeMap<String, Option<String>>, file: &str) -> Option<&'a str> {
+    let file = file.replace('\\', "/");
+    if let Some(owner) = owners.get(&file) {
+        return owner.as_deref();
+    }
+    owners
+        .range(..=file.clone())
+        .rev()
+        .find(|(path, _)| path.ends_with('/') && file.starts_with(path.as_str()))
+        .and_then(|(_, owner)| owner.as_deref())
 }
 
 /// The built-in gates, by the names `[gates] advisory` uses.
@@ -2924,5 +3014,139 @@ name = \"P\"
                 gate.findings
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod scope_tests {
+    use super::*;
+
+    fn finding(file: &str) -> Finding {
+        Finding {
+            gate: "g".into(),
+            file: file.into(),
+            line: 0,
+            rule: "r".into(),
+            message: "m".into(),
+        }
+    }
+
+    fn thing(root: &Path, path: &str, name: &str, project: &str) {
+        let path = root.join(path);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(
+            path,
+            format!(r#"<Entities><Things><Thing name="{name}" projectName="{project}"/></Things></Entities>"#),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn a_partial_deploy_sets_aside_only_what_another_project_owns() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::write(
+            root.join("twaco.toml"),
+            "[[project]]\nname = \"A\"\nroot = \"a\"\n\n[[project]]\nname = \"B\"\nroot = \"b\"\n",
+        )
+        .unwrap();
+        thing(root, "a/Things/A.T.xml", "A.T", "A");
+        thing(root, "b/Things/B.T.xml", "B.T", "B");
+        // One name in both projects: its sidecar folder cannot be placed.
+        thing(root, "a/Things/Shared.xml", "Shared", "A");
+        thing(root, "b/ThingTemplates/Shared.xml", "Shared", "B");
+        let solution = Solution::load(&root.join("twaco.toml")).unwrap();
+        let mut gate = GateResult::passed("g", 6);
+        gate.findings = vec![
+            finding("a/Things/A.T.xml"),
+            finding("src/A.T/services/Get/script.js"),
+            finding("b/Things/B.T.xml"),
+            finding("src/B.T/services/Get/script.js"),
+            finding("src/Shared/services/Get/script.js"),
+            finding("twaco.toml"),
+            finding(""),
+        ];
+        let mut report = CheckReport { gates: vec![gate] };
+        assert_eq!(report.scope_to_projects(&solution, &[]), 0);
+        assert_eq!(report.gates[0].findings.len(), 7);
+
+        let set_aside = report.scope_to_projects(&solution, &["A".to_string()]);
+        assert_eq!(set_aside, 2);
+        let kept: Vec<&str> = report.gates[0]
+            .findings
+            .iter()
+            .map(|f| f.file.as_str())
+            .collect();
+        assert_eq!(
+            kept,
+            [
+                "a/Things/A.T.xml",
+                "src/A.T/services/Get/script.js",
+                "src/Shared/services/Get/script.js",
+                "twaco.toml",
+                ""
+            ]
+        );
+        let warned: Vec<&str> = report.gates[0]
+            .warnings
+            .iter()
+            .map(|f| f.file.as_str())
+            .collect();
+        assert_eq!(
+            warned,
+            ["b/Things/B.T.xml", "src/B.T/services/Get/script.js"]
+        );
+        assert!(report.gates[0].prose[0].contains("B (2)"));
+        // What is left in the deployed project and the unplaced findings still block.
+        assert!(report.blocks());
+
+        let mut only_b = CheckReport {
+            gates: vec![{
+                let mut gate = GateResult::passed("g", 1);
+                gate.findings = vec![finding("a/Things/A.T.xml")];
+                gate
+            }],
+        };
+        only_b.scope_to_projects(&solution, &["B".to_string()]);
+        assert!(
+            !only_b.blocks(),
+            "a finding only in A does not stop a deploy of B"
+        );
+        let mut broken = GateResult::passed("g", 0);
+        broken.broken = Some("could not run".into());
+        let mut report = CheckReport {
+            gates: vec![broken],
+        };
+        report.scope_to_projects(&solution, &["B".to_string()]);
+        assert!(report.blocks(), "a gate that could not run still blocks");
+    }
+
+    #[test]
+    fn a_misfiled_entity_belongs_to_the_project_it_names_as_a_deploy_takes_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::write(
+            root.join("twaco.toml"),
+            "[[project]]\nname = \"A\"\nroot = \"a\"\n\n[[project]]\nname = \"B\"\nroot = \"b\"\n",
+        )
+        .unwrap();
+        // Filed under A's folder, but its projectName is B: a deploy of B imports it.
+        thing(root, "a/Things/B.Stray.xml", "B.Stray", "B");
+        let solution = Solution::load(&root.join("twaco.toml")).unwrap();
+        let report = |projects: &[&str]| {
+            let mut gate = GateResult::passed("g", 2);
+            gate.findings = vec![
+                finding("a/Things/B.Stray.xml"),
+                finding("src\\B.Stray\\services\\Get\\script.js"),
+            ];
+            let mut report = CheckReport { gates: vec![gate] };
+            let projects: Vec<String> = projects.iter().map(|p| p.to_string()).collect();
+            report.scope_to_projects(&solution, &projects);
+            report
+        };
+        let for_b = report(&["B"]);
+        assert_eq!(for_b.gates[0].findings.len(), 2, "both stop a deploy of B");
+        let for_a = report(&["A"]);
+        assert!(!for_a.blocks(), "neither stops a deploy of A");
     }
 }
