@@ -6,6 +6,8 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.1.54] - 2026-11-05
+
 ### Added
 
 - `mashup source add --on-load` (MCP `mashup_source_add` `on_load`) creates a source call and its
@@ -1622,6 +1624,7 @@ The first public release.
 - `mcp` serves 39 tools over stdio to MCP clients, with compact summaries, validated arguments
   and dry runs by default for tools that can write to a server.
 
+[0.1.54]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.54
 [0.1.53]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.53
 [0.1.52]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.52
 [0.1.51]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.51
