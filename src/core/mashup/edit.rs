@@ -327,6 +327,13 @@ impl MashupDocument {
         properties_mut(&mut self.value["UI"])
     }
 
+    /// The root widget's properties.
+    pub(crate) fn root_properties(&self) -> &Map<String, Value> {
+        self.value["UI"]["Properties"]
+            .as_object()
+            .expect("checked: UI.Properties is an object")
+    }
+
     /// Set a top-level key of the document, such as `mashupType`.
     pub(crate) fn set_top(&mut self, key: &str, value: Value) {
         insert_sorted(self.root_mut(), key, value);

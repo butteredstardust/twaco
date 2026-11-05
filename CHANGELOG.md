@@ -25,6 +25,9 @@ All notable changes to twaco are recorded here. The format follows
 - An import the Importer refuses with HTTP 406 now says why, from what the server logged to
   ApplicationLog at that moment (`entity push`, `deploy`, `import`).
 - `mashup new --from` prints a summary of the copy instead of every copied widget.
+- `mashup set --style-from <mashup>:<widget>` (MCP `style_from`) copies one widget's visual style,
+  its entry in the root's `StyleProperties`, from a reference mashup; setting the root's
+  `StyleTheme` now refuses a theme that is neither the default nor in the solution.
 
 ### Fixed
 

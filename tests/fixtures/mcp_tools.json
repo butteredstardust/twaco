@@ -5525,6 +5525,10 @@
           "description": "Exact property names and their JSON values. Strings use the same syntax as CLI --prop.",
           "type": "object"
         },
+        "style_from": {
+          "description": "Copy this widget's root StyleProperties.data entry, as `<mashup>:<widget>`.",
+          "type": "string"
+        },
         "dry_run": {
           "type": "boolean",
           "default": true
@@ -5566,6 +5570,9 @@
         "changed": {
           "type": "array",
           "items": true
+        },
+        "style_copy": {
+          "description": "The source style entry and whether it existed, when style_from was supplied."
         },
         "files": {
           "type": "array",

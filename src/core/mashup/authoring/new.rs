@@ -162,21 +162,10 @@ pub(crate) fn plan_new(
             solution.relative(&existing.path)
         )));
     }
-    let theme = match &request.theme {
-        None => DEFAULT_THEME.to_string(),
-        Some(theme) if theme == DEFAULT_THEME => theme.clone(),
-        Some(theme) => {
-            if !entities
-                .iter()
-                .any(|e| e.info.collection == "StyleThemes" && &e.info.name == theme)
-            {
-                return Err(AuthoringError::Unknown(format!(
-                    "no StyleTheme {theme} in the solution; twaco does not create one (the default is {DEFAULT_THEME})"
-                )));
-            }
-            theme.clone()
-        }
-    };
+    let theme = request.theme.as_deref().map_or_else(
+        || Ok(DEFAULT_THEME.to_string()),
+        |theme| validate_theme(solution, theme),
+    )?;
     let visibility = request
         .visibility
         .iter()
@@ -315,6 +304,21 @@ pub(crate) fn plan_new(
         menus,
         tabs,
     })
+}
+
+/// Refuse themes Composer cannot resolve without creating an entity.
+pub(crate) fn validate_theme(solution: &Solution, theme: &str) -> Result<String, AuthoringError> {
+    if theme == DEFAULT_THEME
+        || workspace::entities(solution)
+            .iter()
+            .any(|entity| entity.info.collection == "StyleThemes" && entity.info.name == theme)
+    {
+        Ok(theme.to_string())
+    } else {
+        Err(AuthoringError::Unknown(format!(
+            "no StyleTheme {theme} in the solution; twaco does not create one (the default is {DEFAULT_THEME})"
+        )))
+    }
 }
 
 /// Copy an authored mashup without ever rebuilding its entity XML.  Only identity and the

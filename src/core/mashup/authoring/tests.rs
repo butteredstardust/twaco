@@ -862,6 +862,7 @@ fn set_changes_a_flex_container_and_keeps_root_css_in_its_sidecar() {
                 ("flex-direction".into(), json!("column")),
                 ("StyleProperties".into(), json!({"gap": "4px"})),
             ],
+            style_from: None,
         },
     )
     .unwrap();
@@ -880,6 +881,7 @@ fn set_changes_a_flex_container_and_keeps_root_css_in_its_sidecar() {
                 ("CustomClass".into(), json!("app")),
                 ("CustomMashupCss".into(), json!(".app { color: red; }")),
             ],
+            style_from: None,
         },
     )
     .unwrap();
@@ -902,6 +904,7 @@ fn set_changes_a_flex_container_and_keeps_root_css_in_its_sidecar() {
             mashup: name.into(),
             widget: "mashup-root".into(),
             properties: vec![("CustomClass".into(), json!("app"))],
+            style_from: None,
         },
     )
     .unwrap();
@@ -4943,6 +4946,7 @@ fn chart_series_fields_root_properties_and_fixed_icons_are_settable() {
                     .into_iter()
                     .map(|(key, value)| (key.to_string(), value))
                     .collect(),
+                style_from: None,
             },
         )
     };
@@ -5014,6 +5018,7 @@ fn root_parameter_defaults_are_set_through_mashup_param() {
             mashup: "Acme.Orders_MU".into(),
             widget: "mashup-root".into(),
             properties: vec![("Manager".into(), json!("Acme.Orders.Manager"))],
+            style_from: None,
         },
     )
     .unwrap_err()
@@ -5864,4 +5869,256 @@ fn validate_reports_collection_maps_the_result_or_the_cell_lacks() {
         .problems
         .iter()
         .any(|p| p.rule == "unknown-cell-parameter"));
+}
+
+/// Two mashups, each a label in the center; the reference styles its label and its container.
+fn style_fixture() -> (tempfile::TempDir, Solution) {
+    let (dir, solution) = one_project();
+    for name in ["Acme.Ref_MU", "Acme.Target_MU"] {
+        let plan = plan_new(&solution, &request(name)).unwrap();
+        apply_new(&solution, &plan, &lock(&solution)).unwrap();
+        let plan = plan_add(&solution, &add_request(name, "label")).unwrap();
+        apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    }
+    let styles = json!({
+        "meta": {"type": "WidgetStyler", "version": "1.0"},
+        "data": {
+            "ptcslabel-3": {"parts": {"$": {"$": {"color": "rgba(1,2,3,1)"}}}, "widget": "ptcs-label"},
+            "flexcontainer-2": {"parts": {"$": {"$": {"background": "inherit"}}}, "widget": "flex-container"}
+        }
+    });
+    set_and_apply(
+        &solution,
+        "Acme.Ref_MU",
+        "mashup-root",
+        vec![("StyleProperties".into(), styles)],
+        None,
+    )
+    .unwrap();
+    (dir, solution)
+}
+
+fn set_and_apply(
+    solution: &Solution,
+    mashup: &str,
+    widget: &str,
+    properties: Vec<(String, Value)>,
+    style_from: Option<&str>,
+) -> Result<SetPlan, AuthoringError> {
+    let plan = plan_set(
+        solution,
+        &SetRequest {
+            mashup: mashup.into(),
+            widget: widget.into(),
+            properties,
+            style_from: style_from.map(str::to_string),
+        },
+    )?;
+    if let Some(edit) = &plan.edit {
+        apply_edit(solution, edit, &lock(solution)).unwrap();
+    }
+    Ok(plan)
+}
+
+fn root_styles(solution: &Solution, mashup: &str) -> Value {
+    content_of(solution, mashup)["UI"]["Properties"]["StyleProperties"].clone()
+}
+
+#[test]
+fn style_from_copies_one_entry_and_keeps_the_rest() {
+    let (_dir, solution) = style_fixture();
+    // The target already styles its container: that entry and its meta stay.
+    let own = json!({
+        "meta": {"type": "WidgetStyler", "version": "1.0"},
+        "data": {"flexcontainer-2": {"parts": {"$": {"$": {"background": "red"}}}, "widget": "flex-container"}}
+    });
+    set_and_apply(
+        &solution,
+        "Acme.Target_MU",
+        "mashup-root",
+        vec![("StyleProperties".into(), own)],
+        None,
+    )
+    .unwrap();
+    let plan = set_and_apply(
+        &solution,
+        "Acme.Target_MU",
+        "ptcslabel-3",
+        Vec::new(),
+        Some("Acme.Ref_MU:ptcslabel-3"),
+    )
+    .unwrap();
+    assert!(plan.style_copy.as_ref().is_some_and(|copy| copy.copied));
+    let styles = root_styles(&solution, "Acme.Target_MU");
+    assert_eq!(
+        styles["data"]["ptcslabel-3"],
+        root_styles(&solution, "Acme.Ref_MU")["data"]["ptcslabel-3"]
+    );
+    assert_eq!(
+        styles["data"]["flexcontainer-2"]["parts"]["$"]["$"]["background"],
+        "red"
+    );
+    assert_eq!(styles["meta"]["type"], "WidgetStyler");
+
+    // The same copy again changes nothing and writes nothing.
+    let again = plan_set(
+        &solution,
+        &SetRequest {
+            mashup: "Acme.Target_MU".into(),
+            widget: "ptcslabel-3".into(),
+            properties: Vec::new(),
+            style_from: Some("Acme.Ref_MU:ptcslabel-3".into()),
+        },
+    )
+    .unwrap();
+    assert!(again.edit.is_none() && again.changed.is_empty());
+}
+
+#[test]
+fn style_from_creates_the_style_map_and_combines_with_props_in_one_edit() {
+    let (_dir, solution) = style_fixture();
+    assert!(root_styles(&solution, "Acme.Target_MU")
+        .get("data")
+        .is_none());
+    let plan = set_and_apply(
+        &solution,
+        "Acme.Target_MU",
+        "ptcslabel-3",
+        vec![("LabelType".into(), json!("header"))],
+        Some("Acme.Ref_MU:ptcslabel-3"),
+    )
+    .unwrap();
+    assert_eq!(plan.changed.len(), 2, "{:?}", plan.changed);
+    let styles = root_styles(&solution, "Acme.Target_MU");
+    assert_eq!(
+        styles["meta"],
+        json!({"type": "WidgetStyler", "version": "1.0"})
+    );
+    assert_eq!(styles["data"]["ptcslabel-3"]["widget"], "ptcs-label");
+    let content = content_of(&solution, "Acme.Target_MU");
+    assert!(content.to_string().contains("\"LabelType\":\"header\""));
+}
+
+#[test]
+fn style_from_refuses_what_it_cannot_copy_and_copies_nothing_from_an_unstyled_widget() {
+    let (dir, solution) = style_fixture();
+    let before = tree_bytes(dir.path());
+    let attempt = |widget: &str, reference: &str| {
+        plan_set(
+            &solution,
+            &SetRequest {
+                mashup: "Acme.Target_MU".into(),
+                widget: widget.into(),
+                properties: Vec::new(),
+                style_from: Some(reference.into()),
+            },
+        )
+    };
+    for (widget, reference, expected) in [
+        (
+            "ptcslabel-3",
+            "Acme.Ref_MU:flexcontainer-2",
+            "cannot copy style",
+        ),
+        (
+            "ptcslabel-3",
+            "Acme.Nowhere_MU:ptcslabel-3",
+            "Acme.Nowhere_MU",
+        ),
+        ("ptcslabel-3", "Acme.Ref_MU:ptcslabel-99", "ptcslabel-99"),
+        ("ptcslabel-3", "Acme.Ref_MU", "<mashup>:<widget>"),
+    ] {
+        let error = attempt(widget, reference)
+            .err()
+            .unwrap_or_else(|| panic!("{reference}: not refused"))
+            .to_string();
+        assert!(error.contains(expected), "{reference}: {error}");
+    }
+    // The reference's label has a style; the target's label, copied back to the reference,
+    // has none: nothing to copy, nothing written.
+    let plan = plan_set(
+        &solution,
+        &SetRequest {
+            mashup: "Acme.Ref_MU".into(),
+            widget: "ptcslabel-3".into(),
+            properties: Vec::new(),
+            style_from: Some("Acme.Target_MU:ptcslabel-3".into()),
+        },
+    )
+    .unwrap();
+    assert!(plan.style_copy.as_ref().is_some_and(|copy| !copy.copied));
+    assert!(plan.edit.is_none());
+    assert!(
+        before == tree_bytes(dir.path()),
+        "a refusal or a no-op changed a file"
+    );
+}
+
+#[test]
+fn style_from_refuses_a_malformed_style_map() {
+    let (dir, solution) = style_fixture();
+    let path = dir.path().join("src/Acme.Target_MU/mashup/content.json");
+    let mut content: Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    content["UI"]["Properties"]["StyleProperties"] = json!({"data": "not a map"});
+    let text = mashup::edit::parse(&content.to_string())
+        .unwrap()
+        .to_content();
+    std::fs::write(&path, &text).unwrap();
+    let entity = dir.path().join("acme/Mashups/Acme.Target_MU.xml");
+    let css =
+        std::fs::read_to_string(dir.path().join("src/Acme.Target_MU/mashup/custom.css")).unwrap();
+    let (xml, _) = mashup::sync(
+        &std::fs::read(&entity).unwrap(),
+        &mashup::Assets { content: text, css },
+    )
+    .unwrap();
+    std::fs::write(&entity, xml).unwrap();
+    let error = plan_set(
+        &solution,
+        &SetRequest {
+            mashup: "Acme.Target_MU".into(),
+            widget: "ptcslabel-3".into(),
+            properties: Vec::new(),
+            style_from: Some("Acme.Ref_MU:ptcslabel-3".into()),
+        },
+    )
+    .err()
+    .map(|e| e.to_string());
+    assert!(
+        error
+            .as_deref()
+            .is_some_and(|e| e.contains("StyleProperties.data must be an object")),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn setting_the_root_theme_takes_the_default_or_a_solution_theme_only() {
+    let (dir, solution) = style_fixture();
+    let theme = |name: &str| {
+        plan_set(
+            &solution,
+            &SetRequest {
+                mashup: "Acme.Target_MU".into(),
+                widget: "mashup-root".into(),
+                properties: vec![("StyleTheme".into(), json!(name))],
+                style_from: None,
+            },
+        )
+    };
+    assert!(theme(super::new::DEFAULT_THEME).is_ok());
+    let error = theme("Acme.Missing").err().map(|e| e.to_string());
+    assert!(
+        error
+            .as_deref()
+            .is_some_and(|e| e.contains("no StyleTheme Acme.Missing")),
+        "{error:?}"
+    );
+    write(
+        dir.path(),
+        "acme/StyleThemes/Acme.Theme.xml",
+        "<Entities><StyleThemes><StyleTheme name=\"Acme.Theme\" projectName=\"Acme\"></StyleTheme></StyleThemes></Entities>",
+    );
+    assert!(theme("Acme.Theme").is_ok());
 }

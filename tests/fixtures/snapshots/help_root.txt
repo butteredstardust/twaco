@@ -190,10 +190,13 @@ usage: twaco <command>
       --in <container>        add inside a responsive container (center when omitted)
       --right-of/--left-of/--above/--below <widget>
                               place beside an existing widget
-  mashup set <mashup> <widget> --prop <name=value>... [--apply] [--json]
+  mashup set <mashup> <widget> --prop <name=value>... [--style-from <mashup:widget>] [--apply] [--json]
                               set checked properties on one exact widget; structured properties take JSON;
                               plan unless --apply
       --prop <name=value>     set one property, repeatable; objects and arrays are JSON
+      --style-from <mashup:widget>
+                              copy that widget's visual style (its entry in the root's StyleProperties);
+                              with it, --prop is optional
   mashup source add <mashup> <entity> <service> [--dynamic] [--on-load] [--as <new>] [--entity-from <address>]
       [--every <seconds>] [--cache [--cache-key <parameter>]...]
       [--cache-strategy <INSTANCE|SESSION|USER>] [--max-result-sets <n>] [--apply] [--json]

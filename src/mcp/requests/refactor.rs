@@ -839,6 +839,9 @@ pub(crate) struct MashupSetRequest {
     /// Exact property names and their JSON values. Strings use the same syntax as CLI --prop.
     #[schemars(schema_with = "free_object")]
     pub(crate) properties: BTreeMap<String, serde_json::Value>,
+    /// Copy this widget's root StyleProperties.data entry, as `<mashup>:<widget>`.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) style_from: Absent<String>,
     #[serde(default = "default_true")]
     pub(crate) dry_run: bool,
 }

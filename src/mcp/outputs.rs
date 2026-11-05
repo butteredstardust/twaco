@@ -1375,6 +1375,8 @@ pub(crate) struct MashupSetResult {
     #[serde(rename = "type")]
     type_id: String,
     changed: Vec<Value>,
+    /// The source style entry and whether it existed, when style_from was supplied.
+    style_copy: Option<Value>,
     files: Vec<String>,
     notices: Notices,
 }

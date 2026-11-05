@@ -1137,6 +1137,19 @@ opens in) and any scalar property it already has; a parameter's default goes thr
 has, though the catalogue lists no default for them. Setting a container's `flex-size` also sets
 the palette icon Composer saves with it. In a managed mashup, CustomMashupCss writes `mashup/custom.css`, not a
 content.json key; sync then fills the XML copy.
+
+`--style-from <mashup>:<widget>` copies the look of a widget in another mashup, such as a page of
+a design kit, to this one. Composer keeps each widget's visual style on the mashup root, in
+`StyleProperties.data` under the widget's id; the copy replaces only this widget's entry and keeps
+the others. Both widgets must be of one type. A reference widget with no style entry is reported,
+and nothing is written. `--prop` is optional with it, and the two go in one edit:
+
+```sh
+twaco mashup set Acme.App.Orders_MU ptcslabel-3 --style-from Acme.Kit.Page_MU:ptcslabel-12 --apply
+```
+
+Setting the root's `StyleTheme` takes 10.2's default theme or a StyleTheme in the solution, as
+`mashup new --theme` does.
 Managed mashups update `content.json` and the entity in one transaction; unmanaged mashups update
 only their entity file. If sidecars and entity content disagree, resolve it first with `sync` or
 `extract`.

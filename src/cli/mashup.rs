@@ -255,6 +255,8 @@ pub(crate) struct MashupAdd {
 pub(crate) struct MashupSet {
     #[arg(long = "prop", value_name = "name=value")]
     pub(crate) props: Vec<String>,
+    #[arg(long = "style-from", value_name = "mashup:widget")]
+    pub(crate) style_from: Option<String>,
     #[command(flatten)]
     pub(crate) apply: Apply,
     #[command(flatten)]
@@ -1330,9 +1332,12 @@ pub(crate) fn mashup_set_cmd(solution: &Solution, args: &MashupSet) -> u8 {
         })
         .collect::<Result<Vec<_>, _>>()
     {
-        Ok(properties) if !properties.is_empty() => properties,
+        Ok(properties) if !properties.is_empty() || args.style_from.is_some() => properties,
         Ok(_) => {
-            eprintln!("{} mashup set needs --prop <name=value>", style::prefix());
+            eprintln!(
+                "{} mashup set needs --prop <name=value> or --style-from <mashup:widget>",
+                style::prefix()
+            );
             return FAILED;
         }
         Err(error) => {
@@ -1345,6 +1350,7 @@ pub(crate) fn mashup_set_cmd(solution: &Solution, args: &MashupSet) -> u8 {
             mashup: mashup_name.clone(),
             widget: widget.clone(),
             properties,
+            style_from: args.style_from.clone(),
         },
         mode: if args.apply.apply {
             Mode::Apply
@@ -1369,6 +1375,38 @@ pub(crate) fn mashup_set_cmd(solution: &Solution, args: &MashupSet) -> u8 {
             "{}",
             serde_json::to_string_pretty(&report).expect("a set plan serialises")
         );
+    } else if let Some(copy) = &outcome.plan.style_copy {
+        if copy.copied {
+            println!(
+                "{} the style of {}:{} to {}:{}",
+                if outcome.applied {
+                    "copied"
+                } else {
+                    "would copy"
+                },
+                copy.reference_mashup,
+                copy.reference_widget,
+                outcome.plan.mashup,
+                outcome.plan.widget
+            );
+        } else {
+            println!(
+                "nothing to copy: {}:{} has no style entry",
+                copy.reference_mashup, copy.reference_widget
+            );
+        }
+        for change in &outcome.plan.changed {
+            if change.property.starts_with("StyleProperties.data.") {
+                continue;
+            }
+            let after = compact_json(&change.after);
+            println!(
+                "{} {}.{} = {after}",
+                if outcome.applied { "set" } else { "would set" },
+                outcome.plan.widget,
+                change.property
+            );
+        }
     } else if outcome.plan.changed.is_empty() {
         println!(
             "unchanged {} in {}",
