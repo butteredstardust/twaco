@@ -5255,6 +5255,153 @@ fn retarget_refuses_a_parameter_of_another_type() {
 }
 
 #[test]
+fn retarget_checks_consumed_result_fields_before_planning_an_edit() {
+    let (dir, solution) = source_fixture();
+    for (name, shape) in [
+        (
+            "Acme.Orders.Missing",
+            r#"<DataShape name="Acme.Orders.Missing_DS"><FieldDefinitions><FieldDefinition name="id" baseType="LONG"/></FieldDefinitions></DataShape>"#,
+        ),
+        (
+            "Acme.Orders.Changed",
+            r#"<DataShape name="Acme.Orders.Changed_DS"><FieldDefinitions><FieldDefinition name="id" baseType="STRING"/><FieldDefinition name="note" baseType="STRING"/></FieldDefinitions></DataShape>"#,
+        ),
+        ("Acme.Orders.Unknown", ""),
+    ] {
+        if !shape.is_empty() {
+            write(
+                dir.path(),
+                &format!("acme/DataShapes/{name}_DS.xml"),
+                &format!("<Entities><DataShapes>{shape}</DataShapes></Entities>"),
+            );
+        }
+        let data_shape = if shape.is_empty() {
+            "Acme.Orders.NotHere_DS".to_string()
+        } else {
+            format!("{name}_DS")
+        };
+        write(
+            dir.path(),
+            &format!("acme/Things/{name}.xml"),
+            &format!(
+                r#"<Entities><Things><Thing name="{name}" projectName="Acme"><ThingShape><ServiceDefinitions><ServiceDefinition name="GetOrders"><ResultType baseType="INFOTABLE" aspect.dataShape="{data_shape}"/></ServiceDefinition></ServiceDefinitions><ServiceImplementations/></ThingShape></Thing></Things></Entities>"#
+            ),
+        );
+    }
+    add_source(
+        &solution,
+        &source_request("Acme.Orders.Manager", "GetOrders"),
+    )
+    .unwrap();
+    let plan = bind(
+        &solution,
+        "data:Acme.Orders.Manager.GetOrders",
+        "ui:ptcsgrid-5.Data",
+    )
+    .unwrap();
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    let content_path = solution
+        .src_root()
+        .join("Acme.Orders_MU/mashup/content.json");
+    let mut value = content_value(&solution);
+    let grid = value["UI"]["Widgets"][0]["Widgets"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|widget| widget["Properties"]["Id"] == "ptcsgrid-5")
+        .unwrap();
+    grid["Properties"]["ColumnFormat"] =
+        json!({"formatInfo": [{"FieldName": "id"}, {"FieldName": "note"}]});
+    std::fs::write(&content_path, serde_json::to_string_pretty(&value).unwrap()).unwrap();
+    let entity_path = dir.path().join("acme/Mashups/Acme.Orders_MU.xml");
+    let assets = workspace::read_mashup(&solution.src_root().join("Acme.Orders_MU/mashup"))
+        .unwrap()
+        .unwrap();
+    let (synced, _) = mashup::sync(&std::fs::read(&entity_path).unwrap(), &assets).unwrap();
+    std::fs::write(&entity_path, synced).unwrap();
+    let retarget = |to: &str| {
+        plan_source_retarget(
+            &solution,
+            &SourceRetargetRequest {
+                mashup: "Acme.Orders_MU".into(),
+                from: "Acme.Orders.Manager".into(),
+                to: to.into(),
+            },
+        )
+    };
+    let before = sidecar_content(&solution);
+    let error = retarget("Acme.Orders.Missing").unwrap_err().to_string();
+    assert!(
+        error.contains("result field note") && error.contains("ptcsgrid-5.ColumnFormat"),
+        "{error}"
+    );
+    assert_eq!(
+        sidecar_content(&solution),
+        before,
+        "a refused plan writes nothing"
+    );
+    let error = retarget("Acme.Orders.Changed").unwrap_err().to_string();
+    assert!(
+        error.contains("result field id") && error.contains("STRING instead of LONG"),
+        "{error}"
+    );
+    assert_eq!(
+        sidecar_content(&solution),
+        before,
+        "a refused plan writes nothing"
+    );
+    // A missing replacement DataShape is deliberately not guessed at.
+    retarget("Acme.Orders.Unknown").unwrap();
+}
+
+#[test]
+fn retarget_notes_when_a_string_chart_axis_depends_on_its_values() {
+    let (dir, solution) = source_fixture();
+    write(
+        dir.path(),
+        "acme/Things/Acme.Orders.Axis.xml",
+        r#"<Entities><Things><Thing name="Acme.Orders.Axis" projectName="Acme"><ThingShape><ServiceDefinitions><ServiceDefinition name="GetOrders"><ResultType baseType="INFOTABLE" aspect.dataShape="Acme.Orders.Order_DS"/></ServiceDefinition></ServiceDefinitions><ServiceImplementations/></ThingShape></Thing></Things></Entities>"#,
+    );
+    add_source(
+        &solution,
+        &source_request("Acme.Orders.Manager", "GetOrders"),
+    )
+    .unwrap();
+    let mut add = add_request("Acme.Orders_MU", "ptcschartline");
+    add.properties = vec![
+        ("XAxisField".into(), "note".into()),
+        ("XAxisType".into(), "number".into()),
+    ];
+    let added = plan_add(&solution, &add).unwrap();
+    let chart = added.widget.clone();
+    apply_edit(&solution, &added.edit, &lock(&solution)).unwrap();
+    let plan = bind(
+        &solution,
+        "data:Acme.Orders.Manager.GetOrders",
+        &format!("ui:{chart}.Data"),
+    )
+    .unwrap();
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    let plan = plan_source_retarget(
+        &solution,
+        &SourceRetargetRequest {
+            mashup: "Acme.Orders_MU".into(),
+            from: "Acme.Orders.Manager".into(),
+            to: "Acme.Orders.Axis".into(),
+        },
+    )
+    .unwrap();
+    assert!(
+        plan.notes
+            .iter()
+            .any(|note| note.contains("values that read as numbers")
+                && note.contains("XAxisType=label")),
+        "{:?}",
+        plan.notes
+    );
+}
+
+#[test]
 fn retarget_accepts_what_bind_accepts_and_checks_values_the_call_sets() {
     let (dir, solution) = source_fixture();
     // GetOrder(id LONG) moves to a Thing whose GetOrder takes a NUMBER id: a number fits.

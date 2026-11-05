@@ -6,6 +6,15 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `mashup validate` also reports what the `mashup bindings` gate finds in the mashup, and advises
+  when a number or date chart axis reads a STRING field: Runtime draws only values that read as
+  numbers or dates.
+- The bindings gate checks a chart's series fields (`DataField1` to `DataField<NumberOfSeries>`).
+- `mashup source retarget` refuses a swap whose new result lacks a field the mashup uses, or
+  gives it another base type; its plan carries the chart-axis advice as notes.
+
 ## [0.1.53] - 2026-11-04
 
 ### Added

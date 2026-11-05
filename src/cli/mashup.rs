@@ -1540,7 +1540,7 @@ pub(crate) fn mashup_source_retarget_cmd(solution: &Solution, args: &MashupSourc
         }
     };
     print_notices(&notices);
-    let report = serde_json::json!({"applied":outcome.applied,"mashup":mashup,"from":from,"to":to,"sections":outcome.plan.sections.iter().map(|(from_key,to_key)| serde_json::json!({"from_key":from_key,"to_key":to_key})).collect::<Vec<_>>(),"bindings_rewritten":outcome.plan.bindings_rewritten,"events_rewritten":outcome.plan.events_rewritten,"files":edit_files(solution,&outcome.plan.edit)});
+    let report = serde_json::json!({"applied":outcome.applied,"mashup":mashup,"from":from,"to":to,"sections":outcome.plan.sections.iter().map(|(from_key,to_key)| serde_json::json!({"from_key":from_key,"to_key":to_key})).collect::<Vec<_>>(),"bindings_rewritten":outcome.plan.bindings_rewritten,"events_rewritten":outcome.plan.events_rewritten,"notes":outcome.plan.notes,"files":edit_files(solution,&outcome.plan.edit)});
     if args.json.json {
         println!(
             "{}",
@@ -1558,6 +1558,9 @@ pub(crate) fn mashup_source_retarget_cmd(solution: &Solution, args: &MashupSourc
         );
         if outcome.plan.dynamic {
             println!("  dynamic source: set its Thing with `twaco mashup param set {mashup} Manager --default <Thing>`");
+        }
+        for note in &outcome.plan.notes {
+            println!("  note: {note}");
         }
         if !outcome.applied {
             println!("run again with --apply to write it");

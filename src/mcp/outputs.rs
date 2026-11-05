@@ -1399,6 +1399,7 @@ pub(crate) struct MashupSourceRetargetResult {
     sections: Vec<Value>,
     bindings_rewritten: usize,
     events_rewritten: usize,
+    notes: Vec<String>,
     files: Vec<String>,
     notices: Notices,
 }

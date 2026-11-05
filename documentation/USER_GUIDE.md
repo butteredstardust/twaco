@@ -338,7 +338,7 @@ A solution without `[lint]` keeps today's gates (`checks-v1`). To take up the fu
 | code order | a service's main code is below its helper functions |
 | project | the entity files disagree with themselves or each other: a file named for another entity, two files for one entity, a misfiled or project-less entity, a service declared without its implementation or the reverse, a mashup whose JSON does not parse, a folder under a project root holding entity documents in no collection folder, which deploy and bundle would leave out, or a model tag that is not `Vocabulary:Term` or names a term a fixed vocabulary of the solution lacks |
 | project dependencies | a Thing or ThingTemplate uses a ThingTemplate or ThingShape of another of the solution's projects (as its template, base template or an implemented shape) that its Project file's `dependsOn` does not name. The server adds that project to `dependsOn` when it imports the entity, so the Project reads back not kept; the finding gives the `<project>:<version>` entry to add |
-| mashup bindings | a repository-resolved mashup service, result field or parameter is not declared, or a grid shows a column (its `ColumnFormat`) for a field the result bound to its `Data` does not have; unresolved platform and inherited DataShape details are left unchecked |
+| mashup bindings | a repository-resolved mashup service, result field or parameter is not declared, or a grid, chart or field-setting property names a field the result bound to its `Data` does not have; unresolved platform and inherited DataShape details are left unchecked |
 | mashup content | what `twaco mashup validate` finds in a mashup's content: a binding to a property, event or service its widget or data source does not have, a binding in the wrong direction, mixed container layouts. Widgets outside the catalogue (extensions) are not judged |
 | contained mashups | a binding to a contained mashup's or navigation function's parameter that its copy of the parameters lacks (the value is dropped) or that the mashup it shows no longer declares; `twaco mashup param set <mashup> <parameter>` refreshes every copy; a stale copy nothing binds is only counted |
 | localization tokens | an entity names a `[[token]]` under one of the solution's token prefixes that no Default table file holds (the label would show the raw text), a language table holds a token Default lacks, a token is in one table twice, or a table file cannot be read. Tokens outside the prefixes are the platform's or an extension's and are not checked. Notes, which never fail it: per language table, the solution's tokens it lacks (they show the Default text), and Default tokens no entity names as `[[token]]` or as a bare name |
@@ -1058,8 +1058,10 @@ twaco mashup param set Acme.App.Orders_MU Manager --default Acme.App.Orders.Mana
 ```
 
 The copy preserves layout, styles, CSS, parameters, data sources and wiring; only the mashup's
-identity changes. Retarget refuses incompatible collections, missing service contracts and an
-existing target section rather than merging it.
+identity changes. Retarget refuses incompatible collections, missing service contracts, consumed
+result fields that are missing or change type, and an existing target section rather than merging
+it. Its plan notes when a number or date chart axis receives a STRING field: Runtime can draw it
+only when its values read as numbers or dates.
 
 ### Contained mashups and parameters
 
@@ -1172,8 +1174,10 @@ section's last call.
 
 `mashup source retarget <mashup> --from <Entity> --to <Entity>` changes every matching source
 section in one edit, rewrites its data bindings and events, and preserves dynamic `EntityName`
-bindings. It refuses a target that lacks a called service or a used parameter of the same base
-type.
+bindings. It refuses a target that lacks a called service, a used parameter of the same base type,
+or a consumed result field (numeric result types are interchangeable). When a retarget leaves a
+number or date chart axis on a STRING field, the plan gives the `mashup set` command that changes
+it to a label axis.
 
 ### Binding
 
@@ -1295,10 +1299,12 @@ what the next edit would trip over: content that is not a mashup twaco can edit,
 both containers and widgets, bindings and events naming a widget, data source or call the mashup no
 longer has (Composer leaves these behind when a call is removed), a binding against a catalogue
 widget's contract (the wrong direction, a property it lacks, such as a misspelt expression input),
-an event or service a widget lacks, a binding with several property maps, and the contained-mashup
-drift `twaco check` also reports. What it cannot judge, extension and legacy widgets, properties and
-events a widget makes per configured action, a collection's cell parameters, it leaves alone. It
-exits 1 when it finds anything.
+an event or service a widget lacks, a binding with several property maps, the bound service's
+declared fields, and the contained-mashup drift `twaco check` also reports. It also advises when a
+number or date chart axis is configured on a STRING field: the chart renders only values that read
+as numbers or dates, so set the axis to `label` when that is not the data contract. What it cannot
+judge, extension and legacy widgets, properties and events a widget makes per configured action, a
+collection's cell parameters, it leaves alone. It exits 1 when it finds anything.
 
 ### Finding widgets
 

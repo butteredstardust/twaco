@@ -894,7 +894,7 @@ pub(crate) fn mashup_source_retarget_tool(
     let mut notices = commands::Notices::default();
     let outcome = commands::mashup::source_retarget(solution, &request, &mut notices)
         .map_err(ToolError::coded)?;
-    let mut result = json!({"mashup":arguments.mashup,"from":arguments.from,"to":arguments.to,"sections":outcome.plan.sections.iter().map(|(from_key,to_key)| json!({"from_key":from_key,"to_key":to_key})).collect::<Vec<_>>(),"bindings_rewritten":outcome.plan.bindings_rewritten,"events_rewritten":outcome.plan.events_rewritten,"files":files(solution,&outcome.plan.edit),"applied":outcome.applied,"dry_run":dry_run});
+    let mut result = json!({"mashup":arguments.mashup,"from":arguments.from,"to":arguments.to,"sections":outcome.plan.sections.iter().map(|(from_key,to_key)| json!({"from_key":from_key,"to_key":to_key})).collect::<Vec<_>>(),"bindings_rewritten":outcome.plan.bindings_rewritten,"events_rewritten":outcome.plan.events_rewritten,"notes":outcome.plan.notes,"files":files(solution,&outcome.plan.edit),"applied":outcome.applied,"dry_run":dry_run});
     add_notices(&mut result, &notices);
     Ok(result)
 }

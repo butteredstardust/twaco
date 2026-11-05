@@ -5,7 +5,7 @@ use crate::core::config::Solution;
 use crate::core::mashup;
 use crate::core::mashup::authoring::function_property;
 use crate::core::mashup::edit::ROOT_ID;
-use crate::core::{contained_check, widgets, workspace};
+use crate::core::{bindings, contained_check, types, widgets, workspace};
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -61,6 +61,13 @@ pub(crate) fn validate_in(
         return Err(ValidateError::Unknown(name.to_string()));
     }
     let drift = contained_check::run_in(solution, discovered);
+    // Load this once: the bindings gate and the advisory below judge the same model and cached
+    // platform contracts, without contacting a server.
+    let (model, _) = types::load_model(solution);
+    let platform = types::cached_platform(solution);
+    let binding_report =
+        bindings::run_in_with_platform(solution, discovered, &model, platform.as_ref());
+    let resolver = bindings::Resolver::new(&model, platform.as_ref());
     let mut reports = Vec::new();
     for file in files {
         let relative = file
@@ -76,10 +83,22 @@ pub(crate) fn validate_in(
             .map(|assets| assets.content);
         match content {
             Err(error) => problems.push(problem("unreadable", error)),
-            Ok(content) => check_content(&content, &mut problems),
+            Ok(content) => {
+                check_content(&content, &mut problems);
+                if let Ok(value) = serde_json::from_str::<Value>(&content) {
+                    chart_axis_problems(&file.info.name, &value, &resolver, &mut problems);
+                }
+            }
+        }
+        for found in binding_report
+            .problems
+            .iter()
+            .filter(|p| p.file == relative)
+        {
+            push_unique(&mut problems, problem(&found.rule, found.message.clone()));
         }
         for found in drift.problems.iter().filter(|p| p.file == relative) {
-            problems.push(problem(&found.rule, found.message.clone()));
+            push_unique(&mut problems, problem(&found.rule, found.message.clone()));
         }
         reports.push(MashupReport {
             mashup: file.info.name.clone(),
@@ -143,6 +162,83 @@ fn problem(rule: &str, message: String) -> Problem {
     Problem {
         rule: rule.to_string(),
         message,
+    }
+}
+
+fn push_unique(problems: &mut Vec<Problem>, found: Problem) {
+    if !problems
+        .iter()
+        .any(|present| present.rule == found.rule && present.message == found.message)
+    {
+        problems.push(found);
+    }
+}
+
+/// Chart axis kinds are a promise about values rather than a type contract: strings such as
+/// `2021` work, while strings such as `Mon` draw nothing. Keep that distinction an advisory.
+fn chart_axis_problems(
+    mashup: &str,
+    content: &Value,
+    resolver: &bindings::Resolver<'_>,
+    problems: &mut Vec<Problem>,
+) {
+    let sections = bindings::data_sections(content);
+    for (section_name, section) in &sections {
+        for call in &section.services {
+            let lookup = resolver.service(section, &call.target);
+            let Some(service) = lookup.service.as_ref() else {
+                continue;
+            };
+            if !service.result.base_type.eq_ignore_ascii_case("INFOTABLE") {
+                continue;
+            }
+            let Some(shape) = service
+                .result
+                .data_shape
+                .as_deref()
+                .and_then(|name| resolver.checkable_shape(name))
+            else {
+                continue;
+            };
+            for user in bindings::result_field_users(content, section_name, &call.instance) {
+                let (Some(widget), Some(property)) =
+                    (user.widget.as_deref(), user.property.as_deref())
+                else {
+                    continue;
+                };
+                let Some((setting, axis)) = bindings::chart_axis_type(content, widget, property)
+                else {
+                    continue;
+                };
+                if !matches!(axis.as_str(), "number" | "date") {
+                    continue;
+                }
+                let Some(field) = shape.fields.iter().find(|field| field.name == user.field) else {
+                    continue;
+                };
+                if !field.base_type.eq_ignore_ascii_case("STRING") {
+                    continue;
+                }
+                let value_kind = if axis == "date" { "dates" } else { "numbers" };
+                let fix = if setting == "XAxisType" {
+                    format!("twaco mashup set {mashup} {widget} --prop XAxisType=label --apply")
+                } else {
+                    format!(
+                        "twaco mashup set {mashup} {widget} --prop DataFieldType=string --apply"
+                    )
+                };
+                push_unique(
+                    problems,
+                    problem(
+                        "chart-axis-type",
+                        format!(
+                            "{mashup}: {widget}.{property} is STRING field {} from {}.{} with {setting}={axis}; Runtime draws only values that read as {value_kind}; use `{fix}`",
+                            user.field, section.entity, call.target
+                        ),
+                    ),
+                );
+            }
+        }
     }
 }
 
@@ -543,7 +639,37 @@ fn check_ui_member(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::config::Solution;
     use serde_json::json;
+    use std::path::Path;
+
+    fn write(root: &Path, path: &str, text: &str) {
+        let path = root.join(path);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+    }
+
+    fn data_solution(content: &str, shape: Option<&str>) -> (tempfile::TempDir, Solution) {
+        let dir = tempfile::tempdir().unwrap();
+        write(dir.path(), "twaco.toml", "[[project]]\nname = \"Acme\"\ncollections = [\"Things\", \"DataShapes\", \"Mashups\"]\n");
+        write(
+            dir.path(),
+            "Things/Acme.M.xml",
+            r#"<Entities><Things><Thing name="Acme.M"><ThingShape><ServiceDefinitions><ServiceDefinition name="Get"><ResultType baseType="INFOTABLE" aspect.dataShape="Acme.Rows"/></ServiceDefinition></ServiceDefinitions><ServiceImplementations/></ThingShape></Thing></Things></Entities>"#,
+        );
+        if let Some(shape) = shape {
+            write(dir.path(), "DataShapes/Acme.Rows.xml", shape);
+        }
+        write(
+            dir.path(),
+            "Mashups/Acme.View.xml",
+            &format!(
+                r#"<Entities><Mashups><Mashup name="Acme.View"><mashupContent><![CDATA[{content}]]></mashupContent></Mashup></Mashups></Entities>"#
+            ),
+        );
+        let solution = Solution::load(&dir.path().join("twaco.toml")).unwrap();
+        (dir, solution)
+    }
 
     fn content(widgets: Value, bindings: Value, events: Value, index: u64) -> String {
         json!({
@@ -708,6 +834,72 @@ mod tests {
         assert_eq!(
             rules(&content(chart(true), bind("DataSource01"), json!([]), 4)),
             ["unknown-property"]
+        );
+    }
+
+    #[test]
+    fn validate_includes_bound_fields_and_advises_only_value_dependent_chart_axes() {
+        let shape = r#"<Entities><DataShapes><DataShape name="Acme.Rows"><FieldDefinitions><FieldDefinition name="text" baseType="STRING"/><FieldDefinition name="count" baseType="INTEGER"/><FieldDefinition name="when" baseType="DATETIME"/></FieldDefinitions></DataShape></DataShapes></Entities>"#;
+        let chart = |field: &str, axis: Option<&str>| {
+            let mut chart = json!({"Properties": {"Id": "ptcschartline-3", "Type": "ptcschartline", "DisplayName": "c", "XAxisField": field}, "Widgets": []});
+            if let Some(axis) = axis {
+                chart["Properties"]["XAxisType"] = json!(axis);
+            }
+            content(
+                json!([chart]),
+                json!([{"Id": "b", "SourceArea": "Data", "SourceSection": "Things_Acme.M", "SourceId": "Get", "TargetArea": "UI", "TargetId": "ptcschartline-3", "PropertyMaps": [{"SourcePropertyType": "InfoTable", "TargetProperty": "Data"}]}]),
+                json!([]),
+                4,
+            )
+        };
+        let (_dir, solution) = data_solution(&chart("text", Some("number")), Some(shape));
+        let report = validate(&solution, Some("Acme.View")).unwrap();
+        assert!(
+            report[0]
+                .problems
+                .iter()
+                .any(|problem| problem.rule == "chart-axis-type"
+                    && problem.message.contains("XAxisType=label")),
+            "{:?}",
+            report[0].problems
+        );
+        assert!(!crate::core::bindings::run(&solution)
+            .problems
+            .iter()
+            .any(|problem| problem.rule == "chart-axis-type"));
+        for (field, axis) in [
+            ("count", Some("number")),
+            ("when", Some("date")),
+            ("text", Some("label")),
+            ("text", None),
+        ] {
+            let (_dir, solution) = data_solution(&chart(field, axis), Some(shape));
+            let report = validate(&solution, Some("Acme.View")).unwrap();
+            assert!(
+                !report[0]
+                    .problems
+                    .iter()
+                    .any(|problem| problem.rule == "chart-axis-type"),
+                "{field}/{axis:?}: {:?}",
+                report[0].problems
+            );
+        }
+        let (_dir, solution) = data_solution(&chart("text", Some("number")), None);
+        let report = validate(&solution, Some("Acme.View")).unwrap();
+        assert!(!report[0]
+            .problems
+            .iter()
+            .any(|problem| problem.rule == "chart-axis-type"));
+
+        let (_dir, solution) = data_solution(&chart("missing", Some("label")), Some(shape));
+        let report = validate(&solution, Some("Acme.View")).unwrap();
+        assert!(
+            report[0]
+                .problems
+                .iter()
+                .any(|problem| problem.rule == "unknown-field-property"),
+            "{:?}",
+            report[0].problems
         );
     }
 
