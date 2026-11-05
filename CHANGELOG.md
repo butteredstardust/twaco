@@ -20,6 +20,11 @@ All notable changes to twaco are recorded here. The format follows
 - The bindings gate checks a chart's series fields (`DataField1` to `DataField<NumberOfSeries>`).
 - `mashup source retarget` refuses a swap whose new result lacks a field the mashup uses, or
   gives it another base type; its plan carries the chart-axis advice as notes.
+- `deploy --only-projects` is not stopped by the projects it leaves out: their gate findings
+  are warnings, and a `depends_on` cycle among them no longer refuses the deploy.
+- An import the Importer refuses with HTTP 406 now says why, from what the server logged to
+  ApplicationLog at that moment (`entity push`, `deploy`, `import`).
+- `mashup new --from` prints a summary of the copy instead of every copied widget.
 
 ### Fixed
 

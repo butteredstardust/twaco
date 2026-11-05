@@ -286,6 +286,8 @@ where
                 Err(_) => {}
             }
         }
+        // A deploy of some projects is not stopped by what is wrong in the others.
+        report.scope_to_projects(solution, &request.only_projects);
         if report.blocks() {
             let server = if solution.gates.live || on_server {
                 Access::Read

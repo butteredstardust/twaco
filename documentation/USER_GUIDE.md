@@ -460,6 +460,16 @@ name. Without `--apply` it plans and stops. With it, it:
 With `--only`, the project's deploy service still runs, but its `post_import` calls are
 skipped: they are written for a whole project's import.
 
+With `--only-projects`, what is wrong in the other projects does not stop the deploy. A gate's
+finding in a file of a project the deploy leaves out (its entity file, or its sidecar folder
+under `src/`) is shown as a warning. A finding twaco cannot place in one project, such as one in
+`twaco.toml`, still blocks, and so does a gate that could not run. Projects the deploy leaves out
+are taken to be on the server already, so a `depends_on` cycle among them does not stop it.
+
+When the Importer refuses an entity, it answers only HTTP 406. twaco then reads the server's
+ApplicationLog for that moment and adds the reason it logged, such as a Thing whose template
+does not exist. When the log says nothing, or twaco may not read it, the error is the 406 alone.
+
 The localization tables are shared by every project, so a deploy of some projects or entities
 (`--only`, `--only-projects`) or of the backend only leaves them to `twaco localization push`.
 
