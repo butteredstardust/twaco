@@ -924,6 +924,7 @@ pub(crate) fn mashup_source_add_tool(
             entity: nonempty(&arguments.entity, "entity")?.into(),
             service: nonempty(&arguments.service, "service")?.into(),
             dynamic: arguments.dynamic,
+            on_load: arguments.on_load,
             alias: arguments.alias.as_ref().cloned(),
             entity_from: arguments.entity_from.as_ref().cloned(),
             refresh: arguments.every.as_ref().copied(),
@@ -938,7 +939,7 @@ pub(crate) fn mashup_source_add_tool(
     let mut notices = commands::Notices::default();
     let outcome =
         commands::mashup::source_add(solution, &request, &mut notices).map_err(ToolError::coded)?;
-    let mut result = json!({"applied":outcome.applied,"dry_run":dry_run,"mashup":outcome.plan.edit.mashup,"section":outcome.plan.section,"call":outcome.plan.call,"files":files(solution,&outcome.plan.edit)});
+    let mut result = json!({"applied":outcome.applied,"dry_run":dry_run,"mashup":outcome.plan.edit.mashup,"section":outcome.plan.section,"call":outcome.plan.call,"event":outcome.plan.event,"files":files(solution,&outcome.plan.edit)});
     add_notices(&mut result, &notices);
     Ok(result)
 }

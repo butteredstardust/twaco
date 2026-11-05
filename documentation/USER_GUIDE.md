@@ -1063,6 +1063,10 @@ result fields that are missing or change type, and an existing target section ra
 it. Its plan notes when a number or date chart axis receives a STRING field: Runtime can draw it
 only when its values read as numbers or dates.
 
+The text plan for a copy is a short summary: the new mashup and its source, counts for widgets,
+data calls, bindings, events and parameters, and the files it would write. `--json` keeps the
+complete copy plan.
+
 ### Contained mashups and parameters
 
 A contained mashup receives only the parameters its container declares. Add one from a mashup in
@@ -1164,14 +1168,14 @@ runtime behaviour.
 ### Data sources
 
 ```sh
-twaco mashup source add Acme.App.Orders_MU Acme.App.Orders.Manager GetOrders --apply
+twaco mashup source add Acme.App.Orders_MU Acme.App.Orders.Manager GetOrders --on-load --apply
 twaco mashup param add Acme.App.Orders_MU Manager --type THINGNAME --default Acme.App.Orders.Manager --apply
 twaco mashup source add Acme.App.Orders_MU Acme.App.Orders_TS GetOrders --entity-from mashup:Manager --apply
 twaco mashup source list Acme.App.Orders_MU
 ```
 
 A mashup calls a service through a data source. A Thing's call runs on that Thing; so does a
-ThingTemplate's (template services such as `GetImplementingThings`). A ThingShape's call, and a
+ThingTemplate's own or inherited service that twaco can resolve. A ThingShape's call, and a
 ThingTemplate's with `--dynamic`, is dynamic: it runs on the Thing that a binding to
 `data:<Entity>[EntityName]` names, usually a `THINGNAME` mashup parameter such as `Manager`.
 `--entity-from` writes that binding in the same edit; twaco never creates the parameter for you.
@@ -1182,7 +1186,8 @@ creates a missing Thing call by itself; template and shape calls need `source ad
 
 `--as <new>` names a second call of the same service. `--every <seconds>` polls the call;
 `--cache` writes ThingWorx's call caching, keyed on declared service parameters
-(`--cache-key`). `mashup source list` shows each call and what sets its entity (`fixed` for a
+(`--cache-key`). `--on-load` also creates the call's `mashup:Loaded` event in the same edit.
+`mashup source list` shows each call and what sets its entity (`fixed` for a
 static one, `UNBOUND` when nothing does); `mashup source remove <mashup> <address> --cascade`
 also removes the bindings and events proven to name the call, and the entity binding with the
 section's last call.
@@ -1262,7 +1267,7 @@ reacted to the same way; an IN parameter cannot.
 ### Function widgets
 
 ```sh
-twaco mashup add Acme.App.Orders_MU expression --input note:STRING --prop "Expression=Output = note === '';" --prop OutputBaseType=BOOLEAN --apply
+twaco mashup add Acme.App.Orders_MU expression --input note:STRING --input minimum:NUMBER=1 --prop "Expression=Output = note === '';" --prop OutputBaseType=BOOLEAN --apply
 twaco mashup bind Acme.App.Orders_MU --from ui:ptcstextfield-3.Text --to ui:expression2-7.note --apply
 twaco mashup bind Acme.App.Orders_MU --from ui:expression2-7.Output --to ui:ptcsbutton-6.Disabled --apply
 twaco mashup on Acme.App.Orders_MU --event ui:ptcstextfield-3.Changed --invoke ui:expression2-7.Evaluate --apply
@@ -1271,7 +1276,9 @@ twaco mashup on Acme.App.Orders_MU --event ui:ptcstextfield-3.Changed --invoke u
 Expressions, validators, events routers, navigation functions, status messages and auto-refresh
 draw nothing: `mashup add` puts them beside the layout, under the mashup itself, and refuses a place
 in it. An expression's or validator's inputs are declared with `--input name:TYPE` and become its
-bindable targets; an expression's `Output` has the base type its `OutputBaseType` says. An events
+bindable targets. `--input name:TYPE=default` writes a typed default; BOOLEAN, NUMBER, INTEGER,
+LONG and JSON defaults use their matching JSON values, while STRING stays text. An expression's
+`Output` has the base type its `OutputBaseType` says. An events
 router's inputs are `Input1` to `Input<NumberOfInputs>`, of its `DataType`. A navigation function's
 bindable properties include the parameters of the mashup it opens. The legacy `expression` and
 `validator` stay readable in existing mashups; adding either adds `expression2` or `validator2`.

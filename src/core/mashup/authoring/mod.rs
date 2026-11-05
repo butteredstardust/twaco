@@ -44,7 +44,7 @@ use end::{
 pub(crate) use event::plan_event;
 pub use event::EventRequest;
 pub(crate) use new::{apply_new, parse_visibility, plan_new, NewPlan};
-pub use new::{new_plan_json, template_slots, NewRequest};
+pub use new::{copy_summary_lines, new_plan_json, template_slots, NewRequest};
 #[cfg(test)]
 pub(crate) use new::{validate_template, DEFAULT_THEME};
 use on::on_in;

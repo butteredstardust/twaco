@@ -215,7 +215,7 @@ help:
 |                               set checked properties on one exact widget; structured properties take JSON;
 |                               plan unless --apply
 |       --prop <name=value>     set one property, repeatable; objects and arrays are JSON
-|   mashup source add <mashup> <entity> <service> [--dynamic] [--as <new>] [--entity-from <address>]
+|   mashup source add <mashup> <entity> <service> [--dynamic] [--on-load] [--as <new>] [--entity-from <address>]
 |       [--every <seconds>] [--cache [--cache-key <parameter>]...]
 |       [--cache-strategy <INSTANCE|SESSION|USER>] [--max-result-sets <n>] [--apply] [--json]
 |                               call a Thing's, ThingTemplate's or ThingShape's service from a mashup;
@@ -223,6 +223,7 @@ help:
 |                               names; plan unless --apply
 |       --dynamic               a ThingTemplate's call runs on a Thing bound to EntityName, not on
 |                               the template
+|       --on-load               invoke the call when the mashup finishes loading
 |       --as <new>              name the call (the service name, then _2, ... by default)
 |       --entity-from <address> bind a dynamic source EntityName from a THINGNAME or STRING source
 |       --every <seconds>       run the call again at this interval
@@ -7004,7 +7005,7 @@ help:
 |                               set checked properties on one exact widget; structured properties take JSON;
 |                               plan unless --apply
 |       --prop <name=value>     set one property, repeatable; objects and arrays are JSON
-|   mashup source add <mashup> <entity> <service> [--dynamic] [--as <new>] [--entity-from <address>]
+|   mashup source add <mashup> <entity> <service> [--dynamic] [--on-load] [--as <new>] [--entity-from <address>]
 |       [--every <seconds>] [--cache [--cache-key <parameter>]...]
 |       [--cache-strategy <INSTANCE|SESSION|USER>] [--max-result-sets <n>] [--apply] [--json]
 |                               call a Thing's, ThingTemplate's or ThingShape's service from a mashup;
@@ -7012,6 +7013,7 @@ help:
 |                               names; plan unless --apply
 |       --dynamic               a ThingTemplate's call runs on a Thing bound to EntityName, not on
 |                               the template
+|       --on-load               invoke the call when the mashup finishes loading
 |       --as <new>              name the call (the service name, then _2, ... by default)
 |       --entity-from <address> bind a dynamic source EntityName from a THINGNAME or STRING source
 |       --every <seconds>       run the call again at this interval
@@ -9215,7 +9217,7 @@ help:
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
 
 == twaco mashup source add
-usage: twaco mashup source add <mashup> <entity> <service> [--dynamic] [--as <new>] [--entity-from <address>]
+usage: twaco mashup source add <mashup> <entity> <service> [--dynamic] [--on-load] [--as <new>] [--entity-from <address>]
 settings: disable-version-flag disable-help-subcommand
 subcommands: 
 arg --apply
@@ -9368,6 +9370,17 @@ arg --max-result-sets
     other: -
     given twice: ArgumentConflict
     given bare: InvalidValue
+arg --on-load
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
 arg <operands>
     action: Append
     value_name: operand
@@ -9379,7 +9392,7 @@ arg <operands>
     index: 1
     other: -
 help:
-|   mashup source add <mashup> <entity> <service> [--dynamic] [--as <new>] [--entity-from <address>]
+|   mashup source add <mashup> <entity> <service> [--dynamic] [--on-load] [--as <new>] [--entity-from <address>]
 |       [--every <seconds>] [--cache [--cache-key <parameter>]...]
 |       [--cache-strategy <INSTANCE|SESSION|USER>] [--max-result-sets <n>] [--apply] [--json]
 |                               call a Thing's, ThingTemplate's or ThingShape's service from a mashup;
@@ -9387,6 +9400,7 @@ help:
 |                               names; plan unless --apply
 |       --dynamic               a ThingTemplate's call runs on a Thing bound to EntityName, not on
 |                               the template
+|       --on-load               invoke the call when the mashup finishes loading
 |       --as <new>              name the call (the service name, then _2, ... by default)
 |       --entity-from <address> bind a dynamic source EntityName from a THINGNAME or STRING source
 |       --every <seconds>       run the call again at this interval

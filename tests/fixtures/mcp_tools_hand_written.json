@@ -1851,7 +1851,7 @@
           "additionalProperties": { "type": "string" }
         },
         "inputs": {
-          "description": "An expression's or validator's inputs as `name:TYPE`.",
+          "description": "An expression's or validator's inputs as `name:TYPE` or `name:TYPE=default`.",
           "type": "array",
           "items": { "type": "string" }
         },

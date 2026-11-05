@@ -1401,6 +1401,7 @@ pub(crate) struct MashupSourceAddResult {
     mashup: String,
     section: String,
     call: String,
+    event: Option<String>,
     files: Vec<String>,
     notices: Notices,
 }

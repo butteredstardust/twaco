@@ -791,7 +791,7 @@ pub(crate) struct MashupAddRequest {
     /// Simple catalogue default properties to set by exact property name.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) properties: Absent<BTreeMap<String, String>>,
-    /// An expression's or validator's inputs as `name:TYPE`.
+    /// An expression's or validator's inputs as `name:TYPE` or `name:TYPE=default`.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) inputs: Absent<Vec<String>>,
     #[serde(default = "default_true")]
@@ -1008,6 +1008,9 @@ pub(crate) struct MashupSourceAddRequest {
     /// always does.
     #[serde(default)]
     pub(crate) dynamic: bool,
+    /// Invoke this call when the mashup finishes loading.
+    #[serde(default)]
+    pub(crate) on_load: bool,
     /// The call's own name; the service name (then `_2`, ...) when absent.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) alias: Absent<String>,

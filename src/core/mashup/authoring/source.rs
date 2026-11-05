@@ -1,6 +1,9 @@
 //! Explicit static and dynamic mashup data sources.
 
-use super::{finish_edit, insert, load_existing, parse_loaded, AuthoringError, EditPlan};
+use super::{
+    finish_edit, insert, load_existing, on_in, parse_loaded, AuthoringContext, AuthoringError,
+    EditPlan,
+};
 use crate::core::config::Solution;
 use crate::core::mashup::address::{parse_address, Address};
 use crate::core::mashup::describe::mashup_parameters;
@@ -55,6 +58,8 @@ pub struct SourceAddRequest {
     /// A ThingTemplate's call runs on the Thing an EntityName binding names, not on the
     /// template itself.
     pub dynamic: bool,
+    /// Invoke the new call when the mashup finishes loading.
+    pub on_load: bool,
     pub alias: Option<String>,
     pub entity_from: Option<String>,
     pub refresh: Option<u32>,
@@ -68,6 +73,8 @@ pub struct SourceAddPlan {
     pub edit: EditPlan,
     pub section: String,
     pub call: String,
+    /// The event added with the call, when `on_load` was requested.
+    pub event: Option<String>,
 }
 #[derive(Clone, Debug)]
 pub struct SourceRemoveRequest {
@@ -318,10 +325,28 @@ pub(crate) fn plan_source_add(
             )));
         }
     }
+    let event = if request.on_load {
+        let parameters = Vec::new();
+        let context = AuthoringContext {
+            parameters: &parameters,
+            model: &model,
+            platform: platform.as_ref(),
+        };
+        let invoke = if call == request.service {
+            format!("data:{}.{}", request.entity, request.service)
+        } else {
+            format!("data:{}.{}[as {}]", request.entity, request.service, call)
+        };
+        on_in(&mut document, &context, "mashup:Loaded", &invoke)?;
+        Some(format!("mashup:Loaded -> {invoke}"))
+    } else {
+        None
+    };
     Ok(SourceAddPlan {
         edit: finish_edit(loaded, document, "mashup source add")?,
         section: key,
         call,
+        event,
     })
 }
 

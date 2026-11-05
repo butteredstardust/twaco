@@ -8,6 +8,9 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- `mashup source add --on-load` (MCP `mashup_source_add` `on_load`) creates a source call and its
+  `mashup:Loaded` event in one edit. Expression and validator inputs accept typed defaults as
+  `--input name:TYPE=default` (the MCP `inputs` field uses the same grammar).
 - `mashup collection add` (MCP `mashup_collection_add`) adds a collection that repeats a cell
   mashup for every row of a service result: it maps row fields to the cell's parameters, checks
   both, and binds the result in one edit.

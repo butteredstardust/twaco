@@ -123,6 +123,8 @@ pub(crate) enum MashupSourceCommand {
 pub(crate) struct MashupSourceAdd {
     #[arg(long = "dynamic")]
     pub(crate) dynamic: bool,
+    #[arg(long = "on-load")]
+    pub(crate) on_load: bool,
     #[arg(long = "as", value_name = "new")]
     pub(crate) alias: Option<String>,
     #[arg(long = "entity-from", value_name = "address")]
@@ -579,6 +581,15 @@ pub(crate) fn mashup_new_cmd(solution: &Solution, args: &MashupNew) -> u8 {
         return OK;
     }
     let plan = &outcome.plan;
+    if plan.from.is_some() {
+        for line in mashup::authoring::copy_summary_lines(solution, plan, outcome.applied) {
+            println!("{line}");
+        }
+        if !outcome.applied {
+            println!("run again with --apply to write it");
+        }
+        return OK;
+    }
     let kind = if plan.master {
         "master mashup"
     } else {
@@ -1636,6 +1647,7 @@ pub(crate) fn mashup_source_add_cmd(solution: &Solution, args: &MashupSourceAdd)
             entity: entity.clone(),
             service: service.clone(),
             dynamic: args.dynamic,
+            on_load: args.on_load,
             alias: args.alias.clone(),
             entity_from: args.entity_from.clone(),
             refresh: args.every,
@@ -1661,7 +1673,7 @@ pub(crate) fn mashup_source_add_cmd(solution: &Solution, args: &MashupSourceAdd)
         }
     };
     print_notices(&notices);
-    let report = serde_json::json!({"applied":outcome.applied,"mashup":outcome.plan.edit.mashup,"section":outcome.plan.section,"call":outcome.plan.call,"files":edit_files(solution,&outcome.plan.edit)});
+    let report = serde_json::json!({"applied":outcome.applied,"mashup":outcome.plan.edit.mashup,"section":outcome.plan.section,"call":outcome.plan.call,"event":outcome.plan.event,"files":edit_files(solution,&outcome.plan.edit)});
     if args.json.json {
         println!(
             "{}",
@@ -1678,6 +1690,9 @@ pub(crate) fn mashup_source_add_cmd(solution: &Solution, args: &MashupSourceAdd)
             outcome.plan.call,
             outcome.plan.section
         );
+        if let Some(event) = &outcome.plan.event {
+            println!("  event {event}");
+        }
         if !outcome.applied {
             println!("run again with --apply to write it");
         }

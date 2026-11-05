@@ -737,7 +737,7 @@ pub(crate) const USAGE: &[Usage] = &[
     Usage {
         path: "mashup source add",
         group: 1,
-        text: r#"  mashup source add <mashup> <entity> <service> [--dynamic] [--as <new>] [--entity-from <address>]
+        text: r#"  mashup source add <mashup> <entity> <service> [--dynamic] [--on-load] [--as <new>] [--entity-from <address>]
       [--every <seconds>] [--cache [--cache-key <parameter>]...]
       [--cache-strategy <INSTANCE|SESSION|USER>] [--max-result-sets <n>] [--apply] [--json]
                               call a Thing's, ThingTemplate's or ThingShape's service from a mashup;
@@ -745,6 +745,7 @@ pub(crate) const USAGE: &[Usage] = &[
                               names; plan unless --apply
       --dynamic               a ThingTemplate's call runs on a Thing bound to EntityName, not on
                               the template
+      --on-load               invoke the call when the mashup finishes loading
       --as <new>              name the call (the service name, then _2, ... by default)
       --entity-from <address> bind a dynamic source EntityName from a THINGNAME or STRING source
       --every <seconds>       run the call again at this interval

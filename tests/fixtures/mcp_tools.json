@@ -5277,7 +5277,7 @@
           }
         },
         "inputs": {
-          "description": "An expression's or validator's inputs as `name:TYPE`.",
+          "description": "An expression's or validator's inputs as `name:TYPE` or `name:TYPE=default`.",
           "type": "array",
           "items": {
             "type": "string"
@@ -5837,6 +5837,11 @@
           "type": "boolean",
           "default": false
         },
+        "on_load": {
+          "description": "Invoke this call when the mashup finishes loading.",
+          "type": "boolean",
+          "default": false
+        },
         "alias": {
           "description": "The call's own name; the service name (then `_2`, ...) when absent.",
           "type": "string"
@@ -5907,6 +5912,12 @@
         },
         "call": {
           "type": "string"
+        },
+        "event": {
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "files": {
           "type": "array",

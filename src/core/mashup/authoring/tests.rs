@@ -3149,6 +3149,60 @@ fn an_expression_goes_beside_the_layout_with_its_inputs_and_wires_like_composers
 }
 
 #[test]
+fn function_input_defaults_keep_their_json_types() {
+    let (_dir, solution) = bind_fixture();
+    let plan = add_function(
+        &solution,
+        "expression2",
+        &[
+            "flag:BOOLEAN=true",
+            "number:NUMBER=2.5",
+            "integer:INTEGER=-2",
+            "long:LONG=3",
+            "json:JSON={\"key\":true}",
+            "text:STRING=a=b",
+        ],
+        &[],
+    )
+    .unwrap();
+    let value: Value = serde_json::from_str(&sidecar_content(&solution)).unwrap();
+    let expression = value["UI"]["Widgets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|widget| widget["Properties"]["Id"] == plan.placed.id)
+        .unwrap();
+    let defaults: std::collections::BTreeMap<_, _> = expression["Properties"]
+        ["_currentParameterDefs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|definition| {
+            (
+                definition["ParameterName"].as_str().unwrap(),
+                definition["DefaultValue"].clone(),
+            )
+        })
+        .collect();
+    assert_eq!(defaults["flag"], serde_json::json!(true));
+    assert_eq!(defaults["number"], serde_json::json!(2.5));
+    assert_eq!(defaults["integer"], serde_json::json!(-2));
+    assert_eq!(defaults["long"], serde_json::json!(3));
+    assert_eq!(defaults["json"], serde_json::json!({"key": true}));
+    assert_eq!(defaults["text"], serde_json::json!("a=b"));
+    let error = plan_add(
+        &solution,
+        &AddRequest {
+            inputs: vec!["flag:BOOLEAN=not-a-boolean".into()],
+            ..add_request("Acme.Orders_MU", "expression2")
+        },
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("BOOLEAN"), "{error}");
+}
+
+#[test]
 fn an_events_router_takes_as_many_inputs_as_it_says_of_its_data_type() {
     let (_dir, solution) = bind_fixture();
     let plan = add_function(
@@ -4359,6 +4413,7 @@ fn source_request(entity: &str, service: &str) -> SourceAddRequest {
         entity: entity.into(),
         service: service.into(),
         dynamic: false,
+        on_load: false,
         alias: None,
         entity_from: None,
         refresh: None,
@@ -4464,6 +4519,36 @@ fn source_add_writes_each_kind_as_composer_does() {
         .unwrap_err()
         .to_string();
     assert!(error.contains("is not a service"), "{error}");
+}
+
+#[test]
+fn source_add_on_load_writes_the_call_and_event_together() {
+    let (_dir, solution) = source_fixture();
+    let before = sidecar_content(&solution);
+    let mut request = source_request("Acme.Orders.Manager", "GetOrders");
+    request.alias = Some("orders".into());
+    request.on_load = true;
+    let plan = plan_source_add(&solution, &request).unwrap();
+    assert_eq!(sidecar_content(&solution), before, "a plan writes nothing");
+    assert_eq!(
+        plan.event.as_deref(),
+        Some("mashup:Loaded -> data:Acme.Orders.Manager.GetOrders[as orders]")
+    );
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    let content = content_value(&solution);
+    assert_eq!(
+        content["Data"]["Things_Acme.Orders.Manager"]["Services"][0]["Name"],
+        "orders"
+    );
+    let event = &content["Events"][0];
+    assert_eq!(event["EventTriggerArea"], "Mashup");
+    assert_eq!(event["EventTriggerEvent"], "Loaded");
+    assert_eq!(event["EventHandlerArea"], "Data");
+    assert_eq!(event["EventHandlerService"], "orders");
+    let error = plan_source_add(&solution, &request)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("already has a call"), "{error}");
 }
 
 #[test]
@@ -5100,6 +5185,49 @@ fn a_copy_changes_only_identity_and_drops_permissions() {
     let mut copy = request("Acme.Copy_MU");
     copy.from = Some("Acme.Reference_MU".into());
     let plan = plan_new(&solution, &copy).unwrap();
+    let summary = plan.copy_summary.as_ref().expect("copy summary");
+    assert_eq!(summary.widgets, plan.widgets.len().saturating_sub(1));
+    let content: Value = serde_json::from_str(&plan.assets.content).unwrap();
+    assert_eq!(
+        summary.data_calls,
+        content["Data"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .map(|(_, section)| section["Services"].as_array().map_or(0, Vec::len))
+            .sum::<usize>()
+    );
+    assert_eq!(
+        summary.bindings,
+        content["DataBindings"].as_array().map_or(0, Vec::len)
+    );
+    assert_eq!(
+        summary.events,
+        content["Events"].as_array().map_or(0, Vec::len)
+    );
+    assert_eq!(
+        summary.parameters,
+        crate::core::mashup::describe::mashup_parameters(&plan.entity)
+            .unwrap()
+            .len()
+    );
+    let text = copy_summary_lines(&solution, &plan, false);
+    assert_eq!(
+        text[0],
+        "would create mashup Acme.Copy_MU from Acme.Reference_MU"
+    );
+    assert_eq!(
+        text[1],
+        format!(
+            "  widgets: {}; data calls: {}; bindings: {}; events: {}; parameters: {}",
+            summary.widgets,
+            summary.data_calls,
+            summary.bindings,
+            summary.events,
+            summary.parameters
+        )
+    );
+    assert_eq!(text.len(), 5);
     let copied = String::from_utf8(plan.entity.clone()).unwrap();
     assert!(
         !copied.contains("Acme.Users"),
