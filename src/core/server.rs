@@ -337,6 +337,7 @@ impl Client {
                 let now = || crate::core::logs::now_ms();
                 let reason = crate::core::logs::import_failure(
                     self,
+                    &self.profile.username,
                     started,
                     now(),
                     crate::core::logs::Wait::default(),

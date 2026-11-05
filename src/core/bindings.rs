@@ -440,15 +440,21 @@ pub(crate) fn named_fields(content: &Value) -> BTreeMap<String, Vec<(String, Str
                         })
                     })
                     .unwrap_or(0);
-                for number in 1..=count {
-                    let property = format!("DataField{number}");
-                    if let Some(field) = properties[&property]
-                        .as_str()
-                        .filter(|field| !field.is_empty())
-                    {
-                        fields.push((property, field.to_string()));
-                    }
-                }
+                // The series the widget holds, not 1..=count: a count is only a number in the
+                // content, and a huge one must not cost a loop that long.
+                let mut series: Vec<(u64, String, String)> = properties
+                    .as_object()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|(name, value)| {
+                        let number: u64 = name.strip_prefix("DataField")?.parse().ok()?;
+                        let field = value.as_str().filter(|field| !field.is_empty())?;
+                        ((1..=count).contains(&number))
+                            .then(|| (number, name.clone(), field.to_string()))
+                    })
+                    .collect();
+                series.sort();
+                fields.extend(series.into_iter().map(|(_, name, field)| (name, field)));
             }
             if !fields.is_empty() {
                 out.insert(id.to_string(), fields);
@@ -985,6 +991,22 @@ mod tests {
             })
             .collect();
         assert_eq!(found, [("unknown-column", true)]);
+    }
+
+    #[test]
+    fn a_huge_series_count_reads_only_the_series_a_chart_holds() {
+        let content = serde_json::json!({"UI": {"Properties": {"Id": "mashup-root"}, "Widgets": [
+            {"Properties": {"Id": "ptcschartline-3", "Type": "ptcschartline",
+                "NumberOfSeries": u64::MAX, "DataField1": "a", "DataField12": "b"}, "Widgets": []}
+        ]}});
+        let fields = named_fields(&content);
+        assert_eq!(
+            fields["ptcschartline-3"],
+            [
+                ("DataField1".to_string(), "a".to_string()),
+                ("DataField12".to_string(), "b".to_string())
+            ]
+        );
     }
 
     #[test]

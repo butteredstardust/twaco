@@ -413,7 +413,7 @@ pub(crate) fn list_sources(
             out.push(SourceInfo {
                 kind: kind.into(),
                 entity: entity.clone(),
-                service: call["Target"].as_str().unwrap_or("").into(),
+                service: call_service(call).into(),
                 alias: call["Name"].as_str().unwrap_or("").into(),
                 entity_from: feed.clone(),
                 refresh: call["RefreshInterval"].as_u64().unwrap_or(0),
@@ -463,7 +463,7 @@ pub(crate) fn plan_source_remove(
                 .into_iter()
                 .flatten()
                 .filter(move |call| {
-                    call["Target"] == *service
+                    call_service(call) == service.as_str()
                         && (data["EntityName"].as_str().unwrap_or("") == entity.name
                             || section.ends_with(&format!("_{}", entity.name)))
                         && alias.as_ref().is_none_or(|alias| call["Name"] == *alias)
@@ -637,7 +637,7 @@ pub(crate) fn plan_source_retarget(
     for (old, _, _) in &candidates {
         let section = &document.value()["Data"][old];
         for call in section["Services"].as_array().into_iter().flatten() {
-            let service_name = call["Target"].as_str().unwrap_or("");
+            let service_name = call_service(call);
             let service = catalog::lookup_service(
                 to_entity,
                 &model.entities,
@@ -903,4 +903,14 @@ fn same_result_type(old: &str, new: &str) -> bool {
     let numeric = |base: &str| matches!(base, "INTEGER" | "LONG" | "NUMBER");
     old.eq_ignore_ascii_case(new)
         || (numeric(&old.to_ascii_uppercase()) && numeric(&new.to_ascii_uppercase()))
+}
+
+/// The service a data call runs: its `Target`, or its `Name` when it has no `Target`, as
+/// [`bindings::data_sections`] reads a call.
+fn call_service(call: &Value) -> &str {
+    call["Target"]
+        .as_str()
+        .filter(|target| !target.is_empty())
+        .or_else(|| call["Name"].as_str())
+        .unwrap_or("")
 }

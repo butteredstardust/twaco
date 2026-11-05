@@ -6222,3 +6222,35 @@ fn a_shape_is_wired_set_and_removed_through_its_contract() {
         .to_string()
         .contains(&id));
 }
+
+#[test]
+fn source_retarget_reads_a_call_without_a_target_as_its_name() {
+    let (dir, solution) = source_fixture();
+    write(
+        dir.path(),
+        "acme/Things/Acme.Orders.Replacement.xml",
+        r#"<Entities><Things><Thing name="Acme.Orders.Replacement" projectName="Acme"><ThingShape><ServiceDefinitions><ServiceDefinition name="GetOrders"><ResultType baseType="INFOTABLE" aspect.dataShape="Acme.Orders.Order_DS"/></ServiceDefinition></ServiceDefinitions></ThingShape></Thing></Things></Entities>"#,
+    );
+    add_source(
+        &solution,
+        &source_request("Acme.Orders.Manager", "GetOrders"),
+    )
+    .unwrap();
+    // A call Composer wrote without a Target runs the service its Name names.
+    rewrite_content(dir.path(), |content| {
+        for section in content["Data"].as_object_mut().unwrap().values_mut() {
+            for call in section["Services"].as_array_mut().into_iter().flatten() {
+                call.as_object_mut().unwrap().remove("Target");
+            }
+        }
+    });
+    let plan = plan_source_retarget(
+        &solution,
+        &SourceRetargetRequest {
+            mashup: "Acme.Orders_MU".into(),
+            from: "Acme.Orders.Manager".into(),
+            to: "Acme.Orders.Replacement".into(),
+        },
+    );
+    assert!(plan.is_ok(), "{:?}", plan.err().map(|e| e.to_string()));
+}

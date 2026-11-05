@@ -698,7 +698,7 @@ pub(crate) const USAGE: &[Usage] = &[
         path: "mashup add",
         group: 1,
         text: r#"  mashup add <mashup> <widget> [--in <container> | --right-of <widget> | --left-of <widget> | --above <widget> | --below <widget>]
-      [--label <text>] [--prop <name=value>]... [--input <name:TYPE>]... [--apply] [--json]
+      [--label <text>] [--prop <name=value>]... [--input <name:TYPE[=default]>]... [--apply] [--json]
                               add a catalogue widget, or one an [[extension]] project defines, to a
                               mashup; plan unless --apply; a function widget (expression, validator,
                               navigation...) goes beside the layout
@@ -708,7 +708,8 @@ pub(crate) const USAGE: &[Usage] = &[
       --label <text>          set the widget's LabelText, Label, Text or Title property
       --prop <name=value>     set one simple default property, repeatable; an extension widget's
                               property with no default takes JSON
-      --input <name:TYPE>     an expression's or validator's input, repeatable"#,
+      --input <name:TYPE[=default]>
+                              an expression's or validator's input, with a typed default; repeatable"#,
     },
     Usage {
         path: "mashup collection add",

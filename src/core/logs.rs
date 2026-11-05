@@ -325,10 +325,12 @@ pub(crate) fn during_call(
 
 /// What the Importer wrote to ApplicationLog about a failed import between `start_ms` and
 /// `end_ms`: the entries naming an import failure, at most three, each cut short. The Importer
-/// answers a failed import with a bare HTTP 406; the reason is only in this log. `None` when the
+/// answers a failed import with a bare HTTP 406; the reason is only in this log. Entries another
+/// user wrote are not this import's. `None` when the
 /// log says nothing, or cannot be read: the caller keeps the error it has.
 pub(crate) fn import_failure(
     remote: &dyn Remote,
+    user: &str,
     start_ms: i64,
     end_ms: i64,
     wait: Wait,
@@ -357,7 +359,9 @@ pub(crate) fn import_failure(
             let Some(at) = entry.content.find("Import Failed:") else {
                 continue;
             };
-            if !(since..=until).contains(&entry.timestamp) {
+            // Another user's import that failed at the same moment is not this one's reason.
+            let someone_else = !entry.user.is_empty() && !user.is_empty() && entry.user != user;
+            if !(since..=until).contains(&entry.timestamp) || someone_else {
                 continue;
             }
             let text = entry.content[at..].trim();
@@ -918,6 +922,12 @@ mod tests {
                     row(10_330, "ERROR", "s", "Import Failed: elsewhere"),
                 ),
                 (
+                    10_700,
+                    "ApplicationLog",
+                    json!({ "timestamp": 10_305, "level": "ERROR", "origin": "i",
+                        "content": "Import Failed: another user's import", "thread": "t", "user": "other" }),
+                ),
+                (
                     0,
                     "ApplicationLog",
                     row(2_000, "ERROR", "i", "Import Failed: an older import"),
@@ -929,7 +939,7 @@ mod tests {
         let now = || *late.clock.borrow();
         let sleep = |d: Duration| *late.clock.borrow_mut() += i64::try_from(d.as_millis()).unwrap();
         assert_eq!(
-            import_failure(&late, 10_000, 10_400, Wait::default(), &now, &sleep).as_deref(),
+            import_failure(&late, "u", 10_000, 10_400, Wait::default(), &now, &sleep).as_deref(),
             Some("Import Failed: Thing T has an invalid thing template [X]")
         );
         // It waited for the entry to arrive, and stopped as soon as it did.
@@ -944,7 +954,7 @@ mod tests {
         let sleep =
             |d: Duration| *quiet.clock.borrow_mut() += i64::try_from(d.as_millis()).unwrap();
         assert_eq!(
-            import_failure(&quiet, 0, 0, Wait::default(), &now, &sleep),
+            import_failure(&quiet, "u", 0, 0, Wait::default(), &now, &sleep),
             None
         );
         assert!(*quiet.clock.borrow() <= 3_000, "gave up by three seconds");

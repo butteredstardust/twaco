@@ -58,7 +58,7 @@ twaco mashup on P.Page_MU --event mashup:Loaded --invoke data:P.Kpi_TS.GetChartD
 ```
 
 - Without a call on `Loaded` (or another trigger) the service never runs and the collection
-  shows its "no data bound" state. `mashup source add` does not add that event.
+  shows its "no data bound" state. `mashup source add` adds that event only with `--on-load`.
 - `CellWidth` and `CellHeight` are the cell's size in pixels; the cell mashup's content must fit
   it, or the cell scrolls.
 

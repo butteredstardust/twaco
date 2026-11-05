@@ -188,17 +188,24 @@ fn file_owners(solution: &Solution) -> BTreeMap<String, Option<String>> {
         .unwrap_or_else(|_| "src".to_string());
     let mut owners: BTreeMap<String, Option<String>> = BTreeMap::new();
     for file in &discovered.entities {
+        // Deploy's own rule: an entity belongs to the project its projectName names, and to the
+        // folder it was found under only when it names none.
+        let project = if file.info.project.is_empty() {
+            file.found_under.clone()
+        } else {
+            file.info.project.clone()
+        };
         let relative = solution.relative(&file.path).replace('\\', "/");
-        owners.insert(relative, Some(file.found_under.clone()));
+        owners.insert(relative, Some(project.clone()));
         let folder = format!("{src}/{}/", file.info.name);
         owners
             .entry(folder)
             .and_modify(|owner| {
-                if owner.as_deref() != Some(file.found_under.as_str()) {
+                if owner.as_deref() != Some(project.as_str()) {
                     *owner = None;
                 }
             })
-            .or_insert_with(|| Some(file.found_under.clone()));
+            .or_insert_with(|| Some(project));
     }
     owners
 }
@@ -3112,5 +3119,34 @@ mod scope_tests {
         };
         report.scope_to_projects(&solution, &["B".to_string()]);
         assert!(report.blocks(), "a gate that could not run still blocks");
+    }
+
+    #[test]
+    fn a_misfiled_entity_belongs_to_the_project_it_names_as_a_deploy_takes_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::write(
+            root.join("twaco.toml"),
+            "[[project]]\nname = \"A\"\nroot = \"a\"\n\n[[project]]\nname = \"B\"\nroot = \"b\"\n",
+        )
+        .unwrap();
+        // Filed under A's folder, but its projectName is B: a deploy of B imports it.
+        thing(root, "a/Things/B.Stray.xml", "B.Stray", "B");
+        let solution = Solution::load(&root.join("twaco.toml")).unwrap();
+        let report = |projects: &[&str]| {
+            let mut gate = GateResult::passed("g", 2);
+            gate.findings = vec![
+                finding("a/Things/B.Stray.xml"),
+                finding("src\\B.Stray\\services\\Get\\script.js"),
+            ];
+            let mut report = CheckReport { gates: vec![gate] };
+            let projects: Vec<String> = projects.iter().map(|p| p.to_string()).collect();
+            report.scope_to_projects(&solution, &projects);
+            report
+        };
+        let for_b = report(&["B"]);
+        assert_eq!(for_b.gates[0].findings.len(), 2, "both stop a deploy of B");
+        let for_a = report(&["A"]);
+        assert!(!for_a.blocks(), "neither stops a deploy of A");
     }
 }
