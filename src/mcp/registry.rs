@@ -572,6 +572,12 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             refactor::mashup_add_tool,
         )
         .with_output::<outputs::MashupAddResult>(),
+        solution_tool::<refactor_requests::MashupCollectionAddRequest>(
+            "mashup_collection_add",
+            "Add a ptcscollection that renders a repository cell mashup for each row of an existing service result. map maps row fields to cell parameters. A dry run unless dry_run is false; apply takes the workspace lock and writes the entity and managed content sidecar together.",
+            false,
+            refactor::mashup_collection_add_tool,
+        ).with_output::<outputs::MashupCollectionAddResult>(),
         solution_tool::<refactor_requests::MashupSetRequest>(
             "mashup_set",
             "Set checked properties on one exact mashup widget. Structured properties take JSON objects or arrays; root CSS updates custom.css. A dry run unless dry_run is false; apply takes the workspace lock and writes the entity and managed sidecars together.",
@@ -1067,6 +1073,7 @@ pub(crate) const GROUPS: &[(&str, &[&str])] = &[
             "mashup_new",
             "mashup_templates",
             "mashup_add",
+            "mashup_collection_add",
             "mashup_set",
             "mashup_add_contained",
             "mashup_bind",

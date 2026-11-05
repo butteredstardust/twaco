@@ -1,10 +1,10 @@
 use super::requests::refactor::{
     AdoptApplyRequest, AdoptKind, AdoptReportRequest, AdoptTakeSide, EntityEditAction,
     EntityEditRequest, EntityNewRequest, HandoffAction, HandoffRequest, MashupAddContainedRequest,
-    MashupAddRequest, MashupBindRequest, MashupDescribeRequest, MashupDiffRequest,
-    MashupEventRequest, MashupNewRequest, MashupOffRequest, MashupOnRequest, MashupParameterAction,
-    MashupParameterRequest, MashupRecipeRequest, MashupRemoveRequest, MashupSetRequest,
-    MashupSourceAddRequest, MashupSourceListRequest, MashupSourceRemoveRequest,
+    MashupAddRequest, MashupBindRequest, MashupCollectionAddRequest, MashupDescribeRequest,
+    MashupDiffRequest, MashupEventRequest, MashupNewRequest, MashupOffRequest, MashupOnRequest,
+    MashupParameterAction, MashupParameterRequest, MashupRecipeRequest, MashupRemoveRequest,
+    MashupSetRequest, MashupSourceAddRequest, MashupSourceListRequest, MashupSourceRemoveRequest,
     MashupSourceRetargetRequest, MashupTemplatesRequest, MashupUnbindRequest,
     MashupValidateRequest, MoveMemberAction, MoveMemberRequest, NewBuildingBlockRequest,
     RenameRequest, ReprojectRequest, RetemplateRequest, WidgetsRequest,
@@ -585,6 +585,71 @@ pub(crate) fn mashup_add_tool(
         commands::mashup::add(solution, &request, &mut notices).map_err(ToolError::coded)?;
     let mut result =
         crate::core::mashup::authoring::add_plan_json(solution, &outcome.plan, outcome.applied);
+    result["dry_run"] = json!(dry_run);
+    add_notices(&mut result, &notices);
+    Ok(result)
+}
+
+pub(crate) fn mashup_collection_add_tool(
+    solution: &Solution,
+    arguments: MashupCollectionAddRequest,
+) -> Result<Value, ToolError> {
+    let placements = [
+        arguments
+            .container
+            .as_ref()
+            .cloned()
+            .map(crate::core::mashup::edit::Placement::In),
+        arguments
+            .right_of
+            .as_ref()
+            .cloned()
+            .map(|anchor| beside(anchor, crate::core::mashup::edit::Side::Right)),
+        arguments
+            .left_of
+            .as_ref()
+            .cloned()
+            .map(|anchor| beside(anchor, crate::core::mashup::edit::Side::Left)),
+        arguments
+            .above
+            .as_ref()
+            .cloned()
+            .map(|anchor| beside(anchor, crate::core::mashup::edit::Side::Above)),
+        arguments
+            .below
+            .as_ref()
+            .cloned()
+            .map(|anchor| beside(anchor, crate::core::mashup::edit::Side::Below)),
+    ];
+    let supplied: Vec<_> = placements.into_iter().flatten().collect();
+    if supplied.len() > 1 {
+        return Err(ToolError::invalid(
+            "give one of in, right_of, left_of, above, below",
+        ));
+    }
+    let dry_run = arguments.dry_run;
+    let request = commands::mashup::MashupCollectionAddRequest {
+        request: crate::core::mashup::authoring::CollectionAddRequest {
+            mashup: nonempty(&arguments.mashup, "mashup")?.into(),
+            cell: nonempty(&arguments.cell_mashup, "cell_mashup")?.into(),
+            data: nonempty(&arguments.data, "data")?.into(),
+            mappings: arguments.map.into_iter().collect(),
+            uid: arguments.uid.as_ref().cloned(),
+            width: arguments.width.as_ref().copied(),
+            height: arguments.height.as_ref().copied(),
+            placement: supplied.into_iter().next(),
+        },
+        mode: if dry_run { Mode::Plan } else { Mode::Apply },
+        lock_label: "mcp mashup_collection_add",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome = commands::mashup::collection_add(solution, &request, &mut notices)
+        .map_err(ToolError::coded)?;
+    let mut result = crate::core::mashup::authoring::collection_add_plan_json(
+        solution,
+        &outcome.plan,
+        outcome.applied,
+    );
     result["dry_run"] = json!(dry_run);
     add_notices(&mut result, &notices);
     Ok(result)

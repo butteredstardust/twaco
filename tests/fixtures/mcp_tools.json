@@ -5366,6 +5366,142 @@
     }
   },
   {
+    "name": "mashup_collection_add",
+    "description": "Add a ptcscollection that renders a repository cell mashup for each row of an existing service result. map maps row fields to cell parameters. A dry run unless dry_run is false; apply takes the workspace lock and writes the entity and managed content sidecar together.",
+    "inputSchema": {
+      "required": [
+        "mashup",
+        "cell_mashup",
+        "data",
+        "map"
+      ],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "mashup": {
+          "description": "The mashup that holds the collection.",
+          "type": "string"
+        },
+        "cell_mashup": {
+          "description": "The repository mashup rendered once per row.",
+          "type": "string"
+        },
+        "data": {
+          "description": "An existing whole service result address.",
+          "type": "string"
+        },
+        "map": {
+          "description": "Row fields mapped to cell mashup parameters.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "uid": {
+          "type": "string"
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "in": {
+          "type": "string"
+        },
+        "right_of": {
+          "type": "string"
+        },
+        "left_of": {
+          "type": "string"
+        },
+        "above": {
+          "type": "string"
+        },
+        "below": {
+          "type": "string"
+        },
+        "dry_run": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "openWorldHint": false,
+      "destructiveHint": true,
+      "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "applied",
+        "dry_run",
+        "mashup",
+        "id",
+        "cell",
+        "mappings",
+        "binding",
+        "notes",
+        "files"
+      ],
+      "properties": {
+        "applied": {
+          "type": "boolean"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "mashup": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "cell": {
+          "type": "string"
+        },
+        "mappings": {
+          "type": "array",
+          "items": true
+        },
+        "uid": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "binding": {
+          "type": "string"
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
     "name": "mashup_set",
     "description": "Set checked properties on one exact mashup widget. Structured properties take JSON objects or arrays; root CSS updates custom.css. A dry run unless dry_run is false; apply takes the workspace lock and writes the entity and managed sidecars together.",
     "inputSchema": {

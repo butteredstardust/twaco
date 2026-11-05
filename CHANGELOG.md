@@ -8,6 +8,9 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- `mashup collection add` (MCP `mashup_collection_add`) adds a collection that repeats a cell
+  mashup for every row of a service result: it maps row fields to the cell's parameters, checks
+  both, and binds the result in one edit.
 - `mashup validate` also reports what the `mashup bindings` gate finds in the mashup, and advises
   when a number or date chart axis reads a STRING field: Runtime draws only values that read as
   numbers or dates.

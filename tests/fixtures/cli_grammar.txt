@@ -199,6 +199,18 @@ help:
 |       --prop <name=value>     set one simple default property, repeatable; an extension widget's
 |                               property with no default takes JSON
 |       --input <name:TYPE>     an expression's or validator's input, repeatable
+|   mashup collection add <parent> <cell-mashup> --data <address> --map <value>
+|       [--uid <row-field>] [--width <px>] [--height <px>]
+|       [--in <container> | --right-of <widget> | --left-of <widget> | --above <widget> | --below <widget>] [--apply] [--json]
+|                               add a collection that renders a cell mashup once per service-result row; plan unless --apply
+|       --data <address>        an existing whole service result from mashup source add
+|       --map <value>           map result fields to cell mashup parameters as row-field=cell-parameter,
+|                               separated by commas
+|       --uid <row-field>       the row field that identifies each cell
+|       --width/--height <px>   positive cell dimensions in pixels
+|       --in <container>        add inside a responsive container (center when omitted)
+|       --right-of/--left-of/--above/--below <widget>
+|                               place beside an existing widget
 |   mashup set <mashup> <widget> --prop <name=value>... [--apply] [--json]
 |                               set checked properties on one exact widget; structured properties take JSON;
 |                               plan unless --apply
@@ -6937,7 +6949,7 @@ help:
 == twaco mashup
 usage: twaco mashup <command>
 settings: disable-version-flag disable-help-subcommand subcommand-required arg-required-else-help
-subcommands: add add-contained bind describe diff event new off on param recipe remove set source templates unbind validate
+subcommands: add add-contained bind collection describe diff event new off on param recipe remove set source templates unbind validate
 arg --help
     action: Help
     value_name: -
@@ -6976,6 +6988,18 @@ help:
 |       --prop <name=value>     set one simple default property, repeatable; an extension widget's
 |                               property with no default takes JSON
 |       --input <name:TYPE>     an expression's or validator's input, repeatable
+|   mashup collection add <parent> <cell-mashup> --data <address> --map <value>
+|       [--uid <row-field>] [--width <px>] [--height <px>]
+|       [--in <container> | --right-of <widget> | --left-of <widget> | --above <widget> | --below <widget>] [--apply] [--json]
+|                               add a collection that renders a cell mashup once per service-result row; plan unless --apply
+|       --data <address>        an existing whole service result from mashup source add
+|       --map <value>           map result fields to cell mashup parameters as row-field=cell-parameter,
+|                               separated by commas
+|       --uid <row-field>       the row field that identifies each cell
+|       --width/--height <px>   positive cell dimensions in pixels
+|       --in <container>        add inside a responsive container (center when omitted)
+|       --right-of/--left-of/--above/--below <widget>
+|                               place beside an existing widget
 |   mashup set <mashup> <widget> --prop <name=value>... [--apply] [--json]
 |                               set checked properties on one exact widget; structured properties take JSON;
 |                               plan unless --apply
@@ -7531,6 +7555,236 @@ help:
 |                               add one data binding to a mashup; plan unless --apply
 |       --from <address>        source address from mashup describe
 |       --to <address>          target address from mashup describe
+| 
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
+== twaco mashup collection
+usage: twaco mashup collection <command>
+settings: disable-version-flag disable-help-subcommand subcommand-required arg-required-else-help
+subcommands: add
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+help:
+| usage: twaco mashup collection <command>
+| 
+| 
+|   --project <name>            narrow to one project of the solution
+|   --profile <name>            the server profile (default: default)
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
+== twaco mashup collection add
+usage: twaco mashup collection add <parent> <cell-mashup> --data <address> --map <value>
+settings: disable-version-flag disable-help-subcommand
+subcommands: 
+arg --above
+    action: Set
+    value_name: widget
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --apply
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --below
+    action: Set
+    value_name: widget
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --data
+    action: Set
+    value_name: address
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --height
+    action: Set
+    value_name: px
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+arg --in
+    action: Set
+    value_name: widget
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --json
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --left-of
+    action: Set
+    value_name: widget
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --map
+    action: Set
+    value_name: value
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --right-of
+    action: Set
+    value_name: widget
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --uid
+    action: Set
+    value_name: row-field
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --width
+    action: Set
+    value_name: px
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg <operands>
+    action: Append
+    value_name: operand
+    num_args: 0..
+    allow_hyphen_values: no
+    allow_negative_numbers: yes
+    required: no
+    default: -
+    index: 1
+    other: -
+help:
+|   mashup collection add <parent> <cell-mashup> --data <address> --map <value>
+|       [--uid <row-field>] [--width <px>] [--height <px>]
+|       [--in <container> | --right-of <widget> | --left-of <widget> | --above <widget> | --below <widget>] [--apply] [--json]
+|                               add a collection that renders a cell mashup once per service-result row; plan unless --apply
+|       --data <address>        an existing whole service result from mashup source add
+|       --map <value>           map result fields to cell mashup parameters as row-field=cell-parameter,
+|                               separated by commas
+|       --uid <row-field>       the row field that identifies each cell
+|       --width/--height <px>   positive cell dimensions in pixels
+|       --in <container>        add inside a responsive container (center when omitted)
+|       --right-of/--left-of/--above/--below <widget>
+|                               place beside an existing widget
 | 
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)

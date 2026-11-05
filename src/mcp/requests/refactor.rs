@@ -800,6 +800,37 @@ pub(crate) struct MashupAddRequest {
 
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct MashupCollectionAddRequest {
+    /// The mashup that holds the collection.
+    pub(crate) mashup: String,
+    /// The repository mashup rendered once per row.
+    pub(crate) cell_mashup: String,
+    /// An existing whole service result address.
+    pub(crate) data: String,
+    /// Row fields mapped to cell mashup parameters.
+    pub(crate) map: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) uid: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) width: Absent<u32>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) height: Absent<u32>,
+    #[serde(default, rename = "in", skip_serializing_if = "Absent::is_absent")]
+    pub(crate) container: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) right_of: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) left_of: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) above: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) below: Absent<String>,
+    #[serde(default = "default_true")]
+    pub(crate) dry_run: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct MashupSetRequest {
     /// The existing mashup's name.
     pub(crate) mashup: String,

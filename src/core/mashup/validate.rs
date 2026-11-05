@@ -87,6 +87,7 @@ pub(crate) fn validate_in(
                 check_content(&content, &mut problems);
                 if let Ok(value) = serde_json::from_str::<Value>(&content) {
                     chart_axis_problems(&file.info.name, &value, &resolver, &mut problems);
+                    collection_problems(&value, discovered, &resolver, &mut problems);
                 }
             }
         }
@@ -107,6 +108,102 @@ pub(crate) fn validate_in(
         });
     }
     Ok(reports)
+}
+
+/// Collection maps are a second use of service-result fields. They are advisory here rather than
+/// in the bindings gate: Composer accepts an unknown cell parameter and Runtime ignores it.
+fn collection_problems(
+    content: &Value,
+    discovered: &workspace::Discovery,
+    resolver: &bindings::Resolver<'_>,
+    problems: &mut Vec<Problem>,
+) {
+    let Ok(document) = mashup::edit::parse(&mashup::to_sidecar(content)) else {
+        return;
+    };
+    let sections = bindings::data_sections(content);
+    for widget in document.widgets() {
+        if widget.type_id != "ptcscollection" {
+            continue;
+        }
+        let properties = &document.at(&widget.path)["Properties"];
+        let mappings = properties["MashupPropertyBinding"].as_object();
+        let Some(mappings) = mappings else {
+            continue;
+        };
+        let binding = bindings::whole_data_bindings(content)
+            .into_iter()
+            .find(|binding| binding.widget == widget.id);
+        let shape = binding
+            .and_then(|binding| {
+                let (section, call) =
+                    bindings::service_at(&sections, &binding.section, &binding.call)?;
+                resolver
+                    .service(section, &call.target)
+                    .service
+                    .and_then(|service| {
+                        service
+                            .result
+                            .base_type
+                            .eq_ignore_ascii_case("INFOTABLE")
+                            .then(|| service.result.data_shape.clone())
+                            .flatten()
+                    })
+            })
+            .and_then(|name| resolver.checkable_shape(&name));
+        if let Some(shape) = shape {
+            for field in mappings.keys() {
+                if !shape.fields.iter().any(|known| known.name == *field) {
+                    push_unique(problems, problem("unknown-field-property", format!(
+                        "{}.MashupPropertyBinding names field {field}, but its DataShape {} has no field {field}", widget.id, shape.name
+                    )));
+                }
+            }
+            if let Some(uid) = properties["UIDField"]
+                .as_str()
+                .filter(|uid| !uid.is_empty())
+            {
+                if !shape.fields.iter().any(|known| known.name == uid) {
+                    push_unique(
+                        problems,
+                        problem(
+                            "unknown-field-property",
+                            format!(
+                                "{}.UIDField is {uid}, but its DataShape {} has no field {uid}",
+                                widget.id, shape.name
+                            ),
+                        ),
+                    );
+                }
+            }
+        }
+        let Some(cell) = properties["Mashup"]
+            .as_str()
+            .filter(|cell| !cell.is_empty())
+        else {
+            continue;
+        };
+        let Some(file) = discovered
+            .entities
+            .iter()
+            .find(|file| file.info.collection == "Mashups" && file.info.name == cell)
+        else {
+            continue;
+        };
+        let Ok(bytes) = std::fs::read(&file.path) else {
+            continue;
+        };
+        let Ok(parameters) = crate::core::mashup::describe::mashup_parameters(&bytes) else {
+            continue;
+        };
+        for parameter in mappings.values().filter_map(Value::as_str) {
+            if !parameters.iter().any(|known| known.name == parameter) {
+                push_unique(problems, problem("unknown-cell-parameter", format!(
+                    "{}.MashupPropertyBinding maps to {cell}.{parameter}, which has no such parameter; Runtime ignores it", widget.id
+                )));
+            }
+        }
+    }
 }
 
 /// The `check` gate's name for the content rules.

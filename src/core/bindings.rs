@@ -726,7 +726,7 @@ fn collection(kind: &str) -> Option<&'static str> {
     }
 }
 
-fn service_at<'a>(
+pub(crate) fn service_at<'a>(
     sections: &'a BTreeMap<String, Section>,
     section: &str,
     instance: &str,

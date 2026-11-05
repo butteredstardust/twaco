@@ -711,6 +711,22 @@ pub(crate) const USAGE: &[Usage] = &[
       --input <name:TYPE>     an expression's or validator's input, repeatable"#,
     },
     Usage {
+        path: "mashup collection add",
+        group: 1,
+        text: r#"  mashup collection add <parent> <cell-mashup> --data <address> --map <value>
+      [--uid <row-field>] [--width <px>] [--height <px>]
+      [--in <container> | --right-of <widget> | --left-of <widget> | --above <widget> | --below <widget>] [--apply] [--json]
+                              add a collection that renders a cell mashup once per service-result row; plan unless --apply
+      --data <address>        an existing whole service result from mashup source add
+      --map <value>           map result fields to cell mashup parameters as row-field=cell-parameter,
+                              separated by commas
+      --uid <row-field>       the row field that identifies each cell
+      --width/--height <px>   positive cell dimensions in pixels
+      --in <container>        add inside a responsive container (center when omitted)
+      --right-of/--left-of/--above/--below <widget>
+                              place beside an existing widget"#,
+    },
+    Usage {
         path: "mashup set",
         group: 1,
         text: r#"  mashup set <mashup> <widget> --prop <name=value>... [--apply] [--json]

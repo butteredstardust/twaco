@@ -5485,3 +5485,255 @@ fn a_copy_escapes_its_names_and_keeps_tables_that_only_mention_principals() {
     );
     assert!(copied.contains("<Principal> docs"));
 }
+
+/// The bind fixture, a call of `GetOrders` in its mashup, and a cell mashup with an input per
+/// field and an output.
+fn collection_fixture() -> (tempfile::TempDir, Solution) {
+    let (dir, solution) = bind_fixture();
+    let plan = bind(
+        &solution,
+        "data:Acme.Orders.Manager.GetOrders",
+        "ui:ptcsgrid-5.Data",
+    )
+    .unwrap();
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    let mut cell = request("Acme.OrderCell_MU");
+    cell.params = vec![
+        "Id:LONG:IN".into(),
+        "Note:STRING".into(),
+        "Picked:BOOLEAN:OUT".into(),
+    ];
+    let plan = plan_new(&solution, &cell).unwrap();
+    apply_new(&solution, &plan, &lock(&solution)).unwrap();
+    (dir, solution)
+}
+
+fn collection_request(mappings: &[(&str, &str)]) -> CollectionAddRequest {
+    CollectionAddRequest {
+        mashup: "Acme.Orders_MU".into(),
+        cell: "Acme.OrderCell_MU".into(),
+        data: "data:Acme.Orders.Manager.GetOrders".into(),
+        mappings: mappings
+            .iter()
+            .map(|(field, parameter)| (field.to_string(), parameter.to_string()))
+            .collect(),
+        uid: Some("id".into()),
+        width: Some(200),
+        height: Some(120),
+        placement: None,
+    }
+}
+
+fn tree_bytes(dir: &Path) -> std::collections::BTreeMap<PathBuf, Vec<u8>> {
+    fn walk(dir: &Path, files: &mut std::collections::BTreeMap<PathBuf, Vec<u8>>) {
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                walk(&path, files);
+            } else {
+                files.insert(path.clone(), std::fs::read(&path).unwrap());
+            }
+        }
+    }
+    let mut files = std::collections::BTreeMap::new();
+    walk(dir, &mut files);
+    files
+}
+
+fn collection_properties(solution: &Solution, id: &str) -> Value {
+    fn find(widget: &Value, id: &str) -> Option<Value> {
+        if widget["Properties"]["Id"] == id {
+            return Some(widget["Properties"].clone());
+        }
+        widget["Widgets"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find_map(|child| find(child, id))
+    }
+    let content: Value = serde_json::from_str(&sidecar_content(solution)).unwrap();
+    find(&content["UI"], id).expect("the collection is in the layout")
+}
+
+#[test]
+fn collection_add_writes_the_composer_contract_in_one_edit() {
+    let (dir, solution) = collection_fixture();
+    let before = tree_bytes(dir.path());
+    let plan = plan_collection_add(
+        &solution,
+        &collection_request(&[("id", "Id"), ("note", "Note")]),
+    )
+    .unwrap();
+    assert!(before == tree_bytes(dir.path()), "planning changed a file");
+    assert_eq!(
+        plan.notes.len(),
+        1,
+        "no event runs the call: {:?}",
+        plan.notes
+    );
+    assert!(plan.notes[0].contains("--event mashup:Loaded"));
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+
+    let properties = collection_properties(&solution, &plan.id);
+    assert_eq!(properties["Type"], "ptcscollection");
+    assert_eq!(properties["Mashup"], "Acme.OrderCell_MU");
+    // An object, as Composer stores it, not a JSON string.
+    assert_eq!(
+        properties["MashupPropertyBinding"],
+        json!({"id": "Id", "note": "Note"})
+    );
+    assert_eq!(properties["UIDField"], "id");
+    assert_eq!(properties["CellWidth"], json!(200));
+    assert_eq!(properties["CellHeight"], json!(120));
+    let content: Value = serde_json::from_str(&sidecar_content(&solution)).unwrap();
+    let bound = crate::core::bindings::whole_data_bindings(&content);
+    assert!(
+        bound.iter().any(|binding| binding.widget == plan.id),
+        "{bound:?}"
+    );
+    let report =
+        crate::core::mashup::validate::validate(&solution, Some("Acme.Orders_MU")).unwrap();
+    assert!(report[0].problems.is_empty(), "{:?}", report[0].problems);
+}
+
+#[test]
+fn collection_add_notes_nothing_when_an_event_runs_the_call() {
+    let (_dir, solution) = collection_fixture();
+    let plan = on(
+        &solution,
+        "mashup:Loaded",
+        "data:Acme.Orders.Manager.GetOrders",
+    )
+    .unwrap();
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    let plan = plan_collection_add(&solution, &collection_request(&[("id", "Id")])).unwrap();
+    assert!(plan.notes.is_empty(), "{:?}", plan.notes);
+}
+
+#[test]
+fn collection_add_refuses_what_the_cell_or_the_result_lacks_and_writes_nothing() {
+    let (dir, solution) = collection_fixture();
+    let before = tree_bytes(dir.path());
+    let refused = |request: CollectionAddRequest, expected: &str| {
+        let error = plan_collection_add(&solution, &request)
+            .err()
+            .unwrap_or_else(|| panic!("{expected}: not refused"))
+            .to_string();
+        assert!(error.contains(expected), "{expected}: {error}");
+    };
+    refused(
+        collection_request(&[("id", "Missing")]),
+        "has no parameter Missing",
+    );
+    refused(collection_request(&[("id", "Picked")]), "is an output");
+    refused(collection_request(&[("gone", "Id")]), "has no field gone");
+    refused(
+        collection_request(&[("note", "Id")]),
+        "field note is STRING",
+    );
+    refused(collection_request(&[]), "at least one --map");
+    refused(
+        collection_request(&[("id", "Id"), ("id", "Note")]),
+        "row field id is mapped twice",
+    );
+    refused(
+        collection_request(&[("id", "Id"), ("note", "Id")]),
+        "cell parameter Id is mapped twice",
+    );
+    let mut uid = collection_request(&[("id", "Id")]);
+    uid.uid = Some("gone".into());
+    refused(uid, "has no field gone");
+    let mut size = collection_request(&[("id", "Id")]);
+    size.width = Some(0);
+    refused(size, "positive");
+    let mut itself = collection_request(&[("id", "Id")]);
+    itself.cell = "Acme.Orders_MU".into();
+    refused(itself, "cannot use itself");
+    let mut absent = collection_request(&[("id", "Id")]);
+    absent.cell = "Acme.Nowhere_MU".into();
+    assert!(plan_collection_add(&solution, &absent).is_err());
+    let mut field = collection_request(&[("id", "Id")]);
+    field.data = "data:Acme.Orders.Manager.GetOrders.id".into();
+    refused(field, "INFOTABLE");
+    let mut uncalled = collection_request(&[("id", "Id")]);
+    uncalled.data = "data:Acme.Orders.Manager.GetOrder".into();
+    refused(uncalled, "mashup source add");
+    assert!(before == tree_bytes(dir.path()), "a refusal changed a file");
+}
+
+#[test]
+fn collection_add_checks_fields_of_an_aliased_call_by_its_service() {
+    let (dir, solution) = collection_fixture();
+    // Rename the call: its name no longer matches the service it runs.
+    rewrite_content(dir.path(), |content| {
+        for section in content["Data"].as_object_mut().unwrap().values_mut() {
+            for call in section["Services"].as_array_mut().into_iter().flatten() {
+                if call["Name"] == "GetOrders" {
+                    call["Name"] = json!("Orders");
+                    call["Target"] = json!("GetOrders");
+                }
+            }
+        }
+        for binding in content["DataBindings"].as_array_mut().into_iter().flatten() {
+            if binding["SourceId"] == "GetOrders" {
+                binding["SourceId"] = json!("Orders");
+            }
+        }
+    });
+    let mut request = collection_request(&[("gone", "Id")]);
+    request.data = "data:Acme.Orders.Manager.GetOrders[as Orders]".into();
+    let error = plan_collection_add(&solution, &request)
+        .err()
+        .map(|e| e.to_string());
+    assert!(
+        error
+            .as_deref()
+            .is_some_and(|e| e.contains("has no field gone")),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn validate_reports_collection_maps_the_result_or_the_cell_lacks() {
+    let (dir, solution) = collection_fixture();
+    let plan = plan_collection_add(&solution, &collection_request(&[("id", "Id")])).unwrap();
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    let id = plan.id.clone();
+    rewrite_content(dir.path(), |content| {
+        fn walk(widget: &mut Value, id: &str) {
+            if widget["Properties"]["Id"] == id {
+                widget["Properties"]["MashupPropertyBinding"] =
+                    json!({"id": "Id", "gone": "Note", "note": "NoSuchParameter"});
+            }
+            for child in widget["Widgets"].as_array_mut().into_iter().flatten() {
+                walk(child, id);
+            }
+        }
+        walk(&mut content["UI"], &id);
+    });
+    let report =
+        crate::core::mashup::validate::validate(&solution, Some("Acme.Orders_MU")).unwrap();
+    let found: Vec<(&str, &str)> = report[0]
+        .problems
+        .iter()
+        .map(|p| (p.rule.as_str(), p.message.as_str()))
+        .collect();
+    assert!(
+        found
+            .iter()
+            .any(|(rule, message)| *rule == "unknown-field-property" && message.contains("gone")),
+        "{found:?}"
+    );
+    assert!(
+        found
+            .iter()
+            .any(|(rule, message)| *rule == "unknown-cell-parameter"
+                && message.contains("NoSuchParameter")),
+        "{found:?}"
+    );
+    // Advisory: the bindings gate, which check runs, does not report a cell parameter.
+    assert!(!crate::core::bindings::run(&solution)
+        .problems
+        .iter()
+        .any(|p| p.rule == "unknown-cell-parameter"));
+}

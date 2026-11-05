@@ -241,20 +241,6 @@ pub(super) fn compatible(from: &str, to: &str) -> bool {
         || (number(from) && number(to))
 }
 
-#[cfg(test)]
-mod compatible_tests {
-    use super::compatible;
-
-    #[test]
-    fn any_scalar_takes_scalars_but_not_tables() {
-        for from in ["NUMBER", "STRING", "BOOLEAN", "DATETIME", "THINGNAME"] {
-            assert!(compatible(from, "ANYSCALAR"), "{from}");
-        }
-        assert!(!compatible("INFOTABLE", "ANYSCALAR"));
-        assert!(!compatible("JSON", "ANYSCALAR"));
-    }
-}
-
 /// Bind the one dynamic source entity slot.  It is deliberately not a normal service parameter:
 /// Composer writes `Entity` and the runtime allows a THINGNAME or STRING selector only.
 fn bind_entity_end(
@@ -631,4 +617,18 @@ fn has_source(document: &MashupDocument, to: &End, target_section: &str, target_
                     maps.iter().any(|map| map["TargetProperty"] == property(to))
                 })
         })
+}
+
+#[cfg(test)]
+mod compatible_tests {
+    use super::compatible;
+
+    #[test]
+    fn any_scalar_takes_scalars_but_not_tables() {
+        for from in ["NUMBER", "STRING", "BOOLEAN", "DATETIME", "THINGNAME"] {
+            assert!(compatible(from, "ANYSCALAR"), "{from}");
+        }
+        assert!(!compatible("INFOTABLE", "ANYSCALAR"));
+        assert!(!compatible("JSON", "ANYSCALAR"));
+    }
 }

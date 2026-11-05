@@ -1352,6 +1352,21 @@ pub(crate) struct MashupAddResult {
 }
 
 #[derive(Serialize, JsonSchema)]
+pub(crate) struct MashupCollectionAddResult {
+    applied: bool,
+    dry_run: bool,
+    mashup: String,
+    id: String,
+    cell: String,
+    mappings: Vec<Value>,
+    uid: Option<String>,
+    binding: String,
+    notes: Vec<String>,
+    files: Vec<String>,
+    notices: Notices,
+}
+
+#[derive(Serialize, JsonSchema)]
 pub(crate) struct MashupSetResult {
     applied: bool,
     dry_run: bool,

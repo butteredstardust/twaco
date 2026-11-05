@@ -1146,6 +1146,21 @@ widget also gets `UseTheme`, as Composer gives it. The cache holds what the serv
 profile last given to `types --platform` had installed; run it again against the server the
 mashup is for.
 
+### Collections
+
+Use a collection to render a cell mashup for every row of an existing service result. The cell
+mashup declares the parameters it receives. The source call must already be in the parent mashup.
+
+```sh
+twaco mashup collection add Acme.App.Orders_MU Acme.App.OrderCell_MU \
+  --data data:Acme.App.Orders.Manager.GetOrders --map Name=Title,Status=Status --uid Id --apply
+```
+
+The command adds the collection, records the field-to-parameter mapping as an object, and binds
+the result to `Data` in one edit. It reports when nothing invokes the source call. See
+[Collections: the serialized contract](MASHUP_COLLECTIONS.md) for the stored properties and
+runtime behaviour.
+
 ### Data sources
 
 ```sh

@@ -62,19 +62,21 @@ twaco mashup on P.Page_MU --event mashup:Loaded --invoke data:P.Kpi_TS.GetChartD
 - `CellWidth` and `CellHeight` are the cell's size in pixels; the cell mashup's content must fit
   it, or the cell scrolls.
 
-## Proposed command
+## Command
 
 ```text
 twaco mashup collection add <parent> <cell-mashup> --data <data:Entity.Service>
-    --map <row field>=<cell parameter>... [--uid <row field>]
-    [--in <container> | --right-of | --left-of | --above | --below <widget>] [--apply] [--json]
+    --map <row field>=<cell parameter>[,<row field>=<cell parameter>...] [--uid <row field>]
+    [--width <px>] [--height <px>]
+    [--in <container> | --right-of <widget> | --left-of <widget> | --above <widget> | --below <widget>] [--apply] [--json]
 ```
 
-It adds a `ptcscollection` with `Mashup`, `MashupPropertyBinding` and `UIDField`, and binds the
-whole result to its `Data`. It refuses a cell mashup not in the solution, a cell parameter that
-is missing, a row field the result's DataShape lacks (when the shape is known), and a field whose
-base type does not fit the parameter (numbers interchangeable; anything into STRING). Plan
-unless `--apply`; MCP `mashup_collection_add` with `dry_run`.
+It adds a `ptcscollection` with `Mashup`, `MashupPropertyBinding`, optional `UIDField`, and cell
+dimensions, then binds the whole result to its `Data` in one edit. The call must already exist in
+the parent. It refuses a cell mashup not in the solution, an output-only or missing cell parameter,
+a duplicate mapping, a row field the result's DataShape lacks (when the shape is known), and a
+field whose base type does not fit the parameter. Plan unless `--apply`; MCP is
+`mashup_collection_add` with `dry_run`.
 
 `mashup validate` then reports, for a collection whose data has a known shape: a mapped row field
 the shape lacks (`unknown-field-property`), and a mapping to a parameter the cell lacks.

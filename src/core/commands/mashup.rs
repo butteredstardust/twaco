@@ -30,6 +30,24 @@ pub struct MashupAddRequest {
     pub lock_label: &'static str,
 }
 
+#[derive(Clone, Debug)]
+pub struct MashupCollectionAddRequest {
+    pub request: mashup::authoring::CollectionAddRequest,
+    pub mode: Mode,
+    pub lock_label: &'static str,
+}
+
+#[derive(Debug)]
+pub struct MashupCollectionAddOutcome {
+    pub plan: mashup::authoring::CollectionAddPlan,
+    pub applied: bool,
+    #[allow(
+        dead_code,
+        reason = "the command facade's Effects (COMMAND_FACADE.md); no adapter reads it yet"
+    )]
+    pub(crate) effects: Effects,
+}
+
 #[derive(Debug)]
 pub struct MashupAddOutcome {
     pub plan: mashup::authoring::AddPlan,
@@ -308,6 +326,37 @@ pub fn add(
             mashup::authoring::apply_edit(&reloaded, &plan.edit, &lock)
                 .map_err(MashupCommandError::Authoring)?;
             Ok(MashupAddOutcome {
+                plan,
+                applied: true,
+                effects: Effects::new(Access::Write, Access::None),
+            })
+        }
+    }
+}
+
+/// Plan without a lock; to apply, lock first and plan again from what is on disk then.
+pub fn collection_add(
+    solution: &Solution,
+    request: &MashupCollectionAddRequest,
+    notices: &mut Notices,
+) -> Result<MashupCollectionAddOutcome, MashupCommandError> {
+    match request.mode {
+        Mode::Plan => Ok(MashupCollectionAddOutcome {
+            plan: mashup::authoring::plan_collection_add(solution, &request.request)
+                .map_err(MashupCommandError::Authoring)?,
+            applied: false,
+            effects: Effects::new(Access::Read, Access::None),
+        }),
+        Mode::Apply => {
+            let lock = lock_workspace(solution, request.lock_label, notices)
+                .map_err(MashupCommandError::Lock)?;
+            let reloaded = Solution::load(&solution.root.join(config::CONFIG_FILE))
+                .map_err(MashupCommandError::Config)?;
+            let plan = mashup::authoring::plan_collection_add(&reloaded, &request.request)
+                .map_err(MashupCommandError::Authoring)?;
+            mashup::authoring::apply_edit(&reloaded, &plan.edit, &lock)
+                .map_err(MashupCommandError::Authoring)?;
+            Ok(MashupCollectionAddOutcome {
                 plan,
                 applied: true,
                 effects: Effects::new(Access::Write, Access::None),
