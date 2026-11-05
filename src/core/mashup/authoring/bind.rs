@@ -229,14 +229,30 @@ pub(super) fn bind_in(
 
 /// Whether ThingWorx carries a `from` value into a `to` property: the same type, anything into
 /// a STRING, a string into an entity name (a THINGNAME, MASHUPNAME, ... is a string), and one
-/// number type into another.
+/// number type into another, and any scalar into an ANYSCALAR (a value display's `Data`).
 pub(super) fn compatible(from: &str, to: &str) -> bool {
     let name = |base: &str| base.ends_with("NAME");
     let number = |base: &str| matches!(base, "NUMBER" | "INTEGER" | "LONG");
+    let structured = |base: &str| matches!(base, "INFOTABLE" | "JSON");
     from == to
         || to == "STRING"
+        || (to == "ANYSCALAR" && !structured(from))
         || (name(to) && (from == "STRING" || name(from)))
         || (number(from) && number(to))
+}
+
+#[cfg(test)]
+mod compatible_tests {
+    use super::compatible;
+
+    #[test]
+    fn any_scalar_takes_scalars_but_not_tables() {
+        for from in ["NUMBER", "STRING", "BOOLEAN", "DATETIME", "THINGNAME"] {
+            assert!(compatible(from, "ANYSCALAR"), "{from}");
+        }
+        assert!(!compatible("INFOTABLE", "ANYSCALAR"));
+        assert!(!compatible("JSON", "ANYSCALAR"));
+    }
 }
 
 /// Bind the one dynamic source entity slot.  It is deliberately not a normal service parameter:

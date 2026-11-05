@@ -15,6 +15,11 @@ All notable changes to twaco are recorded here. The format follows
 - `mashup source retarget` refuses a swap whose new result lacks a field the mashup uses, or
   gives it another base type; its plan carries the chart-axis advice as notes.
 
+### Fixed
+
+- `mashup bind` takes any scalar into an ANYSCALAR property, such as a value display's `Data`;
+  it refused a NUMBER.
+
 ## [0.1.53] - 2026-11-04
 
 ### Added
