@@ -453,8 +453,13 @@ pub(crate) fn mashup_validate_tool(
     };
     let reports =
         crate::core::mashup::validate::validate(solution, name).map_err(ToolError::coded)?;
-    let problems: usize = reports.iter().map(|report| report.problems.len()).sum();
-    Ok(json!({ "problems": problems, "mashups": reports }))
+    let counts = crate::core::mashup::validate::problem_counts(&reports);
+    Ok(json!({
+        "problems": counts.problems,
+        "errors": counts.errors,
+        "advisories": counts.advisories,
+        "mashups": reports,
+    }))
 }
 
 pub(crate) fn mashup_new_tool(

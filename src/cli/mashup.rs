@@ -2271,7 +2271,7 @@ pub(crate) fn mashup_diff_cmd(solution: &Solution, args: &MashupDiff) -> u8 {
     }
 }
 
-/// `twaco mashup validate <mashup>|--all`: report problems; exit 1 when there are any.
+/// `twaco mashup validate <mashup>|--all`: report problems; exit 1 when there are errors.
 pub(crate) fn mashup_validate_cmd(solution: &Solution, args: &MashupValidate) -> u8 {
     let name = match (args.selection.operands.as_slice(), args.selection.all) {
         ([name], false) => Some(name.as_str()),
@@ -2291,32 +2291,50 @@ pub(crate) fn mashup_validate_cmd(solution: &Solution, args: &MashupValidate) ->
             return FAILED;
         }
     };
-    let problems: usize = reports.iter().map(|report| report.problems.len()).sum();
+    let counts = twaco::core::mashup::validate::problem_counts(&reports);
     if args.json.json {
         println!(
             "{}",
-            serde_json::to_string_pretty(
-                &serde_json::json!({ "problems": problems, "mashups": reports })
-            )
+            serde_json::to_string_pretty(&serde_json::json!({
+                "problems": counts.problems,
+                "errors": counts.errors,
+                "advisories": counts.advisories,
+                "mashups": reports,
+            }))
             .expect("a validation report serialises")
         );
     } else {
         for report in reports.iter().filter(|report| !report.problems.is_empty()) {
             println!("{} ({})", report.mashup, report.file);
             for problem in &report.problems {
-                println!("  [{}] {}", problem.rule, problem.message);
+                let advisory = matches!(
+                    problem.severity,
+                    twaco::core::mashup::validate::Severity::Advisory
+                )
+                .then_some("advisory: ")
+                .unwrap_or("");
+                println!("  {advisory}[{}] {}", problem.rule, problem.message);
             }
         }
         println!(
-            "{} mashup(s) validated, {} with problems, {problems} problem(s)",
+            "{} mashup(s) validated, {} with errors, {} error(s), {} advisory(ies)",
             reports.len(),
             reports
                 .iter()
-                .filter(|report| !report.problems.is_empty())
-                .count()
+                .filter(|report| {
+                    report.problems.iter().any(|problem| {
+                        matches!(
+                            problem.severity,
+                            twaco::core::mashup::validate::Severity::Error
+                        )
+                    })
+                })
+                .count(),
+            counts.errors,
+            counts.advisories,
         );
     }
-    if problems > 0 {
+    if counts.errors > 0 {
         DRIFT
     } else {
         OK

@@ -7109,10 +7109,20 @@
     "outputSchema": {
       "required": [
         "problems",
+        "errors",
+        "advisories",
         "mashups"
       ],
       "properties": {
         "problems": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "errors": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "advisories": {
           "type": "integer",
           "minimum": 0
         },
@@ -7129,7 +7139,25 @@
               },
               "problems": {
                 "type": "array",
-                "items": true
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "rule": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "severity": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "rule",
+                    "message",
+                    "severity"
+                  ]
+                }
               }
             },
             "required": [

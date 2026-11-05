@@ -6,6 +6,11 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- `mashup validate` distinguishes errors from advisory findings. A chart axis on a STRING field
+  and an obsolete collection cell-parameter map are advisory and do not make the command fail.
+
 ## [0.1.54] - 2026-11-05
 
 ### Added

@@ -10,10 +10,18 @@ use serde::Serialize;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Severity {
+    Error,
+    Advisory,
+}
+
 #[derive(Debug, Serialize, PartialEq, Eq)]
 pub struct Problem {
     pub rule: String,
     pub message: String,
+    pub severity: Severity,
 }
 
 #[derive(Debug, Serialize)]
@@ -21,6 +29,28 @@ pub struct MashupReport {
     pub mashup: String,
     pub file: String,
     pub problems: Vec<Problem>,
+}
+
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct ProblemCounts {
+    pub problems: usize,
+    pub errors: usize,
+    pub advisories: usize,
+}
+
+/// Count every validation finding, separating failures from working-mashup advisories.
+pub fn problem_counts(reports: &[MashupReport]) -> ProblemCounts {
+    reports.iter().flat_map(|report| &report.problems).fold(
+        ProblemCounts::default(),
+        |mut counts, problem| {
+            counts.problems += 1;
+            match problem.severity {
+                Severity::Error => counts.errors += 1,
+                Severity::Advisory => counts.advisories += 1,
+            }
+            counts
+        },
+    )
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -259,6 +289,15 @@ fn problem(rule: &str, message: String) -> Problem {
     Problem {
         rule: rule.to_string(),
         message,
+        severity: severity(rule),
+    }
+}
+
+/// Rules that describe tolerated Composer state rather than a broken mashup.
+fn severity(rule: &str) -> Severity {
+    match rule {
+        "chart-axis-type" | "unknown-cell-parameter" => Severity::Advisory,
+        _ => Severity::Error,
     }
 }
 
@@ -956,6 +995,7 @@ mod tests {
                 .problems
                 .iter()
                 .any(|problem| problem.rule == "chart-axis-type"
+                    && problem.severity == Severity::Advisory
                     && problem.message.contains("XAxisType=label")),
             "{:?}",
             report[0].problems
@@ -997,6 +1037,30 @@ mod tests {
                 .any(|problem| problem.rule == "unknown-field-property"),
             "{:?}",
             report[0].problems
+        );
+    }
+
+    #[test]
+    fn only_tolerated_composer_state_is_advisory() {
+        let reports = [MashupReport {
+            mashup: "Acme.View".to_string(),
+            file: "Mashups/Acme.View.xml".to_string(),
+            problems: vec![
+                problem("chart-axis-type", "axis".to_string()),
+                problem("unknown-cell-parameter", "parameter".to_string()),
+                problem("unknown-field", "field".to_string()),
+            ],
+        }];
+        assert_eq!(reports[0].problems[0].severity, Severity::Advisory);
+        assert_eq!(reports[0].problems[1].severity, Severity::Advisory);
+        assert_eq!(reports[0].problems[2].severity, Severity::Error);
+        assert_eq!(
+            problem_counts(&reports),
+            ProblemCounts {
+                problems: 3,
+                errors: 1,
+                advisories: 2,
+            }
         );
     }
 

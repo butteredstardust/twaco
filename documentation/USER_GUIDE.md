@@ -1350,11 +1350,13 @@ both containers and widgets, bindings and events naming a widget, data source or
 longer has (Composer leaves these behind when a call is removed), a binding against a catalogue
 widget's contract (the wrong direction, a property it lacks, such as a misspelt expression input),
 an event or service a widget lacks, a binding with several property maps, the bound service's
-declared fields, and the contained-mashup drift `twaco check` also reports. It also advises when a
-number or date chart axis is configured on a STRING field: the chart renders only values that read
-as numbers or dates, so set the axis to `label` when that is not the data contract. What it cannot
-judge, extension and legacy widgets, properties and events a widget makes per configured action, a
-collection's cell parameters, it leaves alone. It exits 1 when it finds anything.
+declared fields, and the contained-mashup drift `twaco check` also reports. It reports an advisory,
+not an error, when a number or date chart axis is configured on a STRING field: the chart renders
+only values that read as numbers or dates, so set the axis to `label` when that is not the data
+contract. An obsolete collection cell-parameter map is also advisory, because Runtime ignores it.
+What it cannot judge, extension and legacy widgets, properties and events a widget makes per
+configured action, it leaves alone. It exits 1 only when it finds an error; advisory-only output
+exits 0.
 
 ### Finding widgets
 

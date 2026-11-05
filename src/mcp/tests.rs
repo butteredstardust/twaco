@@ -262,6 +262,28 @@ fn projects_includes_misfiled_entity_documents() {
 }
 
 #[test]
+fn mashup_validate_reports_problem_severity_and_counts() {
+    let (_dir, root) = solution_dir();
+    std::fs::create_dir_all(root.join("Mashups")).unwrap();
+    std::fs::write(
+        root.join("Mashups/P.Bad_MU.xml"),
+        r#"<Entities><Mashups><Mashup name="P.Bad_MU" projectName="P"><mashupContent><![CDATA[{"UI":{}}]]></mashupContent></Mashup></Mashups></Entities>"#,
+    )
+    .unwrap();
+
+    let (failed, body) = call_tool(&root, "mashup_validate", json!({"all": true}));
+    assert!(!failed, "{body}");
+    assert_eq!(body["problems"], 1, "{body}");
+    assert_eq!(body["errors"], 1, "{body}");
+    assert_eq!(body["advisories"], 0, "{body}");
+    assert_eq!(body["mashups"][0]["problems"][0]["severity"], "error");
+    assert!(
+        jsonschema::draft202012::is_valid(&output_schema_of("mashup_validate"), &body),
+        "{body}"
+    );
+}
+
+#[test]
 fn tool_schemas_use_the_supported_subset() {
     for tool in tool_definitions() {
         let name = tool["name"].as_str().unwrap();
