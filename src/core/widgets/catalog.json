@@ -14907,6 +14907,115 @@
       "services": []
     },
     {
+      "type": "shape",
+      "aliases": [],
+      "type_display_name": "Shape",
+      "display_name": "shape",
+      "container": false,
+      "numbered": true,
+      "auto_resize": true,
+      "defaults": {
+        "Area": "UI",
+        "CustomClass": "",
+        "DisableLegacyCustomClassStyles": false,
+        "DynamicFillOrientation": "vertical",
+        "DynamicRangeMaximum": 100,
+        "DynamicRangeMinimum": 0,
+        "EnableDynamicFill": false,
+        "GradientOrientation": "vertical",
+        "GradientType": "linear",
+        "Height": 50,
+        "Left": 0,
+        "Margin": "5",
+        "RectangleCornerRadius": 10,
+        "ShapeStyle": "DefaultChartStyle",
+        "ShapeType": "rectangle",
+        "ShowDataLoading": true,
+        "Top": 0,
+        "UnfilledBackgroundStyle": "DefaultShapeUnfilledBackgroundStyle",
+        "Visible": true,
+        "Width": 50,
+        "Z-index": 10,
+        "ShapeFormatter_StateParameters": []
+      },
+      "legacy": true,
+      "properties": {
+        "CustomClass": {
+          "base_type": "STRING",
+          "source": true,
+          "target": true
+        },
+        "Data": {
+          "base_type": "ANYSCALAR",
+          "target": true
+        },
+        "ShapeType": {
+          "base_type": "STRING",
+          "options": [
+            "rectangle",
+            "roundrect",
+            "circle",
+            "ellipse"
+          ]
+        },
+        "Width": {
+          "base_type": null
+        },
+        "Height": {
+          "base_type": null
+        },
+        "RectangleCornerRadius": {
+          "base_type": "NUMBER"
+        },
+        "ShapeStyle": {
+          "base_type": "STYLEDEFINITION"
+        },
+        "ShapeFormatter": {
+          "base_type": "STATEFORMATTING"
+        },
+        "GradientType": {
+          "base_type": "STRING",
+          "options": [
+            "linear",
+            "radial"
+          ]
+        },
+        "GradientOrientation": {
+          "base_type": "STRING",
+          "options": [
+            "vertical",
+            "horizontal"
+          ]
+        },
+        "EnableDynamicFill": {
+          "base_type": "BOOLEAN"
+        },
+        "DynamicRangeMinimum": {
+          "base_type": "NUMBER",
+          "target": true
+        },
+        "DynamicRangeMaximum": {
+          "base_type": "NUMBER",
+          "target": true
+        },
+        "DynamicFillOrientation": {
+          "base_type": "STRING",
+          "options": [
+            "vertical",
+            "horizontal"
+          ]
+        },
+        "UnfilledBackgroundStyle": {
+          "base_type": "STYLEDEFINITION"
+        }
+      },
+      "events": [
+        "Clicked",
+        "DoubleClicked"
+      ],
+      "services": []
+    },
+    {
       "type": "expression2",
       "aliases": [
         "expression-function",

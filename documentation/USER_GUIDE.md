@@ -1117,6 +1117,11 @@ when alone in its container. `--label` selects the first available LabelText, La
 property; `--prop Name=value` changes a catalogue property with its expected type. Structured
 properties take JSON, including a grid's column format:
 
+The catalogue also has the older Composer `shape`: a rectangle, rounded rectangle, circle or
+ellipse (`ShapeType`) for status dots, badges and backgrounds. Its `Data` takes any scalar and its
+`ShapeFormatter` colours it by state; `EnableDynamicFill` with `DynamicRangeMinimum` and
+`DynamicRangeMaximum` fills it like a level gauge. It raises `Clicked` and `DoubleClicked`.
+
 ```sh
 twaco mashup add Acme.App.Orders_MU grid --prop 'ColumnFormat={"formatInfo":[]}' --apply
 ```

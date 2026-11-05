@@ -6122,3 +6122,103 @@ fn setting_the_root_theme_takes_the_default_or_a_solution_theme_only() {
     );
     assert!(theme("Acme.Theme").is_ok());
 }
+
+/// A mashup with a NUMBER parameter and a shape added as Composer adds one.
+fn shape_fixture() -> (tempfile::TempDir, Solution, String) {
+    let (dir, solution) = one_project();
+    let mut new = request("Acme.Shape_MU");
+    new.params = vec!["Level:NUMBER".into()];
+    let plan = plan_new(&solution, &new).unwrap();
+    apply_new(&solution, &plan, &lock(&solution)).unwrap();
+    let mut add = add_request("Acme.Shape_MU", "shape");
+    add.properties = vec![("ShapeType".into(), "circle".into())];
+    let plan = plan_add(&solution, &add).unwrap();
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    (dir, solution, plan.placed.id)
+}
+
+fn widget_properties(solution: &Solution, mashup: &str, id: &str) -> Value {
+    fn find(widget: &Value, id: &str) -> Option<Value> {
+        if widget["Properties"]["Id"] == id {
+            return Some(widget["Properties"].clone());
+        }
+        widget["Widgets"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find_map(|child| find(child, id))
+    }
+    find(&content_of(solution, mashup)["UI"], id).expect("the widget is in the layout")
+}
+
+#[test]
+fn a_shape_is_added_as_composer_writes_one() {
+    let (_dir, solution, id) = shape_fixture();
+    assert!(id.starts_with("shape-"), "{id}");
+    let properties = widget_properties(&solution, "Acme.Shape_MU", &id);
+    assert_eq!(properties["Type"], "shape");
+    assert_eq!(properties["ShapeType"], "circle");
+    assert_eq!(properties["DisplayName"], json!(id));
+    assert_eq!(properties["__TypeDisplayName"], "Shape");
+    assert_eq!(properties["ShapeFormatter_StateParameters"], json!([]));
+    assert_eq!(properties["ShapeStyle"], "DefaultChartStyle");
+    // Not a PTCS widget: Composer gives it none of what it adds to a dropped PTCS widget.
+    assert!(properties.get("UseTheme").is_none(), "{properties}");
+    let report = crate::core::mashup::validate::validate(&solution, Some("Acme.Shape_MU")).unwrap();
+    assert!(report[0].problems.is_empty(), "{:?}", report[0].problems);
+}
+
+#[test]
+fn a_shape_is_wired_set_and_removed_through_its_contract() {
+    let (_dir, solution, id) = shape_fixture();
+    let plan = plan_bind(
+        &solution,
+        &BindRequest {
+            mashup: "Acme.Shape_MU".into(),
+            from: "mashup:Level".into(),
+            to: format!("ui:{id}.Data"),
+        },
+    )
+    .unwrap();
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    let plan = plan_bind(
+        &solution,
+        &BindRequest {
+            mashup: "Acme.Shape_MU".into(),
+            from: "mashup:Level".into(),
+            to: format!("ui:{id}.DynamicRangeMaximum"),
+        },
+    )
+    .unwrap();
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    let set = |name: &str, value: Value| {
+        plan_set(
+            &solution,
+            &SetRequest {
+                mashup: "Acme.Shape_MU".into(),
+                widget: id.clone(),
+                properties: vec![(name.into(), value)],
+                style_from: None,
+            },
+        )
+    };
+    assert!(set("ShapeType", json!("roundrect")).is_ok());
+    assert!(set("ShapeType", json!("hexagon")).is_err());
+    assert!(set("EnableDynamicFill", json!(true)).is_ok());
+
+    // Its DisplayName is its Id; that is no reference that stops its removal.
+    let plan = plan_remove(
+        &solution,
+        &RemoveRequest {
+            mashup: "Acme.Shape_MU".into(),
+            widget: id.clone(),
+            cascade: true,
+        },
+    )
+    .unwrap();
+    assert_eq!(plan.bindings_removed, 2);
+    apply_edit(&solution, plan.edit.as_ref().unwrap(), &lock(&solution)).unwrap();
+    assert!(!content_of(&solution, "Acme.Shape_MU")
+        .to_string()
+        .contains(&id));
+}

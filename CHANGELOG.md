@@ -28,11 +28,17 @@ All notable changes to twaco are recorded here. The format follows
 - `mashup set --style-from <mashup>:<widget>` (MCP `style_from`) copies one widget's visual style,
   its entry in the root's `StyleProperties`, from a reference mashup; setting the root's
   `StyleTheme` now refuses a theme that is neither the default nor in the solution.
+- `mashup add shape`: the older Composer shape widget (status dots, badges, level fills), with
+  its contract read from the 10.2 installation as Composer writes it.
 
 ### Fixed
 
 - `mashup bind` takes any scalar into an ANYSCALAR property, such as a value display's `Data`;
   it refused a NUMBER.
+- `mashup remove` refused a widget whose `DisplayName` is its own id, such as a shape, as if
+  something else named it.
+- The widget catalogue generator read a function widget's contract up to the next widget in the
+  bundle, which could take in another widget's helper code; it now reads the widget's own body.
 
 ## [0.1.53] - 2026-11-04
 
