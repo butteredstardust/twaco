@@ -5502,6 +5502,111 @@
     }
   },
   {
+    "name": "mashup_state_format_set",
+    "description": "Set a Composer state-format snapshot on a STATEFORMATTING widget property or existing ptcsgrid column from a repository StateDefinition. Give exactly one of property and column. dry_run defaults to true; apply writes entity and managed sidecar in one transaction.",
+    "inputSchema": {
+      "required": [
+        "mashup",
+        "widget",
+        "state"
+      ],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "mashup": {
+          "description": "The repository mashup to edit.",
+          "type": "string"
+        },
+        "widget": {
+          "description": "An exact widget Id, DisplayName, or the one widget of a type.",
+          "type": "string"
+        },
+        "state": {
+          "description": "The repository StateDefinition to snapshot.",
+          "type": "string"
+        },
+        "property": {
+          "description": "A STATEFORMATTING property; give exactly one of property and column.",
+          "type": "string"
+        },
+        "column": {
+          "description": "An existing ptcsgrid column field.",
+          "type": "string"
+        },
+        "field": {
+          "description": "The judged field; defaults to the column field or KPI Value.",
+          "type": "string"
+        },
+        "icon_only": {
+          "description": "Hide the column text; requires column.",
+          "type": "boolean",
+          "default": false
+        },
+        "dry_run": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "openWorldHint": false,
+      "destructiveHint": true,
+      "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "applied",
+        "dry_run",
+        "mashup",
+        "widget",
+        "type",
+        "changed",
+        "files"
+      ],
+      "properties": {
+        "applied": {
+          "type": "boolean"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "mashup": {
+          "type": "string"
+        },
+        "widget": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "changed": {
+          "type": "array",
+          "items": true
+        },
+        "style_copy": {
+          "description": "The source style entry and whether it existed, when style_from was supplied."
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
     "name": "mashup_set",
     "description": "Set checked properties on one exact mashup widget. Structured properties take JSON objects or arrays; root CSS updates custom.css. A dry run unless dry_run is false; apply takes the workspace lock and writes the entity and managed sidecars together.",
     "inputSchema": {
@@ -7109,10 +7214,20 @@
     "outputSchema": {
       "required": [
         "problems",
+        "errors",
+        "advisories",
         "mashups"
       ],
       "properties": {
         "problems": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "errors": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "advisories": {
           "type": "integer",
           "minimum": 0
         },
@@ -7129,7 +7244,25 @@
               },
               "problems": {
                 "type": "array",
-                "items": true
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "rule": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "severity": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "rule",
+                    "message",
+                    "severity"
+                  ]
+                }
               }
             },
             "required": [

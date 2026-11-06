@@ -1292,6 +1292,8 @@ struct MashupDifference {
 #[derive(Serialize, JsonSchema)]
 pub(crate) struct MashupValidateResult {
     problems: u64,
+    errors: u64,
+    advisories: u64,
     mashups: Vec<MashupValidateEntry>,
 }
 
@@ -1299,7 +1301,14 @@ pub(crate) struct MashupValidateResult {
 struct MashupValidateEntry {
     mashup: String,
     file: String,
-    problems: Vec<Value>,
+    problems: Vec<MashupValidateProblem>,
+}
+
+#[derive(Serialize, JsonSchema)]
+struct MashupValidateProblem {
+    rule: String,
+    message: String,
+    severity: String,
 }
 
 #[derive(Serialize, JsonSchema)]

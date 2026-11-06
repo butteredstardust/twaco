@@ -1,0 +1,17 @@
+$ twaco mashup state-format set --help
+exit: 0
+
+--- stdout
+  mashup state-format set <mashup> <widget> --state <name>
+      (--property <name> | --column <field>) [--field <field>] [--icon-only] [--apply] [--json]
+                              colour a widget or grid column from a repository StateDefinition; plan unless --apply
+      --state <name>         the StateDefinition in the solution
+      --property <name>      a widget property of base type STATEFORMATTING
+      --column <field>       an existing ptcsgrid column's field
+      --field <field>        the field judged by the state; defaults to the column field or KPI Value
+      --icon-only            show only the state icon in a grid column
+
+  --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+  --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+--- stderr
+

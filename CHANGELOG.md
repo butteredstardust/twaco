@@ -6,6 +6,33 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `mashup state-format set` copies StateDefinitions into widget or grid-column state formatting, with field checks and snapshot validation; also available as `mashup_state_format_set` over MCP.
+
+### Changed
+
+- Mashup placement now lays out like the design kits: control rows are fixed to their content,
+  side-by-side controls share one row from the left, and one grid, chart or collection fills the
+  remaining column space; a column with no such widget lets its last control row grow, so Runtime
+  does not spread the rows out. `--below` a control adds a row to the enclosing column instead of
+  nesting. Only a placement reshapes rows, only those it made or used; a later `mashup set` or
+  `mashup remove` only grows a row that is already fixed, so a Composer layout is left alone.
+- A new collection aligns its cells to the top, and a new grid has no default "Grid Title", as in
+  the design kits. Binding from a grid's
+  RowSelected, SelectedRows or SelectedRowsIDs turns its RowSelection from none to single (and
+  says so), since those outputs never change otherwise.
+- `mashup validate` distinguishes errors from advisory findings. A chart axis on a STRING field
+  and an obsolete collection cell-parameter map are advisory and do not make the command fail.
+### Fixed
+
+- `entity delete --apply` forgets the deleted entities in the profile's baseline, so pushing an
+  entity of the same name again is no longer refused as "deleted on the server since the last
+  sync".
+- `mashup state-format set` accepts the final catch-all state that Composer saves without a
+  `defaultValue`.
+- `mashup remove` lists the empty containers it removes with the widget.
+
 ## [0.1.54] - 2026-11-05
 
 ### Added

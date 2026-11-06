@@ -831,6 +831,31 @@ pub(crate) struct MashupCollectionAddRequest {
 
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct MashupStateFormatSetRequest {
+    /// The repository mashup to edit.
+    pub(crate) mashup: String,
+    /// An exact widget Id, DisplayName, or the one widget of a type.
+    pub(crate) widget: String,
+    /// The repository StateDefinition to snapshot.
+    pub(crate) state: String,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    /// A STATEFORMATTING property; give exactly one of property and column.
+    pub(crate) property: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    /// An existing ptcsgrid column field.
+    pub(crate) column: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    /// The judged field; defaults to the column field or KPI Value.
+    pub(crate) field: Absent<String>,
+    #[serde(default)]
+    /// Hide the column text; requires column.
+    pub(crate) icon_only: bool,
+    #[serde(default = "default_true")]
+    pub(crate) dry_run: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct MashupSetRequest {
     /// The existing mashup's name.
     pub(crate) mashup: String,

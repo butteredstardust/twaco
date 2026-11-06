@@ -4,6 +4,6 @@ exit: 1
 --- stdout
 Acme.Orders.Dashboard (Mashups/Acme.Orders.Dashboard.xml)
   [structure] UI has no Properties object
-1 mashup(s) validated, 1 with problems, 1 problem(s)
+1 mashup(s) validated, 1 with errors, 1 error(s), 0 advisory(ies)
 --- stderr
 

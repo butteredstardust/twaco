@@ -628,6 +628,60 @@ fn json_reports_keep_the_drift_and_error_exit_codes() {
     assert_eq!(error.status.code(), Some(2), "{error:?}");
 }
 
+#[test]
+fn mashup_validate_advisories_do_not_fail_but_errors_still_do() {
+    let scratch = Scratch::new();
+    std::fs::write(
+        scratch.root().join("twaco.toml"),
+        "[[project]]\nname = \"Acme\"\ncollections = [\"Things\", \"DataShapes\", \"Mashups\"]\n",
+    )
+    .unwrap();
+    for folder in ["Things", "DataShapes", "Mashups"] {
+        std::fs::create_dir_all(scratch.root().join(folder)).unwrap();
+    }
+    std::fs::write(
+        scratch.root().join("Things/Acme.M.xml"),
+        r#"<Entities><Things><Thing name="Acme.M"><ThingShape><ServiceDefinitions><ServiceDefinition name="Get"><ResultType baseType="INFOTABLE" aspect.dataShape="Acme.Rows"/></ServiceDefinition></ServiceDefinitions><ServiceImplementations/></ThingShape></Thing></Things></Entities>"#,
+    )
+    .unwrap();
+    std::fs::write(
+        scratch.root().join("DataShapes/Acme.Rows.xml"),
+        r#"<Entities><DataShapes><DataShape name="Acme.Rows"><FieldDefinitions><FieldDefinition name="text" baseType="STRING"/></FieldDefinitions></DataShape></DataShapes></Entities>"#,
+    )
+    .unwrap();
+    let advisory = r#"{"UI":{"Properties":{"Id":"mashup-root","Type":"mashup","ResponsiveLayout":true,"id_index":4},"Widgets":[{"Properties":{"Id":"flexcontainer-2","Type":"flexcontainer","DisplayName":"center"},"Widgets":[{"Properties":{"Id":"ptcschartline-3","Type":"ptcschartline","DisplayName":"chart","XAxisField":"text","XAxisType":"number"},"Widgets":[]}]}]},"Data":{"Things_Acme.M":{"DataName":"Things_Acme.M","EntityName":"Acme.M","EntityType":"Things","Id":"d1","Services":[{"Name":"Get","Target":"Get"}]}},"DataBindings":[{"Id":"b","SourceArea":"Data","SourceSection":"Things_Acme.M","SourceId":"Get","TargetArea":"UI","TargetId":"ptcschartline-3","PropertyMaps":[{"SourcePropertyType":"InfoTable","TargetProperty":"Data"}]}],"Events":[],"mashupType":"mashup"}"#;
+    std::fs::write(
+        scratch.root().join("Mashups/Acme.View.xml"),
+        format!("<Entities><Mashups><Mashup name=\"Acme.View\"><mashupContent><![CDATA[{advisory}]]></mashupContent></Mashup></Mashups></Entities>"),
+    )
+    .unwrap();
+
+    let output = scratch.run(&["mashup", "validate", "--all"]);
+    assert!(output.status.success(), "{output:?}");
+    let text = String::from_utf8_lossy(&output.stdout);
+    assert!(text.contains("advisory: [chart-axis-type]"), "{text}");
+    assert!(text.contains("0 error(s), 1 advisory(ies)"), "{text}");
+    let report = scratch.run(&["mashup", "validate", "--all", "--json"]);
+    assert!(report.status.success(), "{report:?}");
+    let report: Value = serde_json::from_slice(&report.stdout).unwrap();
+    assert_eq!(report["problems"], 1, "{report}");
+    assert_eq!(report["errors"], 0, "{report}");
+    assert_eq!(report["advisories"], 1, "{report}");
+    assert_eq!(report["mashups"][0]["problems"][0]["severity"], "advisory");
+
+    std::fs::write(
+        scratch.root().join("Mashups/Acme.Bad.xml"),
+        r#"<Entities><Mashups><Mashup name="Acme.Bad"><mashupContent><![CDATA[{"UI":{}}]]></mashupContent></Mashup></Mashups></Entities>"#,
+    )
+    .unwrap();
+    let mixed = scratch.run(&["mashup", "validate", "--all", "--json"]);
+    assert_eq!(mixed.status.code(), Some(1), "{mixed:?}");
+    let mixed: Value = serde_json::from_slice(&mixed.stdout).unwrap();
+    assert_eq!(mixed["problems"], 2, "{mixed}");
+    assert_eq!(mixed["errors"], 1, "{mixed}");
+    assert_eq!(mixed["advisories"], 1, "{mixed}");
+}
+
 /// A command that accepts `--json` prints JSON: an agent asked for it and parses what comes.
 #[test]
 fn every_command_that_accepts_json_prints_json() {

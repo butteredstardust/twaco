@@ -453,8 +453,13 @@ pub(crate) fn mashup_validate_tool(
     };
     let reports =
         crate::core::mashup::validate::validate(solution, name).map_err(ToolError::coded)?;
-    let problems: usize = reports.iter().map(|report| report.problems.len()).sum();
-    Ok(json!({ "problems": problems, "mashups": reports }))
+    let counts = crate::core::mashup::validate::problem_counts(&reports);
+    Ok(json!({
+        "problems": counts.problems,
+        "errors": counts.errors,
+        "advisories": counts.advisories,
+        "mashups": reports,
+    }))
 }
 
 pub(crate) fn mashup_new_tool(
@@ -651,6 +656,37 @@ pub(crate) fn mashup_collection_add_tool(
         outcome.applied,
     );
     result["dry_run"] = json!(dry_run);
+    add_notices(&mut result, &notices);
+    Ok(result)
+}
+
+pub(crate) fn mashup_state_format_set_tool(
+    solution: &Solution,
+    arguments: super::requests::refactor::MashupStateFormatSetRequest,
+) -> Result<Value, ToolError> {
+    let request = commands::mashup::MashupStateFormatSetRequest {
+        request: crate::core::mashup::authoring::StateFormatSetRequest {
+            mashup: nonempty(&arguments.mashup, "mashup")?.into(),
+            widget: nonempty(&arguments.widget, "widget")?.into(),
+            state: nonempty(&arguments.state, "state")?.into(),
+            property: arguments.property.as_ref().cloned(),
+            column: arguments.column.as_ref().cloned(),
+            field: arguments.field.as_ref().cloned(),
+            icon_only: arguments.icon_only,
+        },
+        mode: if arguments.dry_run {
+            Mode::Plan
+        } else {
+            Mode::Apply
+        },
+        lock_label: "mcp mashup_state_format_set",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome = commands::mashup::state_format_set(solution, &request, &mut notices)
+        .map_err(ToolError::coded)?;
+    let mut result =
+        crate::core::mashup::authoring::set_plan_json(solution, &outcome.plan, outcome.applied);
+    result["dry_run"] = json!(arguments.dry_run);
     add_notices(&mut result, &notices);
     Ok(result)
 }

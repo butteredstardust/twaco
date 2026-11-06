@@ -237,6 +237,9 @@ pub(crate) fn plan_set(
             );
         }
     }
+    if !changed.is_empty() {
+        document.reflow_for(&found.id);
+    }
     let edit = if changed.is_empty() {
         None
     } else if let Some(css) = css {

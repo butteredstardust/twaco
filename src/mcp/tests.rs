@@ -262,6 +262,28 @@ fn projects_includes_misfiled_entity_documents() {
 }
 
 #[test]
+fn mashup_validate_reports_problem_severity_and_counts() {
+    let (_dir, root) = solution_dir();
+    std::fs::create_dir_all(root.join("Mashups")).unwrap();
+    std::fs::write(
+        root.join("Mashups/P.Bad_MU.xml"),
+        r#"<Entities><Mashups><Mashup name="P.Bad_MU" projectName="P"><mashupContent><![CDATA[{"UI":{}}]]></mashupContent></Mashup></Mashups></Entities>"#,
+    )
+    .unwrap();
+
+    let (failed, body) = call_tool(&root, "mashup_validate", json!({"all": true}));
+    assert!(!failed, "{body}");
+    assert_eq!(body["problems"], 1, "{body}");
+    assert_eq!(body["errors"], 1, "{body}");
+    assert_eq!(body["advisories"], 0, "{body}");
+    assert_eq!(body["mashups"][0]["problems"][0]["severity"], "error");
+    assert!(
+        jsonschema::draft202012::is_valid(&output_schema_of("mashup_validate"), &body),
+        "{body}"
+    );
+}
+
+#[test]
 fn tool_schemas_use_the_supported_subset() {
     for tool in tool_definitions() {
         let name = tool["name"].as_str().unwrap();
@@ -1171,6 +1193,7 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
             "mashup_templates",
             "mashup_add",
             "mashup_collection_add",
+            "mashup_state_format_set",
             "mashup_set",
             "mashup_add_contained",
             "mashup_bind",
@@ -1256,6 +1279,7 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
         "mashup_new",
         "mashup_add",
         "mashup_collection_add",
+        "mashup_state_format_set",
         "mashup_set",
         "mashup_add_contained",
         "mashup_bind",
@@ -3987,4 +4011,51 @@ name = \"P\"
  * @function Run
 "
         ));
+}
+
+#[test]
+fn state_format_mcp_defaults_to_plan_then_applies_and_returns_its_schema() {
+    let (_dir, root) = solution_dir();
+    std::fs::create_dir_all(root.join("StateDefinitions")).unwrap();
+    std::fs::write(root.join("StateDefinitions/P.Level_ST.xml"), r#"<Entities><StateDefinitions><StateDefinition name="P.Level_ST" projectName="P"><content><![CDATA[{"stateType":"numeric","stateDefinitions":[{"defaultValue":"","displayString":"Good","defaultStyleDefinition":"P.GoodStyle"}]}]]></content></StateDefinition></StateDefinitions></Entities>"#).unwrap();
+    let setup = converse(
+        &root,
+        &[
+            json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"mashup_new","arguments":{"name":"P.Board_MU","dry_run":false}}}),
+            json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"mashup_add","arguments":{"mashup":"P.Board_MU","widget":"ptcskpidial","dry_run":false}}}),
+        ],
+    );
+    for response in &setup {
+        assert_ne!(response["result"]["isError"], true, "{response}");
+    }
+    let id = setup[1]["result"]["structuredContent"]["id"]
+        .as_str()
+        .unwrap();
+    let mut arguments =
+        json!({"mashup":"P.Board_MU","widget":id,"state":"P.Level_ST","property":"TargetFormat"});
+    let before = std::fs::read(root.join("Mashups/P.Board_MU.xml")).unwrap();
+    let response = converse(&root, &[json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"mashup_state_format_set","arguments":arguments}})]).remove(0);
+    assert_ne!(response["result"]["isError"], true, "{response}");
+    let result = &response["result"]["structuredContent"];
+    assert_eq!(result["dry_run"], true);
+    assert_eq!(result["applied"], false);
+    assert_eq!(
+        before,
+        std::fs::read(root.join("Mashups/P.Board_MU.xml")).unwrap()
+    );
+    arguments["dry_run"] = json!(false);
+    let response = converse(&root, &[json!({"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"mashup_state_format_set","arguments":arguments}})]).remove(0);
+    assert_ne!(response["result"]["isError"], true, "{response}");
+    let result = &response["result"]["structuredContent"];
+    assert_eq!(result["applied"], true);
+    assert_eq!(result["files"].as_array().unwrap().len(), 2);
+    let tool = tool_definitions()
+        .into_iter()
+        .find(|tool| tool["name"] == "mashup_state_format_set")
+        .unwrap();
+    assert_schema_hygiene("mashup_state_format_set", "$", &tool["inputSchema"]);
+    arguments["column"] = json!("status");
+    let response = converse(&root, &[json!({"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"mashup_state_format_set","arguments":arguments}})]).remove(0);
+    assert_eq!(response["result"]["isError"], true);
+    assert!(response.to_string().contains("exactly one"));
 }

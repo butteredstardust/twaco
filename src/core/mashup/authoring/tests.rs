@@ -913,6 +913,46 @@ fn set_changes_a_flex_container_and_keeps_root_css_in_its_sidecar() {
 }
 
 #[test]
+fn setting_a_label_type_remeasures_its_fixed_row() {
+    let (_dir, solution) = one_project();
+    let name = "Acme.Orders_MU";
+    apply_new(
+        &solution,
+        &plan_new(&solution, &request(name)).unwrap(),
+        &lock(&solution),
+    )
+    .unwrap();
+    let first = plan_add(&solution, &add_request(name, "label")).unwrap();
+    apply_edit(&solution, &first.edit, &lock(&solution)).unwrap();
+    let mut second_request = add_request(name, "label");
+    second_request.placement = Some(Placement::Beside {
+        anchor: first.placed.id.clone(),
+        side: crate::core::mashup::edit::Side::Below,
+    });
+    let second = plan_add(&solution, &second_request).unwrap();
+    apply_edit(&solution, &second.edit, &lock(&solution)).unwrap();
+    let before = content_of(&solution, name);
+    let document = crate::core::mashup::edit::MashupDocument::new(before).unwrap();
+    let first = document.find(&first.placed.id).unwrap();
+    let row = &first.path[..first.path.len() - 1];
+    assert_eq!(document.at(row)["Properties"]["flex-min-height"], "58px");
+
+    set_and_apply(
+        &solution,
+        name,
+        &first.id,
+        vec![("LabelType".into(), json!("large-header"))],
+        None,
+    )
+    .unwrap();
+    let after = content_of(&solution, name);
+    let document = crate::core::mashup::edit::MashupDocument::new(after).unwrap();
+    let first = document.find(&first.id).unwrap();
+    let row = &first.path[..first.path.len() - 1];
+    assert_eq!(document.at(row)["Properties"]["flex-min-height"], "67px");
+}
+
+#[test]
 fn adding_widgets_keeps_sidecars_and_the_rest_of_the_entity_identical() {
     let (_dir, solution) = one_project();
     let name = "Acme.Orders_MU";
@@ -1087,12 +1127,37 @@ fn bind_fixture() -> (tempfile::TempDir, Solution) {
     let name = "Acme.Orders_MU";
     let new = plan_new(&solution, &request(name)).unwrap();
     apply_new(&solution, &new, &lock(&solution)).unwrap();
-    // The grid last, so it shares center and does not fill it.
-    for widget in ["text-field", "label", "grid"] {
+    // This fixture deliberately models the older direct-child layout.  Its wiring tests name
+    // stable ids; placement behaviour itself is covered by the focused layout tests below.
+    for widget in ["text-field", "label"] {
         let add = add_request(name, widget);
         let plan = plan_add(&solution, &add).unwrap();
         apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
     }
+    let mut document = crate::core::mashup::edit::parse(&sidecar_content(&solution)).unwrap();
+    let center = document.find("center").unwrap();
+    let number = document.allocate();
+    document.push_child(
+        &center.path,
+        crate::core::mashup::edit::new_widget(
+            widgets::catalog().resolve("grid").unwrap(),
+            number,
+            false,
+        ),
+    );
+    let content = document.to_content();
+    let sidecars = solution.src_root().join("Acme.Orders_MU/mashup");
+    std::fs::write(sidecars.join("content.json"), &content).unwrap();
+    let entity_path = solution.root.join("acme/Mashups/Acme.Orders_MU.xml");
+    let (entity, _) = mashup::sync(
+        &std::fs::read(&entity_path).unwrap(),
+        &mashup::Assets {
+            content,
+            css: std::fs::read_to_string(sidecars.join("custom.css")).unwrap(),
+        },
+    )
+    .unwrap();
+    std::fs::write(entity_path, entity).unwrap();
     (dir, solution)
 }
 
@@ -3551,6 +3616,112 @@ fn has_binding(value: &Value, source: &str, from: &str, target: &str, to: &str) 
             && b["TargetId"] == target
             && b["PropertyMaps"][0]["TargetProperty"] == to
     })
+}
+
+#[test]
+fn reading_a_grids_selection_turns_single_row_selection_on() {
+    let (_dir, solution) = recipe_fixture();
+    let grid_of = |solution: &Solution| {
+        let document = crate::core::mashup::edit::parse(&sidecar_content(solution)).unwrap();
+        let grid = document
+            .widgets()
+            .into_iter()
+            .find(|widget| widget.type_id == "ptcsgrid")
+            .unwrap();
+        (
+            grid.id.clone(),
+            document.at(&grid.path)["Properties"].clone(),
+        )
+    };
+    let (grid, before) = grid_of(&solution);
+    assert_eq!(before["RowSelection"], "none", "Composer's drop default");
+    recipe(
+        &solution,
+        "enable-when",
+        RecipeArgs {
+            widget: Some("ptcsbutton-6".into()),
+            condition: Some("selected".into()),
+            inputs: vec![format!("selected=ui:{grid}.RowSelected")],
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let (_, after) = grid_of(&solution);
+    assert_eq!(after["RowSelection"], "single");
+}
+
+#[test]
+fn only_selection_outputs_of_a_grid_without_selection_turn_it_on() {
+    let (_dir, solution) = recipe_fixture();
+    let content = sidecar_content(&solution);
+    let fresh = || crate::core::mashup::edit::parse(&content).unwrap();
+    let grid = fresh()
+        .widgets()
+        .into_iter()
+        .find(|widget| widget.type_id == "ptcsgrid")
+        .unwrap()
+        .id;
+    let selection = |document: &crate::core::mashup::edit::MashupDocument| {
+        let found = document.find(&grid).unwrap();
+        document.at(&found.path)["Properties"]["RowSelection"].clone()
+    };
+    for property in ["SelectedRows", "SelectedRowsIDs"] {
+        let mut document = fresh();
+        let note = super::bind::enable_grid_selection_for_test(&mut document, &grid, property);
+        assert!(
+            note.is_some_and(|note| note.contains("single")),
+            "{property}"
+        );
+        assert_eq!(selection(&document), "single");
+    }
+    let mut document = fresh();
+    assert!(super::bind::enable_grid_selection_for_test(&mut document, &grid, "Data").is_none());
+    assert_eq!(selection(&document), "none");
+    let found = document.find(&grid).unwrap();
+    document.set_property(&found.path, "RowSelection", Value::from("multiple"));
+    assert!(
+        super::bind::enable_grid_selection_for_test(&mut document, &grid, "SelectedRows").is_none()
+    );
+    assert_eq!(selection(&document), "multiple");
+}
+
+#[test]
+fn a_new_grid_has_no_default_title() {
+    let (_dir, solution) = one_project();
+    let name = "Acme.Orders_MU";
+    apply_new(
+        &solution,
+        &plan_new(&solution, &request(name)).unwrap(),
+        &lock(&solution),
+    )
+    .unwrap();
+    let grid = plan_add(&solution, &add_request(name, "grid")).unwrap();
+    apply_edit(&solution, &grid.edit, &lock(&solution)).unwrap();
+    let document =
+        crate::core::mashup::edit::MashupDocument::new(content_of(&solution, name)).unwrap();
+    let found = document.find(&grid.placed.id).unwrap();
+    assert_eq!(document.at(&found.path)["Properties"]["Label"], "");
+}
+
+#[test]
+fn a_new_collection_aligns_its_cells_to_the_top() {
+    let (_dir, solution) = one_project();
+    let name = "Acme.Orders_MU";
+    apply_new(
+        &solution,
+        &plan_new(&solution, &request(name)).unwrap(),
+        &lock(&solution),
+    )
+    .unwrap();
+    let collection = plan_add(&solution, &add_request(name, "ptcscollection")).unwrap();
+    apply_edit(&solution, &collection.edit, &lock(&solution)).unwrap();
+    let document =
+        crate::core::mashup::edit::MashupDocument::new(content_of(&solution, name)).unwrap();
+    let found = document.find(&collection.placed.id).unwrap();
+    assert_eq!(
+        document.at(&found.path)["Properties"]["ContentAlignment"],
+        "top"
+    );
 }
 
 #[test]
@@ -6253,4 +6424,346 @@ fn source_retarget_reads_a_call_without_a_target_as_its_name() {
         },
     );
     assert!(plan.is_ok(), "{:?}", plan.err().map(|e| e.to_string()));
+}
+
+fn state_format_definition(dir: &Path, kind: &str) {
+    let definition = json!({"stateType":kind,"stateDefinitions":[
+        {"comparator":"<","defaultValue":"25","displayString":"Poor","name":"internal", "defaultStyleDefinition":{"backgroundColor":"rgba(238,134,134,1)","displayString":"","fontEmphasisBold":false,"fontEmphasisItalic":false,"fontEmphasisUnderline":false,"foregroundColor":"rgba(238,134,134,1)","image":"Acme.Poor","lineColor":"","lineStyle":"solid","lineThickness":1,"secondaryBackgroundColor":"","textSize":"normal"}},
+        {"comparator":"<","defaultValue":"50","displayString":"Fair", "defaultStyleDefinition":"Acme.FairStyle"},
+        {"defaultValue":"","displayString":"Good", "defaultStyleDefinition":""}
+    ]});
+    write(
+        dir,
+        "acme/StateDefinitions/Acme.Level_ST.xml",
+        &format!(
+            r#"<Entities><StateDefinitions><StateDefinition name="Acme.Level_ST" projectName="Acme"><content><![CDATA[{definition}]]></content></StateDefinition></StateDefinitions></Entities>"#
+        ),
+    );
+}
+
+fn state_format_request(widget: &str) -> StateFormatSetRequest {
+    StateFormatSetRequest {
+        mashup: "Acme.Orders_MU".into(),
+        widget: widget.into(),
+        state: "Acme.Level_ST".into(),
+        property: Some("TargetFormat".into()),
+        column: None,
+        field: None,
+        icon_only: false,
+    }
+}
+
+fn state_format_fixture() -> (tempfile::TempDir, Solution, String) {
+    let (dir, solution) = collection_fixture();
+    state_format_definition(dir.path(), "numeric");
+    let mut request = add_request("Acme.Orders_MU", "ptcskpidial");
+    request.placement = Some(Placement::Beside {
+        anchor: "ptcsgrid-5".into(),
+        side: crate::core::mashup::edit::Side::Right,
+    });
+    let plan = plan_add(&solution, &request).unwrap();
+    let id = plan.placed.id.clone();
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    (dir, solution, id)
+}
+
+#[test]
+fn state_format_numeric_contract_plan_apply_and_identity() {
+    use crate::core::commands::{self, Mode};
+    let (dir, solution, id) = state_format_fixture();
+    let before = tree_bytes(dir.path());
+    let mut request = commands::mashup::MashupStateFormatSetRequest {
+        request: state_format_request(&id),
+        mode: Mode::Plan,
+        lock_label: "test state formatting",
+    };
+    let mut notices = commands::Notices::default();
+    let planned = commands::mashup::state_format_set(&solution, &request, &mut notices).unwrap();
+    assert!(!planned.applied);
+    assert_eq!(before, tree_bytes(dir.path()));
+    request.mode = Mode::Apply;
+    let applied = commands::mashup::state_format_set(&solution, &request, &mut notices).unwrap();
+    let properties = collection_properties(&solution, &id);
+    let expected = json!({"FieldName":"Value","StateDefinition":"Acme.Level_ST","StateDefinitionType":"numeric","StateFormats":[
+        {"comparator":"<","defaultValue":"25","value":"25","stateName":"Poor","state":{"backgroundColor":"rgba(238,134,134,1)","displayString":"","fontEmphasisBold":false,"fontEmphasisItalic":false,"fontEmphasisUnderline":false,"foregroundColor":"rgba(238,134,134,1)","image":"Acme.Poor","lineColor":"","lineStyle":"solid","lineThickness":1,"secondaryBackgroundColor":"","textSize":"normal"}},
+        {"comparator":"<","defaultValue":"50","value":"50","stateName":"Fair","state":"Acme.FairStyle"},
+        {"defaultValue":"","stateName":"Good","state":{
+            "backgroundColor":"","displayString":"","fontEmphasisBold":false,"fontEmphasisItalic":false,"fontEmphasisUnderline":false,
+            "foregroundColor":"","image":"","lineColor":"","lineStyle":"solid","lineThickness":1,"secondaryBackgroundColor":"","textSize":"normal"
+        }}
+    ]});
+    assert_eq!(properties["TargetFormat"], expected);
+    assert_eq!(properties["TargetFormat_StateParameters"], json!([]));
+    let report = set_plan_json(&solution, &applied.plan, true);
+    assert_eq!(report["files"].as_array().unwrap().len(), 2);
+    let entity = std::fs::read(dir.path().join("acme/Mashups/Acme.Orders_MU.xml")).unwrap();
+    assert_eq!(
+        serde_json::from_str::<Value>(&mashup::extract(&entity).unwrap().content).unwrap(),
+        serde_json::from_str::<Value>(&sidecar_content(&solution)).unwrap()
+    );
+    // Applying takes the workspace lock even for a no-op, refreshing its holder timestamp.
+    let content_bytes = || {
+        let mut files = tree_bytes(dir.path());
+        files.remove(&dir.path().join(".twaco/lock.holder"));
+        files
+    };
+    let before = content_bytes();
+    let again = commands::mashup::state_format_set(&solution, &request, &mut notices).unwrap();
+    assert!(again.plan.edit.is_none());
+    assert!(again.plan.changed.is_empty());
+    assert!(
+        before == content_bytes(),
+        "an identical snapshot changed workspace content"
+    );
+}
+
+fn state_format_grid_columns(solution: &Solution) {
+    let plan = plan_set(solution, &SetRequest { mashup:"Acme.Orders_MU".into(), widget:"ptcsgrid-5".into(), style_from:None, properties:vec![("ColumnFormat".into(),json!({"formatInfo":[
+        {"FieldName":"note","Title":"Status","FormatOptions":{"FormatString":"full","renderer":"STRING","formatInfo":{"StateFormats":[]}}},
+        {"FieldName":"id","Title":"Id","FormatOptions":{"FormatString":"0","renderer":"NUMBER"}}
+    ]}))] }).unwrap();
+    apply_edit(solution, plan.edit.as_ref().unwrap(), &lock(solution)).unwrap();
+}
+
+#[test]
+fn state_format_string_grid_icons_keep_other_columns_and_options() {
+    let (dir, solution) = collection_fixture();
+    state_format_definition(dir.path(), "string");
+    state_format_grid_columns(&solution);
+    let before = collection_properties(&solution, "ptcsgrid-5")["ColumnFormat"].clone();
+    let mut request = state_format_request("ptcsgrid-5");
+    request.property = None;
+    request.column = Some("note".into());
+    request.icon_only = true;
+    let plan = plan_state_format_set(&solution, &request).unwrap();
+    apply_edit(&solution, plan.edit.as_ref().unwrap(), &lock(&solution)).unwrap();
+    let format = collection_properties(&solution, "ptcsgrid-5")["ColumnFormat"].clone();
+    assert_eq!(format["formatInfo"][1], before["formatInfo"][1]);
+    let options = &format["formatInfo"][0]["FormatOptions"];
+    assert_eq!(options["renderer"], "STRING");
+    assert_eq!(options["FormatString"], "notext");
+    assert_eq!(options["formatInfo"]["FieldName"], "note");
+    assert_eq!(options["formatInfo"]["StateDefinitionType"], "string");
+    assert_eq!(options["formatInfo"]["StateFormats"][0]["comparator"], "==");
+    assert!(options["formatInfo"]["StateFormats"][2]
+        .get("value")
+        .is_none());
+    assert!(plan_state_format_set(&solution, &request)
+        .unwrap()
+        .edit
+        .is_none());
+    request.field = Some("id".into());
+    assert!(
+        plan_state_format_set(&solution, &request).is_ok(),
+        "a string definition also accepts a numeric field"
+    );
+}
+
+#[test]
+fn state_format_refusals_leave_every_byte_alone() {
+    let (dir, solution, id) = state_format_fixture();
+    state_format_grid_columns(&solution);
+    let before = tree_bytes(dir.path());
+    let valid = state_format_request(&id);
+    let refuse = |request: StateFormatSetRequest, message: &str| {
+        let error = plan_state_format_set(&solution, &request)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains(message), "{error} did not contain {message}");
+        assert_eq!(before, tree_bytes(dir.path()));
+    };
+    let mut request = valid.clone();
+    request.state = "Missing".into();
+    refuse(request, "no StateDefinition Missing");
+    let mut request = valid.clone();
+    request.widget = "absent".into();
+    refuse(request, "absent");
+    for property in ["Absent", "Value"] {
+        let mut request = valid.clone();
+        request.property = Some(property.into());
+        refuse(request, "STATEFORMATTING properties: TargetFormat");
+    }
+    let mut request = valid.clone();
+    request.icon_only = true;
+    refuse(request, "--icon-only requires --column");
+    let mut request = valid.clone();
+    request.column = Some("id".into());
+    refuse(request, "exactly one");
+    let mut request = valid.clone();
+    request.property = None;
+    refuse(request, "exactly one");
+    let mut grid = valid.clone();
+    grid.widget = "ptcsgrid-5".into();
+    grid.property = None;
+    grid.column = Some("missing".into());
+    refuse(grid.clone(), "no column missing");
+    grid.column = Some("note".into());
+    refuse(grid.clone(), "field note is STRING");
+    grid.field = Some("absent".into());
+    refuse(grid.clone(), "has no field absent");
+    grid.field = Some("id".into());
+    let override_plan = plan_state_format_set(&solution, &grid).unwrap();
+    assert_eq!(
+        override_plan.changed[0].after["formatInfo"][0]["FormatOptions"]["formatInfo"]["FieldName"],
+        "id"
+    );
+    assert_eq!(
+        override_plan.changed[0].after["formatInfo"][0]["FormatOptions"]["FormatString"],
+        "full"
+    );
+    grid.column = Some("id".into());
+    grid.field = None;
+    assert!(plan_state_format_set(&solution, &grid).is_ok());
+    let mut request = valid;
+    request.property = None;
+    request.column = Some("id".into());
+    refuse(request, "not a ptcsgrid");
+}
+
+#[test]
+fn state_format_requires_explicit_field_for_other_widgets_and_checks_data_binding() {
+    let (dir, solution) = collection_fixture();
+    state_format_definition(dir.path(), "numeric");
+    let plan = plan_add(&solution, &add_request("Acme.Orders_MU", "shape")).unwrap();
+    let id = plan.placed.id.clone();
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    let mut request = state_format_request(&id);
+    request.property = Some("ShapeFormatter".into());
+    assert!(plan_state_format_set(&solution, &request)
+        .unwrap_err()
+        .to_string()
+        .contains("give --field"));
+    request.field = Some("Status".into());
+    assert!(plan_state_format_set(&solution, &request).is_ok());
+    // A whole Data binding also checks a widget property; aliases must resolve to the service target.
+    rewrite_content(dir.path(), |content| {
+        for section in content["Data"].as_object_mut().unwrap().values_mut() {
+            for call in section["Services"].as_array_mut().into_iter().flatten() {
+                if call["Name"] == "GetOrders" {
+                    call["Name"] = json!("Orders");
+                    call["Target"] = json!("GetOrders");
+                }
+            }
+        }
+        for binding in content["DataBindings"].as_array_mut().into_iter().flatten() {
+            if binding["SourceId"] == "GetOrders" {
+                binding["SourceId"] = json!("Orders");
+                binding["TargetId"] = json!(id);
+            }
+        }
+    });
+    request.field = Some("note".into());
+    assert!(plan_state_format_set(&solution, &request)
+        .unwrap_err()
+        .to_string()
+        .contains("field note is STRING"));
+    request.field = Some("absent".into());
+    assert!(plan_state_format_set(&solution, &request)
+        .unwrap_err()
+        .to_string()
+        .contains("has no field absent"));
+    request.field = Some("id".into());
+    assert!(plan_state_format_set(&solution, &request).is_ok());
+}
+
+#[test]
+fn state_format_validate_unknown_and_drift_are_separate_from_check() {
+    use crate::core::mashup::validate::{validate, Severity};
+    let (dir, solution, id) = state_format_fixture();
+    let plan = plan_state_format_set(&solution, &state_format_request(&id)).unwrap();
+    apply_edit(&solution, plan.edit.as_ref().unwrap(), &lock(&solution)).unwrap();
+    let problems = validate(&solution, Some("Acme.Orders_MU"))
+        .unwrap()
+        .remove(0)
+        .problems;
+    assert!(!problems
+        .iter()
+        .any(|p| p.rule == "state-format-drift" || p.rule == "unknown-state-definition"));
+    state_format_grid_columns(&solution);
+    let plan = plan_set(&solution, &SetRequest { mashup:"Acme.Orders_MU".into(),widget:"ptcsgrid-5".into(),style_from:None,properties:vec![("ColumnFormat".into(),json!({"formatInfo":[{"FieldName":"note","FormatOptions":{"formatInfo":{"StateDefinition":"Missing"}}}]}))] }).unwrap();
+    apply_edit(&solution, plan.edit.as_ref().unwrap(), &lock(&solution)).unwrap();
+    let state_path = dir.path().join("acme/StateDefinitions/Acme.Level_ST.xml");
+    let changed = std::fs::read_to_string(&state_path)
+        .unwrap()
+        .replace("Poor", "Changed");
+    std::fs::write(state_path, changed).unwrap();
+    let problems = validate(&solution, Some("Acme.Orders_MU"))
+        .unwrap()
+        .remove(0)
+        .problems;
+    assert!(problems
+        .iter()
+        .any(|p| p.rule == "state-format-drift" && p.severity == Severity::Advisory));
+    assert!(problems
+        .iter()
+        .any(|p| p.rule == "unknown-state-definition" && p.severity == Severity::Error));
+    std::fs::remove_file(dir.path().join("acme/StateDefinitions/Acme.Level_ST.xml")).unwrap();
+    let problems = validate(&solution, Some("Acme.Orders_MU"))
+        .unwrap()
+        .remove(0)
+        .problems;
+    assert_eq!(
+        problems
+            .iter()
+            .filter(|p| p.rule == "unknown-state-definition")
+            .count(),
+        2
+    );
+    let report = crate::core::check::run(&solution);
+    let check = format!("{report:?}");
+    assert!(!check.contains("unknown-state-definition"));
+    assert!(!check.contains("state-format-drift"));
+    for (widget, property, value) in [
+        (
+            id.as_str(),
+            "TargetFormat",
+            json!({"StateDefinition":"","StateFormats":[]}),
+        ),
+        (
+            "ptcsgrid-5",
+            "ColumnFormat",
+            json!({"formatInfo":[{"FieldName":"note","FormatOptions":{"formatInfo":{"StateDefinition":""}}}]}),
+        ),
+    ] {
+        let plan = plan_set(
+            &solution,
+            &SetRequest {
+                mashup: "Acme.Orders_MU".into(),
+                widget: widget.into(),
+                style_from: None,
+                properties: vec![(property.into(), value)],
+            },
+        )
+        .unwrap();
+        apply_edit(&solution, plan.edit.as_ref().unwrap(), &lock(&solution)).unwrap();
+    }
+    let problems = validate(&solution, Some("Acme.Orders_MU"))
+        .unwrap()
+        .remove(0)
+        .problems;
+    assert!(
+        !problems
+            .iter()
+            .any(|p| p.rule == "unknown-state-definition" || p.rule == "state-format-drift"),
+        "empty references are allowed"
+    );
+}
+
+#[test]
+fn state_format_refuses_a_malformed_grid_format_without_writing() {
+    let (dir, solution) = collection_fixture();
+    state_format_definition(dir.path(), "string");
+    rewrite_content(dir.path(), |content| {
+        let mut document = mashup::edit::parse(&mashup::to_sidecar(content)).unwrap();
+        let found = document.find_exact("ptcsgrid-5").unwrap();
+        document.set_property(&found.path, "ColumnFormat", json!("malformed"));
+        *content = document.value().clone();
+    });
+    let before = tree_bytes(dir.path());
+    let mut request = state_format_request("ptcsgrid-5");
+    request.property = None;
+    request.column = Some("note".into());
+    let error = plan_state_format_set(&solution, &request).unwrap_err();
+    assert!(error.to_string().contains("no column note"));
+    assert!(before == tree_bytes(dir.path()));
 }

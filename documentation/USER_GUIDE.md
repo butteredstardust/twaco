@@ -1112,8 +1112,14 @@ twaco mashup add Acme.App.Orders_MU button --below ptcsgrid-7 --label Save --app
 `center`; `--in` names a responsive container, and the four beside flags name the widget to place
 next to. A matching row or column accepts the sibling directly. When its direction differs, twaco
 makes a row or column and gives both widgets their own containers; it also wraps existing leaf
-siblings where that is needed to preserve responsive layout. A widget that can fill fills only
-when alone in its container. `--label` selects the first available LabelText, Label, Text or Title
+siblings where that is needed to preserve responsive layout. Control rows are fixed to their measured
+content height; side-by-side controls are placed directly in one row, from the left, as the design
+kits do. One data widget that can fill (such as a grid, chart or collection) fills the remaining row
+and column space; its fixed Width and Height are removed. A column with no such widget lets its last
+control row grow: Runtime centres every container's box, so a column of only fixed rows would
+spread them out. `--below` (or `--above`) a control in its own row adds a row to the enclosing
+column. A later `mashup set` or `mashup remove` only grows a fixed row that no longer fits its
+content; it never reshapes a layout made in Composer. `--label` selects the first available LabelText, Label, Text or Title
 property; `--prop Name=value` changes a catalogue property with its expected type. Structured
 properties take JSON, including a grid's column format:
 
@@ -1192,6 +1198,22 @@ The command adds the collection, records the field-to-parameter mapping as an ob
 the result to `Data` in one edit. It reports when nothing invokes the source call. See
 [Collections: the serialized contract](MASHUP_COLLECTIONS.md) for the stored properties and
 runtime behaviour.
+
+### State formatting
+
+Copy a repository StateDefinition into a widget's STATEFORMATTING property or an existing grid
+column. This writes Composer's inline snapshot, including its styles and catch-all state.
+
+```sh
+twaco mashup state-format set Acme.App.Overview_MU ptcskpidial-1 --state Acme.App.Level_ST --property TargetFormat --apply
+twaco mashup state-format set Acme.App.Orders_MU ptcsgrid-1 --state Acme.App.Status_ST --column status --icon-only --apply
+```
+
+The judged field defaults to the column field or the KPI dial's `Value`; other widgets require
+`--field`. Known service-result DataShapes are checked for missing fields and numeric types.
+`--icon-only` hides the grid column's text. Commands plan unless `--apply` is given; an identical
+snapshot writes nothing. `mashup validate` reports unknown definitions as errors and changed
+snapshots as advisories. Refresh a snapshot by running `state-format set` again.
 
 ### Data sources
 
@@ -1350,11 +1372,13 @@ both containers and widgets, bindings and events naming a widget, data source or
 longer has (Composer leaves these behind when a call is removed), a binding against a catalogue
 widget's contract (the wrong direction, a property it lacks, such as a misspelt expression input),
 an event or service a widget lacks, a binding with several property maps, the bound service's
-declared fields, and the contained-mashup drift `twaco check` also reports. It also advises when a
-number or date chart axis is configured on a STRING field: the chart renders only values that read
-as numbers or dates, so set the axis to `label` when that is not the data contract. What it cannot
-judge, extension and legacy widgets, properties and events a widget makes per configured action, a
-collection's cell parameters, it leaves alone. It exits 1 when it finds anything.
+declared fields, and the contained-mashup drift `twaco check` also reports. It reports an advisory,
+not an error, when a number or date chart axis is configured on a STRING field: the chart renders
+only values that read as numbers or dates, so set the axis to `label` when that is not the data
+contract. An obsolete collection cell-parameter map is also advisory, because Runtime ignores it.
+What it cannot judge, extension and legacy widgets, properties and events a widget makes per
+configured action, it leaves alone. It exits 1 only when it finds an error; advisory-only output
+exits 0.
 
 ### Finding widgets
 

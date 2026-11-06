@@ -27,6 +27,7 @@ mod recipes;
 mod remove;
 mod set;
 mod source;
+pub(crate) mod state_format;
 
 pub use add::{add_contained_plan_json, add_plan_json, AddContainedRequest, AddRequest};
 pub(crate) use add::{
@@ -69,6 +70,8 @@ pub(crate) use source::{
     SourceRemovePlan, SourceRetargetPlan,
 };
 pub use source::{SourceAddRequest, SourceRemoveRequest, SourceRetargetRequest};
+pub(crate) use state_format::plan_state_format_set;
+pub use state_format::StateFormatSetRequest;
 
 #[derive(Debug)]
 pub struct SidecarEdit {

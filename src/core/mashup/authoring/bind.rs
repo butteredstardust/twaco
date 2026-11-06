@@ -219,12 +219,53 @@ pub(super) fn bind_in(
     insert(&mut binding, "TargetId", Value::String(target_id));
     insert(&mut binding, "TargetSection", Value::String(target_section));
     document.bindings_mut().push(Value::Object(binding));
+    if let Some(note) = enable_grid_selection(document, &from) {
+        warnings.push(note);
+    }
     let new_source = source_added.or(target_added);
     Ok(BindIn {
         new_source,
         warnings,
         refreshed,
     })
+}
+
+/// A grid's selection outputs never change while its rows cannot be selected, and Composer drops a
+/// grid with `RowSelection` none: reading them turns single selection on, as the kits' grids that
+/// feed a details button or an enable rule do.
+fn enable_grid_selection(document: &mut MashupDocument, from: &End) -> Option<String> {
+    let End::Ui { id, property, .. } = from else {
+        return None;
+    };
+    if !matches!(
+        property.as_str(),
+        "RowSelected" | "SelectedRows" | "SelectedRowsIDs"
+    ) {
+        return None;
+    }
+    let found = document.find_exact(id).ok()?;
+    let selection = &document.at(&found.path)["Properties"]["RowSelection"];
+    if found.type_id != "ptcsgrid" || !(selection.is_null() || selection == "none") {
+        return None;
+    }
+    document.set_property(&found.path, "RowSelection", Value::from("single"));
+    Some(format!(
+        "{id} could not select rows; its RowSelection is now single so {property} can change"
+    ))
+}
+
+#[cfg(test)]
+pub(super) fn enable_grid_selection_for_test(
+    document: &mut MashupDocument,
+    id: &str,
+    property: &str,
+) -> Option<String> {
+    let from = End::Ui {
+        id: id.into(),
+        property: property.into(),
+        base: String::new(),
+    };
+    enable_grid_selection(document, &from)
 }
 
 /// Whether ThingWorx carries a `from` value into a `to` property: the same type, anything into

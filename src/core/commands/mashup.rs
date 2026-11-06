@@ -31,6 +31,13 @@ pub struct MashupAddRequest {
 }
 
 #[derive(Clone, Debug)]
+pub struct MashupStateFormatSetRequest {
+    pub request: mashup::authoring::StateFormatSetRequest,
+    pub mode: Mode,
+    pub lock_label: &'static str,
+}
+
+#[derive(Clone, Debug)]
 pub struct MashupCollectionAddRequest {
     pub request: mashup::authoring::CollectionAddRequest,
     pub mode: Mode,
@@ -357,6 +364,39 @@ pub fn collection_add(
             mashup::authoring::apply_edit(&reloaded, &plan.edit, &lock)
                 .map_err(MashupCommandError::Authoring)?;
             Ok(MashupCollectionAddOutcome {
+                plan,
+                applied: true,
+                effects: Effects::new(Access::Write, Access::None),
+            })
+        }
+    }
+}
+
+/// Plan without a lock; apply replans under the workspace lock.
+pub fn state_format_set(
+    solution: &Solution,
+    request: &MashupStateFormatSetRequest,
+    notices: &mut Notices,
+) -> Result<MashupSetOutcome, MashupCommandError> {
+    match request.mode {
+        Mode::Plan => Ok(MashupSetOutcome {
+            plan: mashup::authoring::plan_state_format_set(solution, &request.request)
+                .map_err(MashupCommandError::Authoring)?,
+            applied: false,
+            effects: Effects::new(Access::Read, Access::None),
+        }),
+        Mode::Apply => {
+            let lock = lock_workspace(solution, request.lock_label, notices)
+                .map_err(MashupCommandError::Lock)?;
+            let reloaded = Solution::load(&solution.root.join(config::CONFIG_FILE))
+                .map_err(MashupCommandError::Config)?;
+            let plan = mashup::authoring::plan_state_format_set(&reloaded, &request.request)
+                .map_err(MashupCommandError::Authoring)?;
+            if let Some(edit) = &plan.edit {
+                mashup::authoring::apply_edit(&reloaded, edit, &lock)
+                    .map_err(MashupCommandError::Authoring)?;
+            }
+            Ok(MashupSetOutcome {
                 plan,
                 applied: true,
                 effects: Effects::new(Access::Write, Access::None),
