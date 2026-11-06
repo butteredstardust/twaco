@@ -14,6 +14,7 @@ pub(crate) enum Mashup {
     Diff(MashupDiff),
     Add(MashupAdd),
     Collection(MashupCollection),
+    StateFormat(MashupStateFormat),
     Set(MashupSet),
     Source(MashupSource),
     AddContained(MashupAddContained),
@@ -38,6 +39,7 @@ impl Mashup {
             Mashup::Diff(_) => "mashup diff",
             Mashup::Add(_) => "mashup add",
             Mashup::Collection(collection) => collection.path(),
+            Mashup::StateFormat(_) => "mashup state-format set",
             Mashup::Set(_) => "mashup set",
             Mashup::Source(source) => source.path(),
             Mashup::AddContained(_) => "mashup add-contained",
@@ -87,6 +89,37 @@ pub(crate) struct MashupCollectionAdd {
     pub(crate) height: Option<u32>,
     #[command(flatten)]
     pub(crate) place: Place,
+    #[command(flatten)]
+    pub(crate) apply: Apply,
+    #[command(flatten)]
+    pub(crate) json: Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct MashupStateFormat {
+    #[command(subcommand)]
+    pub(crate) command: MashupStateFormatCommand,
+}
+#[derive(Debug, clap::Subcommand)]
+pub(crate) enum MashupStateFormatCommand {
+    Set(MashupStateFormatSet),
+}
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct MashupStateFormatSet {
+    #[arg(long = "state", value_name = "name")]
+    pub(crate) state: Option<String>,
+    #[arg(long = "property", value_name = "name")]
+    pub(crate) property: Option<String>,
+    #[arg(long = "column", value_name = "field")]
+    pub(crate) column: Option<String>,
+    #[arg(long = "field", value_name = "field")]
+    pub(crate) field: Option<String>,
+    #[arg(long = "icon-only")]
+    pub(crate) icon_only: bool,
     #[command(flatten)]
     pub(crate) apply: Apply,
     #[command(flatten)]
@@ -1171,6 +1204,64 @@ pub(crate) fn mashup_add_cmd(solution: &Solution, args: &MashupAdd) -> u8 {
         println!("run again with --apply to write it");
     }
     OK
+}
+
+/// Copy state formatting from a repository StateDefinition.
+pub(crate) fn mashup_state_format_set_cmd(solution: &Solution, args: &MashupStateFormatSet) -> u8 {
+    if args.operands.len() != 2 || args.state.is_none() {
+        eprintln!(
+            "{} mashup state-format set needs <mashup> <widget> and --state <name>",
+            style::prefix()
+        );
+        return FAILED;
+    }
+    let request = commands::mashup::MashupStateFormatSetRequest {
+        request: mashup::authoring::StateFormatSetRequest {
+            mashup: args.operands[0].clone(),
+            widget: args.operands[1].clone(),
+            state: args.state.clone().unwrap(),
+            property: args.property.clone(),
+            column: args.column.clone(),
+            field: args.field.clone(),
+            icon_only: args.icon_only,
+        },
+        mode: if args.apply.apply {
+            Mode::Apply
+        } else {
+            Mode::Plan
+        },
+        lock_label: "mashup state-format set",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome = commands::mashup::state_format_set(solution, &request, &mut notices);
+    print_notices(&notices);
+    match outcome {
+        Err(error) => {
+            eprintln!("{} {error}", style::prefix());
+            FAILED
+        }
+        Ok(outcome) => {
+            if args.json.json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&mashup::authoring::set_plan_json(
+                        solution,
+                        &outcome.plan,
+                        outcome.applied
+                    ))
+                    .unwrap()
+                );
+            } else {
+                println!(
+                    "{} {} state-format properties on {}",
+                    if outcome.applied { "set" } else { "would set" },
+                    outcome.plan.changed.len(),
+                    outcome.plan.widget
+                );
+            }
+            OK
+        }
+    }
 }
 
 /// `twaco mashup collection add`: insert a collection cell and bind its data in one edit.

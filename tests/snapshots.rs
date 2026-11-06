@@ -21,6 +21,36 @@ use std::process::Command;
 /// One scenario: its file name, and the arguments after `twaco`.
 const SCENARIOS: &[(&str, &[&str])] = &[
     ("usage", &[]),
+    (
+        "mashup_state_format_help",
+        &["mashup", "state-format", "set", "--help"],
+    ),
+    (
+        "mashup_state_format_missing_state",
+        &[
+            "mashup",
+            "state-format",
+            "set",
+            "Acme.Orders.Dashboard",
+            "ptcskpidial-1",
+            "--property",
+            "TargetFormat",
+        ],
+    ),
+    (
+        "mashup_state_format_unknown_state",
+        &[
+            "mashup",
+            "state-format",
+            "set",
+            "Acme.Orders.Dashboard",
+            "ptcskpidial-1",
+            "--state",
+            "Acme.Missing_ST",
+            "--property",
+            "TargetFormat",
+        ],
+    ),
     ("unknown_command", &["bogus"]),
     // The grammar itself: listings, help, and the refusals clap and the argument checks make.
     ("family_listing_entity", &["entity"]),

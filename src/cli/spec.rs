@@ -728,6 +728,18 @@ pub(crate) const USAGE: &[Usage] = &[
                               place beside an existing widget"#,
     },
     Usage {
+        path: "mashup state-format set",
+        group: 1,
+        text: r#"  mashup state-format set <mashup> <widget> --state <name>
+      (--property <name> | --column <field>) [--field <field>] [--icon-only] [--apply] [--json]
+                              colour a widget or grid column from a repository StateDefinition; plan unless --apply
+      --state <name>         the StateDefinition in the solution
+      --property <name>      a widget property of base type STATEFORMATTING
+      --column <field>       an existing ptcsgrid column's field
+      --field <field>        the field judged by the state; defaults to the column field or KPI Value
+      --icon-only            show only the state icon in a grid column"#,
+    },
+    Usage {
         path: "mashup set",
         group: 1,
         text: r#"  mashup set <mashup> <widget> --prop <name=value>... [--style-from <mashup:widget>] [--apply] [--json]

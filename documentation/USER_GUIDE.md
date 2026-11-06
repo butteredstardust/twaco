@@ -1197,6 +1197,22 @@ the result to `Data` in one edit. It reports when nothing invokes the source cal
 [Collections: the serialized contract](MASHUP_COLLECTIONS.md) for the stored properties and
 runtime behaviour.
 
+### State formatting
+
+Copy a repository StateDefinition into a widget's STATEFORMATTING property or an existing grid
+column. This writes Composer's inline snapshot, including its styles and catch-all state.
+
+```sh
+twaco mashup state-format set Acme.App.Overview_MU ptcskpidial-1 --state Acme.App.Level_ST --property TargetFormat --apply
+twaco mashup state-format set Acme.App.Orders_MU ptcsgrid-1 --state Acme.App.Status_ST --column status --icon-only --apply
+```
+
+The judged field defaults to the column field or the KPI dial's `Value`; other widgets require
+`--field`. Known service-result DataShapes are checked for missing fields and numeric types.
+`--icon-only` hides the grid column's text. Commands plan unless `--apply` is given; an identical
+snapshot writes nothing. `mashup validate` reports unknown definitions as errors and changed
+snapshots as advisories. Refresh a snapshot by running `state-format set` again.
+
 ### Data sources
 
 ```sh

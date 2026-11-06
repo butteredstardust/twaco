@@ -461,6 +461,20 @@ fn every_flag_means_the_same_in_every_command() {
                 "{} {name}: a value is named, a switch is not",
                 command.path
             );
+            // State-format's specified interface selects existing names. The older flags
+            // declare repeated states, fields or columns, with their own declaration syntax.
+            if command.path == "mashup state-format set" {
+                let selector = match name.as_str() {
+                    "--state" => Some("name"),
+                    "--field" | "--column" => Some("field"),
+                    _ => None,
+                };
+                if let Some(value) = selector {
+                    assert_eq!(kind, "value");
+                    assert_eq!(value_names, [value]);
+                    continue;
+                }
+            }
             let first =
                 seen.entry(name.clone())
                     .or_insert((kind, value_names.clone(), command.path));
@@ -1165,4 +1179,67 @@ fn a_blank_tools_variable_serves_every_group() {
         crate::tool_groups(Some("edit"), Some("read".to_string())).as_deref(),
         Some("edit")
     );
+}
+
+#[test]
+fn state_format_selectors_reach_the_handler_and_refuse_repetition() {
+    use super::mashup::MashupStateFormatCommand;
+    let parsed = parse(&[
+        "mashup",
+        "state-format",
+        "set",
+        "Acme.Page",
+        "dial",
+        "--state",
+        "Acme.Level",
+        "--property",
+        "TargetFormat",
+        "--field",
+        "Value",
+        "--apply",
+        "--json",
+    ])
+    .unwrap();
+    let Command::Mashup(Mashup::StateFormat(format)) = parsed else {
+        panic!("state-format route");
+    };
+    let MashupStateFormatCommand::Set(set) = format.command;
+    assert_eq!(set.operands, ["Acme.Page", "dial"]);
+    assert_eq!(set.state.as_deref(), Some("Acme.Level"));
+    assert_eq!(set.property.as_deref(), Some("TargetFormat"));
+    assert_eq!(set.field.as_deref(), Some("Value"));
+    assert!(set.apply.apply && set.json.json);
+    let parsed = parse(&[
+        "mashup",
+        "state-format",
+        "set",
+        "Acme.Page",
+        "grid",
+        "--state",
+        "Acme.Status",
+        "--column",
+        "status",
+        "--icon-only",
+    ])
+    .unwrap();
+    let Command::Mashup(Mashup::StateFormat(format)) = parsed else {
+        panic!("state-format route");
+    };
+    let MashupStateFormatCommand::Set(set) = format.command;
+    assert_eq!(set.column.as_deref(), Some("status"));
+    assert!(set.icon_only);
+    for flag in ["--state", "--field", "--column"] {
+        assert!(parse(&[
+            "mashup",
+            "state-format",
+            "set",
+            "Acme.Page",
+            "grid",
+            flag,
+            "a",
+            flag,
+            "b"
+        ])
+        .is_err());
+    }
 }

@@ -46,8 +46,9 @@ use cli::mashup::{
     mashup_describe_cmd, mashup_diff_cmd, mashup_event_cmd, mashup_new_cmd, mashup_off_cmd,
     mashup_on_cmd, mashup_param_cmd, mashup_recipe_cmd, mashup_remove_cmd, mashup_set_cmd,
     mashup_source_add_cmd, mashup_source_list_cmd, mashup_source_remove_cmd,
-    mashup_source_retarget_cmd, mashup_templates_cmd, mashup_unbind_cmd, mashup_validate_cmd,
-    Mashup, MashupCollectionCommand, MashupSourceCommand,
+    mashup_source_retarget_cmd, mashup_state_format_set_cmd, mashup_templates_cmd,
+    mashup_unbind_cmd, mashup_validate_cmd, Mashup, MashupCollectionCommand, MashupSourceCommand,
+    MashupStateFormatCommand,
 };
 use cli::network::network_cmd;
 use cli::refactor::{
@@ -275,6 +276,9 @@ fn dispatch(command: Command) -> u8 {
         Command::Mashup(Mashup::Templates(templates)) => mashup_templates_cmd(&templates),
         Command::Mashup(mashup) => run(|solution| match &mashup {
             Mashup::Add(add) => mashup_add_cmd(solution, add),
+            Mashup::StateFormat(format) => match &format.command {
+                MashupStateFormatCommand::Set(set) => mashup_state_format_set_cmd(solution, set),
+            },
             Mashup::Collection(collection) => match &collection.command {
                 MashupCollectionCommand::Add(add) => mashup_collection_add_cmd(solution, add),
             },

@@ -118,6 +118,7 @@ pub(crate) fn validate_in(
                 if let Ok(value) = serde_json::from_str::<Value>(&content) {
                     chart_axis_problems(&file.info.name, &value, &resolver, &mut problems);
                     collection_problems(&value, discovered, &resolver, &mut problems);
+                    state_format_problems(&value, discovered, &mut problems);
                 }
             }
         }
@@ -770,6 +771,85 @@ fn check_ui_member(
             known.into_iter().collect::<Vec<_>>().join(", ")
         ),
     ));
+}
+
+fn state_format_problems(
+    content: &Value,
+    discovered: &workspace::Discovery,
+    problems: &mut Vec<Problem>,
+) {
+    let Ok(document) = mashup::edit::parse(&mashup::to_sidecar(content)) else {
+        return;
+    };
+    for widget in document.widgets() {
+        let properties = &document.at(&widget.path)["Properties"];
+        let mut formats = Vec::new();
+        if let Some(catalogue) = widgets::catalog().by_type(&widget.type_id) {
+            for (name, contract) in catalogue
+                .properties
+                .iter()
+                .flat_map(|properties| properties.iter())
+            {
+                if contract.base_type.as_deref() == Some("STATEFORMATTING") {
+                    formats.push((format!("{}.{}", widget.id, name), &properties[name]));
+                }
+            }
+        }
+        if widget.type_id == "ptcsgrid" {
+            for column in properties["ColumnFormat"]["formatInfo"]
+                .as_array()
+                .into_iter()
+                .flatten()
+            {
+                formats.push((
+                    format!(
+                        "{} column {}",
+                        widget.id,
+                        column["FieldName"].as_str().unwrap_or("?")
+                    ),
+                    &column["FormatOptions"]["formatInfo"],
+                ));
+            }
+        }
+        for (label, format) in formats {
+            let Some(name) = format["StateDefinition"]
+                .as_str()
+                .filter(|name| !name.is_empty())
+            else {
+                continue;
+            };
+            let Some(file) = discovered
+                .entities
+                .iter()
+                .find(|file| file.info.collection == "StateDefinitions" && file.info.name == name)
+            else {
+                push_unique(
+                    problems,
+                    problem(
+                        "unknown-state-definition",
+                        format!(
+                            "{label} names StateDefinition {name}, which is not in the solution"
+                        ),
+                    ),
+                );
+                continue;
+            };
+            let expected = std::fs::read(&file.path)
+                .ok()
+                .and_then(|bytes| mashup::authoring::state_format::read_definition(&bytes).ok())
+                .and_then(|definition| {
+                    mashup::authoring::state_format::inline(&definition, name, "").ok()
+                });
+            if let Some(expected) = expected {
+                if format["StateFormats"] != expected["StateFormats"]
+                    || format["StateDefinitionType"] != expected["StateDefinitionType"]
+                {
+                    push_unique(problems, Problem { rule: "state-format-drift".into(), severity: Severity::Advisory,
+                        message: format!("{label} has a snapshot that differs from StateDefinition {name}; use mashup state-format set to refresh it") });
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]

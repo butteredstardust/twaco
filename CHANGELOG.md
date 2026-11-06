@@ -6,6 +6,10 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `mashup state-format set` copies StateDefinitions into widget or grid-column state formatting, with field checks and snapshot validation; also available as `mashup_state_format_set` over MCP.
+
 ### Changed
 
 - Mashup placement now keeps control rows fixed to their content, sizes side-by-side controls to

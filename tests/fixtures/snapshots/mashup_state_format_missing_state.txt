@@ -1,0 +1,7 @@
+$ twaco mashup state-format set Acme.Orders.Dashboard ptcskpidial-1 --property TargetFormat
+exit: 2
+
+--- stdout
+
+--- stderr
+twaco: mashup state-format set needs <mashup> <widget> and --state <name>

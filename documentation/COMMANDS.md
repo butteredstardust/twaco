@@ -204,6 +204,14 @@ mashup collection add <parent> <cell-mashup> --data <address> --map <value>
     --in <container>        add inside a responsive container (center when omitted)
     --right-of/--left-of/--above/--below <widget>
                             place beside an existing widget
+mashup state-format set <mashup> <widget> --state <name>
+    (--property <name> | --column <field>) [--field <field>] [--icon-only] [--apply] [--json]
+                            colour a widget or grid column from a repository StateDefinition; plan unless --apply
+    --state <name>         the StateDefinition in the solution
+    --property <name>      a widget property of base type STATEFORMATTING
+    --column <field>       an existing ptcsgrid column's field
+    --field <field>        the field judged by the state; defaults to the column field or KPI Value
+    --icon-only            show only the state icon in a grid column
 mashup set <mashup> <widget> --prop <name=value>... [--style-from <mashup:widget>] [--apply] [--json]
                             set checked properties on one exact widget; structured properties take JSON;
                             plan unless --apply

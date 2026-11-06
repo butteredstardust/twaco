@@ -578,6 +578,12 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             false,
             refactor::mashup_collection_add_tool,
         ).with_output::<outputs::MashupCollectionAddResult>(),
+        solution_tool::<refactor_requests::MashupStateFormatSetRequest>(
+            "mashup_state_format_set",
+            "Set a Composer state-format snapshot on a STATEFORMATTING widget property or existing ptcsgrid column from a repository StateDefinition. Give exactly one of property and column. dry_run defaults to true; apply writes entity and managed sidecar in one transaction.",
+            false,
+            refactor::mashup_state_format_set_tool,
+        ).with_output::<outputs::MashupSetResult>(),
         solution_tool::<refactor_requests::MashupSetRequest>(
             "mashup_set",
             "Set checked properties on one exact mashup widget. Structured properties take JSON objects or arrays; root CSS updates custom.css. A dry run unless dry_run is false; apply takes the workspace lock and writes the entity and managed sidecars together.",
@@ -1074,6 +1080,7 @@ pub(crate) const GROUPS: &[(&str, &[&str])] = &[
             "mashup_templates",
             "mashup_add",
             "mashup_collection_add",
+            "mashup_state_format_set",
             "mashup_set",
             "mashup_add_contained",
             "mashup_bind",
