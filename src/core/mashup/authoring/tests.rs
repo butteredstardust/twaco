@@ -3619,6 +3619,56 @@ fn has_binding(value: &Value, source: &str, from: &str, target: &str, to: &str) 
 }
 
 #[test]
+fn reading_a_grids_selection_turns_single_row_selection_on() {
+    let (_dir, solution) = recipe_fixture();
+    let grid_of = |solution: &Solution| {
+        let document = crate::core::mashup::edit::parse(&sidecar_content(solution)).unwrap();
+        let grid = document
+            .widgets()
+            .into_iter()
+            .find(|widget| widget.type_id == "ptcsgrid")
+            .unwrap();
+        (
+            grid.id.clone(),
+            document.at(&grid.path)["Properties"].clone(),
+        )
+    };
+    let (grid, before) = grid_of(&solution);
+    assert_eq!(before["RowSelection"], "none", "Composer's drop default");
+    recipe(
+        &solution,
+        "enable-when",
+        RecipeArgs {
+            widget: Some("ptcsbutton-6".into()),
+            condition: Some("selected".into()),
+            inputs: vec![format!("selected=ui:{grid}.RowSelected")],
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let (_, after) = grid_of(&solution);
+    assert_eq!(after["RowSelection"], "single");
+}
+
+#[test]
+fn a_new_grid_has_no_default_title() {
+    let (_dir, solution) = one_project();
+    let name = "Acme.Orders_MU";
+    apply_new(
+        &solution,
+        &plan_new(&solution, &request(name)).unwrap(),
+        &lock(&solution),
+    )
+    .unwrap();
+    let grid = plan_add(&solution, &add_request(name, "grid")).unwrap();
+    apply_edit(&solution, &grid.edit, &lock(&solution)).unwrap();
+    let document =
+        crate::core::mashup::edit::MashupDocument::new(content_of(&solution, name)).unwrap();
+    let found = document.find(&grid.placed.id).unwrap();
+    assert_eq!(document.at(&found.path)["Properties"]["Label"], "");
+}
+
+#[test]
 fn each_recipe_writes_the_wiring_real_mashups_use() {
     let (_dir, solution) = recipe_fixture();
     let input = || vec!["note=ui:ptcstextfield-3.Text".to_string()];

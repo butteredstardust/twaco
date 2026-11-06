@@ -892,6 +892,11 @@ pub(crate) fn new_widget(widget: &Widget, number: u64, alone: bool) -> Value {
     for (key, value) in dropped.into_iter().flatten() {
         properties.insert(key.clone(), value.clone());
     }
+    if widget.type_id == "ptcsgrid" {
+        // Composer drops a grid titled "[[Grid]]" ("Grid Title"); the design kits clear it on
+        // 17 of 18 grids and title the page with a label instead.
+        properties.insert("Label".into(), Value::from(""));
+    }
     if widget.type_id != "flexcontainer" {
         properties.insert(
             "ResponsiveLayout".into(),
