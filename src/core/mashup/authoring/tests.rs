@@ -3669,6 +3669,27 @@ fn a_new_grid_has_no_default_title() {
 }
 
 #[test]
+fn a_new_collection_aligns_its_cells_to_the_top() {
+    let (_dir, solution) = one_project();
+    let name = "Acme.Orders_MU";
+    apply_new(
+        &solution,
+        &plan_new(&solution, &request(name)).unwrap(),
+        &lock(&solution),
+    )
+    .unwrap();
+    let collection = plan_add(&solution, &add_request(name, "ptcscollection")).unwrap();
+    apply_edit(&solution, &collection.edit, &lock(&solution)).unwrap();
+    let document =
+        crate::core::mashup::edit::MashupDocument::new(content_of(&solution, name)).unwrap();
+    let found = document.find(&collection.placed.id).unwrap();
+    assert_eq!(
+        document.at(&found.path)["Properties"]["ContentAlignment"],
+        "top"
+    );
+}
+
+#[test]
 fn each_recipe_writes_the_wiring_real_mashups_use() {
     let (_dir, solution) = recipe_fixture();
     let input = || vec!["note=ui:ptcstextfield-3.Text".to_string()];

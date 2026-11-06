@@ -18,7 +18,8 @@ All notable changes to twaco are recorded here. The format follows
   does not spread the rows out. `--below` a control adds a row to the enclosing column instead of
   nesting. Only a placement reshapes rows, only those it made or used; a later `mashup set` or
   `mashup remove` only grows a row that is already fixed, so a Composer layout is left alone.
-- A new grid has no default "Grid Title", as in the design kits. Binding from a grid's
+- A new collection aligns its cells to the top, and a new grid has no default "Grid Title", as in
+  the design kits. Binding from a grid's
   RowSelected, SelectedRows or SelectedRowsIDs turns its RowSelection from none to single (and
   says so), since those outputs never change otherwise.
 - `mashup validate` distinguishes errors from advisory findings. A chart axis on a STRING field

@@ -897,6 +897,11 @@ pub(crate) fn new_widget(widget: &Widget, number: u64, alone: bool) -> Value {
         // 17 of 18 grids and title the page with a label instead.
         properties.insert("Label".into(), Value::from(""));
     }
+    if widget.type_id == "ptcscollection" {
+        // Composer drops a collection centring its cells, which leaves a band above them; the
+        // design kits align 29 of 32 collections to the top.
+        properties.insert("ContentAlignment".into(), Value::from("top"));
+    }
     if widget.type_id != "flexcontainer" {
         properties.insert(
             "ResponsiveLayout".into(),
