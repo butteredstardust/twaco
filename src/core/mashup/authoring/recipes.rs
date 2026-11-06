@@ -13,6 +13,9 @@ use crate::core::mashup::edit::MashupDocument;
 use crate::core::{types, widgets};
 use serde_json::{json, Value};
 
+/// The most series a combo chart holds (DataField1..DataField24 in the 10.2 widget).
+const MAX_COMBO_SERIES: usize = 24;
+
 /// One recipe and what it needs. Addresses are those `mashup bind` and `mashup on` take.
 #[derive(Clone, Debug)]
 pub enum Recipe {
@@ -588,7 +591,48 @@ pub(crate) fn plan_recipe(
             }
             let fields = work.result_fields(data);
             work.field(&fields, x)?;
+            // A combo chart draws only the series it names (DataField1..N on every kit combo);
+            // the other charts take each numeric column on their own.
+            let series: Vec<(String, String)> = if target.type_id == "ptcschartcombo" {
+                fields
+                    .iter()
+                    .flatten()
+                    .filter(|(name, base)| {
+                        name != x && matches!(base.as_str(), "NUMBER" | "INTEGER" | "LONG")
+                    })
+                    .enumerate()
+                    .map(|(index, (name, _))| (format!("DataField{}", index + 1), name.clone()))
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            if target.type_id == "ptcschartcombo" && fields.is_some() && series.is_empty() {
+                return Err(AuthoringError::Invalid(format!(
+                    "{data} has no numeric field besides {x} for the combo chart to draw"
+                )));
+            }
+            // Series a previous run named beyond this run's count are cleared, so a field that
+            // is now the x axis is not still drawn as a series.
+            let surplus: Vec<String> = if target.type_id == "ptcschartcombo" {
+                let current = &work.document.at(&target.path)["Properties"];
+                (series.len() + 1..=MAX_COMBO_SERIES)
+                    .map(|index| format!("DataField{index}"))
+                    .filter(|key| {
+                        current[key.as_str()]
+                            .as_str()
+                            .is_some_and(|field| !field.is_empty())
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            };
             let mut properties = Vec::new();
+            for (key, field) in &series {
+                properties.push((key.as_str(), json!(field)));
+            }
+            for key in &surplus {
+                properties.push((key.as_str(), json!("")));
+            }
             if pie {
                 let value = value.as_deref().expect("checked above");
                 work.field(&fields, value)?;

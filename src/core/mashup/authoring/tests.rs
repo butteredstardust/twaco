@@ -743,6 +743,20 @@ fn add_request(mashup: &str, widget: &str) -> AddRequest {
 }
 
 #[test]
+fn a_style_property_takes_a_style_name_or_an_inline_style_object() {
+    let shape = widgets::catalog().by_type("shape").unwrap();
+    assert_eq!(
+        property_value(shape, "ShapeStyle", json!(r#"{"backgroundColor":"red"}"#)).unwrap(),
+        json!({"backgroundColor": "red"})
+    );
+    assert_eq!(
+        property_value(shape, "ShapeStyle", json!("Acme.Dot_Style")).unwrap(),
+        json!("Acme.Dot_Style")
+    );
+    assert!(property_value(shape, "ShapeStyle", json!("{not json")).is_err());
+}
+
+#[test]
 fn prop_parses_the_structured_values_composer_uses() {
     let widget = |name| widgets::catalog().by_type(name).unwrap();
     assert_eq!(
@@ -4133,16 +4147,76 @@ fn describe_says_what_each_function_widget_does() {
 }
 
 #[test]
+fn rerunning_the_combo_recipe_clears_series_it_no_longer_names() {
+    let (_dir, solution) = recipe_fixture();
+    let plan = plan_add(&solution, &add_request("Acme.Orders_MU", "combo-chart")).unwrap();
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    let combo = plan.placed.id;
+    // A series an earlier configuration named, beyond what the result now gives.
+    let mut document = crate::core::mashup::edit::parse(&sidecar_content(&solution)).unwrap();
+    let found = document.find(&combo).unwrap();
+    document.set_property(&found.path, "DataField2", Value::from("old"));
+    let content = document.to_content();
+    let sidecars = solution.src_root().join("Acme.Orders_MU/mashup");
+    std::fs::write(sidecars.join("content.json"), &content).unwrap();
+    let entity_path = solution.root.join("acme/Mashups/Acme.Orders_MU.xml");
+    let (entity, _) = mashup::sync(
+        &std::fs::read(&entity_path).unwrap(),
+        &mashup::Assets {
+            content,
+            css: std::fs::read_to_string(sidecars.join("custom.css")).unwrap(),
+        },
+    )
+    .unwrap();
+    std::fs::write(entity_path, entity).unwrap();
+    recipe(
+        &solution,
+        "chart",
+        RecipeArgs {
+            widget: Some(combo.clone()),
+            data: Some("data:Acme.Orders.Manager.GetOrders".into()),
+            x: Some("note".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let document = crate::core::mashup::edit::parse(&sidecar_content(&solution)).unwrap();
+    let properties = &document.at(&document.find(&combo).unwrap().path)["Properties"];
+    assert_eq!(properties["DataField1"], "id");
+    assert_eq!(properties["DataField2"], "");
+}
+
+#[test]
 fn chart_columns_and_picker_recipes_configure_widgets_from_the_result_shape() {
     let (_dir, solution) = recipe_fixture();
     let mut ids = Vec::new();
-    for widget in ["bar-chart", "pie-chart", "dropdown"] {
+    for widget in ["bar-chart", "pie-chart", "dropdown", "combo-chart"] {
         let plan = plan_add(&solution, &add_request("Acme.Orders_MU", widget)).unwrap();
         apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
         ids.push(plan.placed.id);
     }
-    let (bar, pie, dropdown) = (&ids[0], &ids[1], &ids[2]);
+    let (bar, pie, dropdown, combo) = (&ids[0], &ids[1], &ids[2], &ids[3]);
     let orders = || Some("data:Acme.Orders.Manager.GetOrders".to_string());
+    // A combo chart names its series: every numeric field but the x axis.
+    recipe(
+        &solution,
+        "chart",
+        RecipeArgs {
+            widget: Some(combo.clone()),
+            data: orders(),
+            x: Some("note".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    {
+        let value: Value = serde_json::from_str(&sidecar_content(&solution)).unwrap();
+        let document = crate::core::mashup::edit::MashupDocument::new(value).unwrap();
+        let found = document.find(combo).unwrap();
+        let properties = &document.at(&found.path)["Properties"];
+        assert_eq!(properties["DataField1"], "id");
+        assert_eq!(properties["XAxisField"], "note");
+    }
     recipe(
         &solution,
         "chart",

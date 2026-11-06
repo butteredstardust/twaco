@@ -542,6 +542,16 @@ pub(crate) fn property_value(
         Value::String(text) => text,
         value => return scalar_value(name, default, base, value),
     };
+    // A style property names a StyleDefinition, or holds Composer's inline style object (a
+    // kit's 12px status dot carries its colour that way): JSON object text is the inline form.
+    if base == Some("STYLEDEFINITION") && text.trim_start().starts_with('{') {
+        return match serde_json::from_str::<Value>(&text) {
+            Ok(value @ Value::Object(_)) => Ok(value),
+            _ => Err(AuthoringError::Invalid(format!(
+                "{name} takes a StyleDefinition name or an inline style JSON object"
+            ))),
+        };
+    }
     // The default's own type decides first; the contract's base type only when there is none.
     let boolean =
         matches!(default, Some(Value::Bool(_))) || (default.is_none() && base == Some("BOOLEAN"));
