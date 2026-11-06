@@ -294,17 +294,19 @@ impl MashupDocument {
 
     /// Remove one non-root widget, including its descendants. Callers must first account for
     /// every reference to its subtree; this only changes the structural tree.
-    pub(crate) fn remove_widget(&mut self, path: &[usize]) -> Result<(), EditError> {
+    /// Remove the widget at `path`, then the empty containers twaco made around it; returns the
+    /// ids of those containers, so the caller can say they went too.
+    pub(crate) fn remove_widget(&mut self, path: &[usize]) -> Result<Vec<String>, EditError> {
         let Some((&index, parent)) = path.split_last() else {
             return Err(EditError::Refused(
                 "the mashup root cannot be removed".into(),
             ));
         };
         children_mut(self.at_mut(parent)).remove(index);
-        let parent = self.remove_empty_generated_wrappers(parent.to_vec());
+        let (parent, tidied) = self.remove_empty_generated_wrappers(parent.to_vec());
         let around = widget_id(self.at(&parent)).to_string();
         self.reflow_at(&parent, &Reflow::Edit { around: &around });
-        Ok(())
+        Ok(tidied)
     }
 
     /// Append `widget` as the last child of the widget at `parent`.
@@ -601,17 +603,22 @@ impl MashupDocument {
             .any(|section| self.value()[*section].to_string().contains(&quoted))
     }
 
-    fn remove_empty_generated_wrappers(&mut self, mut path: WidgetPath) -> WidgetPath {
+    fn remove_empty_generated_wrappers(
+        &mut self,
+        mut path: WidgetPath,
+    ) -> (WidgetPath, Vec<String>) {
+        let mut tidied = Vec::new();
         while !path.is_empty()
             && children(self.at(&path)).is_empty()
             && is_generated_container(self.at(&path))
             && !self.is_named_outside_layout(widget_id(self.at(&path)))
         {
+            tidied.push(widget_id(self.at(&path)).to_string());
             let (index, parent) = path.split_last().expect("non-root has a parent");
             children_mut(self.at_mut(parent)).remove(*index);
             path = parent.to_vec();
         }
-        path
+        (path, tidied)
     }
 
     fn place_in(&mut self, widget: &Widget, target: &str) -> Result<Placed, EditError> {
@@ -2238,7 +2245,8 @@ mod tests {
         let column = container("flexcontainer-2", "content", "column", &row);
         let mut document = document(&column, 5);
         let button = document.find("ptcsbutton-5").unwrap();
-        document.remove_widget(&button.path).unwrap();
+        let tidied = document.remove_widget(&button.path).unwrap();
+        assert_eq!(tidied, ["flexcontainer-4", "flexcontainer-3"]);
         assert!(document.find("flexcontainer-4").is_err());
         assert!(document.find("flexcontainer-3").is_err());
     }

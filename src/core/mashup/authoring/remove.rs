@@ -82,7 +82,7 @@ pub(crate) fn plan_remove(
             "the mashup root cannot be removed".into(),
         ));
     }
-    let removed = document
+    let mut removed = document
         .widgets()
         .into_iter()
         .filter(|widget| widget.path.starts_with(&found.path))
@@ -117,9 +117,11 @@ pub(crate) fn plan_remove(
         remove_indexes(document.bindings_mut(), &bindings);
         remove_indexes(document.events_mut(), &events);
     }
-    document
+    let tidied = document
         .remove_widget(&found.path)
         .map_err(AuthoringError::Edit)?;
+    // The empty containers twaco made around the widget go with it; say so.
+    removed.extend(tidied);
     let orphaned_data_calls = candidates
         .into_iter()
         .filter(|call| !data_call_referenced(&document, call))
