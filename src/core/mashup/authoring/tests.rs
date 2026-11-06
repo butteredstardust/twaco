@@ -3651,6 +3651,41 @@ fn reading_a_grids_selection_turns_single_row_selection_on() {
 }
 
 #[test]
+fn only_selection_outputs_of_a_grid_without_selection_turn_it_on() {
+    let (_dir, solution) = recipe_fixture();
+    let content = sidecar_content(&solution);
+    let fresh = || crate::core::mashup::edit::parse(&content).unwrap();
+    let grid = fresh()
+        .widgets()
+        .into_iter()
+        .find(|widget| widget.type_id == "ptcsgrid")
+        .unwrap()
+        .id;
+    let selection = |document: &crate::core::mashup::edit::MashupDocument| {
+        let found = document.find(&grid).unwrap();
+        document.at(&found.path)["Properties"]["RowSelection"].clone()
+    };
+    for property in ["SelectedRows", "SelectedRowsIDs"] {
+        let mut document = fresh();
+        let note = super::bind::enable_grid_selection_for_test(&mut document, &grid, property);
+        assert!(
+            note.is_some_and(|note| note.contains("single")),
+            "{property}"
+        );
+        assert_eq!(selection(&document), "single");
+    }
+    let mut document = fresh();
+    assert!(super::bind::enable_grid_selection_for_test(&mut document, &grid, "Data").is_none());
+    assert_eq!(selection(&document), "none");
+    let found = document.find(&grid).unwrap();
+    document.set_property(&found.path, "RowSelection", Value::from("multiple"));
+    assert!(
+        super::bind::enable_grid_selection_for_test(&mut document, &grid, "SelectedRows").is_none()
+    );
+    assert_eq!(selection(&document), "multiple");
+}
+
+#[test]
 fn a_new_grid_has_no_default_title() {
     let (_dir, solution) = one_project();
     let name = "Acme.Orders_MU";

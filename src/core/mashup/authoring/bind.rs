@@ -254,6 +254,20 @@ fn enable_grid_selection(document: &mut MashupDocument, from: &End) -> Option<St
     ))
 }
 
+#[cfg(test)]
+pub(super) fn enable_grid_selection_for_test(
+    document: &mut MashupDocument,
+    id: &str,
+    property: &str,
+) -> Option<String> {
+    let from = End::Ui {
+        id: id.into(),
+        property: property.into(),
+        base: String::new(),
+    };
+    enable_grid_selection(document, &from)
+}
+
 /// Whether ThingWorx carries a `from` value into a `to` property: the same type, anything into
 /// a STRING, a string into an entity name (a THINGNAME, MASHUPNAME, ... is a string), and one
 /// number type into another, and any scalar into an ANYSCALAR (a value display's `Data`).
