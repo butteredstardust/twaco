@@ -75,6 +75,13 @@ impl Baseline {
             .filter(|entry| entry.is_current())
     }
 
+    /// Whether an entry exists, whatever normalisation version recorded it.
+    pub(crate) fn contains(&self, collection: &str, name: &str) -> bool {
+        self.entities
+            .get(collection)
+            .is_some_and(|items| items.contains_key(name))
+    }
+
     /// How many entries were recorded under another normalisation version.
     pub(crate) fn outdated(&self) -> usize {
         self.entities

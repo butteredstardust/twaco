@@ -24,6 +24,14 @@ All notable changes to twaco are recorded here. The format follows
   says so), since those outputs never change otherwise.
 - `mashup validate` distinguishes errors from advisory findings. A chart axis on a STRING field
   and an obsolete collection cell-parameter map are advisory and do not make the command fail.
+### Fixed
+
+- `entity delete --apply` forgets the deleted entities in the profile's baseline, so pushing an
+  entity of the same name again is no longer refused as "deleted on the server since the last
+  sync".
+- `mashup state-format set` accepts the final catch-all state that Composer saves without a
+  `defaultValue`.
+- `mashup remove` lists the empty containers it removes with the widget.
 
 ## [0.1.54] - 2026-11-05
 

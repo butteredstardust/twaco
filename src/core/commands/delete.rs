@@ -120,7 +120,13 @@ where
     let mut prepared = entity::delete::prepare(solution, &request.entities, request.renamed)
         .map_err(EntityDeleteCommandError::Delete)?;
     let apply = matches!(request.mode, Mode::Apply);
-    let _lock = if apply && (request.backup || prepared.ledger_will_be_written(apply)) {
+    // An applied delete writes the workspace only for a backup, the ledger, or a baseline that
+    // remembers one of the entities.
+    let _lock = if apply
+        && (request.backup
+            || prepared.ledger_will_be_written(apply)
+            || baseline_lists(solution, &request.profile, &request.entities))
+    {
         let lock = lock_workspace(solution, "entity delete", notices)
             .map_err(EntityDeleteCommandError::Lock)?;
         after_lock();
@@ -154,7 +160,11 @@ where
     {
         crate::core::backup::settle(solution);
     }
-    let effects = effects(&report);
+    let baseline_changed = apply && forget_deleted(solution, &request.profile, &report, notices);
+    let mut effects = effects(&report);
+    if baseline_changed {
+        effects = Effects::new(Access::Write, effects.server);
+    }
     Ok(match request.mode {
         Mode::Plan => EntityDeleteOutcome::Plan {
             report,
@@ -168,6 +178,62 @@ where
             legacy_force_used: request.legacy_force_used,
         },
     })
+}
+
+fn baseline_lists(solution: &Solution, profile: &str, entities: &[String]) -> bool {
+    let Ok(baseline) = crate::core::baseline::Baseline::load(&solution.root, profile) else {
+        return false;
+    };
+    entities.iter().any(|entity| {
+        entity
+            .split_once('/')
+            .is_some_and(|(collection, name)| baseline.contains(collection, name))
+    })
+}
+
+/// Drop what the baseline remembers of each entity now gone from the server. A baseline that
+/// still lists one reads as "deleted on the server since the last sync", so pushing the entity
+/// again, which is how a deliberate re-create looks, would be refused. The server delete has
+/// already happened, so a baseline that cannot be written is a notice, not a failure.
+fn forget_deleted(
+    solution: &Solution,
+    profile: &str,
+    report: &entity::delete::Report,
+    notices: &mut Notices,
+) -> bool {
+    let gone: Vec<_> = report
+        .entities
+        .iter()
+        .filter(|entity| {
+            matches!(
+                entity.status,
+                entity::delete::Status::Deleted | entity::delete::Status::Absent
+            )
+        })
+        .collect();
+    if gone.is_empty() {
+        return false;
+    }
+    let result =
+        crate::core::baseline::Baseline::load(&solution.root, profile).and_then(|mut baseline| {
+            let removed = gone
+                .iter()
+                .filter(|entity| baseline.remove(&entity.collection, &entity.name))
+                .count();
+            if removed > 0 {
+                baseline.write(&solution.root, profile)?;
+            }
+            Ok(removed > 0)
+        });
+    match result {
+        Ok(changed) => changed,
+        Err(error) => {
+            notices.push(format!(
+                "the deleted entities are still in the {profile} baseline ({error}); a later push of the same name needs --force"
+            ));
+            false
+        }
+    }
 }
 
 fn effects(report: &entity::delete::Report) -> Effects {
@@ -436,6 +502,28 @@ mod tests {
         .unwrap();
         assert_eq!(applied.effects(), Effects::new(Access::Read, Access::Write));
         drop(held);
+    }
+
+    #[test]
+    fn a_deleted_entity_leaves_the_baseline_so_it_can_be_pushed_again() {
+        let (_dir, root, solution) = setup(None);
+        let mut baseline = crate::core::baseline::Baseline::default();
+        baseline.set("Mashups", "M", "local".into(), "server".into());
+        baseline.set("Mashups", "Kept", "local".into(), "server".into());
+        baseline.write(&root, "default").unwrap();
+        let applied = execute(
+            &solution,
+            &request(Mode::Apply, &["Mashups/M"], false, false),
+            |_| Fake::new(&[("Mashups", "M")]),
+        )
+        .unwrap();
+        assert_eq!(
+            applied.effects(),
+            Effects::new(Access::Write, Access::Write)
+        );
+        let baseline = crate::core::baseline::Baseline::load(&root, "default").unwrap();
+        assert!(!baseline.contains("Mashups", "M"));
+        assert!(baseline.contains("Mashups", "Kept"));
     }
 
     #[test]
