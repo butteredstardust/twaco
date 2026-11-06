@@ -6,6 +6,8 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.1.55] - 2026-11-06
+
 ### Added
 
 - `mashup state-format set` copies StateDefinitions into widget or grid-column state formatting, with field checks and snapshot validation; also available as `mashup_state_format_set` over MCP.
@@ -1651,6 +1653,7 @@ The first public release.
 - `mcp` serves 39 tools over stdio to MCP clients, with compact summaries, validated arguments
   and dry runs by default for tools that can write to a server.
 
+[0.1.55]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.55
 [0.1.54]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.54
 [0.1.53]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.53
 [0.1.52]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.52
