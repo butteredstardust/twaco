@@ -397,6 +397,20 @@ impl MashupDocument {
             Placement::In(target) => self.place_in(widget, target),
             Placement::Beside { anchor, side } => self.place_beside(widget, anchor, *side),
         }?;
+        if widget.type_id == "flexcontainer" {
+            // A container someone asked for is a panel or card of their own, not a wrapper
+            // twaco made: it gets a name the wrapper rules never take for theirs, and stacks its
+            // content, as the kits' cards and panels do.
+            if let Ok(found) = self.find(&placed.id) {
+                let number = placed.id.rsplit('-').next().unwrap_or_default().to_string();
+                self.set_property(
+                    &found.path,
+                    "DisplayName",
+                    Value::from(format!("panel-{number}")),
+                );
+                self.set_property(&found.path, "flex-direction", Value::from("column"));
+            }
+        }
         self.fix_rows(&placed);
         Ok(placed)
     }
@@ -497,6 +511,11 @@ impl MashupDocument {
             if type_of(row) != Some("flexcontainer") {
                 continue;
             }
+            // A panel or card someone added stacks rows and takes its content's height; fixing
+            // it while it holds only its title would clip every row added later.
+            if row["Properties"]["flex-direction"] == "column" && !is_generated_container(row) {
+                continue;
+            }
             let Some(tallest) = fixed_row_height(row) else {
                 continue;
             };
@@ -517,7 +536,9 @@ impl MashupDocument {
         // Runtime gives every row's bounding box `margin: auto`, so a column of only fixed rows
         // spreads them out over its height. Real mashups always let one row grow; with no data
         // widget to fill, the last control row twaco made is the one, its controls at its top.
-        if matches!(scope, Reflow::Placement { .. }) {
+        // A panel is measured instead: the row holding it is fixed to its rows' sum, so it has
+        // no spare height to spread.
+        if matches!(scope, Reflow::Placement { .. }) && !is_panel(self.at(&column_path)) {
             let rows = children(self.at(&column_path)).to_vec();
             let all_fixed = !rows.is_empty()
                 && rows.iter().all(|row| {
@@ -636,14 +657,8 @@ impl MashupDocument {
         let holds_leaves = target_children
             .iter()
             .any(|child| type_of(child) != Some("flexcontainer"));
-        if holds_leaves && widget.type_id == "flexcontainer" {
-            return Err(EditError::Refused(format!(
-                "{} holds widgets, so it cannot also hold a container",
-                target.id
-            )));
-        }
         let target_empty = target_children.is_empty();
-        let wrap_column_for_filler = widget.auto_resize
+        let wrap_column_for_filler = fills_alone(widget)
             && self.at(&target.path)["Properties"]["flex-direction"] == "column"
             && !target_empty
             && !holds_containers
@@ -668,10 +683,16 @@ impl MashupDocument {
         if widget.type_id == "flexcontainer" {
             placed.containers.push(placed.id.clone());
         }
-        if wrap_column_for_filler {
+        // A container cannot share a container with bare widgets, so they move into rows of
+        // their own first, as they do when a grid joins them.
+        let wrap_leaves =
+            wrap_column_for_filler || (holds_leaves && widget.type_id == "flexcontainer");
+        if wrap_leaves {
             for (index, child) in target_children.into_iter().enumerate() {
-                let wrapper = self.wrap(child, &mut placed);
-                self.replace_child(&target.path, index, wrapper);
+                if type_of(&child) != Some("flexcontainer") {
+                    let wrapper = self.wrap(child, &mut placed);
+                    self.replace_child(&target.path, index, wrapper);
+                }
             }
         }
         if wrap_new {
@@ -740,11 +761,14 @@ impl MashupDocument {
         // A widget that can fill gets a container of its own, where it fills, rather than a
         // fixed size among siblings. Next to a container in a run of the right direction it is
         // wrapped as a sibling row or cell, which gives it that container.
-        let filler = widget.auto_resize && !new_is_container;
+        let filler = fills_alone(widget) && !new_is_container;
         let axis_matches = direction.as_deref() == Some(side.axis());
+        // A lone widget's container turns to the new direction, except a panel someone added:
+        // it keeps stacking its content, and the pair gets a row of its own inside it.
+        let may_turn = parent_children.len() == 1 && !is_panel(parent);
         let sibling_possible = !fills(self.at(&anchor.path))
             && (!filler || (anchor_is_container && axis_matches))
-            && (axis_matches || parent_children.len() == 1);
+            && (axis_matches || may_turn);
 
         if sibling_possible && (anchor_is_container || !new_is_container) {
             let number = self.allocate();
@@ -813,10 +837,40 @@ impl MashupDocument {
             placed.containers.push(placed.id.clone());
         }
 
+        // Two plain widgets side by side in a panel: one row inside the panel holds both, as a
+        // kit toolbar does, and the panel keeps stacking its content.
+        if is_panel(self.at(parent_path))
+            && !anchor_is_container
+            && !new_is_container
+            && !fills(&anchor_value)
+            && !fills_alone(widget)
+        {
+            let wrapper_number = self.allocate();
+            let mut row = new_widget(
+                widgets::catalog()
+                    .by_type("flexcontainer")
+                    .expect("the catalogue has flexcontainer"),
+                wrapper_number,
+                true,
+            );
+            placed.containers.push(widget_id(&row).to_string());
+            set_value_property(&mut row, "flex-direction", Value::from(side.axis()));
+            let new = new_widget(widget, number, false);
+            let (first, second) = if side.before() {
+                (new, anchor_value)
+            } else {
+                (anchor_value, new)
+            };
+            push_value_child(&mut row, first);
+            push_value_child(&mut row, second);
+            self.replace_child(parent_path, anchor_index, row);
+            return placed;
+        }
+
         // The anchor alone in its container (a widget that fills it): that container becomes the
         // row or column itself, holding the anchor and the new widget each in a container of
         // their own, rather than gaining one more level that holds a single container.
-        if children(self.at(parent_path)).len() == 1 {
+        if children(self.at(parent_path)).len() == 1 && !is_panel(self.at(parent_path)) {
             let parent_id = widget_id(self.at(parent_path)).to_string();
             if self.at(parent_path)["Properties"]["flex-direction"].as_str() != Some(side.axis()) {
                 self.set_property(parent_path, "flex-direction", Value::from(side.axis()));
@@ -935,9 +989,9 @@ pub(crate) fn new_widget(widget: &Widget, number: u64, alone: bool) -> Value {
     if widget.type_id != "flexcontainer" {
         properties.insert(
             "ResponsiveLayout".into(),
-            Value::from(widget.auto_resize && alone),
+            Value::from(fills_alone(widget) && alone),
         );
-        if widget.auto_resize && alone {
+        if fills_alone(widget) && alone {
             // Responsive widgets fill their row; Composer does not retain the drop dimensions.
             properties.remove("Width");
             properties.remove("Height");
@@ -1138,10 +1192,16 @@ fn contains(widget: &Value, id: &str) -> bool {
     widget_id(widget) == id || children(widget).iter().any(|child| contains(child, id))
 }
 
+/// Whether a widget fills a container it is alone in. The catalogue marks a shape resizable, but
+/// the kits use shapes as fixed marks (a 12px status dot beside a label), never as fillers.
+fn fills_alone(widget: &Widget) -> bool {
+    widget.auto_resize && widget.type_id != "shape"
+}
+
 fn can_fill(widget: &Value) -> bool {
     type_of(widget)
         .and_then(|type_id| widgets::catalog().by_type(type_id))
-        .is_some_and(|widget| widget.auto_resize)
+        .is_some_and(fills_alone)
 }
 
 fn row_fills(row: &Value) -> bool {
@@ -1164,13 +1224,39 @@ fn fixed_content_height(widget: &Value) -> Option<f64> {
     // A column stacks its children, and their margins and gaps are not known here: leave a
     // nested column of several widgets unmeasured rather than clip it to its tallest child.
     if widget["Properties"]["flex-direction"] == "column" && children(widget).len() > 1 {
-        return None;
+        // Rows fixed to a known height stack to their sum; anything else is not measured.
+        return children(widget)
+            .iter()
+            .map(fixed_row_px)
+            .collect::<Option<Vec<f64>>>()
+            .map(|heights| heights.into_iter().sum());
     }
     let heights = children(widget)
         .iter()
         .map(fixed_content_height)
         .collect::<Option<Vec<_>>>()?;
     (!heights.is_empty()).then(|| heights.into_iter().fold(0.0, f64::max))
+}
+
+/// The height of a row fixed to a pixel size, as twaco or Composer fixed it.
+fn fixed_row_px(row: &Value) -> Option<f64> {
+    let properties = &row["Properties"];
+    if type_of(row) != Some("flexcontainer") || properties["flex-size"] != "fixed" {
+        return None;
+    }
+    properties["flex-min-height"]
+        .as_str()?
+        .strip_suffix("px")?
+        .parse()
+        .ok()
+}
+
+/// A container someone added with `mashup add container`: a card or panel of their own.
+fn is_panel(widget: &Value) -> bool {
+    type_of(widget) == Some("flexcontainer")
+        && widget["Properties"]["DisplayName"]
+            .as_str()
+            .is_some_and(|name| name.starts_with("panel-"))
 }
 
 /// Containers twaco created have Composer's generated display name, unlike named template slots.
@@ -1502,7 +1588,7 @@ mod tests {
     }
 
     #[test]
-    fn placing_in_a_leaf_or_mixing_a_container_with_leaves_is_refused() {
+    fn placing_in_a_leaf_is_refused_and_a_container_moves_leaves_into_rows() {
         let leaf = widget("ptcsbutton", "ptcsbutton-3", "button", "");
         let mut leaf_document = document(&leaf, 3);
         let error = leaf_document
@@ -1522,13 +1608,110 @@ mod tests {
         .join(",");
         let target = container("flexcontainer-2", "target", "row", &leaves);
         let mut document = document(&target, 4);
-        let error = document
+        let panel = document
             .place(
                 catalogue_widget("flexcontainer"),
                 &Placement::In("flexcontainer-2".into()),
             )
-            .unwrap_err();
-        assert!(matches!(error, EditError::Refused(message) if message.contains("holds widgets")));
+            .unwrap();
+        let kids = children(document.at(&document.find("flexcontainer-2").unwrap().path)).to_vec();
+        assert_eq!(kids.len(), 3);
+        assert!(kids.iter().all(|kid| type_of(kid) == Some("flexcontainer")));
+        assert_eq!(child_ids(&document, widget_id(&kids[0])), ["ptcslabel-3"]);
+        // The container someone asked for is a column panel, never taken for a wrapper.
+        let panel = document.at(&document.find(&panel.id).unwrap().path).clone();
+        assert_eq!(panel["Properties"]["flex-direction"], "column");
+        assert!(panel["Properties"]["DisplayName"]
+            .as_str()
+            .unwrap()
+            .starts_with("panel-"));
+        assert!(!is_generated_container(&panel));
+    }
+
+    #[test]
+    fn a_panel_keeps_growing_as_rows_are_added_to_it() {
+        let column = container("flexcontainer-2", "content", "column", "");
+        let mut document = document(&column, 2);
+        let panel = document
+            .place(
+                catalogue_widget("flexcontainer"),
+                &Placement::In("flexcontainer-2".into()),
+            )
+            .unwrap()
+            .id;
+        let title = document
+            .place(catalogue_widget("ptcslabel"), &Placement::In(panel.clone()))
+            .unwrap()
+            .id;
+        document
+            .place(
+                catalogue_widget("ptcslabel"),
+                &Placement::Beside {
+                    anchor: title,
+                    side: Side::Below,
+                },
+            )
+            .unwrap();
+        let found = document.find(&panel).unwrap();
+        assert_ne!(document.at(&found.path)["Properties"]["flex-size"], "fixed");
+    }
+
+    #[test]
+    fn a_panel_keeps_its_column_when_its_lone_widget_gets_a_neighbour() {
+        let column = container("flexcontainer-2", "content", "column", "");
+        let mut document = document(&column, 2);
+        let panel = document
+            .place(
+                catalogue_widget("flexcontainer"),
+                &Placement::In("flexcontainer-2".into()),
+            )
+            .unwrap()
+            .id;
+        let first = document
+            .place(
+                catalogue_widget("ptcsdatepicker"),
+                &Placement::In(panel.clone()),
+            )
+            .unwrap()
+            .id;
+        let second = document
+            .place(
+                catalogue_widget("ptcsdatepicker"),
+                &Placement::Beside {
+                    anchor: first.clone(),
+                    side: Side::Right,
+                },
+            )
+            .unwrap()
+            .id;
+        let found = document.find(&panel).unwrap();
+        assert_eq!(
+            document.at(&found.path)["Properties"]["flex-direction"],
+            "column"
+        );
+        let row_of = |id: &str| {
+            let path = document.find(id).unwrap().path;
+            widget_id(document.at(&path[..path.len() - 1])).to_string()
+        };
+        assert_eq!(row_of(&first), row_of(&second));
+        assert_ne!(row_of(&first), panel);
+    }
+
+    #[test]
+    fn a_shape_is_a_fixed_mark_not_a_filler() {
+        let column = container("flexcontainer-2", "content", "column", "");
+        let mut document = document(&column, 2);
+        let shape = document
+            .place(
+                catalogue_widget("shape"),
+                &Placement::In("flexcontainer-2".into()),
+            )
+            .unwrap();
+        let found = document.find(&shape.id).unwrap();
+        assert_eq!(
+            document.at(&found.path)["Properties"]["ResponsiveLayout"],
+            false
+        );
     }
 
     #[test]

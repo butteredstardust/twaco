@@ -588,7 +588,30 @@ pub(crate) fn plan_recipe(
             }
             let fields = work.result_fields(data);
             work.field(&fields, x)?;
+            // A combo chart draws only the series it names (DataField1..N on every kit combo);
+            // the other charts take each numeric column on their own.
+            let series: Vec<(String, String)> = if target.type_id == "ptcschartcombo" {
+                fields
+                    .iter()
+                    .flatten()
+                    .filter(|(name, base)| {
+                        name != x && matches!(base.as_str(), "NUMBER" | "INTEGER" | "LONG")
+                    })
+                    .enumerate()
+                    .map(|(index, (name, _))| (format!("DataField{}", index + 1), name.clone()))
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            if target.type_id == "ptcschartcombo" && fields.is_some() && series.is_empty() {
+                return Err(AuthoringError::Invalid(format!(
+                    "{data} has no numeric field besides {x} for the combo chart to draw"
+                )));
+            }
             let mut properties = Vec::new();
+            for (key, field) in &series {
+                properties.push((key.as_str(), json!(field)));
+            }
             if pie {
                 let value = value.as_deref().expect("checked above");
                 work.field(&fields, value)?;

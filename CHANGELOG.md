@@ -6,6 +6,17 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- `mashup add container` makes a panel: a column named `panel-N` that keeps stacking its content
+  and is never taken for a twaco wrapper. Adding one to a container that holds widgets moves those
+  widgets into rows instead of refusing, two widgets side by side in a panel share one row, and a
+  panel of fixed rows is measured so the row holding it fits its content.
+- A shape is a fixed mark (a status dot), never a filler.
+- `mashup set` stores JSON object text for a style property as Composer's inline style object.
+- `mashup recipe chart` names a combo chart's series (`DataField1..N`, every numeric field but the
+  x axis); a combo chart drew nothing without them.
+
 ## [0.1.55] - 2026-11-06
 
 ### Added
