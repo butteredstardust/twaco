@@ -1112,12 +1112,14 @@ twaco mashup add Acme.App.Orders_MU button --below ptcsgrid-7 --label Save --app
 `center`; `--in` names a responsive container, and the four beside flags name the widget to place
 next to. A matching row or column accepts the sibling directly. When its direction differs, twaco
 makes a row or column and gives both widgets their own containers; it also wraps existing leaf
-siblings where that is needed to preserve responsive layout. Control rows, including side-by-side
-buttons, are fixed to their measured content height and their cells size to content from the left.
-One data widget that can fill (such as a grid, chart or collection) fills the remaining row and
-column space; its fixed Width and Height are removed. When a later add, remove or size-affecting
-property change alters a row, twaco re-measures the rows it owns without replacing a size set in
-Composer. `--label` selects the first available LabelText, Label, Text or Title
+siblings where that is needed to preserve responsive layout. Control rows are fixed to their measured
+content height; side-by-side controls are placed directly in one row, from the left, as the design
+kits do. One data widget that can fill (such as a grid, chart or collection) fills the remaining row
+and column space; its fixed Width and Height are removed. A column with no such widget lets its last
+control row grow: Runtime centres every container's box, so a column of only fixed rows would
+spread them out. `--below` (or `--above`) a control in its own row adds a row to the enclosing
+column. A later `mashup set` or `mashup remove` only grows a fixed row that no longer fits its
+content; it never reshapes a layout made in Composer. `--label` selects the first available LabelText, Label, Text or Title
 property; `--prop Name=value` changes a catalogue property with its expected type. Structured
 properties take JSON, including a grid's column format:
 

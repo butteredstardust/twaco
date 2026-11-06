@@ -12,9 +12,12 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Changed
 
-- Mashup placement now keeps control rows fixed to their content, sizes side-by-side controls to
-  content from the left, and lets one grid, chart or collection fill the remaining column space.
-  Later placement, removal and size-affecting property edits re-measure twaco-owned rows.
+- Mashup placement now lays out like the design kits: control rows are fixed to their content,
+  side-by-side controls share one row from the left, and one grid, chart or collection fills the
+  remaining column space; a column with no such widget lets its last control row grow, so Runtime
+  does not spread the rows out. `--below` a control adds a row to the enclosing column instead of
+  nesting. Only a placement reshapes rows, only those it made or used; a later `mashup set` or
+  `mashup remove` only grows a row that is already fixed, so a Composer layout is left alone.
 - `mashup validate` distinguishes errors from advisory findings. A chart axis on a STRING field
   and an obsolete collection cell-parameter map are advisory and do not make the command fail.
 
