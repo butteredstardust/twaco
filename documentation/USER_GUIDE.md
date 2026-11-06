@@ -1119,7 +1119,9 @@ and column space; its fixed Width and Height are removed. A column with no such 
 control row grow: Runtime centres every container's box, so a column of only fixed rows would
 spread them out. `--below` (or `--above`) a control in its own row adds a row to the enclosing
 column. A later `mashup set` or `mashup remove` only grows a fixed row that no longer fits its
-content; it never reshapes a layout made in Composer. `--label` selects the first available LabelText, Label, Text or Title
+content; it never reshapes a layout made in Composer. `mashup add <mashup> container` makes a
+panel (a card): a column named `panel-N` whose content stacks, two widgets placed side by side in it
+share one row, and the row holding a panel of fixed rows is sized to fit it. `--label` selects the first available LabelText, Label, Text or Title
 property; `--prop Name=value` changes a catalogue property with its expected type. Structured
 properties take JSON, including a grid's column format:
 
