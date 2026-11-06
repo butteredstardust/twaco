@@ -516,7 +516,10 @@ impl MashupDocument {
             if row["Properties"]["flex-direction"] == "column" && !is_generated_container(row) {
                 continue;
             }
-            let Some(tallest) = fixed_row_height(row) else {
+            // Only a placement measures a stack of rows: an edit never re-derives a layout's
+            // geometry from it.
+            let stack = matches!(scope, Reflow::Placement { .. });
+            let Some(tallest) = fixed_row_height(row, stack) else {
                 continue;
             };
             let owned = owns(row)
@@ -536,9 +539,9 @@ impl MashupDocument {
         // Runtime gives every row's bounding box `margin: auto`, so a column of only fixed rows
         // spreads them out over its height. Real mashups always let one row grow; with no data
         // widget to fill, the last control row twaco made is the one, its controls at its top.
-        // A panel is measured instead: the row holding it is fixed to its rows' sum, so it has
-        // no spare height to spread.
-        if matches!(scope, Reflow::Placement { .. }) && !is_panel(self.at(&column_path)) {
+        // In a panel too: a panel measured into a fixed row has no spare height for its last row
+        // to take, and one placed straight into a growing column must not spread its rows.
+        if matches!(scope, Reflow::Placement { .. }) {
             let rows = children(self.at(&column_path)).to_vec();
             let all_fixed = !rows.is_empty()
                 && rows.iter().all(|row| {
@@ -546,7 +549,7 @@ impl MashupDocument {
                         && row["Properties"]["flex-size"] == "fixed"
                 });
             if let (true, Some(last)) = (all_fixed, rows.last()) {
-                if owns(last) && fixed_content_height(last).is_some() {
+                if owns(last) && fixed_content_height(last, false).is_some() {
                     let last_path = [column_path.as_slice(), &[rows.len() - 1]].concat();
                     self.unfix_row(&last_path);
                 }
@@ -728,7 +731,7 @@ impl MashupDocument {
             let node = self.at(parent);
             if !is_generated_container(node)
                 || node["Properties"]["flex-direction"] == side.axis()
-                || fixed_content_height(node).is_none()
+                || fixed_content_height(node, false).is_none()
             {
                 break;
             }
@@ -864,6 +867,15 @@ impl MashupDocument {
             push_value_child(&mut row, first);
             push_value_child(&mut row, second);
             self.replace_child(parent_path, anchor_index, row);
+            // A container cannot share the panel with bare widgets: the others get rows too.
+            let siblings = children(self.at(parent_path)).to_vec();
+            for (index, child) in siblings.into_iter().enumerate() {
+                if index != anchor_index && type_of(&child) != Some("flexcontainer") {
+                    placed.wrapped.push(widget_id(&child).to_string());
+                    let wrapped = self.wrap(child, &mut placed);
+                    self.replace_child(parent_path, index, wrapped);
+                }
+            }
             return placed;
         }
 
@@ -1209,31 +1221,46 @@ fn row_fills(row: &Value) -> bool {
 }
 
 /// A fixed row may contain fixed leaves directly, or the per-widget wrappers made for a toolbar.
-fn fixed_row_height(row: &Value) -> Option<f64> {
+/// `stack` measures a nested column of several rows as their sum; without it such a column is
+/// left unmeasured.
+fn fixed_row_height(row: &Value, stack: bool) -> Option<f64> {
     let heights = children(row)
         .iter()
-        .map(fixed_content_height)
+        .map(|child| fixed_content_height(child, stack))
         .collect::<Option<Vec<_>>>()?;
     (!heights.is_empty()).then(|| heights.into_iter().fold(0.0, f64::max))
 }
 
-fn fixed_content_height(widget: &Value) -> Option<f64> {
+fn fixed_content_height(widget: &Value, stack: bool) -> Option<f64> {
     if type_of(widget) != Some("flexcontainer") {
         return (!fills(widget)).then(|| content_height(widget)).flatten();
     }
     // A column stacks its children, and their margins and gaps are not known here: leave a
     // nested column of several widgets unmeasured rather than clip it to its tallest child.
     if widget["Properties"]["flex-direction"] == "column" && children(widget).len() > 1 {
-        // Rows fixed to a known height stack to their sum; anything else is not measured.
-        return children(widget)
+        if !stack {
+            return None;
+        }
+        // Rows fixed to a known height stack to their sum, the last one counted by its content
+        // when it is the growing control row a column keeps; anything else is not measured.
+        let rows = children(widget);
+        return rows
             .iter()
-            .map(fixed_row_px)
+            .enumerate()
+            .map(|(index, row)| {
+                fixed_row_px(row).or_else(|| {
+                    (index + 1 == rows.len() && row["Properties"]["flex-size"] == "default")
+                        .then(|| fixed_row_height(row, false))
+                        .flatten()
+                        .map(|tallest| (tallest + ROW_MARGIN).ceil())
+                })
+            })
             .collect::<Option<Vec<f64>>>()
             .map(|heights| heights.into_iter().sum());
     }
     let heights = children(widget)
         .iter()
-        .map(fixed_content_height)
+        .map(|child| fixed_content_height(child, stack))
         .collect::<Option<Vec<_>>>()?;
     (!heights.is_empty()).then(|| heights.into_iter().fold(0.0, f64::max))
 }
@@ -1695,6 +1722,114 @@ mod tests {
         };
         assert_eq!(row_of(&first), row_of(&second));
         assert_ne!(row_of(&first), panel);
+    }
+
+    #[test]
+    fn a_neighbour_in_a_panel_of_several_widgets_leaves_no_bare_widget_beside_a_row() {
+        let first = widget("ptcslabel", "ptcslabel-4", "A", "");
+        let second = widget("ptcslabel", "ptcslabel-5", "B", "");
+        let panel = container(
+            "flexcontainer-3",
+            "panel-3",
+            "column",
+            &format!("{first},{second}"),
+        );
+        let column = container("flexcontainer-2", "content", "column", &panel);
+        let mut document = document(&column, 5);
+        document
+            .place(
+                catalogue_widget("ptcslabel"),
+                &Placement::Beside {
+                    anchor: "ptcslabel-4".into(),
+                    side: Side::Right,
+                },
+            )
+            .unwrap();
+        let panel = document.find("flexcontainer-3").unwrap();
+        assert!(children(document.at(&panel.path))
+            .iter()
+            .all(|child| type_of(child) == Some("flexcontainer")));
+        assert!(document.problems().is_empty(), "{:?}", document.problems());
+    }
+
+    #[test]
+    fn a_panel_in_a_growing_column_keeps_a_growing_last_row() {
+        let label = widget("ptcslabel", "ptcslabel-4", "Title", "");
+        let panel = container("flexcontainer-3", "panel-3", "column", &label);
+        let column = container("flexcontainer-2", "content", "column", &panel);
+        let mut document = document(&column, 4);
+        document
+            .place(
+                catalogue_widget("ptcslabel"),
+                &Placement::Beside {
+                    anchor: "ptcslabel-4".into(),
+                    side: Side::Below,
+                },
+            )
+            .unwrap();
+        let panel = document.find("flexcontainer-3").unwrap();
+        let sizes: Vec<String> = children(document.at(&panel.path))
+            .iter()
+            .map(|row| {
+                row["Properties"]["flex-size"]
+                    .as_str()
+                    .unwrap_or("")
+                    .to_string()
+            })
+            .collect();
+        assert_eq!(
+            sizes,
+            ["fixed", "default"],
+            "Runtime would spread an all-fixed panel"
+        );
+    }
+
+    #[test]
+    fn an_edit_inside_a_composer_stack_of_fixed_rows_changes_no_size() {
+        let label = |id: &str| {
+            format!(
+                r#"{{"Properties":{{"DisplayName":"{id}","Height":20,"Id":"{id}","Type":"ptcslabel"}},"Widgets":[]}}"#
+            )
+        };
+        let top = fixed(
+            &container(
+                "flexcontainer-5",
+                "container-5",
+                "row",
+                &label("ptcslabel-6"),
+            ),
+            "80px",
+        );
+        let bottom = fixed(
+            &container(
+                "flexcontainer-7",
+                "container-7",
+                "row",
+                &label("ptcslabel-8"),
+            ),
+            "80px",
+        );
+        let stack = container(
+            "flexcontainer-4",
+            "container-4",
+            "column",
+            &format!("{top},{bottom}"),
+        );
+        let outer = fixed(
+            &container("flexcontainer-3", "container-3", "row", &stack),
+            "160px",
+        );
+        let column = container("flexcontainer-2", "content", "column", &outer);
+        let mut document = document(&column, 8);
+        let before = document.clone();
+        let found = document.find("ptcslabel-6").unwrap();
+        document.set_property(&found.path, "LabelText", Value::from("Changed"));
+        document.reflow_for("ptcslabel-6");
+        let outer = document.find("flexcontainer-3").unwrap();
+        assert_eq!(
+            document.at(&outer.path)["Properties"],
+            before.at(&before.find("flexcontainer-3").unwrap().path)["Properties"]
+        );
     }
 
     #[test]
