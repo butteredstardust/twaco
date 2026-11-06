@@ -360,6 +360,7 @@ pub(crate) fn plan_add(
             .path;
         document.set_property(&path, name, value);
     }
+    document.reflow_for(&placed.id);
     Ok(AddPlan {
         edit: finish_edit(loaded, document, "mashup add")?,
         placed,

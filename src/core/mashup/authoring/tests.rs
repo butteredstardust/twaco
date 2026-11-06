@@ -913,6 +913,46 @@ fn set_changes_a_flex_container_and_keeps_root_css_in_its_sidecar() {
 }
 
 #[test]
+fn setting_a_label_type_remeasures_its_fixed_row() {
+    let (_dir, solution) = one_project();
+    let name = "Acme.Orders_MU";
+    apply_new(
+        &solution,
+        &plan_new(&solution, &request(name)).unwrap(),
+        &lock(&solution),
+    )
+    .unwrap();
+    let first = plan_add(&solution, &add_request(name, "label")).unwrap();
+    apply_edit(&solution, &first.edit, &lock(&solution)).unwrap();
+    let mut second_request = add_request(name, "label");
+    second_request.placement = Some(Placement::Beside {
+        anchor: first.placed.id.clone(),
+        side: crate::core::mashup::edit::Side::Below,
+    });
+    let second = plan_add(&solution, &second_request).unwrap();
+    apply_edit(&solution, &second.edit, &lock(&solution)).unwrap();
+    let before = content_of(&solution, name);
+    let document = crate::core::mashup::edit::MashupDocument::new(before).unwrap();
+    let first = document.find(&first.placed.id).unwrap();
+    let row = &first.path[..first.path.len() - 1];
+    assert_eq!(document.at(row)["Properties"]["flex-min-height"], "58px");
+
+    set_and_apply(
+        &solution,
+        name,
+        &first.id,
+        vec![("LabelType".into(), json!("large-header"))],
+        None,
+    )
+    .unwrap();
+    let after = content_of(&solution, name);
+    let document = crate::core::mashup::edit::MashupDocument::new(after).unwrap();
+    let first = document.find(&first.id).unwrap();
+    let row = &first.path[..first.path.len() - 1];
+    assert_eq!(document.at(row)["Properties"]["flex-min-height"], "67px");
+}
+
+#[test]
 fn adding_widgets_keeps_sidecars_and_the_rest_of_the_entity_identical() {
     let (_dir, solution) = one_project();
     let name = "Acme.Orders_MU";
@@ -1087,12 +1127,37 @@ fn bind_fixture() -> (tempfile::TempDir, Solution) {
     let name = "Acme.Orders_MU";
     let new = plan_new(&solution, &request(name)).unwrap();
     apply_new(&solution, &new, &lock(&solution)).unwrap();
-    // The grid last, so it shares center and does not fill it.
-    for widget in ["text-field", "label", "grid"] {
+    // This fixture deliberately models the older direct-child layout.  Its wiring tests name
+    // stable ids; placement behaviour itself is covered by the focused layout tests below.
+    for widget in ["text-field", "label"] {
         let add = add_request(name, widget);
         let plan = plan_add(&solution, &add).unwrap();
         apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
     }
+    let mut document = crate::core::mashup::edit::parse(&sidecar_content(&solution)).unwrap();
+    let center = document.find("center").unwrap();
+    let number = document.allocate();
+    document.push_child(
+        &center.path,
+        crate::core::mashup::edit::new_widget(
+            widgets::catalog().resolve("grid").unwrap(),
+            number,
+            false,
+        ),
+    );
+    let content = document.to_content();
+    let sidecars = solution.src_root().join("Acme.Orders_MU/mashup");
+    std::fs::write(sidecars.join("content.json"), &content).unwrap();
+    let entity_path = solution.root.join("acme/Mashups/Acme.Orders_MU.xml");
+    let (entity, _) = mashup::sync(
+        &std::fs::read(&entity_path).unwrap(),
+        &mashup::Assets {
+            content,
+            css: std::fs::read_to_string(sidecars.join("custom.css")).unwrap(),
+        },
+    )
+    .unwrap();
+    std::fs::write(entity_path, entity).unwrap();
     (dir, solution)
 }
 

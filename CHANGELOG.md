@@ -8,6 +8,9 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Changed
 
+- Mashup placement now keeps control rows fixed to their content, sizes side-by-side controls to
+  content from the left, and lets one grid, chart or collection fill the remaining column space.
+  Later placement, removal and size-affecting property edits re-measure twaco-owned rows.
 - `mashup validate` distinguishes errors from advisory findings. A chart axis on a STRING field
   and an obsolete collection cell-parameter map are advisory and do not make the command fail.
 
