@@ -55,11 +55,18 @@ pub(crate) fn inline(definition: &Value, name: &str, field: &str) -> Result<Valu
     })?;
     let mut states = Vec::new();
     for (index, entry) in entries.iter().enumerate() {
-        let value = entry["defaultValue"].as_str().ok_or_else(|| {
-            invalid(format!(
-                "StateDefinition {name} has a state without defaultValue"
-            ))
-        })?;
+        // Composer saves the final catch-all state without a defaultValue (9 of 10 kit
+        // StateDefinitions); any other state must name the value it matches.
+        let last = index + 1 == entries.len();
+        let value = match (entry.get("defaultValue"), last) {
+            (Some(Value::String(value)), _) => value.as_str(),
+            (None, true) => "",
+            _ => {
+                return Err(invalid(format!(
+                    "StateDefinition {name} has a state without defaultValue"
+                )))
+            }
+        };
         let style = match &entry["defaultStyleDefinition"] {
             Value::String(style) if style.is_empty() => empty_style(),
             style @ (Value::Object(_) | Value::String(_)) => style.clone(),
@@ -75,7 +82,7 @@ pub(crate) fn inline(definition: &Value, name: &str, field: &str) -> Result<Valu
             ))
         })?;
         let mut state = json!({"defaultValue":value, "stateName":label, "state":style});
-        if index + 1 != entries.len() || !value.is_empty() {
+        if !last || !value.is_empty() {
             state["value"] = json!(value);
             state["comparator"] = if kind == "string" {
                 json!("==")
@@ -292,7 +299,8 @@ mod tests {
                 "{error}"
             );
         }
-        for key in ["defaultValue", "displayString", "defaultStyleDefinition"] {
+        // A missing defaultValue is the final catch-all; see the test below.
+        for key in ["displayString", "defaultStyleDefinition"] {
             let mut invalid = valid.clone();
             invalid["stateDefinitions"][0]
                 .as_object_mut()
@@ -309,6 +317,24 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("comparator"));
+    }
+
+    #[test]
+    fn a_final_catch_all_without_default_value_is_how_composer_saves_it() {
+        let definition = json!({"stateType":"string","stateDefinitions":[
+            {"defaultValue":"Finished","displayString":"Finished","defaultStyleDefinition":"Acme.Good"},
+            {"displayString":"Other","defaultStyleDefinition":"Acme.Other"}
+        ]});
+        let result = inline(&definition, "Acme.Status_ST", "Status").unwrap();
+        assert_eq!(result["StateFormats"][0]["value"], "Finished");
+        assert_eq!(result["StateFormats"][1]["defaultValue"], "");
+        assert!(result["StateFormats"][1].get("comparator").is_none());
+        let mut middle = definition.clone();
+        middle["stateDefinitions"].as_array_mut().unwrap().reverse();
+        assert!(inline(&middle, "Acme.Status_ST", "Status")
+            .unwrap_err()
+            .to_string()
+            .contains("defaultValue"));
     }
 
     #[test]
