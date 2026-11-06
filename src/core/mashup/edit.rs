@@ -302,7 +302,8 @@ impl MashupDocument {
         };
         children_mut(self.at_mut(parent)).remove(index);
         let parent = self.remove_empty_generated_wrappers(parent.to_vec());
-        self.reflow_at(&parent, &Reflow::Edit);
+        let around = widget_id(self.at(&parent)).to_string();
+        self.reflow_at(&parent, &Reflow::Edit { around: &around });
         Ok(())
     }
 
@@ -405,7 +406,7 @@ impl MashupDocument {
     /// reshapes a layout it did not make.
     pub(crate) fn reflow_for(&mut self, id: &str) {
         if let Ok(widget) = self.find(id) {
-            self.reflow_at(&widget.path, &Reflow::Edit);
+            self.reflow_at(&widget.path, &Reflow::Edit { around: id });
         }
     }
 
@@ -458,7 +459,7 @@ impl MashupDocument {
         let growing = rows.iter().position(row_fills);
         let filler = match scope {
             Reflow::Placement { placed, .. } => Some(*placed),
-            Reflow::Edit => None,
+            Reflow::Edit { .. } => None,
         };
         let is_filler = |widget: &Value| filler == Some(widget_id(widget)) && can_fill(widget);
         let candidate = rows.iter().position(|row| {
@@ -478,6 +479,18 @@ impl MashupDocument {
 
         // Re-read after possibly turning a lone data widget into the column's growing row.
         let rows = children(self.at(&column_path)).to_vec();
+        let owns = |row: &Value| match scope {
+            Reflow::Placement { placed, touched } => {
+                touched.iter().any(|id| id == widget_id(row)) || contains(row, placed)
+            }
+            Reflow::Edit { .. } => false,
+        };
+        // The row just before the placement's own, when twaco made it, is the one that grew as
+        // the column's last row; a row added after it makes it a fixed row again.
+        let placed_row = rows.iter().position(|row| match scope {
+            Reflow::Placement { placed, .. } => contains(row, placed),
+            Reflow::Edit { .. } => false,
+        });
         for (index, row) in rows.iter().enumerate() {
             if type_of(row) != Some("flexcontainer") {
                 continue;
@@ -485,16 +498,16 @@ impl MashupDocument {
             let Some(tallest) = fixed_row_height(row) else {
                 continue;
             };
-            let owned = match scope {
-                // A control row twaco generated is its own to size again, so the row that
-                // grew as the last one becomes fixed when a row is added after it.
-                Reflow::Placement { placed, touched } => {
-                    touched.iter().any(|id| id == widget_id(row))
-                        || contains(row, placed)
-                        || is_generated_container(row)
+            let owned = owns(row)
+                || (placed_row == Some(index + 1)
+                    && is_generated_container(row)
+                    && row["Properties"]["flex-size"] == "default");
+            // An edit only grows the row holding what changed.
+            if let Reflow::Edit { around } = scope {
+                if !contains(row, around) {
+                    continue;
                 }
-                Reflow::Edit => false,
-            };
+            }
             let row_path = [column_path.as_slice(), &[index]].concat();
             self.fix_row(&row_path, tallest, owned);
         }
@@ -510,7 +523,7 @@ impl MashupDocument {
                         && row["Properties"]["flex-size"] == "fixed"
                 });
             if let (true, Some(last)) = (all_fixed, rows.last()) {
-                if is_generated_container(last) && fixed_content_height(last).is_some() {
+                if owns(last) && fixed_content_height(last).is_some() {
                     let last_path = [column_path.as_slice(), &[rows.len() - 1]].concat();
                     self.unfix_row(&last_path);
                 }
@@ -579,10 +592,20 @@ impl MashupDocument {
         );
     }
 
+    /// Whether a binding, an event or a data section names the widget `id`: such a container
+    /// is not an empty wrapper to tidy away, whatever its name.
+    fn is_named_outside_layout(&self, id: &str) -> bool {
+        let quoted = Value::from(id).to_string();
+        ["Data", "DataBindings", "Events"]
+            .iter()
+            .any(|section| self.value()[*section].to_string().contains(&quoted))
+    }
+
     fn remove_empty_generated_wrappers(&mut self, mut path: WidgetPath) -> WidgetPath {
         while !path.is_empty()
             && children(self.at(&path)).is_empty()
             && is_generated_container(self.at(&path))
+            && !self.is_named_outside_layout(widget_id(self.at(&path)))
         {
             let (index, parent) = path.split_last().expect("non-root has a parent");
             children_mut(self.at_mut(parent)).remove(*index);
@@ -1100,7 +1123,8 @@ enum Reflow<'a> {
         placed: &'a str,
         touched: &'a [String],
     },
-    Edit,
+    /// `around` is the widget edited, or the container a removed widget left.
+    Edit { around: &'a str },
 }
 
 fn contains(widget: &Value, id: &str) -> bool {
@@ -1129,6 +1153,11 @@ fn fixed_row_height(row: &Value) -> Option<f64> {
 fn fixed_content_height(widget: &Value) -> Option<f64> {
     if type_of(widget) != Some("flexcontainer") {
         return (!fills(widget)).then(|| content_height(widget)).flatten();
+    }
+    // A column stacks its children, and their margins and gaps are not known here: leave a
+    // nested column of several widgets unmeasured rather than clip it to its tallest child.
+    if widget["Properties"]["flex-direction"] == "column" && children(widget).len() > 1 {
+        return None;
     }
     let heights = children(widget)
         .iter()
@@ -2089,6 +2118,116 @@ mod tests {
             })
             .collect();
         assert_eq!(sizes, ["fixed", "fixed", "default"]);
+    }
+
+    fn fixed(container: &str, height: &str) -> String {
+        container.replacen(
+            r#""Type":"flexcontainer""#,
+            &format!(
+                r#""Type":"flexcontainer","flex-size":"fixed","flex-min-height":"{height}","flex-max-height":"{height}""#
+            ),
+            1,
+        )
+    }
+
+    #[test]
+    fn removing_a_widget_keeps_an_empty_container_a_binding_names() {
+        let button = widget("ptcsbutton", "ptcsbutton-4", "Clear", "");
+        let row = container("flexcontainer-3", "container-3", "row", &button);
+        let column = container("flexcontainer-2", "content", "column", &row);
+        let mut document = document(&column, 4);
+        document
+            .bindings_mut()
+            .push(json!({"Id": "b", "TargetId": "flexcontainer-3", "TargetArea": "UI"}));
+        let button = document.find("ptcsbutton-4").unwrap();
+        document.remove_widget(&button.path).unwrap();
+        assert!(document.find("flexcontainer-3").is_ok());
+    }
+
+    #[test]
+    fn an_edit_leaves_a_fixed_composer_sibling_row_alone() {
+        let title = widget("ptcslabel", "ptcslabel-3", "Title", "");
+        let header = container("flexcontainer-3", "Header", "row", &title);
+        let note = widget("ptcslabel", "ptcslabel-4", "Note", "");
+        let footer = fixed(
+            &container("flexcontainer-5", "Footer", "row", &note),
+            "40px",
+        );
+        let column = container(
+            "flexcontainer-2",
+            "content",
+            "column",
+            &format!("{header},{footer}"),
+        );
+        let mut document = document(&column, 5);
+        let before = document.clone();
+        let title = document.find("ptcslabel-3").unwrap();
+        document.set_property(&title.path, "LabelText", Value::from("Orders"));
+        document.reflow_for("ptcslabel-3");
+        let footer = document.find("flexcontainer-5").unwrap();
+        assert_eq!(
+            document.at(&footer.path),
+            before.at(&before.find("flexcontainer-5").unwrap().path)
+        );
+    }
+
+    #[test]
+    fn a_placement_leaves_an_unrelated_default_named_row_alone() {
+        let label = widget("ptcslabel", "ptcslabel-4", "Note", "");
+        let other = container("flexcontainer-3", "container-3", "row", &label);
+        let button = widget("ptcsbutton", "ptcsbutton-6", "Go", "");
+        let toolbar = container("flexcontainer-5", "Toolbar", "row", &button);
+        let grid = filling_widget("ptcsgrid", "ptcsgrid-8", "Orders");
+        let body = container("flexcontainer-7", "Body", "row", &grid);
+        let column = container(
+            "flexcontainer-2",
+            "content",
+            "column",
+            &format!("{other},{toolbar},{body}"),
+        );
+        let mut document = document(&column, 8);
+        let before = document.clone();
+        document
+            .place(
+                catalogue_widget("ptcsbutton"),
+                &Placement::In("flexcontainer-5".into()),
+            )
+            .unwrap();
+        let other = document.find("flexcontainer-3").unwrap();
+        assert_eq!(
+            document.at(&other.path),
+            before.at(&before.find("flexcontainer-3").unwrap().path)
+        );
+    }
+
+    #[test]
+    fn a_nested_column_of_controls_is_not_clipped_to_its_tallest_child() {
+        let first = widget("ptcstextfield", "ptcstextfield-5", "A", "");
+        let second = widget("ptcstextfield", "ptcstextfield-6", "B", "");
+        let stack = container(
+            "flexcontainer-4",
+            "Stack",
+            "column",
+            &format!("{first},{second}"),
+        );
+        let row = container("flexcontainer-3", "Fields", "row", &stack);
+        let grid = filling_widget("ptcsgrid", "ptcsgrid-8", "Orders");
+        let body = container("flexcontainer-7", "Body", "row", &grid);
+        let column = container(
+            "flexcontainer-2",
+            "content",
+            "column",
+            &format!("{row},{body}"),
+        );
+        let mut document = document(&column, 8);
+        document
+            .place(
+                catalogue_widget("ptcsbutton"),
+                &Placement::In("flexcontainer-4".into()),
+            )
+            .unwrap();
+        let row = document.find("flexcontainer-3").unwrap();
+        assert_ne!(document.at(&row.path)["Properties"]["flex-size"], "fixed");
     }
 
     #[test]
