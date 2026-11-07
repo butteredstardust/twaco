@@ -1,0 +1,7 @@
+# Gitleaks false positives. Each line is the fingerprint of one reviewed finding:
+# <commit>:<file>:<rule>:<line>. Add a line only after you confirm the value is not a secret.
+# Synthetic passwords and app keys in server.rs tests. None are real.
+924fb4d80c17ca876672e64db6af7745008e1113:src/core/server.rs:generic-api-key:1076
+1052d4f1f2b10fa02a8276bfb14f9d6dc645c635:src/core/server.rs:generic-api-key:998
+1052d4f1f2b10fa02a8276bfb14f9d6dc645c635:src/core/server.rs:generic-api-key:999
+6cd349419dbfbb19d6cd2567f7459cf33f50be8e:src/core/server.rs:generic-api-key:1086
