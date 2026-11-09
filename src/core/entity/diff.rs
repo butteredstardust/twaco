@@ -28,7 +28,8 @@ pub struct DiffOutcome {
     pub entity: String,
     /// Whether both sides hash the same, which is what status and deploy go by.
     pub identical: bool,
-    /// Every path where they differ; empty when identical.
+    /// The paths where they differ; empty when identical. Among unnamed siblings of different
+    /// kinds, the first mismatch is named and the rest of that parent is not walked.
     pub differences: Vec<String>,
     /// The server-owned parts left out of the comparison, by label.
     pub server_owned: Vec<String>,

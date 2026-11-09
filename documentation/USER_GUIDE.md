@@ -435,7 +435,7 @@ Repository entity operands accept a full name (`Acme.App.Manager`), its last dot
 `deploy` and `entity push` refuse an entity whose state is server-changed or both-changed,
 one that differs from the server with no baseline (the common ancestor is unknown), and one
 the baseline knows but the server no longer has (deleted there).
-Look at what differs first: `twaco entity diff <Entity>` lists every element path where the
+Look at what differs first: `twaco entity diff <Entity>` lists the element paths where the
 repository and the server disagree, compared as status and deploy compare them (inherited and
 server-derived members, and the profile's server-owned parts, are left out). It never prints a
 value, so a credential set on the server shows only as its cell's text changing. `twaco entity
@@ -508,7 +508,10 @@ twaco adopt returned-export.xml --apply         # take safe collaborator changes
 
 `adopt` lays out incoming entity bytes like the destination file (or a peer in its collection
 for a new entity), retaining the repository's indentation and CDATA presentation and removing
-export-only metadata. A single-line Exporter response therefore keeps a reviewable diff.
+export-only metadata. A single-line Exporter response therefore keeps a reviewable diff. The
+export may also be one entity as `twaco entity get --out` writes it (`<Thing ...>` with no
+`<Entities>` around it): `twaco entity get Things/Acme.T --out t.xml`, then
+`twaco adopt t.xml --entity Acme.T --take theirs:Acme.T` takes the server's form of that entity.
 
 `adopt` compares Composer's canonical form, so formatting and platform noise do not count. It
 uses the named `--base <file|handoff|git-rev>`, otherwise the most similar recorded handoff; with

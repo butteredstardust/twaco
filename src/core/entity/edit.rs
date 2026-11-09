@@ -1855,25 +1855,29 @@ impl Edit2<'_> {
                         code = fixed;
                     }
                 } else {
-                    let policy = lint.header_policy();
-                    let header = if lint.gate_enabled("comment budget")
-                        || lint.gate_enabled("comment prose")
-                    {
-                        crate::core::header::generate_fitting(
-                            &service.name,
-                            &header_definition,
-                            policy,
-                            lint.comment_policy(),
-                            "\n",
-                        )
-                    } else {
-                        crate::core::header::generate(
-                            &service.name,
-                            &header_definition,
-                            policy,
-                            "\n",
-                        )
+                    // A comment rule as the solution has it for this entity and service.
+                    let enabled = |rule: &str| {
+                        let (gate, group) = if matches!(rule, "jsdoc-prose" | "line-run" | "ratio")
+                        {
+                            ("comment budget", "budget")
+                        } else {
+                            ("comment prose", "prose")
+                        };
+                        lint.gate_enabled(gate)
+                            && lint.severity(
+                                &format!("comments.{group}.{rule}"),
+                                Some(&entity),
+                                &service.name,
+                            ) != Severity::Off
                     };
+                    let header = crate::core::header::generate_fitting(
+                        &service.name,
+                        &header_definition,
+                        lint.header_policy(),
+                        lint.comment_policy(),
+                        &enabled,
+                        "\n",
+                    );
                     code = format!("{header}{code}");
                 }
             }

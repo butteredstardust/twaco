@@ -82,7 +82,8 @@ without aspect.isPrimaryKey="true" among them the import fails with "Configurati
 multirow but its datashape [ unnamed ] does not have a primary key", whatever the named DataShape
 marks. With both, the server keeps the fields, drops dataShapeName and sets source="IMPORT", so the
 entity reads back not kept. The ConfigurationTable's own copy reads back as the named DataShape's
-fields, ordinals and an explicit isPrimaryKey on each; write it that way to read back kept.
+fields, numbered from 1 in its field order, with an explicit isPrimaryKey on each; write it that way
+to read back kept, or take the server's form once (`entity get --out`, then `adopt --take theirs`).
 `twaco check` reports the first two cases. From REST, SetConfigurationTable on a multi-row table
 returns 400 "Multiple rows not permitted"; use SetMultiRowConfigurationTable.
 

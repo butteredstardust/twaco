@@ -369,7 +369,8 @@ pub(crate) fn generate(
     }
 }
 
-/// `generate`, with the definition's description cut until the header passes the comment lint:
+/// `generate`, with the definition's description cut until the header passes the comment rules
+/// `enabled` names (by finding rule, such as `length`):
 /// the whole description, then fewer leading sentences, then none. The definition keeps the full
 /// text; only the header's copy is shortened, so generated code passes the solution's own preset.
 pub(crate) fn generate_fitting(
@@ -377,6 +378,7 @@ pub(crate) fn generate_fitting(
     definition: &Definition,
     policy: &HeaderPolicy,
     comments: &super::comments::CommentPolicy,
+    enabled: &dyn Fn(&str) -> bool,
     ending: &str,
 ) -> String {
     let sentences = leading_sentences(&definition.description);
@@ -390,9 +392,10 @@ pub(crate) fn generate_fitting(
         shortened.description = description;
         let header = generate(service, &shortened, policy, "\n");
         let measure = super::comments::measure(&header);
+        // The whole-script budgets would measure the header alone here, so they cannot judge it.
         let fits = super::comments::findings(&measure, comments)
             .iter()
-            .all(|finding| matches!(finding.rule, "ratio" | "line-run"));
+            .all(|finding| matches!(finding.rule, "ratio" | "line-run") || !enabled(finding.rule));
         if fits || shortened.description.is_empty() {
             return if ending != "\n" {
                 header.replace('\n', ending)
@@ -741,8 +744,24 @@ mod fitting_tests {
             &definition(description),
             &HeaderPolicy::default(),
             &crate::core::comments::CommentPolicy::default(),
+            &|_| true,
             "\n",
         )
+    }
+
+    #[test]
+    fn a_rule_the_solution_turns_off_does_not_cut_the_description() {
+        let long = "It reads every row of the stream, newest first, and keeps only the rows that \
+                    the dashboard grid, the alarm panel and the weekly report need today.";
+        let header = generate_fitting(
+            "Run",
+            &definition(long),
+            &HeaderPolicy::default(),
+            &crate::core::comments::CommentPolicy::default(),
+            &|rule| rule != "length",
+            "\n",
+        );
+        assert!(header.contains("weekly report"), "{header}");
     }
 
     #[test]

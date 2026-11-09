@@ -332,13 +332,19 @@ pub(crate) fn read_back_differences(
     read_back: &[u8],
     parts: &[super::server_owned::Part],
 ) -> Vec<String> {
-    let mut out = all_differences(sent, read_back, parts, &READ_BACK);
-    if out.len() > MAX_DIFFERENCES {
-        let more = out.len() - MAX_DIFFERENCES;
-        out.truncate(MAX_DIFFERENCES);
-        out.push(format!("and {more} more"));
+    let found = collect_differences(sent, read_back, parts, &READ_BACK, Some(MAX_DIFFERENCES));
+    let mut out = found.kept;
+    if found.total > out.len() {
+        out.push(format!("and {} more", found.total - out.len()));
     }
     out
+}
+
+/// Differences as the walk finds them: the first `limit` kept, all of them counted.
+struct Collector {
+    kept: Vec<String>,
+    total: usize,
+    limit: Option<usize>,
 }
 
 /// How a difference names a member only one side has.
@@ -357,7 +363,7 @@ const READ_BACK: Sides = Sides {
     right: "read back",
 };
 
-/// Every path where `left` and `right` differ as the hash compares them, names only, as
+/// The paths where `left` and `right` differ as the hash compares them, names only, as
 /// [`read_back_differences`] reports them; empty when nothing parses.
 pub(crate) fn all_differences(
     left: &[u8],
@@ -365,25 +371,42 @@ pub(crate) fn all_differences(
     parts: &[super::server_owned::Part],
     sides: &Sides,
 ) -> Vec<String> {
+    collect_differences(left, right, parts, sides, None).kept
+}
+
+fn collect_differences(
+    left: &[u8],
+    right: &[u8],
+    parts: &[super::server_owned::Part],
+    sides: &Sides,
+    limit: Option<usize>,
+) -> Collector {
+    let mut out = Collector {
+        kept: Vec::new(),
+        total: 0,
+        limit,
+    };
     let (Ok(sent), Ok(read_back)) = (
         owned_comparison_tree(left, parts),
         owned_comparison_tree(right, parts),
     ) else {
-        return Vec::new();
+        return out;
     };
-    let mut out = Vec::new();
     differences(&sent, &read_back, &element_label(&sent), sides, &mut out);
     // The walk compares text and elements apart; only how they interleave is left.
-    if out.is_empty() && canonical_element_bytes(&sent) != canonical_element_bytes(&read_back) {
-        out.push(format!(
-            "{}: its text and elements interleave differently",
-            element_label(&sent)
-        ));
+    if out.total == 0 && canonical_element_bytes(&sent) != canonical_element_bytes(&read_back) {
+        note(
+            &mut out,
+            format!(
+                "{}: its text and elements interleave differently",
+                element_label(&sent)
+            ),
+        );
     }
     out
 }
 
-fn differences(sent: &Element, back: &Element, path: &str, sides: &Sides, out: &mut Vec<String>) {
+fn differences(sent: &Element, back: &Element, path: &str, sides: &Sides, out: &mut Collector) {
     let names: std::collections::BTreeSet<&[u8]> = sent
         .attributes
         .iter()
@@ -507,8 +530,11 @@ fn differences(sent: &Element, back: &Element, path: &str, sides: &Sides, out: &
     }
 }
 
-fn note(out: &mut Vec<String>, what: String) {
-    out.push(what);
+fn note(out: &mut Collector, what: String) {
+    out.total += 1;
+    if out.limit.is_none_or(|limit| out.kept.len() < limit) {
+        out.kept.push(what);
+    }
 }
 
 /// An element's name, with its `name` attribute when it has one: `PropertyDefinition[a]`.

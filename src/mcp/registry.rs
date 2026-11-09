@@ -878,7 +878,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         .with_output::<outputs::AccessExplainResult>(),
         solution_tool::<content_requests::EntityDiffRequest>(
             "entity_diff",
-            "Where the repository's copy of one entity and the server's differ, compared as status and deploy compare them (inherited and server-derived members and the profile's server-owned parts left out): identical, and every differing element path. Never a value, so a credential shows only as its cell's text changing. Use it to see why status says server-changed or a read-back says not kept. Read-only.",
+            "Where the repository's copy of one entity and the server's differ, compared as status and deploy compare them (inherited and server-derived members and the profile's server-owned parts left out): identical, and the differing element paths (among unnamed siblings of different kinds, only the first mismatch). Never a value, so a credential shows only as its cell's text changing. Use it to see why status says server-changed or a read-back says not kept. Read-only.",
             true,
             content::entity_diff_tool,
         )

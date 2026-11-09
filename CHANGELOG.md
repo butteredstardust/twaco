@@ -16,10 +16,11 @@ All notable changes to twaco are recorded here. The format follows
   do.
 - `new data-shape --field rows:INFOTABLE:<DataShape>` names a nested table's DataShape.
 - A read-back that is not kept says how many differences it leaves out after the first five.
+- `adopt` takes one entity as `entity get --out` writes it, not only an `<Entities>` export.
 
 ### Added
 
-- `twaco entity diff <entity>` (MCP `entity_diff`): every element path where the repository's copy
+- `twaco entity diff <entity>` (MCP `entity_diff`): the element paths where the repository's copy
   of an entity and the server's differ, compared as status and deploy compare them. It never
   prints a value, so a credential shows only as its cell's text changing.
 - The `project` gate reports a multi-row configuration table definition whose own fields mark no

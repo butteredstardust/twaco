@@ -9973,7 +9973,7 @@
   },
   {
     "name": "entity_diff",
-    "description": "Where the repository's copy of one entity and the server's differ, compared as status and deploy compare them (inherited and server-derived members and the profile's server-owned parts left out): identical, and every differing element path. Never a value, so a credential shows only as its cell's text changing. Use it to see why status says server-changed or a read-back says not kept. Read-only.",
+    "description": "Where the repository's copy of one entity and the server's differ, compared as status and deploy compare them (inherited and server-derived members and the profile's server-owned parts left out): identical, and the differing element paths (among unnamed siblings of different kinds, only the first mismatch). Never a value, so a credential shows only as its cell's text changing. Use it to see why status says server-changed or a read-back says not kept. Read-only.",
     "inputSchema": {
       "required": [
         "entity"
