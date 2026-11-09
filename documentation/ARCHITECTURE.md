@@ -102,7 +102,7 @@ item's signature needs it). An item that only unit tests use is `#[cfg(test)]`.
 | `relocate` | `move`, `copy`: a member's definition and implementation spliced from one entity's XML into another's, re-indented, with the sidecars and the callers it breaks |
 | `retemplate` | `retemplate`: the entity's inheritance changed in place, with the effective members compared before and after |
 | `backup` | the backup sets taken before a delete or a forced overwrite, and `entity restore` |
-| `entity::new`, `entity::edit`, `entity::get` | `new <kind>`, the in-place entity edits (`thing property`, `timer set`, `menu item`, ...), `entity get` |
+| `entity::new`, `entity::edit`, `entity::get`, `entity::diff` | `new <kind>`, the in-place entity edits (`thing property`, `timer set`, `menu item`, ...), `entity get`, `entity diff` |
 | `ledger`, `entity::delete`, `entity::carry`, `datatable_copy` | `entity delete`, `entity carry`, `datatable copy`: what happens on the server after a rename, driven by the typed rename ledger |
 | `db` | `db run`, `db query`, `db clean`: SQL through a throwaway Database Thing |
 | `logs`, `settings` | `logs`, `logs level`, `settings` |

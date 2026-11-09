@@ -814,6 +814,24 @@ pub(crate) fn search_tool(
     Ok(result)
 }
 
+/// Where the repository's copy of one entity and the server's differ. Read-only.
+pub(crate) fn entity_diff_tool(
+    solution: &Solution,
+    arguments: tool::EntityDiffRequest,
+) -> Result<Value, ToolError> {
+    let entity = nonempty(&arguments.entity, "entity")?;
+    let client = client(solution, &arguments.profile)?;
+    let outcome = crate::core::entity::diff::diff(&client, solution, entity, &arguments.profile)
+        .map_err(ToolError::coded)?;
+    Ok(json!({
+        "ok": true,
+        "entity": outcome.entity,
+        "identical": outcome.identical,
+        "differences": outcome.differences,
+        "server_owned": outcome.server_owned,
+    }))
+}
+
 /// One entity's XML as the server has it. Read-only.
 pub(crate) fn entity_get_tool(
     solution: &Solution,

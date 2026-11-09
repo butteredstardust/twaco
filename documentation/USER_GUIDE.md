@@ -79,7 +79,7 @@ until `--apply`; `sync` and `deploy` take them to the server.
 | Test user | `users seed` | `users list` | | `users delete` |
 | Application key | `appkey create` | `appkey show` | | `appkey delete` |
 | File repository | `repo put`, `repo mkdir` | `repo ls`, `repo get`, `repo status` | `repo mv`, `repo push`, `repo pull` | `repo rm` |
-| Server entity | `entity push`, `deploy`, `import` | `entity status`, `entity get`, `search`, `export` | `entity push`, `entity carry` (permissions after a rename) | `entity delete`, then `entity restore` to undo |
+| Server entity | `entity push`, `deploy`, `import` | `entity status`, `entity diff`, `entity get`, `search`, `export` | `entity push`, `entity carry` (permissions after a rename) | `entity delete`, then `entity restore` to undo |
 
 ## The repository
 
@@ -435,8 +435,12 @@ Repository entity operands accept a full name (`Acme.App.Manager`), its last dot
 `deploy` and `entity push` refuse an entity whose state is server-changed or both-changed,
 one that differs from the server with no baseline (the common ancestor is unknown), and one
 the baseline knows but the server no longer has (deleted there).
-Look at the server's version first (`twaco entity get <Entity>`), bring its change into the
-repository if it matters, and then deploy, or `--force` to overwrite it on purpose.
+Look at what differs first: `twaco entity diff <Entity>` lists every element path where the
+repository and the server disagree, compared as status and deploy compare them (inherited and
+server-derived members, and the profile's server-owned parts, are left out). It never prints a
+value, so a credential set on the server shows only as its cell's text changing. `twaco entity
+get <Entity>` prints the server's raw XML. Bring the change into the repository if it matters, and
+then deploy, or `--force` to overwrite it on purpose.
 
 ### Deploys
 

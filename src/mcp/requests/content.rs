@@ -502,6 +502,17 @@ pub(crate) struct EntityGetRequest {
     pub(crate) profile: String,
 }
 
+/// `entity_diff`: one repository entity against the server.
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct EntityDiffRequest {
+    /// A repository entity: full name, last dotted segment, or Collection/Name.
+    pub(crate) entity: String,
+    /// Server profile name.
+    #[serde(default = "default_profile")]
+    pub(crate) profile: String,
+}
+
 fn default_entity_get_max_chars() -> u64 {
     200_000
 }

@@ -9972,6 +9972,69 @@
     }
   },
   {
+    "name": "entity_diff",
+    "description": "Where the repository's copy of one entity and the server's differ, compared as status and deploy compare them (inherited and server-derived members and the profile's server-owned parts left out): identical, and every differing element path. Never a value, so a credential shows only as its cell's text changing. Use it to see why status says server-changed or a read-back says not kept. Read-only.",
+    "inputSchema": {
+      "required": [
+        "entity"
+      ],
+      "additionalProperties": false,
+      "description": "`entity_diff`: one repository entity against the server.",
+      "type": "object",
+      "properties": {
+        "entity": {
+          "description": "A repository entity: full name, last dotted segment, or Collection/Name.",
+          "type": "string"
+        },
+        "profile": {
+          "description": "Server profile name.",
+          "type": "string",
+          "default": "default"
+        }
+      }
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "outputSchema": {
+      "required": [
+        "ok",
+        "entity",
+        "identical",
+        "differences",
+        "server_owned"
+      ],
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "entity": {
+          "type": "string"
+        },
+        "identical": {
+          "description": "Both sides hash the same, which is what status and deploy go by.",
+          "type": "boolean"
+        },
+        "differences": {
+          "description": "Element paths where they differ; never a value.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "server_owned": {
+          "description": "Server-owned parts left out of the comparison.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
     "name": "entity_get",
     "description": "One entity's XML as the server has it: Collection/Name reaches any entity on the server, a bare name one in the repository. Read-only; nothing is written. A long entity is cut at max_chars (truncated says so); export with action entity writes it whole to a file.",
     "inputSchema": {

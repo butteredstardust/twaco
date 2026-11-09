@@ -233,7 +233,7 @@ fn check_multirow_tables(file: &str, src: &[u8]) -> Vec<Problem> {
                 file: file.to_string(),
                 rule: "multirow-without-key",
                 message: format!(
-                    "multi-row configuration table {table}: its definition lists fields but marks                      none aspect.isPrimaryKey=\"true\", so the import fails; mark the key there,                      or drop the definition's DataShape and name one in dataShapeName"
+                    "multi-row configuration table {table}: its definition lists fields but marks none aspect.isPrimaryKey=\"true\", so the import fails; mark the key there, or drop the definition's DataShape and name one in dataShapeName"
                 ),
             });
         }
@@ -243,7 +243,7 @@ fn check_multirow_tables(file: &str, src: &[u8]) -> Vec<Problem> {
                 file: file.to_string(),
                 rule: "multirow-named-and-inline",
                 message: format!(
-                    "multi-row configuration table {table}: its definition names {named} and also                      lists fields; the server keeps the fields and drops dataShapeName, so it reads                      back not kept. Keep one: the fields (with their key) or dataShapeName"
+                    "multi-row configuration table {table}: its definition names {named} and also lists fields; the server keeps the fields and drops dataShapeName, so it reads back not kept. Keep one: the fields (with their key) or dataShapeName"
                 ),
             });
         }

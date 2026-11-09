@@ -525,6 +525,10 @@ entity pull <entity>...|--all [--profile <name>] [--apply] [--json]
 entity get <entity>         fetch raw server XML to stdout or --out <path>
                             Collection/Name: any server entity; a bare name: the repository's
     [--profile <name>]      server profile (default: default)
+entity diff <entity> [--profile <name>] [--json]
+                            where the repository's copy and the server's differ, compared as
+                            status and deploy compare them: own members only, element paths,
+                            never a value (a credential shows as its cell's text changing)
 entity inspect <Collection/Name> [--member <name>] [--values] [--json]
                             the entity's members on the server, each with what declares it (the
                             entity, a template, a shape, a platform package); read-only

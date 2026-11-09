@@ -52,6 +52,7 @@ when the command is asked to write. A local output named by an option is include
 | `logs` | read-only | read-only | none | Retry freely. | `cli/data.rs: logs_cmd` |
 | `logs level` | read-only | server-partial | server log level | Read the current level and use the printed undo before retrying. | `core/commands/logs.rs: execute` |
 | `config-table` | read-only | server-partial | server table, optional backup | Read the table back and use the backup before retrying a restore. | `core/commands/config_table.rs: execute` |
+| `entity diff` | read-only | read-only | none | Retry freely. | `cli/entity.rs: entity_diff` |
 | `entity get` | read-only | single-file atomic | named local output | The output is old or new; retry freely. | `cli/entity.rs: entity_get` |
 | `db run` | read-only | server-partial | SQL, temporary server Thing | Inspect SQL effects and run `db clean` if needed before retrying. | `core/commands/db.rs: execute` |
 | `db query` | server-partial | server-partial | temporary server Thing | A cleanup failure can leave the temporary Thing; run `db clean` before retrying. | `core/commands/db.rs: execute` |
@@ -306,6 +307,7 @@ when the command is asked to write. A local output named by an option is include
 | `model_resolve` | read-only | read-only | none | Retry freely. | `mcp/content.rs: model_resolve_tool` |
 | `entity_inspect` | read-only | read-only | none | Retry freely. | `mcp/content.rs: entity_inspect_tool` |
 | `access_explain` | read-only | read-only | none | Retry freely; nothing is invoked. | `mcp/content.rs: access_explain_tool` |
+| `entity_diff` | read-only | read-only | none | Retry freely. | `mcp/content.rs: entity_diff_tool` |
 | `entity_get` | read-only | read-only | none | Retry freely. | `mcp/content.rs: entity_get_tool` |
 | `export` | read-only | server-partial | local export or server repository | Local export is atomic; source-control apply needs a new plan and inspection. | `core/commands/export.rs: execute` |
 | `package` | single-file atomic | single-file atomic | named package file | The output is old or new; retry freely. | `core/commands/package.rs: execute` |

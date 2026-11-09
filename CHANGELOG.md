@@ -19,6 +19,9 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- `twaco entity diff <entity>` (MCP `entity_diff`): every element path where the repository's copy
+  of an entity and the server's differ, compared as status and deploy compare them. It never
+  prints a value, so a credential shows only as its cell's text changing.
 - The `project` gate reports a multi-row configuration table definition whose own fields mark no
   primary key (the import fails) or that also names a DataShape (it reads back not kept).
 

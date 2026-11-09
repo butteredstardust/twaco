@@ -29,9 +29,9 @@ use cli::data::{
     call, config_table, datatable_copy_cmd, db_clean_cmd, db_cmd, logs_cmd, Datatable, Db,
 };
 use cli::entity::{
-    entity_carry_cmd, entity_delete_cmd, entity_get, entity_pull, entity_push, entity_restore_cmd,
-    entity_status, permissions_apply_cmd, permissions_audit_cmd, permissions_cmd,
-    permissions_init_cmd, Entity, Permissions,
+    entity_carry_cmd, entity_delete_cmd, entity_diff, entity_get, entity_pull, entity_push,
+    entity_restore_cmd, entity_status, permissions_apply_cmd, permissions_audit_cmd,
+    permissions_cmd, permissions_init_cmd, Entity, Permissions,
 };
 use cli::entity_edit::entity_edit_cmd;
 use cli::entity_new::{entity_new_cmd, New, NewEntity};
@@ -329,6 +329,7 @@ fn dispatch(command: Command) -> u8 {
         Command::Reproject(reproject) => run(|solution| reproject_cmd(solution, &reproject)),
         Command::Entity(entity) => run(|solution| match &entity {
             Entity::Get(get) => entity_get(solution, get),
+            Entity::Diff(diff) => entity_diff(solution, diff),
             Entity::Status(status) => entity_status(solution, status),
             Entity::Pull(pull) => entity_pull(solution, pull),
             Entity::Push(push) => entity_push(solution, push),

@@ -101,6 +101,7 @@ const OPEN_WORLD: &[&str] = &[
     "model_resolve",
     "entity_inspect",
     "access_explain",
+    "entity_diff",
     "entity_get",
     "export",
     "import",
@@ -875,6 +876,13 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             content::access_explain_tool,
         )
         .with_output::<outputs::AccessExplainResult>(),
+        solution_tool::<content_requests::EntityDiffRequest>(
+            "entity_diff",
+            "Where the repository's copy of one entity and the server's differ, compared as status and deploy compare them (inherited and server-derived members and the profile's server-owned parts left out): identical, and every differing element path. Never a value, so a credential shows only as its cell's text changing. Use it to see why status says server-changed or a read-back says not kept. Read-only.",
+            true,
+            content::entity_diff_tool,
+        )
+        .with_output::<outputs::EntityDiffResult>(),
         solution_tool::<content_requests::EntityGetRequest>(
             "entity_get",
             "One entity's XML as the server has it: Collection/Name reaches any entity on the server, a bare name one in the repository. Read-only; nothing is written. A long entity is cut at max_chars (truncated says so); export with action entity writes it whole to a file.",
@@ -1036,6 +1044,7 @@ pub(crate) const GROUPS: &[(&str, &[&str])] = &[
             "trace",
             "unused",
             "search",
+            "entity_diff",
             "entity_get",
             "docs",
             "doctor",

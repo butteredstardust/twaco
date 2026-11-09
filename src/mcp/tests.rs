@@ -1237,6 +1237,7 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
             "model_resolve",
             "entity_inspect",
             "access_explain",
+            "entity_diff",
             "entity_get",
             "export",
             "package",

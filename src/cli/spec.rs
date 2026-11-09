@@ -1306,6 +1306,14 @@ pub(crate) const USAGE: &[Usage] = &[
       [--profile <name>]      server profile (default: default)"#,
     },
     Usage {
+        path: "entity diff",
+        group: 2,
+        text: r#"  entity diff <entity> [--profile <name>] [--json]
+                              where the repository's copy and the server's differ, compared as
+                              status and deploy compare them: own members only, element paths,
+                              never a value (a credential shows as its cell's text changing)"#,
+    },
+    Usage {
         path: "entity inspect",
         group: 2,
         text: r#"  entity inspect <Collection/Name> [--member <name>] [--values] [--json]

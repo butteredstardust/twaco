@@ -526,6 +526,10 @@ help:
 |   entity get <entity>         fetch raw server XML to stdout or --out <path>
 |                               Collection/Name: any server entity; a bare name: the repository's
 |       [--profile <name>]      server profile (default: default)
+|   entity diff <entity> [--profile <name>] [--json]
+|                               where the repository's copy and the server's differ, compared as
+|                               status and deploy compare them: own members only, element paths,
+|                               never a value (a credential shows as its cell's text changing)
 |   entity inspect <Collection/Name> [--member <name>] [--values] [--json]
 |                               the entity's members on the server, each with what declares it (the
 |                               entity, a template, a shape, a platform package); read-only
@@ -3799,7 +3803,7 @@ help:
 == twaco entity
 usage: twaco entity <command>
 settings: disable-version-flag disable-help-subcommand subcommand-required arg-required-else-help
-subcommands: carry delete get inspect pull push restore status
+subcommands: carry delete diff get inspect pull push restore status
 arg --help
     action: Help
     value_name: -
@@ -3823,6 +3827,10 @@ help:
 |   entity get <entity>         fetch raw server XML to stdout or --out <path>
 |                               Collection/Name: any server entity; a bare name: the repository's
 |       [--profile <name>]      server profile (default: default)
+|   entity diff <entity> [--profile <name>] [--json]
+|                               where the repository's copy and the server's differ, compared as
+|                               status and deploy compare them: own members only, element paths,
+|                               never a value (a credential shows as its cell's text changing)
 |   entity inspect <Collection/Name> [--member <name>] [--values] [--json]
 |                               the entity's members on the server, each with what declares it (the
 |                               entity, a template, a shape, a platform package); read-only
@@ -4131,6 +4139,87 @@ help:
 |       --apply                 delete, confirm each entity is absent, and mark ledger entries
 |       --no-backup             do not save the server's copies under .twaco/backups first
 |       --json                  entities include refusal messages and parallel refusal_codes when refused
+| 
+|   --profile <name>            the server profile (default: default)
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
+== twaco entity diff
+usage: twaco entity diff <entity> [--profile <name>] [--json]
+settings: disable-version-flag disable-help-subcommand
+subcommands: 
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+arg --json
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --profile
+    action: Set
+    value_name: name
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg <operands>
+    action: Append
+    value_name: operand
+    num_args: 0..
+    allow_hyphen_values: no
+    allow_negative_numbers: yes
+    required: no
+    default: -
+    index: 1
+    other: -
+help:
+|   entity diff <entity> [--profile <name>] [--json]
+|                               where the repository's copy and the server's differ, compared as
+|                               status and deploy compare them: own members only, element paths,
+|                               never a value (a credential shows as its cell's text changing)
 | 
 |   --profile <name>            the server profile (default: default)
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
