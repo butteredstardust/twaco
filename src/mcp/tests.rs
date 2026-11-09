@@ -3277,6 +3277,49 @@ fn mashup_add_applies_a_widget_and_refuses_two_placements() {
 }
 
 #[test]
+fn mashup_add_end_splits_the_row_and_needs_right_of() {
+    let (_dir, root) = solution_dir();
+    let created = call(
+        &root,
+        "mashup_new",
+        json!({"name": "Acme.Kpi_MU", "dry_run": false}),
+    );
+    assert_eq!(created["isError"], false, "{created}");
+    for arguments in [
+        json!({"mashup": "Acme.Kpi_MU", "widget": "label", "dry_run": false}),
+        json!({"mashup": "Acme.Kpi_MU", "widget": "label", "below": "ptcslabel-3", "dry_run": false}),
+    ] {
+        let added = call(&root, "mashup_add", arguments);
+        assert_eq!(added["isError"], false, "{added}");
+    }
+    let end = call(
+        &root,
+        "mashup_add",
+        json!({"mashup": "Acme.Kpi_MU", "widget": "label", "right_of": "ptcslabel-4", "end": true, "dry_run": false}),
+    );
+    assert_eq!(end["isError"], false, "{end}");
+    let content =
+        std::fs::read_to_string(root.join("src/Acme.Kpi_MU/mashup/content.json")).unwrap();
+    let value: Value = serde_json::from_str(&content).unwrap();
+    let text = value.to_string();
+    assert!(
+        text.contains("\"justify-content\":\"space-between\""),
+        "{text}"
+    );
+    assert!(text.contains("\"justify-content\":\"flex-end\""), "{text}");
+    let refused = call(
+        &root,
+        "mashup_add",
+        json!({"mashup": "Acme.Kpi_MU", "widget": "label", "below": "ptcslabel-3", "end": true}),
+    );
+    assert_eq!(refused["isError"], true, "{refused}");
+    assert!(
+        refused.to_string().contains("end goes with right_of"),
+        "{refused}"
+    );
+}
+
+#[test]
 fn mashup_add_contained_applies_a_repository_child() {
     let (_dir, root) = solution_dir();
     assert_eq!(

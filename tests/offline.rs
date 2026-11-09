@@ -2100,3 +2100,82 @@ name = \"P\"
         Some(0)
     );
 }
+
+/// `--end` reaches the split from the command line, says where it puts the widget, and is
+/// refused without `--right-of`.
+#[test]
+fn mashup_add_end_splits_the_row_from_the_command_line() {
+    let root_guard = tempfile::tempdir().unwrap();
+    let root = root_guard.path();
+    std::fs::write(
+        root.join("twaco.toml"),
+        "[[project]]
+name = \"Acme\"
+",
+    )
+    .unwrap();
+    let twaco = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_twaco"))
+            .args(args)
+            .current_dir(root)
+            .env_clear()
+            .output()
+            .unwrap()
+    };
+    let ok = |args: &[&str]| {
+        let out = twaco(args);
+        assert!(out.status.success(), "{args:?}: {out:?}");
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    };
+    ok(&["mashup", "new", "Acme.Kpi_MU", "--apply"]);
+    ok(&["mashup", "add", "Acme.Kpi_MU", "label", "--apply"]);
+    ok(&[
+        "mashup",
+        "add",
+        "Acme.Kpi_MU",
+        "label",
+        "--below",
+        "ptcslabel-3",
+        "--apply",
+    ]);
+    let plan = ok(&[
+        "mashup",
+        "add",
+        "Acme.Kpi_MU",
+        "label",
+        "--right-of",
+        "ptcslabel-4",
+        "--end",
+    ]);
+    assert!(plan.contains("at the end of ptcslabel-4's row"), "{plan}");
+    ok(&[
+        "mashup",
+        "add",
+        "Acme.Kpi_MU",
+        "label",
+        "--right-of",
+        "ptcslabel-4",
+        "--end",
+        "--apply",
+    ]);
+    let content =
+        std::fs::read_to_string(root.join("src/Acme.Kpi_MU/mashup/content.json")).unwrap();
+    let value: serde_json::Value = serde_json::from_str(&content).unwrap();
+    let text = value.to_string();
+    assert!(
+        text.contains("\"justify-content\":\"space-between\""),
+        "{text}"
+    );
+    assert!(text.contains("\"justify-content\":\"flex-end\""), "{text}");
+    let refused = twaco(&[
+        "mashup",
+        "add",
+        "Acme.Kpi_MU",
+        "label",
+        "--below",
+        "ptcslabel-3",
+        "--end",
+    ]);
+    assert!(!refused.status.success());
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("--end goes with --right-of"));
+}

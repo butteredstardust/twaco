@@ -477,7 +477,7 @@ fn merge_styles(
 }
 
 /// A missing StyleProperties is allowed; an existing one must be Composer's object/map shape.
-fn style_properties<'a>(
+pub(super) fn style_properties<'a>(
     properties: &'a Map<String, Value>,
     mashup: &str,
 ) -> Result<Option<&'a Map<String, Value>>, AuthoringError> {

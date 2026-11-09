@@ -270,18 +270,29 @@ pub(crate) fn plan_add(
                         .to_string(),
                 )),
             };
-        if separator
-            && !matches!(
-                placement,
-                Placement::Beside {
-                    side: mashup::edit::Side::Above | mashup::edit::Side::Below,
-                    ..
-                }
-            )
-        {
-            return Err(AuthoringError::Invalid(
-                "a separator goes between rows: --below or --above a widget".into(),
-            ));
+        if separator {
+            let Placement::Beside {
+                anchor,
+                side: mashup::edit::Side::Above | mashup::edit::Side::Below,
+            } = &placement
+            else {
+                return Err(AuthoringError::Invalid(
+                    "a separator goes between rows: --below or --above a widget".into(),
+                ));
+            };
+            // A card is not a row: a rule below one card of a row of cards would wrap it.
+            let found = document.find(anchor).map_err(AuthoringError::Edit)?;
+            if document.at(&found.path)["Properties"]["DisplayName"]
+                .as_str()
+                .is_some_and(|name| name.starts_with("panel-"))
+            {
+                return Err(AuthoringError::Invalid(format!(
+                    "{} is a card; place the separator --below a widget inside it",
+                    found.id
+                )));
+            }
+            // Its colour goes in the root style map, which must be Composer's shape.
+            super::set::style_properties(document.root_properties(), &request.mashup)?;
         }
         // Placement measures the rows it touches, so it sees the widget as --prop leaves it (a
         // margin or a label type changes its height); the loop below still checks and sets each.
@@ -291,7 +302,8 @@ pub(crate) fn plan_add(
         } else {
             let mut copy = widget.clone();
             for (name, text) in &request.properties {
-                if copy.defaults.contains_key(name) {
+                // A catalogue default, or a contract property an extension declares without one.
+                if copy.defaults.contains_key(name) || widget.property(name).is_some() {
                     if let Ok(value) = property_value(widget, name, Value::String(text.clone())) {
                         copy.defaults.insert(name.clone(), value);
                     }

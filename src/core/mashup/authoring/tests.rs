@@ -7231,3 +7231,70 @@ fn placement_measures_the_widget_with_the_props_it_is_given() {
     // A 36px label with 40px of vertical margin and the row's 12px: measured as given.
     assert_eq!(row["flex-min-height"], "88px", "{row}");
 }
+
+#[test]
+fn a_separator_refuses_a_card_anchor_and_a_malformed_style_map() {
+    use crate::core::mashup::edit::Side;
+    let (_dir, solution) = one_project();
+    let name = "Acme.Kpi_MU";
+    apply_new(
+        &solution,
+        &plan_new(&solution, &request(name)).unwrap(),
+        &lock(&solution),
+    )
+    .unwrap();
+    let card = add_one(
+        &solution,
+        name,
+        "container",
+        Placement::In("center".into()),
+        &[],
+    );
+    let title = add_one(&solution, name, "label", Placement::In(card.clone()), &[]);
+    let below = |anchor: &str| {
+        let mut request = add_request(name, "separator");
+        request.placement = Some(Placement::Beside {
+            anchor: anchor.to_string(),
+            side: Side::Below,
+        });
+        plan_add(&solution, &request)
+    };
+    assert!(matches!(below(&card), Err(AuthoringError::Invalid(_))));
+    // A root style map that is not Composer's shape is refused, not a panic.
+    let mut set = SetRequest {
+        mashup: name.into(),
+        widget: "mashup-root".into(),
+        properties: vec![("StyleProperties".into(), json!({"data": []}))],
+        style_from: None,
+        styles: Vec::new(),
+    };
+    let plan = plan_set(&solution, &set).unwrap();
+    apply_edit(&solution, plan.edit.as_ref().unwrap(), &lock(&solution)).unwrap();
+    assert!(matches!(below(&title), Err(AuthoringError::Refused(_))));
+    set.properties.clear();
+}
+
+#[test]
+fn end_refuses_a_filling_widget_before_changing_anything() {
+    use crate::core::mashup::edit::Side;
+    let (dir, solution) = one_project();
+    let name = "Acme.Kpi_MU";
+    apply_new(
+        &solution,
+        &plan_new(&solution, &request(name)).unwrap(),
+        &lock(&solution),
+    )
+    .unwrap();
+    let grid = add_one(&solution, name, "grid", Placement::In("center".into()), &[]);
+    let before = tree_bytes(dir.path());
+    let mut request = add_request(name, "label");
+    request.placement = Some(Placement::Beside {
+        anchor: grid,
+        side: Side::End,
+    });
+    assert!(matches!(
+        plan_add(&solution, &request),
+        Err(AuthoringError::Edit(_))
+    ));
+    assert_eq!(tree_bytes(dir.path()), before);
+}

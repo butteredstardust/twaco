@@ -402,6 +402,16 @@ impl MashupDocument {
                 anchor,
                 side: Side::End,
             } => {
+                // Refused before anything moves: a filling widget or a container gets wrappers
+                // of its own when something goes beside it, so there is no row to split.
+                let found = self.find(anchor)?;
+                let node = self.at(&found.path);
+                if type_of(node) == Some("flexcontainer") || fills(node) {
+                    return Err(EditError::Refused(format!(
+                        "--end: {} is a container or fills its row; --end goes beside a fixed widget, such as a label",
+                        found.id
+                    )));
+                }
                 let placed = self.place_beside(widget, anchor, Side::Right)?;
                 self.split_at_end(placed)
             }

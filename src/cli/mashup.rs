@@ -1185,6 +1185,7 @@ pub(crate) fn mashup_add_cmd(solution: &Solution, args: &MashupAdd) -> u8 {
         None if plan.function => "beside the layout".to_string(),
         None => "in center".to_string(),
         Some(("--in", value)) => format!("in {value}"),
+        Some(("--right-of", value)) if args.end => format!("at the end of {value}'s row"),
         Some(("--right-of", value)) => format!("right of {value}"),
         Some(("--left-of", value)) => format!("left of {value}"),
         Some(("--above", value)) => format!("above {value}"),

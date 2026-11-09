@@ -1139,8 +1139,8 @@ splits into a start group (what was there) and an end group (the new widget), sp
 centred, and it keeps its natural height. `mashup add <mashup> separator --below <widget>` adds
 the kits' 1px rule (`#C2C7CE`) between rows. The row holding such cards becomes a `range` row whose
 minimum is the cards' measured height (a `label` row is 19px on 10.2, a `sub-header` 27px, a
-`header` 33px), so a filling row below keeps most of the page; give that row `flex-grow` 2 or 3 to
-weight it as the kits do. `--prop` values count in that measure, so set a dot's size and margins
+`header` 33px). A `range` row still takes its share of the page's spare height, as every row
+does; to give most of it to a row of charts or grids, set that row's `flex-grow` to 2 or 3. `--prop` values count in that measure, so set a dot's size and margins
 there:
 
 ```sh
