@@ -402,8 +402,10 @@ impl MashupDocument {
                 anchor,
                 side: Side::End,
             } => {
-                // Refused before anything moves: a filling widget or a container gets wrappers
-                // of its own when something goes beside it, so there is no row to split.
+                // A filling widget or a container gets wrappers of its own when something goes
+                // beside it, so there is no row to split; refused before anything moves. The row
+                // checks in split_at_end come after placing: a refusal there leaves this document
+                // changed, and the plan that owns it is dropped with the error.
                 let found = self.find(anchor)?;
                 let node = self.at(&found.path);
                 if type_of(node) == Some("flexcontainer") || fills(node) {

@@ -290,9 +290,13 @@ pub(crate) struct Call {
 /// form; `Thing.Service [json]` splits at the last dot, as `catalog` and `trace` read it. A
 /// second operand that starts with `{` is the JSON, so the two forms never overlap.
 fn call_operands(operands: &[String]) -> Option<(String, String, Option<&str>)> {
-    let json_second = operands
-        .get(1)
-        .is_some_and(|text| text.trim_start().starts_with('{'));
+    // JSON text (an object, or an array that is then refused as parameters) is never a service
+    // name, so it marks the dotted form.
+    let json_second = operands.get(1).is_some_and(|text| {
+        text.trim_start_matches('\u{feff}')
+            .trim_start()
+            .starts_with(['{', '['])
+    });
     match operands {
         [target, service] | [target, service, _] if !json_second => Some((
             target.clone(),
@@ -1290,6 +1294,8 @@ mod call_operand_tests {
         assert_eq!(split(&["Acme.Press", "Run"]), expected(None));
         assert_eq!(split(&["Acme.Press", "Run", "{}"]), expected(Some("{}")));
         assert_eq!(split(&["Acme.Press.Run"]), expected(None));
+        // JSON text, even an array that is then refused as parameters, is never a service name.
+        assert_eq!(split(&["Acme.Press.Run", "[1]"]), expected(Some("[1]")));
         assert_eq!(
             split(&["Acme.Press.Run", " {\"a\":1}"]),
             expected(Some(" {\"a\":1}"))

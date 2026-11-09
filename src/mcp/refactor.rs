@@ -259,11 +259,24 @@ pub(crate) fn entity_edit_tool(
             name: need(&arguments.name, "name")?,
             force: arguments.force,
         },
-        EntityEditAction::ServiceOverride => Action::ServiceOverride {
-            name: need(&arguments.name, "name")?,
-            code: text(&arguments.then)
-                .unwrap_or_else(|| "// TODO: implement override.\n".to_string()),
-        },
+        EntityEditAction::ServiceOverride => {
+            // The signature is the ancestor's: as on the command line, these are refused.
+            if !arguments.params.is_absent()
+                || !arguments.returns.is_absent()
+                || !arguments.description.is_absent()
+                || arguments.private
+                || arguments.force
+            {
+                return Err(ToolError::invalid(
+                    "service_override takes name and then only: the signature is the inherited one",
+                ));
+            }
+            Action::ServiceOverride {
+                name: need(&arguments.name, "name")?,
+                code: text(&arguments.then)
+                    .unwrap_or_else(|| "// TODO: implement override.\n".to_string()),
+            }
+        }
         EntityEditAction::ServiceRevert => Action::ServiceRevert {
             name: need(&arguments.name, "name")?,
         },

@@ -2683,3 +2683,46 @@ fn ai_edits_keep_section_order_and_refuse_bad_text_and_repeats() {
         .to_string();
     assert!(error.contains("U+0007"), "{error}");
 }
+
+#[test]
+fn an_override_on_an_unextracted_entity_gives_its_other_services_folders_too() {
+    // The entity has a local service and no services folder yet. The override creates that
+    // folder, so the local service must get its sidecar too, or a later sync would read it as
+    // removed.
+    let (_dir, solution) = fixture();
+    family(&solution);
+    let mut parent = service("ReadSpeed", "result = 1;");
+    parent.returns = Some("NUMBER".into());
+    run(
+        &solution,
+        "Acme.Orders.Machine_TT",
+        Action::ServiceAdd(parent),
+    );
+    let entity_path = solution.root.join("app/Things/Acme.Orders.Press.xml");
+    let before = std::fs::read_to_string(&entity_path).unwrap();
+    let local = r#"<ServiceDefinitions><ServiceDefinition aspect.isAsync="false" category="" description="" isAllowOverride="false" isLocalOnly="false" isOpen="false" isPrivate="false" name="Local"><ResultType baseType="NOTHING" description="" name="result" ordinal="0"></ResultType><ParameterDefinitions></ParameterDefinitions></ServiceDefinition></ServiceDefinitions>"#;
+    let implementation = r#"<ServiceImplementations><ServiceImplementation description="" handlerName="Script" name="Local"><ConfigurationTables><ConfigurationTable dataShapeName="" description="" isMultiRow="false" name="Script" ordinal="0"><DataShape><FieldDefinitions><FieldDefinition baseType="STRING" description="code" name="code" ordinal="0"></FieldDefinition></FieldDefinitions></DataShape><Rows><Row><code><![CDATA[local();]]></code></Row></Rows></ConfigurationTable></ConfigurationTables></ServiceImplementation></ServiceImplementations>"#;
+    let with_local = before
+        .replacen("<ServiceDefinitions></ServiceDefinitions>", local, 1)
+        .replacen(
+            "<ServiceImplementations></ServiceImplementations>",
+            implementation,
+            1,
+        );
+    assert_ne!(with_local, before, "the fixture has empty service sections");
+    std::fs::write(&entity_path, with_local).unwrap();
+    let services = solution.src_root().join("Acme.Orders.Press/services");
+    assert!(!services.exists());
+    run(
+        &solution,
+        "Acme.Orders.Press",
+        Action::ServiceOverride {
+            name: "ReadSpeed".into(),
+            code: "result = 2;".into(),
+        },
+    );
+    assert!(services.join("ReadSpeed/script.js").is_file());
+    assert!(services.join("Local/definition.xml").is_file());
+    assert!(services.join("Local/script.js").is_file());
+    assert_in_step(&solution);
+}

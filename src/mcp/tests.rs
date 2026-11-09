@@ -3232,6 +3232,12 @@ fn entity_edit_overrides_an_inherited_service_then_reverts_it() {
     let folder = root.join("src/P.Press/services/Read");
     assert!(folder.join("script.js").is_file());
     assert!(!folder.join("definition.xml").exists());
+    let signature = call(
+        &root,
+        "entity_edit",
+        json!({"action": "service_override", "entity": "P.Press", "name": "Read", "returns": "STRING"}),
+    );
+    assert_eq!(signature["isError"], true, "{signature}");
     let removed = call(
         &root,
         "entity_edit",

@@ -1494,6 +1494,37 @@ fn prepared_service_code(
     code
 }
 
+/// Once the services folder exists, the entity's services are managed through it: a service of
+/// the XML with no folder there reads as removed. So a service added or overridden here gives the
+/// entity's other script services (overrides too) their sidecars, as `extract` writes them, when
+/// they have none.
+fn other_sidecars(
+    doc: &Doc,
+    services: &Path,
+    sidecars: &BTreeMap<String, ServiceSidecar>,
+    except: &str,
+    plan: &mut Plan,
+) {
+    for existing in sidecars.values().filter(|other| other.name != except) {
+        let folder = services.join(&existing.name);
+        if folder.exists() {
+            continue;
+        }
+        if let Some(definition) = existing.definition() {
+            plan.changes.push(created_sidecar(
+                folder.join("definition.xml"),
+                doc.label(),
+                definition.replace("\r\n", "\n").into_bytes(),
+            ));
+        }
+        plan.changes.push(created_sidecar(
+            folder.join("script.js"),
+            doc.label(),
+            existing.script().replace("\r\n", "\n").into_bytes(),
+        ));
+    }
+}
+
 /// The managed and generated files in one service folder. Refuse links so cleanup cannot reach
 /// outside the workspace; directories are removed only after the journal has deleted every file.
 fn service_files(folder: &Path) -> Result<Vec<PathBuf>, EditError> {
@@ -1921,28 +1952,8 @@ impl Edit2<'_> {
         .map_err(invalid)?;
         plan.summary = format!("add service {}", service.name);
         plan.changes.push(doc.change(after));
-        // Once the services folder exists, the entity's services are managed through it: a
-        // service of the XML with no folder there reads as removed. So the entity's other script
-        // services get their sidecars too, as `extract` writes them, when they have none.
         let services = workspace::services_dir(self.solution, &doc.file);
-        for existing in sidecars.values().filter(|other| other.name != service.name) {
-            let folder = services.join(&existing.name);
-            if folder.exists() {
-                continue;
-            }
-            if let Some(definition) = existing.definition() {
-                plan.changes.push(created_sidecar(
-                    folder.join("definition.xml"),
-                    doc.label(),
-                    definition.replace("\r\n", "\n").into_bytes(),
-                ));
-            }
-            plan.changes.push(created_sidecar(
-                folder.join("script.js"),
-                doc.label(),
-                existing.script().replace("\r\n", "\n").into_bytes(),
-            ));
-        }
+        other_sidecars(doc, &services, &sidecars, &service.name, plan);
         let folder = services.join(&service.name);
         plan.changes.extend([
             created_sidecar(
@@ -2120,7 +2131,9 @@ impl Edit2<'_> {
         .map_err(invalid)?;
         plan.summary = format!("override inherited service {name}");
         plan.changes.push(doc.change(after));
-        let folder = workspace::services_dir(self.solution, &doc.file).join(name);
+        let services = workspace::services_dir(self.solution, &doc.file);
+        other_sidecars(doc, &services, &sidecars, name, plan);
+        let folder = services.join(name);
         plan.changes.push(created_sidecar(
             folder.join("script.js"),
             doc.label(),
@@ -2169,7 +2182,20 @@ impl Edit2<'_> {
         plan.summary = format!("revert inherited service {name}");
         plan.changes.push(doc.change(after));
         let folder = workspace::services_dir(self.solution, &doc.file).join(name);
-        for path in service_files(&folder)? {
+        let files = service_files(&folder)?;
+        // The folder goes whole, as `service remove`'s does; a file twaco did not write is named.
+        let extra: Vec<String> = files
+            .iter()
+            .filter_map(|path| path.file_name().map(|n| n.to_string_lossy().into_owned()))
+            .filter(|file| file != "script.js" && file != "definition.xml")
+            .collect();
+        if !extra.is_empty() {
+            plan.warnings.push(format!(
+                "the {name} folder also holds {}, which go with it",
+                extra.join(", ")
+            ));
+        }
+        for path in files {
             let before = read_file(&path)?;
             plan.changes.push(FileChange {
                 path,

@@ -188,7 +188,6 @@ fn check_one(
     problems
 }
 
-/// The importer shares one namespace between local properties, services and events.
 /// A multi-row ConfigurationTableDefinition with inline fields reads its key from them, not from
 /// the DataShape it names: with no `aspect.isPrimaryKey="true"` among them the import fails ("is
 /// multirow but its datashape [ unnamed ] does not have a primary key"). With both, the server
@@ -252,6 +251,7 @@ fn check_multirow_tables(file: &str, src: &[u8]) -> Vec<Problem> {
     problems
 }
 
+/// The importer shares one namespace between local properties, services and events.
 fn check_member_names(file: &str, src: &[u8]) -> Vec<Problem> {
     let Ok(tokens) = scan::tokenize(src) else {
         return Vec::new();
