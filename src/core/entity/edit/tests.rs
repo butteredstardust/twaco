@@ -172,6 +172,128 @@ fn service_add_works_on_a_template_and_a_shape() {
 }
 
 #[test]
+fn service_override_and_revert_keep_the_inherited_contract_and_permissions() {
+    let (_dir, solution) = house_solution();
+    let mut parent = service("ReadSpeed", "result = me.Speed;");
+    parent.parameters = vec!["limit:INTEGER".into()];
+    parent.returns = Some("NUMBER".into());
+    parent.description = Some("Read the current speed.".into());
+    run(
+        &solution,
+        "Acme.Orders.Machine_TT",
+        Action::ServiceAdd(parent),
+    );
+    let override_action = Action::ServiceOverride {
+        name: "ReadSpeed".into(),
+        code: "result=limit".into(),
+    };
+    let planned = plan_of(&solution, "Acme.Orders.Press", override_action.clone()).unwrap();
+    assert_eq!(planned.changes.len(), 2);
+    assert!(!file(&solution, "Things", "Acme.Orders.Press").contains("ReadSpeed"));
+    run(&solution, "Acme.Orders.Press", override_action);
+    let folder = solution
+        .src_root()
+        .join("Acme.Orders.Press/services/ReadSpeed");
+    let script = std::fs::read_to_string(folder.join("script.js")).unwrap();
+    assert!(script.contains("@function ReadSpeed"), "{script}");
+    assert!(script.contains("@param {number} limit"), "{script}");
+    assert!(!folder.join("definition.xml").exists());
+    let entity_path = solution.root.join("app/Things/Acme.Orders.Press.xml");
+    let before = std::fs::read_to_string(&entity_path).unwrap();
+    std::fs::write(
+        &entity_path,
+        before.replace(
+            "<RunTimePermissions></RunTimePermissions>",
+            "<RunTimePermissions><Permissions resourceName=\"ReadSpeed\"><ServiceInvoke/></Permissions></RunTimePermissions>",
+        ),
+    )
+    .unwrap();
+    let overridden = file(&solution, "Things", "Acme.Orders.Press");
+    assert!(
+        overridden.contains("resourceName=\"ReadSpeed\""),
+        "{overridden}"
+    );
+    let services = crate::core::sidecar::extract(overridden.as_bytes())
+        .unwrap()
+        .services;
+    assert!(
+        services
+            .iter()
+            .any(|service| service.name == "ReadSpeed" && service.is_override()),
+        "{overridden}"
+    );
+
+    run(
+        &solution,
+        "Acme.Orders.Press",
+        Action::ServiceRevert {
+            name: "ReadSpeed".into(),
+        },
+    );
+    let reverted = file(&solution, "Things", "Acme.Orders.Press");
+    assert!(!crate::core::sidecar::extract(reverted.as_bytes())
+        .unwrap()
+        .services
+        .iter()
+        .any(|service| service.name == "ReadSpeed"));
+    assert!(reverted.contains("resourceName=\"ReadSpeed\""));
+    assert!(!folder.exists());
+    assert_in_step(&solution);
+}
+
+#[test]
+fn service_override_refuses_local_services_missing_parents_and_wrong_hosts() {
+    let (_dir, solution) = fixture();
+    family(&solution);
+    run(
+        &solution,
+        "Acme.Orders.Machine_TT",
+        Action::ServiceAdd(service("ReadSpeed", "")),
+    );
+    let override_service = |entity: &str, name: &str| {
+        plan_of(
+            &solution,
+            entity,
+            Action::ServiceOverride {
+                name: name.into(),
+                code: String::new(),
+            },
+        )
+    };
+    assert_eq!(
+        code(override_service("Acme.Orders.Machine_TT", "ReadSpeed")),
+        ErrorCode::AlreadyExists
+    );
+    assert_eq!(
+        code(override_service("Acme.Orders.Press", "Missing")),
+        ErrorCode::UnknownEntity
+    );
+    assert!(override_service("Acme.Orders.Row_DS", "ReadSpeed").is_err());
+    run(
+        &solution,
+        "Acme.Orders.Press",
+        Action::ServiceOverride {
+            name: "ReadSpeed".into(),
+            code: String::new(),
+        },
+    );
+    assert_eq!(
+        code(override_service("Acme.Orders.Press", "ReadSpeed")),
+        ErrorCode::AlreadyExists
+    );
+    let remove = plan_of(
+        &solution,
+        "Acme.Orders.Press",
+        Action::ServiceRemove {
+            name: "ReadSpeed".into(),
+            force: false,
+        },
+    )
+    .unwrap_err();
+    assert!(remove.to_string().contains("override --revert"), "{remove}");
+}
+
+#[test]
 fn service_add_formats_the_script_as_fmt_would() {
     let (_dir, solution) = fixture();
     family(&solution);

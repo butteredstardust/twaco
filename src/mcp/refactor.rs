@@ -259,6 +259,14 @@ pub(crate) fn entity_edit_tool(
             name: need(&arguments.name, "name")?,
             force: arguments.force,
         },
+        EntityEditAction::ServiceOverride => Action::ServiceOverride {
+            name: need(&arguments.name, "name")?,
+            code: text(&arguments.then)
+                .unwrap_or_else(|| "// TODO: implement override.\n".to_string()),
+        },
+        EntityEditAction::ServiceRevert => Action::ServiceRevert {
+            name: need(&arguments.name, "name")?,
+        },
         EntityEditAction::ShapeAdd => Action::ShapeAdd {
             shape: need(&arguments.shape, "shape")?,
         },

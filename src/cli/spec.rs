@@ -975,12 +975,15 @@ pub(crate) const USAGE: &[Usage] = &[
       [--returns <TYPE>[:<DataShape>]] [--description <text>] [--category <text>] [--private]
       [--then <code> | --script <file.js>] [--apply] [--json]
   thing service remove <Entity> <Name> [--force] [--apply] [--json]
-                              add or remove an own script service and its managed sidecars; an
-                              absent script is empty; plan unless --apply
+  thing service override <Entity> <Name> [--script <file.js>] [--apply] [--json]
+  thing service override --revert <Entity> <Name> [--apply] [--json]
+                              add or remove an own script service, or override an inherited one
+                              with a script-only sidecar; plan unless --apply
       --param                 a parameter in declaration order
       --returns               result type, NOTHING by default
       --private               make the service private
-      --force                 remove it even when callers still use it (they are listed)"#,
+      --force                 remove it even when callers still use it (they are listed)
+      --revert                restore the inherited implementation (override only)"#,
     },
     Usage {
         path: "thing subscription",

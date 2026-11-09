@@ -104,6 +104,15 @@ pub enum Action {
         name: String,
         force: bool,
     },
+    /// A script implementation of a definition an ancestor supplies.
+    ServiceOverride {
+        name: String,
+        code: String,
+    },
+    /// Stop implementing an inherited service without removing its permission grants.
+    ServiceRevert {
+        name: String,
+    },
     ShapeAdd {
         shape: String,
     },
@@ -422,6 +431,8 @@ pub(crate) fn plan(solution: &Solution, request: &Request) -> Result<Plan, EditE
         Action::SubscriptionRemove { name } => subscription_remove(&doc, name, &mut plan)?,
         Action::ServiceAdd(service) => edit.service_add(service, &mut plan)?,
         Action::ServiceRemove { name, force } => edit.service_remove(name, *force, &mut plan)?,
+        Action::ServiceOverride { name, code } => edit.service_override(name, code, &mut plan)?,
+        Action::ServiceRevert { name } => edit.service_revert(name, &mut plan)?,
         Action::ShapeAdd { shape } => edit.shape_add(shape, &mut plan)?,
         Action::ShapeRemove { shape, force } => edit.shape_remove(shape, *force, &mut plan)?,
         Action::TimerSet {
@@ -1429,6 +1440,60 @@ fn created_sidecar(path: PathBuf, entity: String, after: Vec<u8>) -> FileChange 
     }
 }
 
+/// Format a new script before giving it to the synchronizer, and make its leading header agree
+/// with the definition that callers see. Overrides use their inherited definition here too.
+fn prepared_service_code(
+    solution: &Solution,
+    doc: &Doc,
+    service: &str,
+    source: &str,
+    definition: &crate::core::header::Definition,
+) -> String {
+    let style = crate::core::fmt::Style::from(&solution.format.script);
+    let mut code = match crate::core::fmt::format(source, &style) {
+        Ok(Some(formatted)) => formatted,
+        Ok(None) | Err(_) => source.to_string(),
+    };
+    let entity = format!("{}/{}", doc.file.info.collection, doc.file.info.name);
+    if solution
+        .effective_lint()
+        .severity("comments.header.contract", Some(&entity), service)
+        == Severity::Off
+    {
+        return code;
+    }
+    let lint = solution.effective_lint();
+    if crate::core::header::parse(&code).is_some() {
+        // A supplied script's header is repaired instead of duplicated.
+        if let Some(fixed) =
+            crate::core::header::repair(&code, service, definition, lint.header_policy()).fixed
+        {
+            code = fixed;
+        }
+    } else {
+        let enabled = |rule: &str| {
+            let (gate, group) = if matches!(rule, "jsdoc-prose" | "line-run" | "ratio") {
+                ("comment budget", "budget")
+            } else {
+                ("comment prose", "prose")
+            };
+            lint.gate_enabled(gate)
+                && lint.severity(&format!("comments.{group}.{rule}"), Some(&entity), service)
+                    != Severity::Off
+        };
+        let header = crate::core::header::generate_fitting(
+            service,
+            definition,
+            lint.header_policy(),
+            lint.comment_policy(),
+            &enabled,
+            "\n",
+        );
+        code = format!("{header}{code}");
+    }
+    code
+}
+
 /// The managed and generated files in one service folder. Refuse links so cleanup cannot reach
 /// outside the workspace; directories are removed only after the journal has deleted every file.
 fn service_files(folder: &Path) -> Result<Vec<PathBuf>, EditError> {
@@ -1826,62 +1891,15 @@ impl Edit2<'_> {
         refuse_clash(&model, doc, std::slice::from_ref(&service.name))?;
         let definition = ServiceDefinition::from_request(service, self.found, &mut plan.warnings)?;
         let definition_xml = definition.xml()?;
-        // Formatted as `twaco fmt` would, so the formatting gate passes straight away; code that
-        // does not parse is kept as given for the gates to report.
-        let style = crate::core::fmt::Style::from(&self.solution.format.script);
-        let mut code = match crate::core::fmt::format(&service.code, &style) {
-            Ok(Some(formatted)) => formatted,
-            Ok(None) | Err(_) => service.code.clone(),
-        };
-        let entity = format!("{}/{}", doc.file.info.collection, doc.file.info.name);
-        if self.solution.effective_lint().severity(
-            "comments.header.contract",
-            Some(&entity),
+        let header_definition = crate::core::header::definition(&definition_xml)
+            .expect("ServiceDefinition::xml always has a result type");
+        let code = prepared_service_code(
+            self.solution,
+            doc,
             &service.name,
-        ) != Severity::Off
-        {
-            if let Some(header_definition) = crate::core::header::definition(&definition_xml) {
-                let lint = self.solution.effective_lint();
-                if crate::core::header::parse(&code).is_some() {
-                    // The script brings its own header: bring its tags to the definition's
-                    // contract rather than stacking a second header on top of it.
-                    let repair = crate::core::header::repair(
-                        &code,
-                        &service.name,
-                        &header_definition,
-                        lint.header_policy(),
-                    );
-                    if let Some(fixed) = repair.fixed {
-                        code = fixed;
-                    }
-                } else {
-                    // A comment rule as the solution has it for this entity and service.
-                    let enabled = |rule: &str| {
-                        let (gate, group) = if matches!(rule, "jsdoc-prose" | "line-run" | "ratio")
-                        {
-                            ("comment budget", "budget")
-                        } else {
-                            ("comment prose", "prose")
-                        };
-                        lint.gate_enabled(gate)
-                            && lint.severity(
-                                &format!("comments.{group}.{rule}"),
-                                Some(&entity),
-                                &service.name,
-                            ) != Severity::Off
-                    };
-                    let header = crate::core::header::generate_fitting(
-                        &service.name,
-                        &header_definition,
-                        lint.header_policy(),
-                        lint.comment_policy(),
-                        &enabled,
-                        "\n",
-                    );
-                    code = format!("{header}{code}");
-                }
-            }
-        }
+            &service.code,
+            &header_definition,
+        );
         let mut sidecars = service_sidecars(doc)?;
         sidecars.insert(
             service.name.clone(),
@@ -1950,7 +1968,7 @@ impl Edit2<'_> {
             .any(|service| service.name == name && service.is_override())
         {
             return Err(EditError::Unknown(format!(
-                "{} only implements inherited service {name}; it is declared by an ancestor",
+                "{} only implements inherited service {name}; use thing service override --revert",
                 doc.label()
             )));
         }
@@ -2007,6 +2025,151 @@ impl Edit2<'_> {
                     path.display()
                 ));
             }
+            let before = read_file(&path)?;
+            plan.changes.push(FileChange {
+                path,
+                entity: doc.label(),
+                before,
+                after: Vec::new(),
+                kind: FileChangeKind::Delete,
+            });
+        }
+        plan.cleanup_dirs.push(folder);
+        Ok(())
+    }
+
+    fn service_override(&self, name: &str, source: &str, plan: &mut Plan) -> Result<(), EditError> {
+        let doc = self.doc;
+        doc.require(
+            &MEMBER_HOSTS,
+            "services belong to a Thing, ThingTemplate or ThingShape",
+        )?;
+        validate_member_name(name)?;
+        let members = doc.members()?;
+        let definitions = doc.only_child(members, "ServiceDefinitions")?;
+        if doc.named(definitions, "ServiceDefinition", name).is_some() {
+            return Err(EditError::Exists(format!(
+                "{} already defines service {name}; use thing service remove to remove the local service",
+                doc.label()
+            )));
+        }
+        let implementations = doc.only_child(members, "ServiceImplementations")?;
+        if doc
+            .named(implementations, "ServiceImplementation", name)
+            .is_some()
+        {
+            return Err(EditError::Exists(format!(
+                "{} already implements inherited service {name}",
+                doc.label()
+            )));
+        }
+        let (model, skipped) = types::load_model(self.solution);
+        if !skipped.is_empty() {
+            return Err(invalid(format!(
+                "could not resolve a parent definition for {}.{name}: fix unreadable source first ({})",
+                doc.label(),
+                skipped.join(", ")
+            )));
+        }
+        let entity = model
+            .entities
+            .iter()
+            .find(|entity| entity.collection == doc.collection() && entity.name == doc.name())
+            .ok_or_else(|| {
+                EditError::Unknown(format!("{} is not in the type model", doc.label()))
+            })?;
+        let inherited = catalog::inherited_service(
+            entity,
+            &model.entities,
+            types::cached_platform(self.solution).as_ref(),
+            name,
+        );
+        let definition = match inherited {
+            catalog::InheritedService::Defined(service) => {
+                crate::core::header::Definition::from_service(&service)
+            }
+            catalog::InheritedService::Absent => {
+                return Err(EditError::Unknown(format!(
+                    "{} has no inherited service {name} to override",
+                    doc.label()
+                )));
+            }
+            catalog::InheritedService::Unresolved => {
+                return Err(EditError::Unknown(format!(
+                    "cannot resolve the parent definition of {}.{name}; run twaco types --platform, or add the parent's repository",
+                    doc.label()
+                )));
+            }
+        };
+        let code = prepared_service_code(self.solution, doc, name, source, &definition);
+        let mut sidecars = service_sidecars(doc)?;
+        sidecars.insert(
+            name.to_string(),
+            ServiceSidecar {
+                name: name.to_string(),
+                kind: sidecar::ServiceSidecarKind::Override {
+                    script: code.clone(),
+                },
+            },
+        );
+        let (after, _) = crate::core::sync::add_override(
+            &doc.src,
+            &sidecars,
+            self.solution.format.indent_cdata_payload,
+        )
+        .map_err(invalid)?;
+        plan.summary = format!("override inherited service {name}");
+        plan.changes.push(doc.change(after));
+        let folder = workspace::services_dir(self.solution, &doc.file).join(name);
+        plan.changes.push(created_sidecar(
+            folder.join("script.js"),
+            doc.label(),
+            code.into_bytes(),
+        ));
+        Ok(())
+    }
+
+    fn service_revert(&self, name: &str, plan: &mut Plan) -> Result<(), EditError> {
+        let doc = self.doc;
+        doc.require(
+            &MEMBER_HOSTS,
+            "services belong to a Thing, ThingTemplate or ThingShape",
+        )?;
+        let members = doc.members()?;
+        let definitions = doc.only_child(members, "ServiceDefinitions")?;
+        if doc.named(definitions, "ServiceDefinition", name).is_some() {
+            return Err(EditError::Invalid(format!(
+                "{} defines local service {name}; use thing service remove instead",
+                doc.label()
+            )));
+        }
+        let implementations = doc.only_child(members, "ServiceImplementations")?;
+        let Some(implementation) = doc.named(implementations, "ServiceImplementation", name) else {
+            return Err(EditError::Unknown(format!(
+                "{} does not implement inherited service {name}",
+                doc.label()
+            )));
+        };
+        if sidecar::handler_of(&doc.tokens, &doc.src, implementation).map_err(invalid)? != "Script"
+        {
+            return Err(EditError::Invalid(format!(
+                "{} does not have a script override of inherited service {name}",
+                doc.label()
+            )));
+        }
+        let mut sidecars = service_sidecars(doc)?;
+        sidecars.remove(name);
+        let (after, _) = crate::core::sync::remove_overrides(
+            &doc.src,
+            &sidecars,
+            &BTreeSet::from([name.to_string()]),
+            self.solution.format.indent_cdata_payload,
+        )
+        .map_err(invalid)?;
+        plan.summary = format!("revert inherited service {name}");
+        plan.changes.push(doc.change(after));
+        let folder = workspace::services_dir(self.solution, &doc.file).join(name);
+        for path in service_files(&folder)? {
             let before = read_file(&path)?;
             plan.changes.push(FileChange {
                 path,

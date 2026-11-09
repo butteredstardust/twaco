@@ -1003,6 +1003,8 @@ twaco thing property set Acme.Orders.Machine_TT Speed --no-logged --category Mot
 twaco thing property remove Acme.Orders.Machine_TT Speed --apply
 twaco thing service add Acme.Orders.Machine_TT ReadSpeed --returns NUMBER --then "result = me.Speed;" --apply
 twaco thing service remove Acme.Orders.Machine_TT ReadSpeed --apply
+twaco thing service override Acme.Orders.Press ReadSpeed --script press-read-speed.js --apply
+twaco thing service override --revert Acme.Orders.Press ReadSpeed --apply
 twaco thing subscription add Acme.Orders.Press OnSpeed --event DataChange --source-property Speed --then "me.Check();" --apply
 twaco thing shape add Acme.Orders.Machine_TT Acme.Orders.Audit_TS --apply
 twaco timer set Acme.Orders.Refresh_TM --every 5m --enabled --apply
@@ -1029,6 +1031,14 @@ into the entity through the same synchronizer as sidecar changes. Parameters are
 an own script service, its run-time permission and sidecar folder. Both refuse inherited clashes;
 remove also refuses callers unless `--force` lists and accepts them. MCP exposes the same work as
 `entity_edit` actions `service_add` and `service_remove`.
+
+`thing service override` adds a Script implementation, but no local definition, for a service an
+ancestor defines. Its `services/<Service>/` folder therefore has only `script.js`; the script gets
+the inherited signature's JSDoc header. It refuses a local definition or implementation, a missing
+parent declaration, or a parent that is not available locally or in the platform cache (run
+`twaco types --platform`, or add that parent's repository). `--revert` removes only that local
+implementation and its sidecar folder, preserving run-time permission grants for the inherited
+service. MCP actions are `service_override` and `service_revert`.
 
 ## Creating mashups
 

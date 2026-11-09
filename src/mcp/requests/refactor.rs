@@ -565,6 +565,10 @@ pub(crate) enum EntityEditAction {
     ServiceAdd,
     #[serde(rename = "service_remove")]
     ServiceRemove,
+    #[serde(rename = "service_override")]
+    ServiceOverride,
+    #[serde(rename = "service_revert")]
+    ServiceRevert,
     #[serde(rename = "shape_add")]
     ShapeAdd,
     #[serde(rename = "shape_remove")]
@@ -655,7 +659,7 @@ pub(crate) struct EntityEditRequest {
     /// subscription_add: the property a DataChange subscription watches.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) source_property: Absent<String>,
-    /// subscription_add / service_add: the script (service_add: absent means an empty body).
+    /// subscription_add / service_add / service_override: the script (service_add: absent means an empty body).
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) then: Absent<String>,
     /// service_add: parameters in declaration order, each `name:TYPE[:DataShape]`.

@@ -16,7 +16,7 @@ pub(crate) enum Thing {
     Shape(ThingShape),
 }
 
-/// `twaco thing service add|remove <Entity> <name>`.
+/// `twaco thing service add|remove|override <Entity> <name>`.
 #[derive(Debug, clap::Args)]
 #[group(skip)]
 pub(crate) struct ThingService {
@@ -36,6 +36,8 @@ pub(crate) struct ThingService {
     pub(crate) script: Option<PathBuf>,
     #[arg(long = "force")]
     pub(crate) force: bool,
+    #[arg(long = "revert")]
+    pub(crate) revert: bool,
     #[command(flatten)]
     pub(crate) apply: Apply,
     #[command(flatten)]
@@ -315,10 +317,10 @@ impl Thing {
     }
 }
 
-/// `thing service add|remove`.
+/// `thing service add|remove|override`.
 fn service(args: &ThingService) -> Result<(String, Action), String> {
     let [action, entity, name] = args.operands.as_slice() else {
-        return Err("thing service needs <add|remove> <Entity> <name>".into());
+        return Err("thing service needs <add|remove|override> <Entity> <name>".into());
     };
     let action = match action.as_str() {
         "add" => {
@@ -343,7 +345,42 @@ fn service(args: &ThingService) -> Result<(String, Action), String> {
             name: name.clone(),
             force: args.force,
         },
-        other => return Err(format!("thing service {other}: say add or remove")),
+        "override" => {
+            if !args.parameters.is_empty()
+                || args.returns.is_some()
+                || args.description.is_some()
+                || args.category.is_some()
+                || args.private
+                || args.force
+                || args.then.is_some()
+            {
+                return Err(
+                    "thing service override takes only --script, --revert, --apply and --json"
+                        .into(),
+                );
+            }
+            if args.revert {
+                if args.script.is_some() {
+                    return Err("thing service override --revert does not take --script".into());
+                }
+                Action::ServiceRevert { name: name.clone() }
+            } else {
+                let code = match &args.script {
+                    Some(path) => std::fs::read_to_string(path)
+                        .map_err(|error| format!("{}: {error}", path.display()))?,
+                    None => "// TODO: implement override.\n".to_string(),
+                };
+                Action::ServiceOverride {
+                    name: name.clone(),
+                    code,
+                }
+            }
+        }
+        other => {
+            return Err(format!(
+                "thing service {other}: say add, remove or override"
+            ))
+        }
     };
     Ok((entity.clone(), action))
 }

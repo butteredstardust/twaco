@@ -57,6 +57,64 @@ pub fn sync(
     indent_cdata_payload: bool,
     relayout: bool,
 ) -> Result<(Vec<u8>, SyncReport), SidecarError> {
+    sync_with_overrides(
+        src,
+        sidecars,
+        allow_structural_change,
+        indent_cdata_payload,
+        relayout,
+        false,
+        &BTreeSet::new(),
+    )
+}
+
+/// Add one already-validated inherited-service override through the usual implementation writer.
+pub(crate) fn add_override(
+    src: &[u8],
+    sidecars: &BTreeMap<String, ServiceSidecar>,
+    indent_cdata_payload: bool,
+) -> Result<(Vec<u8>, SyncReport), SidecarError> {
+    sync_with_overrides(
+        src,
+        sidecars,
+        true,
+        indent_cdata_payload,
+        false,
+        true,
+        &BTreeSet::new(),
+    )
+}
+
+/// Remove only named inherited implementations. Ordinary sync deliberately leaves missing
+/// override sidecars alone, because a repository upgraded before script-only sidecars existed
+/// must not lose them.
+pub(crate) fn remove_overrides(
+    src: &[u8],
+    sidecars: &BTreeMap<String, ServiceSidecar>,
+    names: &BTreeSet<String>,
+    indent_cdata_payload: bool,
+) -> Result<(Vec<u8>, SyncReport), SidecarError> {
+    sync_with_overrides(
+        src,
+        sidecars,
+        true,
+        indent_cdata_payload,
+        false,
+        false,
+        names,
+    )
+}
+
+#[allow(clippy::too_many_arguments, clippy::fn_params_excessive_bools)]
+fn sync_with_overrides(
+    src: &[u8],
+    sidecars: &BTreeMap<String, ServiceSidecar>,
+    allow_structural_change: bool,
+    indent_cdata_payload: bool,
+    relayout: bool,
+    allow_override_add: bool,
+    removed_overrides: &BTreeSet<String>,
+) -> Result<(Vec<u8>, SyncReport), SidecarError> {
     let tokens = scan::tokenize(src)?;
     let host = sidecar::member_host_of(&tokens, src).ok_or(SidecarError::NotAnEntity)?;
     let definitions = sidecar::named_children_of(
@@ -85,7 +143,8 @@ pub fn sync(
             continue;
         }
         let Some(sidecar) = sidecars.get(name) else {
-            if definitions.contains_key(name) {
+            // A defined service with no folder is a removal; an override only when named.
+            if definitions.contains_key(name) || removed_overrides.contains(name) {
                 report.only_in_entity.push(name.clone());
             } else {
                 report.unextracted_overrides.push(name.clone());
@@ -196,6 +255,7 @@ pub fn sync(
             sidecars,
             &report,
             indent_cdata_payload,
+            allow_override_add,
         )?;
         edits.extend(structural);
         report.dropped_permissions = dropped;
@@ -218,6 +278,7 @@ fn structural_edits(
     sidecars: &BTreeMap<String, ServiceSidecar>,
     report: &SyncReport,
     indent_cdata_payload: bool,
+    allow_override_add: bool,
 ) -> Result<(Vec<Edit>, Vec<String>), SidecarError> {
     let mut edits = Vec::new();
     let definitions_at = scan::child_tags(tokens, src, "ServiceDefinitions", host)
@@ -270,7 +331,10 @@ fn structural_edits(
                 let resource = scan::attribute(src, &tokens[permissions], "resourceName")?
                     .map(|span| scan::decode_entities(&String::from_utf8_lossy(span.of(src))));
                 let Some(resource) = resource else { continue };
-                if report.only_in_entity.contains(&resource) && !other_members.contains(&resource) {
+                if report.only_in_entity.contains(&resource)
+                    && definitions.contains_key(&resource)
+                    && !other_members.contains(&resource)
+                {
                     let block = relocate::block_of(tokens, src, run_time, permissions)?;
                     edits.push(Edit::new(block.span, Vec::new()));
                     dropped.push(resource);
@@ -283,7 +347,7 @@ fn structural_edits(
         return Ok((edits, dropped));
     }
     for name in &report.only_in_sidecars {
-        let why = if sidecars[name].is_override() {
+        let why = if sidecars[name].is_override() && !allow_override_add {
             Some("an override needs an existing inherited implementation; twaco cannot add one without its definition".to_string())
         } else if implementations.contains_key(name) && !definitions.contains_key(name) {
             Some("the entity implements it already, overriding an inherited service".to_string())
@@ -293,6 +357,9 @@ fn structural_edits(
             Some("the entity defines it already, with no implementation of its own".to_string())
         } else if name.contains(['"', '<', '>', '&']) || name.trim().is_empty() {
             Some("the name is not a service name".to_string())
+        } else if sidecars[name].is_override() {
+            // An override's definition is its ancestor's, checked by the caller that adds it.
+            None
         } else {
             match sidecars[name].definition().and_then(defined_name) {
                 Some(defined) if defined == *name => None,
@@ -347,15 +414,21 @@ fn structural_edits(
     let host_indent = relocate::indent_at(src, tokens[host].span.start).len();
     let unit = section_indent.saturating_sub(host_indent).max(1);
 
-    // Definitions: each sidecar's block, starting where the entity's own definitions start.
+    // Definitions: an override only has an implementation, so it deliberately contributes no
+    // block here.
+    let defined_names: Vec<&String> = report
+        .only_in_sidecars
+        .iter()
+        .filter(|name| sidecars[name.as_str()].definition().is_some())
+        .collect();
     let definition_indent = definitions
         .values()
         .next()
         .map(|&at| relocate::indent_at(src, tokens[at].span.start).len())
         .unwrap_or(section_indent + unit);
     let mut definition_bytes = Vec::new();
-    for name in &report.only_in_sidecars {
-        let text = sidecars[name]
+    for name in &defined_names {
+        let text = sidecars[name.as_str()]
             .definition()
             .expect("only Defined sidecars can be structurally added")
             .trim_end_matches(['\n', '\r'])
@@ -376,15 +449,19 @@ fn structural_edits(
         section_indent: definition_indent.saturating_sub(unit),
         cdata: Vec::new(),
     };
-    let definition_edit = relocate::insert_edit(
-        tokens,
-        src,
-        host,
-        "ServiceDefinitions",
-        &definition_block,
-        &definition_bytes,
-    )
-    .map_err(cannot_add)?;
+    let definition_edit = (!defined_names.is_empty())
+        .then(|| {
+            relocate::insert_edit(
+                tokens,
+                src,
+                host,
+                "ServiceDefinitions",
+                &definition_block,
+                &definition_bytes,
+            )
+            .map_err(cannot_add)
+        })
+        .transpose()?;
 
     // Implementations: the template renamed and holding the sidecar's script.
     let (indent, implementation_section_indent) = match &template {
@@ -440,13 +517,20 @@ fn structural_edits(
     .map_err(cannot_add)?;
     // Both sections missing put both new sections at one point: write them as one insertion,
     // definitions first, as Composer orders them.
-    if definition_edit.span.is_empty() && definition_edit.span == implementation_edit.span {
-        let mut both = definition_edit.replacement;
-        both.extend_from_slice(&implementation_edit.replacement);
-        edits.push(Edit::new(definition_edit.span, both));
-    } else {
-        edits.push(definition_edit);
-        edits.push(implementation_edit);
+    match definition_edit {
+        Some(definition_edit)
+            if definition_edit.span.is_empty()
+                && definition_edit.span == implementation_edit.span =>
+        {
+            let mut both = definition_edit.replacement;
+            both.extend_from_slice(&implementation_edit.replacement);
+            edits.push(Edit::new(definition_edit.span, both));
+        }
+        Some(definition_edit) => {
+            edits.push(definition_edit);
+            edits.push(implementation_edit);
+        }
+        None => edits.push(implementation_edit),
     }
     Ok((edits, dropped))
 }

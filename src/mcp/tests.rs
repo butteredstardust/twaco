@@ -3208,6 +3208,46 @@ fn entity_edit_service_add_plans_then_removes() {
 }
 
 #[test]
+fn entity_edit_overrides_an_inherited_service_then_reverts_it() {
+    let (_dir, root) = solution_dir();
+    for arguments in [
+        json!({"kind": "thing-template", "name": "P.Base_TT", "dry_run": false}),
+        json!({"kind": "thing", "name": "P.Press", "template": "P.Base_TT", "dry_run": false}),
+    ] {
+        let created = call(&root, "entity_new", arguments);
+        assert_eq!(created["isError"], false, "{created}");
+    }
+    let parent = call(
+        &root,
+        "entity_edit",
+        json!({"action": "service_add", "entity": "P.Base_TT", "name": "Read", "returns": "NUMBER", "then": "result = 1;", "dry_run": false}),
+    );
+    assert_eq!(parent["isError"], false, "{parent}");
+    let overridden = call(
+        &root,
+        "entity_edit",
+        json!({"action": "service_override", "entity": "P.Press", "name": "Read", "then": "result = 2;", "dry_run": false}),
+    );
+    assert_eq!(overridden["isError"], false, "{overridden}");
+    let folder = root.join("src/P.Press/services/Read");
+    assert!(folder.join("script.js").is_file());
+    assert!(!folder.join("definition.xml").exists());
+    let removed = call(
+        &root,
+        "entity_edit",
+        json!({"action": "service_remove", "entity": "P.Press", "name": "Read"}),
+    );
+    assert_eq!(removed["isError"], true, "{removed}");
+    let reverted = call(
+        &root,
+        "entity_edit",
+        json!({"action": "service_revert", "entity": "P.Press", "name": "Read", "dry_run": false}),
+    );
+    assert_eq!(reverted["isError"], false, "{reverted}");
+    assert!(!folder.exists());
+}
+
+#[test]
 fn trace_reports_a_service_and_refuses_an_unknown_one() {
     let (_dir, root) = solution_dir();
     let created = call(

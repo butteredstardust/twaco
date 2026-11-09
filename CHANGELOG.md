@@ -28,6 +28,9 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- `thing service override <Entity> <Service>` (MCP `entity_edit` action `service_override`)
+  creates a script-only local implementation of an inherited service; `--revert` (`service_revert`)
+  removes it without dropping that service's run-time permission grants.
 - Collection cell menus: `mashup on --event ui:<collection>.CellMenu:<item>` once the collection's
   `CellMenu` names a StateDefinition; an item the StateDefinition lacks is refused, and
   `mashup validate` reports one.
