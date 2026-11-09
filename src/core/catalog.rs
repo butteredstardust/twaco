@@ -552,6 +552,30 @@ pub(crate) fn lookup_service(
     }
 }
 
+/// The definition an inherited-service override may use. `Absent` means the complete ancestry
+/// no longer declares it; `Unresolved` keeps callers from guessing through an external parent.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum InheritedService {
+    Defined(Service),
+    Absent,
+    Unresolved,
+}
+
+/// Resolve an override's inherited definition through repository source and the platform cache.
+pub(crate) fn inherited_service(
+    entity: &Entity,
+    entities: &[Entity],
+    platform: Option<&Platform>,
+    wanted: &str,
+) -> InheritedService {
+    let lookup = lookup_service(entity, entities, platform, wanted);
+    match lookup.service {
+        Some(service) => InheritedService::Defined(service),
+        None if lookup.complete => InheritedService::Absent,
+        None => InheritedService::Unresolved,
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct ServiceLookup {
     pub(crate) service: Option<Service>,
@@ -689,6 +713,8 @@ impl Coded for CatalogError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::types::platform::PlatformMeta;
+    use std::collections::BTreeMap;
     use std::path::PathBuf;
 
     fn fixture() -> (tempfile::TempDir, PathBuf, Solution) {
@@ -721,6 +747,33 @@ mod tests {
         std::fs::write(&path, xml.replace("</ThingShape>", "<EventDefinitions><EventDefinition name=\"Changed\" dataShape=\"Acme.Rows\"/></EventDefinitions></ThingShape>")).unwrap();
         let after = serde_json::to_value(build(&solution, Query::default()).unwrap()).unwrap();
         assert_eq!(before, after);
+    }
+
+    #[test]
+    fn inherited_service_distinguishes_defined_absent_and_unresolved() {
+        let (_dir, _, solution) = fixture();
+        let (model, _) = types::load_model(&solution);
+        let entity = model
+            .entities
+            .iter()
+            .find(|entity| entity.name == "P.Thing")
+            .unwrap();
+        assert!(matches!(
+            inherited_service(entity, &model.entities, None, "TemplateService"),
+            InheritedService::Defined(_)
+        ));
+        assert!(matches!(
+            inherited_service(entity, &model.entities, None, "Gone"),
+            InheritedService::Unresolved
+        ));
+        let platform = Platform {
+            templates: BTreeMap::from([("GenericThing".to_string(), PlatformMeta::default())]),
+            ..Platform::default()
+        };
+        assert!(matches!(
+            inherited_service(entity, &model.entities, Some(&platform), "Gone"),
+            InheritedService::Absent
+        ));
     }
 
     #[test]

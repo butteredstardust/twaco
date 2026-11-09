@@ -78,17 +78,20 @@ pub(crate) fn check_in(solution: &Solution, found: &workspace::Discovery) -> Vec
     problems
 }
 
-/// Whether an ancestor defines a service an entity implements with no definition of its own: a
-/// template or shape of the solution or of a configured extension, or one the platform cache
-/// holds. Loaded the first time a file needs it; only a definition found counts, so an
-/// incomplete chain or a missing cache leaves the finding standing.
+/// Resolve an ancestor service for an implementation with no local definition. The model and
+/// platform cache are loaded once because validation calls this for every override.
 struct Ancestry<'a> {
     solution: &'a Solution,
     loaded: OnceCell<(Model, Option<Platform>)>,
 }
 
 impl Ancestry<'_> {
-    fn defines(&self, collection: &str, name: &str, service: &str) -> bool {
+    fn service(
+        &self,
+        collection: &str,
+        name: &str,
+        service: &str,
+    ) -> super::catalog::InheritedService {
         let (model, platform) = self.loaded.get_or_init(|| {
             (
                 super::types::load_model(self.solution).0,
@@ -100,11 +103,9 @@ impl Ancestry<'_> {
             .iter()
             .find(|entity| entity.collection == collection && entity.name == name)
         else {
-            return false;
+            return super::catalog::InheritedService::Unresolved;
         };
-        super::catalog::lookup_service(entity, &model.entities, platform.as_ref(), service)
-            .service
-            .is_some()
+        super::catalog::inherited_service(entity, &model.entities, platform.as_ref(), service)
     }
 }
 
@@ -176,7 +177,7 @@ fn check_one(
         &entity.info.name,
         &src,
         &solution.validate.inherited_overrides,
-        &|service| ancestry.defines(&entity.info.collection, &entity.info.name, service),
+        &|service| ancestry.service(&entity.info.collection, &entity.info.name, service),
     ));
     problems.extend(check_member_names(&file, &src));
     problems.extend(check_multirow_tables(&file, &src));
@@ -391,7 +392,7 @@ fn check_services(
     entity: &str,
     src: &[u8],
     allowed: &[String],
-    inherited: &dyn Fn(&str) -> bool,
+    inherited: &dyn Fn(&str) -> super::catalog::InheritedService,
 ) -> Vec<Problem> {
     let Ok(extraction) = super::sidecar::extract(src) else {
         return Vec::new();
@@ -414,22 +415,41 @@ fn check_services(
             .iter()
             .any(|entry| entry == service || *entry == format!("{entity}.{service}"))
     };
-    let unexplained: Vec<&String> = extraction
+    let mut unresolved = Vec::new();
+    let mut absent = Vec::new();
+    for service in extraction
         .services
         .iter()
         .filter(|service| service.is_override())
-        .map(|service| &service.name)
-        .filter(|name| !listed(name) && !inherited(name))
-        .collect();
-    if !unexplained.is_empty() {
-        let names: Vec<&str> = unexplained.iter().map(|n| n.as_str()).collect();
+    {
+        match inherited(&service.name) {
+            super::catalog::InheritedService::Defined(_) => {}
+            super::catalog::InheritedService::Unresolved if !listed(&service.name) => {
+                unresolved.push(service.name.as_str());
+            }
+            super::catalog::InheritedService::Unresolved => {}
+            super::catalog::InheritedService::Absent => absent.push(service.name.as_str()),
+        }
+    }
+    if !unresolved.is_empty() {
         problems.push(Problem {
             file: file.to_string(),
             rule: "service-without-definition",
             message: format!(
                 "implemented here with no local definition: {}. If these override an inherited \
                  service, list them in [validate] inherited_overrides.",
-                names.join(", ")
+                unresolved.join(", ")
+            ),
+        });
+    }
+    if !absent.is_empty() {
+        problems.push(Problem {
+            file: file.to_string(),
+            rule: "service-without-definition",
+            message: format!(
+                "implemented here but its parent no longer defines: {}. Revert the override or \
+                 restore the parent's definition.",
+                absent.join(", ")
             ),
         });
     }
@@ -512,10 +532,12 @@ mod tests {
         let src = br#"<Entities><Things><Thing name="Acme.T"><ThingShape><ServiceDefinitions/><ServiceImplementations><ServiceImplementation name="Run" handlerName="Script"><ConfigurationTables><ConfigurationTable name="Script"><Rows><Row><code><![CDATA[1;]]></code></Row></Rows></ConfigurationTable></ConfigurationTables></ServiceImplementation></ServiceImplementations></ThingShape></Thing></Things></Entities>"#;
         let rules = |allowed: &[&str]| -> Vec<&'static str> {
             let allowed: Vec<String> = allowed.iter().map(|a| a.to_string()).collect();
-            check_services("t.xml", "Acme.T", src, &allowed, &|_| false)
-                .iter()
-                .map(|p| p.rule)
-                .collect()
+            check_services("t.xml", "Acme.T", src, &allowed, &|_| {
+                super::super::catalog::InheritedService::Unresolved
+            })
+            .iter()
+            .map(|p| p.rule)
+            .collect()
         };
         assert_eq!(rules(&[]), ["service-without-definition"]);
         assert!(
@@ -621,6 +643,18 @@ mod tests {
             undefined(),
             ["implemented here with no local definition: Unknown. If these override an inherited service, list them in [validate] inherited_overrides."]
         );
+    }
+
+    #[test]
+    fn an_absent_inherited_override_is_not_suppressed() {
+        let src = br#"<Entities><Things><Thing name="Acme.T"><ThingShape><ServiceDefinitions/><ServiceImplementations><ServiceImplementation name="Run" handlerName="Script"><ConfigurationTables><ConfigurationTable name="Script"><Rows><Row><code><![CDATA[1;]]></code></Row></Rows></ConfigurationTable></ConfigurationTables></ServiceImplementation></ServiceImplementations></ThingShape></Thing></Things></Entities>"#;
+        let allowed = vec!["Acme.T.Run".to_string()];
+        let problems = check_services("T.xml", "Acme.T", src, &allowed, &|_| {
+            super::super::catalog::InheritedService::Absent
+        });
+        assert_eq!(problems.len(), 1);
+        assert!(problems[0].message.contains("parent no longer defines"));
+        assert!(problems[0].message.contains("Revert the override"));
     }
 
     #[test]

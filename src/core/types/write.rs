@@ -1,12 +1,13 @@
 use super::super::config::Solution;
 use super::super::lock::{self, WorkspaceLock};
 use super::super::transaction::Transaction;
-use super::model::{load_model, script_declares, Member, Model, Service};
+use super::model::{load_model, script_declares, script_service_definitions, Model, Service};
 use super::platform::Platform;
 use super::render::{
     ensure_lf_end, generate, identifiers, jsdoc_text, render_skipped_global, type_name,
 };
 use super::{Outcome, TypesError};
+use crate::core::catalog::InheritedService;
 use serde_json;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -90,7 +91,7 @@ pub(super) fn write_model(
         planned.put(&directory.join(name), &content)?;
     }
 
-    let services = write_service_projects(solution, model, &mut skipped, &mut planned)?;
+    let services = write_service_projects(solution, model, platform, &mut skipped, &mut planned)?;
     skipped.sort();
     let written = planned.written;
     planned.transaction.apply(held).map_err(TypesError::Write)?;
@@ -129,6 +130,7 @@ impl Planned<'_> {
 fn write_service_projects(
     solution: &Solution,
     model: &Model,
+    platform: Option<&Platform>,
     skipped: &mut Vec<String>,
     planned: &mut Planned<'_>,
 ) -> Result<usize, TypesError> {
@@ -152,9 +154,17 @@ fn write_service_projects(
     for entity in &model.entities {
         let entity_key = format!("{}\0{}", entity.name, entity.collection);
         let services_dir = solution.src_root().join(&entity.name).join("services");
-        for member in &entity.members {
-            let Member::Service(service) = member else {
-                continue;
+        for (name, definition) in script_service_definitions(entity, model, platform) {
+            let service = match definition {
+                InheritedService::Defined(service) => service,
+                InheritedService::Absent => continue,
+                InheritedService::Unresolved => {
+                    skipped.push(format!(
+                        "{}/{name}: inherited service definition could not be resolved; run `twaco types --platform`",
+                        entity.name
+                    ));
+                    continue;
+                }
             };
             let directory = services_dir.join(&service.name);
             let script_path = directory.join("script.js");
@@ -170,7 +180,7 @@ fn write_service_projects(
             };
             let jsconfig = render_jsconfig(&solution.root, &directory);
             let globals = render_globals(
-                service,
+                &service,
                 &entity_ids[&entity_key],
                 &script,
                 &known_shapes,

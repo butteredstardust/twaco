@@ -3,7 +3,7 @@
 use super::{lock_workspace, Access, Effects, Mode, Notices};
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::{Severity, Solution};
-use crate::core::{check, header, lint_report, lock, workspace};
+use crate::core::{catalog, check, header, lint_report, lock, types, workspace};
 use std::path::Path;
 
 /// The arguments that affect a header repair.
@@ -71,7 +71,7 @@ impl Coded for FixHeadersError {
 
 /// Repair headers. A plan reads only and takes no lock; an apply writes each changed script
 /// atomically, holding the workspace lock. A script whose header contract rule is off, or which
-/// has no readable definition.xml, is left alone.
+/// has neither a readable local definition nor a resolved inherited definition, is left alone.
 pub fn execute(
     solution: &Solution,
     request: &FixHeadersRequest,
@@ -84,6 +84,8 @@ pub fn execute(
         ),
     };
     let discovery = workspace::discover(solution);
+    let (model, _) = types::load_model(solution);
+    let platform = types::cached_platform(solution);
     let lint = solution.effective_lint();
     let mut outcome = FixHeadersOutcome {
         scripts: Vec::new(),
@@ -118,11 +120,30 @@ pub fn execute(
         if lint.severity("comments.header.contract", entity.as_deref(), service) == Severity::Off {
             continue;
         }
-        let Some(definition) = path
-            .parent()
-            .map(|folder| folder.join("definition.xml"))
-            .and_then(|path| std::fs::read_to_string(path).ok())
-            .and_then(|source| header::definition(&source))
+        let Some(definition) =
+            path.parent()
+                .map(|folder| folder.join("definition.xml"))
+                .and_then(|path| std::fs::read_to_string(path).ok())
+                .and_then(|source| header::definition(&source))
+                .or_else(|| {
+                    let (collection, name) = check::script_entity(solution, &discovery, &path)?;
+                    let entity = model
+                        .entities
+                        .iter()
+                        .find(|entity| entity.collection == collection && entity.name == name)?;
+                    match catalog::inherited_service(
+                        entity,
+                        &model.entities,
+                        platform.as_ref(),
+                        service,
+                    ) {
+                        catalog::InheritedService::Defined(service) => {
+                            Some(header::Definition::from_service(&service))
+                        }
+                        catalog::InheritedService::Absent
+                        | catalog::InheritedService::Unresolved => None,
+                    }
+                })
         else {
             continue;
         };
@@ -257,6 +278,44 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["src/P.A/services/Run/script.js"]
         );
+    }
+
+    #[test]
+    fn fixes_an_override_header_from_its_inherited_definition() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::write(
+            root.join("twaco.toml"),
+            "[lint]\nextends = [\"house-v1\"]\n\n[[project]]\nname = \"P\"\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(root.join("ThingTemplates")).unwrap();
+        std::fs::create_dir_all(root.join("Things")).unwrap();
+        std::fs::write(
+            root.join("ThingTemplates/Base.xml"),
+            r#"<Entities><ThingTemplates><ThingTemplate name="Base" projectName="P"><ThingShape><ServiceDefinitions><ServiceDefinition name="Run"><ParameterDefinitions><FieldDefinition name="who" baseType="STRING"/></ParameterDefinitions><ResultType baseType="NOTHING"/></ServiceDefinition></ServiceDefinitions></ThingShape></ThingTemplate></ThingTemplates></Entities>"#,
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("Things/Child.xml"),
+            r#"<Entities><Things><Thing name="Child" projectName="P" thingTemplate="Base"><ThingShape><ServiceDefinitions/><ServiceImplementations><ServiceImplementation name="Run" handlerName="Script"><ConfigurationTables><ConfigurationTable name="Script"><Rows><Row><code><![CDATA[logger.info(who);]]></code></Row></Rows></ConfigurationTable></ConfigurationTables></ServiceImplementation></ServiceImplementations></ThingShape></Thing></Things></Entities>"#,
+        )
+        .unwrap();
+        let script = root.join("src/Child/services/Run/script.js");
+        std::fs::create_dir_all(script.parent().unwrap()).unwrap();
+        std::fs::write(&script, "logger.info(who);\n").unwrap();
+        let solution = Solution::load(&root.join("twaco.toml")).unwrap();
+
+        let fixed = execute(
+            &solution,
+            &request(Mode::Apply, Some("Things/Child")),
+            &mut Notices::default(),
+        )
+        .unwrap();
+        assert_eq!(fixed.changed(), 1);
+        let text = std::fs::read_to_string(script).unwrap();
+        assert!(text.contains("@function Run"), "{text}");
+        assert!(text.contains("@param {string} who"), "{text}");
     }
 
     #[test]

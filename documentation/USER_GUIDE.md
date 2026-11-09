@@ -262,6 +262,14 @@ visible one-time layout change. A script-only service folder is an override; a f
 only `definition.xml` is incomplete. Until then `sync` leaves an override without a folder exactly as it is, even with
 `--allow-structural`: an override goes only with `thing service override --revert`.
 
+`check` resolves an override's inherited definition for its JSDoc contract, `lint fix-headers`,
+and `types`, including `types --check`; its parameters and `result` are typed as the parent
+declares. A strict permissions policy also treats the override as that entity's `ServiceInvoke`
+resource. If an ancestor is outside both the repository and `.twaco/platform.json`, those
+contract and type checks wait for `twaco types --platform`; `[validate] inherited_overrides` can
+only suppress that unresolved case. When the full ancestry is known and nobody defines the
+service, `check` says to revert the override or restore the parent definition.
+
 A service or a DataShape field appearing or disappearing is a bigger change than an edit, so
 `sync` refuses it unless given `--allow-add-remove`. With it, a new service folder holding a
 `definition.xml` and a `script.js` adds the service, its Script implementation laid out like

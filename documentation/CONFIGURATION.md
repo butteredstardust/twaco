@@ -516,12 +516,14 @@ cannot run still fails, and a name that is not a gate is refused.
 ### `[validate]`
 
 A service implemented with no definition of its own is legitimate when its definition comes from a
-shape or template. `check` accepts it when it finds that definition: on a template or shape of the
-solution or of a configured `[[extension]]` the entity inherits from, or in the platform cache that
-`twaco types --platform` fills from the server (the Solution Framework's `DeployComponent` on
-`PTC.Base` templates, for example). An incomplete chain or a missing cache proves nothing, so the
-finding stays. `inherited_overrides` lists the others, as `Entity.Service` names; a bare `Service`
-allows it on every entity.
+shape or template. `check`, comment headers and `types` resolve that definition on a template or
+shape of the solution or of a configured `[[extension]]` the entity inherits from, or in the
+platform cache that `twaco types --platform` fills from the server (the Solution Framework's
+`DeployComponent` on `PTC.Base` templates, for example). An incomplete chain or a missing cache
+leaves the override unresolved; `inherited_overrides` lists those exceptions as `Entity.Service`
+names, and a bare `Service` allows it on every entity. It never suppresses an ancestry that is
+fully known but no longer defines the service: revert that override or restore the parent's
+definition.
 
 ### `[unused]`
 

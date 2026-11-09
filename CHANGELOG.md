@@ -10,6 +10,10 @@ All notable changes to twaco are recorded here. The format follows
 
 - `extract`, `sync`, `adopt` and rename now manage inherited service overrides as script-only
   sidecars (`services/<Service>/script.js`); the next extract exposes that layout where needed.
+- Inherited service overrides now use their resolved parent definition for comment headers and
+  TypeScript globals/checking, and strict permissions policies classify them as run-time services.
+  Validation distinguishes an unresolved external ancestor from a parent that no longer defines
+  the service.
 - `mashup add` measures a new widget's row with the `--prop` values it is given (a margin, a label
   type), not with the catalogue defaults it replaces.
 - `thing service add --script` keeps a header the script brings and completes its tags, instead of

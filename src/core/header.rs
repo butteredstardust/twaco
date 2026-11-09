@@ -33,6 +33,34 @@ pub(crate) struct Definition {
     pub(crate) result_shape: Option<String>,
 }
 
+impl Definition {
+    /// A service signature supplied by an ancestor has the same header contract as a local XML
+    /// definition; ordinal order is already preserved by the model's service parser.
+    pub(crate) fn from_service(service: &super::types::Service) -> Self {
+        Self {
+            description: service.description.clone(),
+            inputs: service
+                .parameters
+                .iter()
+                .enumerate()
+                .map(|(ordinal, parameter)| Field {
+                    name: parameter.name.clone(),
+                    base_type: parameter.value.base_type.clone(),
+                    description: parameter.description.clone(),
+                    ordinal,
+                })
+                .collect(),
+            result: Field {
+                name: String::new(),
+                base_type: service.result.base_type.clone(),
+                description: String::new(),
+                ordinal: 0,
+            },
+            result_shape: service.result.data_shape.clone(),
+        }
+    }
+}
+
 /// One JSDoc tag: its value runs on over the lines below it until the next tag, as JSDoc reads it.
 #[derive(Clone, Debug)]
 pub(crate) struct Tag {
