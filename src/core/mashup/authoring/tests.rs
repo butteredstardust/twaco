@@ -7298,3 +7298,80 @@ fn end_refuses_a_filling_widget_before_changing_anything() {
     ));
     assert_eq!(tree_bytes(dir.path()), before);
 }
+
+fn cell_menu_definition(dir: &Path, values: &[&str]) {
+    let states: Vec<Value> = values
+        .iter()
+        .map(|value| json!({"defaultValue": value, "displayString": value, "name": ""}))
+        .collect();
+    let definition = json!({"stateType": "string", "stateDefinitions": states});
+    write(
+        dir,
+        "acme/StateDefinitions/Acme.Menu_ST.xml",
+        &format!(
+            r#"<Entities><StateDefinitions><StateDefinition name="Acme.Menu_ST" projectName="Acme"><content><![CDATA[{definition}]]></content></StateDefinition></StateDefinitions></Entities>"#
+        ),
+    );
+}
+
+#[test]
+fn a_cell_menu_item_event_is_checked_against_the_menu_state_definition() {
+    let (dir, solution) = collection_fixture();
+    let plan = plan_collection_add(&solution, &collection_request(&[("id", "Id")])).unwrap();
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    let collection = plan.id.clone();
+    cell_menu_definition(dir.path(), &["Edit", "More Details"]);
+    let event = |item: &str| format!("ui:{collection}.CellMenu:{item}");
+    let invoke = "data:Acme.Orders.Manager.GetOrders";
+    // No cell menu yet.
+    assert!(matches!(
+        on(&solution, &event("Edit"), invoke),
+        Err(AuthoringError::Invalid(_))
+    ));
+    let set = plan_set(
+        &solution,
+        &SetRequest {
+            mashup: "Acme.Orders_MU".into(),
+            widget: collection.clone(),
+            properties: vec![("CellMenu".into(), json!("Acme.Menu_ST"))],
+            style_from: None,
+            styles: Vec::new(),
+        },
+    )
+    .unwrap();
+    apply_edit(&solution, set.edit.as_ref().unwrap(), &lock(&solution)).unwrap();
+    // Composer's form only: spaces become hyphens.
+    let error = on(&solution, &event("More Details"), invoke)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("CellMenu:More-Details"), "{error}");
+    // An item the StateDefinition lacks.
+    let error = on(&solution, &event("Archive"), invoke)
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("CellMenu:Edit, CellMenu:More-Details"),
+        "{error}"
+    );
+    let wired = on(&solution, &event("More-Details"), invoke).unwrap();
+    apply_edit(&solution, &wired.edit, &lock(&solution)).unwrap();
+    let report =
+        crate::core::mashup::validate::validate(&solution, Some("Acme.Orders_MU")).unwrap();
+    assert!(
+        !report[0].problems.iter().any(|p| p.rule == "cell-menu"),
+        "{:?}",
+        report[0].problems
+    );
+    // The state goes from the menu: validate names the event that now fires nothing.
+    cell_menu_definition(dir.path(), &["Edit"]);
+    let report =
+        crate::core::mashup::validate::validate(&solution, Some("Acme.Orders_MU")).unwrap();
+    assert!(
+        report[0]
+            .problems
+            .iter()
+            .any(|p| p.rule == "cell-menu" && p.message.contains("CellMenu:More-Details")),
+        "{:?}",
+        report[0].problems
+    );
+}

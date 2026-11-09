@@ -1240,6 +1240,16 @@ the result to `Data` in one edit. It reports when nothing invokes the source cal
 [Collections: the serialized contract](MASHUP_COLLECTIONS.md) for the stored properties and
 runtime behaviour.
 
+A cell menu (the "⋮" on each cell) is a string StateDefinition whose states are the items. Point
+the collection's `CellMenu` at it, then handle each item's `CellMenu:<item>` event; an item with
+spaces fires its value with hyphens (`More Details` fires `CellMenu:More-Details`):
+
+```sh
+twaco new state Acme.App.CardMenu_ST --type string --state "==Edit=Edit" --state "==More Details=More Details" --apply
+twaco mashup set Acme.App.Orders_MU ptcscollection-8 --prop CellMenu=Acme.App.CardMenu_ST --apply
+twaco mashup on Acme.App.Orders_MU --event ui:ptcscollection-8.CellMenu:Edit --invoke data:Acme.App.Orders.Manager.Edit --apply
+```
+
 ### State formatting
 
 Copy a repository StateDefinition into a widget's STATEFORMATTING property or an existing grid

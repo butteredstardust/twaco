@@ -22,6 +22,9 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- Collection cell menus: `mashup on --event ui:<collection>.CellMenu:<item>` once the collection's
+  `CellMenu` names a StateDefinition; an item the StateDefinition lacks is refused, and
+  `mashup validate` reports one.
 - `mashup add --right-of <widget> --end` (MCP `end`) puts a widget at the far end of its row, split
   into a start and an end group as the kits lay out a label and its value; `mashup add separator`
   adds the kits' 1px rule between rows. A row of such cards gets a measured `range` height.
