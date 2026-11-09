@@ -1872,15 +1872,16 @@
     "name": "mashup_set",
     "description": "Set checked properties on one exact mashup widget. Structured properties take JSON objects or arrays; root CSS updates custom.css. A dry run unless dry_run is false; apply takes the workspace lock and writes the entity and managed sidecars together.",
     "inputSchema": {
-      "required": ["mashup", "widget", "properties"],
+      "required": ["mashup", "widget"],
       "additionalProperties": false,
       "type": "object",
       "properties": {
         "mashup": { "description": "The existing mashup's name.", "type": "string" },
         "widget": { "description": "An exact widget Id, DisplayName, or the one widget of a type.", "type": "string" },
         "properties": {
-          "description": "Exact property names and their JSON values. Strings use the same syntax as CLI --prop.",
-          "type": "object"
+          "description": "Exact property names and their JSON values. Strings use the same syntax as CLI --prop. Optional when styles or style_from is given.",
+          "type": "object",
+          "default": {}
         },
         "style_from": { "description": "Copy this widget's root StyleProperties.data entry, as `<mashup>:<widget>`.", "type": "string" },
         "styles": { "description": "Style settings `[<part>[@<state>]:]<property>=<value>` merged into the widget's root style entry after any style_from copy, such as `background=#ffffff` or `cell@hover:border-color=#BEC6CA`; an empty value removes the property.", "type": "array", "items": { "type": "string" }, "default": [] },

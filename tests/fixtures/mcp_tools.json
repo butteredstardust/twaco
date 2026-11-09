@@ -5612,8 +5612,7 @@
     "inputSchema": {
       "required": [
         "mashup",
-        "widget",
-        "properties"
+        "widget"
       ],
       "additionalProperties": false,
       "type": "object",
@@ -5627,8 +5626,9 @@
           "type": "string"
         },
         "properties": {
-          "description": "Exact property names and their JSON values. Strings use the same syntax as CLI --prop.",
-          "type": "object"
+          "description": "Exact property names and their JSON values. Strings use the same syntax as CLI --prop. Optional when styles or style_from is given.",
+          "type": "object",
+          "default": {}
         },
         "style_from": {
           "description": "Copy this widget's root StyleProperties.data entry, as `<mashup>:<widget>`.",

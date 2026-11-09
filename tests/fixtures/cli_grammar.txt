@@ -220,9 +220,9 @@ help:
 |       --column <field>       an existing ptcsgrid column's field
 |       --field <field>        the field judged by the state; defaults to the column field or KPI Value
 |       --icon-only            show only the state icon in a grid column
-|   mashup set <mashup> <widget> --prop <name=value>... [--style <setting>]... [--style-from <mashup:widget>] [--apply] [--json]
-|                               set checked properties on one exact widget; structured properties take JSON;
-|                               plan unless --apply
+|   mashup set <mashup> <widget> [--prop <name=value>]... [--style <setting>]... [--style-from <mashup:widget>] [--apply] [--json]
+|                               set checked properties or the style of one exact widget (at least one of
+|                               --prop, --style, --style-from); structured properties take JSON; plan unless --apply
 |       --prop <name=value>     set one property, repeatable; objects and arrays are JSON
 |       --style-from <mashup:widget>
 |                               copy that widget's visual style (its entry in the root's StyleProperties);
@@ -7118,9 +7118,9 @@ help:
 |       --column <field>       an existing ptcsgrid column's field
 |       --field <field>        the field judged by the state; defaults to the column field or KPI Value
 |       --icon-only            show only the state icon in a grid column
-|   mashup set <mashup> <widget> --prop <name=value>... [--style <setting>]... [--style-from <mashup:widget>] [--apply] [--json]
-|                               set checked properties on one exact widget; structured properties take JSON;
-|                               plan unless --apply
+|   mashup set <mashup> <widget> [--prop <name=value>]... [--style <setting>]... [--style-from <mashup:widget>] [--apply] [--json]
+|                               set checked properties or the style of one exact widget (at least one of
+|                               --prop, --style, --style-from); structured properties take JSON; plan unless --apply
 |       --prop <name=value>     set one property, repeatable; objects and arrays are JSON
 |       --style-from <mashup:widget>
 |                               copy that widget's visual style (its entry in the root's StyleProperties);
@@ -9228,7 +9228,7 @@ help:
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
 
 == twaco mashup set
-usage: twaco mashup set <mashup> <widget> --prop <name=value>... [--style <setting>]... [--style-from <mashup:widget>] [--apply] [--json]
+usage: twaco mashup set <mashup> <widget> [--prop <name=value>]... [--style <setting>]... [--style-from <mashup:widget>] [--apply] [--json]
 settings: disable-version-flag disable-help-subcommand
 subcommands: 
 arg --apply
@@ -9334,9 +9334,9 @@ arg <operands>
     index: 1
     other: -
 help:
-|   mashup set <mashup> <widget> --prop <name=value>... [--style <setting>]... [--style-from <mashup:widget>] [--apply] [--json]
-|                               set checked properties on one exact widget; structured properties take JSON;
-|                               plan unless --apply
+|   mashup set <mashup> <widget> [--prop <name=value>]... [--style <setting>]... [--style-from <mashup:widget>] [--apply] [--json]
+|                               set checked properties or the style of one exact widget (at least one of
+|                               --prop, --style, --style-from); structured properties take JSON; plan unless --apply
 |       --prop <name=value>     set one property, repeatable; objects and arrays are JSON
 |       --style-from <mashup:widget>
 |                               copy that widget's visual style (its entry in the root's StyleProperties);

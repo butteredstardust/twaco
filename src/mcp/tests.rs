@@ -2330,6 +2330,10 @@ fn what_the_offline_tools_return_fits_the_output_schema_they_publish() {
             json!({"mashup": "P.Board_MU", "widget": "mashup-root", "properties": {"StyleProperties": {"gap": "4px"}}}),
         ),
         (
+            "mashup_set",
+            json!({"mashup": "P.Board_MU", "widget": "flexcontainer-2", "styles": ["background=#ffffff"]}),
+        ),
+        (
             "mashup_add_contained",
             json!({"mashup": "P.Board_MU", "child": "P.Card_MU"}),
         ),

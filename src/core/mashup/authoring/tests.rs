@@ -6291,6 +6291,24 @@ fn style_refines_a_copy_from_style_from_in_one_change() {
 }
 
 #[test]
+fn a_copy_whose_only_property_is_removed_changes_nothing() {
+    let (dir, solution) = style_fixture();
+    let before = tree_bytes(dir.path());
+    // The reference label's entry holds only `color`: copying it and removing that nets nothing.
+    let plan = style(
+        &solution,
+        "Acme.Target_MU",
+        "ptcslabel-3",
+        &["color="],
+        Some("Acme.Ref_MU:ptcslabel-3"),
+    )
+    .unwrap();
+    assert!(plan.changed.is_empty(), "{:?}", plan.changed);
+    assert!(plan.edit.is_none());
+    assert_eq!(tree_bytes(dir.path()), before);
+}
+
+#[test]
 fn style_refuses_bad_settings_and_the_mashup_root() {
     let (dir, solution) = style_fixture();
     let before = tree_bytes(dir.path());

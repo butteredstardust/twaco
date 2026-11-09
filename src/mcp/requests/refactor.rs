@@ -861,7 +861,8 @@ pub(crate) struct MashupSetRequest {
     pub(crate) mashup: String,
     /// An exact widget Id, DisplayName, or the one widget of a type.
     pub(crate) widget: String,
-    /// Exact property names and their JSON values. Strings use the same syntax as CLI --prop.
+    /// Exact property names and their JSON values. Strings use the same syntax as CLI --prop. Optional when styles or style_from is given.
+    #[serde(default)]
     #[schemars(schema_with = "free_object")]
     pub(crate) properties: BTreeMap<String, serde_json::Value>,
     /// Copy this widget's root StyleProperties.data entry, as `<mashup>:<widget>`.

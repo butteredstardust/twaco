@@ -742,9 +742,9 @@ pub(crate) const USAGE: &[Usage] = &[
     Usage {
         path: "mashup set",
         group: 1,
-        text: r#"  mashup set <mashup> <widget> --prop <name=value>... [--style <setting>]... [--style-from <mashup:widget>] [--apply] [--json]
-                              set checked properties on one exact widget; structured properties take JSON;
-                              plan unless --apply
+        text: r#"  mashup set <mashup> <widget> [--prop <name=value>]... [--style <setting>]... [--style-from <mashup:widget>] [--apply] [--json]
+                              set checked properties or the style of one exact widget (at least one of
+                              --prop, --style, --style-from); structured properties take JSON; plan unless --apply
       --prop <name=value>     set one property, repeatable; objects and arrays are JSON
       --style-from <mashup:widget>
                               copy that widget's visual style (its entry in the root's StyleProperties);

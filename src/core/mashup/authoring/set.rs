@@ -77,6 +77,13 @@ pub(crate) fn plan_set(
     }
     let mut changed = Vec::new();
     let mut css = None;
+    // What the widget's style was before this call: --style reports its change against it.
+    let original_styles = document.root_properties().get("StyleProperties").cloned();
+    let original_entry = original_styles
+        .as_ref()
+        .and_then(|styles| styles.get("data"))
+        .and_then(|data| data.get(&found.id))
+        .cloned();
     let style_copy = match &request.style_from {
         None => None,
         Some(reference) => {
@@ -156,41 +163,37 @@ pub(crate) fn plan_set(
         // An entry --style-from copied a moment ago is the one these settings refine.
         let mut entry = current.unwrap_or_else(|| json!({"parts": {}, "widget": styler}));
         merge_styles(&mut entry, &settings, &request.mashup, &found.id)?;
-        // The plan lists the entry once, from what it was before either step.
+        // The plan lists the entry once, measured against what the widget had before this call.
         let property = format!("StyleProperties.data.{}", found.id);
-        let earlier = changed
-            .iter()
-            .position(|change| change.property == property)
-            .map(|index| changed.remove(index).before);
+        changed.retain(|change| change.property != property);
         let emptied = entry
             .get("parts")
             .and_then(Value::as_object)
             .is_some_and(Map::is_empty);
         if emptied {
-            // Nothing left to style: the entry goes, as Composer drops an unstyled widget's.
-            let removed = document
+            // Nothing left to style: the entry goes, as Composer drops an unstyled widget's, and
+            // a style map this call created for it goes too.
+            if original_styles.is_none() {
+                document.root_properties_mut().remove("StyleProperties");
+            } else if let Some(data) = document
                 .root_properties_mut()
                 .get_mut("StyleProperties")
                 .and_then(|styles| styles.get_mut("data"))
                 .and_then(Value::as_object_mut)
-                .and_then(|data| data.remove(&found.id));
-            if let Some(before) = earlier.clone().unwrap_or(removed) {
-                changed.push(Change {
-                    property: property.clone(),
-                    before: Some(before),
-                    after: Value::Null,
-                });
+            {
+                data.remove(&found.id);
             }
         } else {
-            copy_style_entry(&mut document, &found.id, entry, None, &mut changed);
+            copy_style_entry(&mut document, &found.id, entry.clone(), None, &mut changed);
+            changed.retain(|change| change.property != property);
         }
-        if let Some(before) = earlier {
-            if let Some(change) = changed
-                .iter_mut()
-                .find(|change| change.property == property)
-            {
-                change.before = before;
-            }
+        let after = (!emptied).then_some(entry);
+        if after != original_entry {
+            changed.push(Change {
+                property,
+                before: original_entry.clone(),
+                after: after.unwrap_or(Value::Null),
+            });
         }
     }
     for (name, supplied) in &request.properties {
