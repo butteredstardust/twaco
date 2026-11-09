@@ -628,20 +628,19 @@ fn sidecars_in_sync(solution: &Solution, found: &workspace::Discovery) -> GateRe
 
     for entity in &found.entities {
         let dir = workspace::services_dir(solution, entity);
-        // read_sidecars skips a service folder missing either file, so a half-deleted sidecar
-        // would otherwise read as no sidecar at all, and the entity as unmanaged.
+        // A script-only folder is an override. A definition-only folder cannot describe any
+        // service implementation, so report it before the reader treats it as unmanaged.
         for service in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
-            let missing: Vec<&str> = ["definition.xml", "script.js"]
-                .into_iter()
-                .filter(|file| !service.path().join(file).is_file())
-                .collect();
-            if service.path().is_dir() && !missing.is_empty() {
+            if service.path().is_dir()
+                && service.path().join("definition.xml").is_file()
+                && !service.path().join("script.js").is_file()
+            {
                 result.findings.push(Finding {
                     gate: "sidecars".to_string(),
                     file: relative(solution, &service.path()),
                     line: 0,
                     rule: "incomplete".to_string(),
-                    message: format!("service sidecar without {}", missing.join(" or ")),
+                    message: "service sidecar without script.js".to_string(),
                 });
             }
         }
@@ -1214,6 +1213,8 @@ pub(crate) fn comment_header_with(
     if !lint.gate_enabled("comment header") {
         return result;
     }
+    let (model, _) = types::load_model(solution);
+    let platform = types::cached_platform(solution);
     for (path, source) in scripts(solution, &mut result) {
         result.examined += 1;
         let service = path
@@ -1224,7 +1225,26 @@ pub(crate) fn comment_header_with(
             .parent()
             .map(|folder| folder.join("definition.xml"))
             .and_then(|path| std::fs::read_to_string(path).ok())
-            .and_then(|source| super::header::definition(&source));
+            .and_then(|source| super::header::definition(&source))
+            .or_else(|| {
+                let (collection, name) = script_entity(solution, discovered, &path)?;
+                let entity = model
+                    .entities
+                    .iter()
+                    .find(|entity| entity.collection == collection && entity.name == name)?;
+                match super::catalog::inherited_service(
+                    entity,
+                    &model.entities,
+                    platform.as_ref(),
+                    service?,
+                ) {
+                    super::catalog::InheritedService::Defined(service) => {
+                        Some(super::header::Definition::from_service(&service))
+                    }
+                    super::catalog::InheritedService::Absent
+                    | super::catalog::InheritedService::Unresolved => None,
+                }
+            });
         let Some(service) = service else { continue };
         for finding in
             super::header::findings(&source, service, definition.as_ref(), lint.header_policy())
@@ -2238,6 +2258,46 @@ result = who;",
             .find(|gate| gate.name == "comment header")
             .unwrap();
         assert!(header.findings.is_empty(), "{:?}", header.findings);
+    }
+
+    #[test]
+    fn the_header_gate_uses_an_inherited_override_definition() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::write(
+            root.join("twaco.toml"),
+            "[lint]\nextends = [\"house-v1\"]\n\n[[project]]\nname = \"P\"\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(root.join("ThingTemplates")).unwrap();
+        std::fs::create_dir_all(root.join("Things")).unwrap();
+        std::fs::write(
+            root.join("ThingTemplates/Base.xml"),
+            r#"<Entities><ThingTemplates><ThingTemplate name="Base" projectName="P"><ThingShape><ServiceDefinitions><ServiceDefinition name="Run"><ParameterDefinitions><FieldDefinition name="who" baseType="STRING"/></ParameterDefinitions><ResultType baseType="NOTHING"/></ServiceDefinition></ServiceDefinitions></ThingShape></ThingTemplate></ThingTemplates></Entities>"#,
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("Things/Child.xml"),
+            r#"<Entities><Things><Thing name="Child" projectName="P" thingTemplate="Base"><ThingShape><ServiceDefinitions/><ServiceImplementations><ServiceImplementation name="Run" handlerName="Script"><ConfigurationTables><ConfigurationTable name="Script"><Rows><Row><code><![CDATA[logger.info(who);]]></code></Row></Rows></ConfigurationTable></ConfigurationTables></ServiceImplementation></ServiceImplementations></ThingShape></Thing></Things></Entities>"#,
+        )
+        .unwrap();
+        let service = root.join("src/Child/services/Run");
+        std::fs::create_dir_all(&service).unwrap();
+        std::fs::write(service.join("script.js"), "logger.info(who);\n").unwrap();
+        let solution = Solution::load(&root.join("twaco.toml")).unwrap();
+
+        let header = run(&solution)
+            .gates
+            .into_iter()
+            .find(|gate| gate.name == "comment header")
+            .unwrap();
+        assert!(
+            header.findings.iter().any(
+                |finding| finding.rule == "contract" && finding.message.contains("fix-headers")
+            ),
+            "{:?}",
+            header.findings
+        );
     }
 
     #[test]

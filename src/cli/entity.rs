@@ -13,6 +13,7 @@ use twaco::core::{backup, entity, profile, push, server, status, workspace};
 pub(crate) enum Entity {
     Status(EntityStatus),
     Get(EntityGet),
+    Diff(EntityDiff),
     Push(EntityPush),
     Pull(EntityPull),
     Delete(EntityDelete),
@@ -27,6 +28,7 @@ impl Entity {
         match self {
             Entity::Status(_) => "entity status",
             Entity::Get(_) => "entity get",
+            Entity::Diff(_) => "entity diff",
             Entity::Push(_) => "entity push",
             Entity::Pull(_) => "entity pull",
             Entity::Delete(_) => "entity delete",
@@ -198,6 +200,82 @@ pub(crate) fn entity_get(solution: &Solution, args: &EntityGet) -> u8 {
     } else if let Err(error) = std::io::stdout().write_all(&live) {
         eprintln!("{} stdout: {error}", style::prefix());
         return FAILED;
+    }
+    OK
+}
+
+/// `twaco entity diff <entity> [--profile <name>] [--json]`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct EntityDiff {
+    #[command(flatten)]
+    pub(crate) profile: Profile,
+    #[command(flatten)]
+    pub(crate) json: Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
+/// Where the repository's copy of one entity and the server's differ. Read-only.
+pub(crate) fn entity_diff(solution: &Solution, args: &EntityDiff) -> u8 {
+    if args.operands.len() != 1 {
+        eprintln!(
+            "{} entity diff needs exactly one repository entity",
+            style::prefix()
+        );
+        return FAILED;
+    }
+    let profile_name = args.profile.name();
+    let profile = match profile::load(&solution.root, profile_name) {
+        Ok(profile) => profile,
+        Err(error) => {
+            eprintln!("{} {error}", style::prefix());
+            return FAILED;
+        }
+    };
+    let outcome = match entity::diff::diff(
+        &server::Client::new(profile),
+        solution,
+        &args.operands[0],
+        profile_name,
+    ) {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            eprintln!("{} {error}", style::prefix());
+            return FAILED;
+        }
+    };
+    if args.json.json {
+        let value = serde_json::json!({
+            "ok": true,
+            "entity": outcome.entity,
+            "identical": outcome.identical,
+            "differences": outcome.differences,
+            "server_owned": outcome.server_owned,
+        });
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&value).expect("diff result is JSON")
+        );
+        return OK;
+    }
+    if outcome.identical {
+        println!("{}: the repository and the server agree", outcome.entity);
+    } else {
+        println!(
+            "{}: {} difference(s) between the repository and the server",
+            outcome.entity,
+            outcome.differences.len()
+        );
+        for difference in &outcome.differences {
+            println!("  {difference}");
+        }
+    }
+    if !outcome.server_owned.is_empty() {
+        println!(
+            "not compared (server-owned): {}",
+            outcome.server_owned.join(", ")
+        );
     }
     OK
 }

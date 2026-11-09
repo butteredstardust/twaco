@@ -841,6 +841,18 @@ pub(crate) struct AccessExplainResult {
 }
 
 #[derive(Serialize, JsonSchema)]
+pub(crate) struct EntityDiffResult {
+    ok: bool,
+    entity: String,
+    /// Both sides hash the same, which is what status and deploy go by.
+    identical: bool,
+    /// Element paths where they differ; never a value.
+    differences: Vec<String>,
+    /// Server-owned parts left out of the comparison.
+    server_owned: Vec<String>,
+}
+
+#[derive(Serialize, JsonSchema)]
 pub(crate) struct EntityGetResult {
     ok: bool,
     entity: String,

@@ -79,7 +79,7 @@ until `--apply`; `sync` and `deploy` take them to the server.
 | Test user | `users seed` | `users list` | | `users delete` |
 | Application key | `appkey create` | `appkey show` | | `appkey delete` |
 | File repository | `repo put`, `repo mkdir` | `repo ls`, `repo get`, `repo status` | `repo mv`, `repo push`, `repo pull` | `repo rm` |
-| Server entity | `entity push`, `deploy`, `import` | `entity status`, `entity get`, `search`, `export` | `entity push`, `entity carry` (permissions after a rename) | `entity delete`, then `entity restore` to undo |
+| Server entity | `entity push`, `deploy`, `import` | `entity status`, `entity diff`, `entity get`, `search`, `export` | `entity push`, `entity carry` (permissions after a rename) | `entity delete`, then `entity restore` to undo |
 
 ## The repository
 
@@ -255,6 +255,21 @@ has a `twaco.toml` or entity files: to add a project to a repository, `twaco exp
 `twaco sync` writes them back into the XML. Commit the XML and its sidecars together; the
 `sidecars` gate fails when they disagree.
 
+An inherited service that a Thing, ThingTemplate or ThingShape implements locally is an
+**override**. `extract` writes its `services/<Service>/script.js`, with no `definition.xml`:
+the definition belongs to its ancestor. The next extract after upgrading can therefore make this
+visible one-time layout change. A script-only service folder is an override; a folder containing
+only `definition.xml` is incomplete. Until then `sync` leaves an override without a folder exactly as it is, even with
+`--allow-structural`: an override goes only with `thing service override --revert`.
+
+`check` resolves an override's inherited definition for its JSDoc contract, `lint fix-headers`,
+and `types`, including `types --check`; its parameters and `result` are typed as the parent
+declares. A strict permissions policy also treats the override as that entity's `ServiceInvoke`
+resource. If an ancestor is outside both the repository and `.twaco/platform.json`, those
+contract and type checks wait for `twaco types --platform`; `[validate] inherited_overrides` can
+only suppress that unresolved case. When the full ancestry is known and nobody defines the
+service, `check` says to revert the override or restore the parent definition.
+
 A service or a DataShape field appearing or disappearing is a bigger change than an edit, so
 `sync` refuses it unless given `--allow-add-remove`. With it, a new service folder holding a
 `definition.xml` and a `script.js` adds the service, its Script implementation laid out like
@@ -332,11 +347,11 @@ A solution without `[lint]` keeps today's gates (`checks-v1`). To take up the fu
 | Gate | Fails when |
 | --- | --- |
 | line endings | a file mixes CRLF and LF, which is a tool's half-rewrite. Files the solution's own `.gitignore` files match are skipped (patterns only: a tracked file that matches one is skipped too), and so is anything a `.ignore` file lists, for tracked files kept verbatim such as raw exports. Ignore files above the solution and global excludes do not count |
-| sidecars | a sidecar and its XML disagree, a service sidecar lacks its `definition.xml` or `script.js`, a fields or DataTable sidecar cannot be read, or a sidecar directory has no entity; an entity without sidecars is simply unmanaged |
+| sidecars | a sidecar and its XML disagree, a defined service sidecar lacks its `definition.xml` or `script.js`, an override has a definition mismatch or lacks `script.js`, a fields or DataTable sidecar cannot be read, or a sidecar directory has no entity; an entity without sidecars is simply unmanaged |
 | formatting | a script is not as the built-in formatter writes it (`twaco fmt` fixes it) |
 | script traps | a script uses something the ThingWorx Rhino engine punishes (see below) |
 | code order | a service's main code is below its helper functions |
-| project | the entity files disagree with themselves or each other: a file named for another entity, two files for one entity, a misfiled or project-less entity, a service declared without its implementation or the reverse, a mashup whose JSON does not parse, a folder under a project root holding entity documents in no collection folder, which deploy and bundle would leave out, or a model tag that is not `Vocabulary:Term` or names a term a fixed vocabulary of the solution lacks |
+| project | the entity files disagree with themselves or each other: a file named for another entity, two files for one entity, a misfiled or project-less entity, a service declared without its implementation or the reverse, a mashup whose JSON does not parse, a folder under a project root holding entity documents in no collection folder, which deploy and bundle would leave out, a model tag that is not `Vocabulary:Term` or names a term a fixed vocabulary of the solution lacks, or a multi-row configuration table definition whose own fields mark no primary key (the import fails) or that also names a DataShape (it reads back not kept) |
 | project dependencies | a Thing or ThingTemplate uses a ThingTemplate or ThingShape of another of the solution's projects (as its template, base template or an implemented shape) that its Project file's `dependsOn` does not name. The server adds that project to `dependsOn` when it imports the entity, so the Project reads back not kept; the finding gives the `<project>:<version>` entry to add |
 | mashup bindings | a repository-resolved mashup service, result field or parameter is not declared, or a grid, chart or field-setting property names a field the result bound to its `Data` does not have; unresolved platform and inherited DataShape details are left unchecked |
 | mashup content | what `twaco mashup validate` finds in a mashup's content: a binding to a property, event or service its widget or data source does not have, a binding in the wrong direction, mixed container layouts. Widgets outside the catalogue (extensions) are not judged |
@@ -435,8 +450,12 @@ Repository entity operands accept a full name (`Acme.App.Manager`), its last dot
 `deploy` and `entity push` refuse an entity whose state is server-changed or both-changed,
 one that differs from the server with no baseline (the common ancestor is unknown), and one
 the baseline knows but the server no longer has (deleted there).
-Look at the server's version first (`twaco entity get <Entity>`), bring its change into the
-repository if it matters, and then deploy, or `--force` to overwrite it on purpose.
+Look at what differs first: `twaco entity diff <Entity>` lists the element paths where the
+repository and the server disagree, compared as status and deploy compare them (inherited and
+server-derived members, and the profile's server-owned parts, are left out). It never prints a
+value, so a credential set on the server shows only as its cell's text changing. `twaco entity
+get <Entity>` prints the server's raw XML. Bring the change into the repository if it matters, and
+then deploy, or `--force` to overwrite it on purpose.
 
 ### Deploys
 
@@ -504,7 +523,10 @@ twaco adopt returned-export.xml --apply         # take safe collaborator changes
 
 `adopt` lays out incoming entity bytes like the destination file (or a peer in its collection
 for a new entity), retaining the repository's indentation and CDATA presentation and removing
-export-only metadata. A single-line Exporter response therefore keeps a reviewable diff.
+export-only metadata. A single-line Exporter response therefore keeps a reviewable diff. The
+export may also be one entity as `twaco entity get --out` writes it (`<Thing ...>` with no
+`<Entities>` around it): `twaco entity get Things/Acme.T --out t.xml`, then
+`twaco adopt t.xml --entity Acme.T --take theirs:Acme.T` takes the server's form of that entity.
 
 `adopt` compares Composer's canonical form, so formatting and platform noise do not count. It
 uses the named `--base <file|handoff|git-rev>`, otherwise the most similar recorded handoff; with
@@ -832,7 +854,8 @@ twaco new theme Acme.Orders.Theme_TH --prop e-button-primary-fontcolor=#ffffff -
 Things default to `GenericThing`; `--template`, `--shape`, template `--base`, and DataShape
 `--base` must resolve in the solution (or the platform cache for templates and shapes). A Thing
 can set `--value-stream`. DataShapes require one or more ordered `--field name:TYPE[:primary]`
-arguments and write the matching `fields.json` sidecar. Timers accept `--every` as milliseconds,
+arguments and write the matching `fields.json` sidecar; `rows:INFOTABLE:Acme.Row_DS` names the
+DataShape of a nested table. Timers accept `--every` as milliseconds,
 `ms`, `s`, `m`, or `h` (60 seconds by default); schedulers accept a six- or seven-field Quartz
 `--cron`. Both require `--run-as`, accept `--disabled`, and use either `--then <code>` or
 `--script <file.js>` to put a Script subscription directly in their entity XML. The entity XML and
@@ -980,6 +1003,8 @@ twaco thing property set Acme.Orders.Machine_TT Speed --no-logged --category Mot
 twaco thing property remove Acme.Orders.Machine_TT Speed --apply
 twaco thing service add Acme.Orders.Machine_TT ReadSpeed --returns NUMBER --then "result = me.Speed;" --apply
 twaco thing service remove Acme.Orders.Machine_TT ReadSpeed --apply
+twaco thing service override Acme.Orders.Press ReadSpeed --script press-read-speed.js --apply
+twaco thing service override --revert Acme.Orders.Press ReadSpeed --apply
 twaco thing subscription add Acme.Orders.Press OnSpeed --event DataChange --source-property Speed --then "me.Check();" --apply
 twaco thing shape add Acme.Orders.Machine_TT Acme.Orders.Audit_TS --apply
 twaco timer set Acme.Orders.Refresh_TM --every 5m --enabled --apply
@@ -1006,6 +1031,14 @@ into the entity through the same synchronizer as sidecar changes. Parameters are
 an own script service, its run-time permission and sidecar folder. Both refuse inherited clashes;
 remove also refuses callers unless `--force` lists and accepts them. MCP exposes the same work as
 `entity_edit` actions `service_add` and `service_remove`.
+
+`thing service override` adds a Script implementation, but no local definition, for a service an
+ancestor defines. Its `services/<Service>/` folder therefore has only `script.js`; the script gets
+the inherited signature's JSDoc header. It refuses a local definition or implementation, a missing
+parent declaration, or a parent that is not available locally or in the platform cache (run
+`twaco types --platform`, or add that parent's repository). `--revert` removes only that local
+implementation and its sidecar folder, preserving run-time permission grants for the inherited
+service. MCP actions are `service_override` and `service_revert`.
 
 ## Creating mashups
 
@@ -1125,6 +1158,23 @@ share one row, and the row holding a panel of fixed rows is sized to fit it. `--
 property; `--prop Name=value` changes a catalogue property with its expected type. Structured
 properties take JSON, including a grid's column format:
 
+A card of label/value rows, as the design kits draw one ("● Objective ........ 12"), takes three
+more steps. `--right-of <widget> --end` puts a widget at the far end of the anchor's row: the row
+splits into a start group (what was there) and an end group (the new widget), spread apart and
+centred, and it keeps its natural height. `mashup add <mashup> separator --below <widget>` adds
+the kits' 1px rule (`#C2C7CE`) between rows. The row holding such cards becomes a `range` row whose
+minimum is the cards' measured height (a `label` row is 19px on 10.2, a `sub-header` 27px, a
+`header` 33px). A `range` row still takes its share of the page's spare height, as every row
+does; to give most of it to a row of charts or grids, set that row's `flex-grow` to 2 or 3. `--prop` values count in that measure, so set a dot's size and margins
+there:
+
+```sh
+twaco mashup add Acme.App.Kpi_MU shape --below ptcslabel-4 --prop Width=12 --prop Height=12 --prop "Margin=0 5" --apply
+twaco mashup add Acme.App.Kpi_MU label --right-of shape-5 --label Objective --prop "Margin=0 5" --apply
+twaco mashup add Acme.App.Kpi_MU label --right-of ptcslabel-6 --end --label 12 --prop "Margin=0 18 0 5" --apply
+twaco mashup add Acme.App.Kpi_MU separator --below shape-5 --apply
+```
+
 The catalogue also has the older Composer `shape`: a rectangle, rounded rectangle, circle or
 ellipse (`ShapeType`) for status dots, badges and backgrounds. Its `Data` takes any scalar and its
 `ShapeFormatter` colours it by state; `EnableDynamicFill` with `DynamicRangeMinimum` and
@@ -1160,6 +1210,20 @@ and nothing is written. `--prop` is optional with it, and the two go in one edit
 ```sh
 twaco mashup set Acme.App.Orders_MU ptcslabel-3 --style-from Acme.Kit.Page_MU:ptcslabel-12 --apply
 ```
+
+`--style [<part>[@<state>]:]<property>=<value>` writes that entry directly, one CSS property at a
+time, after any `--style-from` copy. The part and state default to `$`, the widget itself in its
+normal state; others are the widget's own parts, such as a collection's `cell@hover`. An empty
+value removes the property, and the entry goes when nothing is left. A card frame as the design
+kits draw it:
+
+```sh
+twaco mashup set Acme.App.Orders_MU flexcontainer-4 --style background=#ffffff \
+  --style border-style=solid --style border-width=1px --style border-color=#BEC6CA --apply
+```
+
+It knows the style names of the widgets the kits style (containers, labels, buttons, charts,
+collections, grids and the rest of the ptcs set); another type takes `--style-from`.
 
 Setting the root's `StyleTheme` takes 10.2's default theme or a StyleTheme in the solution, as
 `mashup new --theme` does.
@@ -1200,6 +1264,16 @@ The command adds the collection, records the field-to-parameter mapping as an ob
 the result to `Data` in one edit. It reports when nothing invokes the source call. See
 [Collections: the serialized contract](MASHUP_COLLECTIONS.md) for the stored properties and
 runtime behaviour.
+
+A cell menu (the "⋮" on each cell) is a string StateDefinition whose states are the items. Point
+the collection's `CellMenu` at it, then handle each item's `CellMenu:<item>` event; an item with
+spaces fires its value with hyphens (`More Details` fires `CellMenu:More-Details`):
+
+```sh
+twaco new state Acme.App.CardMenu_ST --type string --state "==Edit=Edit" --state "==More Details=More Details" --apply
+twaco mashup set Acme.App.Orders_MU ptcscollection-8 --prop CellMenu=Acme.App.CardMenu_ST --apply
+twaco mashup on Acme.App.Orders_MU --event ui:ptcscollection-8.CellMenu:Edit --invoke data:Acme.App.Orders.Manager.Edit --apply
+```
 
 ### State formatting
 
@@ -1643,8 +1717,8 @@ as. The cases run in file and case order, so a case can clean up after the one b
 needs the groups on the server, so deploy first; it never resets a password, and `users list`
 reports a user that cannot sign in with `test_password`.
 
-For one call by hand, `twaco call <target> <service> [<json>] --as <test user>` signs in as that
-`[[test.user]]` with `test_password` (the profile needs `allow_test_users`). A user in no group
+For one call by hand, `twaco call <target> <service> [<json>] --as <test user>` (or
+`<target>.<service>`) signs in as that `[[test.user]]` with `test_password` (the profile needs `allow_test_users`). A user in no group
 that can see the entity gets 404; a wrong password gets 401. No other account can be named.
 
 Add `--lang <code>` to make that call in another language: `--lang de`, or a preference list

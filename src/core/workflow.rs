@@ -723,15 +723,17 @@ pub(crate) fn extract(
                 let dir = super::workspace::services_dir(solution, entity);
                 let planned = extraction.services.iter().try_for_each(|service| {
                     let service_dir = dir.join(&service.name);
-                    plan_lf(
-                        &mut transaction,
-                        &service_dir.join("definition.xml"),
-                        &service.definition,
-                    )?;
+                    if let Some(definition) = service.definition() {
+                        plan_lf(
+                            &mut transaction,
+                            &service_dir.join("definition.xml"),
+                            definition,
+                        )?;
+                    }
                     plan_lf(
                         &mut transaction,
                         &service_dir.join("script.js"),
-                        &service.script,
+                        service.script(),
                     )
                 });
                 match planned {
@@ -810,12 +812,6 @@ fn skipped_lines(lines: &mut Vec<String>, extraction: &super::sidecar::Extractio
         lines.push(format!(
             "    not scripts: {}",
             extraction.non_script.join(", ")
-        ));
-    }
-    if !extraction.inherited.is_empty() {
-        lines.push(format!(
-            "    defined elsewhere: {}",
-            extraction.inherited.join(", ")
         ));
     }
     if !extraction.without_script.is_empty() {
@@ -938,6 +934,34 @@ mod tests {
         assert_eq!(crate::core::workspace::lf("\u{feff}a\r\nb"), "a\nb");
         assert_eq!(crate::core::workspace::lf("a\u{feff}b"), "a\u{feff}b");
         assert_eq!(crate::core::workspace::lf("\u{feff}\u{feff}a"), "\u{feff}a");
+    }
+
+    #[test]
+    fn extract_writes_an_override_as_a_script_only_sidecar() {
+        let root_guard = tempfile::tempdir().unwrap();
+        let root = root_guard.path();
+        std::fs::create_dir(root.join("Things")).unwrap();
+        std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
+        std::fs::write(
+            root.join("Things/T.xml"),
+            "<Entities><Things><Thing name=\"T\" projectName=\"P\"><ThingShape><ServiceDefinitions/><ServiceImplementations><ServiceImplementation name=\"Inherited\" handlerName=\"Script\"><ConfigurationTables><ConfigurationTable name=\"Script\"><Rows><Row><code><![CDATA[run();]]></code></Row></Rows></ConfigurationTable></ConfigurationTables></ServiceImplementation></ServiceImplementations></ThingShape></Thing></Things></Entities>",
+        )
+        .unwrap();
+        let solution = Solution::load(&root.join("twaco.toml")).unwrap();
+        let result = extract(
+            &solution,
+            &entities(&solution),
+            &[],
+            false,
+            &crate::core::lock::acquire(&solution.root, "test", &[]).unwrap(),
+        );
+        assert_eq!(result.written, 1, "{:?}", result.log);
+        let folder = root.join("src/T/services/Inherited");
+        assert_eq!(
+            std::fs::read_to_string(folder.join("script.js")).unwrap(),
+            "run();"
+        );
+        assert!(!folder.join("definition.xml").exists());
     }
 
     fn service_fixture(label: &str) -> (tempfile::TempDir, PathBuf, Solution) {

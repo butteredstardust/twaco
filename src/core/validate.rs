@@ -78,17 +78,20 @@ pub(crate) fn check_in(solution: &Solution, found: &workspace::Discovery) -> Vec
     problems
 }
 
-/// Whether an ancestor defines a service an entity implements with no definition of its own: a
-/// template or shape of the solution or of a configured extension, or one the platform cache
-/// holds. Loaded the first time a file needs it; only a definition found counts, so an
-/// incomplete chain or a missing cache leaves the finding standing.
+/// Resolve an ancestor service for an implementation with no local definition. The model and
+/// platform cache are loaded once because validation calls this for every override.
 struct Ancestry<'a> {
     solution: &'a Solution,
     loaded: OnceCell<(Model, Option<Platform>)>,
 }
 
 impl Ancestry<'_> {
-    fn defines(&self, collection: &str, name: &str, service: &str) -> bool {
+    fn service(
+        &self,
+        collection: &str,
+        name: &str,
+        service: &str,
+    ) -> super::catalog::InheritedService {
         let (model, platform) = self.loaded.get_or_init(|| {
             (
                 super::types::load_model(self.solution).0,
@@ -100,11 +103,9 @@ impl Ancestry<'_> {
             .iter()
             .find(|entity| entity.collection == collection && entity.name == name)
         else {
-            return false;
+            return super::catalog::InheritedService::Unresolved;
         };
-        super::catalog::lookup_service(entity, &model.entities, platform.as_ref(), service)
-            .service
-            .is_some()
+        super::catalog::inherited_service(entity, &model.entities, platform.as_ref(), service)
     }
 }
 
@@ -176,13 +177,77 @@ fn check_one(
         &entity.info.name,
         &src,
         &solution.validate.inherited_overrides,
-        &|service| ancestry.defines(&entity.info.collection, &entity.info.name, service),
+        &|service| ancestry.service(&entity.info.collection, &entity.info.name, service),
     ));
     problems.extend(check_member_names(&file, &src));
+    problems.extend(check_multirow_tables(&file, &src));
     if entity.info.collection == "Mashups" {
         problems.extend(check_mashup(&file, &src));
     }
     problems.extend(check_tags(&file, &src, vocabularies));
+    problems
+}
+
+/// A multi-row ConfigurationTableDefinition with inline fields reads its key from them, not from
+/// the DataShape it names: with no `aspect.isPrimaryKey="true"` among them the import fails ("is
+/// multirow but its datashape [ unnamed ] does not have a primary key"). With both, the server
+/// keeps the inline fields and drops `dataShapeName`, so the entity reads back not kept.
+fn check_multirow_tables(file: &str, src: &[u8]) -> Vec<Problem> {
+    let Ok(tokens) = scan::tokenize(src) else {
+        return Vec::new();
+    };
+    let text = |token: &scan::Token, name: &str| {
+        scan::attribute(src, token, name)
+            .ok()
+            .flatten()
+            .map(|span| scan::decode_entities(&String::from_utf8_lossy(span.of(src))))
+            .unwrap_or_default()
+    };
+    let mut problems = Vec::new();
+    for (index, token) in tokens.iter().enumerate() {
+        if token.kind != Kind::Start
+            || token.name.of(src) != b"ConfigurationTableDefinition"
+            || text(token, "isMultiRow") != "true"
+        {
+            continue;
+        }
+        let Some(end) = scan::element_end_in(&tokens, src, index) else {
+            continue;
+        };
+        let fields: Vec<&scan::Token> = tokens[index + 1..end]
+            .iter()
+            .filter(|field| {
+                matches!(field.kind, Kind::Start | Kind::Empty)
+                    && field.name.of(src) == b"FieldDefinition"
+            })
+            .collect();
+        if fields.is_empty() {
+            continue;
+        }
+        let table = text(token, "name");
+        if !fields
+            .iter()
+            .any(|field| text(field, "aspect.isPrimaryKey") == "true")
+        {
+            problems.push(Problem {
+                file: file.to_string(),
+                rule: "multirow-without-key",
+                message: format!(
+                    "multi-row configuration table {table}: its definition lists fields but marks none aspect.isPrimaryKey=\"true\", so the import fails; mark the key there, or drop the definition's DataShape and name one in dataShapeName"
+                ),
+            });
+        }
+        let named = text(token, "dataShapeName");
+        if !named.is_empty() {
+            problems.push(Problem {
+                file: file.to_string(),
+                rule: "multirow-named-and-inline",
+                message: format!(
+                    "multi-row configuration table {table}: its definition names {named} and also lists fields; the server keeps the fields and drops dataShapeName, so it reads back not kept. Keep one: the fields (with their key) or dataShapeName"
+                ),
+            });
+        }
+    }
     problems
 }
 
@@ -327,7 +392,7 @@ fn check_services(
     entity: &str,
     src: &[u8],
     allowed: &[String],
-    inherited: &dyn Fn(&str) -> bool,
+    inherited: &dyn Fn(&str) -> super::catalog::InheritedService,
 ) -> Vec<Problem> {
     let Ok(extraction) = super::sidecar::extract(src) else {
         return Vec::new();
@@ -350,20 +415,41 @@ fn check_services(
             .iter()
             .any(|entry| entry == service || *entry == format!("{entity}.{service}"))
     };
-    let unexplained: Vec<&String> = extraction
-        .inherited
+    let mut unresolved = Vec::new();
+    let mut absent = Vec::new();
+    for service in extraction
+        .services
         .iter()
-        .filter(|name| !listed(name) && !inherited(name))
-        .collect();
-    if !unexplained.is_empty() {
-        let names: Vec<&str> = unexplained.iter().map(|n| n.as_str()).collect();
+        .filter(|service| service.is_override())
+    {
+        match inherited(&service.name) {
+            super::catalog::InheritedService::Defined(_) => {}
+            super::catalog::InheritedService::Unresolved if !listed(&service.name) => {
+                unresolved.push(service.name.as_str());
+            }
+            super::catalog::InheritedService::Unresolved => {}
+            super::catalog::InheritedService::Absent => absent.push(service.name.as_str()),
+        }
+    }
+    if !unresolved.is_empty() {
         problems.push(Problem {
             file: file.to_string(),
             rule: "service-without-definition",
             message: format!(
                 "implemented here with no local definition: {}. If these override an inherited \
                  service, list them in [validate] inherited_overrides.",
-                names.join(", ")
+                unresolved.join(", ")
+            ),
+        });
+    }
+    if !absent.is_empty() {
+        problems.push(Problem {
+            file: file.to_string(),
+            rule: "service-without-definition",
+            message: format!(
+                "implemented here but its parent no longer defines: {}. Revert the override or \
+                 restore the parent's definition.",
+                absent.join(", ")
             ),
         });
     }
@@ -446,10 +532,12 @@ mod tests {
         let src = br#"<Entities><Things><Thing name="Acme.T"><ThingShape><ServiceDefinitions/><ServiceImplementations><ServiceImplementation name="Run" handlerName="Script"><ConfigurationTables><ConfigurationTable name="Script"><Rows><Row><code><![CDATA[1;]]></code></Row></Rows></ConfigurationTable></ConfigurationTables></ServiceImplementation></ServiceImplementations></ThingShape></Thing></Things></Entities>"#;
         let rules = |allowed: &[&str]| -> Vec<&'static str> {
             let allowed: Vec<String> = allowed.iter().map(|a| a.to_string()).collect();
-            check_services("t.xml", "Acme.T", src, &allowed, &|_| false)
-                .iter()
-                .map(|p| p.rule)
-                .collect()
+            check_services("t.xml", "Acme.T", src, &allowed, &|_| {
+                super::super::catalog::InheritedService::Unresolved
+            })
+            .iter()
+            .map(|p| p.rule)
+            .collect()
         };
         assert_eq!(rules(&[]), ["service-without-definition"]);
         assert!(
@@ -465,6 +553,32 @@ mod tests {
             ["service-without-definition"],
             "another entity's"
         );
+    }
+
+    #[test]
+    fn a_multirow_definition_with_fields_needs_a_key_and_no_shape_name() {
+        let table = |shape: &str, key: &str| {
+            format!(
+                r#"<Thing name="T"><ConfigurationTableDefinitions><ConfigurationTableDefinition dataShapeName="{shape}" isMultiRow="true" name="Rows"><DataShape><FieldDefinitions><FieldDefinition{key} baseType="STRING" name="key"/><FieldDefinition baseType="STRING" name="label"></FieldDefinition></FieldDefinitions></DataShape></ConfigurationTableDefinition><ConfigurationTableDefinition isMultiRow="false" name="One"><DataShape><FieldDefinitions><FieldDefinition baseType="STRING" name="x"/></FieldDefinitions></DataShape></ConfigurationTableDefinition></ConfigurationTableDefinitions></Thing>"#
+            )
+        };
+        let rules = |xml: String| -> Vec<&'static str> {
+            check_multirow_tables("T.xml", xml.as_bytes())
+                .iter()
+                .map(|p| p.rule)
+                .collect()
+        };
+        let key = r#" aspect.isPrimaryKey="true""#;
+        assert!(rules(table("", key)).is_empty());
+        assert_eq!(rules(table("", "")), ["multirow-without-key"]);
+        assert_eq!(rules(table("A.Row_DS", key)), ["multirow-named-and-inline"]);
+        assert_eq!(
+            rules(table("A.Row_DS", "")),
+            ["multirow-without-key", "multirow-named-and-inline"]
+        );
+        // The export form: a name and no fields; the DataShape it names holds the key.
+        let named = r#"<Thing><ConfigurationTableDefinitions><ConfigurationTableDefinition dataShapeName="A.Row_DS" isMultiRow="true" name="Rows"></ConfigurationTableDefinition></ConfigurationTableDefinitions><ConfigurationTables><ConfigurationTable isMultiRow="true" name="Rows"><DataShape><FieldDefinitions><FieldDefinition baseType="STRING" name="key"/></FieldDefinitions></DataShape></ConfigurationTable></ConfigurationTables></Thing>"#;
+        assert!(rules(named.to_string()).is_empty());
     }
 
     #[test]
@@ -529,6 +643,18 @@ mod tests {
             undefined(),
             ["implemented here with no local definition: Unknown. If these override an inherited service, list them in [validate] inherited_overrides."]
         );
+    }
+
+    #[test]
+    fn an_absent_inherited_override_is_not_suppressed() {
+        let src = br#"<Entities><Things><Thing name="Acme.T"><ThingShape><ServiceDefinitions/><ServiceImplementations><ServiceImplementation name="Run" handlerName="Script"><ConfigurationTables><ConfigurationTable name="Script"><Rows><Row><code><![CDATA[1;]]></code></Row></Rows></ConfigurationTable></ConfigurationTables></ServiceImplementation></ServiceImplementations></ThingShape></Thing></Things></Entities>"#;
+        let allowed = vec!["Acme.T.Run".to_string()];
+        let problems = check_services("T.xml", "Acme.T", src, &allowed, &|_| {
+            super::super::catalog::InheritedService::Absent
+        });
+        assert_eq!(problems.len(), 1);
+        assert!(problems[0].message.contains("parent no longer defines"));
+        assert!(problems[0].message.contains("Revert the override"));
     }
 
     #[test]

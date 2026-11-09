@@ -71,6 +71,7 @@ pub(crate) use source::{
 };
 pub use source::{SourceAddRequest, SourceRemoveRequest, SourceRetargetRequest};
 pub(crate) use state_format::plan_state_format_set;
+pub(crate) use state_format::read_definition as read_state_definition;
 pub use state_format::StateFormatSetRequest;
 
 #[derive(Debug)]

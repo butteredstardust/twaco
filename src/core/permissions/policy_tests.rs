@@ -315,6 +315,22 @@ fn drift_unclassified_services_and_refused_principals_are_errors() {
 }
 
 #[test]
+fn strict_policies_classify_inherited_service_overrides() {
+    let (_dir, solution, root) = solution("", &admin_only(), RULES);
+    let path = root.join("ThingShapes/Acme.App.Orders_TS.xml");
+    let xml = std::fs::read_to_string(&path).unwrap().replace(
+        "</ServiceDefinitions>",
+        "</ServiceDefinitions><ServiceImplementations><ServiceImplementation name=\"InheritedOverride\" handlerName=\"Script\"><ConfigurationTables><ConfigurationTable name=\"Script\"><Rows><Row><code><![CDATA[result = 1;]]></code></Row></Rows></ConfigurationTable></ConfigurationTables></ServiceImplementation></ServiceImplementations>",
+    );
+    std::fs::write(path, xml).unwrap();
+
+    let report = audit::audit(&solution, None).unwrap();
+    assert!(report.projects[0].findings.iter().any(|finding| {
+        finding.code == "unclassified-service" && finding.message.contains("InheritedOverride")
+    }));
+}
+
+#[test]
 fn slips_are_warnings_and_denies_are_notes() {
     let grants = [as_policy_says().as_str(), r#"<Permissions resourceName="GetSecret"><ServiceInvoke><Principal isPermitted="false" name="Acme.App.Viewr_UG" type="Group"/></ServiceInvoke></Permissions>"#].concat();
     let (_dir, solution, _) = solution(

@@ -33,6 +33,34 @@ pub(crate) struct Definition {
     pub(crate) result_shape: Option<String>,
 }
 
+impl Definition {
+    /// A service signature supplied by an ancestor has the same header contract as a local XML
+    /// definition; ordinal order is already preserved by the model's service parser.
+    pub(crate) fn from_service(service: &super::types::Service) -> Self {
+        Self {
+            description: service.description.clone(),
+            inputs: service
+                .parameters
+                .iter()
+                .enumerate()
+                .map(|(ordinal, parameter)| Field {
+                    name: parameter.name.clone(),
+                    base_type: parameter.value.base_type.clone(),
+                    description: parameter.description.clone(),
+                    ordinal,
+                })
+                .collect(),
+            result: Field {
+                name: String::new(),
+                base_type: service.result.base_type.clone(),
+                description: String::new(),
+                ordinal: 0,
+            },
+            result_shape: service.result.data_shape.clone(),
+        }
+    }
+}
+
 /// One JSDoc tag: its value runs on over the lines below it until the next tag, as JSDoc reads it.
 #[derive(Clone, Debug)]
 pub(crate) struct Tag {
@@ -369,6 +397,67 @@ pub(crate) fn generate(
     }
 }
 
+/// `generate`, with the definition's description cut until the header passes the comment rules
+/// `enabled` names (by finding rule, such as `length`):
+/// the whole description, then fewer leading sentences, then none. The definition keeps the full
+/// text; only the header's copy is shortened, so generated code passes the solution's own preset.
+pub(crate) fn generate_fitting(
+    service: &str,
+    definition: &Definition,
+    policy: &HeaderPolicy,
+    comments: &super::comments::CommentPolicy,
+    enabled: &dyn Fn(&str) -> bool,
+    ending: &str,
+) -> String {
+    let sentences = leading_sentences(&definition.description);
+    let mut candidates: Vec<String> = (1..=sentences.len())
+        .rev()
+        .map(|count| sentences[..count].concat().trim().to_string())
+        .collect();
+    candidates.push(String::new());
+    let mut shortened = definition.clone();
+    for description in candidates {
+        shortened.description = description;
+        let header = generate(service, &shortened, policy, "\n");
+        let measure = super::comments::measure(&header);
+        // The whole-script budgets would measure the header alone here, so they cannot judge it.
+        let fits = super::comments::findings(&measure, comments)
+            .iter()
+            .all(|finding| matches!(finding.rule, "ratio" | "line-run") || !enabled(finding.rule));
+        if fits || shortened.description.is_empty() {
+            return if ending != "\n" {
+                header.replace('\n', ending)
+            } else {
+                header
+            };
+        }
+    }
+    unreachable!("the empty description is always the last candidate")
+}
+
+/// The description split after each `.`, `!` or `?` that ends a sentence, each piece keeping its
+/// own text and the space after it.
+fn leading_sentences(text: &str) -> Vec<&str> {
+    let text = text.trim();
+    let mut out = Vec::new();
+    let mut start = 0;
+    let bytes = text.as_bytes();
+    for (at, byte) in bytes.iter().enumerate() {
+        let ends = matches!(byte, b'.' | b'!' | b'?')
+            && bytes
+                .get(at + 1)
+                .is_none_or(|next| next.is_ascii_whitespace());
+        if ends {
+            out.push(&text[start..at + 1]);
+            start = at + 1;
+        }
+    }
+    if start < text.len() && !text[start..].trim().is_empty() {
+        out.push(&text[start..]);
+    }
+    out
+}
+
 /// What `lint fix-headers` would do to one script.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(crate) struct Repair {
@@ -657,6 +746,83 @@ pub(crate) fn repair(
         repair.fixed = Some(fixed);
     }
     repair
+}
+
+#[cfg(test)]
+mod fitting_tests {
+    use super::*;
+
+    fn definition(description: &str) -> Definition {
+        Definition {
+            description: description.to_string(),
+            inputs: Vec::new(),
+            result: Field {
+                name: "result".to_string(),
+                base_type: "NOTHING".to_string(),
+                description: String::new(),
+                ordinal: 0,
+            },
+            result_shape: None,
+        }
+    }
+
+    fn fitted(description: &str) -> String {
+        generate_fitting(
+            "Run",
+            &definition(description),
+            &HeaderPolicy::default(),
+            &crate::core::comments::CommentPolicy::default(),
+            &|_| true,
+            "\n",
+        )
+    }
+
+    #[test]
+    fn a_rule_the_solution_turns_off_does_not_cut_the_description() {
+        let long = "It reads every row of the stream, newest first, and keeps only the rows that \
+                    the dashboard grid, the alarm panel and the weekly report need today.";
+        let header = generate_fitting(
+            "Run",
+            &definition(long),
+            &HeaderPolicy::default(),
+            &crate::core::comments::CommentPolicy::default(),
+            &|rule| rule != "length",
+            "\n",
+        );
+        assert!(header.contains("weekly report"), "{header}");
+    }
+
+    #[test]
+    fn a_short_description_is_kept_whole() {
+        assert!(fitted("Runs the job. Then stops.").contains(" * Runs the job. Then stops.\n"));
+    }
+
+    #[test]
+    fn a_long_description_keeps_the_leading_sentences_that_fit() {
+        let header = fitted(
+            "Runs the job. It reads every row of the stream, newest first, and keeps only the \
+             rows that the dashboard grid, the alarm panel and the weekly report need today.",
+        );
+        assert!(header.contains(" * Runs the job.\n"), "{header}");
+        assert!(!header.contains("alarm"), "{header}");
+    }
+
+    #[test]
+    fn a_description_with_no_fitting_sentence_is_left_out() {
+        let header = fitted(
+            "It reads every row of the stream, newest first, and keeps only the rows that the \
+             dashboard grid, the alarm panel and the weekly report need today",
+        );
+        assert!(header.starts_with("/**\n * @function Run\n"), "{header}");
+    }
+
+    #[test]
+    fn sentences_split_only_at_a_stop_before_a_space() {
+        assert_eq!(
+            leading_sentences("Uses v1.2 here. Then ends"),
+            ["Uses v1.2 here.", " Then ends"]
+        );
+    }
 }
 
 #[cfg(test)]

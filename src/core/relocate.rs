@@ -807,7 +807,8 @@ pub(crate) fn plan(solution: &Solution, request: &Request) -> Result<Plan, Reloc
                 request.name
             )));
         };
-        service.script = delegate_script(&from_old, &from_tokens, def_at, &request.to, &final_name);
+        *service.script_mut() =
+            delegate_script(&from_old, &from_tokens, def_at, &request.to, &final_name);
         let mut sidecars = std::collections::BTreeMap::new();
         sidecars.insert(service.name.clone(), service.clone());
         let (bytes, _) = sync::sync(
@@ -831,7 +832,7 @@ pub(crate) fn plan(solution: &Solution, request: &Request) -> Result<Plan, Reloc
             sidecar::extract_services(&from_old).map_err(|error| xml(&from.path, error))?;
         if let Some(source) = original.iter().find(|service| service.name == request.name) {
             let arrived = moved.iter().find(|service| service.name == final_name);
-            if arrived.is_none_or(|service| service.script != source.script) {
+            if arrived.is_none_or(|service| service.script() != source.script()) {
                 return Err(RelocateError::Verification(format!(
                     "the script of {} would not arrive unchanged on {}; nothing was written",
                     request.name, request.to
@@ -1207,10 +1208,16 @@ fn put_sidecar(
     folder: &Path,
     sidecar: &ServiceSidecar,
 ) -> Result<(), RelocateError> {
-    for (file, text) in [
-        ("definition.xml", &sidecar.definition),
-        ("script.js", &sidecar.script),
-    ] {
+    let files = sidecar
+        .definition()
+        .map(|definition| {
+            vec![
+                ("definition.xml", definition),
+                ("script.js", sidecar.script()),
+            ]
+        })
+        .unwrap_or_else(|| vec![("script.js", sidecar.script())]);
+    for (file, text) in files {
         let path = folder.join(file);
         let after = text.replace("\r\n", "\n").into_bytes();
         match std::fs::read(&path) {

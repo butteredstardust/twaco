@@ -4681,7 +4681,7 @@
   },
   {
     "name": "entity_edit",
-    "description": "Change an existing entity in the repository, as Composer would: add, change or remove a property of a Thing, ThingTemplate or ThingShape (a persistent one also writes the stored value of every Thing that has it), add a script service (a definition and its sidecars, as sync would) or remove one with its sidecars and run-time permissions, add or remove a script subscription, implement or stop implementing a ThingShape, change a timer's or scheduler's settings, given keys of a style, a MediaEntity's image, a menu's items, or a StateDefinition's states. Removing or retyping a property, or removing a service, something still uses is refused unless force. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
+    "description": "Change an existing entity in the repository, as Composer would: add, change or remove a property of a Thing, ThingTemplate or ThingShape (a persistent one also writes the stored value of every Thing that has it), add or remove a local script service and its sidecars, or override or revert an inherited service with its script-only sidecar while keeping its run-time permissions; add or remove a script subscription, implement or stop implementing a ThingShape, change a timer's or scheduler's settings, given keys of a style, a MediaEntity's image, a menu's items, or a StateDefinition's states. Removing or retyping a property, or removing a service, something still uses is refused unless force. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
     "inputSchema": {
       "required": [
         "action",
@@ -4701,6 +4701,8 @@
             "subscription_remove",
             "service_add",
             "service_remove",
+            "service_override",
+            "service_revert",
             "shape_add",
             "shape_remove",
             "timer_set",
@@ -4788,7 +4790,7 @@
           "type": "string"
         },
         "then": {
-          "description": "subscription_add / service_add: the script (service_add: absent means an empty body).",
+          "description": "subscription_add / service_add / service_override: the script (service_add: absent means an empty body).",
           "type": "string"
         },
         "params": {
@@ -5266,6 +5268,11 @@
         "below": {
           "type": "string"
         },
+        "end": {
+          "description": "With right_of: put the widget at the far end of the anchor's row, which splits into a start and an end group (a label and its value, as the kits lay them out).",
+          "type": "boolean",
+          "default": false
+        },
         "label": {
           "type": "string"
         },
@@ -5612,8 +5619,7 @@
     "inputSchema": {
       "required": [
         "mashup",
-        "widget",
-        "properties"
+        "widget"
       ],
       "additionalProperties": false,
       "type": "object",
@@ -5627,12 +5633,21 @@
           "type": "string"
         },
         "properties": {
-          "description": "Exact property names and their JSON values. Strings use the same syntax as CLI --prop.",
-          "type": "object"
+          "description": "Exact property names and their JSON values. Strings use the same syntax as CLI --prop. Optional when styles or style_from is given.",
+          "type": "object",
+          "default": {}
         },
         "style_from": {
           "description": "Copy this widget's root StyleProperties.data entry, as `<mashup>:<widget>`.",
           "type": "string"
+        },
+        "styles": {
+          "description": "Style settings `[<part>[@<state>]:]<property>=<value>` merged into the widget's root style entry after any style_from copy, such as `background=#ffffff` or `cell@hover:border-color=#BEC6CA`; an empty value removes the property.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
         },
         "dry_run": {
           "type": "boolean",
@@ -9962,6 +9977,69 @@
           }
         },
         "reasons": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "entity_diff",
+    "description": "Where the repository's copy of one entity and the server's differ, compared as status and deploy compare them (inherited and server-derived members and the profile's server-owned parts left out): identical, and the differing element paths (among unnamed siblings of different kinds, only the first mismatch). Never a value, so a credential shows only as its cell's text changing. Use it to see why status says server-changed or a read-back says not kept. Read-only.",
+    "inputSchema": {
+      "required": [
+        "entity"
+      ],
+      "additionalProperties": false,
+      "description": "`entity_diff`: one repository entity against the server.",
+      "type": "object",
+      "properties": {
+        "entity": {
+          "description": "A repository entity: full name, last dotted segment, or Collection/Name.",
+          "type": "string"
+        },
+        "profile": {
+          "description": "Server profile name.",
+          "type": "string",
+          "default": "default"
+        }
+      }
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "outputSchema": {
+      "required": [
+        "ok",
+        "entity",
+        "identical",
+        "differences",
+        "server_owned"
+      ],
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "entity": {
+          "type": "string"
+        },
+        "identical": {
+          "description": "Both sides hash the same, which is what status and deploy go by.",
+          "type": "boolean"
+        },
+        "differences": {
+          "description": "Element paths where they differ; never a value.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "server_owned": {
+          "description": "Server-owned parts left out of the comparison.",
           "type": "array",
           "items": {
             "type": "string"

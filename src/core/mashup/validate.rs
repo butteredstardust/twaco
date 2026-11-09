@@ -119,6 +119,7 @@ pub(crate) fn validate_in(
                     chart_axis_problems(&file.info.name, &value, &resolver, &mut problems);
                     collection_problems(&value, discovered, &resolver, &mut problems);
                     state_format_problems(&value, discovered, &mut problems);
+                    cell_menu_problems(&value, discovered, &mut problems);
                 }
             }
         }
@@ -771,6 +772,67 @@ fn check_ui_member(
             known.into_iter().collect::<Vec<_>>().join(", ")
         ),
     ));
+}
+
+/// A collection's `CellMenu:<item>` events: the collection must have a cell menu, and when its
+/// StateDefinition is in the repository, the item must be one of its states.
+fn cell_menu_problems(
+    content: &Value,
+    discovered: &workspace::Discovery,
+    problems: &mut Vec<Problem>,
+) {
+    use crate::core::mashup::cell_menu;
+    let Ok(document) = mashup::edit::parse(&mashup::to_sidecar(content)) else {
+        return;
+    };
+    for event in content["Events"].as_array().into_iter().flatten() {
+        let Some(name) = event["EventTriggerEvent"]
+            .as_str()
+            .filter(|name| name.starts_with(cell_menu::PREFIX))
+        else {
+            continue;
+        };
+        let id = event["EventTriggerId"].as_str().unwrap_or_default();
+        let Ok(found) = document.find_exact(id) else {
+            continue;
+        };
+        if found.type_id != "ptcscollection" {
+            continue;
+        }
+        let menu = document.at(&found.path)["Properties"]["CellMenu"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string();
+        if menu.is_empty() {
+            push_unique(
+                problems,
+                problem(
+                    "cell-menu",
+                    format!("{id}.{name} fires from a cell menu, but {id} has no CellMenu StateDefinition"),
+                ),
+            );
+            continue;
+        }
+        let Some(items) = cell_menu::repository_events(discovered, &menu) else {
+            continue;
+        };
+        if !items.iter().any(|item| item == name) {
+            push_unique(
+                problems,
+                problem(
+                    "cell-menu",
+                    format!(
+                        "{id}.{name} is not an item of {menu}, whose cell menu fires {}",
+                        if items.is_empty() {
+                            "nothing".to_string()
+                        } else {
+                            items.join(", ")
+                        }
+                    ),
+                ),
+            );
+        }
+    }
 }
 
 fn state_format_problems(

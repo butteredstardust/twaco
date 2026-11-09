@@ -252,6 +252,7 @@ pub(crate) fn plan_state_format_set(
             widget: found.id,
             properties: changes,
             style_from: None,
+            styles: Vec::new(),
         },
     )?;
     if let Some(edit) = &mut plan.edit {

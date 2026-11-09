@@ -52,6 +52,7 @@ when the command is asked to write. A local output named by an option is include
 | `logs` | read-only | read-only | none | Retry freely. | `cli/data.rs: logs_cmd` |
 | `logs level` | read-only | server-partial | server log level | Read the current level and use the printed undo before retrying. | `core/commands/logs.rs: execute` |
 | `config-table` | read-only | server-partial | server table, optional backup | Read the table back and use the backup before retrying a restore. | `core/commands/config_table.rs: execute` |
+| `entity diff` | read-only | read-only | none | Retry freely. | `cli/entity.rs: entity_diff` |
 | `entity get` | read-only | single-file atomic | named local output | The output is old or new; retry freely. | `cli/entity.rs: entity_get` |
 | `db run` | read-only | server-partial | SQL, temporary server Thing | Inspect SQL effects and run `db clean` if needed before retrying. | `core/commands/db.rs: execute` |
 | `db query` | server-partial | server-partial | temporary server Thing | A cleanup failure can leave the temporary Thing; run `db clean` before retrying. | `core/commands/db.rs: execute` |
@@ -168,7 +169,7 @@ when the command is asked to write. A local output named by an option is include
 | `network remove` | read-only | multi-file atomic | Network XML | The Network XML is changed in a journaled transaction; a file edited since the plan is refused. Retry. | `core/commands/network.rs: execute` |
 | `network import` | read-only | multi-file atomic | Network XML, new Thing XML | Every new Thing and the Network XML are written in one journaled transaction, or none is; a changed file is refused. Retry. | `core/commands/network.rs: import_execute` |
 | `thing property` | read-only | multi-file atomic | entity XML, Things inheriting it | Every file is rewritten in one journaled transaction, or none is; a file edited since the plan read it is refused. Retry. | `core/commands/entity_edit.rs: execute` |
-| `thing service` | read-only | multi-file atomic | entity XML, service sidecars | The entity and service sidecars are created or deleted in one journaled transaction; a file edited since the plan read it is refused. Retry. | `core/commands/entity_edit.rs: execute` |
+| `thing service` | read-only | multi-file atomic | entity XML, service sidecars | Local services and inherited overrides (or their script-only sidecars) are created or deleted in one journaled transaction; reverting an override keeps its run-time permissions. A file edited since the plan read it is refused. Retry. | `core/commands/entity_edit.rs: execute` |
 | `thing subscription` | read-only | multi-file atomic | entity XML | Every file is rewritten in one journaled transaction, or none is; a file edited since the plan read it is refused. Retry. | `core/commands/entity_edit.rs: execute` |
 | `thing shape` | read-only | multi-file atomic | entity XML, Things inheriting it | Every file is rewritten in one journaled transaction, or none is; a file edited since the plan read it is refused. Retry. | `core/commands/entity_edit.rs: execute` |
 | `timer set` | read-only | multi-file atomic | entity XML | Every file is rewritten in one journaled transaction, or none is; a file edited since the plan read it is refused. Retry. | `core/commands/entity_edit.rs: execute` |
@@ -261,7 +262,7 @@ when the command is asked to write. A local output named by an option is include
 | `entity_new` | read-only | multi-file atomic | entity XML, DataShape sidecar | The entity XML and every managed sidecar are created in one journaled transaction, or none is; a file that appeared since the plan is refused. Retry. | `core/commands/entity_new.rs: execute` |
 | `network` | read-only | read-only | none | Retry freely. | `core/network.rs: show` |
 | `network_write` | read-only | multi-file atomic | Network XML, new Thing XML | A dry run is default; apply writes every imported Thing and the Network XML in one journaled transaction; pull replaces only the Network XML after a fresh server read. Retry after a stale plan. | `core/commands/network.rs: import_execute` |
-| `entity_edit` | read-only | multi-file atomic | entity XML, service sidecars, Things inheriting it | Every file is rewritten in one journaled transaction, or none is; a file edited since the plan read it is refused. Retry. | `core/commands/entity_edit.rs: execute` |
+| `entity_edit` | read-only | multi-file atomic | entity XML, service sidecars, Things inheriting it | Every file is rewritten in one journaled transaction, or none is; `service_revert` keeps inherited-service permission grants. A file edited since the plan read it is refused. Retry. | `core/commands/entity_edit.rs: execute` |
 | `retemplate` | read-only | single-file atomic | one entity XML | The entity is old or new; retry freely. | `core/commands/retemplate.rs: execute` |
 | `mashup_describe` | read-only | read-only | none | Retry freely. | `core/mashup_describe.rs: describe` |
 | `mashup_diff` | read-only | read-only | none | Retry freely. | `core/mashup/diff.rs: diff` |
@@ -306,6 +307,7 @@ when the command is asked to write. A local output named by an option is include
 | `model_resolve` | read-only | read-only | none | Retry freely. | `mcp/content.rs: model_resolve_tool` |
 | `entity_inspect` | read-only | read-only | none | Retry freely. | `mcp/content.rs: entity_inspect_tool` |
 | `access_explain` | read-only | read-only | none | Retry freely; nothing is invoked. | `mcp/content.rs: access_explain_tool` |
+| `entity_diff` | read-only | read-only | none | Retry freely. | `mcp/content.rs: entity_diff_tool` |
 | `entity_get` | read-only | read-only | none | Retry freely. | `mcp/content.rs: entity_get_tool` |
 | `export` | read-only | server-partial | local export or server repository | Local export is atomic; source-control apply needs a new plan and inspection. | `core/commands/export.rs: execute` |
 | `package` | single-file atomic | single-file atomic | named package file | The output is old or new; retry freely. | `core/commands/package.rs: execute` |

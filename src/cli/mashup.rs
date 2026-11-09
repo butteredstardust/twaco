@@ -268,6 +268,8 @@ pub(crate) struct Place {
 pub(crate) struct MashupAdd {
     #[command(flatten)]
     pub(crate) place: Place,
+    #[arg(long = "end")]
+    pub(crate) end: bool,
     #[arg(long = "label", value_name = "text")]
     pub(crate) label: Option<String>,
     #[arg(long = "prop", value_name = "name=value")]
@@ -290,6 +292,8 @@ pub(crate) struct MashupSet {
     pub(crate) props: Vec<String>,
     #[arg(long = "style-from", value_name = "mashup:widget")]
     pub(crate) style_from: Option<String>,
+    #[arg(long = "style", value_name = "[part[@state]:]property=value")]
+    pub(crate) styles: Vec<String>,
     #[command(flatten)]
     pub(crate) apply: Apply,
     #[command(flatten)]
@@ -1108,6 +1112,23 @@ pub(crate) fn mashup_add_cmd(solution: &Solution, args: &MashupAdd) -> u8 {
         "--below" => beside(value, Side::Below),
         _ => unreachable!("only placement flags are collected"),
     });
+    let placement = match (args.end, placement) {
+        (false, placement) => placement,
+        (
+            true,
+            Some(Placement::Beside {
+                anchor,
+                side: Side::Right,
+            }),
+        ) => Some(Placement::Beside {
+            anchor,
+            side: Side::End,
+        }),
+        (true, _) => {
+            eprintln!("{} --end goes with --right-of <widget>", style::prefix());
+            return FAILED;
+        }
+    };
     let properties = match args
         .props
         .iter()
@@ -1164,6 +1185,7 @@ pub(crate) fn mashup_add_cmd(solution: &Solution, args: &MashupAdd) -> u8 {
         None if plan.function => "beside the layout".to_string(),
         None => "in center".to_string(),
         Some(("--in", value)) => format!("in {value}"),
+        Some(("--right-of", value)) if args.end => format!("at the end of {value}'s row"),
         Some(("--right-of", value)) => format!("right of {value}"),
         Some(("--left-of", value)) => format!("left of {value}"),
         Some(("--above", value)) => format!("above {value}"),
@@ -1423,10 +1445,14 @@ pub(crate) fn mashup_set_cmd(solution: &Solution, args: &MashupSet) -> u8 {
         })
         .collect::<Result<Vec<_>, _>>()
     {
-        Ok(properties) if !properties.is_empty() || args.style_from.is_some() => properties,
+        Ok(properties)
+            if !properties.is_empty() || args.style_from.is_some() || !args.styles.is_empty() =>
+        {
+            properties
+        }
         Ok(_) => {
             eprintln!(
-                "{} mashup set needs --prop <name=value> or --style-from <mashup:widget>",
+                "{} mashup set needs --prop <name=value>, --style <property=value> or --style-from <mashup:widget>",
                 style::prefix()
             );
             return FAILED;
@@ -1442,6 +1468,7 @@ pub(crate) fn mashup_set_cmd(solution: &Solution, args: &MashupSet) -> u8 {
             widget: widget.clone(),
             properties,
             style_from: args.style_from.clone(),
+            styles: args.styles.clone(),
         },
         mode: if args.apply.apply {
             Mode::Apply

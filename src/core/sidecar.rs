@@ -3,24 +3,65 @@
 //! A service lives in two places in an entity export: a `ServiceDefinition` describing its
 //! signature and a `ServiceImplementation` holding its script inside CDATA. The sidecar layout
 //! splits them into `definition.xml` and `script.js`, which is what lets an editor, a linter and
-//! `git diff` see a service as code instead of as a buried string.
+//! `git diff` see a service as code instead of as a buried string. An implementation whose
+//! definition is inherited is an override: it has `script.js`, but deliberately no definition.
 //!
 //! **A service that cannot be made into a sidecar is reported, not fatal.** Real entities carry
-//! SQL services, and services whose definition is inherited from a ThingShape and only
-//! *implemented* here. An extractor that treated either as an error would refuse to process the
-//! entity at all, which is how the first version of this module behaved on three real files.
+//! SQL services. An extractor that treated one as an error would refuse to process the entity at
+//! all, which is how the first version of this module behaved on three real files.
 
 use super::scan::{self, Kind, ScanError, Token};
 use std::collections::BTreeMap;
 
-/// One service, as two files.
+/// One managed service folder.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ServiceSidecar {
     pub name: String,
-    /// The `ServiceDefinition` block, trimmed and newline-terminated.
-    pub definition: String,
-    /// The script body, dedented, with surrounding blank lines removed.
-    pub script: String,
+    pub kind: ServiceSidecarKind,
+}
+
+/// The files a managed service has.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ServiceSidecarKind {
+    /// A locally declared service: `definition.xml` and `script.js`.
+    Defined { definition: String, script: String },
+    /// An inherited declaration locally implemented here: `script.js` only.
+    Override { script: String },
+}
+
+impl ServiceSidecar {
+    pub fn script(&self) -> &str {
+        match &self.kind {
+            ServiceSidecarKind::Defined { script, .. }
+            | ServiceSidecarKind::Override { script } => script,
+        }
+    }
+
+    pub fn definition(&self) -> Option<&str> {
+        match &self.kind {
+            ServiceSidecarKind::Defined { definition, .. } => Some(definition),
+            ServiceSidecarKind::Override { .. } => None,
+        }
+    }
+
+    pub(crate) fn script_mut(&mut self) -> &mut String {
+        match &mut self.kind {
+            ServiceSidecarKind::Defined { script, .. }
+            | ServiceSidecarKind::Override { script } => script,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn definition_mut(&mut self) -> Option<&mut String> {
+        match &mut self.kind {
+            ServiceSidecarKind::Defined { definition, .. } => Some(definition),
+            ServiceSidecarKind::Override { .. } => None,
+        }
+    }
+
+    pub(crate) fn is_override(&self) -> bool {
+        matches!(self.kind, ServiceSidecarKind::Override { .. })
+    }
 }
 
 /// One locally implemented script service, including an implementation whose definition is
@@ -41,9 +82,6 @@ pub struct Extraction {
     pub(crate) non_script: Vec<String>,
     /// Defined here but implemented elsewhere, or not at all.
     pub(crate) without_script: Vec<String>,
-    /// Implemented here with the definition inherited from a shape or template. This is a
-    /// legitimate override, not a missing definition.
-    pub(crate) inherited: Vec<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -81,6 +119,8 @@ pub enum SidecarError {
     /// A sidecar names a service the entity cannot take as a new script service.
     #[error("cannot add service {name}: {why}")]
     CannotAdd { name: String, why: String },
+    #[error("service {name}: {why}")]
+    WrongKind { name: String, why: String },
     #[error("{0}")]
     Splice(super::splice::SpliceError),
 }
@@ -121,19 +161,22 @@ pub fn extract(src: &[u8]) -> Result<Extraction, SidecarError> {
             out.non_script.push(name.clone());
             continue;
         }
-        let Some(&definition) = definitions.get(name) else {
-            out.inherited.push(name.clone());
-            continue;
-        };
         let script = script_of(&tokens, src, index, name)?;
-        let block = scan::element_span(&tokens, definition).ok_or(SidecarError::Unnamed {
-            what: "ServiceDefinition",
-            at: tokens[definition].span.start,
-        })?;
+        let kind = if let Some(&definition) = definitions.get(name) {
+            let block = scan::element_span(&tokens, definition).ok_or(SidecarError::Unnamed {
+                what: "ServiceDefinition",
+                at: tokens[definition].span.start,
+            })?;
+            ServiceSidecarKind::Defined {
+                definition: definition_text(block.of(src)),
+                script,
+            }
+        } else {
+            ServiceSidecarKind::Override { script }
+        };
         out.services.push(ServiceSidecar {
             name: name.clone(),
-            definition: definition_text(block.of(src)),
-            script,
+            kind,
         });
     }
     for name in definitions.keys() {
@@ -455,7 +498,7 @@ mod tests {
     fn a_script_is_dedented_and_stripped() {
         let e = extract(ENTITY).unwrap();
         let beta = e.services.iter().find(|s| s.name == "Beta").unwrap();
-        assert_eq!(beta.script, "var b = 2;\nresult = b;");
+        assert_eq!(beta.script(), "var b = 2;\nresult = b;");
     }
 
     #[test]
@@ -496,8 +539,18 @@ mod tests {
             implementation("\nvar a = 1;\n    result = a;\n")
         ));
 
-        let from_indented = extract(&indented).unwrap().services.remove(0).script;
-        let from_flush = extract(&flush).unwrap().services.remove(0).script;
+        let from_indented = extract(&indented)
+            .unwrap()
+            .services
+            .remove(0)
+            .script()
+            .to_string();
+        let from_flush = extract(&flush)
+            .unwrap()
+            .services
+            .remove(0)
+            .script()
+            .to_string();
         assert_eq!(from_indented, "var a = 1;\n    result = a;");
         assert_eq!(from_flush, from_indented);
     }
@@ -525,7 +578,7 @@ mod tests {
     }
 
     #[test]
-    fn an_inherited_override_is_reported_not_an_error() {
+    fn an_inherited_override_is_an_override_sidecar() {
         // A local implementation may inherit its definition from a shape.
         let body = r#"<ServiceDefinitions></ServiceDefinitions>
         <ServiceImplementations>
@@ -534,8 +587,11 @@ mod tests {
             </ConfigurationTable></ConfigurationTables></ServiceImplementation>
         </ServiceImplementations>"#;
         let e = extract(&wrap(body)).unwrap();
-        assert!(e.services.is_empty());
-        assert_eq!(e.inherited, vec!["GetDBInfo"]);
+        assert_eq!(e.services.len(), 1);
+        assert!(e
+            .services
+            .iter()
+            .any(|service| service.name == "GetDBInfo" && service.is_override()));
     }
 
     #[test]
@@ -552,7 +608,7 @@ mod tests {
         ] {
             let e = extract(&wrap(body)).unwrap();
             assert_eq!(e.services.len(), 1, "empty code should still be a service");
-            assert_eq!(e.services[0].script, "");
+            assert_eq!(e.services[0].script(), "");
         }
     }
 
@@ -565,7 +621,7 @@ mod tests {
 ]]><![CDATA[var b = 2;]]></code>
         </Row></Rows></ConfigurationTable></ConfigurationTables></ServiceImplementation></ServiceImplementations>"#;
         let e = extract(&wrap(body)).unwrap();
-        assert_eq!(e.services[0].script, "var a = 1;\nvar b = 2;");
+        assert_eq!(e.services[0].script(), "var a = 1;\nvar b = 2;");
     }
 
     #[test]

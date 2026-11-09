@@ -28,8 +28,13 @@ Data reaches the collection by an ordinary whole-result binding:
 ## Events and outgoing values
 
 - Events: `CellClicked`, `CellDoubleClicked`, `CellLongClicked`, `CellRightClicked`,
-  `CellMoved`, `CellRemoved`, `CellAdded`, and `CellMenu:<state>` when a `CellMenu`
+  `CellMoved`, `CellRemoved`, `CellAdded`, and `CellMenu:<item>` when a `CellMenu`
   StateDefinition is set. Services: `Deselect`, `SelectAll`.
+- The cell menu (10.2): every state with a `defaultValue` is an item, labelled with that value,
+  its `description` the tooltip and its style's `image` the icon. The item fires
+  `CellMenu:<value>` with spaces made hyphens and anything but letters, digits, `:`, `_` and `-`
+  left out: "More Details" fires `CellMenu:More-Details`. `mashup on` takes only that form and
+  refuses an item the repository's StateDefinition lacks; `mashup validate` reports one.
 - `Event:<row field>` is a binding source on the collection: the field of the row whose cell
   fired the last event. In the kit every `Event:` name is a field of the bound DataShape, not a
   cell parameter.

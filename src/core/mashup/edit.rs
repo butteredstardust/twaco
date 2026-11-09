@@ -71,12 +71,15 @@ pub enum Side {
     Right,
     Above,
     Below,
+    /// Right of the anchor, at the far end of its row: the row splits into a start group and an
+    /// end group, as the design kits lay out a label and its value.
+    End,
 }
 
 impl Side {
     pub(crate) fn axis(self) -> &'static str {
         match self {
-            Self::Left | Self::Right => "row",
+            Self::Left | Self::Right | Self::End => "row",
             Self::Above | Self::Below => "column",
         }
     }
@@ -395,6 +398,25 @@ impl MashupDocument {
     ) -> Result<Placed, EditError> {
         let placed = match placement {
             Placement::In(target) => self.place_in(widget, target),
+            Placement::Beside {
+                anchor,
+                side: Side::End,
+            } => {
+                // A filling widget or a container gets wrappers of its own when something goes
+                // beside it, so there is no row to split; refused before anything moves. The row
+                // checks in split_at_end come after placing: a refusal there leaves this document
+                // changed, and the plan that owns it is dropped with the error.
+                let found = self.find(anchor)?;
+                let node = self.at(&found.path);
+                if type_of(node) == Some("flexcontainer") || fills(node) {
+                    return Err(EditError::Refused(format!(
+                        "--end: {} is a container or fills its row; --end goes beside a fixed widget, such as a label",
+                        found.id
+                    )));
+                }
+                let placed = self.place_beside(widget, anchor, Side::Right)?;
+                self.split_at_end(placed)
+            }
             Placement::Beside { anchor, side } => self.place_beside(widget, anchor, *side),
         }?;
         if widget.type_id == "flexcontainer" {
@@ -508,7 +530,19 @@ impl MashupDocument {
             Reflow::Edit { .. } => false,
         });
         for (index, row) in rows.iter().enumerate() {
-            if type_of(row) != Some("flexcontainer") {
+            // A split label/value row takes its natural height, as the kits' rows do.
+            if type_of(row) != Some("flexcontainer") || is_split_row(row) {
+                continue;
+            }
+            // A row of cards made of label/value rows takes at least its cards' height and no
+            // share of the column's spare height, as the kits' card rows (`range`) do; what
+            // fills (a chart, a grid) keeps the rest.
+            if let Some(tallest) = card_row_height(row) {
+                if matches!(scope, Reflow::Placement { .. }) || contains_around(row, scope) {
+                    let row_path = [column_path.as_slice(), &[index]].concat();
+                    let exact = matches!(scope, Reflow::Placement { .. });
+                    self.range_row(&row_path, tallest, exact);
+                }
                 continue;
             }
             // A panel or card someone added stacks rows and takes its content's height; fixing
@@ -555,6 +589,35 @@ impl MashupDocument {
                 }
             }
         }
+    }
+
+    /// Give a row a `range` size whose minimum is `tallest` plus a row's margin. A placement
+    /// sets it to what its cards measure now (a row is fixed until `--end` splits it, so an
+    /// earlier measure can be too tall); an edit only grows it. A row someone fixed is left alone.
+    fn range_row(&mut self, path: &[usize], tallest: f64, exact: bool) {
+        let node = self.at(path).clone();
+        let properties = &node["Properties"];
+        if properties["flex-size"] == "fixed" {
+            return;
+        }
+        let height = (tallest + ROW_MARGIN).ceil();
+        let current = properties["flex-min-height"]
+            .as_str()
+            .and_then(|text| text.strip_suffix("px"))
+            .and_then(|number| number.parse::<f64>().ok());
+        if properties["flex-size"] == "range"
+            && current.is_some_and(|current| current == height || (!exact && current > height))
+        {
+            return;
+        }
+        self.set_property(path, "flex-size", Value::from("range"));
+        self.set_property(path, "flex-min-height", Value::from(format!("{height}px")));
+        self.set_property(path, "flex-max-height", Value::from(""));
+        self.set_property(
+            path,
+            "iconClass",
+            Value::from("widgets-flexcontainer-fixed"),
+        );
     }
 
     fn unfix_row(&mut self, path: &[usize]) {
@@ -816,6 +879,84 @@ impl MashupDocument {
         }
 
         Ok(self.split_beside(widget, &anchor, &parent_path, anchor_index, side))
+    }
+
+    /// Turn a container just placed between rows into the kits' separator: a 1px fixed row with
+    /// nothing in it (its colour is a root style entry). Reflow measures no height for an empty
+    /// row, so it stays 1px.
+    pub(crate) fn make_separator(&mut self, id: &str) -> Result<(), EditError> {
+        let path = self.find(id)?.path;
+        let number = id.rsplit('-').next().unwrap_or_default().to_string();
+        for (key, value) in [
+            ("DisplayName", format!("separator-{number}")),
+            ("flex-direction", "row".to_string()),
+            ("flex-size", "fixed".to_string()),
+            ("flex-min-height", "1px".to_string()),
+            ("flex-max-height", "1px".to_string()),
+            ("iconClass", "widgets-flexcontainer-fixed".to_string()),
+        ] {
+            self.set_property(&path, key, Value::from(value));
+        }
+        Ok(())
+    }
+
+    /// Split the row the new widget joined into a start group (what was there) and an end group
+    /// (the new widget), spread apart and centred, as the kits' label/value rows are. The row
+    /// keeps its natural height: reflow leaves a split row alone.
+    fn split_at_end(&mut self, mut placed: Placed) -> Result<Placed, EditError> {
+        let new = self.find(&placed.id)?;
+        let refuse = |why: &str| Err(EditError::Refused(format!("--end: {why}")));
+        let Some((&index, parent_path)) = new.path.split_last() else {
+            return refuse("the widget has no row");
+        };
+        let parent_path = parent_path.to_vec();
+        let row = self.at(&parent_path).clone();
+        if !is_generated_container(&row) || row["Properties"]["flex-direction"] != "row" {
+            return refuse("the anchor is not in a row twaco made; place it --right-of instead");
+        }
+        if let Some((_, grand)) = parent_path.split_last() {
+            if !grand.is_empty() && is_split_row(self.at(grand)) {
+                return refuse(
+                    "the row is split already; place it --right-of a widget of its end group",
+                );
+            }
+        }
+        let items = children(&row).to_vec();
+        if index + 1 != items.len() || items.len() < 2 {
+            return refuse("the anchor must be the last widget of its row");
+        }
+        let group = |document: &mut Self, justify: &str, members: &[Value]| {
+            let mut group = new_widget(
+                widgets::catalog()
+                    .by_type("flexcontainer")
+                    .expect("the catalogue has flexcontainer"),
+                document.allocate(),
+                true,
+            );
+            set_value_property(&mut group, "flex-direction", Value::from("row"));
+            set_value_property(&mut group, "justify-content", Value::from(justify));
+            set_value_property(&mut group, "align-items", Value::from("center"));
+            for member in members {
+                push_value_child(&mut group, member.clone());
+            }
+            group
+        };
+        let start = group(self, "flex-start", &items[..index]);
+        let end = group(self, "flex-end", &items[index..]);
+        placed.containers.push(widget_id(&start).to_string());
+        placed.containers.push(widget_id(&end).to_string());
+        let node = self.at_mut(&parent_path);
+        children_mut(node).clear();
+        children_mut(node).push(start);
+        children_mut(node).push(end);
+        self.set_property(
+            &parent_path,
+            "justify-content",
+            Value::from("space-between"),
+        );
+        self.set_property(&parent_path, "align-items", Value::from("center"));
+        self.unfix_row(&parent_path);
+        Ok(placed)
     }
 
     fn split_beside(
@@ -1284,6 +1425,80 @@ fn is_panel(widget: &Value) -> bool {
         && widget["Properties"]["DisplayName"]
             .as_str()
             .is_some_and(|name| name.starts_with("panel-"))
+}
+
+/// Whether an edit's widget is inside `row`; a placement reflow is not limited this way.
+fn contains_around(row: &Value, scope: &Reflow) -> bool {
+    match scope {
+        Reflow::Edit { around } => contains(row, around),
+        Reflow::Placement { .. } => true,
+    }
+}
+
+/// How tall a label/value row renders: its tallest widget, each as measured on 10.2 (a
+/// `label` 19px, a `sub-header` 27px, a `header` 33px) or by its own `Height`, with its
+/// vertical margins. `None` when a widget's height is not known.
+fn natural_height(widget: &Value) -> Option<f64> {
+    if type_of(widget) == Some("flexcontainer") {
+        let heights = children(widget)
+            .iter()
+            .map(natural_height)
+            .collect::<Option<Vec<_>>>()?;
+        return Some(heights.into_iter().fold(0.0, f64::max));
+    }
+    let properties = &widget["Properties"];
+    let own = properties["Height"].as_f64();
+    let height = match (own, type_of(widget)?) {
+        (Some(own), _) => own,
+        (None, "ptcslabel") => match properties["LabelType"].as_str() {
+            Some("header") => 33.0,
+            Some("sub-header") => 27.0,
+            Some("label" | "body") | None => 19.0,
+            Some(_) => return None,
+        },
+        _ => return None,
+    };
+    Some(height + vertical_margin(properties["Margin"].as_str().unwrap_or("")))
+}
+
+/// The height of a card someone added that holds label/value rows: its fixed rows and
+/// separators at their size, its split rows at their natural height. `None` for any other
+/// panel, so ordinary panels keep growing as rows are added to them.
+fn card_height(panel: &Value) -> Option<f64> {
+    if !is_panel(panel) || !children(panel).iter().any(is_split_row) {
+        return None;
+    }
+    children(panel)
+        .iter()
+        .map(|row| {
+            if is_split_row(row) {
+                natural_height(row)
+            } else {
+                fixed_row_px(row)
+            }
+        })
+        .sum()
+}
+
+/// The tallest card of a generated row of cards, when every child is such a card.
+fn card_row_height(row: &Value) -> Option<f64> {
+    if !is_generated_container(row) || row["Properties"]["flex-direction"] != "row" {
+        return None;
+    }
+    let heights = children(row)
+        .iter()
+        .map(card_height)
+        .collect::<Option<Vec<_>>>()?;
+    (!heights.is_empty()).then(|| heights.into_iter().fold(0.0, f64::max))
+}
+
+/// A row `--end` split: a generated row spreading two generated groups apart.
+fn is_split_row(widget: &Value) -> bool {
+    is_generated_container(widget)
+        && widget["Properties"]["flex-direction"] == "row"
+        && widget["Properties"]["justify-content"] == "space-between"
+        && children(widget).len() == 2
+        && children(widget).iter().all(is_generated_container)
 }
 
 /// Containers twaco created have Composer's generated display name, unlike named template slots.
@@ -2774,6 +2989,175 @@ mod placement_walkthrough {
         assert_eq!(
             document.at(&after.path)["Properties"]["ResponsiveLayout"],
             true
+        );
+    }
+
+    /// A card as the kits draw it: a panel, a title, then one dot-label-value row.
+    fn card_with_row(document: &mut MashupDocument) -> (String, String, String) {
+        let panel = document
+            .place(
+                widgets::catalog().by_type("flexcontainer").unwrap(),
+                &Placement::In("flexcontainer-2".into()),
+            )
+            .unwrap()
+            .id;
+        let title = document
+            .place(
+                widgets::catalog().by_type("ptcslabel").unwrap(),
+                &Placement::In(panel.clone()),
+            )
+            .unwrap()
+            .id;
+        let dot = document
+            .place(
+                widgets::catalog().by_type("shape").unwrap(),
+                &Placement::Beside {
+                    anchor: title,
+                    side: Side::Below,
+                },
+            )
+            .unwrap()
+            .id;
+        let name = document
+            .place(
+                widgets::catalog().by_type("ptcslabel").unwrap(),
+                &Placement::Beside {
+                    anchor: dot.clone(),
+                    side: Side::Right,
+                },
+            )
+            .unwrap()
+            .id;
+        (panel, dot, name)
+    }
+
+    fn parent_of<'a>(document: &'a MashupDocument, id: &str) -> &'a Value {
+        let path = document.find(id).unwrap().path;
+        document.at(&path[..path.len() - 1])
+    }
+
+    #[test]
+    fn end_splits_the_row_into_a_start_and_an_end_group_of_natural_height() {
+        let mut document = parse(crate::core::mashup::templates::BLANK).unwrap();
+        let (panel, dot, name) = card_with_row(&mut document);
+        let value = document
+            .place(
+                widgets::catalog().by_type("ptcslabel").unwrap(),
+                &Placement::Beside {
+                    anchor: name.clone(),
+                    side: Side::End,
+                },
+            )
+            .unwrap();
+        assert!(value.containers.len() >= 2, "{value:?}");
+        let start = parent_of(&document, &dot).clone();
+        let end = parent_of(&document, &value.id).clone();
+        assert_eq!(
+            children(&start)
+                .iter()
+                .map(|w| widget_id(w).to_string())
+                .collect::<Vec<_>>(),
+            [dot.clone(), name.clone()]
+        );
+        assert_eq!(start["Properties"]["justify-content"], "flex-start");
+        assert_eq!(end["Properties"]["justify-content"], "flex-end");
+        assert_eq!(start["Properties"]["align-items"], "center");
+        let row = parent_of(&document, widget_id(&start)).clone();
+        assert!(is_split_row(&row), "{row}");
+        assert_eq!(row["Properties"]["align-items"], "center");
+        assert_eq!(row["Properties"]["flex-size"], "default");
+        assert_eq!(row["Properties"]["flex-min-height"], "");
+        // The row stays natural when the card grows below it.
+        document
+            .place(
+                widgets::catalog().by_type("ptcslabel").unwrap(),
+                &Placement::Beside {
+                    anchor: dot,
+                    side: Side::Below,
+                },
+            )
+            .unwrap();
+        let row_path = document.find(widget_id(&row)).unwrap().path;
+        assert_eq!(document.at(&row_path)["Properties"]["flex-size"], "default");
+        assert!(document.find(&panel).is_ok());
+    }
+
+    #[test]
+    fn end_refuses_a_row_it_cannot_split() {
+        let mut document = parse(crate::core::mashup::templates::BLANK).unwrap();
+        let (_, dot, name) = card_with_row(&mut document);
+        // Not the last widget of its row.
+        assert!(matches!(
+            document.place(
+                widgets::catalog().by_type("ptcslabel").unwrap(),
+                &Placement::Beside {
+                    anchor: dot,
+                    side: Side::End,
+                },
+            ),
+            Err(EditError::Refused(_))
+        ));
+        let value = document
+            .place(
+                widgets::catalog().by_type("ptcslabel").unwrap(),
+                &Placement::Beside {
+                    anchor: name,
+                    side: Side::End,
+                },
+            )
+            .unwrap()
+            .id;
+        // Split already.
+        assert!(matches!(
+            document.place(
+                widgets::catalog().by_type("ptcslabel").unwrap(),
+                &Placement::Beside {
+                    anchor: value,
+                    side: Side::End,
+                },
+            ),
+            Err(EditError::Refused(_))
+        ));
+    }
+
+    #[test]
+    fn a_separator_is_an_empty_fixed_one_pixel_row_reflow_leaves_alone() {
+        let mut document = parse(crate::core::mashup::templates::BLANK).unwrap();
+        let (panel, dot, _) = card_with_row(&mut document);
+        let separator = document
+            .place(
+                widgets::catalog().by_type("flexcontainer").unwrap(),
+                &Placement::Beside {
+                    anchor: dot.clone(),
+                    side: Side::Below,
+                },
+            )
+            .unwrap()
+            .id;
+        document.make_separator(&separator).unwrap();
+        let found = document.find(&separator).unwrap();
+        // It sits in the card, between rows, not inside the dot's row.
+        assert_eq!(widget_id(parent_of(&document, &separator)), panel);
+        let properties = &document.at(&found.path)["Properties"];
+        assert_eq!(properties["flex-size"], "fixed");
+        assert_eq!(properties["flex-min-height"], "1px");
+        assert_eq!(properties["flex-max-height"], "1px");
+        assert_eq!(properties["flex-direction"], "row");
+        assert!(children(document.at(&found.path)).is_empty());
+        // A row added below it does not re-measure it.
+        document
+            .place(
+                widgets::catalog().by_type("ptcslabel").unwrap(),
+                &Placement::Beside {
+                    anchor: separator.clone(),
+                    side: Side::Below,
+                },
+            )
+            .unwrap();
+        let found = document.find(&separator).unwrap();
+        assert_eq!(
+            document.at(&found.path)["Properties"]["flex-min-height"],
+            "1px"
         );
     }
 }

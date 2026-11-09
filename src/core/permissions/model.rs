@@ -98,6 +98,9 @@ fn collect(element: &Element, model: &mut ModelEntity) {
         }
         let list = match name {
             b"ServiceDefinitions" => Some((b"ServiceDefinition".as_slice(), 0)),
+            // An inherited service has no ServiceDefinition on this entity, but a Script
+            // implementation still creates the entity's run-time resource.
+            b"ServiceImplementations" => Some((b"ServiceImplementation".as_slice(), 0)),
             b"PropertyDefinitions" => Some((b"PropertyDefinition".as_slice(), 1)),
             b"EventDefinitions" => Some((b"EventDefinition".as_slice(), 2)),
             b"OrganizationalUnits" => Some((b"OrganizationalUnit".as_slice(), 3)),
@@ -106,6 +109,11 @@ fn collect(element: &Element, model: &mut ModelEntity) {
         match list {
             Some((item, slot)) => {
                 for definition in elements(child).filter(|e| e.name == item) {
+                    if name == b"ServiceImplementations"
+                        && attribute(definition, "handlerName") != "Script"
+                    {
+                        continue;
+                    }
                     let value = attribute(definition, "name").to_string();
                     if value.is_empty() {
                         continue;

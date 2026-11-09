@@ -323,34 +323,90 @@ fn owned_comparison_tree(
 
 const MAX_DIFFERENCES: usize = 5;
 
-/// Where a read-back differs from what was sent, as the hash sees it: up to five paths such as
-/// `Project/@dependsOn: changed` or `Thing/ThingShape/.../PropertyDefinition[a]: dropped by the
-/// server`. Paths carry element names and `name` attributes only, never a value or text, which
-/// may be a password.
+/// Where a read-back differs from what was sent, as the hash sees it: up to five paths, then
+/// `and N more`, such as `Project/@dependsOn: changed` or
+/// `Thing/ThingShape/.../PropertyDefinition[a]: dropped by the server`. Paths carry element names
+/// and `name` attributes only, never a value or text, which may be a password.
 pub(crate) fn read_back_differences(
     sent: &[u8],
     read_back: &[u8],
     parts: &[super::server_owned::Part],
 ) -> Vec<String> {
-    let (Ok(sent), Ok(read_back)) = (
-        owned_comparison_tree(sent, parts),
-        owned_comparison_tree(read_back, parts),
-    ) else {
-        return Vec::new();
-    };
-    let mut out = Vec::new();
-    differences(&sent, &read_back, &element_label(&sent), &mut out);
-    // The walk compares text and elements apart; only how they interleave is left.
-    if out.is_empty() && canonical_element_bytes(&sent) != canonical_element_bytes(&read_back) {
-        out.push(format!(
-            "{}: its text and elements interleave differently",
-            element_label(&sent)
-        ));
+    let found = collect_differences(sent, read_back, parts, &READ_BACK, Some(MAX_DIFFERENCES));
+    let mut out = found.kept;
+    if found.total > out.len() {
+        out.push(format!("and {} more", found.total - out.len()));
     }
     out
 }
 
-fn differences(sent: &Element, back: &Element, path: &str, out: &mut Vec<String>) {
+/// Differences as the walk finds them: the first `limit` kept, all of them counted.
+struct Collector {
+    kept: Vec<String>,
+    total: usize,
+    limit: Option<usize>,
+}
+
+/// How a difference names a member only one side has.
+pub(crate) struct Sides {
+    pub(crate) left_only: &'static str,
+    pub(crate) right_only: &'static str,
+    /// Each side in a count or an order: `sent`, `read back`.
+    pub(crate) left: &'static str,
+    pub(crate) right: &'static str,
+}
+
+const READ_BACK: Sides = Sides {
+    left_only: "dropped by the server",
+    right_only: "added by the server",
+    left: "sent",
+    right: "read back",
+};
+
+/// The paths where `left` and `right` differ as the hash compares them, names only, as
+/// [`read_back_differences`] reports them; empty when nothing parses.
+pub(crate) fn all_differences(
+    left: &[u8],
+    right: &[u8],
+    parts: &[super::server_owned::Part],
+    sides: &Sides,
+) -> Vec<String> {
+    collect_differences(left, right, parts, sides, None).kept
+}
+
+fn collect_differences(
+    left: &[u8],
+    right: &[u8],
+    parts: &[super::server_owned::Part],
+    sides: &Sides,
+    limit: Option<usize>,
+) -> Collector {
+    let mut out = Collector {
+        kept: Vec::new(),
+        total: 0,
+        limit,
+    };
+    let (Ok(sent), Ok(read_back)) = (
+        owned_comparison_tree(left, parts),
+        owned_comparison_tree(right, parts),
+    ) else {
+        return out;
+    };
+    differences(&sent, &read_back, &element_label(&sent), sides, &mut out);
+    // The walk compares text and elements apart; only how they interleave is left.
+    if out.total == 0 && canonical_element_bytes(&sent) != canonical_element_bytes(&read_back) {
+        note(
+            &mut out,
+            format!(
+                "{}: its text and elements interleave differently",
+                element_label(&sent)
+            ),
+        );
+    }
+    out
+}
+
+fn differences(sent: &Element, back: &Element, path: &str, sides: &Sides, out: &mut Collector) {
     let names: std::collections::BTreeSet<&[u8]> = sent
         .attributes
         .iter()
@@ -368,8 +424,8 @@ fn differences(sent: &Element, back: &Element, path: &str, out: &mut Vec<String>
         let what = match (value(sent), value(back)) {
             (Some(left), Some(right)) if left == right => continue,
             (Some(_), Some(_)) => "changed",
-            (Some(_), None) => "dropped by the server",
-            (None, Some(_)) => "added by the server",
+            (Some(_), None) => sides.left_only,
+            (None, Some(_)) => sides.right_only,
             (None, None) => continue,
         };
         note(
@@ -407,12 +463,12 @@ fn differences(sent: &Element, back: &Element, path: &str, out: &mut Vec<String>
         };
         for (label, _) in &left {
             if !find(&right, label) {
-                note(out, format!("{path}/{label}: dropped by the server"));
+                note(out, format!("{path}/{label}: {}", sides.left_only));
             }
         }
         for (label, _) in &right {
             if !find(&left, label) {
-                note(out, format!("{path}/{label}: added by the server"));
+                note(out, format!("{path}/{label}: {}", sides.right_only));
             }
         }
         // Outside the sets the hash sorts, order is content.
@@ -433,20 +489,28 @@ fn differences(sent: &Element, back: &Element, path: &str, out: &mut Vec<String>
         }
         for (label, child) in &left {
             if let Some((_, other)) = right.iter().find(|(other, _)| other == label) {
-                differences(child, other, &format!("{path}/{label}"), out);
+                differences(child, other, &format!("{path}/{label}"), sides, out);
             }
         }
         return;
     }
     for (index, ((label, child), (other_label, other))) in left.iter().zip(&right).enumerate() {
         if label == other_label {
-            differences(child, other, &format!("{path}/{label}[{}]", index + 1), out);
+            differences(
+                child,
+                other,
+                &format!("{path}/{label}[{}]", index + 1),
+                sides,
+                out,
+            );
         } else {
             note(
                 out,
                 format!(
-                    "{path}: element {} is {label} as sent, {other_label} as read back",
-                    index + 1
+                    "{path}: element {} is {label} {}, {other_label} {}",
+                    index + 1,
+                    sides.left,
+                    sides.right
                 ),
             );
             return;
@@ -456,17 +520,20 @@ fn differences(sent: &Element, back: &Element, path: &str, out: &mut Vec<String>
         note(
             out,
             format!(
-                "{path}: {} child elements sent, {} read back",
+                "{path}: {} child elements {}, {} {}",
                 left.len(),
-                right.len()
+                sides.left,
+                right.len(),
+                sides.right
             ),
         );
     }
 }
 
-fn note(out: &mut Vec<String>, what: String) {
-    if out.len() < MAX_DIFFERENCES {
-        out.push(what);
+fn note(out: &mut Collector, what: String) {
+    out.total += 1;
+    if out.limit.is_none_or(|limit| out.kept.len() < limit) {
+        out.kept.push(what);
     }
 }
 
@@ -1469,12 +1536,13 @@ mod tests {
                 "Thing[P.T]/ThingShape/PropertyDefinitions/PropertyDefinition[b]: dropped by the server",
                 "Thing[P.T]/ThingShape/PropertyDefinitions/PropertyDefinition[c]: added by the server",
                 "Thing[P.T]/ThingShape/PropertyDefinitions/PropertyDefinition[a]/@baseType: changed",
+                "and 1 more",
             ]
         );
         assert!(!found
             .iter()
             .any(|line| line.contains("s3cret") || line.contains("t0ps")));
-        // The sixth difference, the stored value, is past the limit; on its own it is text.
+        // The sixth difference, the stored value, is only counted; on its own it is text.
         let only_value = sent.replace("<Value>1</Value>", "<Value>2</Value>");
         assert_eq!(
             read_back_differences(sent.as_bytes(), only_value.as_bytes(), &[]),
@@ -1522,6 +1590,16 @@ mod tests {
             read_back_differences(mixed.as_bytes(), moved.as_bytes(), &[]),
             ["Thing[T]: its text and elements interleave differently"]
         );
+    }
+
+    #[test]
+    fn differences_past_five_are_counted() {
+        let sent = r#"<Thing name="T" a="1" b="1" c="1" d="1" e="1" f="1" g="1"/>"#;
+        let back = r#"<Thing name="T" a="2" b="2" c="2" d="2" e="2" f="2" g="2"/>"#;
+        let found = read_back_differences(sent.as_bytes(), back.as_bytes(), &[]);
+        assert_eq!(found.len(), 6, "{found:?}");
+        assert_eq!(found[0], "Thing[T]/@a: changed");
+        assert_eq!(found[5], "and 2 more");
     }
 
     #[test]

@@ -8,6 +8,7 @@
 
 pub mod carry;
 pub mod delete;
+pub mod diff;
 pub mod edit;
 pub mod get;
 pub mod key;

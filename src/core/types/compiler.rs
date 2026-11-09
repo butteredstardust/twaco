@@ -1,10 +1,11 @@
 use super::super::child::{credential_values, redact, run_to_completion, strip_credentials};
 use super::super::config::Solution;
 use super::super::profile::Secret;
-use super::model::{load_model, script_declares, Member, Model, Service};
+use super::model::{load_model, script_declares, script_service_definitions, Model, Service};
 use super::render::{identifiers, type_name};
 use super::write::write;
 use super::{CheckError, CheckOutcome, TypeFinding};
+use crate::core::catalog::InheritedService;
 use serde_json::json;
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::{OsStr, OsString};
@@ -107,7 +108,8 @@ pub(crate) fn check_with(
     // handling and declaration writes as plain `twaco types`.
     let declarations = write(solution, held)?;
     let (model, _) = load_model(solution);
-    let projects = write_check_project(solution, &model)?;
+    let platform = super::platform::cached(solution);
+    let projects = write_check_project(solution, &model, platform.as_ref())?;
     let command = compiler_command(solution);
     let (program, configured_arguments) = command
         .split_first()
@@ -273,6 +275,7 @@ fn check_globals(
 pub(super) fn write_check_project(
     solution: &Solution,
     model: &Model,
+    platform: Option<&super::platform::Platform>,
 ) -> Result<Vec<CheckProject>, CheckError> {
     struct Pending {
         script_path: PathBuf,
@@ -300,8 +303,8 @@ pub(super) fn write_check_project(
     for entity in &model.entities {
         let entity_key = format!("{}\0{}", entity.name, entity.collection);
         let services_dir = solution.src_root().join(&entity.name).join("services");
-        for member in &entity.members {
-            let Member::Service(service) = member else {
+        for (_, definition) in script_service_definitions(entity, model, platform) {
+            let InheritedService::Defined(service) = definition else {
                 continue;
             };
             let directory = services_dir.join(&service.name);
@@ -313,7 +316,7 @@ pub(super) fn write_check_project(
                 .map_err(|error| CheckError(format!("{}: {error}", script_path.display())))?;
             pending.push(Pending {
                 globals: check_globals(
-                    service,
+                    &service,
                     &entity_ids[&entity_key],
                     &script,
                     &known_shapes,

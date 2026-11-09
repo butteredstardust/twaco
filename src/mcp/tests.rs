@@ -1237,6 +1237,7 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
             "model_resolve",
             "entity_inspect",
             "access_explain",
+            "entity_diff",
             "entity_get",
             "export",
             "package",
@@ -2329,6 +2330,10 @@ fn what_the_offline_tools_return_fits_the_output_schema_they_publish() {
             json!({"mashup": "P.Board_MU", "widget": "mashup-root", "properties": {"StyleProperties": {"gap": "4px"}}}),
         ),
         (
+            "mashup_set",
+            json!({"mashup": "P.Board_MU", "widget": "flexcontainer-2", "styles": ["background=#ffffff"]}),
+        ),
+        (
             "mashup_add_contained",
             json!({"mashup": "P.Board_MU", "child": "P.Card_MU"}),
         ),
@@ -3203,6 +3208,52 @@ fn entity_edit_service_add_plans_then_removes() {
 }
 
 #[test]
+fn entity_edit_overrides_an_inherited_service_then_reverts_it() {
+    let (_dir, root) = solution_dir();
+    for arguments in [
+        json!({"kind": "thing-template", "name": "P.Base_TT", "dry_run": false}),
+        json!({"kind": "thing", "name": "P.Press", "template": "P.Base_TT", "dry_run": false}),
+    ] {
+        let created = call(&root, "entity_new", arguments);
+        assert_eq!(created["isError"], false, "{created}");
+    }
+    let parent = call(
+        &root,
+        "entity_edit",
+        json!({"action": "service_add", "entity": "P.Base_TT", "name": "Read", "returns": "NUMBER", "then": "result = 1;", "dry_run": false}),
+    );
+    assert_eq!(parent["isError"], false, "{parent}");
+    let overridden = call(
+        &root,
+        "entity_edit",
+        json!({"action": "service_override", "entity": "P.Press", "name": "Read", "then": "result = 2;", "dry_run": false}),
+    );
+    assert_eq!(overridden["isError"], false, "{overridden}");
+    let folder = root.join("src/P.Press/services/Read");
+    assert!(folder.join("script.js").is_file());
+    assert!(!folder.join("definition.xml").exists());
+    let signature = call(
+        &root,
+        "entity_edit",
+        json!({"action": "service_override", "entity": "P.Press", "name": "Read", "returns": "STRING"}),
+    );
+    assert_eq!(signature["isError"], true, "{signature}");
+    let removed = call(
+        &root,
+        "entity_edit",
+        json!({"action": "service_remove", "entity": "P.Press", "name": "Read"}),
+    );
+    assert_eq!(removed["isError"], true, "{removed}");
+    let reverted = call(
+        &root,
+        "entity_edit",
+        json!({"action": "service_revert", "entity": "P.Press", "name": "Read", "dry_run": false}),
+    );
+    assert_eq!(reverted["isError"], false, "{reverted}");
+    assert!(!folder.exists());
+}
+
+#[test]
 fn trace_reports_a_service_and_refuses_an_unknown_one() {
     let (_dir, root) = solution_dir();
     let created = call(
@@ -3268,6 +3319,49 @@ fn mashup_add_applies_a_widget_and_refuses_two_placements() {
             .to_string()
             .contains("give one of in, right_of, left_of, above, below"),
         "{invalid}"
+    );
+}
+
+#[test]
+fn mashup_add_end_splits_the_row_and_needs_right_of() {
+    let (_dir, root) = solution_dir();
+    let created = call(
+        &root,
+        "mashup_new",
+        json!({"name": "Acme.Kpi_MU", "dry_run": false}),
+    );
+    assert_eq!(created["isError"], false, "{created}");
+    for arguments in [
+        json!({"mashup": "Acme.Kpi_MU", "widget": "label", "dry_run": false}),
+        json!({"mashup": "Acme.Kpi_MU", "widget": "label", "below": "ptcslabel-3", "dry_run": false}),
+    ] {
+        let added = call(&root, "mashup_add", arguments);
+        assert_eq!(added["isError"], false, "{added}");
+    }
+    let end = call(
+        &root,
+        "mashup_add",
+        json!({"mashup": "Acme.Kpi_MU", "widget": "label", "right_of": "ptcslabel-4", "end": true, "dry_run": false}),
+    );
+    assert_eq!(end["isError"], false, "{end}");
+    let content =
+        std::fs::read_to_string(root.join("src/Acme.Kpi_MU/mashup/content.json")).unwrap();
+    let value: Value = serde_json::from_str(&content).unwrap();
+    let text = value.to_string();
+    assert!(
+        text.contains("\"justify-content\":\"space-between\""),
+        "{text}"
+    );
+    assert!(text.contains("\"justify-content\":\"flex-end\""), "{text}");
+    let refused = call(
+        &root,
+        "mashup_add",
+        json!({"mashup": "Acme.Kpi_MU", "widget": "label", "below": "ptcslabel-3", "end": true}),
+    );
+    assert_eq!(refused["isError"], true, "{refused}");
+    assert!(
+        refused.to_string().contains("end goes with right_of"),
+        "{refused}"
     );
 }
 

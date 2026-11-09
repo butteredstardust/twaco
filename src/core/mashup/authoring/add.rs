@@ -214,6 +214,9 @@ pub(crate) fn function_property(
 }
 
 /// Plan adding one catalogue widget to an existing mashup. Nothing is written.
+/// The design kits' row separator colour.
+const SEPARATOR_COLOUR: &str = "#C2C7CE";
+
 pub(crate) fn plan_add(
     solution: &Solution,
     request: &AddRequest,
@@ -222,24 +225,32 @@ pub(crate) fn plan_add(
     let mut document = parse_loaded(&loaded)?;
     // A platform widget first, then one of the solution's own extension projects defines.
     let defined;
-    let widget = match widgets::catalog().resolve(&request.widget) {
-        Ok(widget) => widget,
-        Err(error) => match extension_widgets::find(solution, &request.widget) {
-            (Some(found), _) => {
-                defined = found;
-                &defined
-            }
-            (None, skipped) => {
-                let unread = if skipped.is_empty() {
-                    String::new()
-                } else {
-                    format!(" (unread: {})", skipped.join("; "))
-                };
-                return Err(AuthoringError::Invalid(format!(
+    // A separator is the kits' 1px rule between rows: an empty container, not a widget.
+    let separator = request.widget == "separator";
+    let widget = if separator {
+        widgets::catalog()
+            .by_type("flexcontainer")
+            .expect("the catalogue has flexcontainer")
+    } else {
+        match widgets::catalog().resolve(&request.widget) {
+            Ok(widget) => widget,
+            Err(error) => match extension_widgets::find(solution, &request.widget) {
+                (Some(found), _) => {
+                    defined = found;
+                    &defined
+                }
+                (None, skipped) => {
+                    let unread = if skipped.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" (unread: {})", skipped.join("; "))
+                    };
+                    return Err(AuthoringError::Invalid(format!(
                     "{error}; nor does an [[extension]] project of this solution define it, nor an extension `twaco types --platform` saw installed on the server{unread}"
                 )));
-            }
-        },
+                }
+            },
+        }
     };
     let placed = if widget.function {
         add_function_widget(&mut document, widget, request)?
@@ -259,9 +270,67 @@ pub(crate) fn plan_add(
                         .to_string(),
                 )),
             };
-        document
-            .place(widget, &placement)
-            .map_err(AuthoringError::Edit)?
+        if separator {
+            let Placement::Beside {
+                anchor,
+                side: mashup::edit::Side::Above | mashup::edit::Side::Below,
+            } = &placement
+            else {
+                return Err(AuthoringError::Invalid(
+                    "a separator goes between rows: --below or --above a widget".into(),
+                ));
+            };
+            // A card is not a row: a rule below one card of a row of cards would wrap it.
+            let found = document.find(anchor).map_err(AuthoringError::Edit)?;
+            if document.at(&found.path)["Properties"]["DisplayName"]
+                .as_str()
+                .is_some_and(|name| name.starts_with("panel-"))
+            {
+                return Err(AuthoringError::Invalid(format!(
+                    "{} is a card; place the separator --below a widget inside it",
+                    found.id
+                )));
+            }
+            // Its colour goes in the root style map, which must be Composer's shape.
+            super::set::style_properties(document.root_properties(), &request.mashup)?;
+        }
+        // Placement measures the rows it touches, so it sees the widget as --prop leaves it (a
+        // margin or a label type changes its height); the loop below still checks and sets each.
+        let adjusted;
+        let placing = if request.properties.is_empty() {
+            widget
+        } else {
+            let mut copy = widget.clone();
+            for (name, text) in &request.properties {
+                // A catalogue default, or a contract property an extension declares without one.
+                if copy.defaults.contains_key(name) || widget.property(name).is_some() {
+                    if let Ok(value) = property_value(widget, name, Value::String(text.clone())) {
+                        copy.defaults.insert(name.clone(), value);
+                    }
+                }
+            }
+            adjusted = copy;
+            &adjusted
+        };
+        let placed = document
+            .place(placing, &placement)
+            .map_err(AuthoringError::Edit)?;
+        if separator {
+            document
+                .make_separator(&placed.id)
+                .map_err(AuthoringError::Edit)?;
+            super::set::copy_style_entry(
+                &mut document,
+                &placed.id,
+                serde_json::json!({
+                    "parts": {"$": {"$": {"background": SEPARATOR_COLOUR}}},
+                    "widget": "flex-container"
+                }),
+                None,
+                &mut Vec::new(),
+            );
+        }
+        placed
     };
     if let Some(label) = &request.label {
         let property = ["LabelText", "Label", "Text", "Title"]

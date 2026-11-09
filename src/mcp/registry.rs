@@ -101,6 +101,7 @@ const OPEN_WORLD: &[&str] = &[
     "model_resolve",
     "entity_inspect",
     "access_explain",
+    "entity_diff",
     "entity_get",
     "export",
     "import",
@@ -546,7 +547,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         ).with_output::<outputs::NetworkWriteResult>(),
         solution_tool::<refactor_requests::EntityEditRequest>(
             "entity_edit",
-            "Change an existing entity in the repository, as Composer would: add, change or remove a property of a Thing, ThingTemplate or ThingShape (a persistent one also writes the stored value of every Thing that has it), add a script service (a definition and its sidecars, as sync would) or remove one with its sidecars and run-time permissions, add or remove a script subscription, implement or stop implementing a ThingShape, change a timer's or scheduler's settings, given keys of a style, a MediaEntity's image, a menu's items, or a StateDefinition's states. Removing or retyping a property, or removing a service, something still uses is refused unless force. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
+            "Change an existing entity in the repository, as Composer would: add, change or remove a property of a Thing, ThingTemplate or ThingShape (a persistent one also writes the stored value of every Thing that has it), add or remove a local script service and its sidecars, or override or revert an inherited service with its script-only sidecar while keeping its run-time permissions; add or remove a script subscription, implement or stop implementing a ThingShape, change a timer's or scheduler's settings, given keys of a style, a MediaEntity's image, a menu's items, or a StateDefinition's states. Removing or retyping a property, or removing a service, something still uses is refused unless force. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
             false,
             refactor::entity_edit_tool,
         )
@@ -875,6 +876,13 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             content::access_explain_tool,
         )
         .with_output::<outputs::AccessExplainResult>(),
+        solution_tool::<content_requests::EntityDiffRequest>(
+            "entity_diff",
+            "Where the repository's copy of one entity and the server's differ, compared as status and deploy compare them (inherited and server-derived members and the profile's server-owned parts left out): identical, and the differing element paths (among unnamed siblings of different kinds, only the first mismatch). Never a value, so a credential shows only as its cell's text changing. Use it to see why status says server-changed or a read-back says not kept. Read-only.",
+            true,
+            content::entity_diff_tool,
+        )
+        .with_output::<outputs::EntityDiffResult>(),
         solution_tool::<content_requests::EntityGetRequest>(
             "entity_get",
             "One entity's XML as the server has it: Collection/Name reaches any entity on the server, a bare name one in the repository. Read-only; nothing is written. A long entity is cut at max_chars (truncated says so); export with action entity writes it whole to a file.",
@@ -1036,6 +1044,7 @@ pub(crate) const GROUPS: &[(&str, &[&str])] = &[
             "trace",
             "unused",
             "search",
+            "entity_diff",
             "entity_get",
             "docs",
             "doctor",

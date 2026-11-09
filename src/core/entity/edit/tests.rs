@@ -126,7 +126,7 @@ fn service_add_and_remove_keep_the_entity_and_sidecars_in_step() {
     let extracted =
         sidecar::extract_services(file(&solution, "Things", "Acme.Orders.Press").as_bytes())
             .unwrap();
-    assert_eq!(extracted[0].definition, definition);
+    assert_eq!(extracted[0].definition().unwrap(), definition);
     assert_eq!(
         std::fs::read_to_string(folder.join("script.js")).unwrap(),
         "return rows;"
@@ -169,6 +169,128 @@ fn service_add_works_on_a_template_and_a_shape() {
         .join("Acme.Orders.Audit_TS/services/Record/script.js");
     assert_eq!(std::fs::read_to_string(script).unwrap(), "");
     assert_in_step(&solution);
+}
+
+#[test]
+fn service_override_and_revert_keep_the_inherited_contract_and_permissions() {
+    let (_dir, solution) = house_solution();
+    let mut parent = service("ReadSpeed", "result = me.Speed;");
+    parent.parameters = vec!["limit:INTEGER".into()];
+    parent.returns = Some("NUMBER".into());
+    parent.description = Some("Read the current speed.".into());
+    run(
+        &solution,
+        "Acme.Orders.Machine_TT",
+        Action::ServiceAdd(parent),
+    );
+    let override_action = Action::ServiceOverride {
+        name: "ReadSpeed".into(),
+        code: "result=limit".into(),
+    };
+    let planned = plan_of(&solution, "Acme.Orders.Press", override_action.clone()).unwrap();
+    assert_eq!(planned.changes.len(), 2);
+    assert!(!file(&solution, "Things", "Acme.Orders.Press").contains("ReadSpeed"));
+    run(&solution, "Acme.Orders.Press", override_action);
+    let folder = solution
+        .src_root()
+        .join("Acme.Orders.Press/services/ReadSpeed");
+    let script = std::fs::read_to_string(folder.join("script.js")).unwrap();
+    assert!(script.contains("@function ReadSpeed"), "{script}");
+    assert!(script.contains("@param {number} limit"), "{script}");
+    assert!(!folder.join("definition.xml").exists());
+    let entity_path = solution.root.join("app/Things/Acme.Orders.Press.xml");
+    let before = std::fs::read_to_string(&entity_path).unwrap();
+    std::fs::write(
+        &entity_path,
+        before.replace(
+            "<RunTimePermissions></RunTimePermissions>",
+            "<RunTimePermissions><Permissions resourceName=\"ReadSpeed\"><ServiceInvoke/></Permissions></RunTimePermissions>",
+        ),
+    )
+    .unwrap();
+    let overridden = file(&solution, "Things", "Acme.Orders.Press");
+    assert!(
+        overridden.contains("resourceName=\"ReadSpeed\""),
+        "{overridden}"
+    );
+    let services = crate::core::sidecar::extract(overridden.as_bytes())
+        .unwrap()
+        .services;
+    assert!(
+        services
+            .iter()
+            .any(|service| service.name == "ReadSpeed" && service.is_override()),
+        "{overridden}"
+    );
+
+    run(
+        &solution,
+        "Acme.Orders.Press",
+        Action::ServiceRevert {
+            name: "ReadSpeed".into(),
+        },
+    );
+    let reverted = file(&solution, "Things", "Acme.Orders.Press");
+    assert!(!crate::core::sidecar::extract(reverted.as_bytes())
+        .unwrap()
+        .services
+        .iter()
+        .any(|service| service.name == "ReadSpeed"));
+    assert!(reverted.contains("resourceName=\"ReadSpeed\""));
+    assert!(!folder.exists());
+    assert_in_step(&solution);
+}
+
+#[test]
+fn service_override_refuses_local_services_missing_parents_and_wrong_hosts() {
+    let (_dir, solution) = fixture();
+    family(&solution);
+    run(
+        &solution,
+        "Acme.Orders.Machine_TT",
+        Action::ServiceAdd(service("ReadSpeed", "")),
+    );
+    let override_service = |entity: &str, name: &str| {
+        plan_of(
+            &solution,
+            entity,
+            Action::ServiceOverride {
+                name: name.into(),
+                code: String::new(),
+            },
+        )
+    };
+    assert_eq!(
+        code(override_service("Acme.Orders.Machine_TT", "ReadSpeed")),
+        ErrorCode::AlreadyExists
+    );
+    assert_eq!(
+        code(override_service("Acme.Orders.Press", "Missing")),
+        ErrorCode::UnknownEntity
+    );
+    assert!(override_service("Acme.Orders.Row_DS", "ReadSpeed").is_err());
+    run(
+        &solution,
+        "Acme.Orders.Press",
+        Action::ServiceOverride {
+            name: "ReadSpeed".into(),
+            code: String::new(),
+        },
+    );
+    assert_eq!(
+        code(override_service("Acme.Orders.Press", "ReadSpeed")),
+        ErrorCode::AlreadyExists
+    );
+    let remove = plan_of(
+        &solution,
+        "Acme.Orders.Press",
+        Action::ServiceRemove {
+            name: "ReadSpeed".into(),
+            force: false,
+        },
+    )
+    .unwrap_err();
+    assert!(remove.to_string().contains("override --revert"), "{remove}");
 }
 
 #[test]
@@ -274,6 +396,119 @@ root = \"app\"
     .unwrap();
     assert!(report.findings.is_empty(), "{:?}", report.findings);
     assert_in_step(&solution);
+}
+
+fn house_solution() -> (tempfile::TempDir, Solution) {
+    let (dir, old_solution) = fixture();
+    std::fs::write(
+        old_solution.root.join("twaco.toml"),
+        "[solution]
+src = \"src\"
+
+[lint]
+extends = [\"house-v1\"]
+
+[[project]]
+name = \"Acme.Orders\"
+root = \"app\"
+",
+    )
+    .unwrap();
+    let solution = Solution::load(&old_solution.root.join("twaco.toml")).unwrap();
+    family(&solution);
+    (dir, solution)
+}
+
+fn house_findings(solution: &Solution) -> Vec<String> {
+    crate::core::lint_report::run(
+        solution,
+        &crate::core::lint_report::LintRequest {
+            rules: vec!["comments".to_string()],
+            ..Default::default()
+        },
+    )
+    .unwrap()
+    .findings
+    .iter()
+    .map(|finding| format!("{finding:?}"))
+    .collect()
+}
+
+#[test]
+fn service_add_keeps_a_script_header_instead_of_stacking_a_second() {
+    let (_dir, solution) = house_solution();
+    let mut add = service(
+        "ReadRows",
+        "/**
+ * Reads the rows.
+ *
+ * @function ReadRows
+ * @param {number} limit - How many rows.
+ * @returns {Object} An InfoTable shaped by Acme.Orders.Row_DS.
+ */
+result = limit;",
+    );
+    add.parameters = vec!["limit:INTEGER".into()];
+    add.returns = Some("INFOTABLE:Acme.Orders.Row_DS".into());
+    add.description = Some("Read rows".into());
+    run(&solution, "Acme.Orders.Press", Action::ServiceAdd(add));
+    let script = std::fs::read_to_string(
+        solution
+            .src_root()
+            .join("Acme.Orders.Press/services/ReadRows/script.js"),
+    )
+    .unwrap();
+    assert_eq!(script.matches("/**").count(), 1, "{script}");
+    assert!(script.contains("How many rows."), "{script}");
+    assert!(house_findings(&solution).is_empty(), "{script}");
+}
+
+#[test]
+fn service_add_completes_the_tags_of_a_script_header() {
+    let (_dir, solution) = house_solution();
+    let mut add = service(
+        "ReadRows",
+        "/**
+ * Reads the rows.
+ *
+ * @function ReadRows
+ */
+result = limit;",
+    );
+    add.parameters = vec!["limit:INTEGER".into()];
+    add.returns = Some("INFOTABLE:Acme.Orders.Row_DS".into());
+    run(&solution, "Acme.Orders.Press", Action::ServiceAdd(add));
+    let script = std::fs::read_to_string(
+        solution
+            .src_root()
+            .join("Acme.Orders.Press/services/ReadRows/script.js"),
+    )
+    .unwrap();
+    assert_eq!(script.matches("/**").count(), 1, "{script}");
+    assert!(script.contains("@param {number} limit"), "{script}");
+    assert!(script.contains("@returns {Object}"), "{script}");
+}
+
+#[test]
+fn service_add_shortens_a_long_description_in_the_header_only() {
+    let (_dir, solution) = house_solution();
+    let long = "Returns the most recent robot cell events from the stream, newest first, \
+                limited to the requested number of rows so that the dashboard grid and the \
+                alarm panel stay fast. Rows older than a day are skipped.";
+    let mut add = service("ReadRows", "result = limit;");
+    add.parameters = vec!["limit:INTEGER".into()];
+    add.returns = Some("INFOTABLE:Acme.Orders.Row_DS".into());
+    add.description = Some(long.into());
+    run(&solution, "Acme.Orders.Press", Action::ServiceAdd(add));
+    let folder = solution
+        .src_root()
+        .join("Acme.Orders.Press/services/ReadRows");
+    let script = std::fs::read_to_string(folder.join("script.js")).unwrap();
+    assert!(!script.contains("alarm panel"), "{script}");
+    assert!(script.contains("@function ReadRows"), "{script}");
+    let definition = std::fs::read_to_string(folder.join("definition.xml")).unwrap();
+    assert!(definition.contains("alarm panel stay fast"), "{definition}");
+    assert!(house_findings(&solution).is_empty(), "{script}");
 }
 
 #[test]
@@ -2447,4 +2682,47 @@ fn ai_edits_keep_section_order_and_refuse_bad_text_and_repeats() {
         .unwrap_err()
         .to_string();
     assert!(error.contains("U+0007"), "{error}");
+}
+
+#[test]
+fn an_override_on_an_unextracted_entity_gives_its_other_services_folders_too() {
+    // The entity has a local service and no services folder yet. The override creates that
+    // folder, so the local service must get its sidecar too, or a later sync would read it as
+    // removed.
+    let (_dir, solution) = fixture();
+    family(&solution);
+    let mut parent = service("ReadSpeed", "result = 1;");
+    parent.returns = Some("NUMBER".into());
+    run(
+        &solution,
+        "Acme.Orders.Machine_TT",
+        Action::ServiceAdd(parent),
+    );
+    let entity_path = solution.root.join("app/Things/Acme.Orders.Press.xml");
+    let before = std::fs::read_to_string(&entity_path).unwrap();
+    let local = r#"<ServiceDefinitions><ServiceDefinition aspect.isAsync="false" category="" description="" isAllowOverride="false" isLocalOnly="false" isOpen="false" isPrivate="false" name="Local"><ResultType baseType="NOTHING" description="" name="result" ordinal="0"></ResultType><ParameterDefinitions></ParameterDefinitions></ServiceDefinition></ServiceDefinitions>"#;
+    let implementation = r#"<ServiceImplementations><ServiceImplementation description="" handlerName="Script" name="Local"><ConfigurationTables><ConfigurationTable dataShapeName="" description="" isMultiRow="false" name="Script" ordinal="0"><DataShape><FieldDefinitions><FieldDefinition baseType="STRING" description="code" name="code" ordinal="0"></FieldDefinition></FieldDefinitions></DataShape><Rows><Row><code><![CDATA[local();]]></code></Row></Rows></ConfigurationTable></ConfigurationTables></ServiceImplementation></ServiceImplementations>"#;
+    let with_local = before
+        .replacen("<ServiceDefinitions></ServiceDefinitions>", local, 1)
+        .replacen(
+            "<ServiceImplementations></ServiceImplementations>",
+            implementation,
+            1,
+        );
+    assert_ne!(with_local, before, "the fixture has empty service sections");
+    std::fs::write(&entity_path, with_local).unwrap();
+    let services = solution.src_root().join("Acme.Orders.Press/services");
+    assert!(!services.exists());
+    run(
+        &solution,
+        "Acme.Orders.Press",
+        Action::ServiceOverride {
+            name: "ReadSpeed".into(),
+            code: "result = 2;".into(),
+        },
+    );
+    assert!(services.join("ReadSpeed/script.js").is_file());
+    assert!(services.join("Local/definition.xml").is_file());
+    assert!(services.join("Local/script.js").is_file());
+    assert_in_step(&solution);
 }

@@ -6,6 +6,45 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `extract`, `sync`, `adopt` and rename now manage inherited service overrides as script-only
+  sidecars (`services/<Service>/script.js`); the next extract exposes that layout where needed.
+- Inherited service overrides now use their resolved parent definition for comment headers and
+  TypeScript globals/checking, and strict permissions policies classify them as run-time services.
+  Validation distinguishes an unresolved external ancestor from a parent that no longer defines
+  the service.
+- `mashup add` measures a new widget's row with the `--prop` values it is given (a margin, a label
+  type), not with the catalogue defaults it replaces.
+- `thing service add --script` keeps a header the script brings and completes its tags, instead of
+  adding a second header that fails `comment header`.
+- The header `thing service add` writes passes the solution's comment lint: a description too long
+  for it is cut to the leading sentences that fit, or left out; definition.xml keeps it whole.
+- `twaco call` takes `<target>.<service>` as well as `<target> <service>`, as `catalog` and `trace`
+  do.
+- `new data-shape --field rows:INFOTABLE:<DataShape>` names a nested table's DataShape.
+- A read-back that is not kept says how many differences it leaves out after the first five.
+- `adopt` takes one entity as `entity get --out` writes it, not only an `<Entities>` export.
+
+### Added
+
+- `thing service override <Entity> <Service>` (MCP `entity_edit` action `service_override`)
+  creates a script-only local implementation of an inherited service; `--revert` (`service_revert`)
+  removes it without dropping that service's run-time permission grants.
+- Collection cell menus: `mashup on --event ui:<collection>.CellMenu:<item>` once the collection's
+  `CellMenu` names a StateDefinition; an item the StateDefinition lacks is refused, and
+  `mashup validate` reports one.
+- `mashup add --right-of <widget> --end` (MCP `end`) puts a widget at the far end of its row, split
+  into a start and an end group as the kits lay out a label and its value; `mashup add separator`
+  adds the kits' 1px rule between rows. A row of such cards gets a measured `range` height.
+- `mashup set --style [<part>[@<state>]:]<property>=<value>` (MCP `styles`) writes a widget's look
+  into the root StyleProperties directly: card frames, header bands, a collection's cell on hover.
+- `twaco entity diff <entity>` (MCP `entity_diff`): the element paths where the repository's copy
+  of an entity and the server's differ, compared as status and deploy compare them. It never
+  prints a value, so a credential shows only as its cell's text changing.
+- The `project` gate reports a multi-row configuration table definition whose own fields mark no
+  primary key (the import fails) or that also names a DataShape (it reads back not kept).
+
 ## [0.1.56] - 2026-11-06
 
 ### Changed

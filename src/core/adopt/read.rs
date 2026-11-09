@@ -15,7 +15,30 @@ pub(crate) fn export_entities(path: &Path) -> Result<BTreeMap<EntityRef, Element
         why,
     };
     let bytes = std::fs::read(path).map_err(|e| bad(e.to_string()))?;
-    export_entities_bytes(&bytes, path)
+    export_entities_bytes(&as_export(bytes), path)
+}
+
+/// An export file's bytes as an `<Entities>` document. A single entity, as `entity get --out`
+/// writes it (`<Thing name=...>`), is wrapped in its collection; anything else is left for the
+/// reader to refuse.
+fn as_export(bytes: Vec<u8>) -> Vec<u8> {
+    let Ok(tokens) = scan::tokenize(&bytes) else {
+        return bytes;
+    };
+    let Some(root) = tokens
+        .iter()
+        .find(|token| matches!(token.kind, scan::Kind::Start | scan::Kind::Empty))
+    else {
+        return bytes;
+    };
+    let tag = root.name.of(&bytes);
+    let Some((collection, _)) = crate::core::search::TYPES
+        .iter()
+        .find(|(_, singular)| singular.as_bytes() == tag)
+    else {
+        return bytes;
+    };
+    entity_document(collection, &bytes[root.span.start..])
 }
 
 /// Parse the entities in an Exporter response without first putting that response on disk.
@@ -113,7 +136,7 @@ pub(super) fn entity_document(collection: &str, entity: &[u8]) -> Vec<u8> {
 
 pub(super) fn raw_entity(path: &Path, wanted: &EntityRef) -> Result<Vec<u8>, AdoptError> {
     let bytes = std::fs::read(path).map_err(|e| io_error(path, e))?;
-    raw_entity_bytes(&bytes, wanted)
+    raw_entity_bytes(&as_export(bytes), wanted)
 }
 
 /// The original bytes of one entity in an Exporter document.  Server-starting init needs this
@@ -191,4 +214,37 @@ pub(super) fn entity_span(
         };
     }
     None
+}
+
+#[cfg(test)]
+mod single_entity_tests {
+    use super::*;
+
+    #[test]
+    fn a_single_entity_file_reads_as_an_export_of_its_collection() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("T.xml");
+        std::fs::write(
+            &path,
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Thing name=\"Acme.T\" projectName=\"Acme\"><ThingShape/></Thing>\n",
+        )
+        .unwrap();
+        let found = export_entities(&path).unwrap();
+        let wanted = EntityRef {
+            collection: "Things".into(),
+            name: "Acme.T".into(),
+        };
+        assert!(found.contains_key(&wanted), "{:?}", found.keys());
+        let raw = raw_entity(&path, &wanted).unwrap();
+        assert!(raw.starts_with(b"<Thing name=\"Acme.T\""));
+    }
+
+    #[test]
+    fn a_document_of_no_known_entity_is_still_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("x.xml");
+        std::fs::write(&path, "<Widget name=\"w\"/>").unwrap();
+        let error = export_entities(&path).unwrap_err().to_string();
+        assert!(error.contains("not an <Entities> export"), "{error}");
+    }
 }

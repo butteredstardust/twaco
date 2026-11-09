@@ -111,7 +111,7 @@ fn exporter_backend_replacement_keeps_the_repository_lines_and_new_entity_layout
                     .join("definition.xml")
             )
             .unwrap(),
-            service.definition,
+            service.definition().unwrap(),
             "incoming service definitions retain the repository layout"
         );
     }
@@ -541,6 +541,36 @@ fn a_service_they_added_becomes_a_sidecar_and_a_service_of_the_entity() {
         .collect();
     let (again, _) = sync::sync(entity.as_bytes(), &sidecars, false, false, false).unwrap();
     assert_eq!(again, entity.as_bytes());
+}
+
+#[test]
+fn adopt_merges_an_override_and_keeps_its_script_only_sidecar() {
+    let (_dir, solution, base, export) = multi_case(
+        ("v", &[("A", "base();")]),
+        ("v", &[("A", "base();")]),
+        ("v", &[("A", "theirs();")]),
+    );
+    let definition =
+        "<ServiceDefinition name=\"A\"><ResultType baseType=\"NOTHING\"/></ServiceDefinition>";
+    for path in [
+        solution.root.join("Things/P.T.xml"),
+        base.clone(),
+        export.clone(),
+    ] {
+        let xml = std::fs::read_to_string(&path)
+            .unwrap()
+            .replace(definition, "");
+        std::fs::write(path, xml).unwrap();
+    }
+    std::fs::remove_file(sidecar(&solution, "A").join("definition.xml")).unwrap();
+
+    apply_all(&solution, &base, &export, &[]);
+    assert_eq!(read(&solution, "src/P.T/services/A/script.js"), "theirs();");
+    assert!(!sidecar(&solution, "A").join("definition.xml").exists());
+    let xml = read(&solution, "Things/P.T.xml");
+    let sidecars = crate::core::workspace::read_sidecars(&solution.src_root().join("P.T/services"));
+    let (again, _) = sync::sync(xml.as_bytes(), &sidecars, false, false, false).unwrap();
+    assert_eq!(again, xml.as_bytes());
 }
 
 #[test]

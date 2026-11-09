@@ -11,6 +11,7 @@
 
 pub(crate) mod address;
 pub mod authoring;
+pub(crate) mod cell_menu;
 pub mod describe;
 pub mod diff;
 pub mod edit;

@@ -1,3 +1,4 @@
+use super::super::catalog::{self, InheritedService};
 use super::super::config::Solution;
 use super::super::datashape;
 use super::super::scan::{self, ScanError, Token};
@@ -154,6 +155,37 @@ pub(crate) fn load_model_from(discovered: &workspace::Discovery) -> (Model, Vec<
         .sort_by(|a, b| (&a.name, &a.collection).cmp(&(&b.name, &b.collection)));
     model.data_shapes.sort_by(|a, b| a.name.cmp(&b.name));
     (model, skipped)
+}
+
+/// Every service whose script gets globals: each locally defined service (its sidecar script may
+/// exist before the XML has an implementation), then each local Script implementation with no
+/// local definition, an override, whose signature comes from the shared ancestry resolver.
+pub(super) fn script_service_definitions(
+    entity: &Entity,
+    model: &Model,
+    platform: Option<&super::platform::Platform>,
+) -> Vec<(String, InheritedService)> {
+    let mut out: Vec<(String, InheritedService)> = entity
+        .members
+        .iter()
+        .filter_map(|member| match member {
+            Member::Service(service) => Some((
+                service.name.clone(),
+                InheritedService::Defined(service.clone()),
+            )),
+            _ => None,
+        })
+        .collect();
+    for name in &entity.script_services {
+        if out.iter().any(|(defined, _)| defined == name) {
+            continue;
+        }
+        out.push((
+            name.clone(),
+            catalog::inherited_service(entity, &model.entities, platform, name),
+        ));
+    }
+    out
 }
 
 pub(super) fn script_declares(script: &str, name: &str) -> bool {

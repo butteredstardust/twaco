@@ -1007,7 +1007,7 @@ fn check_file_has_typed_header_and_verbatim_script_but_no_skipped_global() {
     let script = "let input = 'local';\r\nresult = input.length;\r\n";
     let (_dir, root, solution) = check_fixture("check-project", script);
     let (model, _) = load_model(&solution);
-    let projects = write_check_project(&solution, &model).unwrap();
+    let projects = write_check_project(&solution, &model, None).unwrap();
     assert_eq!(projects.len(), 1);
     assert_eq!(projects[0].generated_name, "s0000.js");
     assert_eq!(projects[0].header_lines, 3);
@@ -1020,6 +1020,60 @@ fn check_file_has_typed_header_and_verbatim_script_but_no_skipped_global() {
     assert!(generated.starts_with(header.as_bytes()));
     assert_eq!(&generated[header.len()..], script.as_bytes());
     assert!(!String::from_utf8_lossy(&generated).contains("var input;"));
+}
+
+#[test]
+fn inherited_override_scripts_receive_the_parent_signature() {
+    let (_dir, root, solution) = fixture_solution(
+        "inherited-override-globals",
+        &[
+            (
+                "ThingTemplates",
+                "Base",
+                r#"<Entities><ThingTemplates><ThingTemplate name="Base" projectName="P"><ThingShape><ServiceDefinitions><ServiceDefinition name="Run"><ParameterDefinitions><FieldDefinition name="who" baseType="STRING"/></ParameterDefinitions><ResultType baseType="NUMBER"/></ServiceDefinition></ServiceDefinitions></ThingShape></ThingTemplate></ThingTemplates></Entities>"#,
+            ),
+            (
+                "Things",
+                "Child",
+                r#"<Entities><Things><Thing name="Child" projectName="P" thingTemplate="Base"><ThingShape><ServiceDefinitions/><ServiceImplementations><ServiceImplementation name="Run" handlerName="Script"><ConfigurationTables><ConfigurationTable name="Script"><Rows><Row><code><![CDATA[result = who.length;]]></code></Row></Rows></ConfigurationTable></ConfigurationTables></ServiceImplementation></ServiceImplementations></ThingShape></Thing></Things></Entities>"#,
+            ),
+        ],
+    );
+    let directory = root.join("src/Child/services/Run");
+    std::fs::create_dir_all(&directory).unwrap();
+    std::fs::write(directory.join("script.js"), "result = who.length;\n").unwrap();
+
+    let outcome = write(&solution, &held(&solution)).unwrap();
+    assert_eq!(outcome.services, 1);
+    let globals = std::fs::read_to_string(directory.join("twaco-globals.d.ts")).unwrap();
+    assert!(globals.contains("declare let who: string;"), "{globals}");
+    assert!(globals.contains("declare let result: number;"), "{globals}");
+
+    let (model, _) = load_model(&solution);
+    let projects = write_check_project(&solution, &model, None).unwrap();
+    assert_eq!(projects.len(), 1);
+}
+
+#[test]
+fn unresolved_override_scripts_are_skipped_with_a_platform_note() {
+    let (_dir, root, solution) = fixture_solution(
+        "unresolved-override-globals",
+        &[(
+            "Things",
+            "Child",
+            r#"<Entities><Things><Thing name="Child" projectName="P" thingTemplate="External"><ThingShape><ServiceDefinitions/><ServiceImplementations><ServiceImplementation name="Run" handlerName="Script"><ConfigurationTables><ConfigurationTable name="Script"><Rows><Row><code><![CDATA[result = 1;]]></code></Row></Rows></ConfigurationTable></ConfigurationTables></ServiceImplementation></ServiceImplementations></ThingShape></Thing></Things></Entities>"#,
+        )],
+    );
+    let directory = root.join("src/Child/services/Run");
+    std::fs::create_dir_all(&directory).unwrap();
+    std::fs::write(directory.join("script.js"), "result = 1;\n").unwrap();
+
+    let outcome = write(&solution, &held(&solution)).unwrap();
+    assert_eq!(outcome.services, 0);
+    assert!(outcome
+        .skipped
+        .iter()
+        .any(|note| note.contains("Child/Run") && note.contains("types --platform")));
 }
 
 #[test]

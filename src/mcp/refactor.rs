@@ -259,6 +259,27 @@ pub(crate) fn entity_edit_tool(
             name: need(&arguments.name, "name")?,
             force: arguments.force,
         },
+        EntityEditAction::ServiceOverride => {
+            // The signature is the ancestor's: as on the command line, these are refused.
+            if !arguments.params.is_absent()
+                || !arguments.returns.is_absent()
+                || !arguments.description.is_absent()
+                || arguments.private
+                || arguments.force
+            {
+                return Err(ToolError::invalid(
+                    "service_override takes name and then only: the signature is the inherited one",
+                ));
+            }
+            Action::ServiceOverride {
+                name: need(&arguments.name, "name")?,
+                code: text(&arguments.then)
+                    .unwrap_or_else(|| "// TODO: implement override.\n".to_string()),
+            }
+        }
+        EntityEditAction::ServiceRevert => Action::ServiceRevert {
+            name: need(&arguments.name, "name")?,
+        },
         EntityEditAction::ShapeAdd => Action::ShapeAdd {
             shape: need(&arguments.shape, "shape")?,
         },
@@ -561,11 +582,18 @@ pub(crate) fn mashup_add_tool(
             .cloned()
             .map(|anchor| beside(anchor, crate::core::mashup::edit::Side::Below)),
     ];
-    let supplied: Vec<_> = placements.into_iter().flatten().collect();
+    let mut supplied: Vec<_> = placements.into_iter().flatten().collect();
     if supplied.len() > 1 {
         return Err(ToolError::invalid(
             "give one of in, right_of, left_of, above, below",
         ));
+    }
+    if arguments.end {
+        use crate::core::mashup::edit::{Placement, Side};
+        match supplied.first_mut() {
+            Some(Placement::Beside { side, .. }) if *side == Side::Right => *side = Side::End,
+            _ => return Err(ToolError::invalid("end goes with right_of")),
+        }
     }
     let request = commands::mashup::MashupAddRequest {
         request: crate::core::mashup::authoring::AddRequest {
@@ -696,9 +724,12 @@ pub(crate) fn mashup_set_tool(
     arguments: MashupSetRequest,
 ) -> Result<Value, ToolError> {
     let dry_run = arguments.dry_run;
-    if arguments.properties.is_empty() && arguments.style_from.is_absent() {
+    if arguments.properties.is_empty()
+        && arguments.style_from.is_absent()
+        && arguments.styles.is_empty()
+    {
         return Err(ToolError::invalid(
-            "properties and style_from must not both be empty",
+            "properties, styles and style_from must not all be empty",
         ));
     }
     let request = commands::mashup::MashupSetRequest {
@@ -707,6 +738,7 @@ pub(crate) fn mashup_set_tool(
             widget: nonempty(&arguments.widget, "widget")?.to_string(),
             properties: arguments.properties.into_iter().collect(),
             style_from: arguments.style_from.as_ref().cloned(),
+            styles: arguments.styles,
         },
         mode: if dry_run { Mode::Plan } else { Mode::Apply },
         lock_label: "mcp mashup_set",

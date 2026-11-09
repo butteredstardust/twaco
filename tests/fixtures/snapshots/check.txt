@@ -2,11 +2,11 @@ $ twaco check
 exit: 0
 
 --- stdout
-  ok      line endings         36 examined
-  ok      sidecars             8 examined
-  ok      formatting           7 examined
-  ok      script traps         7 examined
-  ok      code order           7 examined
+  ok      line endings         37 examined
+  ok      sidecars             9 examined
+  ok      formatting           8 examined
+  ok      script traps         8 examined
+  ok      code order           8 examined
   ok      project              16 examined
   ok      project dependencies 1 examined
   ok      mashup bindings      0 examined

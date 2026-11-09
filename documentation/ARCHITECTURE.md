@@ -76,7 +76,7 @@ item's signature needs it). An item that only unit tests use is `#[cfg(test)]`.
 | `entity::key` | Validates entity and service-call addresses, preserving whether a service target was a bare Thing or a qualified entity. |
 | `index` | The solution as one immutable graph (petgraph) of what depends on what: entities and projects as nodes, references as edges that say how sure they are (structural, resolved, review). Answers dependents, inheritance, cycles and reachability, and lists what it could not read so a command can say what it left out. |
 | `workspace` | Finds a solution's entity files, reports unreadable ones and links, and reads and writes sidecars atomically; `atomic_replace` is the one way any file that may exist is replaced. |
-| `sidecar`, `datashape`, `datatable`, `mashup` | Extract and sync each sidecar kind. |
+| `sidecar`, `datashape`, `datatable`, `mashup` | Extract and sync each sidecar kind, including script-only inherited-service overrides. |
 | `normalise` | The comparison form of an entity: what ThingWorx changes on its own is removed, so the repository and server versions compare by content. |
 | `server_owned` | Validated ownership selectors shared by hashes, status, push, deploy and adopt; omits selected comparison nodes and transfers only scanner spans, keeping server values in memory. |
 | `config`, `profile` | `twaco.toml` and server profiles. |
@@ -102,7 +102,7 @@ item's signature needs it). An item that only unit tests use is `#[cfg(test)]`.
 | `relocate` | `move`, `copy`: a member's definition and implementation spliced from one entity's XML into another's, re-indented, with the sidecars and the callers it breaks |
 | `retemplate` | `retemplate`: the entity's inheritance changed in place, with the effective members compared before and after |
 | `backup` | the backup sets taken before a delete or a forced overwrite, and `entity restore` |
-| `entity::new`, `entity::edit`, `entity::get` | `new <kind>`, the in-place entity edits (`thing property`, `timer set`, `menu item`, ...), `entity get` |
+| `entity::new`, `entity::edit`, `entity::get`, `entity::diff` | `new <kind>`, the in-place entity edits (`thing property`, `timer set`, `menu item`, ...), `entity get`, `entity diff` |
 | `ledger`, `entity::delete`, `entity::carry`, `datatable_copy` | `entity delete`, `entity carry`, `datatable copy`: what happens on the server after a rename, driven by the typed rename ledger |
 | `db` | `db run`, `db query`, `db clean`: SQL through a throwaway Database Thing |
 | `logs`, `settings` | `logs`, `logs level`, `settings` |

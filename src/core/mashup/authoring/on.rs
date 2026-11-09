@@ -174,6 +174,7 @@ pub(crate) fn plan_on(solution: &Solution, request: &OnRequest) -> Result<OnPlan
         platform: platform.as_ref(),
     };
     let new_source = on_in(&mut document, &context, &request.event, &request.invoke)?;
+    refuse_unknown_cell_menu_item(solution, &document, &request.event)?;
     let edit = finish_edit(loaded, document, "mashup on")?;
     Ok(OnPlan {
         edit,
@@ -181,6 +182,38 @@ pub(crate) fn plan_on(solution: &Solution, request: &OnRequest) -> Result<OnPlan
         invoke: request.invoke.clone(),
         new_source,
     })
+}
+
+/// A cell menu item that the repository's StateDefinition does not have fires nothing.
+fn refuse_unknown_cell_menu_item(
+    solution: &Solution,
+    document: &MashupDocument,
+    event: &str,
+) -> Result<(), AuthoringError> {
+    let Some((widget, item)) = event
+        .strip_prefix("ui:")
+        .and_then(|rest| rest.split_once(&format!(".{}", mashup::cell_menu::PREFIX)))
+    else {
+        return Ok(());
+    };
+    let Ok(found) = document.find_exact(widget) else {
+        return Ok(());
+    };
+    let menu = document.at(&found.path)["Properties"]["CellMenu"]
+        .as_str()
+        .unwrap_or_default();
+    let discovered = crate::core::workspace::discover(solution);
+    let Some(items) = mashup::cell_menu::repository_events(&discovered, menu) else {
+        return Ok(());
+    };
+    let name = format!("{}{item}", mashup::cell_menu::PREFIX);
+    if items.contains(&name) {
+        return Ok(());
+    }
+    Err(AuthoringError::Invalid(format!(
+        "{name} is not an item of {menu}, whose cell menu fires {}; add the state with `twaco state set {menu}`",
+        if items.is_empty() { "nothing".to_string() } else { items.join(", ") }
+    )))
 }
 
 /// Add one checked event handler to an already loaded document.
@@ -291,6 +324,32 @@ pub(super) fn resolve_trigger(
                 "a contained mashup's events are its BOTH or OUT parameters (see mashup event add)"
                     .into(),
             ));
+        }
+        if found.type_id == "ptcscollection" && event.starts_with(mashup::cell_menu::PREFIX) {
+            // A cell menu item's event: its name is Composer's form of a state's value; whether
+            // the state exists is the validator's check, which reads the StateDefinition.
+            let menu = document.at(&found.path)["Properties"]["CellMenu"]
+                .as_str()
+                .unwrap_or_default();
+            if menu.is_empty() {
+                return Err(AuthoringError::Invalid(format!(
+                    "{} has no cell menu: set its CellMenu to a StateDefinition first (mashup set {} --prop CellMenu=<StateDefinition>)",
+                    found.id, found.id
+                )));
+            }
+            let item = &event[mashup::cell_menu::PREFIX.len()..];
+            let expected = mashup::cell_menu::event_name(item);
+            if item.is_empty() || expected != event {
+                return Err(AuthoringError::Invalid(format!(
+                    "a cell menu item fires {expected}, its value with spaces made hyphens and punctuation left out"
+                )));
+            }
+            return Ok(Trigger {
+                area: "UI",
+                section: String::new(),
+                id: found.id,
+                event: event.into(),
+            });
         }
         let catalog = event_contract(&found.id, &found.type_id)?;
         if !catalog.has_event(event) {

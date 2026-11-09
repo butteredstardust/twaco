@@ -76,6 +76,17 @@ XML but does not create a new table through raw import. For a new importable tab
 top-level DataShape, name it in ConfigurationTable dataShapeName, and add a matching
 ConfigurationTableDefinition. The inline form is safe only when the target table already exists.
 
+The definition takes its key from one place. With dataShapeName and no fields of its own (the
+export form), the named DataShape supplies it. With inline FieldDefinitions, those supply it, and
+without aspect.isPrimaryKey="true" among them the import fails with "Configuration Table [ X ] is
+multirow but its datashape [ unnamed ] does not have a primary key", whatever the named DataShape
+marks. With both, the server keeps the fields, drops dataShapeName and sets source="IMPORT", so the
+entity reads back not kept. The ConfigurationTable's own copy reads back as the named DataShape's
+fields, numbered from 1 in its field order, with an explicit isPrimaryKey on each; write it that way
+to read back kept, or take the server's form once (`entity get --out`, then `adopt --take theirs`).
+`twaco check` reports the first two cases. From REST, SetConfigurationTable on a multi-row table
+returns 400 "Multiple rows not permitted"; use SetMultiRowConfigurationTable.
+
 ## JSON row values need a json element; arrays can be boxed
 
 A JSON ConfigurationTable cell needs a json child around its CDATA. Without it import succeeds but

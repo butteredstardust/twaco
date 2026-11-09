@@ -697,7 +697,7 @@ pub(crate) const USAGE: &[Usage] = &[
     Usage {
         path: "mashup add",
         group: 1,
-        text: r#"  mashup add <mashup> <widget> [--in <container> | --right-of <widget> | --left-of <widget> | --above <widget> | --below <widget>]
+        text: r#"  mashup add <mashup> <widget> [--in <container> | --right-of <widget> [--end] | --left-of <widget> | --above <widget> | --below <widget>]
       [--label <text>] [--prop <name=value>]... [--input <name:TYPE[=default]>]... [--apply] [--json]
                               add a catalogue widget, or one an [[extension]] project defines, to a
                               mashup; plan unless --apply; a function widget (expression, validator,
@@ -705,6 +705,9 @@ pub(crate) const USAGE: &[Usage] = &[
       --in <container>        add inside a responsive container (center when omitted)
       --right-of/--left-of/--above/--below <widget>
                               place beside an existing widget
+      --end                   with --right-of: at the far end of the row, which splits into a start
+                              and an end group (a label and its value, as the kits lay them out)
+      separator               as <widget>: the kits' 1px rule between rows, --below or --above one
       --label <text>          set the widget's LabelText, Label, Text or Title property
       --prop <name=value>     set one simple default property, repeatable; an extension widget's
                               property with no default takes JSON
@@ -742,13 +745,17 @@ pub(crate) const USAGE: &[Usage] = &[
     Usage {
         path: "mashup set",
         group: 1,
-        text: r#"  mashup set <mashup> <widget> --prop <name=value>... [--style-from <mashup:widget>] [--apply] [--json]
-                              set checked properties on one exact widget; structured properties take JSON;
-                              plan unless --apply
+        text: r#"  mashup set <mashup> <widget> [--prop <name=value>]... [--style <setting>]... [--style-from <mashup:widget>] [--apply] [--json]
+                              set checked properties or the style of one exact widget (at least one of
+                              --prop, --style, --style-from); structured properties take JSON; plan unless --apply
       --prop <name=value>     set one property, repeatable; objects and arrays are JSON
       --style-from <mashup:widget>
                               copy that widget's visual style (its entry in the root's StyleProperties);
-                              with it, --prop is optional"#,
+                              with it, --prop is optional
+      --style <[part[@state]:]property=value>
+                              set one CSS property of the widget's style, repeatable, after any
+                              --style-from: background=#fff, border-style=solid, cell@hover:background=#eee;
+                              an empty value removes it"#,
     },
     Usage {
         path: "mashup source add",
@@ -968,12 +975,15 @@ pub(crate) const USAGE: &[Usage] = &[
       [--returns <TYPE>[:<DataShape>]] [--description <text>] [--category <text>] [--private]
       [--then <code> | --script <file.js>] [--apply] [--json]
   thing service remove <Entity> <Name> [--force] [--apply] [--json]
-                              add or remove an own script service and its managed sidecars; an
-                              absent script is empty; plan unless --apply
+  thing service override <Entity> <Name> [--script <file.js>] [--apply] [--json]
+  thing service override --revert <Entity> <Name> [--apply] [--json]
+                              add or remove an own script service, or override an inherited one
+                              with a script-only sidecar; plan unless --apply
       --param                 a parameter in declaration order
       --returns               result type, NOTHING by default
       --private               make the service private
-      --force                 remove it even when callers still use it (they are listed)"#,
+      --force                 remove it even when callers still use it (they are listed)
+      --revert                restore the inherited implementation (override only)"#,
     },
     Usage {
         path: "thing subscription",
@@ -1111,7 +1121,8 @@ pub(crate) const USAGE: &[Usage] = &[
         group: 1,
         text: r#"  new data-shape <name> --field <name:TYPE[:primary]>... [--project <name>] [--description <text>] [--base <DataShape>]
       [--visibility <principal>]... [--apply] [--json]
-                              create a DataShape and its fields.json sidecar; plan unless --apply"#,
+                              create a DataShape and its fields.json sidecar; plan unless --apply
+                              rows:INFOTABLE:<DataShape> as a --field names a nested table's shape"#,
     },
     Usage {
         path: "new timer",
@@ -1305,6 +1316,14 @@ pub(crate) const USAGE: &[Usage] = &[
       [--profile <name>]      server profile (default: default)"#,
     },
     Usage {
+        path: "entity diff",
+        group: 2,
+        text: r#"  entity diff <entity> [--profile <name>] [--json]
+                              where the repository's copy and the server's differ, compared as
+                              status and deploy compare them: own members only, element paths,
+                              never a value (a credential shows as its cell's text changing)"#,
+    },
+    Usage {
         path: "entity inspect",
         group: 2,
         text: r#"  entity inspect <Collection/Name> [--member <name>] [--values] [--json]
@@ -1490,7 +1509,8 @@ pub(crate) const USAGE: &[Usage] = &[
         path: "call",
         group: 3,
         text: r#"  call <target> <service> [<json>] [--timeout <seconds>] [--detail] [--as <test user>] [--json]
-      [--lang <code>]         target: Collection/Name, full name, or last dotted segment
+      [--lang <code>]         target: Collection/Name, full name, or last dotted segment;
+                              <target>.<service> [<json>] works too, split at the last dot
       --with-logs             then what it wrote to ScriptLog and ApplicationLog (waits up to 3 s)
       --json                  one complete service reply as JSON (logs and notices go to stderr)
       --as <test user>        call as a [[test.user]] with the profile's test_password (the profile

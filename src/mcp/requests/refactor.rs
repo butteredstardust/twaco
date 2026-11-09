@@ -565,6 +565,10 @@ pub(crate) enum EntityEditAction {
     ServiceAdd,
     #[serde(rename = "service_remove")]
     ServiceRemove,
+    #[serde(rename = "service_override")]
+    ServiceOverride,
+    #[serde(rename = "service_revert")]
+    ServiceRevert,
     #[serde(rename = "shape_add")]
     ShapeAdd,
     #[serde(rename = "shape_remove")]
@@ -655,7 +659,7 @@ pub(crate) struct EntityEditRequest {
     /// subscription_add: the property a DataChange subscription watches.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) source_property: Absent<String>,
-    /// subscription_add / service_add: the script (service_add: absent means an empty body).
+    /// subscription_add / service_add / service_override: the script (service_add: absent means an empty body).
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) then: Absent<String>,
     /// service_add: parameters in declaration order, each `name:TYPE[:DataShape]`.
@@ -786,6 +790,9 @@ pub(crate) struct MashupAddRequest {
     pub(crate) above: Absent<String>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) below: Absent<String>,
+    /// With right_of: put the widget at the far end of the anchor's row, which splits into a start and an end group (a label and its value, as the kits lay them out).
+    #[serde(default)]
+    pub(crate) end: bool,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) label: Absent<String>,
     /// Simple catalogue default properties to set by exact property name.
@@ -861,12 +868,16 @@ pub(crate) struct MashupSetRequest {
     pub(crate) mashup: String,
     /// An exact widget Id, DisplayName, or the one widget of a type.
     pub(crate) widget: String,
-    /// Exact property names and their JSON values. Strings use the same syntax as CLI --prop.
+    /// Exact property names and their JSON values. Strings use the same syntax as CLI --prop. Optional when styles or style_from is given.
+    #[serde(default)]
     #[schemars(schema_with = "free_object")]
     pub(crate) properties: BTreeMap<String, serde_json::Value>,
     /// Copy this widget's root StyleProperties.data entry, as `<mashup>:<widget>`.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) style_from: Absent<String>,
+    /// Style settings `[<part>[@<state>]:]<property>=<value>` merged into the widget's root style entry after any style_from copy, such as `background=#ffffff` or `cell@hover:border-color=#BEC6CA`; an empty value removes the property.
+    #[serde(default)]
+    pub(crate) styles: Vec<String>,
     #[serde(default = "default_true")]
     pub(crate) dry_run: bool,
 }
