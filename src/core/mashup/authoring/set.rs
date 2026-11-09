@@ -495,7 +495,7 @@ fn style_properties<'a>(
     Ok(Some(styles))
 }
 
-fn copy_style_entry(
+pub(super) fn copy_style_entry(
     document: &mut crate::core::mashup::edit::MashupDocument,
     target_id: &str,
     entry: Value,

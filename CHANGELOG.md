@@ -8,6 +8,8 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Fixed
 
+- `mashup add` measures a new widget's row with the `--prop` values it is given (a margin, a label
+  type), not with the catalogue defaults it replaces.
 - `thing service add --script` keeps a header the script brings and completes its tags, instead of
   adding a second header that fails `comment header`.
 - The header `thing service add` writes passes the solution's comment lint: a description too long
@@ -20,6 +22,9 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- `mashup add --right-of <widget> --end` (MCP `end`) puts a widget at the far end of its row, split
+  into a start and an end group as the kits lay out a label and its value; `mashup add separator`
+  adds the kits' 1px rule between rows. A row of such cards gets a measured `range` height.
 - `mashup set --style [<part>[@<state>]:]<property>=<value>` (MCP `styles`) writes a widget's look
   into the root StyleProperties directly: card frames, header bands, a collection's cell on hover.
 - `twaco entity diff <entity>` (MCP `entity_diff`): the element paths where the repository's copy

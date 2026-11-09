@@ -786,6 +786,9 @@ pub(crate) struct MashupAddRequest {
     pub(crate) above: Absent<String>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) below: Absent<String>,
+    /// With right_of: put the widget at the far end of the anchor's row, which splits into a start and an end group (a label and its value, as the kits lay them out).
+    #[serde(default)]
+    pub(crate) end: bool,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) label: Absent<String>,
     /// Simple catalogue default properties to set by exact property name.

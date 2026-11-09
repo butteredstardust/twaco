@@ -1133,6 +1133,23 @@ share one row, and the row holding a panel of fixed rows is sized to fit it. `--
 property; `--prop Name=value` changes a catalogue property with its expected type. Structured
 properties take JSON, including a grid's column format:
 
+A card of label/value rows, as the design kits draw one ("● Objective ........ 12"), takes three
+more steps. `--right-of <widget> --end` puts a widget at the far end of the anchor's row: the row
+splits into a start group (what was there) and an end group (the new widget), spread apart and
+centred, and it keeps its natural height. `mashup add <mashup> separator --below <widget>` adds
+the kits' 1px rule (`#C2C7CE`) between rows. The row holding such cards becomes a `range` row whose
+minimum is the cards' measured height (a `label` row is 19px on 10.2, a `sub-header` 27px, a
+`header` 33px), so a filling row below keeps most of the page; give that row `flex-grow` 2 or 3 to
+weight it as the kits do. `--prop` values count in that measure, so set a dot's size and margins
+there:
+
+```sh
+twaco mashup add Acme.App.Kpi_MU shape --below ptcslabel-4 --prop Width=12 --prop Height=12 --prop "Margin=0 5" --apply
+twaco mashup add Acme.App.Kpi_MU label --right-of shape-5 --label Objective --prop "Margin=0 5" --apply
+twaco mashup add Acme.App.Kpi_MU label --right-of ptcslabel-6 --end --label 12 --prop "Margin=0 18 0 5" --apply
+twaco mashup add Acme.App.Kpi_MU separator --below shape-5 --apply
+```
+
 The catalogue also has the older Composer `shape`: a rectangle, rounded rectangle, circle or
 ellipse (`ShapeType`) for status dots, badges and backgrounds. Its `Data` takes any scalar and its
 `ShapeFormatter` colours it by state; `EnableDynamicFill` with `DynamicRangeMinimum` and

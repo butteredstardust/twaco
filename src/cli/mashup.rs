@@ -268,6 +268,8 @@ pub(crate) struct Place {
 pub(crate) struct MashupAdd {
     #[command(flatten)]
     pub(crate) place: Place,
+    #[arg(long = "end")]
+    pub(crate) end: bool,
     #[arg(long = "label", value_name = "text")]
     pub(crate) label: Option<String>,
     #[arg(long = "prop", value_name = "name=value")]
@@ -1110,6 +1112,23 @@ pub(crate) fn mashup_add_cmd(solution: &Solution, args: &MashupAdd) -> u8 {
         "--below" => beside(value, Side::Below),
         _ => unreachable!("only placement flags are collected"),
     });
+    let placement = match (args.end, placement) {
+        (false, placement) => placement,
+        (
+            true,
+            Some(Placement::Beside {
+                anchor,
+                side: Side::Right,
+            }),
+        ) => Some(Placement::Beside {
+            anchor,
+            side: Side::End,
+        }),
+        (true, _) => {
+            eprintln!("{} --end goes with --right-of <widget>", style::prefix());
+            return FAILED;
+        }
+    };
     let properties = match args
         .props
         .iter()

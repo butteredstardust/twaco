@@ -561,11 +561,18 @@ pub(crate) fn mashup_add_tool(
             .cloned()
             .map(|anchor| beside(anchor, crate::core::mashup::edit::Side::Below)),
     ];
-    let supplied: Vec<_> = placements.into_iter().flatten().collect();
+    let mut supplied: Vec<_> = placements.into_iter().flatten().collect();
     if supplied.len() > 1 {
         return Err(ToolError::invalid(
             "give one of in, right_of, left_of, above, below",
         ));
+    }
+    if arguments.end {
+        use crate::core::mashup::edit::{Placement, Side};
+        match supplied.first_mut() {
+            Some(Placement::Beside { side, .. }) if *side == Side::Right => *side = Side::End,
+            _ => return Err(ToolError::invalid("end goes with right_of")),
+        }
     }
     let request = commands::mashup::MashupAddRequest {
         request: crate::core::mashup::authoring::AddRequest {

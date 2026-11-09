@@ -7013,3 +7013,221 @@ fn state_format_refuses_a_malformed_grid_format_without_writing() {
     assert!(error.to_string().contains("no column note"));
     assert!(before == tree_bytes(dir.path()));
 }
+
+/// Add one widget and apply it; the id of what was placed.
+fn add_one(
+    solution: &Solution,
+    mashup: &str,
+    widget: &str,
+    placement: Placement,
+    properties: &[(&str, &str)],
+) -> String {
+    let mut request = add_request(mashup, widget);
+    request.placement = Some(placement);
+    request.properties = properties
+        .iter()
+        .map(|(name, value)| (name.to_string(), value.to_string()))
+        .collect();
+    let plan = plan_add(solution, &request).unwrap();
+    apply_edit(solution, &plan.edit, &lock(solution)).unwrap();
+    plan.placed.id
+}
+
+fn find_widget<'a>(widget: &'a Value, id: &str) -> Option<&'a Value> {
+    if widget["Properties"]["Id"] == id {
+        return Some(widget);
+    }
+    widget["Widgets"]
+        .as_array()?
+        .iter()
+        .find_map(|child| find_widget(child, id))
+}
+
+fn parent_id(widget: &Value, id: &str) -> Option<String> {
+    for child in widget["Widgets"].as_array()? {
+        if child["Properties"]["Id"] == id {
+            return widget["Properties"]["Id"].as_str().map(str::to_string);
+        }
+        if let Some(found) = parent_id(child, id) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+#[test]
+fn a_card_of_label_value_rows_and_separators_gets_a_measured_range_row() {
+    use crate::core::mashup::edit::Side;
+    let (_dir, solution) = one_project();
+    let name = "Acme.Kpi_MU";
+    apply_new(
+        &solution,
+        &plan_new(&solution, &request(name)).unwrap(),
+        &lock(&solution),
+    )
+    .unwrap();
+    let beside = |anchor: &str, side| Placement::Beside {
+        anchor: anchor.to_string(),
+        side,
+    };
+    // A page title first, as on the kits' pages: the cards then get a row of their own.
+    add_one(
+        &solution,
+        name,
+        "label",
+        Placement::In("center".into()),
+        &[("LabelType", "header")],
+    );
+    let mut cards: Vec<String> = Vec::new();
+    for index in 0..2 {
+        let card = if index == 0 {
+            add_one(
+                &solution,
+                name,
+                "container",
+                Placement::In("center".into()),
+                &[],
+            )
+        } else {
+            add_one(
+                &solution,
+                name,
+                "container",
+                beside(&cards[0], Side::Right),
+                &[],
+            )
+        };
+        let mut previous = add_one(
+            &solution,
+            name,
+            "label",
+            Placement::In(card.clone()),
+            &[("LabelType", "sub-header")],
+        );
+        for row in 0..3 {
+            if row > 0 {
+                previous = add_one(
+                    &solution,
+                    name,
+                    "separator",
+                    beside(&previous, Side::Below),
+                    &[],
+                );
+            }
+            let dot = add_one(
+                &solution,
+                name,
+                "shape",
+                beside(&previous, Side::Below),
+                &[("Margin", "0 5"), ("Height", "12"), ("Width", "12")],
+            );
+            let label = add_one(
+                &solution,
+                name,
+                "label",
+                beside(&dot, Side::Right),
+                &[("Margin", "0 5")],
+            );
+            add_one(
+                &solution,
+                name,
+                "label",
+                beside(&label, Side::End),
+                &[("Margin", "0 18 0 5")],
+            );
+            previous = dot;
+        }
+        cards.push(card);
+    }
+    let content = content_of(&solution, name);
+    let row = parent_id(&content["UI"], &cards[0]).unwrap();
+    let row = find_widget(&content["UI"], &row).unwrap();
+    let properties = &row["Properties"];
+    assert_eq!(properties["flex-size"], "range", "{properties}");
+    assert_eq!(properties["flex-max-height"], "");
+    // The title row as fixed, three label rows of 19px, two 1px separators, and a row margin.
+    let title = &find_widget(&content["UI"], &cards[0]).unwrap()["Widgets"][0]["Properties"];
+    let title_px: f64 = title["flex-min-height"]
+        .as_str()
+        .unwrap()
+        .trim_end_matches("px")
+        .parse()
+        .unwrap();
+    assert_eq!(
+        properties["flex-min-height"],
+        format!("{}px", (title_px + 3.0 * 19.0 + 2.0 + 12.0).ceil())
+    );
+    // The separator carries the kits' colour as a root style entry.
+    let styles = &content["UI"]["Properties"]["StyleProperties"]["data"];
+    let separators: Vec<_> = styles
+        .as_object()
+        .unwrap()
+        .values()
+        .filter(|entry| entry["parts"]["$"]["$"]["background"] == "#C2C7CE")
+        .collect();
+    assert_eq!(separators.len(), 4, "{styles}");
+}
+
+#[test]
+fn a_separator_goes_only_between_rows() {
+    let (_dir, solution) = one_project();
+    let name = "Acme.Kpi_MU";
+    apply_new(
+        &solution,
+        &plan_new(&solution, &request(name)).unwrap(),
+        &lock(&solution),
+    )
+    .unwrap();
+    let mut request = add_request(name, "separator");
+    request.placement = Some(Placement::In("center".into()));
+    assert!(matches!(
+        plan_add(&solution, &request),
+        Err(AuthoringError::Invalid(_))
+    ));
+}
+
+#[test]
+fn placement_measures_the_widget_with_the_props_it_is_given() {
+    use crate::core::mashup::edit::Side;
+    let (_dir, solution) = one_project();
+    let name = "Acme.Kpi_MU";
+    apply_new(
+        &solution,
+        &plan_new(&solution, &request(name)).unwrap(),
+        &lock(&solution),
+    )
+    .unwrap();
+    let first = add_one(
+        &solution,
+        name,
+        "label",
+        Placement::In("center".into()),
+        &[],
+    );
+    let tall = add_one(
+        &solution,
+        name,
+        "label",
+        Placement::Beside {
+            anchor: first,
+            side: Side::Below,
+        },
+        &[("Margin", "20")],
+    );
+    // A row below it, so the measured row is not the column's last, growing one.
+    add_one(
+        &solution,
+        name,
+        "label",
+        Placement::Beside {
+            anchor: tall.clone(),
+            side: Side::Below,
+        },
+        &[],
+    );
+    let content = content_of(&solution, name);
+    let row = parent_id(&content["UI"], &tall).unwrap();
+    let row = &find_widget(&content["UI"], &row).unwrap()["Properties"];
+    // A 36px label with 40px of vertical margin and the row's 12px: measured as given.
+    assert_eq!(row["flex-min-height"], "88px", "{row}");
+}

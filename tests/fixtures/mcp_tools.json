@@ -5266,6 +5266,11 @@
         "below": {
           "type": "string"
         },
+        "end": {
+          "description": "With right_of: put the widget at the far end of the anchor's row, which splits into a start and an end group (a label and its value, as the kits lay them out).",
+          "type": "boolean",
+          "default": false
+        },
         "label": {
           "type": "string"
         },
