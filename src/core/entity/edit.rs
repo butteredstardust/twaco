@@ -1841,13 +1841,41 @@ impl Edit2<'_> {
         ) != Severity::Off
         {
             if let Some(header_definition) = crate::core::header::definition(&definition_xml) {
-                let header = crate::core::header::generate(
-                    &service.name,
-                    &header_definition,
-                    self.solution.effective_lint().header_policy(),
-                    "\n",
-                );
-                code = format!("{header}{code}");
+                let lint = self.solution.effective_lint();
+                if crate::core::header::parse(&code).is_some() {
+                    // The script brings its own header: bring its tags to the definition's
+                    // contract rather than stacking a second header on top of it.
+                    let repair = crate::core::header::repair(
+                        &code,
+                        &service.name,
+                        &header_definition,
+                        lint.header_policy(),
+                    );
+                    if let Some(fixed) = repair.fixed {
+                        code = fixed;
+                    }
+                } else {
+                    let policy = lint.header_policy();
+                    let header = if lint.gate_enabled("comment budget")
+                        || lint.gate_enabled("comment prose")
+                    {
+                        crate::core::header::generate_fitting(
+                            &service.name,
+                            &header_definition,
+                            policy,
+                            lint.comment_policy(),
+                            "\n",
+                        )
+                    } else {
+                        crate::core::header::generate(
+                            &service.name,
+                            &header_definition,
+                            policy,
+                            "\n",
+                        )
+                    };
+                    code = format!("{header}{code}");
+                }
             }
         }
         let mut sidecars = service_sidecars(doc)?;

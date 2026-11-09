@@ -1111,7 +1111,8 @@ pub(crate) const USAGE: &[Usage] = &[
         group: 1,
         text: r#"  new data-shape <name> --field <name:TYPE[:primary]>... [--project <name>] [--description <text>] [--base <DataShape>]
       [--visibility <principal>]... [--apply] [--json]
-                              create a DataShape and its fields.json sidecar; plan unless --apply"#,
+                              create a DataShape and its fields.json sidecar; plan unless --apply
+                              rows:INFOTABLE:<DataShape> as a --field names a nested table's shape"#,
     },
     Usage {
         path: "new timer",
@@ -1490,7 +1491,8 @@ pub(crate) const USAGE: &[Usage] = &[
         path: "call",
         group: 3,
         text: r#"  call <target> <service> [<json>] [--timeout <seconds>] [--detail] [--as <test user>] [--json]
-      [--lang <code>]         target: Collection/Name, full name, or last dotted segment
+      [--lang <code>]         target: Collection/Name, full name, or last dotted segment;
+                              <target>.<service> [<json>] works too, split at the last dot
       --with-logs             then what it wrote to ScriptLog and ApplicationLog (waits up to 3 s)
       --json                  one complete service reply as JSON (logs and notices go to stderr)
       --as <test user>        call as a [[test.user]] with the profile's test_password (the profile

@@ -179,6 +179,7 @@ fn check_one(
         &|service| ancestry.defines(&entity.info.collection, &entity.info.name, service),
     ));
     problems.extend(check_member_names(&file, &src));
+    problems.extend(check_multirow_tables(&file, &src));
     if entity.info.collection == "Mashups" {
         problems.extend(check_mashup(&file, &src));
     }
@@ -187,6 +188,69 @@ fn check_one(
 }
 
 /// The importer shares one namespace between local properties, services and events.
+/// A multi-row ConfigurationTableDefinition with inline fields reads its key from them, not from
+/// the DataShape it names: with no `aspect.isPrimaryKey="true"` among them the import fails ("is
+/// multirow but its datashape [ unnamed ] does not have a primary key"). With both, the server
+/// keeps the inline fields and drops `dataShapeName`, so the entity reads back not kept.
+fn check_multirow_tables(file: &str, src: &[u8]) -> Vec<Problem> {
+    let Ok(tokens) = scan::tokenize(src) else {
+        return Vec::new();
+    };
+    let text = |token: &scan::Token, name: &str| {
+        scan::attribute(src, token, name)
+            .ok()
+            .flatten()
+            .map(|span| scan::decode_entities(&String::from_utf8_lossy(span.of(src))))
+            .unwrap_or_default()
+    };
+    let mut problems = Vec::new();
+    for (index, token) in tokens.iter().enumerate() {
+        if token.kind != Kind::Start
+            || token.name.of(src) != b"ConfigurationTableDefinition"
+            || text(token, "isMultiRow") != "true"
+        {
+            continue;
+        }
+        let Some(end) = scan::element_end_in(&tokens, src, index) else {
+            continue;
+        };
+        let fields: Vec<&scan::Token> = tokens[index + 1..end]
+            .iter()
+            .filter(|field| {
+                matches!(field.kind, Kind::Start | Kind::Empty)
+                    && field.name.of(src) == b"FieldDefinition"
+            })
+            .collect();
+        if fields.is_empty() {
+            continue;
+        }
+        let table = text(token, "name");
+        if !fields
+            .iter()
+            .any(|field| text(field, "aspect.isPrimaryKey") == "true")
+        {
+            problems.push(Problem {
+                file: file.to_string(),
+                rule: "multirow-without-key",
+                message: format!(
+                    "multi-row configuration table {table}: its definition lists fields but marks                      none aspect.isPrimaryKey=\"true\", so the import fails; mark the key there,                      or drop the definition's DataShape and name one in dataShapeName"
+                ),
+            });
+        }
+        let named = text(token, "dataShapeName");
+        if !named.is_empty() {
+            problems.push(Problem {
+                file: file.to_string(),
+                rule: "multirow-named-and-inline",
+                message: format!(
+                    "multi-row configuration table {table}: its definition names {named} and also                      lists fields; the server keeps the fields and drops dataShapeName, so it reads                      back not kept. Keep one: the fields (with their key) or dataShapeName"
+                ),
+            });
+        }
+    }
+    problems
+}
+
 fn check_member_names(file: &str, src: &[u8]) -> Vec<Problem> {
     let Ok(tokens) = scan::tokenize(src) else {
         return Vec::new();
@@ -465,6 +529,32 @@ mod tests {
             ["service-without-definition"],
             "another entity's"
         );
+    }
+
+    #[test]
+    fn a_multirow_definition_with_fields_needs_a_key_and_no_shape_name() {
+        let table = |shape: &str, key: &str| {
+            format!(
+                r#"<Thing name="T"><ConfigurationTableDefinitions><ConfigurationTableDefinition dataShapeName="{shape}" isMultiRow="true" name="Rows"><DataShape><FieldDefinitions><FieldDefinition{key} baseType="STRING" name="key"/><FieldDefinition baseType="STRING" name="label"></FieldDefinition></FieldDefinitions></DataShape></ConfigurationTableDefinition><ConfigurationTableDefinition isMultiRow="false" name="One"><DataShape><FieldDefinitions><FieldDefinition baseType="STRING" name="x"/></FieldDefinitions></DataShape></ConfigurationTableDefinition></ConfigurationTableDefinitions></Thing>"#
+            )
+        };
+        let rules = |xml: String| -> Vec<&'static str> {
+            check_multirow_tables("T.xml", xml.as_bytes())
+                .iter()
+                .map(|p| p.rule)
+                .collect()
+        };
+        let key = r#" aspect.isPrimaryKey="true""#;
+        assert!(rules(table("", key)).is_empty());
+        assert_eq!(rules(table("", "")), ["multirow-without-key"]);
+        assert_eq!(rules(table("A.Row_DS", key)), ["multirow-named-and-inline"]);
+        assert_eq!(
+            rules(table("A.Row_DS", "")),
+            ["multirow-without-key", "multirow-named-and-inline"]
+        );
+        // The export form: a name and no fields; the DataShape it names holds the key.
+        let named = r#"<Thing><ConfigurationTableDefinitions><ConfigurationTableDefinition dataShapeName="A.Row_DS" isMultiRow="true" name="Rows"></ConfigurationTableDefinition></ConfigurationTableDefinitions><ConfigurationTables><ConfigurationTable isMultiRow="true" name="Rows"><DataShape><FieldDefinitions><FieldDefinition baseType="STRING" name="key"/></FieldDefinitions></DataShape></ConfigurationTable></ConfigurationTables></Thing>"#;
+        assert!(rules(named.to_string()).is_empty());
     }
 
     #[test]

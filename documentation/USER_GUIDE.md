@@ -336,7 +336,7 @@ A solution without `[lint]` keeps today's gates (`checks-v1`). To take up the fu
 | formatting | a script is not as the built-in formatter writes it (`twaco fmt` fixes it) |
 | script traps | a script uses something the ThingWorx Rhino engine punishes (see below) |
 | code order | a service's main code is below its helper functions |
-| project | the entity files disagree with themselves or each other: a file named for another entity, two files for one entity, a misfiled or project-less entity, a service declared without its implementation or the reverse, a mashup whose JSON does not parse, a folder under a project root holding entity documents in no collection folder, which deploy and bundle would leave out, or a model tag that is not `Vocabulary:Term` or names a term a fixed vocabulary of the solution lacks |
+| project | the entity files disagree with themselves or each other: a file named for another entity, two files for one entity, a misfiled or project-less entity, a service declared without its implementation or the reverse, a mashup whose JSON does not parse, a folder under a project root holding entity documents in no collection folder, which deploy and bundle would leave out, a model tag that is not `Vocabulary:Term` or names a term a fixed vocabulary of the solution lacks, or a multi-row configuration table definition whose own fields mark no primary key (the import fails) or that also names a DataShape (it reads back not kept) |
 | project dependencies | a Thing or ThingTemplate uses a ThingTemplate or ThingShape of another of the solution's projects (as its template, base template or an implemented shape) that its Project file's `dependsOn` does not name. The server adds that project to `dependsOn` when it imports the entity, so the Project reads back not kept; the finding gives the `<project>:<version>` entry to add |
 | mashup bindings | a repository-resolved mashup service, result field or parameter is not declared, or a grid, chart or field-setting property names a field the result bound to its `Data` does not have; unresolved platform and inherited DataShape details are left unchecked |
 | mashup content | what `twaco mashup validate` finds in a mashup's content: a binding to a property, event or service its widget or data source does not have, a binding in the wrong direction, mixed container layouts. Widgets outside the catalogue (extensions) are not judged |
@@ -832,7 +832,8 @@ twaco new theme Acme.Orders.Theme_TH --prop e-button-primary-fontcolor=#ffffff -
 Things default to `GenericThing`; `--template`, `--shape`, template `--base`, and DataShape
 `--base` must resolve in the solution (or the platform cache for templates and shapes). A Thing
 can set `--value-stream`. DataShapes require one or more ordered `--field name:TYPE[:primary]`
-arguments and write the matching `fields.json` sidecar. Timers accept `--every` as milliseconds,
+arguments and write the matching `fields.json` sidecar; `rows:INFOTABLE:Acme.Row_DS` names the
+DataShape of a nested table. Timers accept `--every` as milliseconds,
 `ms`, `s`, `m`, or `h` (60 seconds by default); schedulers accept a six- or seven-field Quartz
 `--cron`. Both require `--run-as`, accept `--disabled`, and use either `--then <code>` or
 `--script <file.js>` to put a Script subscription directly in their entity XML. The entity XML and
@@ -1643,8 +1644,8 @@ as. The cases run in file and case order, so a case can clean up after the one b
 needs the groups on the server, so deploy first; it never resets a password, and `users list`
 reports a user that cannot sign in with `test_password`.
 
-For one call by hand, `twaco call <target> <service> [<json>] --as <test user>` signs in as that
-`[[test.user]]` with `test_password` (the profile needs `allow_test_users`). A user in no group
+For one call by hand, `twaco call <target> <service> [<json>] --as <test user>` (or
+`<target>.<service>`) signs in as that `[[test.user]]` with `test_password` (the profile needs `allow_test_users`). A user in no group
 that can see the entity gets 404; a wrong password gets 401. No other account can be named.
 
 Add `--lang <code>` to make that call in another language: `--lang de`, or a preference list

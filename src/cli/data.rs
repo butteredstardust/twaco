@@ -264,7 +264,7 @@ pub(crate) fn config_table(solution: &Solution, args: &ConfigTable) -> u8 {
     }
 }
 
-/// `twaco call <target> <service> [<json>] [--timeout <seconds>] [--detail] [--as <test user>]`.
+/// `twaco call <target> <service>|<target>.<service> [<json>] [--timeout <seconds>] [--detail] [--as <test user>]`.
 #[derive(Debug, clap::Args)]
 #[group(skip)]
 pub(crate) struct Call {
@@ -286,28 +286,45 @@ pub(crate) struct Call {
     pub(crate) operands: Vec<String>,
 }
 
+/// The target, service and optional JSON text of `call`. `Thing Service [json]` is the long
+/// form; `Thing.Service [json]` splits at the last dot, as `catalog` and `trace` read it. A
+/// second operand that starts with `{` is the JSON, so the two forms never overlap.
+fn call_operands(operands: &[String]) -> Option<(String, String, Option<&str>)> {
+    let json_second = operands
+        .get(1)
+        .is_some_and(|text| text.trim_start().starts_with('{'));
+    match operands {
+        [target, service] | [target, service, _] if !json_second => Some((
+            target.clone(),
+            service.clone(),
+            operands.get(2).map(String::as_str),
+        )),
+        [dotted] | [dotted, _] => {
+            let (target, service) = dotted.rsplit_once('.')?;
+            (!target.is_empty() && !service.is_empty()).then(|| {
+                (
+                    target.to_string(),
+                    service.to_string(),
+                    operands.get(1).map(String::as_str),
+                )
+            })
+        }
+        _ => None,
+    }
+}
+
 /// Execute exactly the named opaque service. There is no dry run because twaco cannot infer
 /// whether an arbitrary ThingWorx service writes. The MCP surface must decide separately
 /// whether and how to expose this capability.
 pub(crate) fn call(solution: &Solution, args: &Call) -> u8 {
-    let dotted_hint = args.operands.first().and_then(|target| {
-        target.rsplit_once('.').and_then(|(thing, service)| {
-            (!thing.is_empty() && !service.is_empty()).then(|| {
-                format!("to call {service} on {thing}: twaco call {thing} {service} '{{...}}'")
-            })
-        })
-    });
-    if !(2..=3).contains(&args.operands.len()) {
+    let Some(operands) = call_operands(&args.operands) else {
         eprintln!(
-            "{} call needs <target> <service> and an optional JSON object",
+            "{} call needs <target> <service> or <target>.<service>, and an optional JSON object",
             style::prefix()
         );
-        if let Some(hint) = &dotted_hint {
-            eprintln!("{} {hint}", style::prefix());
-        }
         return FAILED;
-    }
-    let parameters = match args.operands.get(2) {
+    };
+    let parameters = match operands.2 {
         Some(text) => match serde_json::from_str::<serde_json::Value>(text) {
             Ok(value) if value.is_object() => value,
             Ok(_) => {
@@ -319,17 +336,14 @@ pub(crate) fn call(solution: &Solution, args: &Call) -> u8 {
                     "{} call parameters are not valid JSON: {error}",
                     style::prefix()
                 );
-                if let Some(hint) = &dotted_hint {
-                    eprintln!("{} {hint}", style::prefix());
-                }
                 return FAILED;
             }
         },
         None => serde_json::json!({}),
     };
     let request = commands::call::CallRequest {
-        target: args.operands[0].clone(),
-        service: args.operands[1].clone(),
+        target: operands.0,
+        service: operands.1,
         parameters,
         timeout: args.timeout.or(Duration::from_secs(120)),
         mode: Mode::Apply,
@@ -1251,5 +1265,47 @@ fn print_info_table_summary(value: &serde_json::Value) {
             "{}",
             serde_json::to_string_pretty(first).expect("JSON value serialises")
         );
+    }
+}
+
+#[cfg(test)]
+mod call_operand_tests {
+    use super::call_operands;
+
+    fn split(operands: &[&str]) -> Option<(String, String, Option<String>)> {
+        let owned: Vec<String> = operands.iter().map(|text| (*text).to_string()).collect();
+        call_operands(&owned)
+            .map(|(target, service, json)| (target, service, json.map(str::to_string)))
+    }
+
+    #[test]
+    fn call_takes_the_long_and_the_dotted_form() {
+        let expected = |json: Option<&str>| {
+            Some((
+                "Acme.Press".to_string(),
+                "Run".to_string(),
+                json.map(str::to_string),
+            ))
+        };
+        assert_eq!(split(&["Acme.Press", "Run"]), expected(None));
+        assert_eq!(split(&["Acme.Press", "Run", "{}"]), expected(Some("{}")));
+        assert_eq!(split(&["Acme.Press.Run"]), expected(None));
+        assert_eq!(
+            split(&["Acme.Press.Run", " {\"a\":1}"]),
+            expected(Some(" {\"a\":1}"))
+        );
+        assert_eq!(
+            split(&["Things/Acme.Press.Run"]).map(|parts| parts.0),
+            Some("Things/Acme.Press".to_string())
+        );
+    }
+
+    #[test]
+    fn call_refuses_what_neither_form_reads() {
+        assert_eq!(split(&[]), None);
+        assert_eq!(split(&["Press"]), None);
+        assert_eq!(split(&["Press."]), None);
+        assert_eq!(split(&["Acme.Press.Run", "{}", "{}"]), None);
+        assert_eq!(split(&["Acme.Press", "Run", "{}", "x"]), None);
     }
 }

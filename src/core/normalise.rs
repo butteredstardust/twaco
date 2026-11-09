@@ -323,7 +323,8 @@ fn owned_comparison_tree(
 
 const MAX_DIFFERENCES: usize = 5;
 
-/// Where a read-back differs from what was sent, as the hash sees it: up to five paths such as
+/// Where a read-back differs from what was sent, as the hash sees it: up to five paths, then
+/// `and N more`, such as
 /// `Project/@dependsOn: changed` or `Thing/ThingShape/.../PropertyDefinition[a]: dropped by the
 /// server`. Paths carry element names and `name` attributes only, never a value or text, which
 /// may be a password.
@@ -346,6 +347,11 @@ pub(crate) fn read_back_differences(
             "{}: its text and elements interleave differently",
             element_label(&sent)
         ));
+    }
+    if out.len() > MAX_DIFFERENCES {
+        let more = out.len() - MAX_DIFFERENCES;
+        out.truncate(MAX_DIFFERENCES);
+        out.push(format!("and {more} more"));
     }
     out
 }
@@ -464,10 +470,9 @@ fn differences(sent: &Element, back: &Element, path: &str, out: &mut Vec<String>
     }
 }
 
+/// Every difference is kept, so the caller can say how many it leaves out.
 fn note(out: &mut Vec<String>, what: String) {
-    if out.len() < MAX_DIFFERENCES {
-        out.push(what);
-    }
+    out.push(what);
 }
 
 /// An element's name, with its `name` attribute when it has one: `PropertyDefinition[a]`.
@@ -1469,12 +1474,13 @@ mod tests {
                 "Thing[P.T]/ThingShape/PropertyDefinitions/PropertyDefinition[b]: dropped by the server",
                 "Thing[P.T]/ThingShape/PropertyDefinitions/PropertyDefinition[c]: added by the server",
                 "Thing[P.T]/ThingShape/PropertyDefinitions/PropertyDefinition[a]/@baseType: changed",
+                "and 1 more",
             ]
         );
         assert!(!found
             .iter()
             .any(|line| line.contains("s3cret") || line.contains("t0ps")));
-        // The sixth difference, the stored value, is past the limit; on its own it is text.
+        // The sixth difference, the stored value, is only counted; on its own it is text.
         let only_value = sent.replace("<Value>1</Value>", "<Value>2</Value>");
         assert_eq!(
             read_back_differences(sent.as_bytes(), only_value.as_bytes(), &[]),
@@ -1522,6 +1528,16 @@ mod tests {
             read_back_differences(mixed.as_bytes(), moved.as_bytes(), &[]),
             ["Thing[T]: its text and elements interleave differently"]
         );
+    }
+
+    #[test]
+    fn differences_past_five_are_counted() {
+        let sent = r#"<Thing name="T" a="1" b="1" c="1" d="1" e="1" f="1" g="1"/>"#;
+        let back = r#"<Thing name="T" a="2" b="2" c="2" d="2" e="2" f="2" g="2"/>"#;
+        let found = read_back_differences(sent.as_bytes(), back.as_bytes(), &[]);
+        assert_eq!(found.len(), 6, "{found:?}");
+        assert_eq!(found[0], "Thing[T]/@a: changed");
+        assert_eq!(found[5], "and 2 more");
     }
 
     #[test]

@@ -6,6 +6,22 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `thing service add --script` keeps a header the script brings and completes its tags, instead of
+  adding a second header that fails `comment header`.
+- The header `thing service add` writes passes the solution's comment lint: a description too long
+  for it is cut to the leading sentences that fit, or left out; definition.xml keeps it whole.
+- `twaco call` takes `<target>.<service>` as well as `<target> <service>`, as `catalog` and `trace`
+  do.
+- `new data-shape --field rows:INFOTABLE:<DataShape>` names a nested table's DataShape.
+- A read-back that is not kept says how many differences it leaves out after the first five.
+
+### Added
+
+- The `project` gate reports a multi-row configuration table definition whose own fields mark no
+  primary key (the import fails) or that also names a DataShape (it reads back not kept).
+
 ## [0.1.56] - 2026-11-06
 
 ### Changed

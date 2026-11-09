@@ -420,19 +420,32 @@ pub(crate) fn validate_cron(text: &str) -> Result<String, NewError> {
 fn parse_fields(values: &[String]) -> Result<Vec<Field>, NewError> {
     if values.is_empty() {
         return Err(NewError::Invalid(
-            "a data-shape needs at least one --field name:TYPE[:primary]".into(),
+            "a data-shape needs at least one --field name:TYPE[:primary] (name:INFOTABLE:DataShape for a nested table)".into(),
         ));
     }
     let mut names = BTreeSet::new();
     let known: BTreeSet<&str> = super::edit::BASE_TYPES.into_iter().collect();
     values.iter().enumerate().map(|(index, value)| {
-        let parts: Vec<&str> = value.split(':').collect();
-        if !(parts.len() == 2 || parts.len() == 3) || parts[0].is_empty() || !known.contains(parts[1]) || (parts.len() == 3 && parts[2] != "primary") {
-            return Err(NewError::Invalid(format!("--field {value:?} must be name:TYPE or name:TYPE:primary, using a known base type")));
+        let mut parts: Vec<&str> = value.split(':').collect();
+        let primary = parts.len() > 2 && parts.last() == Some(&"primary");
+        if primary {
+            parts.pop();
+        }
+        // An INFOTABLE field may name its DataShape: `rows:INFOTABLE:Row_DS[:primary]`.
+        let shape = match parts.as_slice() {
+            [_, "INFOTABLE", shape] if !shape.is_empty() => Some(*shape),
+            [_, _] => None,
+            _ => return Err(NewError::Invalid(format!("--field {value:?} must be name:TYPE[:primary], or name:INFOTABLE:DataShape[:primary], using a known base type"))),
+        };
+        if parts[0].is_empty() || !known.contains(parts[1]) {
+            return Err(NewError::Invalid(format!("--field {value:?} must be name:TYPE[:primary], or name:INFOTABLE:DataShape[:primary], using a known base type")));
         }
         if !names.insert(parts[0].to_string()) { return Err(NewError::Invalid(format!("data-shape field {} is listed more than once", parts[0]))); }
         let mut aspects = BTreeMap::new();
-        aspects.insert("isPrimaryKey".into(), Aspect::Bool(parts.get(2) == Some(&"primary")));
+        if let Some(shape) = shape {
+            aspects.insert("dataShape".into(), Aspect::Text(shape.into()));
+        }
+        aspects.insert("isPrimaryKey".into(), Aspect::Bool(primary));
         Ok(Field { name: parts[0].into(), base_type: parts[1].into(), ordinal: (index + 1).to_string(), description: String::new(), aspects })
     }).collect()
 }
@@ -1124,7 +1137,7 @@ fn make_xml(
         )?,
         Kind::ThingShape => format!("{}        <ThingShape\n         aspect.isSystemObject=\"false\"\n         className=\"\"\n         description=\"{desc}\"\n         documentationContent=\"\"\n         homeMashup=\"\"\n         name=\"{name}\"\n         projectName=\"{project}\"\n         tags=\"\">\n            <PropertyDefinitions></PropertyDefinitions>\n            <ServiceDefinitions></ServiceDefinitions>\n            <EventDefinitions></EventDefinitions>\n            <ServiceMappings></ServiceMappings>\n            <ServiceImplementations></ServiceImplementations>\n            <Subscriptions></Subscriptions>\n{common}\n            <PropertyBindings></PropertyBindings>\n            <RemotePropertyBindings></RemotePropertyBindings>\n            <RemoteServiceBindings></RemoteServiceBindings>\n            <RemoteEventBindings></RemoteEventBindings>\n            <AlertConfigurations></AlertConfigurations>\n            <InstanceRunTimePermissions></InstanceRunTimePermissions>\n        </ThingShape>\n{}", header("ThingShapes"), footer("ThingShapes")),
         Kind::DataShape => {
-            let field_xml: String = fields.iter().map(|field| Ok(format!("                <FieldDefinition\n                 aspect.isPrimaryKey=\"{}\"\n                 baseType=\"{}\"\n                 description=\"{}\"\n                 name=\"{}\"\n                 ordinal=\"{}\"></FieldDefinition>\n", if field.aspects.get("isPrimaryKey") == Some(&Aspect::Bool(true)) { "true" } else { "false" }, field.base_type, escape(&field.description)?, escape(&field.name)?, field.ordinal))).collect::<Result<_, IllegalXmlChar>>()?;
+            let field_xml: String = fields.iter().map(|field| Ok(format!("                <FieldDefinition\n{}                 aspect.isPrimaryKey=\"{}\"\n                 baseType=\"{}\"\n                 description=\"{}\"\n                 name=\"{}\"\n                 ordinal=\"{}\"></FieldDefinition>\n", match field.aspects.get("dataShape") { Some(Aspect::Text(shape)) => format!("                 aspect.dataShape=\"{}\"\n", escape(shape)?), _ => String::new() }, if field.aspects.get("isPrimaryKey") == Some(&Aspect::Bool(true)) { "true" } else { "false" }, field.base_type, escape(&field.description)?, escape(&field.name)?, field.ordinal))).collect::<Result<_, IllegalXmlChar>>()?;
             format!("{}        <DataShape\n         baseDataShape=\"{}\"\n         description=\"{desc}\"\n         documentationContent=\"\"\n         homeMashup=\"\"\n         name=\"{name}\"\n         projectName=\"{project}\"\n         tags=\"\">\n{common}\n            <FieldDefinitions>\n{field_xml}            </FieldDefinitions>\n        </DataShape>\n{}", header("DataShapes"), escape(request.base.as_deref().unwrap_or(""))?, footer("DataShapes"))
         }
         Kind::ThingTemplate => format!("{}        <ThingTemplate\n         aspect.isSystemObject=\"false\"\n         baseThingTemplate=\"{}\"\n         description=\"{desc}\"\n         documentationContent=\"\"\n         effectiveThingPackage=\"ConfiguredThing\"\n         homeMashup=\"\"\n         inheritedValueStream=\"\"\n         name=\"{name}\"\n         projectName=\"{project}\"\n         tags=\"\"\n         thingPackage=\"\"\n         valueStream=\"\">\n{common}\n            <PropertyBindings></PropertyBindings>\n            <RemotePropertyBindings></RemotePropertyBindings>\n            <RemoteServiceBindings></RemoteServiceBindings>\n            <RemoteEventBindings></RemoteEventBindings>\n            <AlertConfigurations></AlertConfigurations>\n{}\n{}\n            <SharedConfigurationTables></SharedConfigurationTables>\n            <InstanceDesignTimePermissions>\n                <Create></Create>\n                <Read></Read>\n                <Update></Update>\n                <Delete></Delete>\n                <Metadata></Metadata>\n            </InstanceDesignTimePermissions>\n            <InstanceRunTimePermissions></InstanceRunTimePermissions>\n            <InstanceVisibilityPermissions>\n                <Visibility></Visibility>\n            </InstanceVisibilityPermissions>\n        </ThingTemplate>\n{}", header("ThingTemplates"), escape(request.base.as_deref().unwrap_or("GenericThing"))?, local_shape(None)?, shapes(&request.shapes)?, footer("ThingTemplates")),
@@ -1640,6 +1653,44 @@ mod tests {
         commands::entity_new::execute(solution, &command, &mut Notices::default())
             .unwrap()
             .plan
+    }
+
+    #[test]
+    fn a_data_shape_infotable_field_can_name_its_data_shape() {
+        let (_dir, solution) = fixture();
+        let mut shape = request(Kind::DataShape, "Acme.Orders.Batch_DS");
+        shape.fields = vec![
+            "id:STRING:primary".into(),
+            "rows:INFOTABLE:Acme.Orders.Row_DS".into(),
+            "keyed:INFOTABLE:Acme.Orders.Row_DS:primary".into(),
+        ];
+        let planned = plan(&solution, &shape).unwrap();
+        let xml = std::str::from_utf8(&planned.entity).unwrap();
+        assert_eq!(
+            xml.matches("aspect.dataShape=\"Acme.Orders.Row_DS\"")
+                .count(),
+            2,
+            "{xml}"
+        );
+        assert_eq!(
+            xml.matches("aspect.isPrimaryKey=\"true\"").count(),
+            2,
+            "{xml}"
+        );
+        let sidecar = String::from_utf8(planned.sidecars[0].1.clone()).unwrap();
+        assert!(
+            sidecar.contains("\"dataShape\": \"Acme.Orders.Row_DS\""),
+            "{sidecar}"
+        );
+        for bad in [
+            "rows:STRING:Acme.Orders.Row_DS",
+            "rows:INFOTABLE:",
+            "a:INFOTABLE:B:C",
+        ] {
+            let mut shape = request(Kind::DataShape, "Acme.Orders.Bad_DS");
+            shape.fields = vec![bad.into()];
+            assert!(plan(&solution, &shape).is_err(), "{bad}");
+        }
     }
 
     #[test]

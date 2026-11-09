@@ -369,6 +369,64 @@ pub(crate) fn generate(
     }
 }
 
+/// `generate`, with the definition's description cut until the header passes the comment lint:
+/// the whole description, then fewer leading sentences, then none. The definition keeps the full
+/// text; only the header's copy is shortened, so generated code passes the solution's own preset.
+pub(crate) fn generate_fitting(
+    service: &str,
+    definition: &Definition,
+    policy: &HeaderPolicy,
+    comments: &super::comments::CommentPolicy,
+    ending: &str,
+) -> String {
+    let sentences = leading_sentences(&definition.description);
+    let mut candidates: Vec<String> = (1..=sentences.len())
+        .rev()
+        .map(|count| sentences[..count].concat().trim().to_string())
+        .collect();
+    candidates.push(String::new());
+    let mut shortened = definition.clone();
+    for description in candidates {
+        shortened.description = description;
+        let header = generate(service, &shortened, policy, "\n");
+        let measure = super::comments::measure(&header);
+        let fits = super::comments::findings(&measure, comments)
+            .iter()
+            .all(|finding| matches!(finding.rule, "ratio" | "line-run"));
+        if fits || shortened.description.is_empty() {
+            return if ending != "\n" {
+                header.replace('\n', ending)
+            } else {
+                header
+            };
+        }
+    }
+    unreachable!("the empty description is always the last candidate")
+}
+
+/// The description split after each `.`, `!` or `?` that ends a sentence, each piece keeping its
+/// own text and the space after it.
+fn leading_sentences(text: &str) -> Vec<&str> {
+    let text = text.trim();
+    let mut out = Vec::new();
+    let mut start = 0;
+    let bytes = text.as_bytes();
+    for (at, byte) in bytes.iter().enumerate() {
+        let ends = matches!(byte, b'.' | b'!' | b'?')
+            && bytes
+                .get(at + 1)
+                .is_none_or(|next| next.is_ascii_whitespace());
+        if ends {
+            out.push(&text[start..at + 1]);
+            start = at + 1;
+        }
+    }
+    if start < text.len() && !text[start..].trim().is_empty() {
+        out.push(&text[start..]);
+    }
+    out
+}
+
 /// What `lint fix-headers` would do to one script.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(crate) struct Repair {
@@ -657,6 +715,67 @@ pub(crate) fn repair(
         repair.fixed = Some(fixed);
     }
     repair
+}
+
+#[cfg(test)]
+mod fitting_tests {
+    use super::*;
+
+    fn definition(description: &str) -> Definition {
+        Definition {
+            description: description.to_string(),
+            inputs: Vec::new(),
+            result: Field {
+                name: "result".to_string(),
+                base_type: "NOTHING".to_string(),
+                description: String::new(),
+                ordinal: 0,
+            },
+            result_shape: None,
+        }
+    }
+
+    fn fitted(description: &str) -> String {
+        generate_fitting(
+            "Run",
+            &definition(description),
+            &HeaderPolicy::default(),
+            &crate::core::comments::CommentPolicy::default(),
+            "\n",
+        )
+    }
+
+    #[test]
+    fn a_short_description_is_kept_whole() {
+        assert!(fitted("Runs the job. Then stops.").contains(" * Runs the job. Then stops.\n"));
+    }
+
+    #[test]
+    fn a_long_description_keeps_the_leading_sentences_that_fit() {
+        let header = fitted(
+            "Runs the job. It reads every row of the stream, newest first, and keeps only the \
+             rows that the dashboard grid, the alarm panel and the weekly report need today.",
+        );
+        assert!(header.contains(" * Runs the job.\n"), "{header}");
+        assert!(!header.contains("alarm"), "{header}");
+    }
+
+    #[test]
+    fn a_description_with_no_fitting_sentence_is_left_out() {
+        let header = fitted(
+            "It reads every row of the stream, newest first, and keeps only the rows that the \
+             dashboard grid, the alarm panel and the weekly report need today",
+        );
+        assert!(header.starts_with("/**\n * @function Run\n"), "{header}");
+    }
+
+    #[test]
+    fn sentences_split_only_at_a_stop_before_a_space() {
+        assert_eq!(
+            leading_sentences("Uses v1.2 here. Then ends"),
+            ["Uses v1.2 here.", " Then ends"]
+        );
+    }
 }
 
 #[cfg(test)]

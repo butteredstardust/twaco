@@ -276,6 +276,119 @@ root = \"app\"
     assert_in_step(&solution);
 }
 
+fn house_solution() -> (tempfile::TempDir, Solution) {
+    let (dir, old_solution) = fixture();
+    std::fs::write(
+        old_solution.root.join("twaco.toml"),
+        "[solution]
+src = \"src\"
+
+[lint]
+extends = [\"house-v1\"]
+
+[[project]]
+name = \"Acme.Orders\"
+root = \"app\"
+",
+    )
+    .unwrap();
+    let solution = Solution::load(&old_solution.root.join("twaco.toml")).unwrap();
+    family(&solution);
+    (dir, solution)
+}
+
+fn house_findings(solution: &Solution) -> Vec<String> {
+    crate::core::lint_report::run(
+        solution,
+        &crate::core::lint_report::LintRequest {
+            rules: vec!["comments".to_string()],
+            ..Default::default()
+        },
+    )
+    .unwrap()
+    .findings
+    .iter()
+    .map(|finding| format!("{finding:?}"))
+    .collect()
+}
+
+#[test]
+fn service_add_keeps_a_script_header_instead_of_stacking_a_second() {
+    let (_dir, solution) = house_solution();
+    let mut add = service(
+        "ReadRows",
+        "/**
+ * Reads the rows.
+ *
+ * @function ReadRows
+ * @param {number} limit - How many rows.
+ * @returns {Object} An InfoTable shaped by Acme.Orders.Row_DS.
+ */
+result = limit;",
+    );
+    add.parameters = vec!["limit:INTEGER".into()];
+    add.returns = Some("INFOTABLE:Acme.Orders.Row_DS".into());
+    add.description = Some("Read rows".into());
+    run(&solution, "Acme.Orders.Press", Action::ServiceAdd(add));
+    let script = std::fs::read_to_string(
+        solution
+            .src_root()
+            .join("Acme.Orders.Press/services/ReadRows/script.js"),
+    )
+    .unwrap();
+    assert_eq!(script.matches("/**").count(), 1, "{script}");
+    assert!(script.contains("How many rows."), "{script}");
+    assert!(house_findings(&solution).is_empty(), "{script}");
+}
+
+#[test]
+fn service_add_completes_the_tags_of_a_script_header() {
+    let (_dir, solution) = house_solution();
+    let mut add = service(
+        "ReadRows",
+        "/**
+ * Reads the rows.
+ *
+ * @function ReadRows
+ */
+result = limit;",
+    );
+    add.parameters = vec!["limit:INTEGER".into()];
+    add.returns = Some("INFOTABLE:Acme.Orders.Row_DS".into());
+    run(&solution, "Acme.Orders.Press", Action::ServiceAdd(add));
+    let script = std::fs::read_to_string(
+        solution
+            .src_root()
+            .join("Acme.Orders.Press/services/ReadRows/script.js"),
+    )
+    .unwrap();
+    assert_eq!(script.matches("/**").count(), 1, "{script}");
+    assert!(script.contains("@param {number} limit"), "{script}");
+    assert!(script.contains("@returns {Object}"), "{script}");
+}
+
+#[test]
+fn service_add_shortens_a_long_description_in_the_header_only() {
+    let (_dir, solution) = house_solution();
+    let long = "Returns the most recent robot cell events from the stream, newest first, \
+                limited to the requested number of rows so that the dashboard grid and the \
+                alarm panel stay fast. Rows older than a day are skipped.";
+    let mut add = service("ReadRows", "result = limit;");
+    add.parameters = vec!["limit:INTEGER".into()];
+    add.returns = Some("INFOTABLE:Acme.Orders.Row_DS".into());
+    add.description = Some(long.into());
+    run(&solution, "Acme.Orders.Press", Action::ServiceAdd(add));
+    let folder = solution
+        .src_root()
+        .join("Acme.Orders.Press/services/ReadRows");
+    let script = std::fs::read_to_string(folder.join("script.js")).unwrap();
+    assert!(!script.contains("alarm panel"), "{script}");
+    assert!(script.contains("@function ReadRows"), "{script}");
+    let definition = std::fs::read_to_string(folder.join("definition.xml")).unwrap();
+    assert!(definition.contains("alarm panel stay fast"), "{definition}");
+    assert!(house_findings(&solution).is_empty(), "{script}");
+}
+
 #[test]
 fn service_add_refuses_clashes_bad_types_and_hosts() {
     let (_dir, solution) = fixture();
