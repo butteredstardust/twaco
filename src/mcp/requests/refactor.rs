@@ -867,6 +867,9 @@ pub(crate) struct MashupSetRequest {
     /// Copy this widget's root StyleProperties.data entry, as `<mashup>:<widget>`.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) style_from: Absent<String>,
+    /// Style settings `[<part>[@<state>]:]<property>=<value>` merged into the widget's root style entry after any style_from copy, such as `background=#ffffff` or `cell@hover:border-color=#BEC6CA`; an empty value removes the property.
+    #[serde(default)]
+    pub(crate) styles: Vec<String>,
     #[serde(default = "default_true")]
     pub(crate) dry_run: bool,
 }

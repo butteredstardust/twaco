@@ -20,6 +20,8 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- `mashup set --style [<part>[@<state>]:]<property>=<value>` (MCP `styles`) writes a widget's look
+  into the root StyleProperties directly: card frames, header bands, a collection's cell on hover.
 - `twaco entity diff <entity>` (MCP `entity_diff`): the element paths where the repository's copy
   of an entity and the server's differ, compared as status and deploy compare them. It never
   prints a value, so a credential shows only as its cell's text changing.

@@ -877,6 +877,7 @@ fn set_changes_a_flex_container_and_keeps_root_css_in_its_sidecar() {
                 ("StyleProperties".into(), json!({"gap": "4px"})),
             ],
             style_from: None,
+            styles: Vec::new(),
         },
     )
     .unwrap();
@@ -896,6 +897,7 @@ fn set_changes_a_flex_container_and_keeps_root_css_in_its_sidecar() {
                 ("CustomMashupCss".into(), json!(".app { color: red; }")),
             ],
             style_from: None,
+            styles: Vec::new(),
         },
     )
     .unwrap();
@@ -919,6 +921,7 @@ fn set_changes_a_flex_container_and_keeps_root_css_in_its_sidecar() {
             widget: "mashup-root".into(),
             properties: vec![("CustomClass".into(), json!("app"))],
             style_from: None,
+            styles: Vec::new(),
         },
     )
     .unwrap();
@@ -5192,6 +5195,7 @@ fn chart_series_fields_root_properties_and_fixed_icons_are_settable() {
                     .map(|(key, value)| (key.to_string(), value))
                     .collect(),
                 style_from: None,
+                styles: Vec::new(),
             },
         )
     };
@@ -5264,6 +5268,7 @@ fn root_parameter_defaults_are_set_through_mashup_param() {
             widget: "mashup-root".into(),
             properties: vec![("Manager".into(), json!("Acme.Orders.Manager"))],
             style_from: None,
+            styles: Vec::new(),
         },
     )
     .unwrap_err()
@@ -6157,6 +6162,7 @@ fn set_and_apply(
             widget: widget.into(),
             properties,
             style_from: style_from.map(str::to_string),
+            styles: Vec::new(),
         },
     )?;
     if let Some(edit) = &plan.edit {
@@ -6167,6 +6173,147 @@ fn set_and_apply(
 
 fn root_styles(solution: &Solution, mashup: &str) -> Value {
     content_of(solution, mashup)["UI"]["Properties"]["StyleProperties"].clone()
+}
+
+fn style(
+    solution: &Solution,
+    mashup: &str,
+    widget: &str,
+    styles: &[&str],
+    from: Option<&str>,
+) -> Result<SetPlan, AuthoringError> {
+    let plan = plan_set(
+        solution,
+        &SetRequest {
+            mashup: mashup.into(),
+            widget: widget.into(),
+            properties: Vec::new(),
+            style_from: from.map(str::to_string),
+            styles: styles.iter().map(|text| (*text).to_string()).collect(),
+        },
+    )?;
+    if let Some(edit) = &plan.edit {
+        apply_edit(solution, edit, &lock(solution)).unwrap();
+    }
+    Ok(plan)
+}
+
+#[test]
+fn style_writes_a_new_entry_with_its_styler_and_sorted_parts() {
+    let (_dir, solution) = style_fixture();
+    let plan = style(
+        &solution,
+        "Acme.Target_MU",
+        "flexcontainer-2",
+        &[
+            "border-width=1px",
+            "background=#ffffff",
+            "border-style=solid",
+            "border-color=#BEC6CA",
+        ],
+        None,
+    )
+    .unwrap();
+    assert_eq!(plan.changed.len(), 1, "{:?}", plan.changed);
+    let styles = root_styles(&solution, "Acme.Target_MU");
+    assert_eq!(styles["meta"]["type"], "WidgetStyler");
+    let entry = &styles["data"]["flexcontainer-2"];
+    assert_eq!(entry["widget"], "flex-container");
+    let css = entry["parts"]["$"]["$"].as_object().unwrap();
+    assert_eq!(
+        css.keys().collect::<Vec<_>>(),
+        ["background", "border-color", "border-style", "border-width"]
+    );
+    // The same settings again change nothing.
+    let again = style(
+        &solution,
+        "Acme.Target_MU",
+        "flexcontainer-2",
+        &["background=#ffffff"],
+        None,
+    )
+    .unwrap();
+    assert!(again.edit.is_none() && again.changed.is_empty());
+}
+
+#[test]
+fn style_refines_a_part_and_state_and_an_empty_value_removes_it() {
+    let (_dir, solution) = style_fixture();
+    style(
+        &solution,
+        "Acme.Ref_MU",
+        "ptcslabel-3",
+        &["label@hover:color=#000000"],
+        None,
+    )
+    .unwrap();
+    let entry = root_styles(&solution, "Acme.Ref_MU")["data"]["ptcslabel-3"].clone();
+    assert_eq!(
+        entry["parts"]["$"]["$"]["color"], "rgba(1,2,3,1)",
+        "the existing part stays"
+    );
+    assert_eq!(entry["parts"]["label"]["hover"]["color"], "#000000");
+    style(
+        &solution,
+        "Acme.Ref_MU",
+        "ptcslabel-3",
+        &["label@hover:color="],
+        None,
+    )
+    .unwrap();
+    let entry = root_styles(&solution, "Acme.Ref_MU")["data"]["ptcslabel-3"].clone();
+    assert!(entry["parts"].get("label").is_none(), "{entry}");
+    // Removing the last property removes the widget's entry, and the others stay.
+    let plan = style(&solution, "Acme.Ref_MU", "ptcslabel-3", &["color="], None).unwrap();
+    assert_eq!(plan.changed.len(), 1);
+    assert!(plan.changed[0].after.is_null());
+    let data = root_styles(&solution, "Acme.Ref_MU")["data"].clone();
+    assert!(data.get("ptcslabel-3").is_none(), "{data}");
+    assert!(data.get("flexcontainer-2").is_some(), "{data}");
+}
+
+#[test]
+fn style_refines_a_copy_from_style_from_in_one_change() {
+    let (_dir, solution) = style_fixture();
+    let plan = style(
+        &solution,
+        "Acme.Target_MU",
+        "ptcslabel-3",
+        &["font-weight=bold"],
+        Some("Acme.Ref_MU:ptcslabel-3"),
+    )
+    .unwrap();
+    assert_eq!(plan.changed.len(), 1, "{:?}", plan.changed);
+    assert!(plan.changed[0].before.is_none());
+    let css = &root_styles(&solution, "Acme.Target_MU")["data"]["ptcslabel-3"]["parts"]["$"]["$"];
+    assert_eq!(css["color"], "rgba(1,2,3,1)");
+    assert_eq!(css["font-weight"], "bold");
+}
+
+#[test]
+fn style_refuses_bad_settings_and_the_mashup_root() {
+    let (dir, solution) = style_fixture();
+    let before = tree_bytes(dir.path());
+    for bad in ["background", "=red", "a b=c", "part@:x=1", ":x=1"] {
+        assert!(
+            matches!(
+                style(&solution, "Acme.Target_MU", "ptcslabel-3", &[bad], None),
+                Err(AuthoringError::Invalid(_))
+            ),
+            "{bad}"
+        );
+    }
+    assert!(matches!(
+        style(
+            &solution,
+            "Acme.Target_MU",
+            "mashup-root",
+            &["background=red"],
+            None
+        ),
+        Err(AuthoringError::Refused(_))
+    ));
+    assert_eq!(tree_bytes(dir.path()), before);
 }
 
 #[test]
@@ -6213,6 +6360,7 @@ fn style_from_copies_one_entry_and_keeps_the_rest() {
             widget: "ptcslabel-3".into(),
             properties: Vec::new(),
             style_from: Some("Acme.Ref_MU:ptcslabel-3".into()),
+            styles: Vec::new(),
         },
     )
     .unwrap();
@@ -6256,6 +6404,7 @@ fn style_from_refuses_what_it_cannot_copy_and_copies_nothing_from_an_unstyled_wi
                 widget: widget.into(),
                 properties: Vec::new(),
                 style_from: Some(reference.into()),
+                styles: Vec::new(),
             },
         )
     };
@@ -6288,6 +6437,7 @@ fn style_from_refuses_what_it_cannot_copy_and_copies_nothing_from_an_unstyled_wi
             widget: "ptcslabel-3".into(),
             properties: Vec::new(),
             style_from: Some("Acme.Target_MU:ptcslabel-3".into()),
+            styles: Vec::new(),
         },
     )
     .unwrap();
@@ -6326,6 +6476,7 @@ fn style_from_refuses_a_malformed_style_map() {
             widget: "ptcslabel-3".into(),
             properties: Vec::new(),
             style_from: Some("Acme.Ref_MU:ptcslabel-3".into()),
+            styles: Vec::new(),
         },
     )
     .err()
@@ -6349,6 +6500,7 @@ fn setting_the_root_theme_takes_the_default_or_a_solution_theme_only() {
                 widget: "mashup-root".into(),
                 properties: vec![("StyleTheme".into(), json!(name))],
                 style_from: None,
+                styles: Vec::new(),
             },
         )
     };
@@ -6444,6 +6596,7 @@ fn a_shape_is_wired_set_and_removed_through_its_contract() {
                 widget: id.clone(),
                 properties: vec![(name.into(), value)],
                 style_from: None,
+                styles: Vec::new(),
             },
         )
     };
@@ -6592,7 +6745,7 @@ fn state_format_numeric_contract_plan_apply_and_identity() {
 }
 
 fn state_format_grid_columns(solution: &Solution) {
-    let plan = plan_set(solution, &SetRequest { mashup:"Acme.Orders_MU".into(), widget:"ptcsgrid-5".into(), style_from:None, properties:vec![("ColumnFormat".into(),json!({"formatInfo":[
+    let plan = plan_set(solution, &SetRequest { mashup:"Acme.Orders_MU".into(), widget:"ptcsgrid-5".into(), style_from:None, styles:Vec::new(), properties:vec![("ColumnFormat".into(),json!({"formatInfo":[
         {"FieldName":"note","Title":"Status","FormatOptions":{"FormatString":"full","renderer":"STRING","formatInfo":{"StateFormats":[]}}},
         {"FieldName":"id","Title":"Id","FormatOptions":{"FormatString":"0","renderer":"NUMBER"}}
     ]}))] }).unwrap();
@@ -6754,7 +6907,7 @@ fn state_format_validate_unknown_and_drift_are_separate_from_check() {
         .iter()
         .any(|p| p.rule == "state-format-drift" || p.rule == "unknown-state-definition"));
     state_format_grid_columns(&solution);
-    let plan = plan_set(&solution, &SetRequest { mashup:"Acme.Orders_MU".into(),widget:"ptcsgrid-5".into(),style_from:None,properties:vec![("ColumnFormat".into(),json!({"formatInfo":[{"FieldName":"note","FormatOptions":{"formatInfo":{"StateDefinition":"Missing"}}}]}))] }).unwrap();
+    let plan = plan_set(&solution, &SetRequest { mashup:"Acme.Orders_MU".into(),widget:"ptcsgrid-5".into(),style_from:None,styles:Vec::new(),properties:vec![("ColumnFormat".into(),json!({"formatInfo":[{"FieldName":"note","FormatOptions":{"formatInfo":{"StateDefinition":"Missing"}}}]}))] }).unwrap();
     apply_edit(&solution, plan.edit.as_ref().unwrap(), &lock(&solution)).unwrap();
     let state_path = dir.path().join("acme/StateDefinitions/Acme.Level_ST.xml");
     let changed = std::fs::read_to_string(&state_path)
@@ -6805,6 +6958,7 @@ fn state_format_validate_unknown_and_drift_are_separate_from_check() {
                 mashup: "Acme.Orders_MU".into(),
                 widget: widget.into(),
                 style_from: None,
+                styles: Vec::new(),
                 properties: vec![(property.into(), value)],
             },
         )

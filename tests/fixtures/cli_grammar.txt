@@ -220,13 +220,17 @@ help:
 |       --column <field>       an existing ptcsgrid column's field
 |       --field <field>        the field judged by the state; defaults to the column field or KPI Value
 |       --icon-only            show only the state icon in a grid column
-|   mashup set <mashup> <widget> --prop <name=value>... [--style-from <mashup:widget>] [--apply] [--json]
+|   mashup set <mashup> <widget> --prop <name=value>... [--style <setting>]... [--style-from <mashup:widget>] [--apply] [--json]
 |                               set checked properties on one exact widget; structured properties take JSON;
 |                               plan unless --apply
 |       --prop <name=value>     set one property, repeatable; objects and arrays are JSON
 |       --style-from <mashup:widget>
 |                               copy that widget's visual style (its entry in the root's StyleProperties);
 |                               with it, --prop is optional
+|       --style <[part[@state]:]property=value>
+|                               set one CSS property of the widget's style, repeatable, after any
+|                               --style-from: background=#fff, border-style=solid, cell@hover:background=#eee;
+|                               an empty value removes it
 |   mashup source add <mashup> <entity> <service> [--dynamic] [--on-load] [--as <new>] [--entity-from <address>]
 |       [--every <seconds>] [--cache [--cache-key <parameter>]...]
 |       [--cache-strategy <INSTANCE|SESSION|USER>] [--max-result-sets <n>] [--apply] [--json]
@@ -7114,13 +7118,17 @@ help:
 |       --column <field>       an existing ptcsgrid column's field
 |       --field <field>        the field judged by the state; defaults to the column field or KPI Value
 |       --icon-only            show only the state icon in a grid column
-|   mashup set <mashup> <widget> --prop <name=value>... [--style-from <mashup:widget>] [--apply] [--json]
+|   mashup set <mashup> <widget> --prop <name=value>... [--style <setting>]... [--style-from <mashup:widget>] [--apply] [--json]
 |                               set checked properties on one exact widget; structured properties take JSON;
 |                               plan unless --apply
 |       --prop <name=value>     set one property, repeatable; objects and arrays are JSON
 |       --style-from <mashup:widget>
 |                               copy that widget's visual style (its entry in the root's StyleProperties);
 |                               with it, --prop is optional
+|       --style <[part[@state]:]property=value>
+|                               set one CSS property of the widget's style, repeatable, after any
+|                               --style-from: background=#fff, border-style=solid, cell@hover:background=#eee;
+|                               an empty value removes it
 |   mashup source add <mashup> <entity> <service> [--dynamic] [--on-load] [--as <new>] [--entity-from <address>]
 |       [--every <seconds>] [--cache [--cache-key <parameter>]...]
 |       [--cache-strategy <INSTANCE|SESSION|USER>] [--max-result-sets <n>] [--apply] [--json]
@@ -9220,7 +9228,7 @@ help:
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
 
 == twaco mashup set
-usage: twaco mashup set <mashup> <widget> --prop <name=value>... [--style-from <mashup:widget>] [--apply] [--json]
+usage: twaco mashup set <mashup> <widget> --prop <name=value>... [--style <setting>]... [--style-from <mashup:widget>] [--apply] [--json]
 settings: disable-version-flag disable-help-subcommand
 subcommands: 
 arg --apply
@@ -9291,6 +9299,18 @@ arg --prop
     other: -
     given twice: accepted
     given bare: InvalidValue
+arg --style
+    action: Append
+    value_name: [part[@state]:]property=value
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: accepted
+    given bare: InvalidValue
 arg --style-from
     action: Set
     value_name: mashup:widget
@@ -9314,13 +9334,17 @@ arg <operands>
     index: 1
     other: -
 help:
-|   mashup set <mashup> <widget> --prop <name=value>... [--style-from <mashup:widget>] [--apply] [--json]
+|   mashup set <mashup> <widget> --prop <name=value>... [--style <setting>]... [--style-from <mashup:widget>] [--apply] [--json]
 |                               set checked properties on one exact widget; structured properties take JSON;
 |                               plan unless --apply
 |       --prop <name=value>     set one property, repeatable; objects and arrays are JSON
 |       --style-from <mashup:widget>
 |                               copy that widget's visual style (its entry in the root's StyleProperties);
 |                               with it, --prop is optional
+|       --style <[part[@state]:]property=value>
+|                               set one CSS property of the widget's style, repeatable, after any
+|                               --style-from: background=#fff, border-style=solid, cell@hover:background=#eee;
+|                               an empty value removes it
 | 
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)

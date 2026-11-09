@@ -290,6 +290,8 @@ pub(crate) struct MashupSet {
     pub(crate) props: Vec<String>,
     #[arg(long = "style-from", value_name = "mashup:widget")]
     pub(crate) style_from: Option<String>,
+    #[arg(long = "style", value_name = "[part[@state]:]property=value")]
+    pub(crate) styles: Vec<String>,
     #[command(flatten)]
     pub(crate) apply: Apply,
     #[command(flatten)]
@@ -1423,10 +1425,14 @@ pub(crate) fn mashup_set_cmd(solution: &Solution, args: &MashupSet) -> u8 {
         })
         .collect::<Result<Vec<_>, _>>()
     {
-        Ok(properties) if !properties.is_empty() || args.style_from.is_some() => properties,
+        Ok(properties)
+            if !properties.is_empty() || args.style_from.is_some() || !args.styles.is_empty() =>
+        {
+            properties
+        }
         Ok(_) => {
             eprintln!(
-                "{} mashup set needs --prop <name=value> or --style-from <mashup:widget>",
+                "{} mashup set needs --prop <name=value>, --style <property=value> or --style-from <mashup:widget>",
                 style::prefix()
             );
             return FAILED;
@@ -1442,6 +1448,7 @@ pub(crate) fn mashup_set_cmd(solution: &Solution, args: &MashupSet) -> u8 {
             widget: widget.clone(),
             properties,
             style_from: args.style_from.clone(),
+            styles: args.styles.clone(),
         },
         mode: if args.apply.apply {
             Mode::Apply

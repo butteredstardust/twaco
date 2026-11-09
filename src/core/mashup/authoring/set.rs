@@ -17,6 +17,9 @@ pub struct SetRequest {
     pub properties: Vec<(String, Value)>,
     /// `<mashup>:<widget>` whose root style entry is copied to this widget.
     pub style_from: Option<String>,
+    /// `[<part>[@<state>]:]<property>=<value>` settings merged into this widget's root style
+    /// entry, after any `style_from` copy; an empty value removes the property.
+    pub styles: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -128,6 +131,68 @@ pub(crate) fn plan_set(
             }
         }
     };
+    if !request.styles.is_empty() {
+        let settings = request
+            .styles
+            .iter()
+            .map(|text| parse_style(text))
+            .collect::<Result<Vec<_>, _>>()?;
+        if root {
+            return Err(AuthoringError::Refused(
+                "--style sets a widget's look; name the widget, not the mashup root".into(),
+            ));
+        }
+        let styler = styler_name(&found.type_id).ok_or_else(|| {
+            AuthoringError::Refused(format!(
+                "twaco does not know the style parts of {}; copy a styled one with --style-from <mashup:widget>",
+                found.type_id
+            ))
+        })?;
+        let current = style_properties(document.root_properties(), &request.mashup)?
+            .and_then(|styles| styles.get("data"))
+            .and_then(Value::as_object)
+            .and_then(|data| data.get(&found.id))
+            .cloned();
+        // An entry --style-from copied a moment ago is the one these settings refine.
+        let mut entry = current.unwrap_or_else(|| json!({"parts": {}, "widget": styler}));
+        merge_styles(&mut entry, &settings, &request.mashup, &found.id)?;
+        // The plan lists the entry once, from what it was before either step.
+        let property = format!("StyleProperties.data.{}", found.id);
+        let earlier = changed
+            .iter()
+            .position(|change| change.property == property)
+            .map(|index| changed.remove(index).before);
+        let emptied = entry
+            .get("parts")
+            .and_then(Value::as_object)
+            .is_some_and(Map::is_empty);
+        if emptied {
+            // Nothing left to style: the entry goes, as Composer drops an unstyled widget's.
+            let removed = document
+                .root_properties_mut()
+                .get_mut("StyleProperties")
+                .and_then(|styles| styles.get_mut("data"))
+                .and_then(Value::as_object_mut)
+                .and_then(|data| data.remove(&found.id));
+            if let Some(before) = earlier.clone().unwrap_or(removed) {
+                changed.push(Change {
+                    property: property.clone(),
+                    before: Some(before),
+                    after: Value::Null,
+                });
+            }
+        } else {
+            copy_style_entry(&mut document, &found.id, entry, None, &mut changed);
+        }
+        if let Some(before) = earlier {
+            if let Some(change) = changed
+                .iter_mut()
+                .find(|change| change.property == property)
+            {
+                change.before = before;
+            }
+        }
+    }
     for (name, supplied) in &request.properties {
         if root {
             if name == "CustomMashupCss" {
@@ -279,6 +344,133 @@ fn parse_style_from(reference: &str) -> Result<(&str, &str), AuthoringError> {
         ));
     }
     Ok((mashup, widget))
+}
+
+/// One `--style` setting: a CSS property of one part of a widget, in one state.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct StyleSetting {
+    pub(crate) part: String,
+    pub(crate) state: String,
+    pub(crate) property: String,
+    pub(crate) value: String,
+}
+
+/// `[<part>[@<state>]:]<property>=<value>`; the part and the state default to `$`, the widget
+/// itself in its normal state, as Composer's style editor stores them.
+pub(crate) fn parse_style(text: &str) -> Result<StyleSetting, AuthoringError> {
+    let bad = || {
+        AuthoringError::Invalid(format!(
+            "--style {text:?} must be [<part>[@<state>]:]<property>=<value>, such as background=#ffffff or cell@hover:border-color=#BEC6CA"
+        ))
+    };
+    let (target, value) = text.split_once('=').ok_or_else(bad)?;
+    let (scope, property) = match target.rsplit_once(':') {
+        Some((scope, property)) => (Some(scope), property),
+        None => (None, target),
+    };
+    let (part, state) = match scope {
+        None => ("$", "$"),
+        Some(scope) => scope.split_once('@').unwrap_or((scope, "$")),
+    };
+    let word = |text: &str, extra: &[char]| {
+        !text.is_empty()
+            && text
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || extra.contains(&c))
+    };
+    if !word(property, &[]) || !word(part, &['$']) || !word(state, &['$', '+']) {
+        return Err(bad());
+    }
+    Ok(StyleSetting {
+        part: part.to_string(),
+        state: state.to_string(),
+        property: property.to_string(),
+        value: value.trim().to_string(),
+    })
+}
+
+/// The styler name Composer records beside a widget's style parts. Each pair was read from the
+/// root StyleProperties of the platform kits' mashups; a type they never style is not guessed.
+fn styler_name(type_id: &str) -> Option<&'static str> {
+    Some(match type_id {
+        "flexcontainer" => "flex-container",
+        "ptcsbreadcrumb" => "ptcs-breadcrumb",
+        "ptcsbutton" => "ptcs-button",
+        "ptcschartbar" => "ptcs-chart-bar",
+        "ptcschartcombo" => "ptcs-chart-combo",
+        "ptcschartline" => "ptcs-chart-line",
+        "ptcschartpareto" => "ptcs-chart-pareto",
+        "ptcschartpie" => "ptcs-chart-pie",
+        "ptcschartschedule" => "ptcs-chart-schedule",
+        "ptcscheckbox" => "ptcs-checkbox",
+        "ptcscollection" => "ptcs-collection",
+        "ptcsdatepicker" => "ptcs-datepicker",
+        "ptcsdivider" => "ptcs-divider",
+        "ptcsdropdown" => "ptcs-dropdown",
+        "ptcsdynamicpanel" => "ptcs-dynamic-panel",
+        "ptcsgrid" => "ptcs-grid",
+        "ptcsimage" => "ptcs-image",
+        "ptcskpidial" => "ptcs-kpi-dial",
+        "ptcslabel" => "ptcs-label",
+        "ptcslink" => "ptcs-link",
+        "ptcslist" => "ptcs-list",
+        "ptcslistshuttle" => "ptcs-list-shuttle",
+        "ptcsmenubar" => "ptcs-menubar",
+        "ptcspropertydisplay" => "ptcs-property-display",
+        "ptcsradio" => "ptcs-radio",
+        "ptcsslider" => "ptcs-slider",
+        "ptcstabset" => "ptcs-tab-set",
+        "ptcstextarea" => "ptcs-textarea",
+        "ptcstextfield" => "ptcs-textfield",
+        "ptcstogglebutton" => "ptcs-toggle-button",
+        "ptcstoolbar" => "ptcs-toolbar",
+        "ptcsvaluedisplay" => "ptcs-value-display",
+        _ => return None,
+    })
+}
+
+/// Set each property in `entry.parts.<part>.<state>`, keys sorted as Composer writes them; an
+/// empty value removes the property, and a state or part left empty goes with it.
+fn merge_styles(
+    entry: &mut Value,
+    settings: &[StyleSetting],
+    mashup: &str,
+    widget: &str,
+) -> Result<(), AuthoringError> {
+    let malformed = || {
+        AuthoringError::Refused(format!(
+            "{mashup}: the style entry of {widget} is not Composer's parts map; fix it in Composer"
+        ))
+    };
+    let entry = entry.as_object_mut().ok_or_else(malformed)?;
+    if !entry.contains_key("parts") {
+        insert_sorted(entry, "parts", json!({}));
+    }
+    let parts = entry["parts"].as_object_mut().ok_or_else(malformed)?;
+    for setting in settings {
+        if !parts.contains_key(&setting.part) {
+            insert_sorted(parts, &setting.part, json!({}));
+        }
+        let states = parts[&setting.part].as_object_mut().ok_or_else(malformed)?;
+        if !states.contains_key(&setting.state) {
+            insert_sorted(states, &setting.state, json!({}));
+        }
+        let css = states[&setting.state]
+            .as_object_mut()
+            .ok_or_else(malformed)?;
+        if setting.value.is_empty() {
+            css.remove(&setting.property);
+        } else {
+            insert_sorted(css, &setting.property, Value::String(setting.value.clone()));
+        }
+        if css.is_empty() {
+            states.remove(&setting.state);
+        }
+        if states.is_empty() {
+            parts.remove(&setting.part);
+        }
+    }
+    Ok(())
 }
 
 /// A missing StyleProperties is allowed; an existing one must be Composer's object/map shape.

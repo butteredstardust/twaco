@@ -1883,6 +1883,7 @@
           "type": "object"
         },
         "style_from": { "description": "Copy this widget's root StyleProperties.data entry, as `<mashup>:<widget>`.", "type": "string" },
+        "styles": { "description": "Style settings `[<part>[@<state>]:]<property>=<value>` merged into the widget's root style entry after any style_from copy, such as `background=#ffffff` or `cell@hover:border-color=#BEC6CA`; an empty value removes the property.", "type": "array", "items": { "type": "string" }, "default": [] },
         "dry_run": { "type": "boolean", "default": true }
       }
     },

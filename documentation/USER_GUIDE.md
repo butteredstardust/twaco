@@ -1169,6 +1169,20 @@ and nothing is written. `--prop` is optional with it, and the two go in one edit
 twaco mashup set Acme.App.Orders_MU ptcslabel-3 --style-from Acme.Kit.Page_MU:ptcslabel-12 --apply
 ```
 
+`--style [<part>[@<state>]:]<property>=<value>` writes that entry directly, one CSS property at a
+time, after any `--style-from` copy. The part and state default to `$`, the widget itself in its
+normal state; others are the widget's own parts, such as a collection's `cell@hover`. An empty
+value removes the property, and the entry goes when nothing is left. A card frame as the design
+kits draw it:
+
+```sh
+twaco mashup set Acme.App.Orders_MU flexcontainer-4 --style background=#ffffff \
+  --style border-style=solid --style border-width=1px --style border-color=#BEC6CA --apply
+```
+
+It knows the style names of the widgets the kits style (containers, labels, buttons, charts,
+collections, grids and the rest of the ptcs set); another type takes `--style-from`.
+
 Setting the root's `StyleTheme` takes 10.2's default theme or a StyleTheme in the solution, as
 `mashup new --theme` does.
 Managed mashups update `content.json` and the entity in one transaction; unmanaged mashups update

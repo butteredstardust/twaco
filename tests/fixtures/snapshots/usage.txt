@@ -201,13 +201,17 @@ usage: twaco <command>
       --column <field>       an existing ptcsgrid column's field
       --field <field>        the field judged by the state; defaults to the column field or KPI Value
       --icon-only            show only the state icon in a grid column
-  mashup set <mashup> <widget> --prop <name=value>... [--style-from <mashup:widget>] [--apply] [--json]
+  mashup set <mashup> <widget> --prop <name=value>... [--style <setting>]... [--style-from <mashup:widget>] [--apply] [--json]
                               set checked properties on one exact widget; structured properties take JSON;
                               plan unless --apply
       --prop <name=value>     set one property, repeatable; objects and arrays are JSON
       --style-from <mashup:widget>
                               copy that widget's visual style (its entry in the root's StyleProperties);
                               with it, --prop is optional
+      --style <[part[@state]:]property=value>
+                              set one CSS property of the widget's style, repeatable, after any
+                              --style-from: background=#fff, border-style=solid, cell@hover:background=#eee;
+                              an empty value removes it
   mashup source add <mashup> <entity> <service> [--dynamic] [--on-load] [--as <new>] [--entity-from <address>]
       [--every <seconds>] [--cache [--cache-key <parameter>]...]
       [--cache-strategy <INSTANCE|SESSION|USER>] [--max-result-sets <n>] [--apply] [--json]

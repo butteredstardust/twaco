@@ -696,9 +696,12 @@ pub(crate) fn mashup_set_tool(
     arguments: MashupSetRequest,
 ) -> Result<Value, ToolError> {
     let dry_run = arguments.dry_run;
-    if arguments.properties.is_empty() && arguments.style_from.is_absent() {
+    if arguments.properties.is_empty()
+        && arguments.style_from.is_absent()
+        && arguments.styles.is_empty()
+    {
         return Err(ToolError::invalid(
-            "properties and style_from must not both be empty",
+            "properties, styles and style_from must not all be empty",
         ));
     }
     let request = commands::mashup::MashupSetRequest {
@@ -707,6 +710,7 @@ pub(crate) fn mashup_set_tool(
             widget: nonempty(&arguments.widget, "widget")?.to_string(),
             properties: arguments.properties.into_iter().collect(),
             style_from: arguments.style_from.as_ref().cloned(),
+            styles: arguments.styles,
         },
         mode: if dry_run { Mode::Plan } else { Mode::Apply },
         lock_label: "mcp mashup_set",
