@@ -415,8 +415,10 @@ fn check_services(
             .any(|entry| entry == service || *entry == format!("{entity}.{service}"))
     };
     let unexplained: Vec<&String> = extraction
-        .inherited
+        .services
         .iter()
+        .filter(|service| service.is_override())
+        .map(|service| &service.name)
         .filter(|name| !listed(name) && !inherited(name))
         .collect();
     if !unexplained.is_empty() {

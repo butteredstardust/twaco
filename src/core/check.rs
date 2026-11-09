@@ -628,20 +628,19 @@ fn sidecars_in_sync(solution: &Solution, found: &workspace::Discovery) -> GateRe
 
     for entity in &found.entities {
         let dir = workspace::services_dir(solution, entity);
-        // read_sidecars skips a service folder missing either file, so a half-deleted sidecar
-        // would otherwise read as no sidecar at all, and the entity as unmanaged.
+        // A script-only folder is an override. A definition-only folder cannot describe any
+        // service implementation, so report it before the reader treats it as unmanaged.
         for service in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
-            let missing: Vec<&str> = ["definition.xml", "script.js"]
-                .into_iter()
-                .filter(|file| !service.path().join(file).is_file())
-                .collect();
-            if service.path().is_dir() && !missing.is_empty() {
+            if service.path().is_dir()
+                && service.path().join("definition.xml").is_file()
+                && !service.path().join("script.js").is_file()
+            {
                 result.findings.push(Finding {
                     gate: "sidecars".to_string(),
                     file: relative(solution, &service.path()),
                     line: 0,
                     rule: "incomplete".to_string(),
-                    message: format!("service sidecar without {}", missing.join(" or ")),
+                    message: "service sidecar without script.js".to_string(),
                 });
             }
         }

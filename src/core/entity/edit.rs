@@ -1887,8 +1887,10 @@ impl Edit2<'_> {
             service.name.clone(),
             ServiceSidecar {
                 name: service.name.clone(),
-                definition: definition_xml.clone(),
-                script: code.clone(),
+                kind: sidecar::ServiceSidecarKind::Defined {
+                    definition: definition_xml.clone(),
+                    script: code.clone(),
+                },
             },
         );
         let (after, _) = crate::core::sync::sync(
@@ -1910,18 +1912,18 @@ impl Edit2<'_> {
             if folder.exists() {
                 continue;
             }
-            plan.changes.extend([
-                created_sidecar(
+            if let Some(definition) = existing.definition() {
+                plan.changes.push(created_sidecar(
                     folder.join("definition.xml"),
                     doc.label(),
-                    existing.definition.replace("\r\n", "\n").into_bytes(),
-                ),
-                created_sidecar(
-                    folder.join("script.js"),
-                    doc.label(),
-                    existing.script.replace("\r\n", "\n").into_bytes(),
-                ),
-            ]);
+                    definition.replace("\r\n", "\n").into_bytes(),
+                ));
+            }
+            plan.changes.push(created_sidecar(
+                folder.join("script.js"),
+                doc.label(),
+                existing.script().replace("\r\n", "\n").into_bytes(),
+            ));
         }
         let folder = services.join(&service.name);
         plan.changes.extend([
@@ -1942,7 +1944,11 @@ impl Edit2<'_> {
             "services belong to a Thing, ThingTemplate or ThingShape",
         )?;
         let extraction = sidecar::extract(&doc.src).map_err(invalid)?;
-        if extraction.inherited.iter().any(|service| service == name) {
+        if extraction
+            .services
+            .iter()
+            .any(|service| service.name == name && service.is_override())
+        {
             return Err(EditError::Unknown(format!(
                 "{} only implements inherited service {name}; it is declared by an ancestor",
                 doc.label()

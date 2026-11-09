@@ -9,7 +9,7 @@ use super::codes::{Coded, ErrorCode};
 use super::config::{Project, Solution};
 use super::entity::key::ServiceTarget;
 use super::entity::{self, EntityInfo};
-use super::sidecar::ServiceSidecar;
+use super::sidecar::{ServiceSidecar, ServiceSidecarKind};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::fmt;
@@ -564,20 +564,19 @@ pub(crate) fn read_sidecars(dir: &Path) -> BTreeMap<String, ServiceSidecar> {
             continue;
         }
         let name = entry.file_name().to_string_lossy().into_owned();
-        let (Ok(definition), Ok(script)) = (
-            std::fs::read_to_string(service.join("definition.xml")),
-            std::fs::read_to_string(service.join("script.js")),
-        ) else {
+        let Ok(script) = std::fs::read_to_string(service.join("script.js")) else {
             continue;
         };
-        out.insert(
-            name.clone(),
-            ServiceSidecar {
-                name,
+        let kind = match std::fs::read_to_string(service.join("definition.xml")) {
+            Ok(definition) => ServiceSidecarKind::Defined {
                 definition: lf(&definition),
                 script: lf(&script),
             },
-        );
+            Err(_) => ServiceSidecarKind::Override {
+                script: lf(&script),
+            },
+        };
+        out.insert(name.clone(), ServiceSidecar { name, kind });
     }
     out
 }

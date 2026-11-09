@@ -151,6 +151,38 @@ fn service_rename_moves_overrides_and_edits_only_resolved_callers_then_round_tri
 }
 
 #[test]
+fn service_rename_moves_a_script_only_override_folder() {
+    let fixture = service_fixture("script-only-override");
+    let entity = fixture.root.join("ThingTemplates/P.Template.xml");
+    let xml = std::fs::read_to_string(&entity)
+        .unwrap()
+        .replace("<ServiceDefinition name=\"Run\"/>", "");
+    std::fs::write(&entity, xml).unwrap();
+    std::fs::remove_file(
+        fixture
+            .root
+            .join("src/P.Template/services/Run/definition.xml"),
+    )
+    .unwrap();
+
+    let planned = plan(
+        &fixture.solution,
+        &service_spec("P.Shape", "Run", "Execute"),
+    )
+    .unwrap();
+    apply(
+        &fixture.solution,
+        &planned,
+        &options(false),
+        &locked(&fixture),
+    )
+    .unwrap();
+    let folder = fixture.root.join("src/P.Template/services/Execute");
+    assert!(folder.join("script.js").is_file());
+    assert!(!folder.join("definition.xml").exists());
+}
+
+#[test]
 fn service_rename_refuses_unknown_inherited_invalid_same_and_conflicting_names() {
     let fixture = service_fixture("refusals");
     assert!(matches!(

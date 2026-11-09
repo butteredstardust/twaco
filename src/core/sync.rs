@@ -10,7 +10,7 @@
 
 use super::relocate;
 use super::scan::{self, Kind, Token};
-use super::sidecar::{self, ServiceSidecar, SidecarError};
+use super::sidecar::{self, ServiceSidecar, ServiceSidecarKind, SidecarError};
 use super::splice::{self, Edit};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -27,6 +27,10 @@ pub struct SyncReport {
     pub(crate) only_in_sidecars: Vec<String>,
     /// Run-time permission resources removed with the services they named.
     pub(crate) dropped_permissions: Vec<String>,
+    /// Overrides of inherited services with no sidecar yet: left as they are, never removed (a
+    /// repository extracted before overrides had sidecars has none; `extract` writes them, and
+    /// `thing service override --revert` removes an override).
+    pub(crate) unextracted_overrides: Vec<String>,
 }
 
 impl SyncReport {
@@ -72,48 +76,63 @@ pub fn sync(
 
     let mut report = SyncReport::default();
     let mut edits: Vec<Edit> = Vec::new();
-    // Tracked rather than inferred from the implementation names: a sidecar naming a SQL service
-    // or an inherited override matches an implementation but is still not written anywhere, and
-    // reporting it as handled would lose the intended edit.
+    // Tracked rather than inferred from implementation names: a sidecar naming an SQL service is
+    // not writable, and reporting it as handled would lose the intended edit.
     let mut consumed: BTreeSet<&str> = BTreeSet::new();
 
     for (name, &implementation) in &implementations {
         if sidecar::handler_of(&tokens, src, implementation)? != "Script" {
             continue;
         }
-        let Some(&definition) = definitions.get(name) else {
-            // Implemented here, defined in a shape. There is no local block to write.
-            continue;
-        };
         let Some(sidecar) = sidecars.get(name) else {
-            report.only_in_entity.push(name.clone());
+            if definitions.contains_key(name) {
+                report.only_in_entity.push(name.clone());
+            } else {
+                report.unextracted_overrides.push(name.clone());
+            }
             continue;
         };
         consumed.insert(name.as_str());
 
+        let definition = definitions.get(name).copied();
+        match (definition.is_some(), &sidecar.kind) {
+            (true, ServiceSidecarKind::Override { .. }) => {
+                return Err(SidecarError::WrongKind {
+                    name: name.clone(),
+                    why: "the entity has a local ServiceDefinition, so add definition.xml to this service folder".to_string(),
+                });
+            }
+            (false, ServiceSidecarKind::Defined { .. }) => {
+                return Err(SidecarError::WrongKind {
+                    name: name.clone(),
+                    why: "the entity only overrides an inherited service, so remove definition.xml from this service folder".to_string(),
+                });
+            }
+            _ => {}
+        }
+
         let mut touched = false;
 
-        // The definition block. The sidecar holds it trimmed and LF-normalised, and the span
-        // starts after the line's own indentation, so writing the trimmed text back is
-        // position-exact. The line ending comes from the block being replaced rather than from
-        // the document, so a stray CRLF in one block cannot reclassify the whole file and turn
-        // the next sync's output into `\r\r\n`.
-        let block = scan::element_span(&tokens, definition).ok_or(SidecarError::Unnamed {
-            what: "ServiceDefinition",
-            at: tokens[definition].span.start,
-        })?;
-        let existing_block = String::from_utf8_lossy(block.of(src)).into_owned();
-        let wanted = sidecar
-            .definition
-            .trim_end_matches(['\n', '\r'])
-            .replace("\r\n", "\n");
-        let rendered = match newline_of(&existing_block) {
-            "\r\n" => wanted.replace('\n', "\r\n"),
-            _ => wanted,
-        };
-        if rendered != existing_block {
-            edits.push(Edit::new(block, rendered.into_bytes()));
-            touched = true;
+        if let (Some(definition), Some(wanted)) = (definition, sidecar.definition()) {
+            // The definition block. The sidecar holds it trimmed and LF-normalised, and the span
+            // starts after the line's own indentation, so writing the trimmed text back is
+            // position-exact. The line ending comes from the block being replaced rather than from
+            // the document, so a stray CRLF in one block cannot reclassify the whole file and turn
+            // the next sync's output into `\r\r\n`.
+            let block = scan::element_span(&tokens, definition).ok_or(SidecarError::Unnamed {
+                what: "ServiceDefinition",
+                at: tokens[definition].span.start,
+            })?;
+            let existing_block = String::from_utf8_lossy(block.of(src)).into_owned();
+            let wanted = wanted.trim_end_matches(['\n', '\r']).replace("\r\n", "\n");
+            let rendered = match newline_of(&existing_block) {
+                "\r\n" => wanted.replace('\n', "\r\n"),
+                _ => wanted,
+            };
+            if rendered != existing_block {
+                edits.push(Edit::new(block, rendered.into_bytes()));
+                touched = true;
+            }
         }
 
         // Layout is not content. Preserve an unchanged script's payload byte for byte, even
@@ -125,7 +144,7 @@ pub fn sync(
         // sidecar's: the comparison folds line endings, so nothing else would ever repair it.
         let mixed = script_region(&tokens, src, implementation)
             .is_some_and(|(_, existing)| mixed_line_endings(&existing));
-        if relayout || mixed || existing_script != sidecar.script {
+        if relayout || mixed || existing_script != sidecar.script() {
             // The whole CDATA region is rebuilt rather than its payload patched, so a script
             // containing `]]>` is split across sections instead of closing the first one early,
             // and a `<code>` holding text or nothing at all can still receive a script.
@@ -136,7 +155,7 @@ pub fn sync(
                 }
                 let payload = render_payload(
                     &existing,
-                    &sidecar.script,
+                    sidecar.script(),
                     newline_of(&existing),
                     indent_cdata_payload,
                 );
@@ -209,10 +228,11 @@ fn structural_edits(
         .copied();
 
     for name in &report.only_in_entity {
-        for (section, element) in [
-            (definitions_at, definitions[name]),
-            (implementations_at, implementations[name]),
-        ] {
+        let mut members = vec![(implementations_at, implementations[name])];
+        if let Some(&definition) = definitions.get(name) {
+            members.push((definitions_at, definition));
+        }
+        for (section, element) in members {
             let section = section.ok_or(SidecarError::Scan(scan::ScanError::Malformed {
                 what: "service section",
                 at: tokens[element].span.start,
@@ -263,7 +283,9 @@ fn structural_edits(
         return Ok((edits, dropped));
     }
     for name in &report.only_in_sidecars {
-        let why = if implementations.contains_key(name) && !definitions.contains_key(name) {
+        let why = if sidecars[name].is_override() {
+            Some("an override needs an existing inherited implementation; twaco cannot add one without its definition".to_string())
+        } else if implementations.contains_key(name) && !definitions.contains_key(name) {
             Some("the entity implements it already, overriding an inherited service".to_string())
         } else if implementations.contains_key(name) {
             Some("the entity has it already, and it is not a script service".to_string())
@@ -272,7 +294,7 @@ fn structural_edits(
         } else if name.contains(['"', '<', '>', '&']) || name.trim().is_empty() {
             Some("the name is not a service name".to_string())
         } else {
-            match defined_name(&sidecars[name].definition) {
+            match sidecars[name].definition().and_then(defined_name) {
                 Some(defined) if defined == *name => None,
                 Some(defined) => Some(format!(
                     "its definition.xml names the service {defined:?}; the folder and the \
@@ -334,7 +356,8 @@ fn structural_edits(
     let mut definition_bytes = Vec::new();
     for name in &report.only_in_sidecars {
         let text = sidecars[name]
-            .definition
+            .definition()
+            .expect("only Defined sidecars can be structurally added")
             .trim_end_matches(['\n', '\r'])
             .replace("\r\n", "\n")
             .replace('\n', newline);
@@ -371,7 +394,7 @@ fn structural_edits(
     let mut implementation_bytes = Vec::new();
     let mut cdata = Vec::new();
     for name in &report.only_in_sidecars {
-        let script = &sidecars[name].script;
+        let script = sidecars[name].script();
         let (bytes, payload) = match &template {
             Some((element, block)) => templated_implementation(
                 tokens,
@@ -744,6 +767,13 @@ mod tests {
         ))
     }
 
+    fn override_entity(collection: &str, tag: &str, code: &str, newline: &str) -> Vec<u8> {
+        format!(
+            "<Entities>{newline}  <{collection}>{newline}    <{tag} name=\"T\">{newline}      <ThingShape>{newline}        <ServiceDefinitions/>{newline}        <ServiceImplementations><ServiceImplementation name=\"O\" handlerName=\"Script\"><ConfigurationTables><ConfigurationTable name=\"Script\"><Rows><Row><code>{code}</code></Row></Rows></ConfigurationTable></ConfigurationTables></ServiceImplementation></ServiceImplementations>{newline}      </ThingShape>{newline}    </{tag}>{newline}  </{collection}>{newline}</Entities>{newline}"
+        )
+        .into_bytes()
+    }
+
     fn sidecars_of(src: &[u8]) -> BTreeMap<String, ServiceSidecar> {
         sidecar::extract(src)
             .unwrap()
@@ -755,8 +785,73 @@ mod tests {
 
     fn with_script(src: &[u8], script: &str) -> BTreeMap<String, ServiceSidecar> {
         let mut s = sidecars_of(src);
-        s.get_mut("S").unwrap().script = script.to_string();
+        *s.get_mut("S").unwrap().script_mut() = script.to_string();
         s
+    }
+
+    #[test]
+    fn overrides_round_trip_and_sync_in_every_supported_layout() {
+        for (collection, tag) in [("Things", "Thing"), ("ThingTemplates", "ThingTemplate")] {
+            for newline in ["\n", "\r\n"] {
+                for code in [
+                    "<![CDATA[\n            first();\n            second();\n            ]]>",
+                    "<![CDATA[first(); ]]><![CDATA[second();]]>",
+                ] {
+                    let src = override_entity(collection, tag, code, newline);
+                    let mut sidecars = sidecars_of(&src);
+                    assert!(sidecars["O"].is_override());
+                    let (unchanged, report) = sync(&src, &sidecars, false, true, false).unwrap();
+                    assert_eq!(unchanged, src, "{collection} {newline:?} {code}");
+                    assert_eq!(report.unchanged, ["O"]);
+
+                    *sidecars.get_mut("O").unwrap().script_mut() = "next();\n  done();".into();
+                    for indent in [false, true] {
+                        let (out, report) = sync(&src, &sidecars, false, indent, false).unwrap();
+                        assert_eq!(report.changed, ["O"]);
+                        assert_eq!(
+                            sidecar::extract(&out).unwrap().services[0].script(),
+                            "next();\n  done();"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn an_override_without_a_sidecar_is_left_alone_even_when_removals_are_allowed() {
+        // A repository extracted before overrides had sidecars: the defined service has its
+        // folder, the override has none. Neither a plain sync nor an allowed removal touches it.
+        let src = override_entity(
+            "Things",
+            "Thing",
+            "<![CDATA[keep();]]>",
+            "
+",
+        );
+        for allow in [false, true] {
+            let (out, report) = sync(&src, &BTreeMap::new(), allow, false, false).unwrap();
+            assert_eq!(out, src);
+            assert_eq!(report.unextracted_overrides, ["O"]);
+            assert!(report.only_in_entity.is_empty());
+            assert!(!report.has_structural_change());
+        }
+    }
+
+    #[test]
+    fn an_override_folder_for_a_defined_service_is_refused() {
+        let src = entity("            a();");
+        let sidecars = BTreeMap::from([(
+            "S".to_string(),
+            ServiceSidecar {
+                name: "S".to_string(),
+                kind: ServiceSidecarKind::Override {
+                    script: "a();".to_string(),
+                },
+            },
+        )]);
+        let error = sync(&src, &sidecars, false, false, false).unwrap_err();
+        assert!(error.to_string().contains("S") && error.to_string().contains("definition.xml"));
     }
 
     #[test]
@@ -781,7 +876,7 @@ mod tests {
         )
         .unwrap();
         let back = sidecar::extract(&out).unwrap();
-        assert_eq!(back.services[0].script, "a(); ]]> b();");
+        assert_eq!(back.services[0].script(), "a(); ]]> b();");
     }
 
     #[test]
@@ -812,7 +907,10 @@ mod tests {
         let src = entity_with("<code>old();</code>");
         let (out, report) = sync(&src, &with_script(&src, "new();"), false, true, false).unwrap();
         assert_eq!(report.changed, vec!["S"]);
-        assert_eq!(sidecar::extract(&out).unwrap().services[0].script, "new();");
+        assert_eq!(
+            sidecar::extract(&out).unwrap().services[0].script(),
+            "new();"
+        );
     }
 
     #[test]
@@ -821,7 +919,7 @@ mod tests {
         let (out, report) = sync(&src, &with_script(&src, "fresh();"), false, true, false).unwrap();
         assert_eq!(report.changed, vec!["S"]);
         assert_eq!(
-            sidecar::extract(&out).unwrap().services[0].script,
+            sidecar::extract(&out).unwrap().services[0].script(),
             "fresh();"
         );
     }
@@ -859,7 +957,7 @@ mod tests {
             )
             .into_bytes();
         let mut sidecars = sidecars_of(&src);
-        sidecars.get_mut("S").unwrap().definition =
+        *sidecars.get_mut("S").unwrap().definition_mut().unwrap() =
             "<ServiceDefinition name=\"S\" description=\"changed\">\n</ServiceDefinition>".into();
         let (out, report) = sync(&src, &sidecars, false, false, false).unwrap();
         assert_eq!(report.changed, ["S"]);
@@ -871,7 +969,7 @@ mod tests {
     }
 
     #[test]
-    fn a_sidecar_for_an_inherited_override_is_refused_as_one() {
+    fn a_defined_sidecar_for_an_override_is_refused() {
         // The entity implements S without defining it: an override of an inherited service.
         let src = text_with("<code><![CDATA[\na();\n]]></code>")
             .replace(
@@ -884,16 +982,17 @@ mod tests {
             "S".to_string(),
             ServiceSidecar {
                 name: "S".into(),
-                definition: "<ServiceDefinition name=\"S\" description=\"d\"></ServiceDefinition>"
-                    .into(),
-                script: "a();".into(),
+                kind: ServiceSidecarKind::Defined {
+                    definition:
+                        "<ServiceDefinition name=\"S\" description=\"d\"></ServiceDefinition>"
+                            .into(),
+                    script: "a();".into(),
+                },
             },
         );
         let error = sync(&src, &sidecars, true, false, false).unwrap_err();
         assert!(
-            error
-                .to_string()
-                .contains("overriding an inherited service"),
+            error.to_string().contains("remove definition.xml"),
             "{error}"
         );
     }
@@ -903,7 +1002,7 @@ mod tests {
         // A CRLF-converted script.js whose last line has no newline of its own ends in a lone CR.
         let src = entity_with("<code><![CDATA[\na();\n]]></code>");
         let mut sidecars = sidecars_of(&src);
-        sidecars.get_mut("S").unwrap().script = crate::core::workspace::lf("a();\r\nb();\r");
+        *sidecars.get_mut("S").unwrap().script_mut() = crate::core::workspace::lf("a();\r\nb();\r");
         let (out, _) = sync(&src, &sidecars, false, false, false).unwrap();
         assert!(!out.contains(&b'\r'), "{}", String::from_utf8_lossy(&out));
 
@@ -922,7 +1021,7 @@ mod tests {
     fn a_definition_with_its_own_crlf_does_not_oscillate() {
         let src = entity("            a();");
         let mut sidecars = sidecars_of(&src);
-        sidecars.get_mut("S").unwrap().definition =
+        *sidecars.get_mut("S").unwrap().definition_mut().unwrap() =
             "<ServiceDefinition name=\"S\" description=\"d\">\r\n</ServiceDefinition>\n"
                 .to_string();
         let (once, _) = sync(&src, &sidecars, false, true, false).unwrap();
@@ -973,8 +1072,11 @@ mod tests {
             "Sql".to_string(),
             ServiceSidecar {
                 name: "Sql".to_string(),
-                definition: "<ServiceDefinition name=\"Sql\"></ServiceDefinition>\n".to_string(),
-                script: "nope();".to_string(),
+                kind: ServiceSidecarKind::Defined {
+                    definition: "<ServiceDefinition name=\"Sql\"></ServiceDefinition>\n"
+                        .to_string(),
+                    script: "nope();".to_string(),
+                },
             },
         );
         match sync(src, &sidecars, false, true, false) {
@@ -1001,10 +1103,12 @@ mod tests {
     fn new_service(name: &str, script: &str) -> ServiceSidecar {
         ServiceSidecar {
             name: name.to_string(),
-            definition: format!(
-                "<ServiceDefinition name=\"{name}\" description=\"new\"></ServiceDefinition>"
-            ),
-            script: script.to_string(),
+            kind: ServiceSidecarKind::Defined {
+                definition: format!(
+                    "<ServiceDefinition name=\"{name}\" description=\"new\"></ServiceDefinition>"
+                ),
+                script: script.to_string(),
+            },
         }
     }
 
@@ -1012,7 +1116,15 @@ mod tests {
     fn read_back(src: &[u8]) -> BTreeMap<String, (String, String)> {
         sidecars_of(src)
             .into_iter()
-            .map(|(name, s)| (name, (s.definition.trim_end().to_string(), s.script)))
+            .map(|(name, s)| {
+                (
+                    name,
+                    (
+                        s.definition().unwrap().trim_end().to_string(),
+                        s.script().to_string(),
+                    ),
+                )
+            })
             .collect()
     }
 
@@ -1033,7 +1145,7 @@ mod tests {
         assert_eq!(back.keys().collect::<Vec<_>>(), ["M", "N", "S"]);
         assert_eq!(back["N"].1, "var n = 2;\nresult = n;");
         assert_eq!(back["M"].1, "a(); ]]> b();");
-        assert_eq!(back["N"].0, sidecars["N"].definition);
+        assert_eq!(back["N"].0, sidecars["N"].definition().unwrap());
         assert_eq!(back["S"].1, "var a = 1;");
         let (again, report) = sync(&out, &sidecars_of(&out), false, true, false).unwrap();
         assert_eq!(again, out);
@@ -1178,7 +1290,7 @@ mod tests {
             other => panic!("expected a refusal, got {other:?}"),
         }
         let mut broken = new_service("N", "n();");
-        broken.definition = "<Nonsense/>".to_string();
+        *broken.definition_mut().unwrap() = "<Nonsense/>".to_string();
         sidecars.insert("N".into(), broken);
         assert!(matches!(
             sync(&src, &sidecars, true, true, false),
@@ -1230,7 +1342,8 @@ mod tests {
         let src = entity("            var a = 1;");
         let mut sidecars = sidecars_of(&src);
         let mut two = new_service("N", "n();");
-        two.definition
+        two.definition_mut()
+            .unwrap()
             .push_str("<ServiceDefinition name=\"Unexpected\"></ServiceDefinition>");
         sidecars.insert("N".into(), two);
         assert!(matches!(
@@ -1254,6 +1367,7 @@ mod tests {
             let sidecars = BTreeMap::from([(name.to_string(), new_service(name, "x();"))]);
             match sync(src, &sidecars, true, true, false) {
                 Err(SidecarError::CannotAdd { name: refused, .. }) => assert_eq!(refused, name),
+                Err(SidecarError::WrongKind { name: refused, .. }) => assert_eq!(refused, name),
                 other => panic!("expected {name} to be refused, got {other:?}"),
             }
         }

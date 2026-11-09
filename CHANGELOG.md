@@ -8,6 +8,8 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Fixed
 
+- `extract`, `sync`, `adopt` and rename now manage inherited service overrides as script-only
+  sidecars (`services/<Service>/script.js`); the next extract exposes that layout where needed.
 - `mashup add` measures a new widget's row with the `--prop` values it is given (a margin, a label
   type), not with the catalogue defaults it replaces.
 - `thing service add --script` keeps a header the script brings and completes its tags, instead of

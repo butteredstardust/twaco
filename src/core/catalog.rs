@@ -370,7 +370,7 @@ fn script_body(
         .ok()?
         .into_iter()
         .find(|sidecar| sidecar.name == service)
-        .map(|sidecar| sidecar.script)
+        .map(|sidecar| sidecar.script().to_string())
 }
 
 fn collection_rank(collection: &str) -> usize {

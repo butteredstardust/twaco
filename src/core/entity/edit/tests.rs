@@ -126,7 +126,7 @@ fn service_add_and_remove_keep_the_entity_and_sidecars_in_step() {
     let extracted =
         sidecar::extract_services(file(&solution, "Things", "Acme.Orders.Press").as_bytes())
             .unwrap();
-    assert_eq!(extracted[0].definition, definition);
+    assert_eq!(extracted[0].definition().unwrap(), definition);
     assert_eq!(
         std::fs::read_to_string(folder.join("script.js")).unwrap(),
         "return rows;"

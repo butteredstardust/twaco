@@ -255,6 +255,13 @@ has a `twaco.toml` or entity files: to add a project to a repository, `twaco exp
 `twaco sync` writes them back into the XML. Commit the XML and its sidecars together; the
 `sidecars` gate fails when they disagree.
 
+An inherited service that a Thing, ThingTemplate or ThingShape implements locally is an
+**override**. `extract` writes its `services/<Service>/script.js`, with no `definition.xml`:
+the definition belongs to its ancestor. The next extract after upgrading can therefore make this
+visible one-time layout change. A script-only service folder is an override; a folder containing
+only `definition.xml` is incomplete. Until then `sync` leaves an override without a folder exactly as it is, even with
+`--allow-structural`: an override goes only with `thing service override --revert`.
+
 A service or a DataShape field appearing or disappearing is a bigger change than an edit, so
 `sync` refuses it unless given `--allow-add-remove`. With it, a new service folder holding a
 `definition.xml` and a `script.js` adds the service, its Script implementation laid out like
@@ -332,7 +339,7 @@ A solution without `[lint]` keeps today's gates (`checks-v1`). To take up the fu
 | Gate | Fails when |
 | --- | --- |
 | line endings | a file mixes CRLF and LF, which is a tool's half-rewrite. Files the solution's own `.gitignore` files match are skipped (patterns only: a tracked file that matches one is skipped too), and so is anything a `.ignore` file lists, for tracked files kept verbatim such as raw exports. Ignore files above the solution and global excludes do not count |
-| sidecars | a sidecar and its XML disagree, a service sidecar lacks its `definition.xml` or `script.js`, a fields or DataTable sidecar cannot be read, or a sidecar directory has no entity; an entity without sidecars is simply unmanaged |
+| sidecars | a sidecar and its XML disagree, a defined service sidecar lacks its `definition.xml` or `script.js`, an override has a definition mismatch or lacks `script.js`, a fields or DataTable sidecar cannot be read, or a sidecar directory has no entity; an entity without sidecars is simply unmanaged |
 | formatting | a script is not as the built-in formatter writes it (`twaco fmt` fixes it) |
 | script traps | a script uses something the ThingWorx Rhino engine punishes (see below) |
 | code order | a service's main code is below its helper functions |

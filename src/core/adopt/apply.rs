@@ -214,10 +214,16 @@ pub(crate) fn apply(
                 remove,
             }) => {
                 for service in services.values() {
-                    for (file, text) in [
-                        ("definition.xml", &service.definition),
-                        ("script.js", &service.script),
-                    ] {
+                    let files = service
+                        .definition()
+                        .map(|definition| {
+                            vec![
+                                ("definition.xml", definition),
+                                ("script.js", service.script()),
+                            ]
+                        })
+                        .unwrap_or_else(|| vec![("script.js", service.script())]);
+                    for (file, text) in files {
                         let path = dir.join(&service.name).join(file);
                         let mut wanted = text.replace("\r\n", "\n");
                         // A sidecar we keep is left byte for byte, CRLF checkout included, and
@@ -311,11 +317,12 @@ fn map_retyped_arguments(
                 _ => None,
             });
             if let Some(service) = planned {
-                let whole = [scan::Span::new(0, service.script.len())];
+                let whole = [scan::Span::new(0, service.script().len())];
                 if let Some(bytes) =
-                    retype::rewrite(service.script.as_bytes(), &whole, caller, &retypes)
+                    retype::rewrite(service.script().as_bytes(), &whole, caller, &retypes)
                 {
-                    service.script = String::from_utf8(bytes).expect("a UTF-8 script stays UTF-8");
+                    *service.script_mut() =
+                        String::from_utf8(bytes).expect("a UTF-8 script stays UTF-8");
                 }
                 continue;
             }
@@ -953,7 +960,7 @@ fn ours_services(
             .join("script.js");
         if script.is_file() {
             let text = std::fs::read_to_string(&script).map_err(|e| io_error(&script, e))?;
-            service.script = workspace::without_bom(&text).to_string();
+            *service.script_mut() = workspace::without_bom(&text).to_string();
         }
     }
     Ok(services)

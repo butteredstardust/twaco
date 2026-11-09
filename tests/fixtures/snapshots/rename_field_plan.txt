@@ -4,9 +4,10 @@ exit: 0
 --- stdout
 rename field Acme.Orders.OrderLine_DS: quantity -> count: a plan, nothing was written (pass --apply)
   entity files   3, 0 tables
-  sidecars       2
-  review         0 occurrences left for a person
+  sidecars       4
+  review         1 occurrence left for a person
   database       a migration would be written to sql/<DATE>-rename-field-OrderLine_DS-quantity-to-count.sql
+src/Acme.Orders.Database/services/GetDBInfo/script.js:9  { name: "quantity" }
 
 Not carried over by a rename:
   - The rows of a configuration table keep their values on the server unless you deploy with --overwrite-tables

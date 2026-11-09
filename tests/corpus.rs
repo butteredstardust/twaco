@@ -1040,7 +1040,7 @@ fn extraction_reproduces_the_committed_sidecars_byte_for_byte() {
             let dir = services_dir.join(&service.name);
             let want_def = dir.join("definition.xml");
             let want_js = dir.join("script.js");
-            if !want_def.is_file() || !want_js.is_file() {
+            if !want_js.is_file() || (service.definition().is_some() && !want_def.is_file()) {
                 failures.push(format!(
                     "{}: no committed sidecar for {}",
                     entity_path.display(),
@@ -1049,33 +1049,32 @@ fn extraction_reproduces_the_committed_sidecars_byte_for_byte() {
                 continue;
             }
             services += 1;
-            let committed_def = std::fs::read_to_string(&want_def)
-                .unwrap()
-                .replace("\r\n", "\n");
+            let committed_def = want_def.is_file().then(|| {
+                std::fs::read_to_string(&want_def)
+                    .unwrap()
+                    .replace("\r\n", "\n")
+            });
             let committed_js = std::fs::read_to_string(&want_js)
                 .unwrap()
                 .replace("\r\n", "\n");
-            if service.definition != committed_def {
-                // Some committed definition sidecars end without their trailing newline. The
-                // canonical extracted form includes one, so the file on disk is stale. Counted
-                // and reported so it cannot quietly become a licence to differ.
-                if service.definition
-                    == format!(
-                        "{committed_def}
-"
-                    )
-                {
-                    stale.push(want_def.display().to_string());
-                } else {
-                    failures.push(format!("{}: definition differs", want_def.display()));
+            if let Some(committed_def) = committed_def.as_deref() {
+                if service.definition() != Some(committed_def) {
+                    // Some committed definition sidecars end without their trailing newline. The
+                    // canonical extracted form includes one, so the file on disk is stale. Counted
+                    // and reported so it cannot quietly become a licence to differ.
+                    if service.definition() == Some(format!("{committed_def}\n").as_str()) {
+                        stale.push(want_def.display().to_string());
+                    } else {
+                        failures.push(format!("{}: definition differs", want_def.display()));
+                    }
                 }
             }
             // The committed script.js has no trailing newline; the extractor produces none.
-            if service.script != committed_js {
+            if service.script() != committed_js {
                 failures.push(format!(
                     "{}: script differs ({} vs {} bytes)",
                     want_js.display(),
-                    service.script.len(),
+                    service.script().len(),
                     committed_js.len()
                 ));
             }
@@ -1178,19 +1177,21 @@ fn committed_sidecars(
             continue;
         }
         let name = entry.file_name().to_string_lossy().into_owned();
-        let (Ok(definition), Ok(script)) = (
-            std::fs::read_to_string(service.join("definition.xml")),
-            std::fs::read_to_string(service.join("script.js")),
-        ) else {
+        let Ok(script) = std::fs::read_to_string(service.join("script.js")) else {
             continue;
         };
-        out.insert(
-            name.clone(),
-            twaco::core::sidecar::ServiceSidecar {
-                name,
+        let kind = match std::fs::read_to_string(service.join("definition.xml")) {
+            Ok(definition) => twaco::core::sidecar::ServiceSidecarKind::Defined {
                 definition: definition.replace("\r\n", "\n"),
                 script: script.replace("\r\n", "\n"),
             },
+            Err(_) => twaco::core::sidecar::ServiceSidecarKind::Override {
+                script: script.replace("\r\n", "\n"),
+            },
+        };
+        out.insert(
+            name.clone(),
+            twaco::core::sidecar::ServiceSidecar { name, kind },
         );
     }
     out
@@ -1437,7 +1438,12 @@ fn a_script_carrying_the_cdata_terminator_survives_a_real_entity() {
         .next()
         .expect("at least one sidecar")
         .clone();
-    sidecars.get_mut(&victim).unwrap().script = "var marker = \"]]>\";".to_string();
+    match &mut sidecars.get_mut(&victim).unwrap().kind {
+        twaco::core::sidecar::ServiceSidecarKind::Defined { script, .. }
+        | twaco::core::sidecar::ServiceSidecarKind::Override { script } => {
+            *script = "var marker = \"]]>\";".to_string();
+        }
+    }
 
     let (out, _) = twaco::core::sync::sync(&src, &sidecars, true, *indent_cdata_payload, false)
         .expect("sync succeeds");
@@ -1448,7 +1454,8 @@ fn a_script_carrying_the_cdata_terminator_survives_a_real_entity() {
         .find(|s| s.name == victim)
         .expect("service survives");
     assert_eq!(
-        written.script, "var marker = \"]]>\";",
+        written.script(),
+        "var marker = \"]]>\";",
         "the terminator must survive a round trip"
     );
 }
