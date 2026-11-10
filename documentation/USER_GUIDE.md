@@ -239,6 +239,10 @@ of its own, with `depends_on` from the projects' own dependencies. It refuses a 
 has a `twaco.toml` or entity files: to add a project to a repository, `twaco export project` it and
 `twaco adopt` the export.
 
+When a declared project gains entities on the server, `twaco init --from-server Acme.App --missing`
+plans just the entities absent from the repository. It leaves `twaco.toml` unchanged and writes under
+that project's declared root; add `--apply` to create the files, sidecars and baselines.
+
 ### Sidecars are what you edit
 
 `twaco extract` writes the parts worth editing out of the XML into files under `src/`
@@ -484,6 +488,10 @@ finding in a file of a project the deploy leaves out (its entity file, or its si
 under `src/`) is shown as a warning. A finding twaco cannot place in one project, such as one in
 `twaco.toml`, still blocks, and so does a gate that could not run. Projects the deploy leaves out
 are taken to be on the server already, so a `depends_on` cycle among them does not stop it.
+`--only`, `--changed-since` and `--exclude` narrow the gates the same way, entity by entity: a
+finding in an entity the deploy leaves out is a warning, while one in a deployed entity, or one
+twaco cannot place in a single entity, still blocks. `--skip-checks` is no longer needed to deploy
+one entity past an unrelated finding.
 
 When the Importer refuses an entity, it answers only HTTP 406. twaco then reads the server's
 ApplicationLog for that moment and adds the reason it logged, such as a Thing whose template
@@ -523,10 +531,12 @@ twaco adopt returned-export.xml --apply         # take safe collaborator changes
 
 `adopt` lays out incoming entity bytes like the destination file (or a peer in its collection
 for a new entity), retaining the repository's indentation and CDATA presentation and removing
-export-only metadata. A single-line Exporter response therefore keeps a reviewable diff. The
-export may also be one entity as `twaco entity get --out` writes it (`<Thing ...>` with no
-`<Entities>` around it): `twaco entity get Things/Acme.T --out t.xml`, then
+export-only metadata. A single-line Exporter response therefore keeps a reviewable diff.
+`twaco entity get --out` writes that importable Exporter XML as-is:
+`twaco entity get Things/Acme.T --out t.xml`, then
 `twaco adopt t.xml --entity Acme.T --take theirs:Acme.T` takes the server's form of that entity.
+Pass `--rest` only to inspect the REST read and its runtime data; that representation is not
+importable.
 
 `adopt` compares Composer's canonical form, so formatting and platform noise do not count. It
 uses the named `--base <file|handoff|git-rev>`, otherwise the most similar recorded handoff; with
@@ -561,8 +571,8 @@ skipped, since which Thing it calls cannot be told.
 Mashups, media, themes and configured UI collections are UI; everything else is backend. Use
 `--only ui` or `--only backend` to narrow a run. Backend service and entity changes that are safe
 to take are folded into XML and sidecars in the apply transaction. Mashup sidecars alone may need
-`twaco sync --all` afterwards. Apply writes mashups and media; another UI entity it would take is
-listed as `not adopted`, to import from the export. Resolve an individual conflict with
+`twaco sync --all` afterwards. Apply writes every selected UI entity: mashups with their sidecars,
+and media, themes and other UI collections as whole entities. Resolve an individual conflict with
 `--take theirs:Acme.Orders.Manager.GetOrders` or keep it with
 `--take ours:Acme.Orders.Manager`; a take may name an entity or one service, and taking ours for
 an entity leaves it whole. `--take theirs:ui` takes every UI conflict and unknown at once, for a

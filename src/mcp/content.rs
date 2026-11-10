@@ -841,7 +841,12 @@ pub(crate) fn entity_get_tool(
     let entity = nonempty(&arguments.entity, "entity")?;
     let key = get::target(solution, entity).map_err(ToolError::coded)?;
     let client = client(solution, &arguments.profile)?;
-    let bytes = get::fetch(&client, &key).map_err(ToolError::coded)?;
+    let view = if arguments.rest {
+        get::View::Rest
+    } else {
+        get::View::Export
+    };
+    let bytes = get::fetch(&client, &key, view).map_err(ToolError::coded)?;
     let text = String::from_utf8_lossy(&bytes);
     let max = usize::try_from(arguments.max_chars).unwrap_or(usize::MAX);
     let total = text.chars().count();

@@ -2691,7 +2691,8 @@ fn status_record_returns_matching_entities_in_sync_and_keeps_differing_verdicts(
     let address = listener.local_addr().unwrap();
     std::thread::spawn(move || {
         use std::io::{Read, Write};
-        for _ in 0..5 {
+        // Two entities per `all` status plus its project inventory, twice, then one single.
+        for _ in 0..7 {
             let (mut stream, _) = listener.accept().unwrap();
             let mut buffer = [0; 8192];
             let read = stream.read(&mut buffer).unwrap();

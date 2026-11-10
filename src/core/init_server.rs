@@ -14,6 +14,8 @@ pub struct Request {
     pub root: PathBuf,
     pub projects: Vec<String>,
     pub apply: bool,
+    /// Fill gaps in declared projects without changing their configuration.
+    pub missing: bool,
     /// The profile the baseline is recorded against: the server the exports came from.
     pub profile: String,
 }
@@ -22,6 +24,8 @@ pub struct Request {
 pub struct Outcome {
     pub projects: Vec<String>,
     pub files: usize,
+    /// Entity files planned from server entities the workspace did not already hold.
+    pub created: Vec<String>,
     pub entities: BTreeMap<String, usize>,
     pub toml: String,
     pub notes: Vec<String>,
@@ -42,6 +46,8 @@ pub enum Error {
     Config(#[from] config::ConfigError),
     #[error("project {0} is already in this solution")]
     AlreadyPresent(String),
+    #[error("project {0} is not declared in twaco.toml; drop --missing to add it")]
+    MissingProject(String),
     #[error("planned files already exist: {0}")]
     ExistingFiles(String),
     #[error("project {0} is named twice")]
@@ -76,6 +82,7 @@ impl super::codes::Coded for Error {
             Self::AlreadyPresent(_) | Self::ExistingFiles(_) => {
                 super::codes::ErrorCode::AlreadyExists
             }
+            Self::MissingProject(_) => super::codes::ErrorCode::InvalidArguments,
             Self::Export { .. } | Self::UnsafeName { .. } => super::codes::ErrorCode::InvalidData,
             Self::Write(error) => error.code(),
             Self::Lock(error) => error.code(),
@@ -92,7 +99,11 @@ struct File {
 
 /// Everything that can be refused without the server, so a front end can say it before it needs a
 /// profile: the existing solution when there is one.
-pub fn preflight(root: &Path, projects: &[String]) -> Result<Option<config::Solution>, Error> {
+pub fn preflight(
+    root: &Path,
+    projects: &[String],
+    missing: bool,
+) -> Result<Option<config::Solution>, Error> {
     if projects.is_empty() {
         return Err(Error::Projects);
     }
@@ -102,13 +113,20 @@ pub fn preflight(root: &Path, projects: &[String]) -> Result<Option<config::Solu
     }
     let config_path = root.join(super::config::CONFIG_FILE);
     if !config_path.exists() {
+        if missing {
+            return Err(Error::MissingProject(projects[0].clone()));
+        }
         if init::has_entity_files(root) {
             return Err(Error::Refused(REFUSAL));
         }
         return Ok(None);
     }
     let solution = config::Solution::load(&config_path)?;
-    if let Some(project) = projects.iter().find(|p| solution.project(p).is_some()) {
+    if missing {
+        if let Some(project) = projects.iter().find(|p| solution.project(p).is_none()) {
+            return Err(Error::MissingProject(project.clone()));
+        }
+    } else if let Some(project) = projects.iter().find(|p| solution.project(p).is_some()) {
         return Err(Error::AlreadyPresent(project.clone()));
     }
     // Sidecars and the baseline of the added projects are made after the files are written; an
@@ -126,13 +144,13 @@ pub fn execute<R>(remote: &R, request: Request) -> Result<Outcome, Error>
 where
     R: export::Remote + push::Remote + localization::Remote + Sync,
 {
-    let existing = preflight(&request.root, &request.projects)?;
+    let existing = preflight(&request.root, &request.projects, request.missing)?;
     let config_path = request.root.join(super::config::CONFIG_FILE);
     let config_before = match &existing {
         Some(_) => Some(std::fs::read(&config_path)?),
         None => None,
     };
-    let added = existing.is_some();
+    let added = existing.is_some() && !request.missing;
     let named: BTreeSet<String> = request.projects.iter().cloned().collect();
     let multiple = named.len() > 1;
     let mut files = Vec::new();
@@ -142,6 +160,16 @@ where
     let mut dependencies = BTreeMap::<String, Vec<String>>::new();
     let mut members_owned = Vec::new();
     let mut names = Vec::new();
+    let already_here: BTreeSet<(String, String)> = existing
+        .as_ref()
+        .map(|solution| {
+            workspace::discover(solution)
+                .entities
+                .into_iter()
+                .map(|entity| (entity.info.collection, entity.info.name))
+                .collect()
+        })
+        .unwrap_or_default();
     for project in &request.projects {
         let exported = export::export(
             remote,
@@ -193,13 +221,18 @@ where
                 }
                 continue;
             }
+            if request.missing
+                && already_here.contains(&(key.collection.clone(), info.name.clone()))
+            {
+                continue;
+            }
             if !adopt::is_file_name(&info.name) {
                 return Err(Error::UnsafeName {
                     entity: key.path(),
                     name: info.name,
                 });
             }
-            if key.collection == "Projects" {
+            if !request.missing && key.collection == "Projects" {
                 let needs: Vec<String> = normalise::project_dependencies(&element)
                     .into_iter()
                     .filter(|name| {
@@ -216,7 +249,8 @@ where
             })?;
             // As adopt writes a new entity that has no peer file to copy.
             let document = entity::new::document(&key.collection, &laid_out);
-            if matches!(key.collection.as_str(), "Groups" | "Organizations")
+            if !request.missing
+                && matches!(key.collection.as_str(), "Groups" | "Organizations")
                 && differs_only_in_members(remote, &key.collection, &info.name, &document).map_err(
                     |why| Error::Export {
                         project: project.clone(),
@@ -226,7 +260,13 @@ where
             {
                 members_owned.push(key.path());
             }
-            let base = if added || multiple {
+            let base = if request.missing {
+                let declared = existing
+                    .as_ref()
+                    .and_then(|solution| solution.project(&info.project).map(|p| (solution, p)))
+                    .expect("preflight checked every missing project is declared");
+                declared.0.project_root(declared.1)
+            } else if added || multiple {
                 request.root.join(&info.project)
             } else {
                 request.root.clone()
@@ -244,9 +284,16 @@ where
         }
     }
     if files.is_empty() {
-        notes.push("the server exports contained no entities for the named projects".to_string());
+        notes.push(if request.missing {
+            "nothing missing: the repository already has every server entity".to_string()
+        } else {
+            "the server exports contained no entities for the named projects".to_string()
+        });
     }
-    let mut toml = if existing.is_some() {
+    let mut toml = if request.missing {
+        String::from_utf8(config_before.clone().unwrap_or_default())
+            .expect("a loaded twaco.toml is UTF-8")
+    } else if existing.is_some() {
         let before = String::from_utf8_lossy(config_before.as_deref().unwrap_or_default());
         append_projects(&before, &request.projects, &dependencies)
     } else {
@@ -260,7 +307,7 @@ where
         notes = proposal.notes;
         proposal.toml
     };
-    if !members_owned.is_empty() {
+    if !request.missing && !members_owned.is_empty() {
         add_members_owned(&mut toml, &members_owned);
         notes.push(format!(
             "{} keep their members on the server: the Exporter leaves out user members, so membership is [[server_owned]]",
@@ -271,8 +318,20 @@ where
         notes.push(format!("{project}: {count} entities"));
     }
     let entity_files = files.len();
+    let created: Vec<String> = files
+        .iter()
+        .map(|file| {
+            file.path
+                .strip_prefix(&request.root)
+                .unwrap_or(&file.path)
+                .display()
+                .to_string()
+        })
+        .collect();
+    let created_paths: BTreeSet<PathBuf> = files.iter().map(|file| file.path.clone()).collect();
     let mut all = files;
-    if !added {
+    // A fresh repository gets its agent files and .gitignore lines; --missing only adds entities.
+    if !added && !request.missing {
         let project_names: Vec<String> = request.projects.clone();
         for (name, text) in init::agent_files(&request.projects[0], &project_names) {
             let path = request.root.join(name);
@@ -292,10 +351,12 @@ where
             }
         }
     }
-    all.push(File {
-        path: request.root.join(super::config::CONFIG_FILE),
-        bytes: toml.clone().into_bytes(),
-    });
+    if !request.missing {
+        all.push(File {
+            path: request.root.join(super::config::CONFIG_FILE),
+            bytes: toml.clone().into_bytes(),
+        });
+    }
     if let Some(solution) = &existing {
         // Extraction writes each added entity's sidecar folder after the transaction.
         let src = solution.src_root();
@@ -339,7 +400,14 @@ where
         let solution = config::Solution::load(&request.root.join(config::CONFIG_FILE))
             .map_err(|error| unfinished(format!("its twaco.toml does not load: {error}")))?;
         let found = workspace::discover(&solution);
-        let chosen: Vec<_> = if added {
+        let chosen: Vec<_> = if request.missing {
+            found
+                .entities
+                .iter()
+                .filter(|entity| created_paths.contains(&entity.path))
+                .cloned()
+                .collect()
+        } else if added {
             found
                 .entities
                 .iter()
@@ -356,11 +424,48 @@ where
                 extracted.failed
             )));
         }
-        let status_projects: Vec<Option<String>> = if added {
+        let status_projects: Vec<Option<String>> = if request.missing {
+            Vec::new()
+        } else if added {
             request.projects.iter().cloned().map(Some).collect()
         } else {
             vec![None]
         };
+        if request.missing && !chosen.is_empty() {
+            let keys = chosen
+                .iter()
+                .map(|entity| {
+                    super::entity::key::EntityKey::new(&entity.info.collection, &entity.info.name)
+                        .expect("a discovered entity has a valid address")
+                })
+                .collect();
+            let status = commands::status::execute_holding(
+                &solution,
+                &commands::status::StatusRequest {
+                    target: commands::status::StatusTarget::Keys(keys),
+                    project: None,
+                    record: true,
+                    profile: request.profile.clone(),
+                    lock_label: "init --from-server",
+                    refuse_unreadable: true,
+                    refuse_record_failures: false,
+                    ancestor: None,
+                },
+                |_| Borrowed(remote),
+                &held,
+                &progress::NONE,
+            )
+            .map_err(|error| unfinished(format!("the baseline was not recorded: {error}")))?;
+            recorded += status.recorded.unwrap_or(0);
+            not_in_sync.extend(
+                status
+                    .statuses
+                    .iter()
+                    .filter(|entity| entity.verdict != status::Verdict::InSync)
+                    .map(|entity| format!("{}/{}", entity.collection, entity.name))
+                    .chain(status.failures),
+            );
+        }
         for project in status_projects {
             let status = commands::status::execute_holding(
                 &solution,
@@ -389,23 +494,26 @@ where
                     .chain(status.failures),
             );
         }
-        match localization::ops::pull_projects(
-            &solution,
-            remote,
-            None,
-            false,
-            Some(&held),
-            Some(&request.projects),
-        ) {
-            Ok(pulled) => {
-                localization_files = pulled.files.len();
-                localization_tokens = pulled.files.iter().map(|file| file.set.len()).sum();
-            }
-            Err(error) => {
-                let note =
-                    format!("localization was not pulled: {error}; run `twaco localization pull`");
-                notes.push(note.clone());
-                localization_failure = Some(note);
+        if !request.missing {
+            match localization::ops::pull_projects(
+                &solution,
+                remote,
+                None,
+                false,
+                Some(&held),
+                Some(&request.projects),
+            ) {
+                Ok(pulled) => {
+                    localization_files = pulled.files.len();
+                    localization_tokens = pulled.files.iter().map(|file| file.set.len()).sum();
+                }
+                Err(error) => {
+                    let note = format!(
+                        "localization was not pulled: {error}; run `twaco localization pull`"
+                    );
+                    notes.push(note.clone());
+                    localization_failure = Some(note);
+                }
             }
         }
     } else {
@@ -416,6 +524,7 @@ where
     Ok(Outcome {
         projects: request.projects,
         files: files_count,
+        created,
         entities: counts,
         toml,
         notes,
@@ -634,6 +743,18 @@ mod tests {
         format!("<Entities><Things><Thing name=\"{name}\" projectName=\"{project}\"><ThingShape><ServiceDefinitions><ServiceDefinition name=\"S\"/></ServiceDefinitions><ServiceImplementations><ServiceImplementation name=\"S\" handlerName=\"Script\"><ConfigurationTables><ConfigurationTable name=\"Script\"><Rows><Row><code><![CDATA[me();]]></code></Row></Rows></ConfigurationTable></ConfigurationTables></ServiceImplementation></ServiceImplementations></ThingShape></Thing></Things></Entities>").into_bytes()
     }
 
+    fn exports(project: &str, names: &[&str]) -> Vec<u8> {
+        let entities = names
+            .iter()
+            .map(|name| String::from_utf8(export(project, name)).unwrap())
+            .map(|document| {
+                document["<Entities><Things>".len()..document.len() - "</Things></Entities>".len()]
+                    .to_string()
+            })
+            .collect::<String>();
+        format!("<Entities><Things>{entities}</Things></Entities>").into_bytes()
+    }
+
     #[test]
     fn refuses_an_invalid_config_before_asking_the_remote() {
         let temp = tempfile::tempdir().unwrap();
@@ -645,6 +766,7 @@ mod tests {
                 root: temp.path().to_path_buf(),
                 projects: vec!["P".into()],
                 apply: false,
+                missing: false,
                 profile: "default".into(),
             },
         )
@@ -678,6 +800,7 @@ mod tests {
                 root: temp.path().to_path_buf(),
                 projects: vec!["B".into()],
                 apply: true,
+                missing: false,
                 profile: "default".into(),
             },
         )
@@ -729,6 +852,7 @@ mod tests {
                     root: root.to_path_buf(),
                     projects: projects.iter().map(|p| p.to_string()).collect(),
                     apply: true,
+                    missing: false,
                     profile: "default".into(),
                 },
             )
@@ -782,6 +906,7 @@ mod tests {
                 root: temp.path().to_path_buf(),
                 projects: vec!["P".into()],
                 apply: false,
+                missing: false,
                 profile: "default".into(),
             },
         )
@@ -797,12 +922,80 @@ mod tests {
                 root: empty.path().to_path_buf(),
                 projects: vec!["P".into()],
                 apply: false,
+                missing: false,
                 profile: "default".into(),
             },
         )
         .unwrap_err();
         assert!(matches!(error, Error::Refused(_)));
         assert!(error.to_string().contains("twaco init --write"));
+    }
+
+    #[test]
+    fn missing_writes_only_absent_entities_under_the_declared_root() {
+        let temp = tempfile::tempdir().unwrap();
+        profile(temp.path());
+        let before = "# preserved exactly\n[[project]]\nname = \"Acme.Cell\"\nroot = \"cell\"\n";
+        std::fs::write(temp.path().join("twaco.toml"), before).unwrap();
+        std::fs::create_dir_all(temp.path().join("cell/Things")).unwrap();
+        std::fs::write(
+            temp.path().join("cell/Things/Acme.Cell.Old.xml"),
+            export("Acme.Cell", "Acme.Cell.Old"),
+        )
+        .unwrap();
+        let remote = Fake(BTreeMap::from([(
+            "Acme.Cell".to_string(),
+            exports(
+                "Acme.Cell",
+                &["Acme.Cell.Old", "Acme.Cell.One", "Acme.Cell.Two"],
+            ),
+        )]));
+        let request = |apply| Request {
+            root: temp.path().to_path_buf(),
+            projects: vec!["Acme.Cell".into()],
+            apply,
+            missing: true,
+            profile: "default".into(),
+        };
+        let plan = execute(&remote, request(false)).unwrap();
+        assert_eq!(plan.entities.get("Things"), Some(&2));
+        assert_eq!(plan.toml, before);
+        assert!(plan.created.iter().all(|path| path.contains("cell")));
+        assert_eq!(
+            std::fs::read(temp.path().join("twaco.toml")).unwrap(),
+            before.as_bytes()
+        );
+
+        let applied = execute(&remote, request(true)).unwrap();
+        assert_eq!(applied.created.len(), 2);
+        assert!(temp.path().join("cell/Things/Acme.Cell.One.xml").is_file());
+        assert!(temp.path().join("cell/Things/Acme.Cell.Two.xml").is_file());
+        assert!(!temp.path().join("Things/Acme.Cell.One.xml").exists());
+        assert_eq!(
+            std::fs::read(temp.path().join("twaco.toml")).unwrap(),
+            before.as_bytes()
+        );
+        assert!(temp
+            .path()
+            .join("src/Acme.Cell.One/services/S/script.js")
+            .is_file());
+        assert!(!temp.path().join("src/Acme.Cell.Old").exists());
+        // Only entities: no agent files, as a fresh init would write.
+        assert!(!temp.path().join("AGENTS.md").exists());
+        assert!(!temp.path().join("CLAUDE.md").exists());
+    }
+
+    #[test]
+    fn missing_refuses_a_project_not_declared_in_the_solution() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            temp.path().join("twaco.toml"),
+            "[[project]]\nname = \"Acme.Cell\"\n",
+        )
+        .unwrap();
+        let error = preflight(temp.path(), &["Acme.Other".into()], true).unwrap_err();
+        assert!(matches!(error, Error::MissingProject(_)));
+        assert!(error.to_string().contains("drop --missing"));
     }
 
     #[test]
@@ -828,6 +1021,7 @@ mod tests {
                 root: temp.path().to_path_buf(),
                 projects: vec!["A".into(), "B".into()],
                 apply: true,
+                missing: false,
                 profile: "default".into(),
             },
         )
@@ -848,6 +1042,7 @@ mod tests {
                 root: temp.path().to_path_buf(),
                 projects: vec!["P".into()],
                 apply: true,
+                missing: false,
                 profile: "missing".into(),
             },
         )
@@ -967,6 +1162,7 @@ mod tests {
                 root: temp.path().to_path_buf(),
                 projects: vec!["P".into()],
                 apply: true,
+                missing: false,
                 profile: "default".into(),
             },
         )
@@ -996,6 +1192,7 @@ mod tests {
                 root: temp.path().to_path_buf(),
                 projects: vec!["A".into(), "B".into()],
                 apply: true,
+                missing: false,
                 profile: "default".into(),
             },
         )
@@ -1216,6 +1413,7 @@ mod corpus_tests {
                 root: temp.path().to_path_buf(),
                 projects: vec!["Acme.Orders".into()],
                 apply: true,
+                missing: false,
                 profile: "default".into(),
             },
         )

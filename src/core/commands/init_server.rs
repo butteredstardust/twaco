@@ -12,6 +12,7 @@ pub struct InitFromServerRequest {
     pub projects: Vec<String>,
     pub profile: String,
     pub apply: bool,
+    pub missing: bool,
 }
 
 pub struct InitFromServerOutcome {
@@ -68,7 +69,7 @@ where
     R: export::Remote + push::Remote + localization::Remote + Sync,
     F: FnOnce(profile::Profile) -> R,
 {
-    init_server::preflight(&request.root, &request.projects)
+    init_server::preflight(&request.root, &request.projects, request.missing)
         .map_err(InitFromServerCommandError::Init)?;
     let profile = profile::load(&request.root, &request.profile)
         .map_err(InitFromServerCommandError::Profile)?;
@@ -78,6 +79,7 @@ where
             root: request.root,
             projects: request.projects,
             apply: request.apply,
+            missing: request.missing,
             profile: request.profile,
         },
     )
@@ -99,6 +101,7 @@ pub fn outcome_json(outcome: &InitFromServerOutcome) -> Value {
     json!({
         "projects": outcome.projects,
         "files": outcome.files,
+        "created": outcome.created,
         "entities": outcome.entities,
         "toml": outcome.toml,
         "notes": outcome.notes,
@@ -226,6 +229,7 @@ mod tests {
             projects: vec!["P".into()],
             profile: "default".into(),
             apply,
+            missing: false,
         };
         let remote = || Fake(BTreeMap::from([("P".to_string(), export("P", "P.T"))]));
 
@@ -256,6 +260,7 @@ mod tests {
             result: init_server::Outcome {
                 projects: vec!["P".into()],
                 files: 1,
+                created: vec!["Things/P.T.xml".into()],
                 entities: BTreeMap::from([("Things".into(), 1)]),
                 toml: "[[project]]\nname = \"P\"\n".into(),
                 notes: vec!["P: 1 entities".into()],
@@ -272,7 +277,7 @@ mod tests {
         assert_eq!(
             outcome_json(&outcome),
             json!({
-                "projects": ["P"], "files": 1, "entities": {"Things": 1},
+                "projects": ["P"], "files": 1, "created": ["Things/P.T.xml"], "entities": {"Things": 1},
                 "toml": "[[project]]\nname = \"P\"\n", "notes": ["P: 1 entities"],
                 "applied": false, "added": false, "recorded": 0, "not_in_sync": [],
                 "localization_files": 0, "localization_tokens": 0,

@@ -147,8 +147,9 @@ impl CheckReport {
             let (kept, other): (Vec<_>, Vec<_>) = std::mem::take(&mut gate.findings)
                 .into_iter()
                 .partition(|finding| {
-                    owner_of(&owners, &finding.file)
-                        .is_none_or(|project| projects.iter().any(|p| p == project))
+                    owner_of(&owners, &finding.file).is_none_or(|owner| {
+                        projects.iter().any(|project| project == &owner.project)
+                    })
                 });
             gate.findings = kept;
             if other.is_empty() {
@@ -157,8 +158,8 @@ impl CheckReport {
             set_aside += other.len();
             let mut by_project: BTreeMap<&str, usize> = BTreeMap::new();
             for finding in &other {
-                if let Some(project) = owner_of(&owners, &finding.file) {
-                    *by_project.entry(project).or_default() += 1;
+                if let Some(owner) = owner_of(&owners, &finding.file) {
+                    *by_project.entry(&owner.project).or_default() += 1;
                 }
             }
             gate.prose.push(format!(
@@ -174,19 +175,80 @@ impl CheckReport {
         }
         set_aside
     }
+
+    /// Narrow the report to a deploy of `files`: a finding in an entity the plan leaves out
+    /// becomes a warning. Findings twaco cannot place in one entity still block, as does a gate
+    /// that could not run. Returns how many findings were set aside.
+    pub(crate) fn scope_to_entities(
+        &mut self,
+        solution: &Solution,
+        files: &BTreeSet<String>,
+    ) -> usize {
+        if files.is_empty() {
+            return 0;
+        }
+        let owners = file_owners(solution);
+        let mut set_aside = 0;
+        for gate in &mut self.gates {
+            let (kept, other): (Vec<_>, Vec<_>) = std::mem::take(&mut gate.findings)
+                .into_iter()
+                .partition(|finding| {
+                    owner_of(&owners, &finding.file).is_none_or(|owner| {
+                        owner
+                            .entity
+                            .as_ref()
+                            .is_none_or(|entity| files.contains(&entity.file))
+                    })
+                });
+            gate.findings = kept;
+            if other.is_empty() {
+                continue;
+            }
+            set_aside += other.len();
+            let mut by_entity: BTreeMap<&str, usize> = BTreeMap::new();
+            for finding in &other {
+                if let Some(entity) =
+                    owner_of(&owners, &finding.file).and_then(|owner| owner.entity.as_ref())
+                {
+                    *by_entity.entry(&entity.name).or_default() += 1;
+                }
+            }
+            gate.prose.push(format!(
+                "{} finding(s) in entities this deploy leaves out do not block it: {}",
+                other.len(),
+                by_entity
+                    .iter()
+                    .map(|(entity, count)| format!("{entity} ({count})"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+            gate.warnings.extend(other);
+        }
+        set_aside
+    }
 }
 
-/// Which project each entity file and each entity's sidecar folder belongs to, by path relative
-/// to the solution root with `/` separators. A sidecar folder two projects' entities share (one
-/// name in two collections) is left out, so its findings stay unplaced.
-fn file_owners(solution: &Solution) -> BTreeMap<String, Option<String>> {
+struct EntityOwner {
+    file: String,
+    name: String,
+}
+
+struct FileOwner {
+    project: String,
+    entity: Option<EntityOwner>,
+}
+
+/// Which project and entity each entity file and sidecar folder belongs to, by path relative to
+/// the solution root with `/` separators. A sidecar folder two projects' entities share (one name
+/// in two collections) is left out, so its findings stay unplaced.
+fn file_owners(solution: &Solution) -> BTreeMap<String, Option<FileOwner>> {
     let discovered = workspace::discover(solution);
     let src = solution
         .src_root()
         .strip_prefix(&solution.root)
         .map(|path| path.to_string_lossy().replace('\\', "/"))
         .unwrap_or_else(|_| "src".to_string());
-    let mut owners: BTreeMap<String, Option<String>> = BTreeMap::new();
+    let mut owners: BTreeMap<String, Option<FileOwner>> = BTreeMap::new();
     for file in &discovered.entities {
         // Deploy's own rule: an entity belongs to the project its projectName names, and to the
         // folder it was found under only when it names none.
@@ -196,32 +258,55 @@ fn file_owners(solution: &Solution) -> BTreeMap<String, Option<String>> {
             file.info.project.clone()
         };
         let relative = solution.relative(&file.path).replace('\\', "/");
-        owners.insert(relative, Some(project.clone()));
+        let entity_file = relative.clone();
+        let entity = EntityOwner {
+            file: entity_file.clone(),
+            name: format!("{}/{}", file.info.collection, file.info.name),
+        };
+        owners.insert(
+            relative,
+            Some(FileOwner {
+                project: project.clone(),
+                entity: Some(entity),
+            }),
+        );
         let folder = format!("{src}/{}/", file.info.name);
         owners
             .entry(folder)
-            .and_modify(|owner| {
-                if owner.as_deref() != Some(project.as_str()) {
-                    *owner = None;
-                }
+            // Shared by two entities: across projects it belongs to neither; within one project
+            // it belongs to the project but to no single entity, so entity scoping keeps it.
+            .and_modify(|slot| match slot {
+                Some(owner) if owner.project != project => *slot = None,
+                Some(owner) => owner.entity = None,
+                None => {}
             })
-            .or_insert_with(|| Some(project));
+            .or_insert_with(|| {
+                Some(FileOwner {
+                    project,
+                    entity: Some(EntityOwner {
+                        file: entity_file,
+                        name: format!("{}/{}", file.info.collection, file.info.name),
+                    }),
+                })
+            });
     }
     owners
 }
 
-/// The project a finding's file belongs to: the entity file itself, or the sidecar folder it is
-/// under.
-fn owner_of<'a>(owners: &'a BTreeMap<String, Option<String>>, file: &str) -> Option<&'a str> {
+/// The owner of a finding's file: the entity file itself, or the sidecar folder it is under.
+fn owner_of<'a>(
+    owners: &'a BTreeMap<String, Option<FileOwner>>,
+    file: &str,
+) -> Option<&'a FileOwner> {
     let file = file.replace('\\', "/");
     if let Some(owner) = owners.get(&file) {
-        return owner.as_deref();
+        return owner.as_ref();
     }
     owners
         .range(..=file.clone())
         .rev()
         .find(|(path, _)| path.ends_with('/') && file.starts_with(path.as_str()))
-        .and_then(|(_, owner)| owner.as_deref())
+        .and_then(|(_, owner)| owner.as_ref())
 }
 
 /// The built-in gates, by the names `[gates] advisory` uses.
@@ -3208,5 +3293,56 @@ mod scope_tests {
         assert_eq!(for_b.gates[0].findings.len(), 2, "both stop a deploy of B");
         let for_a = report(&["A"]);
         assert!(!for_a.blocks(), "neither stops a deploy of A");
+    }
+
+    #[test]
+    fn a_partial_entity_deploy_sets_aside_only_findings_in_entities_it_leaves_out() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"Acme\"\n").unwrap();
+        thing(root, "Things/Acme.A.xml", "Acme.A", "Acme");
+        thing(root, "Things/Acme.B.xml", "Acme.B", "Acme");
+        let solution = Solution::load(&root.join("twaco.toml")).unwrap();
+        let selected = BTreeSet::from(["Things/Acme.A.xml".to_string()]);
+        let report = |files: Vec<&str>| {
+            let mut gate = GateResult::passed("g", files.len());
+            gate.findings = files.into_iter().map(finding).collect();
+            CheckReport { gates: vec![gate] }
+        };
+
+        let mut outside = report(vec![
+            "Things/Acme.B.xml",
+            "src/Acme.B/services/Get/script.js",
+        ]);
+        assert_eq!(outside.scope_to_entities(&solution, &selected), 2);
+        assert!(
+            !outside.blocks(),
+            "an omitted entity does not stop the deploy"
+        );
+        assert_eq!(outside.gates[0].warnings.len(), 2);
+        assert_eq!(
+            outside.gates[0].prose,
+            ["2 finding(s) in entities this deploy leaves out do not block it: Things/Acme.B (2)"]
+        );
+
+        let mut included = report(vec!["Things/Acme.A.xml"]);
+        included.scope_to_entities(&solution, &selected);
+        assert!(
+            included.blocks(),
+            "a selected entity still blocks the deploy"
+        );
+
+        let untouched = report(vec!["Things/Acme.B.xml"]);
+        assert!(
+            untouched.blocks(),
+            "without an entity selector, an outside finding still blocks"
+        );
+
+        let mut unplaced = report(vec!["twaco.toml"]);
+        unplaced.scope_to_entities(&solution, &selected);
+        assert!(
+            unplaced.blocks(),
+            "an unplaced finding still blocks the deploy"
+        );
     }
 }

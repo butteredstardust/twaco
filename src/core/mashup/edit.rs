@@ -404,8 +404,8 @@ impl MashupDocument {
             } => {
                 // A filling widget or a container gets wrappers of its own when something goes
                 // beside it, so there is no row to split; refused before anything moves. The row
-                // checks in split_at_end come after placing: a refusal there leaves this document
-                // changed, and the plan that owns it is dropped with the error.
+                // checks in split_at_end need the widget placed, so a refusal there puts the
+                // document back as it was.
                 let found = self.find(anchor)?;
                 let node = self.at(&found.path);
                 if type_of(node) == Some("flexcontainer") || fills(node) {
@@ -414,8 +414,10 @@ impl MashupDocument {
                         found.id
                     )));
                 }
-                let placed = self.place_beside(widget, anchor, Side::Right)?;
-                self.split_at_end(placed)
+                let before = self.clone();
+                self.place_beside(widget, anchor, Side::Right)
+                    .and_then(|placed| self.split_at_end(placed))
+                    .inspect_err(|_| *self = before)
             }
             Placement::Beside { anchor, side } => self.place_beside(widget, anchor, *side),
         }?;
@@ -1609,6 +1611,42 @@ mod tests {
 
     fn catalogue_widget(type_id: &str) -> &Widget {
         widgets::catalog().by_type(type_id).unwrap()
+    }
+
+    #[test]
+    fn an_end_placement_refused_by_its_row_checks_leaves_the_document_as_it_was() {
+        // A row someone named is not one twaco made: --end places, then refuses to split it.
+        let mut document = document(
+            &container(
+                "flexcontainer-2",
+                "page",
+                "column",
+                &container(
+                    "flexcontainer-3",
+                    "Toolbar",
+                    "row",
+                    &format!(
+                        "{},{}",
+                        widget("ptcslabel", "ptcslabel-4", "first", ""),
+                        widget("ptcslabel", "ptcslabel-5", "second", "")
+                    ),
+                ),
+            ),
+            6,
+        );
+        let before = document.clone();
+        let refused = document.place(
+            catalogue_widget("ptcslabel"),
+            &Placement::Beside {
+                anchor: "ptcslabel-5".into(),
+                side: Side::End,
+            },
+        );
+        assert!(
+            matches!(&refused, Err(EditError::Refused(why)) if why.contains("--end")),
+            "{refused:?}"
+        );
+        assert_eq!(document, before);
     }
 
     #[test]

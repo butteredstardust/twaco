@@ -14,9 +14,10 @@ init [--write]              propose a twaco.toml from the repository's own entit
                             also writes AGENTS.md and CLAUDE.md where absent, and adds the
                             lines twaco needs to .gitignore
 init --agents               write only those, where absent
-init --from-server <project>... [--profile <name>] [--apply] [--json]
+init --from-server <project>... [--missing] [--profile <name>] [--apply] [--json]
                             start a repository in an empty folder, or add projects to this one,
                             from server projects; plans by default
+    --missing               fill gaps in already declared projects, without changing twaco.toml
     --profile <name>        the server profile (default: default)
     --apply                 write the planned repository and record matching baselines
     --json                  print the plan or result as JSON
@@ -53,7 +54,11 @@ sync <entity>|--all         sidecars -> entity XML
     --allow-add-remove      add and remove services and fields as the sidecars do
     --relayout              rewrite scripts in the configured CDATA layout
     --json                  print the report as JSON
-fmt [--check]               format service scripts
+fmt [--check] [--entity <name>] [--changed-since <git-rev>]
+                            format service scripts
+    --check                 report which scripts would change, write nothing
+    --entity <name>         an entity name or Collection/Name glob to format (repeatable)
+    --changed-since <git-rev>  format entity files and sidecars changed since this revision
 check [--detail]            every gate, one exit code
     --live                  also parse every script on the server (fails closed)
 lint [--entity <name>] [--service <name>] [--rule <id>]... [--json]
@@ -530,11 +535,13 @@ entity status [<entity>|--all] [--detail] [--record] [--ancestor <export.xml>]
     --record                 record matching working/server hashes as baseline
     --ancestor <export.xml>  use that export as the common ancestor instead of the baseline
                             (an old or missing one); reads only, not with --record
+    --all                    also lists declared-project entities found only on the server
 entity pull <entity>...|--all [--profile <name>] [--apply] [--json]
                             take server-changed entities, extract sidecars and record baselines
-entity get <entity>         fetch raw server XML to stdout or --out <path>
+entity get <entity>         fetch importable Exporter XML to stdout or --out <path>
                             Collection/Name: any server entity; a bare name: the repository's
     [--profile <name>]      server profile (default: default)
+    [--rest]                REST read with runtime data; not importable
 entity diff <entity> [--profile <name>] [--json]
                             where the repository's copy and the server's differ, compared as
                             status and deploy compare them: own members only, element paths,

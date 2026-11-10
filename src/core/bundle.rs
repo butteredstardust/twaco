@@ -521,12 +521,7 @@ pub(crate) fn select_entities(
         .collect::<Vec<_>>();
     for pattern in exclude {
         let before = selected.len();
-        selected.retain(|entity| {
-            !super::glob::matches(
-                pattern,
-                &format!("{}/{}", entity.info.collection, entity.info.name),
-            )
-        });
+        selected.retain(|entity| !matches_selector(entity, pattern));
         if before == selected.len() {
             notes.push(format!(
                 "{EXCLUDE_NOTE}{pattern} matched no selected entities"
@@ -534,6 +529,53 @@ pub(crate) fn select_entities(
         }
     }
     Ok((selected, notes))
+}
+
+/// Choose entities named by the inclusion selectors shared by source commands. A selector is a
+/// `Collection/Name` glob, except that a bare name has the same resolution as entity commands.
+pub(crate) fn select_included(
+    candidates: Vec<workspace::EntityFile>,
+    selectors: &[String],
+) -> Result<Vec<workspace::EntityFile>, String> {
+    if selectors.is_empty() {
+        return Ok(candidates);
+    }
+    let mut selected = Vec::new();
+    let mut seen = BTreeSet::new();
+    for selector in selectors {
+        let matches: Vec<_> = candidates
+            .iter()
+            .filter(|entity| matches_selector(entity, selector))
+            .cloned()
+            .collect();
+        if !matches.is_empty() {
+            for entity in matches {
+                if seen.insert(entity.path.clone()) {
+                    selected.push(entity);
+                }
+            }
+            continue;
+        }
+        if !selector.contains('/') {
+            let entity = workspace::resolve(&candidates, selector)
+                .map_err(|error| format!("entity selector {selector}: {error}"))?
+                .clone();
+            if seen.insert(entity.path.clone()) {
+                selected.push(entity);
+            }
+            continue;
+        }
+        return Err(format!("entity selector {selector} matched no entities"));
+    }
+    Ok(selected)
+}
+
+/// The Collection/Name glob matching used by bundle and deploy exclusions and source inclusions.
+fn matches_selector(entity: &workspace::EntityFile, selector: &str) -> bool {
+    super::glob::matches(
+        selector,
+        &format!("{}/{}", entity.info.collection, entity.info.name),
+    )
 }
 
 pub(crate) fn validate_changed_since(solution: &Solution, revision: &str) -> Result<(), String> {

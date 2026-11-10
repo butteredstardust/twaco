@@ -9,6 +9,7 @@ use super::codes::{Coded, ErrorCode};
 use super::config::{Project, Solution};
 use super::entity::key::ServiceTarget;
 use super::entity::{self, EntityInfo};
+use super::scan::{self, Kind};
 use super::sidecar::{ServiceSidecar, ServiceSidecarKind};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -171,8 +172,17 @@ pub fn discover(solution: &Solution) -> Discovery {
                     .unreadable
                     .push(format!("{}: an export whose first collection holds no entity; keep one entity per file", path.display())),
                 // Not an entity export: a sidecar fragment, a localization table, someone's
-                // notes. Expected, and not worth a word.
-                Err(entity::ParseFailureKind::NotAnEntity) => {}
+                // notes. Expected, and not worth a word -- except for the REST read older
+                // versions of `entity get` wrote in place of an Importer export.
+                Err(entity::ParseFailureKind::NotAnEntity) => {
+                    if let Some((collection, element, name)) = bare_entity_read(&bytes) {
+                        found.unreadable.push(format!(
+                            "{}: a bare <{element}> without the <Entities> export wrapper (a REST read, which the Importer ignores); fetch it again with `twaco entity get {collection}/{name} --out {}`",
+                            path.display(),
+                            path.display(),
+                        ));
+                    }
+                }
                 Err(entity::ParseFailureKind::Scan(e)) => {
                     found.unreadable.push(format!("{}: {e}", path.display()))
                 }
@@ -182,6 +192,20 @@ pub fn discover(solution: &Solution) -> Discovery {
     found.entities.sort_by(|a, b| a.path.cmp(&b.path));
     found.unreadable.sort();
     found
+}
+
+/// The known entity element and its name when a REST read was saved instead of an export.
+fn bare_entity_read(bytes: &[u8]) -> Option<(&'static str, String, String)> {
+    let tokens = scan::tokenize(bytes).ok()?;
+    let root = tokens
+        .iter()
+        .find(|token| matches!(token.kind, Kind::Start | Kind::Empty))?;
+    let (collection, element) = super::search::TYPES
+        .iter()
+        .find(|(_, element)| element.as_bytes() == root.name.of(bytes))?;
+    let name = scan::attribute(bytes, root, "name").ok()??;
+    let name = scan::decode_entities(&String::from_utf8_lossy(name.of(bytes)));
+    Some((collection, (*element).to_string(), name))
 }
 
 /// The stable project report shared by the command line and MCP adapters.
@@ -724,7 +748,7 @@ pub(crate) fn atomic_replace(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
             if let Ok(metadata) = std::fs::metadata(path) {
                 let _ = std::fs::set_permissions(&temporary, metadata.permissions());
             }
-            std::fs::rename(&temporary, path)
+            rename_over(&temporary, path)
         });
     if result.is_err() {
         let _ = std::fs::remove_file(&temporary);
@@ -732,6 +756,24 @@ pub(crate) fn atomic_replace(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         sync_directory(parent);
     }
     result
+}
+
+/// Rename `from` over `to`. On Windows a file written a moment ago can be held open for a moment
+/// by a virus scanner or the search indexer, and the rename then fails with access denied; it is
+/// tried again for about a third of a second before the error stands. Elsewhere this is a rename.
+pub(crate) fn rename_over(from: &Path, to: &Path) -> std::io::Result<()> {
+    let mut delays = [10u64, 20, 40, 80, 160].into_iter();
+    loop {
+        match std::fs::rename(from, to) {
+            Err(error) if cfg!(windows) && error.kind() == std::io::ErrorKind::PermissionDenied => {
+                let Some(delay) = delays.next() else {
+                    return Err(error);
+                };
+                std::thread::sleep(std::time::Duration::from_millis(delay));
+            }
+            result => return result,
+        }
+    }
 }
 
 /// Make a rename in `directory` durable. On Unix the new name is only on disk once the directory
@@ -1079,6 +1121,78 @@ mod tests {
         let mut entity = file("A.Manager", "", "a.xml");
         entity.found_under = "Anything".to_string();
         assert!(!entity.is_misfiled(), "undeclared is not the same as wrong");
+    }
+
+    /// A scanner opens a new file without letting anyone delete or replace it; the rename waits
+    /// it out instead of failing.
+    #[cfg(windows)]
+    #[test]
+    fn a_rename_over_a_file_held_for_a_moment_waits_for_it() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("Acme.Thing.xml");
+        let source = dir.path().join("new.tmp");
+        std::fs::write(&target, "old").unwrap();
+        std::fs::write(&source, "new").unwrap();
+        // Share mode 0: no other handle may read, write or delete while this one is open.
+        let held = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(&target)
+            .unwrap();
+        assert_eq!(
+            std::fs::rename(&source, &target).unwrap_err().kind(),
+            std::io::ErrorKind::PermissionDenied,
+            "a held file refuses a plain rename"
+        );
+        let release = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(60));
+            drop(held);
+        });
+        rename_over(&source, &target).unwrap();
+        release.join().unwrap();
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "new");
+    }
+
+    #[test]
+    fn a_bare_rest_read_is_reported_but_other_non_entities_are_silent() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::write(
+            root.join("twaco.toml"),
+            "[[project]]\nname = \"Acme.Project\"\n",
+        )
+        .unwrap();
+        let themes = root.join("StyleThemes");
+        std::fs::create_dir_all(&themes).unwrap();
+        let bare = themes.join("Acme.Theme.xml");
+        std::fs::write(
+            &bare,
+            "<StyleTheme name=\"Acme.Theme\" projectName=\"Acme.Project\"/>",
+        )
+        .unwrap();
+        std::fs::write(themes.join("notes.xml"), "<notes/>").unwrap();
+        std::fs::write(
+            themes.join("Acme.Proper.xml"),
+            "<Entities><StyleThemes><StyleTheme name=\"Acme.Proper\" projectName=\"Acme.Project\"/></StyleThemes></Entities>",
+        )
+        .unwrap();
+
+        let solution = Solution::load(&root.join("twaco.toml")).unwrap();
+        let found = discover(&solution);
+        let discovered_bare = root.join(".").join("StyleThemes").join("Acme.Theme.xml");
+
+        assert_eq!(
+            found.unreadable,
+            [format!(
+                "{}: a bare <StyleTheme> without the <Entities> export wrapper (a REST read, which the Importer ignores); fetch it again with `twaco entity get StyleThemes/Acme.Theme --out {}`",
+                discovered_bare.display(),
+                discovered_bare.display(),
+            )]
+        );
+        assert_eq!(found.entities.len(), 1);
+        assert_eq!(found.entities[0].info.collection, "StyleThemes");
+        assert_eq!(found.entities[0].info.name, "Acme.Proper");
     }
 
     #[test]

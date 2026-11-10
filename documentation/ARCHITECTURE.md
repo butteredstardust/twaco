@@ -75,7 +75,7 @@ item's signature needs it). An item that only unit tests use is `#[cfg(test)]`.
 | `entity` | Reads which entity a document is: collection, name, project. Its submodules hold the entity commands (see Features). |
 | `entity::key` | Validates entity and service-call addresses, preserving whether a service target was a bare Thing or a qualified entity. |
 | `index` | The solution as one immutable graph (petgraph) of what depends on what: entities and projects as nodes, references as edges that say how sure they are (structural, resolved, review). Answers dependents, inheritance, cycles and reachability, and lists what it could not read so a command can say what it left out. |
-| `workspace` | Finds a solution's entity files, reports unreadable ones and links, and reads and writes sidecars atomically; `atomic_replace` is the one way any file that may exist is replaced. |
+| `workspace` | Finds a solution's entity files, reports unreadable ones and links, and reads and writes sidecars atomically; `atomic_replace` is the one way any file that may exist is replaced. A bare REST entity read is reported as unreadable so it can be fetched again as an `<Entities>` export. |
 | `sidecar`, `datashape`, `datatable`, `mashup` | Extract and sync each sidecar kind, including script-only inherited-service overrides. |
 | `normalise` | The comparison form of an entity: what ThingWorx changes on its own is removed, so the repository and server versions compare by content. |
 | `server_owned` | Validated ownership selectors shared by hashes, status, push, deploy and adopt; omits selected comparison nodes and transfers only scanner spans, keeping server values in memory. |

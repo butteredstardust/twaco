@@ -6,6 +6,36 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `init --from-server <project>... --missing` adds the server entities a declared project lacks
+  in the repository, without changing `twaco.toml`.
+- `entity status --all` lists the declared projects' entities that are only on the server
+  (`server_only` in JSON and MCP), with the command that takes them.
+- `search --type` knows `AIAgent` and `MCPNamespace`.
+- `fmt --entity <name>` (repeatable; a name or `Collection/Name` glob) and
+  `fmt --changed-since <git-rev>` limit formatting to those entities' scripts (MCP `entities`,
+  `changed_since`).
+
+### Fixed
+
+- `entity get` now returns the importable Exporter XML by default; `--rest` keeps the REST read.
+- `adopt --apply` writes themes, state definitions, new media and other UI entities whole instead
+  of listing them as `not adopted`.
+- `adopt --apply` of a new mashup leaves its entity file in step with its sidecars; no
+  `twaco sync` is needed afterwards.
+- A deploy narrowed by `--only`, `--changed-since` or `--exclude` is no longer blocked by gate
+  findings in entities it leaves out; they are shown as warnings.
+- `thing service override` and `--revert` work on an entity that has no `ServiceDefinitions` or
+  `ServiceImplementations` section.
+- `entity diff` names every differing unnamed sibling instead of stopping at the first pair of
+  different kinds; an element only one side has is named on its own.
+- On Windows, replacing a file retries briefly when a virus scanner or indexer holds it, so a
+  failed `ext deploy` puts the version bump back reliably.
+- A bare entity file without the `<Entities>` export wrapper (a REST read an older `entity get`
+  saved) is reported as unreadable, with the command that fetches the export, instead of being
+  skipped without a word.
+
 ## [0.1.57] - 2026-11-09
 
 ### Fixed

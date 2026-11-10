@@ -8,7 +8,9 @@ use crate::core::config::Solution;
 use crate::core::progress::Progress;
 use crate::core::{
     deploy, entity::key::EntityKey, localization, lock, network, profile, push, requirements,
+    workspace,
 };
+use std::collections::BTreeSet;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DeployRequest {
@@ -261,10 +263,10 @@ where
         crate::core::bundle::validate_changed_since(solution, revision)
             .map_err(|why| DeployCommandError::Plan { why, gates: None })?;
     }
-    let gates = if !request.skip_checks {
+    let gate_reads_server = solution.gates.live || solution.root.join(requirements::FILE).exists();
+    let mut gates = if !request.skip_checks {
         let mut report = check::run(solution);
-        let on_server = solution.root.join(requirements::FILE).exists();
-        if solution.gates.live || on_server {
+        if gate_reads_server {
             match profile::load(&solution.root, &request.profile) {
                 Ok(profile) => {
                     let remote = open(profile);
@@ -275,7 +277,7 @@ where
                             progress,
                         ));
                     }
-                    if on_server {
+                    if solution.root.join(requirements::FILE).exists() {
                         check::requirements_on_server(solution, &mut report, &remote, progress);
                     }
                 }
@@ -288,21 +290,18 @@ where
         }
         // A deploy of some projects is not stopped by what is wrong in the others.
         report.scope_to_projects(solution, &request.only_projects);
-        if report.blocks() {
-            let server = if solution.gates.live || on_server {
-                Access::Read
-            } else {
-                Access::None
-            };
-            return Ok(DeployOutcome::GatesBlocked {
-                report,
-                effects: Effects::new(Access::Read, server),
-            });
-        }
         Some(report)
     } else {
         None
     };
+    let entity_narrowed =
+        !request.only.is_empty() || request.changed_since.is_some() || !request.exclude.is_empty();
+    if !entity_narrowed && gates.as_ref().is_some_and(check::CheckReport::blocks) {
+        return Ok(gates_blocked(
+            gates.take().expect("the report was checked"),
+            gate_reads_server,
+        ));
+    }
     let (projects, notes) = match deploy::plan_bundles(
         solution,
         &request.profile,
@@ -315,8 +314,27 @@ where
         },
     ) {
         Ok(planned) => planned,
-        Err(why) => return Err(DeployCommandError::Plan { why, gates }),
+        Err(why) => {
+            if gates.as_ref().is_some_and(check::CheckReport::blocks) {
+                return Ok(gates_blocked(
+                    gates.take().expect("the report was checked"),
+                    gate_reads_server,
+                ));
+            }
+            return Err(DeployCommandError::Plan { why, gates });
+        }
     };
+    if entity_narrowed {
+        if let Some(report) = &mut gates {
+            report.scope_to_entities(solution, &planned_entity_files(solution, &projects));
+        }
+    }
+    if gates.as_ref().is_some_and(check::CheckReport::blocks) {
+        return Ok(gates_blocked(
+            gates.take().expect("the report was checked"),
+            gate_reads_server,
+        ));
+    }
     if let Err(why) = thing_property_stamps(&projects) {
         return Err(DeployCommandError::Plan { why, gates });
     }
@@ -424,6 +442,39 @@ where
         localization,
         effects: Effects::new(workspace, server),
     })
+}
+
+/// Gates that stop the deploy before anything is sent; the server was read only when a gate
+/// asked it (live parse, server requirements).
+fn gates_blocked(report: check::CheckReport, gate_reads_server: bool) -> DeployOutcome {
+    let server = if gate_reads_server {
+        Access::Read
+    } else {
+        Access::None
+    };
+    DeployOutcome::GatesBlocked {
+        report,
+        effects: Effects::new(Access::Read, server),
+    }
+}
+
+/// The repository files of the entities the planned bundles carry, relative to the solution root
+/// with `/` separators, as gate findings name files.
+fn planned_entity_files(
+    solution: &Solution,
+    projects: &[deploy::ProjectBundle],
+) -> BTreeSet<String> {
+    let planned: BTreeSet<(&str, &str)> = projects
+        .iter()
+        .flat_map(|project| &project.entities)
+        .map(|entity| (entity.collection.as_str(), entity.name.as_str()))
+        .collect();
+    workspace::discover(solution)
+        .entities
+        .into_iter()
+        .filter(|file| planned.contains(&(file.info.collection.as_str(), file.info.name.as_str())))
+        .map(|file| solution.relative(&file.path).replace('\\', "/"))
+        .collect()
 }
 
 /// Importer requires all three stored-value children although comparison intentionally ignores
@@ -1145,6 +1196,84 @@ minimum = \"1.0.0\"
         )
         .unwrap();
         assert!(matches!(outcome, DeployOutcome::Complete { .. }));
+    }
+
+    #[test]
+    fn a_finding_in_an_entity_the_deploy_leaves_out_warns_instead_of_blocking() {
+        let (_root, solution) = with_table(DEFAULT);
+        // A second Thing whose sidecar disagrees with its entity file: the sync gate's finding.
+        let code = |script: &str| {
+            format!(
+                "<Entities><Things><Thing name=\"Acme.App.Other\" projectName=\"Acme.App\"><ThingShape>\
+                 <ServiceDefinitions><ServiceDefinition name=\"S\"/></ServiceDefinitions><ServiceImplementations>\
+                 <ServiceImplementation name=\"S\" handlerName=\"Script\"><ConfigurationTables>\
+                 <ConfigurationTable name=\"Script\"><Rows><Row><code><![CDATA[{script}]]></code></Row></Rows>\
+                 </ConfigurationTable></ConfigurationTables></ServiceImplementation></ServiceImplementations>\
+                 </ThingShape></Thing></Things></Entities>"
+            )
+        };
+        std::fs::write(
+            solution.root.join("Things/Acme.App.Other.xml"),
+            code("result = 1;"),
+        )
+        .unwrap();
+        let sidecar = solution.root.join("src/Acme.App.Other/services/S");
+        std::fs::create_dir_all(&sidecar).unwrap();
+        std::fs::write(sidecar.join("script.js"), "result = 2;\n").unwrap();
+        let solution = Solution::load(&solution.root.join("twaco.toml")).unwrap();
+        let checked = |only: Vec<String>| DeployRequest {
+            skip_checks: false,
+            only,
+            ..whole(Mode::Plan)
+        };
+        let run = |request: &DeployRequest| {
+            execute(
+                &solution,
+                request,
+                |_| Rejecting,
+                &mut Notices::default(),
+                &crate::core::progress::NONE,
+            )
+            .unwrap()
+        };
+
+        // The whole solution: the outside entity's finding blocks as before.
+        let DeployOutcome::GatesBlocked { report, .. } = run(&checked(Vec::new())) else {
+            panic!("a finding in a deployed entity blocks");
+        };
+        assert!(report.gates.iter().any(|gate| !gate.findings.is_empty()));
+
+        // Only the other Thing: its finding still blocks.
+        assert!(matches!(
+            run(&checked(vec!["Things/Acme.App.Other".to_string()])),
+            DeployOutcome::GatesBlocked { .. }
+        ));
+
+        // Only the clean Thing: the other's findings are warnings, named. (Whether the plan then
+        // completes depends on gates that need local tools, such as the structure schema.)
+        let gates = match run(&checked(vec!["Things/Acme.App.T".to_string()])) {
+            DeployOutcome::Complete { gates, .. } => gates.expect("the gates ran"),
+            DeployOutcome::GatesBlocked { report, .. } => report,
+        };
+        let other = |file: &str| file.contains("Acme.App.Other");
+        assert!(
+            gates
+                .gates
+                .iter()
+                .all(|gate| !gate.findings.iter().any(|f| other(&f.file))),
+            "{gates:?}"
+        );
+        assert!(gates
+            .gates
+            .iter()
+            .any(|gate| gate.warnings.iter().any(|f| other(&f.file))));
+        assert!(
+            gates.gates.iter().any(|gate| gate
+                .prose
+                .iter()
+                .any(|line| line.contains("leaves out do not block it: Things/Acme.App.Other"))),
+            "{gates:?}"
+        );
     }
 
     #[test]

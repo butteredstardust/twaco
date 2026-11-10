@@ -837,7 +837,11 @@ pub struct FmtOutcome {
 /// A reformatted script is written through the workspace's atomic write, as every other file
 /// twaco writes is. Until this moved here it used a plain `fs::write`, so an interrupted run
 /// could leave a script truncated.
-pub(crate) fn fmt(solution: &Solution, check: bool) -> FmtOutcome {
+pub(crate) fn fmt(
+    solution: &Solution,
+    check: bool,
+    entities: Option<&[super::workspace::EntityFile]>,
+) -> FmtOutcome {
     let mut outcome = FmtOutcome::default();
     let style = super::fmt::Style::from(&solution.format.script);
     let tree = super::workspace::script_files(solution);
@@ -847,7 +851,17 @@ pub(crate) fn fmt(solution: &Solution, check: bool) -> FmtOutcome {
             .error(format!("not formatted, could not be read: {why}"));
         outcome.failed += 1;
     }
-    let files = tree.files;
+    let files = tree
+        .files
+        .into_iter()
+        .filter(|path| {
+            entities.is_none_or(|entities| {
+                entities
+                    .iter()
+                    .any(|entity| path.starts_with(solution.src_root().join(&entity.info.name)))
+            })
+        })
+        .collect::<Vec<_>>();
     outcome.files = files.len();
     for path in &files {
         let source = match std::fs::read_to_string(path) {
@@ -1011,13 +1025,13 @@ mod tests {
         .unwrap();
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
 
-        let formatted = fmt(&solution, false);
+        let formatted = fmt(&solution, false, None);
         assert_eq!(formatted.changed.len(), 1, "{:?}", formatted.log);
         assert_eq!(
             std::fs::read_to_string(root.join("src/T/services/Run/script.js")).unwrap(),
             "if (true) {\n  result = 1;\n}"
         );
-        let checked = fmt(&solution, true);
+        let checked = fmt(&solution, true, None);
         assert!(checked.changed.is_empty(), "{:?}", checked.log);
     }
 

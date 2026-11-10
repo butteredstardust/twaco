@@ -27,10 +27,15 @@ pub(crate) fn replace_whole(path: &Path, bytes: &[u8]) -> Result<(), String> {
         .tempfile_in(folder)
         .map_err(failed)?;
     temporary.write_all(bytes).map_err(failed)?;
-    temporary
-        .persist(path)
+    // Through the workspace's rename, which outlasts a scanner holding the file on Windows.
+    let temporary = temporary
+        .into_temp_path()
+        .keep()
         .map_err(|error| failed(error.error))?;
-    Ok(())
+    super::workspace::rename_over(&temporary, path).map_err(|error| {
+        let _ = std::fs::remove_file(&temporary);
+        failed(error)
+    })
 }
 
 /// One file a plan writes.

@@ -4,6 +4,7 @@
 //! `search` found, a platform one). A bare name is looked up in the repository, the way the
 //! other entity commands take one.
 
+use crate::core::backup;
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
 use crate::core::entity::key::EntityKey;
@@ -12,13 +13,29 @@ use crate::core::workspace::{self, WorkspaceError};
 
 /// What `entity get` asks of the server, as a trait so it is tested offline.
 pub trait Remote {
-    fn fetch(&self, key: &EntityKey) -> Result<Vec<u8>, ServerError>;
+    /// The importable Exporter XML, or `None` when the server has no such entity.
+    fn export(&self, key: &EntityKey) -> Result<Option<Vec<u8>>, ServerError>;
+    /// The ordinary REST XML representation, including runtime data where the server exposes it.
+    fn fetch_rest(&self, key: &EntityKey) -> Result<Vec<u8>, ServerError>;
 }
 
 impl Remote for Client {
-    fn fetch(&self, key: &EntityKey) -> Result<Vec<u8>, ServerError> {
+    fn export(&self, key: &EntityKey) -> Result<Option<Vec<u8>>, ServerError> {
+        backup::Remote::export(self, key)
+    }
+
+    fn fetch_rest(&self, key: &EntityKey) -> Result<Vec<u8>, ServerError> {
         self.fetch_entity(key)
     }
+}
+
+/// Which server representation `entity get` reads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum View {
+    /// Exporter XML, importable as-is.
+    Export,
+    /// The ordinary REST XML read, which may hold runtime data and is not importable.
+    Rest,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -52,18 +69,25 @@ pub(crate) fn get(
     remote: &dyn Remote,
     solution: &Solution,
     text: &str,
+    view: View,
 ) -> Result<(EntityKey, Vec<u8>), GetError> {
     let key = target(solution, text)?;
-    let bytes = fetch(remote, &key)?;
+    let bytes = fetch(remote, &key, view)?;
     Ok((key, bytes))
 }
 
-/// The server's XML for `key`; a 404 is said as the entity not being there.
-pub fn fetch(remote: &dyn Remote, key: &EntityKey) -> Result<Vec<u8>, GetError> {
-    match remote.fetch(key) {
-        Ok(bytes) => Ok(bytes),
-        Err(error) if error.is_not_found() => Err(GetError::NotOnServer(key.clone())),
-        Err(error) => Err(GetError::Remote(error)),
+/// The server's selected XML representation for `key`.
+pub fn fetch(remote: &dyn Remote, key: &EntityKey, view: View) -> Result<Vec<u8>, GetError> {
+    match view {
+        View::Export => remote
+            .export(key)
+            .map_err(GetError::Remote)?
+            .ok_or_else(|| GetError::NotOnServer(key.clone())),
+        View::Rest => match remote.fetch_rest(key) {
+            Ok(bytes) => Ok(bytes),
+            Err(error) if error.is_not_found() => Err(GetError::NotOnServer(key.clone())),
+            Err(error) => Err(GetError::Remote(error)),
+        },
     }
 }
 
@@ -85,16 +109,17 @@ mod tests {
     struct Fake;
 
     impl Remote for Fake {
-        fn fetch(&self, key: &EntityKey) -> Result<Vec<u8>, ServerError> {
+        fn export(&self, key: &EntityKey) -> Result<Option<Vec<u8>>, ServerError> {
             if key.name() == "Acme.Missing" {
-                return Err(ServerError::Http {
-                    method: crate::core::server::Method::Get,
-                    url: format!("http://server/Thingworx/{}", key.url_path()),
-                    status: 404,
-                    body: String::new(),
-                });
+                return Ok(None);
             }
-            Ok(format!("<Entities>{key}</Entities>").into_bytes())
+            Ok(Some(
+                format!("<Entities><Export>{key}</Export></Entities>").into_bytes(),
+            ))
+        }
+
+        fn fetch_rest(&self, key: &EntityKey) -> Result<Vec<u8>, ServerError> {
+            Ok(format!("<Rest>{key}</Rest>").into_bytes())
         }
     }
 
@@ -118,22 +143,39 @@ mod tests {
     #[test]
     fn collection_and_name_reach_any_entity_and_a_bare_name_the_repositorys() {
         let (_dir, _, solution) = solution();
-        let (key, bytes) = get(&Fake, &solution, "Resources/EntityServices").unwrap();
+        let (key, bytes) = get(&Fake, &solution, "Resources/EntityServices", View::Export).unwrap();
         assert_eq!(key.to_string(), "Resources/EntityServices");
-        assert_eq!(bytes, b"<Entities>Resources/EntityServices</Entities>");
+        assert_eq!(
+            bytes,
+            b"<Entities><Export>Resources/EntityServices</Export></Entities>"
+        );
         // The last dotted segment, case-insensitively, as the other entity commands take it.
-        let (key, _) = get(&Fake, &solution, "thing").unwrap();
+        let (key, _) = get(&Fake, &solution, "thing", View::Export).unwrap();
         assert_eq!(key.to_string(), "Things/Acme.Orders.Thing");
         assert!(matches!(
-            get(&Fake, &solution, "Acme.Elsewhere"),
+            get(&Fake, &solution, "Acme.Elsewhere", View::Export),
             Err(GetError::Resolve(_))
         ));
         assert!(matches!(
-            get(&Fake, &solution, "Things/a/b"),
+            get(&Fake, &solution, "Things/a/b", View::Export),
             Err(GetError::Invalid(_))
         ));
-        let missing = get(&Fake, &solution, "Things/Acme.Missing").unwrap_err();
+        let missing = get(&Fake, &solution, "Things/Acme.Missing", View::Export).unwrap_err();
         assert!(matches!(missing, GetError::NotOnServer(_)));
         assert!(missing.to_string().contains("twaco search"), "{missing}");
+    }
+
+    #[test]
+    fn rest_bytes_are_returned_only_when_requested() {
+        let (_dir, _, solution) = solution();
+        let key = target(&solution, "Things/Acme.Orders.Thing").unwrap();
+        assert_eq!(
+            fetch(&Fake, &key, View::Export).unwrap(),
+            b"<Entities><Export>Things/Acme.Orders.Thing</Export></Entities>"
+        );
+        assert_eq!(
+            fetch(&Fake, &key, View::Rest).unwrap(),
+            b"<Rest>Things/Acme.Orders.Thing</Rest>"
+        );
     }
 }

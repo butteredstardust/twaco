@@ -159,7 +159,7 @@ fn entity_get_never_creates_or_changes_the_baseline() {
     let server = std::thread::spawn(move || {
         let (mut stream, _) = listener.accept().unwrap();
         let request = receive(&mut stream);
-        assert!(String::from_utf8_lossy(&request).starts_with("GET /Thingworx/Things/T "));
+        assert!(String::from_utf8_lossy(&request).starts_with("GET /Thingworx/Exporter/Things/T "));
         answer(&mut stream, "200 OK", "text/xml; charset=utf-8", &response);
     });
 

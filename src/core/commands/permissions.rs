@@ -155,6 +155,16 @@ where
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(PermissionsCommandError::Resolve)?
         }
+        StatusTarget::Keys(keys) => keys
+            .iter()
+            .filter_map(|key| {
+                pool.iter()
+                    .find(|entity| {
+                        entity.info.collection == key.collection() && entity.info.name == key.name()
+                    })
+                    .cloned()
+            })
+            .collect(),
     };
     let profile = profile::load(&solution.root, &request.profile)
         .map_err(PermissionsCommandError::Profile)?;

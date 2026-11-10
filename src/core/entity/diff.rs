@@ -28,8 +28,8 @@ pub struct DiffOutcome {
     pub entity: String,
     /// Whether both sides hash the same, which is what status and deploy go by.
     pub identical: bool,
-    /// The paths where they differ; empty when identical. Among unnamed siblings of different
-    /// kinds, the first mismatch is named and the rest of that parent is not walked.
+    /// The paths where they differ; empty when identical. Unnamed siblings are aligned by kind,
+    /// so one only a side has is named and the others are still compared.
     pub differences: Vec<String>,
     /// The server-owned parts left out of the comparison, by label.
     pub server_owned: Vec<String>,
@@ -82,7 +82,7 @@ pub fn diff(
         })?;
     let key = EntityKey::new(collection.as_str(), name.as_str())
         .map_err(|why| DiffError::Unreadable(why.to_string()))?;
-    let server = get::fetch(remote, &key).map_err(DiffError::Get)?;
+    let server = get::fetch(remote, &key, get::View::Rest).map_err(DiffError::Get)?;
     let parts =
         crate::core::server_owned::parts(&solution.server_owned_for(profile), collection, name);
     let hash = |bytes: &[u8], side: &str| {
@@ -110,7 +110,11 @@ mod tests {
     struct Fake(Option<&'static str>);
 
     impl get::Remote for Fake {
-        fn fetch(&self, _: &EntityKey) -> Result<Vec<u8>, ServerError> {
+        fn export(&self, _: &EntityKey) -> Result<Option<Vec<u8>>, ServerError> {
+            Ok(self.0.map(|xml| xml.as_bytes().to_vec()))
+        }
+
+        fn fetch_rest(&self, _: &EntityKey) -> Result<Vec<u8>, ServerError> {
             match self.0 {
                 Some(xml) => Ok(xml.as_bytes().to_vec()),
                 None => Err(ServerError::Http {

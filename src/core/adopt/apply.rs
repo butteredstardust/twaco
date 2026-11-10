@@ -84,6 +84,15 @@ pub(crate) fn apply(
                         }
                         match new_mashup_file(solution, &entry.project, element, name)? {
                             Some((path, text)) => {
+                                let text = if let Some(assets) = &assets {
+                                    let text = super::super::mashup::sync(text.as_bytes(), assets)
+                                        .map_err(|error| io_error(&path, error))?
+                                        .0;
+                                    String::from_utf8(text)
+                                        .map_err(|error| io_error(&path, error))?
+                                } else {
+                                    text
+                                };
                                 let line = format!("created  {}", relative_to(solution, &path));
                                 steps.push((Some(Write::Entity(path, text)), line));
                             }
@@ -145,7 +154,9 @@ pub(crate) fn apply(
                         steps.push((None, ui_skip_line(entry, takes)));
                         continue;
                     }
-                    if let (Some((_, path)), Some(content)) = (
+                    if !here.contains_key(&entry.entity) {
+                        plan_ui_entity(solution, export, entry, &here, &mut steps)?;
+                    } else if let (Some((_, path)), Some(content)) = (
                         here.get(&entry.entity),
                         child_elements(element)
                             .find(|c| is_named(c, "content"))
@@ -165,15 +176,13 @@ pub(crate) fn apply(
                             let line = format!("content  {}", relative_to(solution, path));
                             steps.push((Some(Write::Entity(path.clone(), text)), line));
                         }
-                    } else if !here.contains_key(&entry.entity) {
-                        steps.push((None, ui_not_adopted_line(entry)));
                     }
                 }
                 _ => {
                     if !ui_should_write(entry, takes) {
                         steps.push((None, ui_skip_line(entry, takes)));
                     } else {
-                        steps.push((None, ui_not_adopted_line(entry)));
+                        plan_ui_entity(solution, export, entry, &here, &mut steps)?;
                     }
                 }
             },
@@ -562,14 +571,6 @@ fn ui_should_write(entry: &EntityReport, takes: &[Take]) -> bool {
     matches!(entry.change, Change::Theirs | Change::Added) || ui_taken(entry, takes)
 }
 
-/// For a UI entity adopt selected but has no writer for: saying nothing would read as adopted.
-fn ui_not_adopted_line(entry: &EntityReport) -> String {
-    format!(
-        "not adopted {}: adopt writes mashups and media only; import it from the export",
-        entry.entity.path()
-    )
-}
-
 fn ui_skip_line(entry: &EntityReport, takes: &[Take]) -> String {
     let path = entry.entity.path();
     if has_take(takes, TakeSide::Ours, &entry.entity.name) {
@@ -595,6 +596,158 @@ fn ui_skip_line(entry: &EntityReport, takes: &[Take]) -> String {
     }
 }
 
+struct PreparedEntity {
+    their_raw: Vec<u8>,
+    sample: Option<(EntityRef, PathBuf)>,
+}
+
+/// Prepare an exported entity for a repository file without reserialising either document.
+fn prepare_entity(
+    solution: &Solution,
+    export: &Path,
+    entry: &EntityReport,
+    here: &BTreeMap<EntityRef, (Element, PathBuf)>,
+) -> Result<PreparedEntity, AdoptError> {
+    let entity = &entry.entity;
+    let raw = raw_entity(export, entity)?;
+    let parts =
+        super::super::server_owned::parts(&solution.server_owned, &entity.collection, &entity.name);
+    // Restore ours before layout's node-by-node comparison, so unchanged owned subtrees retain
+    // their exact repository bytes even when another part of this entity is adopted.
+    let raw = if let Some((_, path)) = here.get(entity) {
+        let ours = std::fs::read(path).map_err(|e| io_error(path, e))?;
+        super::super::server_owned::preserve(&raw, &ours, &parts)
+            .map_err(|e| io_error(export, e))?
+    } else {
+        raw
+    };
+    let sample = here
+        .get(entity)
+        .map(|(_, path)| (entity.clone(), path.clone()))
+        .or_else(|| {
+            here.iter()
+                .find(|(key, (value, _))| {
+                    key.collection == entity.collection
+                        && attribute(value, "projectName").as_deref()
+                            == Some(entry.project.as_str())
+                })
+                .map(|(key, (_, path))| (key.clone(), path.clone()))
+        })
+        .or_else(|| {
+            here.iter()
+                .find(|(key, _)| key.collection == entity.collection)
+                .map(|(key, (_, path))| (key.clone(), path.clone()))
+        });
+    let sample_bytes = sample
+        .as_ref()
+        .map(|(_, path)| std::fs::read(path).map_err(|e| io_error(path, e)))
+        .transpose()?;
+    let reference = match (sample.as_ref(), sample_bytes.as_ref()) {
+        (Some((key, _)), Some(bytes)) => {
+            let tokens = scan::tokenize(bytes).map_err(|e| io_error(export, e))?;
+            entity_span(&tokens, bytes, key).map(|span| span.of(bytes))
+        }
+        _ => None,
+    };
+    let their_raw =
+        super::super::layout::entity(&raw, reference, solution.format.indent_cdata_payload)
+            .map_err(|e| io_error(export, e))?;
+    Ok(PreparedEntity { their_raw, sample })
+}
+
+fn new_entity_file(
+    solution: &Solution,
+    entry: &EntityReport,
+    here: &BTreeMap<EntityRef, (Element, PathBuf)>,
+    prepared: &PreparedEntity,
+) -> Result<Option<(PathBuf, Vec<u8>)>, AdoptError> {
+    let Some(path) = new_backend_path(solution, entry, here)? else {
+        return Ok(None);
+    };
+    let bytes = if let Some((sample_key, sample)) = &prepared.sample {
+        // Shaped like a file of its own collection and project: that file's entity is swapped
+        // for the new one, so the declaration and wrapper match the solution's.
+        let old = std::fs::read(sample).map_err(|e| io_error(sample, e))?;
+        replace_entity_bytes(
+            &old,
+            sample_key,
+            &prepared.their_raw,
+            solution.format.indent_cdata_payload,
+        )?
+    } else {
+        // No peer file to copy the envelope from: the one `entity new` writes.
+        super::super::entity::new::document(&entry.entity.collection, &prepared.their_raw)
+    };
+    Ok(Some((path, bytes)))
+}
+
+fn plan_ui_entity(
+    solution: &Solution,
+    export: &Path,
+    entry: &EntityReport,
+    here: &BTreeMap<EntityRef, (Element, PathBuf)>,
+    steps: &mut Vec<(Option<Write>, String)>,
+) -> Result<(), AdoptError> {
+    let entity = &entry.entity;
+    if !is_file_name(&entity.name) {
+        return Err(AdoptError::Export {
+            path: export.to_path_buf(),
+            why: format!(
+                "{}: the name {:?} cannot be a file name; nothing was adopted",
+                entity.path(),
+                entity.name
+            ),
+        });
+    }
+    let prepared = prepare_entity(solution, export, entry, here)?;
+    if entry.change == Change::Added {
+        let Some((path, bytes)) = new_entity_file(solution, entry, here, &prepared)? else {
+            steps.push((
+                None,
+                format!(
+                    "skipped  {}: project {:?} is not in this solution",
+                    entity.path(),
+                    entry.project
+                ),
+            ));
+            return Ok(());
+        };
+        steps.push((
+            Some(Write::Bytes(path.clone(), bytes)),
+            format!("created  {}", relative_to(solution, &path)),
+        ));
+        return Ok(());
+    }
+    let Some((_, path)) = here.get(entity) else {
+        steps.push((None, format!("skipped  {}: we removed it", entity.path())));
+        return Ok(());
+    };
+    let ours = std::fs::read(path).map_err(|e| io_error(path, e))?;
+    let parts =
+        super::super::server_owned::parts(&solution.server_owned, &entity.collection, &entity.name);
+    if normalise::hash_with_parts(&ours, &parts).is_ok_and(|ours| {
+        normalise::hash_with_parts(
+            &entity_document(&entity.collection, &prepared.their_raw),
+            &parts,
+        )
+        .is_ok_and(|theirs| ours == theirs)
+    }) {
+        steps.push((None, format!("skipped  {}: unchanged", entity.path())));
+        return Ok(());
+    }
+    let bytes = replace_entity_bytes(
+        &ours,
+        entity,
+        &prepared.their_raw,
+        solution.format.indent_cdata_payload,
+    )?;
+    steps.push((
+        Some(Write::Bytes(path.clone(), bytes)),
+        format!("replaced {}", relative_to(solution, path)),
+    ));
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)]
 fn plan_backend(
     solution: &Solution,
@@ -612,49 +765,11 @@ fn plan_backend(
         steps.push((None, format!("kept     {}: ours", entity.path())));
         return Ok(());
     }
-    let raw = raw_entity(export, entity)?;
+    let prepared = prepare_entity(solution, export, entry, here)?;
+    let their_raw = &prepared.their_raw;
     let parts =
         super::super::server_owned::parts(&solution.server_owned, &entity.collection, &entity.name);
-    // Restore ours before layout's node-by-node comparison, so unchanged owned subtrees retain
-    // their exact repository bytes even when another part of this entity is adopted.
-    let raw = if let Some((_, path)) = here.get(entity) {
-        let ours = std::fs::read(path).map_err(|e| io_error(path, e))?;
-        super::super::server_owned::preserve(&raw, &ours, &parts)
-            .map_err(|e| io_error(export, e))?
-    } else {
-        raw
-    };
-    let sample = here
-        .get(entity)
-        .map(|(_, path)| (entity, path))
-        .or_else(|| {
-            here.iter()
-                .find(|(key, (value, _))| {
-                    key.collection == entity.collection
-                        && attribute(value, "projectName").as_deref()
-                            == Some(entry.project.as_str())
-                })
-                .map(|(key, (_, path))| (key, path))
-        })
-        .or_else(|| {
-            here.iter()
-                .find(|(key, _)| key.collection == entity.collection)
-                .map(|(key, (_, path))| (key, path))
-        });
-    let sample_bytes = sample
-        .map(|(_, path)| std::fs::read(path).map_err(|e| io_error(path, e)))
-        .transpose()?;
-    let reference = match (sample, sample_bytes.as_ref()) {
-        (Some((key, _)), Some(bytes)) => {
-            let tokens = scan::tokenize(bytes).map_err(|e| io_error(export, e))?;
-            entity_span(&tokens, bytes, key).map(|span| span.of(bytes))
-        }
-        _ => None,
-    };
-    let their_raw =
-        super::super::layout::entity(&raw, reference, solution.format.indent_cdata_payload)
-            .map_err(|e| io_error(export, e))?;
-    let their_services = services_from_document(&entity_document(&entity.collection, &their_raw))?;
+    let their_services = services_from_document(&entity_document(&entity.collection, their_raw))?;
     // Both name folders under src/; the transaction would refuse an escape, but not `CON`, and
     // its refusal would not say which name was at fault.
     if let Some(bad) = std::iter::once(entity_name)
@@ -672,7 +787,7 @@ fn plan_backend(
     let service_dir = solution.src_root().join(entity_name).join("services");
 
     if entry.change == Change::Added {
-        let Some(path) = new_backend_path(solution, entry, here)? else {
+        let Some((path, bytes)) = new_entity_file(solution, entry, here, &prepared)? else {
             steps.push((
                 None,
                 format!(
@@ -682,26 +797,6 @@ fn plan_backend(
                 ),
             ));
             return Ok(());
-        };
-        let bytes = if let Some((sample_key, sample)) = sample {
-            // Shaped like a file of its own collection and project: that file's entity is
-            // swapped for the new one, so the declaration and wrapper match the solution's.
-            let old = std::fs::read(sample).map_err(|e| io_error(sample, e))?;
-            replace_entity_bytes(
-                &old,
-                sample_key,
-                &their_raw,
-                solution.format.indent_cdata_payload,
-            )?
-        } else {
-            let laid_out = super::super::layout::entity(
-                &their_raw,
-                None,
-                solution.format.indent_cdata_payload,
-            )
-            .map_err(|e| io_error(export, e))?;
-            // No peer file to copy the envelope from: the one `entity new` writes.
-            super::super::entity::new::document(&entity.collection, &laid_out)
         };
         steps.push((
             Some(Write::Bytes(path.clone(), bytes)),
@@ -746,7 +841,7 @@ fn plan_backend(
         .iter()
         .any(|service| service.entity == *entity_name)
         && normalise::hash_with_parts(&ours_raw, &parts).is_ok_and(|ours| {
-            normalise::hash_with_parts(&entity_document(&entity.collection, &their_raw), &parts)
+            normalise::hash_with_parts(&entity_document(&entity.collection, their_raw), &parts)
                 .is_ok_and(|theirs| ours == theirs)
         })
     {
@@ -759,7 +854,7 @@ fn plan_backend(
         let bytes = replace_entity_bytes(
             &ours_raw,
             entity,
-            &their_raw,
+            their_raw,
             solution.format.indent_cdata_payload,
         )?;
         let remove = stale_service_dirs(&service_dir, &their_services);
@@ -874,7 +969,7 @@ fn plan_backend(
     let their_document = replace_entity_bytes(
         &ours_raw,
         entity,
-        &their_raw,
+        their_raw,
         solution.format.indent_cdata_payload,
     )?;
     let seed = if frame_theirs {

@@ -12,6 +12,7 @@ pub(crate) fn init_from_server_tool(
             projects: request.projects,
             profile: request.profile,
             apply: request.apply,
+            missing: request.missing,
         },
     )
     .map_err(ToolError::coded)?;

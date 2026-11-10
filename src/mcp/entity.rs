@@ -88,6 +88,12 @@ pub(crate) fn status_tool(
         "counts": counts,
         "failures": outcome.failures,
         "unreadable": outcome.unreadable,
+        "server_only": outcome.server_only.iter().map(|entity| json!({
+            "entity": entity.entity,
+            "project": entity.project,
+            "note": entity.note,
+        })).collect::<Vec<_>>(),
+        "server_notes": outcome.server_notes,
     });
     if let (Some(file), Some(entities)) = (request.ancestor.as_deref(), outcome.ancestor) {
         result["ancestor"] = json!({ "file": file, "entities": entities });
