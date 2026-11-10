@@ -13,6 +13,9 @@ All notable changes to twaco are recorded here. The format follows
   of listing them as `not adopted`.
 - `adopt --apply` of a new mashup leaves its entity file in step with its sidecars; no
   `twaco sync` is needed afterwards.
+- A bare entity file without the `<Entities>` export wrapper (a REST read an older `entity get`
+  saved) is reported as unreadable, with the command that fetches the export, instead of being
+  skipped without a word.
 
 ## [0.1.57] - 2026-11-09
 

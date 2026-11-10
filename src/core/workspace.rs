@@ -9,6 +9,7 @@ use super::codes::{Coded, ErrorCode};
 use super::config::{Project, Solution};
 use super::entity::key::ServiceTarget;
 use super::entity::{self, EntityInfo};
+use super::scan::{self, Kind};
 use super::sidecar::{ServiceSidecar, ServiceSidecarKind};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -171,8 +172,17 @@ pub fn discover(solution: &Solution) -> Discovery {
                     .unreadable
                     .push(format!("{}: an export whose first collection holds no entity; keep one entity per file", path.display())),
                 // Not an entity export: a sidecar fragment, a localization table, someone's
-                // notes. Expected, and not worth a word.
-                Err(entity::ParseFailureKind::NotAnEntity) => {}
+                // notes. Expected, and not worth a word -- except for the REST read older
+                // versions of `entity get` wrote in place of an Importer export.
+                Err(entity::ParseFailureKind::NotAnEntity) => {
+                    if let Some((collection, element, name)) = bare_entity_read(&bytes) {
+                        found.unreadable.push(format!(
+                            "{}: a bare <{element}> without the <Entities> export wrapper (a REST read, which the Importer ignores); fetch it again with `twaco entity get {collection}/{name} --out {}`",
+                            path.display(),
+                            path.display(),
+                        ));
+                    }
+                }
                 Err(entity::ParseFailureKind::Scan(e)) => {
                     found.unreadable.push(format!("{}: {e}", path.display()))
                 }
@@ -182,6 +192,20 @@ pub fn discover(solution: &Solution) -> Discovery {
     found.entities.sort_by(|a, b| a.path.cmp(&b.path));
     found.unreadable.sort();
     found
+}
+
+/// The known entity element and its name when a REST read was saved instead of an export.
+fn bare_entity_read(bytes: &[u8]) -> Option<(&'static str, String, String)> {
+    let tokens = scan::tokenize(bytes).ok()?;
+    let root = tokens
+        .iter()
+        .find(|token| matches!(token.kind, Kind::Start | Kind::Empty))?;
+    let (collection, element) = super::search::TYPES
+        .iter()
+        .find(|(_, element)| element.as_bytes() == root.name.of(bytes))?;
+    let name = scan::attribute(bytes, root, "name").ok()??;
+    let name = scan::decode_entities(&String::from_utf8_lossy(name.of(bytes)));
+    Some((collection, (*element).to_string(), name))
 }
 
 /// The stable project report shared by the command line and MCP adapters.
@@ -1079,6 +1103,47 @@ mod tests {
         let mut entity = file("A.Manager", "", "a.xml");
         entity.found_under = "Anything".to_string();
         assert!(!entity.is_misfiled(), "undeclared is not the same as wrong");
+    }
+
+    #[test]
+    fn a_bare_rest_read_is_reported_but_other_non_entities_are_silent() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::write(
+            root.join("twaco.toml"),
+            "[[project]]\nname = \"Acme.Project\"\n",
+        )
+        .unwrap();
+        let themes = root.join("StyleThemes");
+        std::fs::create_dir_all(&themes).unwrap();
+        let bare = themes.join("Acme.Theme.xml");
+        std::fs::write(
+            &bare,
+            "<StyleTheme name=\"Acme.Theme\" projectName=\"Acme.Project\"/>",
+        )
+        .unwrap();
+        std::fs::write(themes.join("notes.xml"), "<notes/>").unwrap();
+        std::fs::write(
+            themes.join("Acme.Proper.xml"),
+            "<Entities><StyleThemes><StyleTheme name=\"Acme.Proper\" projectName=\"Acme.Project\"/></StyleThemes></Entities>",
+        )
+        .unwrap();
+
+        let solution = Solution::load(&root.join("twaco.toml")).unwrap();
+        let found = discover(&solution);
+        let discovered_bare = root.join(".").join("StyleThemes").join("Acme.Theme.xml");
+
+        assert_eq!(
+            found.unreadable,
+            [format!(
+                "{}: a bare <StyleTheme> without the <Entities> export wrapper (a REST read, which the Importer ignores); fetch it again with `twaco entity get StyleThemes/Acme.Theme --out {}`",
+                discovered_bare.display(),
+                discovered_bare.display(),
+            )]
+        );
+        assert_eq!(found.entities.len(), 1);
+        assert_eq!(found.entities[0].info.collection, "StyleThemes");
+        assert_eq!(found.entities[0].info.name, "Acme.Proper");
     }
 
     #[test]
