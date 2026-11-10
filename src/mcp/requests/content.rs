@@ -493,6 +493,9 @@ fn default_search_limit() -> u64 {
 pub(crate) struct EntityGetRequest {
     /// Collection/Name for any entity on the server (Things/My.Thing, Resources/EntityServices), or a bare name for one in the repository.
     pub(crate) entity: String,
+    /// Return the REST read with runtime data instead of the default Exporter XML; it is not importable.
+    #[serde(default)]
+    pub(crate) rest: bool,
     /// The most XML characters returned; a longer entity is cut, and export writes it whole to a file.
     #[serde(default = "default_entity_get_max_chars")]
     #[schemars(range(min = 1))]

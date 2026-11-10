@@ -523,10 +523,12 @@ twaco adopt returned-export.xml --apply         # take safe collaborator changes
 
 `adopt` lays out incoming entity bytes like the destination file (or a peer in its collection
 for a new entity), retaining the repository's indentation and CDATA presentation and removing
-export-only metadata. A single-line Exporter response therefore keeps a reviewable diff. The
-export may also be one entity as `twaco entity get --out` writes it (`<Thing ...>` with no
-`<Entities>` around it): `twaco entity get Things/Acme.T --out t.xml`, then
+export-only metadata. A single-line Exporter response therefore keeps a reviewable diff.
+`twaco entity get --out` writes that importable Exporter XML as-is:
+`twaco entity get Things/Acme.T --out t.xml`, then
 `twaco adopt t.xml --entity Acme.T --take theirs:Acme.T` takes the server's form of that entity.
+Pass `--rest` only to inspect the REST read and its runtime data; that representation is not
+importable.
 
 `adopt` compares Composer's canonical form, so formatting and platform noise do not count. It
 uses the named `--base <file|handoff|git-rev>`, otherwise the most similar recorded handoff; with

@@ -1311,9 +1311,10 @@ pub(crate) const USAGE: &[Usage] = &[
     Usage {
         path: "entity get",
         group: 2,
-        text: r#"  entity get <entity>         fetch raw server XML to stdout or --out <path>
+        text: r#"  entity get <entity>         fetch importable Exporter XML to stdout or --out <path>
                               Collection/Name: any server entity; a bare name: the repository's
-      [--profile <name>]      server profile (default: default)"#,
+      [--profile <name>]      server profile (default: default)
+      [--rest]                REST read with runtime data; not importable"#,
     },
     Usage {
         path: "entity diff",

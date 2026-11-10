@@ -885,7 +885,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         .with_output::<outputs::EntityDiffResult>(),
         solution_tool::<content_requests::EntityGetRequest>(
             "entity_get",
-            "One entity's XML as the server has it: Collection/Name reaches any entity on the server, a bare name one in the repository. Read-only; nothing is written. A long entity is cut at max_chars (truncated says so); export with action entity writes it whole to a file.",
+            "One entity's importable Exporter XML: Collection/Name reaches any entity on the server, a bare name one in the repository. Read-only; nothing is written. rest returns the REST read with runtime data instead, which is not importable. A long entity is cut at max_chars (truncated says so); export with action entity writes it whole to a file.",
             true,
             content::entity_get_tool,
         )

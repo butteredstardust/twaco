@@ -131,19 +131,21 @@ pub(crate) fn entity_pull(solution: &Solution, args: &EntityPull) -> u8 {
     }
 }
 
-/// `twaco entity get <Collection/Name> [--out <path>]`.
+/// `twaco entity get <Collection/Name> [--out <path>] [--rest]`.
 #[derive(Debug, clap::Args)]
 #[group(skip)]
 pub(crate) struct EntityGet {
     #[arg(long = "out", value_name = "path", value_parser = super::flags::path())]
     pub(crate) out: Option<PathBuf>,
+    #[arg(long = "rest")]
+    pub(crate) rest: bool,
     #[command(flatten)]
     pub(crate) profile: Profile,
     #[arg(id = "operands", value_name = "operand")]
     pub(crate) operands: Vec<String>,
 }
 
-/// Fetch one raw export without ever replacing a file that belongs to the solution.
+/// Fetch one importable export without ever replacing a file that belongs to the solution.
 pub(crate) fn entity_get(solution: &Solution, args: &EntityGet) -> u8 {
     if args.operands.len() != 1 {
         eprintln!(
@@ -183,7 +185,12 @@ pub(crate) fn entity_get(solution: &Solution, args: &EntityGet) -> u8 {
             return FAILED;
         }
     };
-    let live = match entity::get::fetch(&server::Client::new(profile), &key) {
+    let view = if args.rest {
+        entity::get::View::Rest
+    } else {
+        entity::get::View::Export
+    };
+    let live = match entity::get::fetch(&server::Client::new(profile), &key, view) {
         Ok(bytes) => bytes,
         Err(error) => {
             eprintln!("{} {error}", style::prefix());
@@ -196,7 +203,12 @@ pub(crate) fn entity_get(solution: &Solution, args: &EntityGet) -> u8 {
             eprintln!("{} {error}", style::prefix());
             return FAILED;
         }
-        println!("wrote {} raw bytes to {}", live.len(), out.display());
+        let source = if args.rest {
+            "REST read, not importable"
+        } else {
+            "export"
+        };
+        println!("wrote {} bytes ({source}) to {}", live.len(), out.display());
     } else if let Err(error) = std::io::stdout().write_all(&live) {
         eprintln!("{} stdout: {error}", style::prefix());
         return FAILED;

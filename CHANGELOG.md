@@ -6,6 +6,10 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `entity get` now returns the importable Exporter XML by default; `--rest` keeps the REST read.
+
 ## [0.1.57] - 2026-11-09
 
 ### Fixed

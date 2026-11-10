@@ -512,9 +512,10 @@ usage: twaco <command>
                               (an old or missing one); reads only, not with --record
   entity pull <entity>...|--all [--profile <name>] [--apply] [--json]
                               take server-changed entities, extract sidecars and record baselines
-  entity get <entity>         fetch raw server XML to stdout or --out <path>
+  entity get <entity>         fetch importable Exporter XML to stdout or --out <path>
                               Collection/Name: any server entity; a bare name: the repository's
       [--profile <name>]      server profile (default: default)
+      [--rest]                REST read with runtime data; not importable
   entity diff <entity> [--profile <name>] [--json]
                               where the repository's copy and the server's differ, compared as
                               status and deploy compare them: own members only, element paths,

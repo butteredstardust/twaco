@@ -10051,7 +10051,7 @@
   },
   {
     "name": "entity_get",
-    "description": "One entity's XML as the server has it: Collection/Name reaches any entity on the server, a bare name one in the repository. Read-only; nothing is written. A long entity is cut at max_chars (truncated says so); export with action entity writes it whole to a file.",
+    "description": "One entity's importable Exporter XML: Collection/Name reaches any entity on the server, a bare name one in the repository. Read-only; nothing is written. rest returns the REST read with runtime data instead, which is not importable. A long entity is cut at max_chars (truncated says so); export with action entity writes it whole to a file.",
     "inputSchema": {
       "required": [
         "entity"
@@ -10062,6 +10062,11 @@
         "entity": {
           "description": "Collection/Name for any entity on the server (Things/My.Thing, Resources/EntityServices), or a bare name for one in the repository.",
           "type": "string"
+        },
+        "rest": {
+          "description": "Return the REST read with runtime data instead of the default Exporter XML; it is not importable.",
+          "type": "boolean",
+          "default": false
         },
         "max_chars": {
           "description": "The most XML characters returned; a longer entity is cut, and export writes it whole to a file.",

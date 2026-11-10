@@ -2965,6 +2965,11 @@
           "description": "Collection/Name for any entity on the server (Things/My.Thing, Resources/EntityServices), or a bare name for one in the repository.",
           "type": "string"
         },
+        "rest": {
+          "description": "Return the REST read with runtime data instead of the default Exporter XML; it is not importable.",
+          "type": "boolean",
+          "default": false
+        },
         "max_chars": {
           "description": "The most XML characters returned; a longer entity is cut, and export writes it whole to a file.",
           "type": "integer",

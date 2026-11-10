@@ -533,9 +533,10 @@ help:
 |                               (an old or missing one); reads only, not with --record
 |   entity pull <entity>...|--all [--profile <name>] [--apply] [--json]
 |                               take server-changed entities, extract sidecars and record baselines
-|   entity get <entity>         fetch raw server XML to stdout or --out <path>
+|   entity get <entity>         fetch importable Exporter XML to stdout or --out <path>
 |                               Collection/Name: any server entity; a bare name: the repository's
 |       [--profile <name>]      server profile (default: default)
+|       [--rest]                REST read with runtime data; not importable
 |   entity diff <entity> [--profile <name>] [--json]
 |                               where the repository's copy and the server's differ, compared as
 |                               status and deploy compare them: own members only, element paths,
@@ -3834,9 +3835,10 @@ help:
 |                               (an old or missing one); reads only, not with --record
 |   entity pull <entity>...|--all [--profile <name>] [--apply] [--json]
 |                               take server-changed entities, extract sidecars and record baselines
-|   entity get <entity>         fetch raw server XML to stdout or --out <path>
+|   entity get <entity>         fetch importable Exporter XML to stdout or --out <path>
 |                               Collection/Name: any server entity; a bare name: the repository's
 |       [--profile <name>]      server profile (default: default)
+|       [--rest]                REST read with runtime data; not importable
 |   entity diff <entity> [--profile <name>] [--json]
 |                               where the repository's copy and the server's differ, compared as
 |                               status and deploy compare them: own members only, element paths,
@@ -4297,6 +4299,17 @@ arg --profile
     other: -
     given twice: ArgumentConflict
     given bare: InvalidValue
+arg --rest
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
 arg <operands>
     action: Append
     value_name: operand
@@ -4308,9 +4321,10 @@ arg <operands>
     index: 1
     other: -
 help:
-|   entity get <entity>         fetch raw server XML to stdout or --out <path>
+|   entity get <entity>         fetch importable Exporter XML to stdout or --out <path>
 |                               Collection/Name: any server entity; a bare name: the repository's
 |       [--profile <name>]      server profile (default: default)
+|       [--rest]                REST read with runtime data; not importable
 | 
 |   --profile <name>            the server profile (default: default)
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
