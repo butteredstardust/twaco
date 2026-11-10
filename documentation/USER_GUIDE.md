@@ -488,6 +488,10 @@ finding in a file of a project the deploy leaves out (its entity file, or its si
 under `src/`) is shown as a warning. A finding twaco cannot place in one project, such as one in
 `twaco.toml`, still blocks, and so does a gate that could not run. Projects the deploy leaves out
 are taken to be on the server already, so a `depends_on` cycle among them does not stop it.
+`--only`, `--changed-since` and `--exclude` narrow the gates the same way, entity by entity: a
+finding in an entity the deploy leaves out is a warning, while one in a deployed entity, or one
+twaco cannot place in a single entity, still blocks. `--skip-checks` is no longer needed to deploy
+one entity past an unrelated finding.
 
 When the Importer refuses an entity, it answers only HTTP 406. twaco then reads the server's
 ApplicationLog for that moment and adds the reason it logged, such as a Thing whose template

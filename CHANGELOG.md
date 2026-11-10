@@ -24,6 +24,8 @@ All notable changes to twaco are recorded here. The format follows
   of listing them as `not adopted`.
 - `adopt --apply` of a new mashup leaves its entity file in step with its sidecars; no
   `twaco sync` is needed afterwards.
+- A deploy narrowed by `--only`, `--changed-since` or `--exclude` is no longer blocked by gate
+  findings in entities it leaves out; they are shown as warnings.
 - A bare entity file without the `<Entities>` export wrapper (a REST read an older `entity get`
   saved) is reported as unreadable, with the command that fetches the export, instead of being
   skipped without a word.
