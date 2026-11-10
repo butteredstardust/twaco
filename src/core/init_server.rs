@@ -330,7 +330,8 @@ where
         .collect();
     let created_paths: BTreeSet<PathBuf> = files.iter().map(|file| file.path.clone()).collect();
     let mut all = files;
-    if !added {
+    // A fresh repository gets its agent files and .gitignore lines; --missing only adds entities.
+    if !added && !request.missing {
         let project_names: Vec<String> = request.projects.clone();
         for (name, text) in init::agent_files(&request.projects[0], &project_names) {
             let path = request.root.join(name);
@@ -979,6 +980,9 @@ mod tests {
             .join("src/Acme.Cell.One/services/S/script.js")
             .is_file());
         assert!(!temp.path().join("src/Acme.Cell.Old").exists());
+        // Only entities: no agent files, as a fresh init would write.
+        assert!(!temp.path().join("AGENTS.md").exists());
+        assert!(!temp.path().join("CLAUDE.md").exists());
     }
 
     #[test]

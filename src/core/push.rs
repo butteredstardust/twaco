@@ -155,7 +155,7 @@ impl Remote for Client {
             &ServiceTarget::entity("Projects", project).map_err(ServerError::from)?,
             "GetEntities",
             &json!({}),
-            Duration::from_secs(120),
+            Duration::from_secs(20),
         )
         .map(|reply| reply.unwrap_or(Value::Null))
     }

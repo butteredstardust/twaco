@@ -296,7 +296,12 @@ where
     let (mut statuses, failures) =
         status::compute_with_progress(&remote, &baseline, &chosen, &rules, patches, progress);
     let (server_only, server_notes) = if matches!(request.target, StatusTarget::All) {
-        server_only(&remote, solution, &repository_entities)
+        server_only(
+            &remote,
+            solution,
+            &repository_entities,
+            request.project.as_deref(),
+        )
     } else {
         (Vec::new(), Vec::new())
     };
@@ -341,12 +346,14 @@ where
     })
 }
 
-/// Inventory every declared project without allowing a failed inventory to obscure the normal
-/// per-entity comparison. The service returns an InfoTable serialized as `{ "rows": [...] }`.
+/// Inventory every declared project (or only `narrowed_to`, when the status names one) without allowing
+/// a failed inventory to obscure the normal per-entity comparison. The service returns an
+/// InfoTable serialized as `{ "rows": [...] }`.
 fn server_only(
     remote: &(dyn push::Remote + Sync),
     solution: &Solution,
     repository: &[workspace::EntityFile],
+    narrowed_to: Option<&str>,
 ) -> (Vec<ServerOnly>, Vec<String>) {
     let known: BTreeSet<(&str, &str)> = repository
         .iter()
@@ -354,7 +361,11 @@ fn server_only(
         .collect();
     let mut only = Vec::new();
     let mut notes = Vec::new();
-    for project in &solution.projects {
+    for project in solution
+        .projects
+        .iter()
+        .filter(|project| narrowed_to.is_none_or(|name| name == project.name))
+    {
         let reply = match remote.project_entities(&project.name) {
             Ok(reply) => reply,
             Err(error) => {
@@ -395,6 +406,10 @@ fn server_only(
                 ));
                 continue;
             };
+            // The project lists itself; a repository need not keep its Project entity.
+            if type_name == "Project" && name == project.name {
+                continue;
+            }
             let collection = search::TYPES
                 .iter()
                 .find(|(_, singular)| *singular == type_name)
@@ -536,6 +551,7 @@ mod tests {
             entity: thing("current").into_bytes(),
             inventory: serde_json::json!({"rows": [
                 {"name": "P", "type": "Project"},
+                {"name": "P.Sub", "type": "Project"},
                 {"name": "P.Agent", "type": "AIAgent"},
                 {"name": "P.Shape", "type": "DataShape"},
                 {"name": "P.Custom", "type": "CustomType"}
@@ -565,8 +581,9 @@ mod tests {
                 .iter()
                 .map(|item| item.entity.as_str())
                 .collect::<Vec<_>>(),
+            // The project's own row is not one; another Project in it is.
             [
-                "Projects/P",
+                "Projects/P.Sub",
                 "AIAgents/P.Agent",
                 "DataShapes/P.Shape",
                 "CustomType/P.Custom"

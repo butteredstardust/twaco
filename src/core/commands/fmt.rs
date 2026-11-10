@@ -60,23 +60,26 @@ pub fn execute(
     request: &FmtRequest,
     notices: &mut Notices,
 ) -> Result<FmtOutcome, FmtCommandError> {
+    let _lock = match request.mode {
+        Mode::Plan => None,
+        Mode::Apply => Some(
+            lock_workspace(solution, request.lock_label, notices).map_err(FmtCommandError::Lock)?,
+        ),
+    };
+    // Chosen under the lock, so what is formatted is what was selected.
     let selected = if request.entities.is_empty() && request.changed_since.is_none() {
         None
     } else {
         let found = workspace::discover(solution);
         let selected = bundle::select_included(found.entities, &request.entities)
             .map_err(FmtCommandError::Selection)?;
-        Some(
+        let (selected, notes) =
             bundle::select_entities(solution, selected, request.changed_since.as_deref(), &[])
-                .map_err(FmtCommandError::Selection)?
-                .0,
-        )
-    };
-    let _lock = match request.mode {
-        Mode::Plan => None,
-        Mode::Apply => Some(
-            lock_workspace(solution, request.lock_label, notices).map_err(FmtCommandError::Lock)?,
-        ),
+                .map_err(FmtCommandError::Selection)?;
+        for note in notes {
+            notices.push(note);
+        }
+        Some(selected)
     };
     let report = workflow::fmt(
         solution,
