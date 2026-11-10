@@ -870,7 +870,7 @@ fn backend_names_that_cannot_be_file_names_are_refused_before_any_write() {
 }
 
 #[test]
-fn a_ui_entity_adopt_cannot_write_says_so() {
+fn a_new_style_theme_is_written_as_an_entity() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
     let export = dir.path().join("export.xml");
@@ -884,10 +884,115 @@ fn a_ui_entity_adopt_cannot_write_says_so() {
     let lines = apply(&solution, &export, &report, &[], &locked(&solution))
         .unwrap()
         .lines;
+    assert_eq!(lines, ["created  StyleThemes/P.Theme.xml"]);
+    let written = std::fs::read(dir.path().join("StyleThemes/P.Theme.xml")).unwrap();
+    let entity = crate::core::entity::parse(&written).unwrap();
+    assert_eq!(entity.name, "P.Theme");
+}
+
+#[test]
+fn a_changed_state_definition_replaces_the_entity() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
+    std::fs::create_dir(dir.path().join("StateDefinitions")).unwrap();
+    let state = |value| {
+        format!(
+        "<Entities><StateDefinitions><StateDefinition name=\"P.State\" projectName=\"P\"><value>{value}</value></StateDefinition></StateDefinitions></Entities>"
+    )
+    };
+    let path = dir.path().join("StateDefinitions/P.State.xml");
+    std::fs::write(&path, state("base")).unwrap();
+    let base = dir.path().join("base.xml");
+    std::fs::write(&base, state("base")).unwrap();
+    let export = dir.path().join("export.xml");
+    std::fs::write(&export, state("theirs")).unwrap();
+    let solution = Solution::load(&dir.path().join("twaco.toml")).unwrap();
+
+    let lines = apply_all(&solution, &base, &export, &[]);
+    assert_eq!(lines, ["replaced StateDefinitions/P.State.xml"]);
+    assert!(std::fs::read_to_string(path).unwrap().contains("theirs"));
+}
+
+#[test]
+fn a_new_media_entity_is_written_whole() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
+    let export = dir.path().join("export.xml");
+    std::fs::write(
+        &export,
+        "<Entities><MediaEntities><MediaEntity name=\"P.Asset\" projectName=\"P\"><content><![CDATA[YWJj]]></content></MediaEntity></MediaEntities></Entities>",
+    )
+    .unwrap();
+    let solution = Solution::load(&dir.path().join("twaco.toml")).unwrap();
+    let report = compare(&solution, &export, &[]).unwrap();
+
+    let lines = apply(&solution, &export, &report, &[], &locked(&solution))
+        .unwrap()
+        .lines;
+    assert_eq!(lines, ["created  MediaEntities/P.Asset.xml"]);
+    let written = std::fs::read(dir.path().join("MediaEntities/P.Asset.xml")).unwrap();
     assert_eq!(
-        lines,
-        ["not adopted StyleThemes/P.Theme: adopt writes mashups and media only; import it from the export"]
+        crate::core::entity::parse(&written).unwrap().name,
+        "P.Asset"
     );
+}
+
+#[test]
+fn taking_ours_for_a_style_theme_does_not_write_it() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
+    std::fs::create_dir(dir.path().join("StyleThemes")).unwrap();
+    let theme = |value| {
+        format!(
+        "<Entities><StyleThemes><StyleTheme name=\"P.Theme\" projectName=\"P\"><value>{value}</value></StyleTheme></StyleThemes></Entities>"
+    )
+    };
+    let path = dir.path().join("StyleThemes/P.Theme.xml");
+    std::fs::write(&path, theme("ours")).unwrap();
+    let base = dir.path().join("base.xml");
+    std::fs::write(&base, theme("base")).unwrap();
+    let export = dir.path().join("export.xml");
+    std::fs::write(&export, theme("theirs")).unwrap();
+    let solution = Solution::load(&dir.path().join("twaco.toml")).unwrap();
+
+    let lines = apply_all(
+        &solution,
+        &base,
+        &export,
+        &[Take {
+            side: TakeSide::Ours,
+            target: "P.Theme".to_string(),
+        }],
+    );
+    assert_eq!(lines, ["kept     StyleThemes/P.Theme: ours"]);
+    assert_eq!(std::fs::read_to_string(path).unwrap(), theme("ours"));
+}
+
+#[test]
+fn a_new_mashup_entity_is_synced_with_its_sidecars() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
+    std::fs::create_dir(dir.path().join("Mashups")).unwrap();
+    let skeleton = "<Entities><Mashups><Mashup\n         name=\"P.Skeleton\"\n         projectName=\"P\">\n            <ParameterDefinitions></ParameterDefinitions>\n            <mashupContent><![CDATA[{\"Skeleton\":true}]]></mashupContent>\n        </Mashup></Mashups></Entities>";
+    std::fs::write(dir.path().join("Mashups/P.Skeleton.xml"), skeleton).unwrap();
+    let export = dir.path().join("export.xml");
+    std::fs::write(
+        &export,
+        "<Entities><Mashups><Mashup name=\"P.New\" projectName=\"P\"><ParameterDefinitions></ParameterDefinitions><mashupContent><![CDATA[{\"New\":true}]]></mashupContent></Mashup></Mashups></Entities>",
+    )
+    .unwrap();
+    let solution = Solution::load(&dir.path().join("twaco.toml")).unwrap();
+    let report = compare(&solution, &export, &[]).unwrap();
+
+    apply(&solution, &export, &report, &[], &locked(&solution)).unwrap();
+    let written = std::fs::read(solution.root.join("Mashups/P.New.xml")).unwrap();
+    let assets = crate::core::mashup::Assets {
+        content: std::fs::read_to_string(solution.root.join("src/P.New/mashup/content.json"))
+            .unwrap(),
+        css: std::fs::read_to_string(solution.root.join("src/P.New/mashup/custom.css")).unwrap(),
+    };
+    assert_eq!(crate::core::mashup::extract(&written).unwrap(), assets);
+    assert!(!String::from_utf8_lossy(&written).contains("Skeleton"));
 }
 
 #[test]

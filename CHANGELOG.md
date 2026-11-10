@@ -9,6 +9,10 @@ All notable changes to twaco are recorded here. The format follows
 ### Fixed
 
 - `entity get` now returns the importable Exporter XML by default; `--rest` keeps the REST read.
+- `adopt --apply` writes themes, state definitions, new media and other UI entities whole instead
+  of listing them as `not adopted`.
+- `adopt --apply` of a new mashup leaves its entity file in step with its sidecars; no
+  `twaco sync` is needed afterwards.
 
 ## [0.1.57] - 2026-11-09
 

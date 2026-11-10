@@ -563,8 +563,8 @@ skipped, since which Thing it calls cannot be told.
 Mashups, media, themes and configured UI collections are UI; everything else is backend. Use
 `--only ui` or `--only backend` to narrow a run. Backend service and entity changes that are safe
 to take are folded into XML and sidecars in the apply transaction. Mashup sidecars alone may need
-`twaco sync --all` afterwards. Apply writes mashups and media; another UI entity it would take is
-listed as `not adopted`, to import from the export. Resolve an individual conflict with
+`twaco sync --all` afterwards. Apply writes every selected UI entity: mashups with their sidecars,
+and media, themes and other UI collections as whole entities. Resolve an individual conflict with
 `--take theirs:Acme.Orders.Manager.GetOrders` or keep it with
 `--take ours:Acme.Orders.Manager`; a take may name an entity or one service, and taking ours for
 an entity leaves it whole. `--take theirs:ui` takes every UI conflict and unknown at once, for a
