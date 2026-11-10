@@ -26,6 +26,11 @@
           "description": "Write the planned files. The default only returns the plan.",
           "type": "boolean",
           "default": false
+        },
+        "missing": {
+          "description": "Add only server entities absent from projects already declared in twaco.toml.",
+          "type": "boolean",
+          "default": false
         }
       }
     },
@@ -39,6 +44,7 @@
       "required": [
         "projects",
         "files",
+        "created",
         "entities",
         "toml",
         "notes",
@@ -59,6 +65,12 @@
         "files": {
           "type": "integer",
           "minimum": 0
+        },
+        "created": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         },
         "entities": {
           "type": "object",
@@ -800,7 +812,9 @@
         "entities",
         "counts",
         "failures",
-        "unreadable"
+        "unreadable",
+        "server_only",
+        "server_notes"
       ],
       "properties": {
         "ok": {
@@ -832,6 +846,36 @@
           }
         },
         "unreadable": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "server_only": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "entity": {
+                "type": "string"
+              },
+              "project": {
+                "type": "string"
+              },
+              "note": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "entity",
+              "project"
+            ]
+          }
+        },
+        "server_notes": {
           "type": "array",
           "items": {
             "type": "string"

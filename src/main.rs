@@ -371,6 +371,8 @@ struct Init {
     agents: bool,
     #[arg(long = "from-server", value_name = "project", num_args = 1..)]
     from_server: Vec<String>,
+    #[arg(long = "missing")]
+    missing: bool,
     #[command(flatten)]
     profile: cli::flags::Profile,
     #[command(flatten)]
@@ -396,6 +398,7 @@ fn init_cmd(parsed: &Init) -> u8 {
                 projects: parsed.from_server.clone(),
                 profile: parsed.profile.name().to_string(),
                 apply: parsed.apply.apply,
+                missing: parsed.missing,
             },
         );
         return match result {
@@ -412,41 +415,69 @@ fn init_cmd(parsed: &Init) -> u8 {
             }
             Ok(outcome) => {
                 let outcome = outcome.result;
-                println!(
-                    "{} project(s), {} entity file(s){}",
-                    outcome.projects.len(),
-                    outcome.entities.values().sum::<usize>(),
-                    if outcome.applied {
-                        if outcome.added {
-                            " added"
-                        } else {
-                            " written"
-                        }
-                    } else {
-                        " planned"
+                if parsed.missing {
+                    for note in outcome.notes {
+                        eprintln!("{} {note}", cli::style::prefix());
                     }
-                );
-                for (collection, count) in &outcome.entities {
-                    println!("{collection}: {count}");
-                }
-                print!("{}", outcome.toml);
-                for note in outcome.notes {
-                    eprintln!("{} {note}", cli::style::prefix());
-                }
-                if !outcome.applied {
-                    eprintln!(
-                        "{} nothing written; pass --apply to create the repository",
-                        cli::style::prefix()
-                    );
-                }
-                if outcome.applied {
-                    println!("baseline recorded for {} entities", outcome.recorded);
+                    if outcome.created.is_empty() {
+                        println!("nothing missing");
+                    } else {
+                        for path in &outcome.created {
+                            println!("{path}");
+                        }
+                    }
+                    if !outcome.applied {
+                        eprintln!(
+                            "{} nothing written; pass --apply to create the missing files",
+                            cli::style::prefix()
+                        );
+                    }
                     println!(
-                        "localization: {} file(s) written, {} token(s) pulled",
-                        outcome.localization_files, outcome.localization_tokens
+                        "{} entity file(s) {}",
+                        outcome.created.len(),
+                        if outcome.applied {
+                            "written"
+                        } else {
+                            "planned"
+                        }
                     );
-                    for entity in &outcome.not_in_sync {
-                        eprintln!("{} not in sync: {entity}", cli::style::prefix());
+                } else {
+                    println!(
+                        "{} project(s), {} entity file(s){}",
+                        outcome.projects.len(),
+                        outcome.entities.values().sum::<usize>(),
+                        if outcome.applied {
+                            if outcome.added {
+                                " added"
+                            } else {
+                                " written"
+                            }
+                        } else {
+                            " planned"
+                        }
+                    );
+                    for (collection, count) in &outcome.entities {
+                        println!("{collection}: {count}");
+                    }
+                    print!("{}", outcome.toml);
+                    for note in outcome.notes {
+                        eprintln!("{} {note}", cli::style::prefix());
+                    }
+                    if !outcome.applied {
+                        eprintln!(
+                            "{} nothing written; pass --apply to create the repository",
+                            cli::style::prefix()
+                        );
+                    }
+                    if outcome.applied {
+                        println!("baseline recorded for {} entities", outcome.recorded);
+                        println!(
+                            "localization: {} file(s) written, {} token(s) pulled",
+                            outcome.localization_files, outcome.localization_tokens
+                        );
+                        for entity in &outcome.not_in_sync {
+                            eprintln!("{} not in sync: {entity}", cli::style::prefix());
+                        }
                     }
                 }
                 if outcome.not_in_sync.is_empty() {
@@ -461,9 +492,10 @@ fn init_cmd(parsed: &Init) -> u8 {
             }
         };
     }
-    if parsed.apply.apply || parsed.json.json || parsed.profile.profile.is_some() {
+    if parsed.apply.apply || parsed.json.json || parsed.profile.profile.is_some() || parsed.missing
+    {
         eprintln!(
-            "{} --apply, --json and --profile require --from-server",
+            "{} --apply, --json, --profile and --missing require --from-server",
             cli::style::prefix()
         );
         return FAILED;

@@ -53,6 +53,31 @@ fn serve() -> std::net::SocketAddr {
             let read = stream.read(&mut buffer).unwrap_or(0);
             let request = String::from_utf8_lossy(&buffer[..read]).into_owned();
             let path = request.split_whitespace().nth(1).unwrap_or("");
+            // A service call (the project inventory status --all asks for) sends its body
+            // after the headers; closing with it unread resets the connection on Windows.
+            if path.contains("/Services/") {
+                let length = request
+                    .lines()
+                    .find_map(|line| {
+                        line.to_ascii_lowercase()
+                            .strip_prefix("content-length:")
+                            .map(|v| v.trim().parse::<usize>().unwrap_or(0))
+                    })
+                    .unwrap_or(0);
+                let have = request
+                    .split_once("\r\n\r\n")
+                    .map_or(0, |(_, body)| body.len());
+                if have < length {
+                    let _ = stream.read(&mut buffer);
+                }
+                let body = "{\"rows\":[]}";
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                continue;
+            }
             let name = path.rsplit('/').next().unwrap_or("");
             let body = format!(
                 "<Entities><Things><Thing name=\"{name}\" projectName=\"Test\"></Thing></Things></Entities>"

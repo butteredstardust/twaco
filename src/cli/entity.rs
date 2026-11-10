@@ -368,6 +368,10 @@ pub(crate) fn entity_status(solution: &Solution, args: &EntityStatus) -> u8 {
         return FAILED;
     }
 
+    for note in &outcome.server_notes {
+        eprintln!("{} {note}", style::prefix());
+    }
+
     println!(
         "{}",
         style::heading(&format!("{} entity status(es)", outcome.statuses.len()))
@@ -423,6 +427,17 @@ pub(crate) fn entity_status(solution: &Solution, args: &EntityStatus) -> u8 {
                 status.server_baseline.as_deref().unwrap_or("-")
             );
         }
+    }
+    if !outcome.server_only.is_empty() {
+        println!();
+        println!("only on the server");
+        for entity in &outcome.server_only {
+            println!("  {} ({})", entity.entity, entity.project);
+            if let Some(note) = &entity.note {
+                println!("    {note}");
+            }
+        }
+        println!("{}", commands::status::SERVER_ONLY_HINT);
     }
     if outcome
         .statuses

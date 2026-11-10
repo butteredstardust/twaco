@@ -6,6 +6,14 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `init --from-server <project>... --missing` adds the server entities a declared project lacks
+  in the repository, without changing `twaco.toml`.
+- `entity status --all` lists the declared projects' entities that are only on the server
+  (`server_only` in JSON and MCP), with the command that takes them.
+- `search --type` knows `AIAgent` and `MCPNamespace`.
+
 ### Fixed
 
 - `entity get` now returns the importable Exporter XML by default; `--rest` keeps the REST read.

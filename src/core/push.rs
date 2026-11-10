@@ -12,11 +12,13 @@
 
 use super::baseline::{Baseline, BaselineError};
 use super::codes::{Coded, ErrorCode};
-use super::entity::key::EntityKey;
+use super::entity::key::{EntityKey, ServiceTarget};
 use super::normalise::{self, NormaliseError};
 use super::server::{Client, ServerError};
+use serde_json::{json, Value};
 use std::fmt;
 use std::path::Path;
+use std::time::Duration;
 
 /// What a push would do, decided before anything is written.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -125,6 +127,11 @@ pub trait Remote {
         })
     }
     fn import(&self, file_name: &str, xml: &[u8]) -> Result<(), ServerError>;
+    /// The members of one Project, used by status to notice server-only entities. Test remotes
+    /// without an inventory deliberately behave as an empty project.
+    fn project_entities(&self, _: &str) -> Result<Value, ServerError> {
+        Ok(json!({ "rows": [] }))
+    }
 }
 
 impl Remote for Client {
@@ -141,6 +148,16 @@ impl Remote for Client {
 
     fn import(&self, file_name: &str, xml: &[u8]) -> Result<(), ServerError> {
         self.import_entity(file_name, xml)
+    }
+
+    fn project_entities(&self, project: &str) -> Result<Value, ServerError> {
+        self.call_service(
+            &ServiceTarget::entity("Projects", project).map_err(ServerError::from)?,
+            "GetEntities",
+            &json!({}),
+            Duration::from_secs(120),
+        )
+        .map(|reply| reply.unwrap_or(Value::Null))
     }
 }
 

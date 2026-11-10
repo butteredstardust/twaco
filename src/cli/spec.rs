@@ -387,9 +387,10 @@ pub(crate) const USAGE: &[Usage] = &[
                               also writes AGENTS.md and CLAUDE.md where absent, and adds the
                               lines twaco needs to .gitignore
   init --agents               write only those, where absent
-  init --from-server <project>... [--profile <name>] [--apply] [--json]
+  init --from-server <project>... [--missing] [--profile <name>] [--apply] [--json]
                               start a repository in an empty folder, or add projects to this one,
                               from server projects; plans by default
+      --missing               fill gaps in already declared projects, without changing twaco.toml
       --profile <name>        the server profile (default: default)
       --apply                 write the planned repository and record matching baselines
       --json                  print the plan or result as JSON"#,
@@ -1300,7 +1301,8 @@ pub(crate) const USAGE: &[Usage] = &[
                               entity: full name, last dotted segment, or Collection/Name
       --record                 record matching working/server hashes as baseline
       --ancestor <export.xml>  use that export as the common ancestor instead of the baseline
-                              (an old or missing one); reads only, not with --record"#,
+                              (an old or missing one); reads only, not with --record
+      --all                    also lists declared-project entities found only on the server"#,
     },
     Usage {
         path: "entity pull",

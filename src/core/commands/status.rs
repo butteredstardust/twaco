@@ -4,13 +4,19 @@ use super::{lock_workspace, Access, Effects, Notices};
 use crate::core::baseline::{self, Baseline};
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
+use crate::core::entity::key::EntityKey;
 use crate::core::progress::Progress;
-use crate::core::{lock, profile, push, status, workspace};
+use crate::core::{lock, profile, push, search, status, workspace};
+use serde_json::Value;
+use std::collections::BTreeSet;
 use std::fmt;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StatusTarget {
     Names(Vec<String>),
+    /// Exact collection/name addresses used by `init --from-server --missing` to record only
+    /// the files it created.
+    Keys(Vec<EntityKey>),
     All,
 }
 
@@ -41,12 +47,24 @@ pub struct StatusOutcome {
     pub recorded: Option<usize>,
     /// How many entities the `ancestor` export held, when one was given.
     pub ancestor: Option<usize>,
+    pub server_only: Vec<ServerOnly>,
+    pub server_notes: Vec<String>,
     #[allow(
         dead_code,
         reason = "the command facade's Effects (COMMAND_FACADE.md); no adapter reads it yet"
     )]
     effects: Effects,
 }
+
+/// An entity in a declared project which has no matching repository entity.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ServerOnly {
+    pub entity: String,
+    pub project: String,
+    pub note: Option<String>,
+}
+
+pub const SERVER_ONLY_HINT: &str = "twaco init --from-server <project> --missing takes them";
 
 impl StatusOutcome {
     #[allow(
@@ -222,6 +240,7 @@ where
     if request.refuse_unreadable && !found.unreadable.is_empty() {
         return Err(StatusCommandError::Unreadable(found.unreadable));
     }
+    let repository_entities = found.entities.clone();
     let mut pool = found.entities;
     if let Some(project) = &request.project {
         if solution.project(project).is_none() {
@@ -241,6 +260,16 @@ where
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(StatusCommandError::Resolve)?
         }
+        StatusTarget::Keys(keys) => keys
+            .iter()
+            .filter_map(|key| {
+                pool.iter()
+                    .find(|entity| {
+                        entity.info.collection == key.collection() && entity.info.name == key.name()
+                    })
+                    .cloned()
+            })
+            .collect(),
     };
     let profile =
         profile::load(&solution.root, &request.profile).map_err(StatusCommandError::Profile)?;
@@ -263,14 +292,14 @@ where
             None,
         ),
     };
-    let (mut statuses, failures) = status::compute_with_progress(
-        &open(profile),
-        &baseline,
-        &chosen,
-        &rules,
-        patches,
-        progress,
-    );
+    let remote = open(profile);
+    let (mut statuses, failures) =
+        status::compute_with_progress(&remote, &baseline, &chosen, &rules, patches, progress);
+    let (server_only, server_notes) = if matches!(request.target, StatusTarget::All) {
+        server_only(&remote, solution, &repository_entities)
+    } else {
+        (Vec::new(), Vec::new())
+    };
     if request.record && !failures.is_empty() {
         if request.refuse_record_failures {
             return Err(StatusCommandError::RecordFailures(failures));
@@ -281,6 +310,8 @@ where
             unreadable: found.unreadable,
             recorded: None,
             ancestor,
+            server_only,
+            server_notes,
             effects: Effects::new(Access::Read, Access::Read),
         });
     }
@@ -304,8 +335,89 @@ where
         unreadable: found.unreadable,
         recorded,
         ancestor,
+        server_only,
+        server_notes,
         effects: Effects::new(workspace, Access::Read),
     })
+}
+
+/// Inventory every declared project without allowing a failed inventory to obscure the normal
+/// per-entity comparison. The service returns an InfoTable serialized as `{ "rows": [...] }`.
+fn server_only(
+    remote: &(dyn push::Remote + Sync),
+    solution: &Solution,
+    repository: &[workspace::EntityFile],
+) -> (Vec<ServerOnly>, Vec<String>) {
+    let known: BTreeSet<(&str, &str)> = repository
+        .iter()
+        .map(|entity| (entity.info.collection.as_str(), entity.info.name.as_str()))
+        .collect();
+    let mut only = Vec::new();
+    let mut notes = Vec::new();
+    for project in &solution.projects {
+        let reply = match remote.project_entities(&project.name) {
+            Ok(reply) => reply,
+            Err(error) => {
+                notes.push(format!(
+                    "could not list server entities for project {}: {error}",
+                    project.name
+                ));
+                continue;
+            }
+        };
+        let Some(rows) = reply.get("rows").and_then(Value::as_array) else {
+            notes.push(format!(
+                "could not list server entities for project {}: GetEntities returned no rows",
+                project.name
+            ));
+            continue;
+        };
+        for row in rows {
+            let Some(name) = row
+                .get("name")
+                .and_then(Value::as_str)
+                .filter(|name| !name.is_empty())
+            else {
+                notes.push(format!(
+                    "project {} GetEntities returned a row without a name",
+                    project.name
+                ));
+                continue;
+            };
+            let Some(type_name) = row
+                .get("type")
+                .and_then(Value::as_str)
+                .filter(|kind| !kind.is_empty())
+            else {
+                notes.push(format!(
+                    "project {} GetEntities returned {name} without a type",
+                    project.name
+                ));
+                continue;
+            };
+            let collection = search::TYPES
+                .iter()
+                .find(|(_, singular)| *singular == type_name)
+                .map(|(collection, _)| *collection);
+            let (entity, note) = match collection {
+                Some(collection) => (format!("{collection}/{name}"), None),
+                None => (
+                    format!("{type_name}/{name}"),
+                    Some(format!(
+                        "twaco does not know the collection for type {type_name}"
+                    )),
+                ),
+            };
+            if collection.is_none() || !known.contains(&(collection.unwrap(), name)) {
+                only.push(ServerOnly {
+                    entity,
+                    project: project.name.clone(),
+                    note,
+                });
+            }
+        }
+    }
+    (only, notes)
 }
 
 #[cfg(test)]
@@ -327,6 +439,28 @@ mod tests {
         }
         fn import(&self, _: &str, _: &[u8]) -> Result<(), ServerError> {
             unreachable!("status never imports")
+        }
+    }
+
+    struct InventoryFake {
+        entity: Vec<u8>,
+        inventory: Value,
+        fails: bool,
+    }
+
+    impl push::Remote for InventoryFake {
+        fn fetch(&self, _: &EntityKey) -> Result<Option<Vec<u8>>, ServerError> {
+            Ok(Some(self.entity.clone()))
+        }
+        fn import(&self, _: &str, _: &[u8]) -> Result<(), ServerError> {
+            unreachable!("status never imports")
+        }
+        fn project_entities(&self, _: &str) -> Result<Value, ServerError> {
+            if self.fails {
+                Err(ServerError::InvalidUrl("GetEntities is unavailable".into()))
+            } else {
+                Ok(self.inventory.clone())
+            }
         }
     }
 
@@ -393,6 +527,89 @@ mod tests {
         let elsewhere = "<Entities><Things><Thing name=\"P.Other\"></Thing></Things></Entities>";
         assert_eq!(verdict(elsewhere), status::Verdict::NoBaselineDiffers);
         assert!(!Baseline::path(&solution.root, "default").exists());
+    }
+
+    #[test]
+    fn all_lists_server_only_entities_and_unknown_types_without_failing_status() {
+        let (_dir, solution) = without_baseline(&thing("current"));
+        let remote = InventoryFake {
+            entity: thing("current").into_bytes(),
+            inventory: serde_json::json!({"rows": [
+                {"name": "P", "type": "Project"},
+                {"name": "P.Agent", "type": "AIAgent"},
+                {"name": "P.Shape", "type": "DataShape"},
+                {"name": "P.Custom", "type": "CustomType"}
+            ]}),
+            fails: false,
+        };
+        let outcome = execute(
+            &solution,
+            &StatusRequest {
+                target: StatusTarget::All,
+                project: None,
+                record: false,
+                profile: "default".into(),
+                lock_label: "status",
+                refuse_unreadable: true,
+                refuse_record_failures: false,
+                ancestor: None,
+            },
+            |_| remote,
+            &mut Notices::default(),
+            &crate::core::progress::NONE,
+        )
+        .unwrap();
+        assert_eq!(
+            outcome
+                .server_only
+                .iter()
+                .map(|item| item.entity.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "Projects/P",
+                "AIAgents/P.Agent",
+                "DataShapes/P.Shape",
+                "CustomType/P.Custom"
+            ]
+        );
+        assert!(outcome.server_only[3]
+            .note
+            .as_deref()
+            .is_some_and(|note| note.contains("does not know")));
+        assert_eq!(
+            SERVER_ONLY_HINT,
+            "twaco init --from-server <project> --missing takes them"
+        );
+    }
+
+    #[test]
+    fn an_inventory_failure_is_a_note_not_a_status_failure() {
+        let (_dir, solution) = without_baseline(&thing("current"));
+        let remote = InventoryFake {
+            entity: thing("current").into_bytes(),
+            inventory: Value::Null,
+            fails: true,
+        };
+        let outcome = execute(
+            &solution,
+            &StatusRequest {
+                target: StatusTarget::All,
+                project: None,
+                record: false,
+                profile: "default".into(),
+                lock_label: "status",
+                refuse_unreadable: true,
+                refuse_record_failures: false,
+                ancestor: None,
+            },
+            |_| remote,
+            &mut Notices::default(),
+            &crate::core::progress::NONE,
+        )
+        .unwrap();
+        assert!(outcome.server_only.is_empty());
+        assert_eq!(outcome.statuses.len(), 1);
+        assert!(outcome.server_notes[0].contains("could not list server entities"));
     }
 
     #[test]

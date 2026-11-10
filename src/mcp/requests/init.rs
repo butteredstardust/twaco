@@ -14,6 +14,9 @@ pub(crate) struct InitFromServerRequest {
     /// Write the planned files. The default only returns the plan.
     #[serde(default = "default_false")]
     pub(crate) apply: bool,
+    /// Add only server entities absent from projects already declared in twaco.toml.
+    #[serde(default)]
+    pub(crate) missing: bool,
 }
 
 fn default_false() -> bool {

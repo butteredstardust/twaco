@@ -239,6 +239,10 @@ of its own, with `depends_on` from the projects' own dependencies. It refuses a 
 has a `twaco.toml` or entity files: to add a project to a repository, `twaco export project` it and
 `twaco adopt` the export.
 
+When a declared project gains entities on the server, `twaco init --from-server Acme.App --missing`
+plans just the entities absent from the repository. It leaves `twaco.toml` unchanged and writes under
+that project's declared root; add `--apply` to create the files, sidecars and baselines.
+
 ### Sidecars are what you edit
 
 `twaco extract` writes the parts worth editing out of the XML into files under `src/`

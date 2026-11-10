@@ -9,6 +9,7 @@ usage: twaco entity <command>
       --record                 record matching working/server hashes as baseline
       --ancestor <export.xml>  use that export as the common ancestor instead of the baseline
                               (an old or missing one); reads only, not with --record
+      --all                    also lists declared-project entities found only on the server
   entity pull <entity>...|--all [--profile <name>] [--apply] [--json]
                               take server-changed entities, extract sidecars and record baselines
   entity get <entity>         fetch importable Exporter XML to stdout or --out <path>

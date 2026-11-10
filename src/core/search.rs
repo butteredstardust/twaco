@@ -30,6 +30,7 @@ use std::time::Duration;
 /// Every entity collection the search knows, with the singular type name it takes. Each was
 /// checked on a live server: the singular name narrows the search, and only these do.
 pub(crate) const TYPES: &[(&str, &str)] = &[
+    ("AIAgents", "AIAgent"),
     ("ApplicationKeys", "ApplicationKey"),
     ("Authenticators", "Authenticator"),
     ("Dashboards", "Dashboard"),
@@ -40,6 +41,7 @@ pub(crate) const TYPES: &[(&str, &str)] = &[
     ("LocalizationTables", "LocalizationTable"),
     ("Logs", "Log"),
     ("Mashups", "Mashup"),
+    ("MCPNamespaces", "MCPNamespace"),
     ("MediaEntities", "MediaEntity"),
     ("Menus", "Menu"),
     ("Networks", "Network"),

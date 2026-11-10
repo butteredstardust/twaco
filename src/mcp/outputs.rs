@@ -18,6 +18,7 @@ type Notices = Option<Vec<String>>;
 pub(crate) struct InitFromServerResult {
     projects: Vec<String>,
     files: usize,
+    created: Vec<String>,
     entities: BTreeMap<String, usize>,
     toml: String,
     notes: Vec<String>,
@@ -236,6 +237,8 @@ pub(crate) struct StatusResult {
     counts: BTreeMap<String, u64>,
     failures: Vec<String>,
     unreadable: Vec<String>,
+    server_only: Vec<ServerOnly>,
+    server_notes: Vec<String>,
     /// The export used as the ancestor instead of the baseline, when one was given.
     ancestor: Option<StatusAncestor>,
     /// Without detail: only what needs attention.
@@ -268,6 +271,13 @@ struct StatusEntry {
     server: Option<Value>,
     baseline_local: Option<Value>,
     baseline_server: Option<Value>,
+}
+
+#[derive(Serialize, JsonSchema)]
+struct ServerOnly {
+    entity: String,
+    project: String,
+    note: Option<String>,
 }
 
 #[derive(Serialize, JsonSchema)]
