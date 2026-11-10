@@ -616,6 +616,19 @@ impl Doc {
         }
     }
 
+    /// The one `name` child of `parent`, or `None` when there is none: a section Composer always
+    /// writes but a hand-made or trimmed file may lack. Two are still refused.
+    fn optional_child(&self, parent: usize, name: &str) -> Result<Option<usize>, EditError> {
+        match scan::child_tags(&self.tokens, &self.src, name, parent).as_slice() {
+            [] => Ok(None),
+            [one] => Ok(Some(*one)),
+            _ => Err(invalid(format!(
+                "{} has more than one {name}",
+                self.label()
+            ))),
+        }
+    }
+
     /// The child of `section` with this `name` attribute.
     fn named(&self, section: usize, tag: &str, name: &str) -> Option<usize> {
         scan::child_tags(&self.tokens, &self.src, tag, section)
@@ -2057,17 +2070,18 @@ impl Edit2<'_> {
         )?;
         validate_member_name(name)?;
         let members = doc.members()?;
-        let definitions = doc.only_child(members, "ServiceDefinitions")?;
-        if doc.named(definitions, "ServiceDefinition", name).is_some() {
+        let definitions = doc.optional_child(members, "ServiceDefinitions")?;
+        if definitions
+            .is_some_and(|section| doc.named(section, "ServiceDefinition", name).is_some())
+        {
             return Err(EditError::Exists(format!(
                 "{} already defines service {name}; use thing service remove to remove the local service",
                 doc.label()
             )));
         }
-        let implementations = doc.only_child(members, "ServiceImplementations")?;
-        if doc
-            .named(implementations, "ServiceImplementation", name)
-            .is_some()
+        let implementations = doc.optional_child(members, "ServiceImplementations")?;
+        if implementations
+            .is_some_and(|section| doc.named(section, "ServiceImplementation", name).is_some())
         {
             return Err(EditError::Exists(format!(
                 "{} already implements inherited service {name}",
@@ -2149,15 +2163,19 @@ impl Edit2<'_> {
             "services belong to a Thing, ThingTemplate or ThingShape",
         )?;
         let members = doc.members()?;
-        let definitions = doc.only_child(members, "ServiceDefinitions")?;
-        if doc.named(definitions, "ServiceDefinition", name).is_some() {
+        let definitions = doc.optional_child(members, "ServiceDefinitions")?;
+        if definitions
+            .is_some_and(|section| doc.named(section, "ServiceDefinition", name).is_some())
+        {
             return Err(EditError::Invalid(format!(
                 "{} defines local service {name}; use thing service remove instead",
                 doc.label()
             )));
         }
-        let implementations = doc.only_child(members, "ServiceImplementations")?;
-        let Some(implementation) = doc.named(implementations, "ServiceImplementation", name) else {
+        let implementations = doc.optional_child(members, "ServiceImplementations")?;
+        let Some(implementation) =
+            implementations.and_then(|section| doc.named(section, "ServiceImplementation", name))
+        else {
             return Err(EditError::Unknown(format!(
                 "{} does not implement inherited service {name}",
                 doc.label()

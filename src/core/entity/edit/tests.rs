@@ -242,6 +242,61 @@ fn service_override_and_revert_keep_the_inherited_contract_and_permissions() {
 }
 
 #[test]
+fn service_override_and_revert_work_on_an_entity_without_service_sections() {
+    let (_dir, solution) = house_solution();
+    run(
+        &solution,
+        "Acme.Orders.Machine_TT",
+        Action::ServiceAdd(service("ReadSpeed", "result = me.Speed;")),
+    );
+    // Composer always writes both sections; a hand-made or trimmed file may not.
+    let entity_path = solution.root.join("app/Things/Acme.Orders.Press.xml");
+    let mut text = std::fs::read_to_string(&entity_path).unwrap();
+    for section in ["ServiceDefinitions", "ServiceImplementations"] {
+        let empty = [
+            format!("<{section}></{section}>"),
+            format!("<{section}/>"),
+            format!("<{section} />"),
+        ];
+        let found = empty.iter().find(|form| text.contains(form.as_str()));
+        let form = found.unwrap_or_else(|| panic!("no empty {section} in {text}"));
+        text = text.replace(form.as_str(), "");
+    }
+    std::fs::write(&entity_path, &text).unwrap();
+
+    run(
+        &solution,
+        "Acme.Orders.Press",
+        Action::ServiceOverride {
+            name: "ReadSpeed".into(),
+            code: "result = 2;".into(),
+        },
+    );
+    let overridden = file(&solution, "Things", "Acme.Orders.Press");
+    let services = crate::core::sidecar::extract(overridden.as_bytes())
+        .unwrap()
+        .services;
+    assert!(
+        services
+            .iter()
+            .any(|service| service.name == "ReadSpeed" && service.is_override()),
+        "{overridden}"
+    );
+    assert_in_step(&solution);
+
+    run(
+        &solution,
+        "Acme.Orders.Press",
+        Action::ServiceRevert {
+            name: "ReadSpeed".into(),
+        },
+    );
+    let reverted = file(&solution, "Things", "Acme.Orders.Press");
+    assert!(!reverted.contains("ReadSpeed"), "{reverted}");
+    assert_in_step(&solution);
+}
+
+#[test]
 fn service_override_refuses_local_services_missing_parents_and_wrong_hosts() {
     let (_dir, solution) = fixture();
     family(&solution);
