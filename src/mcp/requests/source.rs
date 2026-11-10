@@ -109,6 +109,12 @@ pub(crate) struct ExtractRequest {
 pub(crate) struct FmtRequest {
     #[serde(default)]
     pub(crate) check: bool,
+    /// Only scripts of matching bare entity names or Collection/Name globs.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) entities: Absent<Vec<String>>,
+    /// Select entities whose source file or sidecars changed since this Git revision.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) changed_since: Absent<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]

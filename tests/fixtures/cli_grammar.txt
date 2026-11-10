@@ -62,7 +62,11 @@ help:
 |       --allow-add-remove      add and remove services and fields as the sidecars do
 |       --relayout              rewrite scripts in the configured CDATA layout
 |       --json                  print the report as JSON
-|   fmt [--check]               format service scripts
+|   fmt [--check] [--entity <name>] [--changed-since <git-rev>]
+|                               format service scripts
+|       --check                 report which scripts would change, write nothing
+|       --entity <name>         an entity name or Collection/Name glob to format (repeatable)
+|       --changed-since <git-rev>  format entity files and sidecars changed since this revision
 |   check [--detail]            every gate, one exit code
 |       --live                  also parse every script on the server (fails closed)
 |   lint [--entity <name>] [--service <name>] [--rule <id>]... [--json]
@@ -5391,9 +5395,21 @@ help:
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
 
 == twaco fmt
-usage: twaco fmt [--check]
+usage: twaco fmt [--check] [--entity <name>] [--changed-since <git-rev>]
 settings: disable-version-flag disable-help-subcommand
 subcommands: 
+arg --changed-since
+    action: Set
+    value_name: git-rev
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 arg --check
     action: SetTrue
     value_name: -
@@ -5405,6 +5421,18 @@ arg --check
     index: -
     other: -
     given twice: accepted
+arg --entity
+    action: Append
+    value_name: name
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: accepted
+    given bare: InvalidValue
 arg --help
     action: Help
     value_name: -
@@ -5440,7 +5468,11 @@ arg --log-file
     given twice: ArgumentConflict
     given bare: InvalidValue
 help:
-|   fmt [--check]               format service scripts
+|   fmt [--check] [--entity <name>] [--changed-since <git-rev>]
+|                               format service scripts
+|       --check                 report which scripts would change, write nothing
+|       --entity <name>         an entity name or Collection/Name glob to format (repeatable)
+|       --changed-since <git-rev>  format entity files and sidecars changed since this revision
 | 
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)

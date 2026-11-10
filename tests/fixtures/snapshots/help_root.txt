@@ -41,7 +41,11 @@ usage: twaco <command>
       --allow-add-remove      add and remove services and fields as the sidecars do
       --relayout              rewrite scripts in the configured CDATA layout
       --json                  print the report as JSON
-  fmt [--check]               format service scripts
+  fmt [--check] [--entity <name>] [--changed-since <git-rev>]
+                              format service scripts
+      --check                 report which scripts would change, write nothing
+      --entity <name>         an entity name or Collection/Name glob to format (repeatable)
+      --changed-since <git-rev>  format entity files and sidecars changed since this revision
   check [--detail]            every gate, one exit code
       --live                  also parse every script on the server (fails closed)
   lint [--entity <name>] [--service <name>] [--rule <id>]... [--json]

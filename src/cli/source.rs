@@ -259,18 +259,24 @@ fn print_log(log: &workflow::Log) {
     }
 }
 
-/// `twaco fmt [--check]`.
+/// `twaco fmt [--check] [--entity <name>] [--changed-since <git-rev>]`.
 #[derive(Debug, clap::Args)]
 #[group(skip)]
 pub(crate) struct Fmt {
     #[arg(long = "check")]
     pub(crate) check: bool,
+    #[arg(long = "entity", value_name = "name")]
+    pub(crate) entity: Vec<String>,
+    #[arg(long = "changed-since", value_name = "git-rev")]
+    pub(crate) changed_since: Option<String>,
 }
 
 pub(crate) fn fmt(solution: &Solution, args: &Fmt) -> u8 {
     let check = args.check;
     let request = commands::fmt::FmtRequest {
         mode: if check { Mode::Plan } else { Mode::Apply },
+        entities: args.entity.clone(),
+        changed_since: args.changed_since.clone(),
         lock_label: "fmt",
     };
     let mut notices = commands::Notices::default();

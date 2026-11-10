@@ -1269,13 +1269,24 @@
   },
   {
     "name": "fmt",
-    "description": "Format every service script sidecar with the built-in formatter. check: true reports which would change and writes nothing.",
+    "description": "Format selected service script sidecars with the built-in formatter. Without a selector, formats every script. check: true reports which would change and writes nothing.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
         "check": {
           "type": "boolean",
           "default": false
+        },
+        "entities": {
+          "description": "Only scripts of matching bare entity names or Collection/Name globs.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "changed_since": {
+          "description": "Select entities whose source file or sidecars changed since this Git revision.",
+          "type": "string"
         }
       },
       "type": "object"

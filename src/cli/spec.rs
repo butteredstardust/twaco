@@ -452,7 +452,11 @@ pub(crate) const USAGE: &[Usage] = &[
     Usage {
         path: "fmt",
         group: 1,
-        text: r#"  fmt [--check]               format service scripts"#,
+        text: r#"  fmt [--check] [--entity <name>] [--changed-since <git-rev>]
+                              format service scripts
+      --check                 report which scripts would change, write nothing
+      --entity <name>         an entity name or Collection/Name glob to format (repeatable)
+      --changed-since <git-rev>  format entity files and sidecars changed since this revision"#,
     },
     Usage {
         path: "check",

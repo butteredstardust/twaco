@@ -13,6 +13,9 @@ All notable changes to twaco are recorded here. The format follows
 - `entity status --all` lists the declared projects' entities that are only on the server
   (`server_only` in JSON and MCP), with the command that takes them.
 - `search --type` knows `AIAgent` and `MCPNamespace`.
+- `fmt --entity <name>` (repeatable; a name or `Collection/Name` glob) and
+  `fmt --changed-since <git-rev>` limit formatting to those entities' scripts (MCP `entities`,
+  `changed_since`).
 
 ### Fixed
 
