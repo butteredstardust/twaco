@@ -748,7 +748,7 @@ pub(crate) fn atomic_replace(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
             if let Ok(metadata) = std::fs::metadata(path) {
                 let _ = std::fs::set_permissions(&temporary, metadata.permissions());
             }
-            std::fs::rename(&temporary, path)
+            rename_over(&temporary, path)
         });
     if result.is_err() {
         let _ = std::fs::remove_file(&temporary);
@@ -756,6 +756,24 @@ pub(crate) fn atomic_replace(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         sync_directory(parent);
     }
     result
+}
+
+/// Rename `from` over `to`. On Windows a file written a moment ago can be held open for a moment
+/// by a virus scanner or the search indexer, and the rename then fails with access denied; it is
+/// tried again for about a third of a second before the error stands. Elsewhere this is a rename.
+pub(crate) fn rename_over(from: &Path, to: &Path) -> std::io::Result<()> {
+    let mut delays = [10u64, 20, 40, 80, 160].into_iter();
+    loop {
+        match std::fs::rename(from, to) {
+            Err(error) if cfg!(windows) && error.kind() == std::io::ErrorKind::PermissionDenied => {
+                let Some(delay) = delays.next() else {
+                    return Err(error);
+                };
+                std::thread::sleep(std::time::Duration::from_millis(delay));
+            }
+            result => return result,
+        }
+    }
 }
 
 /// Make a rename in `directory` durable. On Unix the new name is only on disk once the directory
@@ -1103,6 +1121,37 @@ mod tests {
         let mut entity = file("A.Manager", "", "a.xml");
         entity.found_under = "Anything".to_string();
         assert!(!entity.is_misfiled(), "undeclared is not the same as wrong");
+    }
+
+    /// A scanner opens a new file without letting anyone delete or replace it; the rename waits
+    /// it out instead of failing.
+    #[cfg(windows)]
+    #[test]
+    fn a_rename_over_a_file_held_for_a_moment_waits_for_it() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("Acme.Thing.xml");
+        let source = dir.path().join("new.tmp");
+        std::fs::write(&target, "old").unwrap();
+        std::fs::write(&source, "new").unwrap();
+        // Share mode 0: no other handle may read, write or delete while this one is open.
+        let held = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(&target)
+            .unwrap();
+        assert_eq!(
+            std::fs::rename(&source, &target).unwrap_err().kind(),
+            std::io::ErrorKind::PermissionDenied,
+            "a held file refuses a plain rename"
+        );
+        let release = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(60));
+            drop(held);
+        });
+        rename_over(&source, &target).unwrap();
+        release.join().unwrap();
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "new");
     }
 
     #[test]
