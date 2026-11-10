@@ -26,6 +26,12 @@ All notable changes to twaco are recorded here. The format follows
   `twaco sync` is needed afterwards.
 - A deploy narrowed by `--only`, `--changed-since` or `--exclude` is no longer blocked by gate
   findings in entities it leaves out; they are shown as warnings.
+- `thing service override` and `--revert` work on an entity that has no `ServiceDefinitions` or
+  `ServiceImplementations` section.
+- `entity diff` names every differing unnamed sibling instead of stopping at the first pair of
+  different kinds; an element only one side has is named on its own.
+- On Windows, replacing a file retries briefly when a virus scanner or indexer holds it, so a
+  failed `ext deploy` puts the version bump back reliably.
 - A bare entity file without the `<Entities>` export wrapper (a REST read an older `entity get`
   saved) is reported as unreadable, with the command that fetches the export, instead of being
   skipped without a word.

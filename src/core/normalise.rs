@@ -494,6 +494,34 @@ fn differences(sent: &Element, back: &Element, path: &str, sides: &Sides, out: &
         }
         return;
     }
+    // Unnamed siblings are aligned by kind, so one element more or less on a side is named alone
+    // and the siblings after it are still compared with their counterparts. The alignment table
+    // is the product of the two lengths; past a bound, the walk is positional.
+    if left.len().saturating_mul(right.len()) <= 1_000_000 {
+        let labels = |children: &[(String, &Element)]| -> Vec<String> {
+            children.iter().map(|(label, _)| label.clone()).collect()
+        };
+        for step in align(&labels(&left), &labels(&right)) {
+            match step {
+                Step::Both(i, j) => differences(
+                    left[i].1,
+                    right[j].1,
+                    &format!("{path}/{}[{}]", left[i].0, i + 1),
+                    sides,
+                    out,
+                ),
+                Step::Left(i) => note(
+                    out,
+                    format!("{path}/{}[{}]: {}", left[i].0, i + 1, sides.left_only),
+                ),
+                Step::Right(j) => note(
+                    out,
+                    format!("{path}/{}[{}]: {}", right[j].0, j + 1, sides.right_only),
+                ),
+            }
+        }
+        return;
+    }
     for (index, ((label, child), (other_label, other))) in left.iter().zip(&right).enumerate() {
         if label == other_label {
             differences(
@@ -528,6 +556,46 @@ fn differences(sent: &Element, back: &Element, path: &str, sides: &Sides, out: &
             ),
         );
     }
+}
+
+/// One step of an alignment of two sibling lists: a pair, or an element only one side has.
+enum Step {
+    Both(usize, usize),
+    Left(usize),
+    Right(usize),
+}
+
+/// The longest common subsequence of two label lists, as steps in document order.
+fn align(left: &[String], right: &[String]) -> Vec<Step> {
+    let (n, m) = (left.len(), right.len());
+    // lengths[i][j]: the longest common subsequence of left[i..] and right[j..].
+    let mut lengths = vec![vec![0usize; m + 1]; n + 1];
+    for i in (0..n).rev() {
+        for j in (0..m).rev() {
+            lengths[i][j] = if left[i] == right[j] {
+                lengths[i + 1][j + 1] + 1
+            } else {
+                lengths[i + 1][j].max(lengths[i][j + 1])
+            };
+        }
+    }
+    let (mut i, mut j, mut steps) = (0, 0, Vec::new());
+    while i < n && j < m {
+        if left[i] == right[j] {
+            steps.push(Step::Both(i, j));
+            i += 1;
+            j += 1;
+        } else if lengths[i + 1][j] >= lengths[i][j + 1] {
+            steps.push(Step::Left(i));
+            i += 1;
+        } else {
+            steps.push(Step::Right(j));
+            j += 1;
+        }
+    }
+    steps.extend((i..n).map(Step::Left));
+    steps.extend((j..m).map(Step::Right));
+    steps
 }
 
 fn note(out: &mut Collector, what: String) {
@@ -1608,13 +1676,30 @@ mod tests {
         let fewer = r#"<Mashup name="M"><Things><Thing>A</Thing></Things></Mashup>"#;
         assert_eq!(
             read_back_differences(sent.as_bytes(), fewer.as_bytes(), &[]),
-            ["Mashup[M]/Things: 2 child elements sent, 1 read back"]
+            ["Mashup[M]/Things/Thing[2]: dropped by the server"]
         );
         let changed =
             r#"<Mashup name="M"><Things><Thing>A</Thing><Thing>C</Thing></Things></Mashup>"#;
         assert_eq!(
             read_back_differences(sent.as_bytes(), changed.as_bytes(), &[]),
             ["Mashup[M]/Things/Thing[2]: text changed"]
+        );
+    }
+
+    #[test]
+    fn every_differing_unnamed_sibling_is_named_past_one_of_another_kind() {
+        // The server added an element of another kind at the front, and changed two others: each
+        // is reported, rather than the walk stopping at the first pair whose kinds differ.
+        let sent =
+            r#"<Mashup name="M"><Parts><Row>1</Row><Cell>2</Cell><Row>3</Row></Parts></Mashup>"#;
+        let back = r#"<Mashup name="M"><Parts><Note/><Row>1</Row><Cell>x</Cell><Row>y</Row></Parts></Mashup>"#;
+        assert_eq!(
+            all_differences(sent.as_bytes(), back.as_bytes(), &[], &READ_BACK),
+            [
+                "Mashup[M]/Parts/Note[1]: added by the server",
+                "Mashup[M]/Parts/Cell[2]: text changed",
+                "Mashup[M]/Parts/Row[3]: text changed",
+            ]
         );
     }
 
