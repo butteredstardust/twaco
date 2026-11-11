@@ -1047,7 +1047,12 @@ remove also refuses callers unless `--force` lists and accepts them. MCP exposes
 ancestor defines. Its `services/<Service>/` folder therefore has only `script.js`; the script gets
 the inherited signature's JSDoc header. It refuses a local definition or implementation, a missing
 parent declaration, or a parent that is not available locally or in the platform cache (run
-`twaco types --platform`, or add that parent's repository). `--revert` removes only that local
+`twaco types --platform`, or add that parent's repository). `--from-parent` (MCP `from_parent`)
+starts the script from the implementation the entity inherits: the nearest ancestor in the
+repository that implements the service, an ancestor's own implementation before its shapes'. It
+refuses a nearest implementation that is not a Script, an ancestor outside the repository that may
+implement it, a shape's implementation competing with another ancestor's, and a parent whose
+sidecar is out of sync (run `twaco sync`). `--revert` removes only that local
 implementation and its sidecar folder, preserving run-time permission grants for the inherited
 service. MCP actions are `service_override` and `service_revert`.
 

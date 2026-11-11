@@ -12,6 +12,9 @@ All notable changes to twaco are recorded here. The format follows
   DataShape. It blocks a DataShape with no primary key, rows with no DataShape fields in the table
   and row cells the DataShape does not define (each fails the import or loses data), and warns
   when the table's fields differ from the DataShape's (they read back not kept).
+- `thing service override --from-parent` (MCP `from_parent`) starts an override from the script it
+  inherits, read from the repository. It refuses a parent that is not a Script, one outside the
+  repository, an ambiguous shape implementation and a parent sidecar out of sync.
 
 ### Fixed
 

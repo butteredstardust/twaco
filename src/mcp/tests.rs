@@ -3239,6 +3239,12 @@ fn entity_edit_overrides_an_inherited_service_then_reverts_it() {
         json!({"action": "service_override", "entity": "P.Press", "name": "Read", "returns": "STRING"}),
     );
     assert_eq!(signature["isError"], true, "{signature}");
+    let both = call(
+        &root,
+        "entity_edit",
+        json!({"action": "service_override", "entity": "P.Press", "name": "Read", "then": "x", "from_parent": true}),
+    );
+    assert_eq!(both["isError"], true, "{both}");
     let removed = call(
         &root,
         "entity_edit",

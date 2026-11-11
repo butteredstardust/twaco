@@ -27,6 +27,14 @@ use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
+/// Where an override's script comes from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OverrideSource {
+    Code(String),
+    /// The script of the implementation the entity inherits, from the repository.
+    Parent,
+}
+
 mod ai;
 pub use ai::AgentChange;
 
@@ -107,7 +115,7 @@ pub enum Action {
     /// A script implementation of a definition an ancestor supplies.
     ServiceOverride {
         name: String,
-        code: String,
+        source: OverrideSource,
     },
     /// Stop implementing an inherited service without removing its permission grants.
     ServiceRevert {
@@ -431,7 +439,9 @@ pub(crate) fn plan(solution: &Solution, request: &Request) -> Result<Plan, EditE
         Action::SubscriptionRemove { name } => subscription_remove(&doc, name, &mut plan)?,
         Action::ServiceAdd(service) => edit.service_add(service, &mut plan)?,
         Action::ServiceRemove { name, force } => edit.service_remove(name, *force, &mut plan)?,
-        Action::ServiceOverride { name, code } => edit.service_override(name, code, &mut plan)?,
+        Action::ServiceOverride { name, source } => {
+            edit.service_override(name, source, &mut plan)?
+        }
         Action::ServiceRevert { name } => edit.service_revert(name, &mut plan)?,
         Action::ShapeAdd { shape } => edit.shape_add(shape, &mut plan)?,
         Action::ShapeRemove { shape, force } => edit.shape_remove(shape, *force, &mut plan)?,
@@ -2062,7 +2072,12 @@ impl Edit2<'_> {
         Ok(())
     }
 
-    fn service_override(&self, name: &str, source: &str, plan: &mut Plan) -> Result<(), EditError> {
+    fn service_override(
+        &self,
+        name: &str,
+        source: &OverrideSource,
+        plan: &mut Plan,
+    ) -> Result<(), EditError> {
         let doc = self.doc;
         doc.require(
             &MEMBER_HOSTS,
@@ -2126,7 +2141,14 @@ impl Edit2<'_> {
                 )));
             }
         };
-        let code = prepared_service_code(self.solution, doc, name, source, &definition);
+        let (source, from) = match source {
+            OverrideSource::Code(code) => (code.clone(), None),
+            OverrideSource::Parent => {
+                let (code, from) = self.parent_script(&model, entity, name)?;
+                (code, Some(from))
+            }
+        };
+        let code = prepared_service_code(self.solution, doc, name, &source, &definition);
         let mut sidecars = service_sidecars(doc)?;
         sidecars.insert(
             name.to_string(),
@@ -2143,7 +2165,10 @@ impl Edit2<'_> {
             self.solution.format.indent_cdata_payload,
         )
         .map_err(invalid)?;
-        plan.summary = format!("override inherited service {name}");
+        plan.summary = match &from {
+            Some(from) => format!("override inherited service {name} with {from}'s script"),
+            None => format!("override inherited service {name}"),
+        };
         plan.changes.push(doc.change(after));
         let services = workspace::services_dir(self.solution, &doc.file);
         other_sidecars(doc, &services, &sidecars, name, plan);
@@ -2154,6 +2179,121 @@ impl Edit2<'_> {
             code.into_bytes(),
         ));
         Ok(())
+    }
+
+    /// The script `entity` inherits for `name`, and the ancestor it comes from. Only a Script
+    /// implementation in the repository, with its sidecars in sync, is copied.
+    fn parent_script(
+        &self,
+        model: &types::Model,
+        entity: &types::Entity,
+        name: &str,
+    ) -> Result<(String, String), EditError> {
+        let found = workspace::discover(self.solution);
+        let file_of = |collection: &str, entity: &str| {
+            found
+                .entities
+                .iter()
+                .find(|file| file.info.collection == collection && file.info.name == entity)
+        };
+        let unreadable = std::cell::RefCell::new(None);
+        let implements = |ancestor: &types::Entity| {
+            let read = file_of(&ancestor.collection, &ancestor.name)
+                .ok_or_else(|| "not found in the repository".to_string())
+                .and_then(|file| std::fs::read(&file.path).map_err(|error| error.to_string()))
+                .and_then(|src| sidecar::extract(&src).map_err(|error| error.to_string()));
+            match read {
+                Ok(extraction) if extraction.services.iter().any(|s| s.name == name) => {
+                    catalog::Implementation::Script
+                }
+                Ok(extraction) if extraction.non_script.iter().any(|s| s == name) => {
+                    catalog::Implementation::Other
+                }
+                Ok(_) => catalog::Implementation::None,
+                Err(why) => {
+                    unreadable.replace(Some(format!(
+                        "{}/{}: {why}",
+                        ancestor.collection, ancestor.name
+                    )));
+                    catalog::Implementation::None
+                }
+            }
+        };
+        let resolved = catalog::parent_implementation(
+            entity,
+            &model.entities,
+            types::cached_platform(self.solution).as_ref(),
+            name,
+            &implements,
+        );
+        if let Some(why) = unreadable.into_inner() {
+            return Err(invalid(format!(
+                "cannot read an ancestor of {}.{name}: {why}",
+                self.doc.label()
+            )));
+        }
+        let (collection, ancestor) = match resolved {
+            catalog::ParentImplementation::Found {
+                collection,
+                name: ancestor,
+                kind: catalog::Implementation::Script,
+            } => (collection, ancestor),
+            catalog::ParentImplementation::Found {
+                collection,
+                name: ancestor,
+                ..
+            } => {
+                return Err(invalid(format!(
+                    "{collection}/{ancestor} implements {name} with a handler other than Script, which --from-parent cannot copy; write the override with --script"
+                )))
+            }
+            catalog::ParentImplementation::Ambiguous(names) => {
+                return Err(invalid(format!(
+                    "{} implement {name}, and which one {} inherits is not settled; copy the script you mean with --script",
+                    names.join(" and "),
+                    self.doc.label()
+                )))
+            }
+            catalog::ParentImplementation::Unresolved(ancestor) => {
+                return Err(EditError::Unknown(format!(
+                    "{ancestor} may implement {name} but is not in the repository; export it into the repository, or write the override with --script"
+                )))
+            }
+            catalog::ParentImplementation::Absent => {
+                return Err(EditError::Unknown(format!(
+                    "no ancestor of {} in the repository implements {name}; write the override with --script",
+                    self.doc.label()
+                )))
+            }
+        };
+        let file = file_of(&collection, &ancestor).expect("the walk read this ancestor's file");
+        let src = read_file(&file.path)?;
+        let sidecars = workspace::read_sidecars(&workspace::services_dir(self.solution, file));
+        if !sidecars.is_empty() {
+            let unsynced = match crate::core::sync::sync(
+                &src,
+                &sidecars,
+                true,
+                self.solution.format.indent_cdata_payload,
+                false,
+            ) {
+                Ok((_, report)) => report.changed.iter().any(|changed| changed == name),
+                Err(_) => true,
+            };
+            if unsynced {
+                return Err(invalid(format!(
+                    "{collection}/{ancestor}'s {name} sidecar differs from its entity file; run twaco sync, then try again"
+                )));
+            }
+        }
+        let script = sidecar::extract(&src)
+            .map_err(invalid)?
+            .services
+            .into_iter()
+            .find(|service| service.name == name)
+            .map(|service| service.script().to_string())
+            .expect("the walk found this Script implementation");
+        Ok((script, format!("{collection}/{ancestor}")))
     }
 
     fn service_revert(&self, name: &str, plan: &mut Plan) -> Result<(), EditError> {
