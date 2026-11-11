@@ -6,6 +6,13 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- A `configuration tables` gate checks each multi-row ConfigurationTable whose definition names a
+  DataShape. It blocks a DataShape with no primary key, rows with no DataShape fields in the table
+  and row cells the DataShape does not define (each fails the import or loses data), and warns
+  when the table's fields differ from the DataShape's (they read back not kept).
+
 ### Fixed
 
 - `init --from-server --missing` names the `[[server_owned]]` members rule that a new Group or

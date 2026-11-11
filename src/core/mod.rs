@@ -20,6 +20,7 @@ pub mod commands;
 pub(crate) mod comments;
 pub mod config;
 pub mod config_table;
+pub(crate) mod config_table_check;
 pub(crate) mod contained_check;
 pub mod contract;
 pub mod datashape;

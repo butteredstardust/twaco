@@ -321,6 +321,7 @@ pub(crate) const BUILT_IN_GATES: &[&str] = &[
     "comment prose",
     "project",
     "project dependencies",
+    "configuration tables",
     "mashup bindings",
     "mashup content",
     "contained mashups",
@@ -355,6 +356,7 @@ pub fn run(solution: &Solution) -> CheckReport {
         code_order_with(solution, &discovery, &lint),
         project_validation(solution, &discovery),
         project_dependencies(solution, &discovery, &model),
+        configuration_tables(solution, &discovery, &model),
         mashup_bindings(solution, &discovery, &model),
         mashup_content(solution, &discovery),
         contained_mashups(solution, &discovery),
@@ -415,6 +417,58 @@ fn structure_gate(solution: &Solution, discovered: &workspace::Discovery) -> Gat
             message: finding.message,
         })
         .collect();
+    result
+}
+
+/// Whether each multi-row ConfigurationTable's copy agrees with the DataShape its definition
+/// names; see [`config_table_check`](super::config_table_check). A copy that only differs warns.
+fn configuration_tables(
+    solution: &Solution,
+    discovered: &workspace::Discovery,
+    model: &types::Model,
+) -> GateResult {
+    const GATE: &str = "configuration tables";
+    let hosts: Vec<_> = discovered
+        .entities
+        .iter()
+        .filter(|entry| {
+            matches!(
+                entry.info.collection.as_str(),
+                "Things" | "ThingTemplates" | "ThingShapes"
+            )
+        })
+        .collect();
+    let mut result = GateResult::passed(GATE, hosts.len());
+    for entry in hosts {
+        let file = solution.relative(&entry.path);
+        let bytes = match std::fs::read(&entry.path) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                result.findings.push(Finding {
+                    gate: GATE.into(),
+                    file,
+                    line: 0,
+                    rule: "unreadable".into(),
+                    message: error.to_string(),
+                });
+                continue;
+            }
+        };
+        for problem in super::config_table_check::check(&bytes, &model.data_shapes) {
+            let finding = Finding {
+                gate: GATE.into(),
+                file: file.clone(),
+                line: 0,
+                rule: problem.rule.into(),
+                message: problem.message,
+            };
+            if problem.blocks {
+                result.findings.push(finding);
+            } else {
+                result.warnings.push(finding);
+            }
+        }
+    }
     result
 }
 

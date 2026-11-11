@@ -9,6 +9,7 @@ exit: 0
   ok      code order           8 examined
   ok      project              16 examined
   ok      project dependencies 1 examined
+  ok      configuration tables 9 examined
   ok      mashup bindings      0 examined
   warn    mashup content       1 finding(s) in 1 examined
   ok      contained mashups    0 examined
