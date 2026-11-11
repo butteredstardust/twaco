@@ -225,6 +225,11 @@ pub(crate) fn entity_edit_tool(
             description: text(&arguments.description),
         })
     };
+    if arguments.from_parent && !matches!(arguments.action, EntityEditAction::ServiceOverride) {
+        return Err(ToolError::invalid(
+            "from_parent belongs to service_override",
+        ));
+    }
     let action = match arguments.action {
         EntityEditAction::PropertyAdd => {
             need(&arguments.base_type, "type")?;

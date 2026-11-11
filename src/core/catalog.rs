@@ -607,9 +607,15 @@ pub(crate) fn parent_implementation(
     let mut level = 0usize;
     'walk: while let Some(item) = current {
         if level > 0 {
+            if item.extension.is_some() {
+                unresolved = Some(format!("{}/{}", item.collection, item.name));
+                break;
+            }
             let kind = implements(item);
             if kind != Implementation::None {
                 hits.push((level, false, item, kind));
+                // The nearest own implementation decides, and a second one settles ambiguity.
+                break;
             }
         }
         for shape_name in &item.shapes {
@@ -617,10 +623,17 @@ pub(crate) fn parent_implementation(
                 continue;
             }
             match local("ThingShapes", shape_name) {
+                Some(shape) if shape.extension.is_some() => {
+                    unresolved = Some(format!("ThingShapes/{shape_name}"));
+                    break 'walk;
+                }
                 Some(shape) => {
                     let kind = implements(shape);
                     if kind != Implementation::None {
                         hits.push((level, true, shape, kind));
+                        if hits.len() > 1 {
+                            break 'walk;
+                        }
                     }
                 }
                 None if may_implement(platform.and_then(|p| p.shapes.get(shape_name))) => {
@@ -935,6 +948,39 @@ mod tests {
         assert_eq!(
             resolve(&entities, None, &[("Mid_TT", Implementation::Script)]),
             found("ThingTemplates", "Mid_TT", Implementation::Script)
+        );
+    }
+
+    #[test]
+    fn an_extension_ancestor_is_outside_the_repository_and_not_read_past_a_decision() {
+        let mut extension = node("ThingTemplates", "Vendor_TT", None, &[]);
+        extension.extension = Some("Vendor".into());
+        let entities = [
+            node("Things", "T", Some("Mid_TT"), &[]),
+            node("ThingTemplates", "Mid_TT", Some("Vendor_TT"), &[]),
+            extension,
+        ];
+        let read = std::cell::RefCell::new(Vec::new());
+        let implements = |entity: &Entity| {
+            read.borrow_mut().push(entity.name.clone());
+            if entity.name == "Mid_TT" {
+                Implementation::Script
+            } else {
+                Implementation::None
+            }
+        };
+        assert_eq!(
+            parent_implementation(&entities[0], &entities, None, "S", &implements),
+            found("ThingTemplates", "Mid_TT", Implementation::Script)
+        );
+        assert_eq!(
+            *read.borrow(),
+            ["Mid_TT"],
+            "nothing past the decision is read"
+        );
+        assert_eq!(
+            resolve(&entities, None, &[]),
+            ParentImplementation::Unresolved("ThingTemplates/Vendor_TT".into())
         );
     }
 

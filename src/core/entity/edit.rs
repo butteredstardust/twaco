@@ -2277,7 +2277,12 @@ impl Edit2<'_> {
                 self.solution.format.indent_cdata_payload,
                 false,
             ) {
-                Ok((_, report)) => report.changed.iter().any(|changed| changed == name),
+                // A missing sidecar means the service is on its way out of the entity.
+                Ok((_, report)) => report
+                    .changed
+                    .iter()
+                    .chain(&report.only_in_entity)
+                    .any(|changed| changed == name),
                 Err(_) => true,
             };
             if unsynced {
@@ -2292,7 +2297,11 @@ impl Edit2<'_> {
             .into_iter()
             .find(|service| service.name == name)
             .map(|service| service.script().to_string())
-            .expect("the walk found this Script implementation");
+            .ok_or_else(|| {
+                invalid(format!(
+                    "{collection}/{ancestor} no longer has a Script implementation of {name}; try again"
+                ))
+            })?;
         Ok((script, format!("{collection}/{ancestor}")))
     }
 

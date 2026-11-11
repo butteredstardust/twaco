@@ -114,6 +114,10 @@ mod tests {
             Ok(self.0.map(|xml| xml.as_bytes().to_vec()))
         }
 
+        fn exists(&self, _: &EntityKey) -> Result<bool, ServerError> {
+            Ok(self.0.is_some())
+        }
+
         fn fetch_rest(&self, _: &EntityKey) -> Result<Vec<u8>, ServerError> {
             match self.0 {
                 Some(xml) => Ok(xml.as_bytes().to_vec()),

@@ -38,23 +38,27 @@ pub(crate) fn check(src: &[u8], shapes: &[DataShape]) -> Vec<TableProblem> {
         matches!(token.kind, Kind::Start | Kind::Empty) && token.name.of(src) == name
     };
     let end_of = |index: usize| scan::element_end_in(&tokens, src, index).unwrap_or(index);
-    // A service's handler tables (`Script`, `Query`) are ConfigurationTables too.
-    let in_services: Vec<(usize, usize)> = (0..tokens.len())
-        .filter(|&index| is(index, b"ServiceImplementations"))
-        .filter_map(|index| Some((index, scan::element_end_in(&tokens, src, index)?)))
-        .collect();
-    let outside_services = |index: usize| {
-        !in_services
-            .iter()
-            .any(|(start, end)| index > *start && index < *end)
+    // Only the entity's own sections: services and subscriptions keep handler tables
+    // (`Script`, `Query`) under the same element names.
+    let Some(entity) = super::sidecar::entity_element(&tokens, src) else {
+        return Vec::new();
+    };
+    let own = |section: &[u8], member: &[u8]| -> Vec<usize> {
+        direct_children(&tokens, entity, end_of(entity))
+            .into_iter()
+            .filter(|&child| is(child, section))
+            .flat_map(|child| direct_children(&tokens, child, end_of(child)))
+            .filter(|&inner| is(inner, member))
+            .collect()
     };
 
     // Named-only multi-row definitions, by table name.
     let mut named = BTreeMap::new();
     let mut problems = Vec::new();
-    for index in (0..tokens.len())
-        .filter(|&index| is(index, b"ConfigurationTableDefinition") && outside_services(index))
-    {
+    for index in own(
+        b"ConfigurationTableDefinitions",
+        b"ConfigurationTableDefinition",
+    ) {
         let token = &tokens[index];
         let shape = text(token, "dataShapeName");
         if text(token, "isMultiRow") != "true" || shape.is_empty() {
@@ -81,9 +85,7 @@ pub(crate) fn check(src: &[u8], shapes: &[DataShape]) -> Vec<TableProblem> {
         named.insert(table, shape);
     }
 
-    for index in (0..tokens.len())
-        .filter(|&index| is(index, b"ConfigurationTable") && outside_services(index))
-    {
+    for index in own(b"ConfigurationTables", b"ConfigurationTable") {
         let token = &tokens[index];
         let table = text(token, "name");
         let Some(shape) = named.get(&table) else {
@@ -171,6 +173,14 @@ fn resolved<'a>(shapes: &'a [DataShape], name: &str) -> Option<&'a [Field]> {
         .map(|shape| shape.fields.as_slice())
 }
 
+/// `01` and `1` are one ordinal; text that is not a number compares as written.
+fn same_ordinal(left: &str, right: &str) -> bool {
+    match (left.trim().parse::<u64>(), right.trim().parse::<u64>()) {
+        (Ok(left), Ok(right)) => left == right,
+        _ => left == right,
+    }
+}
+
 fn is_key(field: &Field) -> bool {
     matches!(field.aspects.get("isPrimaryKey"), Some(Aspect::Bool(true)))
 }
@@ -210,7 +220,7 @@ fn differences(
         if text(token, "baseType") != field.base_type {
             what.push("baseType");
         }
-        if text(token, "ordinal") != field.ordinal {
+        if !same_ordinal(&text(token, "ordinal"), &field.ordinal) {
             what.push("ordinal");
         }
         if text(token, "description") != field.description {
@@ -285,6 +295,24 @@ mod tests {
         let shapes = [shape("Acme.Row_DS", SHAPE)];
         let copy = format!("<DataShape><FieldDefinitions>{COPY}</FieldDefinitions></DataShape>");
         assert_eq!(rules(&thing(&copy, ROW), &shapes), []);
+    }
+
+    #[test]
+    fn handler_tables_of_services_and_subscriptions_are_not_the_entitys() {
+        let shapes = [shape("Acme.Row_DS", SHAPE)];
+        // An own table named like a handler table, and a subscription's handler table.
+        let src = r#"<Entities><Things><Thing name="T"><ConfigurationTableDefinitions><ConfigurationTableDefinition name="Script" isMultiRow="true" dataShapeName="Acme.Row_DS"/></ConfigurationTableDefinitions><ConfigurationTables></ConfigurationTables><ThingShape><Subscriptions><Subscription name="OnStart"><ServiceImplementation name="OnStart" handlerName="Script"><ConfigurationTables><ConfigurationTable name="Script"><Rows><Row><code>x</code></Row></Rows></ConfigurationTable></ConfigurationTables></ServiceImplementation></Subscription></Subscriptions></ThingShape></Thing></Things></Entities>"#;
+        assert_eq!(rules(src, &shapes), []);
+    }
+
+    #[test]
+    fn ordinals_compare_as_numbers() {
+        let shapes = [shape(
+            "Acme.Row_DS",
+            r#"<FieldDefinition name="b" baseType="STRING" ordinal="01" aspect.isPrimaryKey="true"/>"#,
+        )];
+        let copy = r#"<DataShape><FieldDefinitions><FieldDefinition name="b" baseType="STRING" ordinal="1" aspect.isPrimaryKey="true"/></FieldDefinitions></DataShape>"#;
+        assert_eq!(rules(&thing(copy, ""), &shapes), []);
     }
 
     #[test]

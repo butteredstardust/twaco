@@ -3245,6 +3245,13 @@ fn entity_edit_overrides_an_inherited_service_then_reverts_it() {
         json!({"action": "service_override", "entity": "P.Press", "name": "Read", "then": "x", "from_parent": true}),
     );
     assert_eq!(both["isError"], true, "{both}");
+    let elsewhere = call(
+        &root,
+        "entity_edit",
+        json!({"action": "service_revert", "entity": "P.Press", "name": "Read", "from_parent": true, "dry_run": false}),
+    );
+    assert_eq!(elsewhere["isError"], true, "{elsewhere}");
+    assert!(root.join("src/P.Press/services/Read/script.js").is_file());
     let removed = call(
         &root,
         "entity_edit",

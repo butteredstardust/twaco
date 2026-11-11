@@ -17,6 +17,9 @@ pub trait Remote {
     fn export(&self, key: &EntityKey) -> Result<Option<Vec<u8>>, ServerError>;
     /// The ordinary REST XML representation, including runtime data where the server exposes it.
     fn fetch_rest(&self, key: &EntityKey) -> Result<Vec<u8>, ServerError>;
+    /// Whether the entity's REST resource exists. Unlike [`Remote::fetch_rest`], it never reads a
+    /// MediaEntity through the Exporter, so it can confirm an empty export.
+    fn exists(&self, key: &EntityKey) -> Result<bool, ServerError>;
 }
 
 impl Remote for Client {
@@ -26,6 +29,10 @@ impl Remote for Client {
 
     fn fetch_rest(&self, key: &EntityKey) -> Result<Vec<u8>, ServerError> {
         self.fetch_entity(key)
+    }
+
+    fn exists(&self, key: &EntityKey) -> Result<bool, ServerError> {
+        self.entity_exists(key)
     }
 }
 
@@ -84,10 +91,11 @@ pub fn fetch(remote: &dyn Remote, key: &EntityKey, view: View) -> Result<Vec<u8>
     match view {
         View::Export => match remote.export(key).map_err(GetError::Remote)? {
             Some(bytes) => Ok(bytes),
-            // An empty or unrecognised export is not proof of absence: only a REST 404 is.
-            None => match remote.fetch_rest(key) {
-                Ok(_) => Err(GetError::NoExport(key.clone())),
-                Err(error) if error.is_not_found() => Err(GetError::NotOnServer(key.clone())),
+            // An empty or unrecognised export is not proof of absence: only the REST resource's
+            // absence is.
+            None => match remote.exists(key) {
+                Ok(true) => Err(GetError::NoExport(key.clone())),
+                Ok(false) => Err(GetError::NotOnServer(key.clone())),
                 Err(error) => Err(GetError::Remote(error)),
             },
         },
@@ -128,15 +136,12 @@ mod tests {
         }
 
         fn fetch_rest(&self, key: &EntityKey) -> Result<Vec<u8>, ServerError> {
-            if key.name() == "Acme.Missing" {
-                return Err(ServerError::Http {
-                    method: crate::core::server::Method::Get,
-                    status: 404,
-                    url: key.to_string(),
-                    body: String::new(),
-                });
-            }
             Ok(format!("<Rest>{key}</Rest>").into_bytes())
+        }
+
+        // As the server's REST route: a MediaEntity whose export is empty still exists.
+        fn exists(&self, key: &EntityKey) -> Result<bool, ServerError> {
+            Ok(key.name() != "Acme.Missing")
         }
     }
 
