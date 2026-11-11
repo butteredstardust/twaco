@@ -249,7 +249,13 @@ where
             })?;
             // As adopt writes a new entity that has no peer file to copy.
             let document = entity::new::document(&key.collection, &laid_out);
-            if !request.missing
+            // --missing leaves twaco.toml alone, so an entity a rule already covers needs no note.
+            let members_covered = existing.as_ref().is_some_and(|solution| {
+                super::server_owned::parts(&solution.server_owned, &key.collection, &info.name)
+                    .iter()
+                    .any(|part| matches!(part, super::server_owned::Part::Members))
+            });
+            if !members_covered
                 && matches!(key.collection.as_str(), "Groups" | "Organizations")
                 && differs_only_in_members(remote, &key.collection, &info.name, &document).map_err(
                     |why| Error::Export {
@@ -307,12 +313,22 @@ where
         notes = proposal.notes;
         proposal.toml
     };
-    if !request.missing && !members_owned.is_empty() {
-        add_members_owned(&mut toml, &members_owned);
-        notes.push(format!(
-            "{} keep their members on the server: the Exporter leaves out user members, so membership is [[server_owned]]",
-            members_owned.join(", ")
-        ));
+    if !members_owned.is_empty() {
+        if request.missing {
+            let mut rule = String::new();
+            add_members_owned(&mut rule, &members_owned);
+            notes.push(format!(
+                "{} differ from the server only in members (the Exporter leaves out user members); add this to twaco.toml so status and deploy leave membership to the server:{}",
+                members_owned.join(", "),
+                rule.trim_end()
+            ));
+        } else {
+            add_members_owned(&mut toml, &members_owned);
+            notes.push(format!(
+                "{} keep their members on the server: the Exporter leaves out user members, so membership is [[server_owned]]",
+                members_owned.join(", ")
+            ));
+        }
     }
     for (project, count) in per_project {
         notes.push(format!("{project}: {count} entities"));
@@ -1175,6 +1191,66 @@ mod tests {
             ),
             "{}",
             outcome.toml
+        );
+    }
+
+    #[test]
+    fn missing_names_the_members_rule_a_new_group_needs_and_leaves_twaco_toml_alone() {
+        let temp = tempfile::tempdir().unwrap();
+        profile(temp.path());
+        let before = "[[project]]
+name = \"P\"
+";
+        std::fs::write(temp.path().join("twaco.toml"), before).unwrap();
+        let group = |name: &str, members: &str| {
+            format!("<Group name=\"{name}\" projectName=\"P\"><Members><Members>{members}</Members></Members></Group>")
+        };
+        let wrap = |inner: String| format!("<Entities><Groups>{inner}</Groups></Entities>");
+        let user = "<Member name=\"someone\" type=\"User\"/>";
+        let remote = Members(
+            wrap(group("P.Editors_UG", "")).into_bytes(),
+            BTreeMap::from([(
+                "Groups/P.Editors_UG".to_string(),
+                wrap(group("P.Editors_UG", user)).into_bytes(),
+            )]),
+        );
+        let request = || Request {
+            root: temp.path().to_path_buf(),
+            projects: vec!["P".into()],
+            apply: false,
+            missing: true,
+            profile: "default".into(),
+        };
+        let plan = execute(&remote, request()).unwrap();
+        assert_eq!(plan.toml, before);
+        let note = plan
+            .notes
+            .iter()
+            .find(|note| note.contains("Groups/P.Editors_UG"))
+            .unwrap_or_else(|| panic!("{:?}", plan.notes));
+        assert!(
+            note.contains(
+                "[[server_owned]]
+entities = [\"Groups/P.Editors_UG\"]
+parts = [\"members\"]"
+            ),
+            "{note}"
+        );
+
+        // A rule that already covers the group needs no note.
+        let covered = format!(
+            "{before}
+[[server_owned]]
+entities = [\"Groups/P.*\"]
+parts = [\"members\"]
+"
+        );
+        std::fs::write(temp.path().join("twaco.toml"), &covered).unwrap();
+        let plan = execute(&remote, request()).unwrap();
+        assert!(
+            !plan.notes.iter().any(|note| note.contains("server_owned")),
+            "{:?}",
+            plan.notes
         );
     }
 

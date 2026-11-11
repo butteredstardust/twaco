@@ -314,13 +314,11 @@ where
         },
     ) {
         Ok(planned) => planned,
+        // An unnarrowed deploy whose gates block has returned above. A narrowed one cannot scope
+        // its gates without a plan, so the selector error stands alone, not beside the failures
+        // of entities the deploy would never have touched.
         Err(why) => {
-            if gates.as_ref().is_some_and(check::CheckReport::blocks) {
-                return Ok(gates_blocked(
-                    gates.take().expect("the report was checked"),
-                    gate_reads_server,
-                ));
-            }
+            let gates = if entity_narrowed { None } else { gates };
             return Err(DeployCommandError::Plan { why, gates });
         }
     };
@@ -966,6 +964,36 @@ name = \"Acme.App\"
             },
         ] {
             assert!(!carries_localization(&solution, &partial), "{partial:?}");
+        }
+    }
+
+    #[test]
+    fn a_narrowed_deploy_reports_its_selector_error_before_gates_on_other_entities() {
+        let (_root, solution) = with_table(DEFAULT);
+        // The project gate fails on an entity of an undeclared project.
+        std::fs::write(
+            solution.root.join("Things/Acme.App.Stray.xml"),
+            "<Entities><Things><Thing name=\"Acme.App.Stray\" projectName=\"Other\"></Thing></Things></Entities>",
+        )
+        .unwrap();
+        let request = DeployRequest {
+            skip_checks: false,
+            only: vec!["Acme.App.Nope".to_string()],
+            ..whole(Mode::Plan)
+        };
+        let outcome = execute(
+            &solution,
+            &request,
+            |_| Rejecting,
+            &mut Notices::default(),
+            &crate::core::progress::NONE,
+        );
+        match outcome {
+            Err(DeployCommandError::Plan { why, gates }) => {
+                assert!(why.contains("Acme.App.Nope"), "{why}");
+                assert!(gates.is_none(), "unscoped gates are not reported");
+            }
+            other => panic!("expected the selector error, got {other:?}"),
         }
     }
 

@@ -6,6 +6,16 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `init --from-server --missing` names the `[[server_owned]]` members rule that a new Group or
+  Organization needs when it differs from the server only in members. `twaco.toml` is still left
+  unchanged.
+- A deploy narrowed by `--only`, `--changed-since` or `--exclude` with a selector that matches
+  nothing reports the selector error, not the gate findings of entities it would leave out.
+- `entity diff` and read-back differences say which side numbers an element only the server has
+  (`Note (element 1 on the server)`), so it no longer shares a number with a repository element.
+
 ## [0.1.58] - 2026-11-10
 
 ### Added
