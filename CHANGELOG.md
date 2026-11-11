@@ -15,6 +15,8 @@ All notable changes to twaco are recorded here. The format follows
   nothing reports the selector error, not the gate findings of entities it would leave out.
 - `entity diff` and read-back differences say which side numbers an element only the server has
   (`Note (element 1 on the server)`), so it no longer shares a number with a repository element.
+- `entity get` says "the server has no ..." only when the REST read agrees; when the REST read finds
+  the entity but the Exporter returns nothing for it, it says so and points at `--rest`.
 
 ## [0.1.58] - 2026-11-10
 
