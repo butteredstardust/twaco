@@ -44,13 +44,18 @@ pub struct Client {
     import_account: std::sync::OnceLock<Option<String>>,
 }
 
+/// TLS that trusts what the operating system trusts, so HTTPS works behind a proxy that
+/// re-signs traffic with a root installed in the system store (corporate TLS inspection).
+/// Every agent twaco builds uses it; ureq's default trusts only its bundled roots.
+pub(crate) fn platform_tls() -> ureq::tls::TlsConfig {
+    ureq::tls::TlsConfig::builder()
+        .root_certs(ureq::tls::RootCerts::PlatformVerifier)
+        .build()
+}
+
 impl Client {
     pub fn new(profile: Profile) -> Self {
-        use ureq::tls::{RootCerts, TlsConfig};
-
-        let tls_config = TlsConfig::builder()
-            .root_certs(RootCerts::PlatformVerifier)
-            .build();
+        let tls_config = platform_tls();
         let agent = ureq::Agent::config_builder()
             .timeout_global(Some(Duration::from_secs(120)))
             // A server that is down should say so in seconds, not after the whole budget.
