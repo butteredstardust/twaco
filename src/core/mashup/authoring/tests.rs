@@ -2715,16 +2715,58 @@ fn template_containers_have_no_margin_and_their_widgets_keep_composers() {
                 continue;
             }
             let document = new_document(&template, master, DEFAULT_THEME).unwrap();
+            // Only a margin the template names on purpose (the kits' content gutter) stays.
+            fn declared(nodes: &[mashup::templates::LayoutNode], out: &mut Vec<(String, Value)>) {
+                for node in nodes {
+                    if let (Some(slot), Some(margin)) = (&node.slot, node.properties.get("Margin"))
+                    {
+                        out.push((slot.clone(), margin.clone()));
+                    }
+                    declared(&node.children, out);
+                }
+            }
+            let mut margins = Vec::new();
+            declared(&template.children, &mut margins);
             for widget in document.widgets().into_iter().skip(1) {
-                let margin = &document.at(&widget.path)["Properties"]["Margin"];
+                let properties = &document.at(&widget.path)["Properties"];
+                let margin = &properties["Margin"];
                 if widget.type_id == "flexcontainer" {
-                    assert_eq!(margin, "", "{} {}", template.name, widget.id);
+                    let expected = margins
+                        .iter()
+                        .find(|(slot, _)| properties["DisplayName"] == slot.as_str())
+                        .map_or(Value::from(""), |(_, margin)| margin.clone());
+                    assert_eq!(margin, &expected, "{} {}", template.name, widget.id);
                 } else {
                     assert_eq!(margin, "5", "{} {}", template.name, widget.id);
                 }
             }
         }
     }
+}
+
+/// A template's slot style lands in the root StyleProperties as `mashup set --style` writes it:
+/// the filter panel's grey column and white content, as the kits draw them.
+#[test]
+fn a_filter_panel_gets_the_kits_grey_filters_and_white_content() {
+    let template = mashup::templates::layout("filter-panel").unwrap().unwrap();
+    let document = new_document(&template, false, DEFAULT_THEME).unwrap();
+    let styles = &document.root_properties()["StyleProperties"];
+    assert_eq!(styles["meta"]["type"], "WidgetStyler");
+    let background = |slot: &str| {
+        let found = document.find(slot).unwrap();
+        styles["data"][&found.id]["parts"]["$"]["$"]["background"].clone()
+    };
+    assert_eq!(background("filters"), "#F7F7F7");
+    assert_eq!(background("content"), "#ffffff");
+    let filters = document.find("filters").unwrap();
+    assert_eq!(styles["data"][&filters.id]["widget"], "flex-container");
+    assert_eq!(
+        document.at(&filters.path)["Properties"]["flex-min-width"],
+        "276px"
+    );
+    assert!(document.at(&filters.path)["Properties"]
+        .get("style")
+        .is_none());
 }
 
 #[test]

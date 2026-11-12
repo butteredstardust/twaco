@@ -60,6 +60,10 @@ pub(crate) struct LayoutNode {
     pub(crate) fixed: Option<String>,
     #[serde(default)]
     pub(crate) divider: bool,
+    /// The container's own look, CSS property to value, written to the root StyleProperties as
+    /// `mashup set --style` writes it. Kept apart so it never lands among Composer properties.
+    #[serde(default, skip_serializing_if = "Map::is_empty")]
+    pub(crate) style: Map<String, Value>,
     #[serde(flatten)]
     pub(crate) properties: Map<String, Value>,
 }

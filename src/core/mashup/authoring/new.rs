@@ -648,6 +648,22 @@ fn add_template_node(
     for (key, value) in &node.properties {
         document.set_property(&child.path, key, value.clone());
     }
+    if !node.style.is_empty() {
+        let mut css = serde_json::Map::new();
+        let mut sorted: Vec<_> = node.style.iter().collect();
+        sorted.sort_by(|a, b| a.0.cmp(b.0));
+        for (property, value) in sorted {
+            css.insert(property.clone(), value.clone());
+        }
+        let entry = json!({"parts": {"$": {"$": css}}, "widget": "flex-container"});
+        super::set::copy_style_entry(
+            document,
+            &format!("flexcontainer-{number}"),
+            entry,
+            None,
+            &mut Vec::new(),
+        );
+    }
     if let Some(fixed) = node.fixed.as_deref().or(node.divider.then_some("1px")) {
         document.set_property(&child.path, "flex-size", json!("fixed"));
         document.set_property(
@@ -685,6 +701,17 @@ fn validate_node(
         return Err(AuthoringError::Invalid(format!(
             "template {template}: a node needs slot"
         )));
+    }
+    for (property, value) in &node.style {
+        let css_name = !property.is_empty()
+            && property
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte == b'-');
+        if !css_name || !value.is_string() {
+            return Err(AuthoringError::Invalid(format!(
+                "template {template}: style {property} must be a CSS property with a text value"
+            )));
+        }
     }
     if node.widget.is_some() && !node.children.is_empty() {
         return Err(AuthoringError::Invalid(format!(
