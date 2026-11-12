@@ -3667,6 +3667,58 @@ fn reading_a_grids_selection_turns_single_row_selection_on() {
     assert_eq!(after["RowSelection"], "single");
 }
 
+/// A service's selected rows come from the grid showing its result: reading them turns that
+/// grid's selection on, as reading the grid's own selection does.
+#[test]
+fn reading_a_services_selected_rows_turns_selection_on_in_the_grid_showing_it() {
+    let (_dir, solution) = recipe_fixture();
+    let grid_of = |solution: &Solution| {
+        let document = crate::core::mashup::edit::parse(&sidecar_content(solution)).unwrap();
+        let grid = document
+            .widgets()
+            .into_iter()
+            .find(|widget| widget.type_id == "ptcsgrid")
+            .unwrap();
+        (
+            grid.id.clone(),
+            document.at(&grid.path)["Properties"]["RowSelection"].clone(),
+        )
+    };
+    let (grid, before) = grid_of(&solution);
+    assert_eq!(before, "none");
+    let shown = bind(
+        &solution,
+        "data:Acme.Orders.Manager.GetOrders",
+        &format!("ui:{grid}.Data"),
+    )
+    .unwrap();
+    apply_edit(&solution, &shown.edit, &lock(&solution)).unwrap();
+    assert_eq!(
+        grid_of(&solution).1,
+        "none",
+        "showing rows alone selects nothing"
+    );
+    let plan = recipe(
+        &solution,
+        "enable-when",
+        RecipeArgs {
+            widget: Some("ptcsbutton-6".into()),
+            condition: Some("!!id".into()),
+            inputs: vec!["id=data:Acme.Orders.Manager.GetOrders[SelectedRows].id".into()],
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert!(
+        plan.notes
+            .iter()
+            .any(|note| note.contains(&grid) && note.contains("single")),
+        "{:?}",
+        plan.notes
+    );
+    assert_eq!(grid_of(&solution).1, "single");
+}
+
 #[test]
 fn only_selection_outputs_of_a_grid_without_selection_turn_it_on() {
     let (_dir, solution) = recipe_fixture();

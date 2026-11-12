@@ -749,12 +749,18 @@ pub fn recipe(
     notices: &mut Notices,
 ) -> Result<MashupRecipeOutcome, MashupCommandError> {
     match request.mode {
-        Mode::Plan => Ok(MashupRecipeOutcome {
-            plan: mashup::authoring::plan_recipe(solution, &request.request)
-                .map_err(MashupCommandError::Authoring)?,
-            applied: false,
-            effects: Effects::new(Access::Read, Access::None),
-        }),
+        Mode::Plan => {
+            let plan = mashup::authoring::plan_recipe(solution, &request.request)
+                .map_err(MashupCommandError::Authoring)?;
+            plan.notes
+                .iter()
+                .for_each(|note| notices.push(note.clone()));
+            Ok(MashupRecipeOutcome {
+                plan,
+                applied: false,
+                effects: Effects::new(Access::Read, Access::None),
+            })
+        }
         Mode::Apply => {
             let lock = lock_workspace(solution, request.lock_label, notices)
                 .map_err(MashupCommandError::Lock)?;
@@ -764,6 +770,9 @@ pub fn recipe(
                 .map_err(MashupCommandError::Authoring)?;
             mashup::authoring::apply_edit(&reloaded, &plan.edit, &lock)
                 .map_err(MashupCommandError::Authoring)?;
+            plan.notes
+                .iter()
+                .for_each(|note| notices.push(note.clone()));
             Ok(MashupRecipeOutcome {
                 plan,
                 applied: true,

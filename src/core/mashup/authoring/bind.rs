@@ -69,7 +69,7 @@ pub(crate) fn plan_bind(
 
 pub(super) struct BindIn {
     new_source: Option<String>,
-    warnings: Vec<String>,
+    pub(super) warnings: Vec<String>,
     refreshed: Vec<String>,
 }
 
@@ -213,14 +213,28 @@ pub(super) fn bind_in(
         "SourceDetails",
         Value::String(details(&from).into()),
     );
-    insert(&mut binding, "SourceId", Value::String(source_id));
-    insert(&mut binding, "SourceSection", Value::String(source_section));
+    let sources = (source_section, source_id);
+    insert(&mut binding, "SourceId", Value::String(sources.1.clone()));
+    insert(
+        &mut binding,
+        "SourceSection",
+        Value::String(sources.0.clone()),
+    );
     insert(&mut binding, "TargetArea", Value::String(area(&to).into()));
     insert(&mut binding, "TargetId", Value::String(target_id));
     insert(&mut binding, "TargetSection", Value::String(target_section));
     document.bindings_mut().push(Value::Object(binding));
     if let Some(note) = enable_grid_selection(document, &from) {
         warnings.push(note);
+    }
+    if matches!(
+        from,
+        End::Data {
+            selected_rows: true,
+            ..
+        }
+    ) {
+        warnings.extend(enable_selection_of_grids_showing(document, &sources));
     }
     let new_source = source_added.or(target_added);
     Ok(BindIn {
@@ -252,6 +266,43 @@ fn enable_grid_selection(document: &mut MashupDocument, from: &End) -> Option<St
     Some(format!(
         "{id} could not select rows; its RowSelection is now single so {property} can change"
     ))
+}
+
+/// A service's selected rows are the rows selected in the grids that show its result, so reading
+/// them needs one of those grids to allow selection: each that cannot gets single selection.
+fn enable_selection_of_grids_showing(
+    document: &mut MashupDocument,
+    (section, id): &(String, String),
+) -> Vec<String> {
+    let grids: Vec<String> = document.value()["DataBindings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|binding| {
+            binding["SourceSection"] == section.as_str()
+                && binding["SourceId"] == id.as_str()
+                && binding["SourceDetails"] == "AllData"
+                && binding["TargetArea"] == "UI"
+        })
+        .filter_map(|binding| binding["TargetId"].as_str().map(str::to_string))
+        .collect();
+    let mut notes = Vec::new();
+    for grid in grids {
+        let Ok(found) = document.find_exact(&grid) else {
+            continue;
+        };
+        let selection = &document.at(&found.path)["Properties"]["RowSelection"];
+        if found.type_id != "ptcsgrid" || !(selection.is_null() || selection == "none") {
+            continue;
+        }
+        document.set_property(&found.path, "RowSelection", Value::from("single"));
+        notes.push(format!(
+            "{grid} shows {id}'s rows but could not select them; its RowSelection is now single so {id}'s SelectedRows can change"
+        ));
+    }
+    notes.sort();
+    notes.dedup();
+    notes
 }
 
 #[cfg(test)]
