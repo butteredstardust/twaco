@@ -2058,12 +2058,14 @@ mod tests {
         );
         doc.push_child(&[0, 0], serde_json::from_str(&title).unwrap());
         let height = card_row_height(doc.at(&[0])).unwrap();
+        // A spacer inside a card adds its height to the card...
         doc.gap("flexcontainer-2", 24).unwrap();
-        assert_eq!(card_row_height(doc.at(&[0])), Some(height));
+        assert_eq!(card_row_height(doc.at(&[0])), Some(height + 24.0));
         doc.gap("flexcontainer-3", 24).unwrap();
         assert!(is_split_row(doc.at(&[0, 0, 0])));
+        // ...one between cards adds nothing to the row's tallest card.
         doc.gap("flexcontainer-1", 24).unwrap();
-        assert_eq!(card_row_height(doc.at(&[0])), Some(height));
+        assert_eq!(card_row_height(doc.at(&[0])), Some(height + 24.0));
         let spacer = doc.at(&[0, 1]).clone();
         let (_, removed) = doc.remove_empty_generated_wrappers(vec![0, 1]);
         assert!(removed.is_empty());
@@ -2113,7 +2115,6 @@ mod tests {
             ("target", 201, "between 0 and 200"),
             ("label", 24, "flexcontainer"),
             ("target", 24, "nothing to separate"),
-            ("target", 0, "nothing to separate"),
         ] {
             let before = doc.to_content();
             assert!(doc
@@ -2123,6 +2124,10 @@ mod tests {
                 .contains(message));
             assert_eq!(before, doc.to_content());
         }
+        // Clearing always works: with nothing to clear it changes nothing.
+        let before = doc.to_content();
+        assert_eq!(doc.gap("target", 0).unwrap(), 0);
+        assert_eq!(before, doc.to_content());
     }
 
     #[test]
