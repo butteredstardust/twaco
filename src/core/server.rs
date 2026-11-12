@@ -40,6 +40,8 @@ pub struct Client {
     agent: ureq::Agent,
     /// What an error message must never repeat: see [`secrets_of`].
     secrets: Vec<Secret>,
+    /// The account imports run as, asked once: see [`Client::import_account`].
+    import_account: std::sync::OnceLock<Option<String>>,
 }
 
 impl Client {
@@ -64,7 +66,37 @@ impl Client {
             profile,
             agent,
             secrets,
+            import_account: std::sync::OnceLock::new(),
         }
+    }
+
+    /// The account an import runs as, which tells its ApplicationLog lines from another user's:
+    /// the profile's username, or for a key-only profile the key's user as the server names it,
+    /// asked once and only when an import failed. `None` when the server will not say; then no
+    /// log line is attributed to the import, since any user's could be taken for its reason.
+    fn import_account(&self) -> Option<&str> {
+        if !self.profile.signs_in_with_app_key() {
+            return Some(&self.profile.username);
+        }
+        self.import_account
+            .get_or_init(|| {
+                let reply = self
+                    .call_service(
+                        &ServiceTarget::platform("Resources", "CurrentSessionInfo"),
+                        "GetCurrentUser",
+                        &serde_json::json!({}),
+                        Duration::from_secs(10),
+                    )
+                    .ok()??;
+                let user = reply
+                    .get("rows")?
+                    .as_array()?
+                    .first()?
+                    .get("result")?
+                    .as_str()?;
+                Some(user.to_string()).filter(|user| !user.trim().is_empty())
+            })
+            .as_deref()
     }
 
     /// Fetch `GET <base>/<Collection>/<Name>` as raw, validated UTF-8 XML bytes.
@@ -329,15 +361,18 @@ impl Client {
                 body,
             }) => {
                 let now = || crate::core::logs::now_ms();
-                let reason = crate::core::logs::import_failure(
-                    self,
-                    &self.profile.username,
-                    started,
-                    now(),
-                    crate::core::logs::Wait::default(),
-                    &now,
-                    &std::thread::sleep,
-                );
+                let ended = now();
+                let reason = self.import_account().and_then(|user| {
+                    crate::core::logs::import_failure(
+                        self,
+                        user,
+                        started,
+                        ended,
+                        crate::core::logs::Wait::default(),
+                        &now,
+                        &std::thread::sleep,
+                    )
+                });
                 let body = match reason {
                     Some(reason) => {
                         let reason = scrub(&self.secrets, &reason);
@@ -1396,6 +1431,47 @@ mod tests {
         let both = head("user", "pass");
         assert!(both.contains("authorization: basic dxnlcjpwyxnz"), "{both}");
         assert!(!both.contains("appkey:"), "{both}");
+    }
+
+    /// A key-only import names the key's user as the server reports it; a server that will not
+    /// say leaves the import with no account, so no other user's log line is taken for its reason.
+    #[test]
+    fn a_key_only_import_runs_as_the_user_the_server_names() {
+        let key_only = |url: String| {
+            Client::new(Profile {
+                url,
+                username: String::new(),
+                password: Secret::default(),
+                app_key: Some("ak-5f1e9c".into()),
+                sdk: None,
+                extra: Default::default(),
+            })
+        };
+        let (url, server) = serve_once(
+            "200 OK",
+            r#"{"rows":[{"result":"kiosk"}],"dataShape":{"fieldDefinitions":{}}}"#,
+        );
+        let client = key_only(url);
+        assert_eq!(client.import_account(), Some("kiosk"));
+        let request = String::from_utf8_lossy(&server.join().unwrap()).into_owned();
+        assert!(
+            request.starts_with(
+                "POST /Thingworx/Resources/CurrentSessionInfo/Services/GetCurrentUser "
+            ),
+            "{request}"
+        );
+        // Asked once: a second failure reuses the answer, with no server to ask.
+        assert_eq!(client.import_account(), Some("kiosk"));
+
+        let (url, server) = serve_once("403 Forbidden", "");
+        assert_eq!(key_only(url).import_account(), None);
+        server.join().unwrap();
+
+        // A Basic profile is its own account, and nothing is asked.
+        assert_eq!(
+            client_for("http://127.0.0.1:1/Thingworx".into()).import_account(),
+            Some("user")
+        );
     }
 
     #[test]
