@@ -486,7 +486,8 @@ an `HTTP 200 success` response.
 DataShapes and Mashups lack `DeleteDataShape` and `DeleteMashup` services. For their REST delete,
 the successful Composer-shaped request includes `DELETE /Thingworx/DataShapes/<name>`, the query
 parameters `Accept: application/json` and `Content-Type: application/json`, plus
-`X-Requested-With: XMLHttpRequest`; Basic authentication is required. A post-delete GET to
+`X-Requested-With: XMLHttpRequest`, signed in with Basic or an `appKey` header (10.2); without
+those query parameters it answers 500. A post-delete GET to
 `/Thingworx/<Collection>/<Name>` is the useful confirmation. Similarly, a repository deletion is
 `DELETE /Thingworx/Things/<repository Thing>`; save its files before that irreversible action.
 
