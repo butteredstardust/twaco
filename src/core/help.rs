@@ -66,6 +66,7 @@ impl Web {
             .timeout_global(Some(Duration::from_secs(60)))
             .max_redirects(0)
             .max_redirects_will_error(false)
+            .tls_config(crate::core::server::platform_tls())
             .build();
         Web {
             agent: config.into(),

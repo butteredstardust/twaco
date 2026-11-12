@@ -6,6 +6,10 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `twaco update` and `twaco help` trust the operating system's certificate store, as server calls already did, so they work behind corporate TLS inspection that re-signs traffic with a root installed in that store.
+
 ## [0.1.61] - 2026-11-12
 
 ### Added

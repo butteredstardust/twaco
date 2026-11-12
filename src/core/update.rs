@@ -67,6 +67,7 @@ impl Web {
         let config = ureq::Agent::config_builder()
             .timeout_global(Some(timeout))
             .https_only(true)
+            .tls_config(crate::core::server::platform_tls())
             .build();
         Web {
             agent: config.into(),
