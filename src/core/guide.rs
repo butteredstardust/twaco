@@ -579,8 +579,8 @@ mod tests {
             hits[0].heading.contains("AddMember"),
             "joined words and no stopwords: {hits:?}"
         );
-        let hits = search(&topics, "importer app key session", 3);
-        assert!(hits[0].heading.contains("needs a session"), "{hits:?}");
+        let hits = search(&topics, "importer app key headers", 3);
+        assert!(hits[0].heading.contains("app keys, headers"), "{hits:?}");
         assert!(search(&topics, "zzzunknownword", 3).is_empty());
     }
 

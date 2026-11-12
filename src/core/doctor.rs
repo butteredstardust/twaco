@@ -248,9 +248,13 @@ pub fn diagnose(root: &Path, profile_name: &str) -> Vec<Item> {
         Health::Ok,
         "profile",
         format!(
-            "{profile_name}: {} as {}, from {}",
+            "{profile_name}: {} {}, from {}",
             profile::shown_url(&profile.url),
-            profile.username,
+            if profile.signs_in_with_app_key() {
+                "with its app key".to_string()
+            } else {
+                format!("as {}", profile.username)
+            },
             profile::source(&solution.root, profile_name)
         ),
     ));

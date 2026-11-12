@@ -7,6 +7,8 @@ disposable test server, never a shared one.
     TWACO_URL=http://localhost:8080/Thingworx TWACO_USERNAME=... TWACO_PASSWORD=... \
         python3 scripts/live_smoke.py [--twaco path/to/twaco] [--keep]
 
+TWACO_APP_KEY may stand in for TWACO_USERNAME and TWACO_PASSWORD.
+
 Credentials come only from the environment, as every twaco command reads them; nothing is
 written to disk but a temporary solution folder, deleted at the end. After each step the script
 asserts what the server holds: the deploy read back what it sent, `entity status` says in sync,
@@ -166,7 +168,9 @@ def main() -> int:
     parser.add_argument("--twaco", default=shutil.which("twaco") or "twaco")
     parser.add_argument("--keep", action="store_true", help="leave the entities on the server")
     args = parser.parse_args()
-    missing = [name for name in ("TWACO_URL", "TWACO_USERNAME", "TWACO_PASSWORD") if not os.environ.get(name)]
+    # An app key alone signs twaco in, as it does in a profile without a username and password.
+    login = ("TWACO_APP_KEY",) if os.environ.get("TWACO_APP_KEY") else ("TWACO_USERNAME", "TWACO_PASSWORD")
+    missing = [name for name in ("TWACO_URL", *login) if not os.environ.get(name)]
     if missing:
         print(f"set {', '.join(missing)}: the server to test against", file=sys.stderr)
         return 2

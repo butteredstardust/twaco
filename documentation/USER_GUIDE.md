@@ -1764,9 +1764,10 @@ profile file's `app_key` instead, replacing an old one and keeping the file's ot
 permissions, and the profile file must already exist. A key that was made but not saved is not
 lost: `appkey show <name> --save <profile>` reads it again. Re-importing a key's XML never changes
 its expiration, so twaco creates keys through the server rather than as repository entities.
-`appkey delete` is `entity delete ApplicationKeys/<name>`, with its plan and backup. twaco itself
-signs in with the profile's username and password either way, since the Importer refuses app
-keys. MCP: `appkey` (create, show); delete with `entity_delete`.
+`appkey delete` is `entity delete ApplicationKeys/<name>`, with its plan and backup. A profile that holds
+only `url` and `app_key` signs twaco in with the key (an `appKey` header); one that also has a
+username and password keeps signing in with them, so saving a key into it never changes who it
+acts as. MCP: `appkey` (create, show); delete with `entity_delete`.
 
 ## Copying DataTable rows
 

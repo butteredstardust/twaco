@@ -78,10 +78,10 @@ impl Client {
             ""
         };
         let url = format!("{}/{exporter}{}", self.base(), key.url_path());
-        let authorization = self.authorization();
+        let (sign_in, credential) = self.sign_in();
         let headers = [
             ("Accept", "text/xml"),
-            ("Authorization", authorization.expose()),
+            (sign_in, credential.expose()),
             // Composer sends its JSON content-negotiation defaults even on a GET.
             // MediaEntities otherwise return their media payload instead of an XML export.
             ("Content-Type", "application/json"),
@@ -117,10 +117,10 @@ impl Client {
         key: &EntityKey,
     ) -> Result<serde_json::Value, ServerError> {
         let url = format!("{}/{}", self.base(), key.url_path());
-        let authorization = self.authorization();
+        let (sign_in, credential) = self.sign_in();
         let headers = [
             ("Accept", "application/json"),
-            ("Authorization", authorization.expose()),
+            (sign_in, credential.expose()),
             ("Content-Type", "application/json"),
             ("X-XSRF-TOKEN", XSRF_VALUE),
             ("X-Requested-With", "XMLHttpRequest"),
@@ -141,10 +141,10 @@ impl Client {
     /// The names of every entity of a collection, from its REST listing.
     pub(crate) fn list_entity_names(&self, collection: &str) -> Result<Vec<String>, ServerError> {
         let url = format!("{}/{}", self.base(), encode_path_segment(collection));
-        let authorization = self.authorization();
+        let (sign_in, credential) = self.sign_in();
         let headers = [
             ("Accept", "application/json"),
-            ("Authorization", authorization.expose()),
+            (sign_in, credential.expose()),
             ("X-XSRF-TOKEN", XSRF_VALUE),
         ];
         let response = transport(
@@ -174,10 +174,10 @@ impl Client {
     /// `fetch_entity` goes through the Exporter, so this asks the plain address for JSON.
     pub(crate) fn entity_exists(&self, key: &EntityKey) -> Result<bool, ServerError> {
         let url = format!("{}/{}", self.base(), key.url_path());
-        let authorization = self.authorization();
+        let (sign_in, credential) = self.sign_in();
         let headers = [
             ("Accept", "application/json"),
-            ("Authorization", authorization.expose()),
+            (sign_in, credential.expose()),
             ("X-XSRF-TOKEN", XSRF_VALUE),
         ];
         let response = transport(
@@ -203,10 +203,10 @@ impl Client {
             self.base(),
             key.url_path()
         );
-        let authorization = self.authorization();
+        let (sign_in, credential) = self.sign_in();
         let headers = [
             ("Accept", "application/json"),
-            ("Authorization", authorization.expose()),
+            (sign_in, credential.expose()),
             ("Content-Type", "application/json"),
             ("X-Requested-With", "XMLHttpRequest"),
         ];
@@ -239,11 +239,8 @@ impl Client {
             encode_path_segment(repository),
             segments.join("/")
         );
-        let authorization = self.authorization();
-        let headers = [
-            ("Authorization", authorization.expose()),
-            ("X-XSRF-TOKEN", XSRF_VALUE),
-        ];
+        let (sign_in, credential) = self.sign_in();
+        let headers = [(sign_in, credential.expose()), ("X-XSRF-TOKEN", XSRF_VALUE)];
         let response = transport(
             &self.secrets,
             &self.agent,
@@ -259,11 +256,8 @@ impl Client {
     /// Read-only.
     pub(crate) fn fetch_web_file(&self, path: &str) -> Result<Vec<u8>, ServerError> {
         let url = format!("{}/{path}", self.base());
-        let authorization = self.authorization();
-        let headers = [
-            ("Authorization", authorization.expose()),
-            ("X-XSRF-TOKEN", XSRF_VALUE),
-        ];
+        let (sign_in, credential) = self.sign_in();
+        let headers = [(sign_in, credential.expose()), ("X-XSRF-TOKEN", XSRF_VALUE)];
         let response = transport(
             &self.secrets,
             &self.agent,
@@ -309,10 +303,10 @@ impl Client {
         let boundary = boundary_for(xml);
         let body = multipart(&boundary, file_name, xml);
         let content_type = format!("multipart/form-data; boundary={boundary}");
-        let authorization = self.authorization();
+        let (sign_in, credential) = self.sign_in();
         let headers = [
             ("Accept", "application/json"),
-            ("Authorization", authorization.expose()),
+            (sign_in, credential.expose()),
             ("Content-Type", content_type.as_str()),
             ("X-XSRF-TOKEN", XSRF_VALUE),
             ("X-Requested-With", "XMLHttpRequest"),
@@ -396,10 +390,10 @@ impl Client {
             url.push_str("?projectName=");
             url.push_str(&encode_path_segment(project));
         }
-        let authorization = self.authorization();
+        let (sign_in, credential) = self.sign_in();
         let headers = [
             ("Accept", "text/xml"),
-            ("Authorization", authorization.expose()),
+            (sign_in, credential.expose()),
             ("Content-Type", "application/json"),
             ("X-XSRF-TOKEN", XSRF_VALUE),
             ("X-Requested-With", "XMLHttpRequest"),
@@ -432,10 +426,10 @@ impl Client {
         let boundary = boundary_for(zip);
         let body = multipart(&boundary, file_name, zip);
         let content_type = format!("multipart/form-data; boundary={boundary}");
-        let authorization = self.authorization();
+        let (sign_in, credential) = self.sign_in();
         let headers = [
             ("Accept", "*/*"),
-            ("Authorization", authorization.expose()),
+            (sign_in, credential.expose()),
             ("Content-Type", content_type.as_str()),
             ("X-XSRF-TOKEN", XSRF_VALUE),
             ("X-Requested-With", "XMLHttpRequest"),
@@ -478,10 +472,10 @@ impl Client {
         let url = format!("{}/{ROUTE}", self.base());
         let body = serde_json::to_vec(&serde_json::json!({ "script": script }))
             .expect("a string always serialises as JSON");
-        let authorization = self.authorization();
+        let (sign_in, credential) = self.sign_in();
         let headers = [
             ("Accept", "application/json"),
-            ("Authorization", authorization.expose()),
+            (sign_in, credential.expose()),
             ("Content-Type", "application/json"),
             ("X-XSRF-TOKEN", XSRF_VALUE),
             ("X-Requested-With", "XMLHttpRequest"),
@@ -530,10 +524,10 @@ impl Client {
         serde_json::to_writer(&mut sizer, parameters).expect("JSON values always serialise");
         let mut body = zeroize::Zeroizing::new(Vec::with_capacity(sizer.0));
         serde_json::to_writer(&mut *body, parameters).expect("JSON values always serialise");
-        let authorization = self.authorization();
+        let (sign_in, credential) = self.sign_in();
         let headers = [
             ("Accept", "application/json"),
-            ("Authorization", authorization.expose()),
+            (sign_in, credential.expose()),
             ("Content-Type", "application/json"),
             ("X-XSRF-TOKEN", XSRF_VALUE),
             ("X-Requested-With", "XMLHttpRequest"),
@@ -570,9 +564,18 @@ impl Client {
         self.profile.url.trim_end_matches('/')
     }
 
-    /// The `Authorization` header value, in a buffer that is zeroed when the request is done.
-    /// The HTTP client copies it into its own header map, which twaco cannot reach.
-    fn authorization(&self) -> Secret {
+    /// The header that signs a request in, and its value in a buffer that is zeroed when the
+    /// request is done: the profile's `appKey`, or Basic `Authorization` with its username and
+    /// password. The HTTP client copies the value into its own header map, which twaco cannot
+    /// reach.
+    fn sign_in(&self) -> (&'static str, Secret) {
+        match &self.profile.app_key {
+            Some(key) if self.profile.signs_in_with_app_key() => ("appKey", key.clone()),
+            _ => ("Authorization", self.basic_authorization()),
+        }
+    }
+
+    fn basic_authorization(&self) -> Secret {
         let token = base64_secret(user_password(&self.profile).expose().as_bytes());
         let mut header = Secret::with_capacity("Basic ".len() + token.expose().len());
         header.push_str("Basic ");
@@ -1365,6 +1368,53 @@ mod tests {
             validate_charset(Some("text/xml"), &[0xff]),
             Err(ServerError::InvalidUtf8 { .. })
         ));
+    }
+
+    /// A key-only profile signs every request in with `appKey` and sends no Basic header; one
+    /// with a username and password keeps Basic even when it also holds a key.
+    #[test]
+    fn a_key_only_profile_signs_in_with_the_app_key_and_a_full_one_keeps_basic() {
+        let head = |username: &str, password: &str| {
+            let (url, server) = serve_once("200 OK", "success");
+            Client::new(Profile {
+                url,
+                username: username.to_string(),
+                password: password.into(),
+                app_key: Some("ak-5f1e9c".into()),
+                sdk: None,
+                extra: Default::default(),
+            })
+            .import_entity("T.xml", b"<Entities/>")
+            .unwrap();
+            let request = server.join().unwrap();
+            let text = String::from_utf8_lossy(&request).to_ascii_lowercase();
+            text[..text.find("\r\n\r\n").unwrap()].to_string()
+        };
+        let key_only = head("", "");
+        assert!(key_only.contains("\r\nappkey: ak-5f1e9c"), "{key_only}");
+        assert!(!key_only.contains("authorization:"), "{key_only}");
+        let both = head("user", "pass");
+        assert!(both.contains("authorization: basic dxnlcjpwyxnz"), "{both}");
+        assert!(!both.contains("appkey:"), "{both}");
+    }
+
+    #[test]
+    fn a_rejected_app_key_is_never_echoed() {
+        let (url, server) = serve_once("401 Unauthorized", "bad key ak-5f1e9c denied");
+        let error = Client::new(Profile {
+            url,
+            username: String::new(),
+            password: Secret::default(),
+            app_key: Some("ak-5f1e9c".into()),
+            sdk: None,
+            extra: Default::default(),
+        })
+        .check_script("")
+        .unwrap_err()
+        .to_string();
+        server.join().unwrap();
+        assert!(!error.contains("ak-5f1e9c"), "{error}");
+        assert!(error.contains("401"), "{error}");
     }
 
     #[test]
