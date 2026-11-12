@@ -197,7 +197,9 @@ pub(crate) fn entity_edit_tool(
     solution: &Solution,
     arguments: EntityEditRequest,
 ) -> Result<Value, ToolError> {
-    use crate::core::entity::edit::{Action, AgentChange, Property, Request, Service, StyleChange};
+    use crate::core::entity::edit::{
+        Action, AgentChange, OverrideSource, Property, Request, Service, StyleChange,
+    };
     use crate::mcp::requests::common::Absent;
     let text = |value: &Absent<String>| value.as_ref().cloned();
     let need = |value: &Absent<String>, what: &str| -> Result<String, ToolError> {
@@ -223,6 +225,11 @@ pub(crate) fn entity_edit_tool(
             description: text(&arguments.description),
         })
     };
+    if arguments.from_parent && !matches!(arguments.action, EntityEditAction::ServiceOverride) {
+        return Err(ToolError::invalid(
+            "from_parent belongs to service_override",
+        ));
+    }
     let action = match arguments.action {
         EntityEditAction::PropertyAdd => {
             need(&arguments.base_type, "type")?;
@@ -268,13 +275,22 @@ pub(crate) fn entity_edit_tool(
                 || arguments.force
             {
                 return Err(ToolError::invalid(
-                    "service_override takes name and then only: the signature is the inherited one",
+                    "service_override takes name, then and from_parent only: the signature is the inherited one",
                 ));
             }
+            let source = match (text(&arguments.then), arguments.from_parent) {
+                (Some(_), true) => {
+                    return Err(ToolError::invalid(
+                        "service_override takes then or from_parent, not both",
+                    ))
+                }
+                (Some(code), false) => OverrideSource::Code(code),
+                (None, true) => OverrideSource::Parent,
+                (None, false) => OverrideSource::Code("// TODO: implement override.\n".to_string()),
+            };
             Action::ServiceOverride {
                 name: need(&arguments.name, "name")?,
-                code: text(&arguments.then)
-                    .unwrap_or_else(|| "// TODO: implement override.\n".to_string()),
+                source,
             }
         }
         EntityEditAction::ServiceRevert => Action::ServiceRevert {

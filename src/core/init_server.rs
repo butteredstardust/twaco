@@ -249,16 +249,34 @@ where
             })?;
             // As adopt writes a new entity that has no peer file to copy.
             let document = entity::new::document(&key.collection, &laid_out);
-            if !request.missing
-                && matches!(key.collection.as_str(), "Groups" | "Organizations")
-                && differs_only_in_members(remote, &key.collection, &info.name, &document).map_err(
-                    |why| Error::Export {
-                        project: project.clone(),
-                        why,
-                    },
-                )?
-            {
-                members_owned.push(key.path());
+            // --missing leaves twaco.toml alone, so an entity a rule of this profile already
+            // covers needs neither the read nor a note.
+            let members_covered = existing.as_ref().is_some_and(|solution| {
+                super::server_owned::parts(
+                    &solution.server_owned_for(&request.profile),
+                    &key.collection,
+                    &info.name,
+                )
+                .iter()
+                .any(|part| matches!(part, super::server_owned::Part::Members))
+            });
+            if !members_covered && matches!(key.collection.as_str(), "Groups" | "Organizations") {
+                match differs_only_in_members(remote, &key.collection, &info.name, &document) {
+                    Ok(true) => members_owned.push(key.path()),
+                    Ok(false) => {}
+                    // The comparison only advises a rule the user pastes; it does not stop the
+                    // gap-fill.
+                    Err(why) if request.missing => notes.push(format!(
+                        "could not compare the members of {} with the server ({why}); if they differ only in members, add a [[server_owned]] members rule for it",
+                        key.path()
+                    )),
+                    Err(why) => {
+                        return Err(Error::Export {
+                            project: project.clone(),
+                            why,
+                        })
+                    }
+                }
             }
             let base = if request.missing {
                 let declared = existing
@@ -307,12 +325,27 @@ where
         notes = proposal.notes;
         proposal.toml
     };
-    if !request.missing && !members_owned.is_empty() {
-        add_members_owned(&mut toml, &members_owned);
-        notes.push(format!(
-            "{} keep their members on the server: the Exporter leaves out user members, so membership is [[server_owned]]",
-            members_owned.join(", ")
-        ));
+    if !members_owned.is_empty() {
+        if request.missing {
+            let mut rule = String::new();
+            let widened = add_members_owned(&mut rule, &members_owned);
+            notes.push(format!(
+                "{} differ from the server only in members (the Exporter leaves out user members); add this to twaco.toml so status and deploy leave membership to the server{}:{}",
+                members_owned.join(", "),
+                if widened {
+                    " (a pattern cannot hold spaces or brackets, so * stands for them)"
+                } else {
+                    ""
+                },
+                rule.trim_end()
+            ));
+        } else {
+            add_members_owned(&mut toml, &members_owned);
+            notes.push(format!(
+                "{} keep their members on the server: the Exporter leaves out user members, so membership is [[server_owned]]",
+                members_owned.join(", ")
+            ));
+        }
     }
     for (project, count) in per_project {
         notes.push(format!("{project}: {count} entities"));
@@ -617,15 +650,32 @@ fn differs_only_in_members<R: push::Remote>(
 }
 
 /// Membership is assigned per server; the rule keeps it out of comparison and as the server has it.
-fn add_members_owned(toml: &mut String, entities: &[String]) {
+/// A character a `[[server_owned]]` pattern refuses becomes `*`, which still matches the name;
+/// returns whether any did.
+fn add_members_owned(toml: &mut String, entities: &[String]) -> bool {
+    let mut widened = false;
     let names = entities
         .iter()
-        .map(|name| format!("\"{}\"", name.replace('"', "\\\"")))
+        .map(|path| {
+            let pattern: String = path
+                .chars()
+                .map(|c| {
+                    if c.is_control() || c.is_whitespace() || "\\?[]\"".contains(c) {
+                        widened = true;
+                        '*'
+                    } else {
+                        c
+                    }
+                })
+                .collect();
+            format!("\"{pattern}\"")
+        })
         .collect::<Vec<_>>()
         .join(", ");
     toml.push_str(&format!(
         "\n# Membership is assigned per server; the export leaves out user members. All members are\n# then the server's, group members in these files included: a change to them is not deployed.\n[[server_owned]]\nentities = [{names}]\nparts = [\"members\"]\n"
     ));
+    widened
 }
 
 /// The remote the exports came from, lent to the baseline step.
@@ -1059,7 +1109,25 @@ mod tests {
     }
 
     /// The project export, and the server's own copy of each entity by `Collection/Name`.
-    struct Members(Vec<u8>, BTreeMap<String, Vec<u8>>);
+    struct Members(
+        Vec<u8>,
+        BTreeMap<String, Vec<u8>>,
+        std::sync::atomic::AtomicUsize,
+        bool,
+    );
+    impl Members {
+        fn new(export: Vec<u8>, entities: BTreeMap<String, Vec<u8>>) -> Self {
+            Self(
+                export,
+                entities,
+                std::sync::atomic::AtomicUsize::new(0),
+                false,
+            )
+        }
+        fn reads(&self) -> usize {
+            self.2.load(std::sync::atomic::Ordering::SeqCst)
+        }
+    }
     impl export::Remote for Members {
         fn export_xml(
             &self,
@@ -1082,6 +1150,15 @@ mod tests {
             &self,
             key: &super::super::entity::key::EntityKey,
         ) -> Result<Option<Vec<u8>>, super::super::server::ServerError> {
+            self.2.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if self.3 {
+                return Err(super::super::server::ServerError::Http {
+                    method: super::super::server::Method::Get,
+                    status: 403,
+                    url: key.to_string(),
+                    body: String::new(),
+                });
+            }
             Ok(self.1.get(&key.to_string()).cloned())
         }
         fn import(&self, _: &str, _: &[u8]) -> Result<(), super::super::server::ServerError> {
@@ -1143,7 +1220,7 @@ mod tests {
         let wrap = |inner: String| format!("<Entities><Groups>{inner}</Groups></Entities>");
         let in_group = "<Member name=\"P.Other_UG\" type=\"Group\"/>";
         let user = "<Member name=\"someone\" type=\"User\"/>";
-        let remote = Members(
+        let remote = Members::new(
             wrap(group("P.Editors_UG", "") + group("P.Admin_UG", in_group).as_str()).into_bytes(),
             BTreeMap::from([
                 (
@@ -1175,6 +1252,121 @@ mod tests {
             ),
             "{}",
             outcome.toml
+        );
+    }
+
+    #[test]
+    fn missing_names_the_members_rule_a_new_group_needs_and_leaves_twaco_toml_alone() {
+        let temp = tempfile::tempdir().unwrap();
+        profile(temp.path());
+        let before = "[[project]]\nname = \"P\"\n";
+        std::fs::write(temp.path().join("twaco.toml"), before).unwrap();
+        let group = |name: &str, members: &str| {
+            format!("<Group name=\"{name}\" projectName=\"P\"><Members><Members>{members}</Members></Members></Group>")
+        };
+        let wrap = |inner: String| format!("<Entities><Groups>{inner}</Groups></Entities>");
+        let user = "<Member name=\"someone\" type=\"User\"/>";
+        let remote = Members::new(
+            wrap(group("P.Editors_UG", "") + group("P.Night Shift_UG", "").as_str()).into_bytes(),
+            BTreeMap::from([
+                (
+                    "Groups/P.Editors_UG".to_string(),
+                    wrap(group("P.Editors_UG", user)).into_bytes(),
+                ),
+                (
+                    "Groups/P.Night Shift_UG".to_string(),
+                    wrap(group("P.Night Shift_UG", user)).into_bytes(),
+                ),
+            ]),
+        );
+        let request = |profile: &str| Request {
+            root: temp.path().to_path_buf(),
+            projects: vec!["P".into()],
+            apply: false,
+            missing: true,
+            profile: profile.into(),
+        };
+        let plan = execute(&remote, request("default")).unwrap();
+        assert_eq!(plan.toml, before);
+        let note = plan
+            .notes
+            .iter()
+            .find(|note| note.contains("[[server_owned]]"))
+            .unwrap_or_else(|| panic!("{:?}", plan.notes));
+        // A name with a space becomes a pattern twaco.toml accepts, and the note says why.
+        let block = &note[note.find("\n# Membership").expect("the rule block")..];
+        assert!(
+            block.contains(
+                "entities = [\"Groups/P.Editors_UG\", \"Groups/P.Night*Shift_UG\"]\nparts = [\"members\"]"
+            ),
+            "{note}"
+        );
+        assert!(note.contains("* stands for them"), "{note}");
+        std::fs::write(temp.path().join("twaco.toml"), format!("{before}{block}\n")).unwrap();
+        let pasted = crate::core::config::Solution::load(&temp.path().join("twaco.toml")).unwrap();
+        assert!(pasted.server_owned[0].matches("Groups", "P.Night Shift_UG"));
+
+        // Once a rule of the profile covers both groups, they are neither read nor named.
+        let covered = format!(
+            "{before}\n[[profiles.qa.server_owned]]\nentities = [\"Groups/P.*\"]\nparts = [\"members\"]\n"
+        );
+        std::fs::write(temp.path().join("twaco.toml"), &covered).unwrap();
+        std::fs::copy(
+            temp.path().join(".twaco/profiles/default.toml"),
+            temp.path().join(".twaco/profiles/qa.toml"),
+        )
+        .unwrap();
+        let reads = remote.reads();
+        let plan = execute(&remote, request("qa")).unwrap();
+        assert_eq!(remote.reads(), reads, "a covered group is not read");
+        assert!(
+            !plan.notes.iter().any(|note| note.contains("server_owned")),
+            "{:?}",
+            plan.notes
+        );
+        // Another profile has no such rule.
+        let plan = execute(&remote, request("default")).unwrap();
+        assert!(
+            plan.notes
+                .iter()
+                .any(|note| note.contains("[[server_owned]]")),
+            "{:?}",
+            plan.notes
+        );
+    }
+
+    #[test]
+    fn missing_notes_a_member_comparison_it_could_not_make_and_carries_on() {
+        let temp = tempfile::tempdir().unwrap();
+        profile(temp.path());
+        std::fs::write(
+            temp.path().join("twaco.toml"),
+            "[[project]]\nname = \"P\"\n",
+        )
+        .unwrap();
+        let mut remote = Members::new(
+            b"<Entities><Groups><Group name=\"P.Editors_UG\" projectName=\"P\"></Group></Groups></Entities>".to_vec(),
+            BTreeMap::new(),
+        );
+        remote.3 = true;
+        let plan = execute(
+            &remote,
+            Request {
+                root: temp.path().to_path_buf(),
+                projects: vec!["P".into()],
+                apply: false,
+                missing: true,
+                profile: "default".into(),
+            },
+        )
+        .unwrap();
+        assert_eq!(plan.entities.get("Groups"), Some(&1));
+        assert!(
+            plan.notes
+                .iter()
+                .any(|note| note.contains("could not compare the members of Groups/P.Editors_UG")),
+            "{:?}",
+            plan.notes
         );
     }
 

@@ -17,6 +17,9 @@ pub trait Remote {
     fn export(&self, key: &EntityKey) -> Result<Option<Vec<u8>>, ServerError>;
     /// The ordinary REST XML representation, including runtime data where the server exposes it.
     fn fetch_rest(&self, key: &EntityKey) -> Result<Vec<u8>, ServerError>;
+    /// Whether the entity's REST resource exists. Unlike [`Remote::fetch_rest`], it never reads a
+    /// MediaEntity through the Exporter, so it can confirm an empty export.
+    fn exists(&self, key: &EntityKey) -> Result<bool, ServerError>;
 }
 
 impl Remote for Client {
@@ -26,6 +29,10 @@ impl Remote for Client {
 
     fn fetch_rest(&self, key: &EntityKey) -> Result<Vec<u8>, ServerError> {
         self.fetch_entity(key)
+    }
+
+    fn exists(&self, key: &EntityKey) -> Result<bool, ServerError> {
+        self.entity_exists(key)
     }
 }
 
@@ -47,6 +54,9 @@ pub enum GetError {
     /// The server answered that it has no such entity.
     #[error("the server has no {0}; `twaco search` finds an entity by part of its name")]
     NotOnServer(EntityKey),
+    /// The REST read finds the entity, but the Exporter returned no export of it.
+    #[error("the server has {0}, but its Exporter returned no export of it; `--rest` reads the REST form, which the Importer does not take")]
+    NoExport(EntityKey),
     #[error("{0}")]
     Remote(ServerError),
 }
@@ -79,10 +89,16 @@ pub(crate) fn get(
 /// The server's selected XML representation for `key`.
 pub fn fetch(remote: &dyn Remote, key: &EntityKey, view: View) -> Result<Vec<u8>, GetError> {
     match view {
-        View::Export => remote
-            .export(key)
-            .map_err(GetError::Remote)?
-            .ok_or_else(|| GetError::NotOnServer(key.clone())),
+        View::Export => match remote.export(key).map_err(GetError::Remote)? {
+            Some(bytes) => Ok(bytes),
+            // An empty or unrecognised export is not proof of absence: only the REST resource's
+            // absence is.
+            None => match remote.exists(key) {
+                Ok(true) => Err(GetError::NoExport(key.clone())),
+                Ok(false) => Err(GetError::NotOnServer(key.clone())),
+                Err(error) => Err(GetError::Remote(error)),
+            },
+        },
         View::Rest => match remote.fetch_rest(key) {
             Ok(bytes) => Ok(bytes),
             Err(error) if error.is_not_found() => Err(GetError::NotOnServer(key.clone())),
@@ -97,6 +113,7 @@ impl Coded for GetError {
             Self::Invalid(_) => ErrorCode::InvalidArguments,
             Self::Resolve(error) => error.code(),
             Self::NotOnServer(_) => ErrorCode::UnknownEntity,
+            Self::NoExport(_) => ErrorCode::ServerError,
             Self::Remote(error) => error.code(),
         }
     }
@@ -110,7 +127,7 @@ mod tests {
 
     impl Remote for Fake {
         fn export(&self, key: &EntityKey) -> Result<Option<Vec<u8>>, ServerError> {
-            if key.name() == "Acme.Missing" {
+            if matches!(key.name(), "Acme.Missing" | "Acme.NoExport") {
                 return Ok(None);
             }
             Ok(Some(
@@ -120,6 +137,11 @@ mod tests {
 
         fn fetch_rest(&self, key: &EntityKey) -> Result<Vec<u8>, ServerError> {
             Ok(format!("<Rest>{key}</Rest>").into_bytes())
+        }
+
+        // As the server's REST route: a MediaEntity whose export is empty still exists.
+        fn exists(&self, key: &EntityKey) -> Result<bool, ServerError> {
+            Ok(key.name() != "Acme.Missing")
         }
     }
 
@@ -163,6 +185,16 @@ mod tests {
         let missing = get(&Fake, &solution, "Things/Acme.Missing", View::Export).unwrap_err();
         assert!(matches!(missing, GetError::NotOnServer(_)));
         assert!(missing.to_string().contains("twaco search"), "{missing}");
+        // The REST read has it: the export, not the entity, is missing.
+        let no_export = get(
+            &Fake,
+            &solution,
+            "MediaEntities/Acme.NoExport",
+            View::Export,
+        )
+        .unwrap_err();
+        assert!(matches!(no_export, GetError::NoExport(_)), "{no_export}");
+        assert!(no_export.to_string().contains("--rest"), "{no_export}");
     }
 
     #[test]

@@ -662,6 +662,9 @@ pub(crate) struct EntityEditRequest {
     /// subscription_add / service_add / service_override: the script (service_add: absent means an empty body).
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) then: Absent<String>,
+    /// service_override: copy the script of the implementation the entity inherits, from the repository; not with then.
+    #[serde(default)]
+    pub(crate) from_parent: bool,
     /// service_add: parameters in declaration order, each `name:TYPE[:DataShape]`.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) params: Absent<Vec<String>>,

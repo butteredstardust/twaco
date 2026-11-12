@@ -185,7 +185,7 @@ fn service_override_and_revert_keep_the_inherited_contract_and_permissions() {
     );
     let override_action = Action::ServiceOverride {
         name: "ReadSpeed".into(),
-        code: "result=limit".into(),
+        source: OverrideSource::Code("result=limit".into()),
     };
     let planned = plan_of(&solution, "Acme.Orders.Press", override_action.clone()).unwrap();
     assert_eq!(planned.changes.len(), 2);
@@ -242,6 +242,96 @@ fn service_override_and_revert_keep_the_inherited_contract_and_permissions() {
 }
 
 #[test]
+fn service_override_from_parent_copies_the_inherited_script_and_says_whose() {
+    let (_dir, solution) = house_solution();
+    let mut parent = service("ReadSpeed", "result = me.Speed * 2;");
+    parent.returns = Some("NUMBER".into());
+    run(
+        &solution,
+        "Acme.Orders.Machine_TT",
+        Action::ServiceAdd(parent),
+    );
+    let from_parent = Action::ServiceOverride {
+        name: "ReadSpeed".into(),
+        source: OverrideSource::Parent,
+    };
+    let planned = plan_of(&solution, "Acme.Orders.Press", from_parent.clone()).unwrap();
+    assert!(
+        planned
+            .summary
+            .contains("with ThingTemplates/Acme.Orders.Machine_TT's script"),
+        "{}",
+        planned.summary
+    );
+    run(&solution, "Acme.Orders.Press", from_parent);
+    let script = std::fs::read_to_string(
+        solution
+            .src_root()
+            .join("Acme.Orders.Press/services/ReadSpeed/script.js"),
+    )
+    .unwrap();
+    assert!(script.contains("result = me.Speed * 2;"), "{script}");
+    assert!(script.contains("@function ReadSpeed"), "{script}");
+    assert_in_step(&solution);
+}
+
+#[test]
+fn service_override_from_parent_refuses_an_unsynced_or_non_script_parent() {
+    let (_dir, solution) = house_solution();
+    run(
+        &solution,
+        "Acme.Orders.Machine_TT",
+        Action::ServiceAdd(service("ReadSpeed", "result = me.Speed;")),
+    );
+    let from_parent = || {
+        plan_of(
+            &solution,
+            "Acme.Orders.Press",
+            Action::ServiceOverride {
+                name: "ReadSpeed".into(),
+                source: OverrideSource::Parent,
+            },
+        )
+    };
+    let parent_script = solution
+        .src_root()
+        .join("Acme.Orders.Machine_TT/services/ReadSpeed/script.js");
+    let synced = std::fs::read_to_string(&parent_script).unwrap();
+    std::fs::write(&parent_script, synced.replace("me.Speed", "me.Other")).unwrap();
+    let error = from_parent().unwrap_err().to_string();
+    assert!(error.contains("run twaco sync"), "{error}");
+    std::fs::write(&parent_script, &synced).unwrap();
+    // A sidecar folder taken away is a removal waiting for sync, not a script to copy.
+    // Moved out of services/, so the folder left behind is empty: still managed.
+    let parent_folder = parent_script.parent().unwrap().to_path_buf();
+    let kept = solution.root.join("ReadSpeed.kept");
+    std::fs::rename(&parent_folder, &kept).unwrap();
+    assert!(parent_folder.parent().unwrap().is_dir());
+    let error = from_parent().unwrap_err().to_string();
+    assert!(error.contains("run twaco sync"), "{error}");
+    std::fs::rename(&kept, &parent_folder).unwrap();
+
+    let template = solution
+        .root
+        .join("app/ThingTemplates/Acme.Orders.Machine_TT.xml");
+    let text = std::fs::read_to_string(&template).unwrap();
+    assert!(text.contains("handlerName=\"Script\""), "{text}");
+    std::fs::write(
+        &template,
+        text.replace("handlerName=\"Script\"", "handlerName=\"SQLQuery\""),
+    )
+    .unwrap();
+    std::fs::remove_dir_all(
+        solution
+            .src_root()
+            .join("Acme.Orders.Machine_TT/services/ReadSpeed"),
+    )
+    .unwrap();
+    let error = from_parent().unwrap_err().to_string();
+    assert!(error.contains("handler other than Script"), "{error}");
+}
+
+#[test]
 fn service_override_and_revert_work_on_an_entity_without_service_sections() {
     let (_dir, solution) = house_solution();
     run(
@@ -269,7 +359,7 @@ fn service_override_and_revert_work_on_an_entity_without_service_sections() {
         "Acme.Orders.Press",
         Action::ServiceOverride {
             name: "ReadSpeed".into(),
-            code: "result = 2;".into(),
+            source: OverrideSource::Code("result = 2;".into()),
         },
     );
     let overridden = file(&solution, "Things", "Acme.Orders.Press");
@@ -311,7 +401,7 @@ fn service_override_refuses_local_services_missing_parents_and_wrong_hosts() {
             entity,
             Action::ServiceOverride {
                 name: name.into(),
-                code: String::new(),
+                source: OverrideSource::Code(String::new()),
             },
         )
     };
@@ -329,7 +419,7 @@ fn service_override_refuses_local_services_missing_parents_and_wrong_hosts() {
         "Acme.Orders.Press",
         Action::ServiceOverride {
             name: "ReadSpeed".into(),
-            code: String::new(),
+            source: OverrideSource::Code(String::new()),
         },
     );
     assert_eq!(
@@ -2773,7 +2863,7 @@ fn an_override_on_an_unextracted_entity_gives_its_other_services_folders_too() {
         "Acme.Orders.Press",
         Action::ServiceOverride {
             name: "ReadSpeed".into(),
-            code: "result = 2;".into(),
+            source: OverrideSource::Code("result = 2;".into()),
         },
     );
     assert!(services.join("ReadSpeed/script.js").is_file());

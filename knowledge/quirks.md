@@ -81,10 +81,16 @@ export form), the named DataShape supplies it. With inline FieldDefinitions, tho
 without aspect.isPrimaryKey="true" among them the import fails with "Configuration Table [ X ] is
 multirow but its datashape [ unnamed ] does not have a primary key", whatever the named DataShape
 marks. With both, the server keeps the fields, drops dataShapeName and sets source="IMPORT", so the
-entity reads back not kept. The ConfigurationTable's own copy reads back as the named DataShape's
-fields, numbered from 1 in its field order, with an explicit isPrimaryKey on each; write it that way
-to read back kept, or take the server's form once (`entity get --out`, then `adopt --take theirs`).
-`twaco check` reports the first two cases. From REST, SetConfigurationTable on a multi-row table
+entity reads back not kept. The server rebuilds the ConfigurationTable's own copy from the named
+DataShape on every import, new table or existing: its fields, ordinals, descriptions and
+isPrimaryKey marks, whatever the copy said. A copy that differs imports and reads back not kept, so
+write it as the DataShape has it, or take the server's form once (`entity get --out`, then
+`adopt --take theirs`). An export can hold stale copy ordinals when the DataShape changed after the
+table was saved; the next import renumbers them. Three cases lose data or fail: a named DataShape
+with no primary key fails the import ("is multirow but its datashape [ Acme.Row_DS ] does not have a
+primary key"); rows under a copy with no FieldDefinitions are all dropped; a row cell naming a field
+the DataShape lacks is dropped. Row order is kept, and a NUMBER cell `2` reads back `2.0`.
+`twaco check` reports all of these (the `project` and `configuration tables` gates). From REST, SetConfigurationTable on a multi-row table
 returns 400 "Multiple rows not permitted"; use SetMultiRowConfigurationTable.
 
 ## JSON row values need a json element; arrays can be boxed

@@ -552,6 +552,136 @@ pub(crate) fn lookup_service(
     }
 }
 
+/// What an ancestor holds for a service: its own implementation, and of which kind.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Implementation {
+    None,
+    Script,
+    /// SQL, a route or any handler other than `Script`.
+    Other,
+}
+
+/// The implementation an override of `wanted` would inherit, for `--from-parent`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum ParentImplementation {
+    /// The nearest implementing ancestor, `Collection/Name`, and the kind it implements.
+    Found {
+        collection: String,
+        name: String,
+        kind: Implementation,
+    },
+    /// A shape's implementation competes with another ancestor's; which applies is not known.
+    Ambiguous(Vec<String>),
+    /// An ancestor that may implement it is not in the repository.
+    Unresolved(String),
+    /// No ancestor in the repository implements it.
+    Absent,
+}
+
+/// Walk the ancestors of `entity` in [`lookup_service`]'s order and find whose implementation
+/// of `wanted` it inherits. An ancestor's own implementation is nearer than its shapes'; a shape's
+/// implementation that another ancestor further up also provides is ambiguous, and an ancestor
+/// outside the repository that may implement it stops the walk. `implements` reads an ancestor.
+pub(crate) fn parent_implementation(
+    entity: &Entity,
+    entities: &[Entity],
+    platform: Option<&Platform>,
+    wanted: &str,
+    implements: &dyn Fn(&Entity) -> Implementation,
+) -> ParentImplementation {
+    let local = |collection: &str, name: &str| {
+        entities
+            .iter()
+            .find(|candidate| candidate.collection == collection && candidate.name == name)
+    };
+    // A platform ancestor whose metadata lacks the service cannot implement it.
+    let may_implement = |meta: Option<&types::PlatformMeta>| {
+        meta.is_none_or(|meta| meta.services.contains_key(wanted))
+    };
+    // (level, via a shape, the ancestor, its kind), in walk order.
+    let mut hits: Vec<(usize, bool, &Entity, Implementation)> = Vec::new();
+    let mut unresolved = None;
+    let mut visited_templates = BTreeSet::new();
+    let mut visited_shapes = BTreeSet::new();
+    let mut current = Some(entity);
+    let mut level = 0usize;
+    'walk: while let Some(item) = current {
+        if level > 0 {
+            if item.extension.is_some() {
+                unresolved = Some(format!("{}/{}", item.collection, item.name));
+                break;
+            }
+            let kind = implements(item);
+            if kind != Implementation::None {
+                hits.push((level, false, item, kind));
+                // The nearest own implementation decides, and a second one settles ambiguity.
+                break;
+            }
+        }
+        for shape_name in &item.shapes {
+            if !visited_shapes.insert(shape_name.as_str()) {
+                continue;
+            }
+            match local("ThingShapes", shape_name) {
+                Some(shape) if shape.extension.is_some() => {
+                    unresolved = Some(format!("ThingShapes/{shape_name}"));
+                    break 'walk;
+                }
+                Some(shape) => {
+                    let kind = implements(shape);
+                    if kind != Implementation::None {
+                        hits.push((level, true, shape, kind));
+                        if hits.len() > 1 {
+                            break 'walk;
+                        }
+                    }
+                }
+                None if may_implement(platform.and_then(|p| p.shapes.get(shape_name))) => {
+                    unresolved = Some(format!("ThingShapes/{shape_name}"));
+                    break 'walk;
+                }
+                None => {}
+            }
+        }
+        let Some(template_name) = item.template.as_deref() else {
+            break;
+        };
+        if !visited_templates.insert(template_name) {
+            break;
+        }
+        match local("ThingTemplates", template_name) {
+            Some(template) => current = Some(template),
+            None => {
+                if may_implement(platform.and_then(|p| p.templates.get(template_name))) {
+                    unresolved = Some(format!("ThingTemplates/{template_name}"));
+                }
+                break;
+            }
+        }
+        level += 1;
+    }
+    let label = |entity: &Entity| format!("{}/{}", entity.collection, entity.name);
+    let Some(&(first_level, via_shape, first, kind)) = hits.first() else {
+        return match unresolved {
+            Some(name) => ParentImplementation::Unresolved(name),
+            None => ParentImplementation::Absent,
+        };
+    };
+    // An ancestor's own implementation overrides its shapes', so it is recorded first at its
+    // level; a shape's competes with any other implementation after it.
+    let own_first = !via_shape && first_level > 0;
+    if !own_first && (hits.len() > 1 || unresolved.is_some()) {
+        let mut names: Vec<String> = hits.iter().map(|(_, _, entity, _)| label(entity)).collect();
+        names.extend(unresolved);
+        return ParentImplementation::Ambiguous(names);
+    }
+    ParentImplementation::Found {
+        collection: first.collection.clone(),
+        name: first.name.clone(),
+        kind,
+    }
+}
+
 /// The definition an inherited-service override may use. `Absent` means the complete ancestry
 /// no longer declares it; `Unresolved` keeps callers from guessing through an external parent.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -716,6 +846,143 @@ mod tests {
     use crate::core::types::platform::PlatformMeta;
     use std::collections::BTreeMap;
     use std::path::PathBuf;
+
+    fn node(collection: &str, name: &str, template: Option<&str>, shapes: &[&str]) -> Entity {
+        Entity {
+            name: name.to_string(),
+            collection: collection.to_string(),
+            project: "P".to_string(),
+            extension: None,
+            template: template.map(str::to_string),
+            shapes: shapes.iter().map(|shape| shape.to_string()).collect(),
+            members: Vec::new(),
+            events: Vec::new(),
+            script_services: BTreeSet::new(),
+        }
+    }
+
+    fn resolve(
+        entities: &[Entity],
+        platform: Option<&Platform>,
+        implementing: &[(&str, Implementation)],
+    ) -> ParentImplementation {
+        let implements = |entity: &Entity| {
+            implementing
+                .iter()
+                .find(|(name, _)| *name == entity.name)
+                .map_or(Implementation::None, |(_, kind)| *kind)
+        };
+        parent_implementation(&entities[0], entities, platform, "S", &implements)
+    }
+
+    fn found(collection: &str, name: &str, kind: Implementation) -> ParentImplementation {
+        ParentImplementation::Found {
+            collection: collection.into(),
+            name: name.into(),
+            kind,
+        }
+    }
+
+    #[test]
+    fn the_nearest_own_implementation_wins_and_a_shapes_competes() {
+        let entities = [
+            node("Things", "T", Some("Mid_TT"), &[]),
+            node("ThingTemplates", "Mid_TT", Some("Base_TT"), &["Shape_TS"]),
+            node("ThingTemplates", "Base_TT", None, &[]),
+            node("ThingShapes", "Shape_TS", None, &[]),
+        ];
+        use Implementation::{Other, Script};
+        // A nearer template's override beats the grandparent's implementation.
+        assert_eq!(
+            resolve(&entities, None, &[("Mid_TT", Script), ("Base_TT", Script)]),
+            found("ThingTemplates", "Mid_TT", Script)
+        );
+        // An entity's own implementation overrides its shape's.
+        assert_eq!(
+            resolve(&entities, None, &[("Mid_TT", Other), ("Shape_TS", Script)]),
+            found("ThingTemplates", "Mid_TT", Other)
+        );
+        // The nearest is not a script: the walk does not look past it for one.
+        assert_eq!(
+            resolve(&entities, None, &[("Base_TT", Script), ("Mid_TT", Other)]),
+            found("ThingTemplates", "Mid_TT", Other)
+        );
+        // A shape's implementation against the base template's: which applies is not settled.
+        assert_eq!(
+            resolve(
+                &entities,
+                None,
+                &[("Shape_TS", Script), ("Base_TT", Script)]
+            ),
+            ParentImplementation::Ambiguous(vec![
+                "ThingShapes/Shape_TS".into(),
+                "ThingTemplates/Base_TT".into()
+            ])
+        );
+        assert_eq!(
+            resolve(&entities, None, &[("Shape_TS", Script)]),
+            found("ThingShapes", "Shape_TS", Script)
+        );
+        assert_eq!(resolve(&entities, None, &[]), ParentImplementation::Absent);
+    }
+
+    #[test]
+    fn an_ancestor_outside_the_repository_stops_the_walk_unless_the_platform_rules_it_out() {
+        let entities = [
+            node("Things", "T", Some("Mid_TT"), &[]),
+            node("ThingTemplates", "Mid_TT", Some("Vendor_TT"), &[]),
+        ];
+        assert_eq!(
+            resolve(&entities, None, &[]),
+            ParentImplementation::Unresolved("ThingTemplates/Vendor_TT".into())
+        );
+        let mut platform = Platform::default();
+        platform
+            .templates
+            .insert("Vendor_TT".into(), PlatformMeta::default());
+        assert_eq!(
+            resolve(&entities, Some(&platform), &[]),
+            ParentImplementation::Absent
+        );
+        // Found nearer than the unknown ancestor: it does not matter.
+        assert_eq!(
+            resolve(&entities, None, &[("Mid_TT", Implementation::Script)]),
+            found("ThingTemplates", "Mid_TT", Implementation::Script)
+        );
+    }
+
+    #[test]
+    fn an_extension_ancestor_is_outside_the_repository_and_not_read_past_a_decision() {
+        let mut extension = node("ThingTemplates", "Vendor_TT", None, &[]);
+        extension.extension = Some("Vendor".into());
+        let entities = [
+            node("Things", "T", Some("Mid_TT"), &[]),
+            node("ThingTemplates", "Mid_TT", Some("Vendor_TT"), &[]),
+            extension,
+        ];
+        let read = std::cell::RefCell::new(Vec::new());
+        let implements = |entity: &Entity| {
+            read.borrow_mut().push(entity.name.clone());
+            if entity.name == "Mid_TT" {
+                Implementation::Script
+            } else {
+                Implementation::None
+            }
+        };
+        assert_eq!(
+            parent_implementation(&entities[0], &entities, None, "S", &implements),
+            found("ThingTemplates", "Mid_TT", Implementation::Script)
+        );
+        assert_eq!(
+            *read.borrow(),
+            ["Mid_TT"],
+            "nothing past the decision is read"
+        );
+        assert_eq!(
+            resolve(&entities, None, &[]),
+            ParentImplementation::Unresolved("ThingTemplates/Vendor_TT".into())
+        );
+    }
 
     fn fixture() -> (tempfile::TempDir, PathBuf, Solution) {
         let root_guard = tempfile::Builder::new()

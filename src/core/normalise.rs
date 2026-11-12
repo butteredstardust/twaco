@@ -514,9 +514,17 @@ fn differences(sent: &Element, back: &Element, path: &str, sides: &Sides, out: &
                     out,
                     format!("{path}/{}[{}]: {}", left[i].0, i + 1, sides.left_only),
                 ),
+                // Every other path counts the left side's siblings; this one has no left
+                // position, so it says which side its number counts.
                 Step::Right(j) => note(
                     out,
-                    format!("{path}/{}[{}]: {}", right[j].0, j + 1, sides.right_only),
+                    format!(
+                        "{path}/{} (element {} {}): {}",
+                        right[j].0,
+                        j + 1,
+                        sides.right,
+                        sides.right_only
+                    ),
                 ),
             }
         }
@@ -1696,7 +1704,7 @@ mod tests {
         assert_eq!(
             all_differences(sent.as_bytes(), back.as_bytes(), &[], &READ_BACK),
             [
-                "Mashup[M]/Parts/Note[1]: added by the server",
+                "Mashup[M]/Parts/Note (element 1 read back): added by the server",
                 "Mashup[M]/Parts/Cell[2]: text changed",
                 "Mashup[M]/Parts/Row[3]: text changed",
             ]

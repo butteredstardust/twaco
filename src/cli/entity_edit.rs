@@ -5,7 +5,9 @@ use std::path::PathBuf;
 use twaco::core::commands::{self, Mode};
 use twaco::core::config::Solution;
 use twaco::core::entity;
-use twaco::core::entity::edit::{Action, AgentChange, Property, Request, Service, StyleChange};
+use twaco::core::entity::edit::{
+    Action, AgentChange, OverrideSource, Property, Request, Service, StyleChange,
+};
 
 /// `twaco thing property|service|subscription|shape`.
 #[derive(Debug, clap::Subcommand)]
@@ -38,6 +40,8 @@ pub(crate) struct ThingService {
     pub(crate) force: bool,
     #[arg(long = "revert")]
     pub(crate) revert: bool,
+    #[arg(long = "from-parent")]
+    pub(crate) from_parent: bool,
     #[command(flatten)]
     pub(crate) apply: Apply,
     #[command(flatten)]
@@ -322,6 +326,9 @@ fn service(args: &ThingService) -> Result<(String, Action), String> {
     let [action, entity, name] = args.operands.as_slice() else {
         return Err("thing service needs <add|remove|override> <Entity> <name>".into());
     };
+    if args.from_parent && action != "override" {
+        return Err("--from-parent belongs to thing service override".into());
+    }
     let action = match action.as_str() {
         "add" => {
             let code = match (&args.then, &args.script) {
@@ -355,24 +362,35 @@ fn service(args: &ThingService) -> Result<(String, Action), String> {
                 || args.then.is_some()
             {
                 return Err(
-                    "thing service override takes only --script, --revert, --apply and --json"
+                    "thing service override takes only --script, --from-parent, --revert, --apply and --json"
                         .into(),
                 );
             }
             if args.revert {
-                if args.script.is_some() {
-                    return Err("thing service override --revert does not take --script".into());
+                if args.script.is_some() || args.from_parent {
+                    return Err(
+                        "thing service override --revert takes neither --script nor --from-parent"
+                            .into(),
+                    );
                 }
                 Action::ServiceRevert { name: name.clone() }
             } else {
-                let code = match &args.script {
-                    Some(path) => std::fs::read_to_string(path)
-                        .map_err(|error| format!("{}: {error}", path.display()))?,
-                    None => "// TODO: implement override.\n".to_string(),
+                let source = match (&args.script, args.from_parent) {
+                    (Some(_), true) => {
+                        return Err("give --script or --from-parent, not both".into());
+                    }
+                    (Some(path), false) => OverrideSource::Code(
+                        std::fs::read_to_string(path)
+                            .map_err(|error| format!("{}: {error}", path.display()))?,
+                    ),
+                    (None, true) => OverrideSource::Parent,
+                    (None, false) => {
+                        OverrideSource::Code("// TODO: implement override.\n".to_string())
+                    }
                 };
                 Action::ServiceOverride {
                     name: name.clone(),
-                    code,
+                    source,
                 }
             }
         }

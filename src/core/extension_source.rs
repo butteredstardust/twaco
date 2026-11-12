@@ -76,9 +76,19 @@ fn read_extension(root: &Path, extension: &str) -> Result<(Vec<Entity>, Vec<Data
         let info = entity::parse(&bytes).map_err(|e| format!("{e:?}"))?;
         if info.collection == "DataShapes" {
             let fields = super::datashape::extract(&bytes).map_err(|e| e.to_string())?;
+            // A derived shape's inherited fields are not in this file; checks skip it.
+            let tokens = scan::tokenize(&bytes).map_err(|e| e.to_string())?;
+            let base_data_shape = super::sidecar::entity_element(&tokens, &bytes)
+                .and_then(|at| {
+                    scan::attribute(&bytes, &tokens[at], "baseDataShape")
+                        .ok()
+                        .flatten()
+                })
+                .map(|span| scan::decode_entities(&String::from_utf8_lossy(span.of(&bytes))))
+                .filter(|base| !base.is_empty());
             data_shapes.push(DataShape {
                 name: info.name,
-                base_data_shape: None,
+                base_data_shape,
                 fields,
             });
         }

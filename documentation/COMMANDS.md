@@ -370,7 +370,7 @@ thing service add <Entity> <Name> [--param <name>:<TYPE>[:<DataShape>]]...
     [--returns <TYPE>[:<DataShape>]] [--description <text>] [--category <text>] [--private]
     [--then <code> | --script <file.js>] [--apply] [--json]
 thing service remove <Entity> <Name> [--force] [--apply] [--json]
-thing service override <Entity> <Name> [--script <file.js>] [--apply] [--json]
+thing service override <Entity> <Name> [--script <file.js> | --from-parent] [--apply] [--json]
 thing service override --revert <Entity> <Name> [--apply] [--json]
                             add or remove an own script service, or override an inherited one
                             with a script-only sidecar; plan unless --apply
@@ -378,6 +378,9 @@ thing service override --revert <Entity> <Name> [--apply] [--json]
     --returns               result type, NOTHING by default
     --private               make the service private
     --force                 remove it even when callers still use it (they are listed)
+    --from-parent           start the override from the script it inherits, read from the
+                            repository; refused for a non-Script parent, one outside the
+                            repository, or a parent whose sidecar is out of sync
     --revert                restore the inherited implementation (override only)
 thing subscription add <Entity> <name> --event <Event> [--source <Thing>]
     [--source-property <property>] (--then <code> | --script <file.js>) [--apply] [--json]
