@@ -2727,6 +2727,9 @@ fn template_containers_have_no_margin_and_their_widgets_keep_composers() {
             }
             let mut margins = Vec::new();
             declared(&template.children, &mut margins);
+            if let Some(margin) = template.page.get("Margin") {
+                margins.push(("page".to_string(), margin.clone()));
+            }
             for widget in document.widgets().into_iter().skip(1) {
                 let properties = &document.at(&widget.path)["Properties"];
                 let margin = &properties["Margin"];
