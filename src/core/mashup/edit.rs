@@ -532,8 +532,18 @@ impl MashupDocument {
             Reflow::Edit { .. } => false,
         });
         for (index, row) in rows.iter().enumerate() {
-            // A split label/value row takes its natural height, as the kits' rows do.
-            if type_of(row) != Some("flexcontainer") || is_split_row(row) {
+            if type_of(row) != Some("flexcontainer") {
+                continue;
+            }
+            // A split label/value row in a card takes its natural height, as the kits' rows do.
+            // Beside a row that fills (a grid, a chart) it would share the spare height, so a
+            // split toolbar there is fixed to its controls, as the kits' toolbars are.
+            if is_split_row(row)
+                && !rows
+                    .iter()
+                    .enumerate()
+                    .any(|(other, sibling)| other != index && holds_filler(sibling))
+            {
                 continue;
             }
             // A row of cards made of label/value rows takes at least its cards' height and no
@@ -1361,6 +1371,11 @@ fn can_fill(widget: &Value) -> bool {
 
 fn row_fills(row: &Value) -> bool {
     fills(row) || children(row).iter().any(fills)
+}
+
+/// Whether a widget that fills sits anywhere inside `widget`, or is it.
+fn holds_filler(widget: &Value) -> bool {
+    fills(widget) || children(widget).iter().any(holds_filler)
 }
 
 /// A fixed row may contain fixed leaves directly, or the per-widget wrappers made for a toolbar.
@@ -3118,6 +3133,73 @@ mod placement_walkthrough {
         let row_path = document.find(widget_id(&row)).unwrap().path;
         assert_eq!(document.at(&row_path)["Properties"]["flex-size"], "default");
         assert!(document.find(&panel).is_ok());
+    }
+
+    /// A list page's toolbar split by `--end` above a grid is fixed to its buttons, as the kits'
+    /// toolbars are; left at its natural size it took half the page's height beside the grid.
+    #[test]
+    fn a_split_toolbar_above_a_grid_is_fixed_to_its_buttons() {
+        let catalog = widgets::catalog();
+        let place = |document: &mut MashupDocument, widget: &str, placement: Placement| {
+            document
+                .place(catalog.resolve(widget).unwrap(), &placement)
+                .unwrap()
+                .id
+        };
+        // Toolbar first, then the grid below it, and the other way round.
+        for grid_first in [false, true] {
+            let mut document = parse(crate::core::mashup::templates::BLANK).unwrap();
+            let title = place(&mut document, "label", Placement::In("center".into()));
+            let (view, grid);
+            if grid_first {
+                grid = place(&mut document, "grid", Placement::In("center".into()));
+                view = place(
+                    &mut document,
+                    "button",
+                    Placement::Beside {
+                        anchor: grid.clone(),
+                        side: Side::Above,
+                    },
+                );
+            } else {
+                view = place(
+                    &mut document,
+                    "button",
+                    Placement::Beside {
+                        anchor: title,
+                        side: Side::Below,
+                    },
+                );
+                grid = place(
+                    &mut document,
+                    "grid",
+                    Placement::Beside {
+                        anchor: view.clone(),
+                        side: Side::Below,
+                    },
+                );
+            }
+            place(
+                &mut document,
+                "button",
+                Placement::Beside {
+                    anchor: view.clone(),
+                    side: Side::End,
+                },
+            );
+            let start = parent_of(&document, &view).clone();
+            let row = parent_of(&document, widget_id(&start)).clone();
+            assert!(is_split_row(&row), "{row}");
+            assert_eq!(
+                row["Properties"]["flex-size"], "fixed",
+                "grid first: {grid_first}"
+            );
+            let grid_path = document.find(&grid).unwrap().path;
+            assert_eq!(
+                document.at(&grid_path)["Properties"]["ResponsiveLayout"],
+                true
+            );
+        }
     }
 
     #[test]

@@ -1204,7 +1204,9 @@ properties take JSON, including a grid's column format:
 A card of label/value rows, as the design kits draw one ("● Objective ........ 12"), takes three
 more steps. `--right-of <widget> --end` puts a widget at the far end of the anchor's row: the row
 splits into a start group (what was there) and an end group (the new widget), spread apart and
-centred, and it keeps its natural height. `mashup add <mashup> separator --below <widget>` adds
+centred, and it keeps its natural height. In a column that also holds a grid or a chart, such a row
+(a toolbar with View Details at the start and Form at the end) is fixed to its controls' height
+instead, so the grid takes the spare height, as the kits' toolbars do. `mashup add <mashup> separator --below <widget>` adds
 the kits' 1px rule (`#C2C7CE`) between rows. The row holding such cards becomes a `range` row whose
 minimum is the cards' measured height (a `label` row is 19px on 10.2, a `sub-header` 27px, a
 `header` 33px). A `range` row still takes its share of the page's spare height, as every row
@@ -1380,7 +1382,9 @@ twaco mashup bind Acme.App.Orders_MU --from mashup:OrderId --to data:Acme.App.Or
 `ui:<widget-id>.<Property>`, `mashup:<Parameter>`, and `data:<Entity>.<Service>` for a result or
 `data:<Entity>.<Service>.<field-or-parameter>`. A mashup call with its own name is
 `data:<Entity>.<Service>[as <alias>]`, and a selected row field is
-`data:<Entity>.<Service>[SelectedRows].<field>` (`[as <alias>][SelectedRows]` for both). When the
+`data:<Entity>.<Service>[SelectedRows].<field>` (`[as <alias>][SelectedRows]` for both). Reading
+selected rows, from a service or from a grid, turns single row selection on in a grid that shows
+them and could not select (Composer drops a grid with none), and says so. When the
 mashup calls a service more than once, the address must name the call with `[as <alias>]`; an
 alias another service's call already has is refused. Widgets are named by id, display name or a
 type word only one widget matches, never by a loose catalogue search. The command checks property

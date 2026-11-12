@@ -23,6 +23,12 @@ All notable changes to twaco are recorded here. The format follows
   who the key is, the Importer's error is reported without a log reason.
 - `adopt` without `--base` refuses two recorded handoffs that are equally similar to the export,
   naming them, instead of taking the newest; a pick that matches under half of the export says so.
+- Binding from `data:<Entity>.<Service>[SelectedRows]` (as `recipe enable-when`, `popup --pass`
+  and `bind` do) turns single row selection on in the grid showing that service's rows, as reading
+  the grid's own selection already did; a details button enabled by a selected row never enabled.
+  Recipes now print what such a binding changed.
+- A toolbar row split by `--end` in a column with a grid or a chart is fixed to its controls'
+  height; it took a share of the page's spare height and pushed the grid halfway down.
 
 ## [0.1.60] - 2026-11-12
 
