@@ -1306,9 +1306,13 @@ pub(crate) const USAGE: &[Usage] = &[
         group: 2,
         text: r#"  entity status [<entity>|--all] [--detail] [--record] [--ancestor <export.xml>]
                               entity: full name, last dotted segment, or Collection/Name
+      --against <export.xml>   compare the export with repository XML offline; defaults to its scope
+                              same, different, only-in-export, only-in-repository (not deletion)
+                              no profile or baseline; not with --record, --ancestor or --profile
+      --json                   offline --against result as JSON; --detail includes differing paths
       --record                 record matching working/server hashes as baseline
       --ancestor <export.xml>  use that export as the common ancestor instead of the baseline
-                              (an old or missing one); reads only, not with --record
+                              for LIVE server status; reads only, not with --record or --against
       --all                    also lists declared-project entities found only on the server"#,
     },
     Usage {

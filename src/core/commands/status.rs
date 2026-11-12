@@ -11,6 +11,8 @@ use serde_json::Value;
 use std::collections::BTreeSet;
 use std::fmt;
 
+pub mod offline;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StatusTarget {
     Names(Vec<String>),
@@ -162,19 +164,29 @@ where
         None
     };
     let outcome = compare(solution, request, open, progress)?;
-    behind_sidecars(solution, request, notices);
+    behind_sidecars(
+        solution,
+        &request.target,
+        request.project.as_deref(),
+        notices,
+    );
     Ok(outcome)
 }
 
 /// Status compares entity files; a sidecar edited since the last sync is not in them yet, so
 /// say so rather than let "in sync" stand for work the comparison never saw.
-fn behind_sidecars(solution: &Solution, request: &StatusRequest, notices: &mut Notices) {
+fn behind_sidecars(
+    solution: &Solution,
+    target: &StatusTarget,
+    project: Option<&str>,
+    notices: &mut Notices,
+) {
     let mut entities = workspace::discover(solution).entities;
-    if let Some(project) = &request.project {
-        entities.retain(|entity| &entity.found_under == project);
+    if let Some(project) = project {
+        entities.retain(|entity| entity.found_under == project);
     }
     // Only the entities this status compared.
-    if let StatusTarget::Names(names) = &request.target {
+    if let StatusTarget::Names(names) = target {
         let chosen: Vec<_> = names
             .iter()
             .filter_map(|name| workspace::resolve(&entities, name).ok().cloned())

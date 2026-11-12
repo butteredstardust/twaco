@@ -21,7 +21,7 @@ pub(crate) struct PushRequest {
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct StatusRequest {
-    /// One entity name, full or its last dotted segment. Name one, or pass all: true.
+    /// One entity name, full or its last dotted segment. Name one, or pass all: true; with against, omitting both compares the export scope.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) entity: Absent<String>,
     /// Every entity (of the project, if one is named).
@@ -33,15 +33,18 @@ pub(crate) struct StatusRequest {
     /// Record a baseline for every entity whose two sides agree. Writes .twaco/baselines/<profile>.json under the workspace lock.
     #[serde(default)]
     pub record: bool,
-    /// Server profile name.
-    #[serde(default = "default_profile")]
-    pub profile: String,
+    /// Server profile name (default: default). Not with against.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub profile: Absent<String>,
     /// Return everything instead of the summary.
     #[serde(default)]
     pub(crate) detail: bool,
-    /// An export document inside the solution whose entities stand in for the baseline as the common ancestor, for a workspace without a usable one. Read-only: not with record.
+    /// An export document inside the solution used as the common ancestor for LIVE server status. Read-only: not with record or against.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) ancestor: Absent<String>,
+    /// Compare with this export inside the solution, offline and read-only. No baseline or profile; not with ancestor or record. Omit entity and all to compare the export scope.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) against: Absent<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]

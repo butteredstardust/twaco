@@ -327,7 +327,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         .with_output::<outputs::LintFixHeadersResult>(),
         solution_progress_tool::<entity_requests::StatusRequest>(
             "status",
-            "Compare entities with the server and the recorded baseline: in-sync, local-changed, server-changed, both-changed, not-on-server, or no baseline yet. Lists every entity that needs attention.",
+            "Compare entities with the server and the recorded baseline: in-sync, local-changed, server-changed, both-changed, not-on-server, or no baseline yet. With against, compare repository XML with an export offline: same, different, only-in-export, only-in-repository (absence from a partial export does not prove deletion). No baseline or profile; refuses ancestor, record and profile. Defaults to the export scope; detail includes differing paths. Lists every entity that needs attention.",
             false,
             entity::status_tool,
         )

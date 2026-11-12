@@ -11,6 +11,10 @@ All notable changes to twaco are recorded here. The format follows
 - `adopt` warns when a new mashup shares its short name with a mashup in another project,
   including two incoming mashups. The advisory names both entities and projects without changing
   the plan or writes, and is also returned by MCP.
+- `entity status --against <export.xml>` (MCP `status` with `against`) compares an export
+  with repository XML offline, without profiles or baselines. Reports same, different and
+  entries present on only one side; detail includes differing paths. Repository-only entries
+  are scoped to the export's collections/projects and do not imply deletion.
 
 ### Fixed
 

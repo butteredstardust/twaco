@@ -15,6 +15,35 @@ pub(crate) fn status_tool(
     progress: &dyn Progress,
 ) -> Result<Value, ToolError> {
     let record = request.record;
+    if let Some(path) = request.against.as_deref() {
+        if record || request.ancestor.is_some() || request.profile.is_some() {
+            return Err(ToolError::invalid(
+                "against is offline; omit record, ancestor and profile",
+            ));
+        }
+        if request.all && request.entity.is_some() {
+            return Err(ToolError::invalid(
+                "name an entity or pass all: true, not both",
+            ));
+        }
+        let target = match request.entity.as_deref() {
+            Some(name) => commands::status::StatusTarget::Names(vec![name.to_string()]),
+            None => commands::status::StatusTarget::All,
+        };
+        let path = super::in_path(solution, path)?;
+        let mut notices = commands::Notices::default();
+        let report = commands::status::offline::execute(
+            solution,
+            &path,
+            &target,
+            request.project.as_deref(),
+            &mut notices,
+        )
+        .map_err(ToolError::coded)?;
+        let mut result = report.json(request.detail);
+        add_notices(&mut result, &notices);
+        return Ok(result);
+    }
     let target = match (request.entity.as_deref(), request.all) {
         (Some(_), true) => {
             return Err(ToolError::invalid(
@@ -34,7 +63,7 @@ pub(crate) fn status_tool(
         target,
         project: request.project.as_ref().cloned(),
         record,
-        profile: request.profile.clone(),
+        profile: request.profile.as_deref().unwrap_or("default").to_string(),
         lock_label: "mcp status --record",
         refuse_unreadable: record,
         refuse_record_failures: record,
@@ -702,6 +731,62 @@ pub(crate) fn permissions_init_tool(
 mod tests {
     use super::push_failure;
     use crate::core::permissions::{EntityReport, Report, Status};
+
+    #[test]
+    fn offline_status_summary_detail_and_invalid_server_options() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::write(
+            root.join("twaco.toml"),
+            "[[project]]\nname = \"Acme.Project\"\n",
+        )
+        .unwrap();
+        std::fs::create_dir(root.join("Things")).unwrap();
+        let xml = "<Entities><Things><Thing name=\"Acme.Thing\" projectName=\"Acme.Project\"/></Things></Entities>";
+        std::fs::write(root.join("Things/Acme.Thing.xml"), xml).unwrap();
+        std::fs::write(root.join("export.xml"), xml).unwrap();
+        let solution = super::Solution::load(&root.join("twaco.toml")).unwrap();
+        for detail in [false, true] {
+            let request = serde_json::from_value(
+                serde_json::json!({"against": "export.xml", "detail": detail}),
+            )
+            .unwrap();
+            let result =
+                super::status_tool(&solution, request, &crate::core::progress::NONE).unwrap();
+            assert_eq!(result["ok"], true);
+            assert_eq!(result["counts"]["same"], 1);
+            assert!(result.get("recorded").is_none());
+            assert!(result.get("server_only").is_none());
+            if detail {
+                assert_eq!(result["statuses"][0]["paths"], serde_json::json!([]));
+            } else {
+                assert_eq!(result["attention"], serde_json::json!([]));
+            }
+            let tool = crate::mcp::tool_definitions()
+                .into_iter()
+                .find(|tool| tool["name"] == "status")
+                .unwrap();
+            assert!(
+                jsonschema::draft202012::is_valid(&tool["outputSchema"], &result),
+                "{result}"
+            );
+        }
+        for extra in [
+            serde_json::json!({"record": true}),
+            serde_json::json!({"ancestor": "export.xml"}),
+            serde_json::json!({"profile": "default"}),
+            serde_json::json!({"entity": "Acme.Thing", "all": true}),
+        ] {
+            let mut arguments = serde_json::json!({"against": "export.xml"});
+            arguments
+                .as_object_mut()
+                .unwrap()
+                .extend(extra.as_object().unwrap().clone());
+            let request = serde_json::from_value(arguments).unwrap();
+            assert!(super::status_tool(&solution, request, &crate::core::progress::NONE).is_err());
+        }
+        assert!(!root.join(".twaco").exists());
+    }
 
     fn entity(name: &str, status: Status, error: Option<&str>) -> EntityReport {
         EntityReport {

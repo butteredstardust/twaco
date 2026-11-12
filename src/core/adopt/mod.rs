@@ -43,7 +43,7 @@ pub(crate) use apply::{apply, is_file_name};
 pub(crate) use base::{check_handoff, handoffs, record_handoff};
 pub use base::{suggest as base_suggestions, suggestions_json, Handoff, Side, NO_BASE_NOTE};
 pub use classify::{Change, Kind};
-pub(crate) use compare::{compare_with, CompareOptions};
+pub(crate) use compare::{compare_owned_entity, compare_with, CompareOptions};
 pub(crate) use flatten::{row_key, service_bodies};
 pub(crate) use read::{
     export_entities, export_entities_bytes, raw_entity_bytes, replace_entity_bytes,

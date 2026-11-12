@@ -761,12 +761,12 @@
   },
   {
     "name": "status",
-    "description": "Compare entities with the server and the recorded baseline: in-sync, local-changed, server-changed, both-changed, not-on-server, or no baseline yet. Lists every entity that needs attention.",
+    "description": "Compare entities with the server and the recorded baseline: in-sync, local-changed, server-changed, both-changed, not-on-server, or no baseline yet. With against, compare repository XML with an export offline: same, different, only-in-export, only-in-repository (absence from a partial export does not prove deletion). No baseline or profile; refuses ancestor, record and profile. Defaults to the export scope; detail includes differing paths. Lists every entity that needs attention.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
         "entity": {
-          "description": "One entity name, full or its last dotted segment. Name one, or pass all: true.",
+          "description": "One entity name, full or its last dotted segment. Name one, or pass all: true; with against, omitting both compares the export scope.",
           "type": "string"
         },
         "all": {
@@ -784,9 +784,8 @@
           "default": false
         },
         "profile": {
-          "description": "Server profile name.",
-          "type": "string",
-          "default": "default"
+          "description": "Server profile name (default: default). Not with against.",
+          "type": "string"
         },
         "detail": {
           "description": "Return everything instead of the summary.",
@@ -794,7 +793,11 @@
           "default": false
         },
         "ancestor": {
-          "description": "An export document inside the solution whose entities stand in for the baseline as the common ancestor, for a workspace without a usable one. Read-only: not with record.",
+          "description": "An export document inside the solution used as the common ancestor for LIVE server status. Read-only: not with record or against.",
+          "type": "string"
+        },
+        "against": {
+          "description": "Compare with this export inside the solution, offline and read-only. No baseline or profile; not with ancestor or record. Omit entity and all to compare the export scope.",
           "type": "string"
         }
       },
@@ -812,9 +815,7 @@
         "entities",
         "counts",
         "failures",
-        "unreadable",
-        "server_only",
-        "server_notes"
+        "unreadable"
       ],
       "properties": {
         "ok": {
@@ -852,7 +853,10 @@
           }
         },
         "server_only": {
-          "type": "array",
+          "type": [
+            "array",
+            "null"
+          ],
           "items": {
             "type": "object",
             "properties": {
@@ -876,7 +880,19 @@
           }
         },
         "server_notes": {
-          "type": "array",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "notes": {
+          "type": [
+            "array",
+            "null"
+          ],
           "items": {
             "type": "string"
           }
@@ -910,6 +926,15 @@
           "items": {
             "type": "object",
             "properties": {
+              "paths": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                }
+              },
               "server_owned": {
                 "type": [
                   "array",
@@ -945,6 +970,15 @@
           "items": {
             "type": "object",
             "properties": {
+              "paths": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                }
+              },
               "server_owned": {
                 "type": [
                   "array",

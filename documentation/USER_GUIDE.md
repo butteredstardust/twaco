@@ -392,6 +392,22 @@ with `// @ts-ignore` on the line above.
 
 ### Status, the baseline and conflicts
 
+`twaco entity status --against export.xml` compares the repository XML with a ThingWorx
+export offline, without a profile, server access or reading or writing stored baselines.
+It uses adopt's semantic comparison, including server-owned omissions and configured adopt
+ignores, without handoff selection, history attribution or merge planning. It reports `same`,
+`different`, `only-in-export` and `only-in-repository`; `--detail` lists entities and differing
+paths, and `--json` returns counts and attention entries (all statuses with `--detail`).
+Repository-only entries are limited to collection/project pairs present in the export:
+absence from a partial export does not prove deletion. Differences return the usual drift
+exit code. Sidecars behind the XML still produce the sync advisory.
+
+The default scope is the export; an entity name or `--project Acme.Project` can narrow the
+comparison. `--all` also selects the export scope. The input supports the same export forms
+as adopt, including a single entity XML. `--against` refuses `--record`, `--profile` and `--ancestor`.
+`--ancestor` instead supplies the common ancestor for **live** server status; it does not
+turn status into an offline comparison.
+
 `twaco entity status --all` compares each entity three ways: the repository, the server, and
 the baseline. The baseline holds two hashes per entity, the repository's and the server's,
 recorded at the last deploy or push (or by `--record`, below); each side is compared with its

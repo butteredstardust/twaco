@@ -292,7 +292,7 @@ fn entity_change(
     }
 }
 
-pub(super) fn compare_owned_entity(
+pub(crate) fn compare_owned_entity(
     solution: &Solution,
     entity: &EntityRef,
     left: &Element,
