@@ -2,12 +2,12 @@ use super::requests::refactor::{
     AdoptApplyRequest, AdoptKind, AdoptReportRequest, AdoptTakeSide, EntityEditAction,
     EntityEditRequest, EntityNewRequest, HandoffAction, HandoffRequest, MashupAddContainedRequest,
     MashupAddRequest, MashupBindRequest, MashupCollectionAddRequest, MashupDescribeRequest,
-    MashupDiffRequest, MashupEventRequest, MashupNewRequest, MashupOffRequest, MashupOnRequest,
-    MashupParameterAction, MashupParameterRequest, MashupRecipeRequest, MashupRemoveRequest,
-    MashupSetRequest, MashupSourceAddRequest, MashupSourceListRequest, MashupSourceRemoveRequest,
-    MashupSourceRetargetRequest, MashupTemplatesRequest, MashupUnbindRequest,
-    MashupValidateRequest, MoveMemberAction, MoveMemberRequest, NewBuildingBlockRequest,
-    RenameRequest, ReprojectRequest, RetemplateRequest, WidgetsRequest,
+    MashupDiffRequest, MashupEventRequest, MashupGapRequest, MashupNewRequest, MashupOffRequest,
+    MashupOnRequest, MashupParameterAction, MashupParameterRequest, MashupRecipeRequest,
+    MashupRemoveRequest, MashupSetRequest, MashupSourceAddRequest, MashupSourceListRequest,
+    MashupSourceRemoveRequest, MashupSourceRetargetRequest, MashupTemplatesRequest,
+    MashupUnbindRequest, MashupValidateRequest, MoveMemberAction, MoveMemberRequest,
+    NewBuildingBlockRequest, RenameRequest, ReprojectRequest, RetemplateRequest, WidgetsRequest,
 };
 use super::source::add_types_refresh;
 use super::{
@@ -1497,6 +1497,32 @@ pub(crate) fn rename_tool(
         commands::rename::execute(solution, &request, &mut notices).map_err(ToolError::coded)?;
     let mut result =
         rename::summary_json(solution, outcome.outcome(), arguments.include_outside, 10);
+    add_notices(&mut result, &notices);
+    Ok(result)
+}
+
+pub(crate) fn mashup_gap_tool(
+    solution: &Solution,
+    arguments: MashupGapRequest,
+) -> Result<Value, ToolError> {
+    let request = commands::mashup::MashupGapRequest {
+        request: crate::core::mashup::authoring::GapRequest {
+            mashup: nonempty(&arguments.mashup, "mashup")?.into(),
+            container: nonempty(&arguments.container, "container")?.into(),
+            px: arguments.px,
+        },
+        mode: if arguments.dry_run {
+            Mode::Plan
+        } else {
+            Mode::Apply
+        },
+        lock_label: "mcp mashup_gap",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome =
+        commands::mashup::gap(solution, &request, &mut notices).map_err(ToolError::coded)?;
+    let mut result =
+        crate::core::mashup::authoring::gap_plan_json(solution, &outcome.plan, outcome.applied);
     add_notices(&mut result, &notices);
     Ok(result)
 }

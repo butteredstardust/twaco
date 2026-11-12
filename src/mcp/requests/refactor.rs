@@ -1182,3 +1182,16 @@ pub(crate) struct RetemplateRequest {
     #[serde(default = "default_true")]
     pub(crate) dry_run: bool,
 }
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MashupGapRequest {
+    /// The existing mashup's name.
+    pub(crate) mashup: String,
+    /// A flexcontainer id or unambiguous display name.
+    pub(crate) container: String,
+    /// Fixed spacer size, 0 to 200 pixels; zero removes spacers.
+    pub(crate) px: i32,
+    #[serde(default = "default_true")]
+    pub(crate) dry_run: bool,
+}

@@ -1202,6 +1202,7 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
             "mashup_source_list",
             "mashup_source_remove",
             "mashup_on",
+            "mashup_gap",
             "mashup_remove",
             "mashup_unbind",
             "mashup_off",
@@ -1288,6 +1289,7 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
         "mashup_source_retarget",
         "mashup_source_remove",
         "mashup_on",
+        "mashup_gap",
         "mashup_remove",
         "mashup_unbind",
         "mashup_off",
@@ -4166,4 +4168,46 @@ fn state_format_mcp_defaults_to_plan_then_applies_and_returns_its_schema() {
     let response = converse(&root, &[json!({"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"mashup_state_format_set","arguments":arguments}})]).remove(0);
     assert_eq!(response["result"]["isError"], true);
     assert!(response.to_string().contains("exactly one"));
+}
+
+#[test]
+fn mashup_gap_defaults_to_plan_and_applies_fixed_spacers() {
+    let (_dir, root) = solution_dir();
+    let name = "Acme.Gaps_MU";
+    let new = call(&root, "mashup_new", json!({"name": name, "dry_run": false}));
+    assert_eq!(new["isError"], false, "{new}");
+    for _ in 0..2 {
+        let added = call(
+            &root,
+            "mashup_add",
+            json!({"mashup": name, "widget": "container", "in": "center", "dry_run": false}),
+        );
+        assert_eq!(added["isError"], false, "{added}");
+    }
+    let path = root.join("Mashups/Acme.Gaps_MU.xml");
+    let before = std::fs::read(&path).unwrap();
+    let mut arguments = json!({"mashup": name, "container": "center", "px": 24});
+    let planned = call(&root, "mashup_gap", arguments.clone());
+    assert_eq!(planned["isError"], false, "{planned}");
+    assert_eq!(planned["structuredContent"]["applied"], false);
+    assert_eq!(planned["structuredContent"]["spacers"], 1);
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    arguments["dry_run"] = json!(false);
+    let applied = call(&root, "mashup_gap", arguments.clone());
+    assert_eq!(applied["isError"], false, "{applied}");
+    assert_eq!(applied["structuredContent"]["applied"], true);
+    let written = std::fs::read(&path).unwrap();
+    assert_ne!(before, written);
+    let again = call(&root, "mashup_gap", arguments.clone());
+    assert_eq!(again["isError"], false, "{again}");
+    assert_eq!(std::fs::read(&path).unwrap(), written);
+    let tool = tool_definitions()
+        .into_iter()
+        .find(|tool| tool["name"] == "mashup_gap")
+        .unwrap();
+    jsonschema::validate(&tool["outputSchema"], &applied["structuredContent"]).unwrap();
+    arguments["px"] = json!(201);
+    let refused = call(&root, "mashup_gap", arguments);
+    assert_eq!(refused["isError"], true);
+    assert_eq!(std::fs::read(&path).unwrap(), written);
 }

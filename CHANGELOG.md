@@ -8,6 +8,8 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- `mashup gap` (MCP `mashup_gap`) replaces direct twaco spacers with fixed row or column gaps; zero removes them.
+
 - `adopt` warns when a new mashup shares its short name with a mashup in another project,
   including two incoming mashups. The advisory names both entities and projects without changing
   the plan or writes, and is also returned by MCP.

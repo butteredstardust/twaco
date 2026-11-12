@@ -1244,6 +1244,20 @@ ellipse (`ShapeType`) for status dots, badges and backgrounds. Its `Data` takes 
 twaco mashup add Acme.App.Orders_MU grid --prop 'ColumnFormat={"formatInfo":[]}' --apply
 ```
 
+Separate sections or cards with fixed empty containers, as the design kits do:
+
+```sh
+twaco mashup gap Acme.App.Orders_MU flexcontainer-2 24 --apply
+```
+
+`mashup gap <mashup> <container> <px>` plans by default and accepts `--json`.
+It replaces only direct twaco spacers: fixed-height rows in a column, fixed-width columns
+in a row, between children only. Sizes are 0 to 200px; zero removes the spacers.
+The target needs at least two content children. A footer stays last, with no spacer after it.
+Container properties stay unchanged. Run `gap` again after adding children; placement does
+not insert gaps automatically. Choose a content widget as the placement anchor: placing
+beside or below a spacer is refused.
+
 Use `mashup set` to change existing widgets exactly by id or unambiguous display name. It accepts
 several properties in one edit and plans unless `--apply`:
 

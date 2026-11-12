@@ -7519,3 +7519,48 @@ fn a_cell_menu_item_event_is_checked_against_the_menu_state_definition() {
         report[0].problems
     );
 }
+
+#[test]
+fn gap_plans_without_writing_and_applies_entity_and_sidecar_together() {
+    use crate::core::commands::{self, Mode, Notices};
+
+    let (_dir, solution) = one_project();
+    let name = "Acme.Gaps_MU";
+    let new = plan_new(&solution, &request(name)).unwrap();
+    apply_new(&solution, &new, &lock(&solution)).unwrap();
+    for _ in 0..2 {
+        let mut add = add_request(name, "container");
+        add.placement = Some(Placement::In("center".into()));
+        let plan = plan_add(&solution, &add).unwrap();
+        apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    }
+    let before = std::fs::read(&new.entity_path).unwrap();
+    let sidecar_before = std::fs::read(&new.content_path).unwrap();
+    let mut request = commands::mashup::MashupGapRequest {
+        request: GapRequest {
+            mashup: name.into(),
+            container: "center".into(),
+            px: 24,
+        },
+        mode: Mode::Plan,
+        lock_label: "test gap",
+    };
+    let planned = commands::mashup::gap(&solution, &request, &mut Notices::default()).unwrap();
+    assert!(!planned.applied);
+    assert_eq!(planned.plan.spacers, 1);
+    assert_eq!(std::fs::read(&new.entity_path).unwrap(), before);
+    assert_eq!(std::fs::read(&new.content_path).unwrap(), sidecar_before);
+    request.mode = Mode::Apply;
+    let applied = commands::mashup::gap(&solution, &request, &mut Notices::default()).unwrap();
+    assert!(applied.applied);
+    let written = std::fs::read(&new.entity_path).unwrap();
+    let assets = workspace::read_mashup(new.content_path.parent().unwrap())
+        .unwrap()
+        .unwrap();
+    let (synced, changes) = mashup::sync(&written, &assets).unwrap();
+    assert!(changes.is_empty());
+    assert_eq!(written, synced);
+    let again = commands::mashup::gap(&solution, &request, &mut Notices::default()).unwrap();
+    assert!(again.plan.edit.is_none());
+    assert_eq!(std::fs::read(&new.entity_path).unwrap(), written);
+}

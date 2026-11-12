@@ -2006,6 +2006,43 @@
     }
   },
   {
+    "name": "mashup_gap",
+    "description": "Replace direct twaco spacers in a flexcontainer with fixed gaps of 0 to 200 pixels. Zero removes spacers. Run again after adding children. A dry run unless dry_run is false; apply writes the entity and managed content sidecar together.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "mashup": {
+          "type": "string",
+          "description": "The existing mashup's name."
+        },
+        "container": {
+          "type": "string",
+          "description": "A flexcontainer id or unambiguous display name."
+        },
+        "px": {
+          "type": "integer",
+          "description": "Fixed spacer size, 0 to 200 pixels; zero removes spacers."
+        },
+        "dry_run": {
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "required": [
+        "mashup",
+        "container",
+        "px"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "openWorldHint": false,
+      "destructiveHint": true,
+      "idempotentHint": true
+    }
+  },
+  {
     "name": "mashup_remove",
     "description": "Remove a widget and its subtree from an existing mashup. By default it refuses bindings, events, data-call configuration, or extension JSON that names the subtree. cascade removes only proven bindings and events, reports orphaned data calls, and never guesses which calls to delete. A dry run unless dry_run is false; apply writes the entity and managed content sidecar together.",
     "inputSchema": {

@@ -16,6 +16,7 @@ pub(crate) enum Mashup {
     Collection(MashupCollection),
     StateFormat(MashupStateFormat),
     Set(MashupSet),
+    Gap(MashupGap),
     Source(MashupSource),
     AddContained(MashupAddContained),
     Bind(MashupBind),
@@ -41,6 +42,7 @@ impl Mashup {
             Mashup::Collection(collection) => collection.path(),
             Mashup::StateFormat(_) => "mashup state-format set",
             Mashup::Set(_) => "mashup set",
+            Mashup::Gap(_) => "mashup gap",
             Mashup::Source(source) => source.path(),
             Mashup::AddContained(_) => "mashup add-contained",
             Mashup::Bind(_) => "mashup bind",
@@ -2467,5 +2469,76 @@ pub(crate) fn mashup_validate_cmd(solution: &Solution, args: &MashupValidate) ->
         DRIFT
     } else {
         OK
+    }
+}
+
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct MashupGap {
+    #[command(flatten)]
+    pub(crate) apply: Apply,
+    #[command(flatten)]
+    pub(crate) json: Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
+pub(crate) fn mashup_gap_cmd(solution: &Solution, args: &MashupGap) -> u8 {
+    let [mashup, container, px] = args.operands.as_slice() else {
+        eprintln!(
+            "{} mashup gap needs <mashup> <container> <px>",
+            style::prefix()
+        );
+        return FAILED;
+    };
+    let Ok(px) = px.parse::<i32>() else {
+        eprintln!(
+            "{} gap px must be an integer between 0 and 200",
+            style::prefix()
+        );
+        return FAILED;
+    };
+    let request = commands::mashup::MashupGapRequest {
+        request: mashup::authoring::GapRequest {
+            mashup: mashup.clone(),
+            container: container.clone(),
+            px,
+        },
+        mode: if args.apply.apply {
+            Mode::Apply
+        } else {
+            Mode::Plan
+        },
+        lock_label: "mashup gap",
+    };
+    let mut notices = commands::Notices::default();
+    let result = commands::mashup::gap(solution, &request, &mut notices);
+    print_notices(&notices);
+    match result {
+        Ok(outcome) => {
+            if args.json.json {
+                println!(
+                    "{}",
+                    mashup::authoring::gap_plan_json(solution, &outcome.plan, outcome.applied)
+                );
+            } else {
+                println!(
+                    "{} {}: {} spacer(s), {}px",
+                    if outcome.applied {
+                        "updated"
+                    } else {
+                        "would update"
+                    },
+                    container,
+                    outcome.plan.spacers,
+                    px
+                );
+            }
+            OK
+        }
+        Err(error) => {
+            eprintln!("{} {error}", style::prefix());
+            FAILED
+        }
     }
 }

@@ -1644,3 +1644,14 @@ pub(crate) struct RenameResult {
     skipped: u64,
     notices: Notices,
 }
+
+#[derive(Serialize, JsonSchema)]
+pub(crate) struct MashupGapResult {
+    applied: bool,
+    dry_run: bool,
+    mashup: String,
+    container: String,
+    px: i32,
+    spacers: usize,
+    notices: Notices,
+}

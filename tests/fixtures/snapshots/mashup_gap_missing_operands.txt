@@ -1,0 +1,7 @@
+$ twaco mashup gap
+exit: 2
+
+--- stdout
+
+--- stderr
+twaco: mashup gap needs <mashup> <container> <px>

@@ -378,7 +378,10 @@ impl MashupDocument {
             if widget.type_id != "flexcontainer" {
                 continue;
             }
-            let children = children(self.at(&widget.path));
+            let children = children(self.at(&widget.path))
+                .iter()
+                .filter(|child| !is_spacer(child))
+                .collect::<Vec<_>>();
             let containers = children
                 .iter()
                 .filter(|child| type_of(child) == Some("flexcontainer"))
@@ -415,6 +418,9 @@ impl MashupDocument {
                 // document back as it was.
                 let found = self.find(anchor)?;
                 let node = self.at(&found.path);
+                if is_spacer(node) {
+                    return Err(EditError::Refused(format!("{anchor}: cannot place beside a spacer; choose a content widget and run gap again")));
+                }
                 if type_of(node) == Some("flexcontainer") || fills(node) {
                     return Err(EditError::Refused(format!(
                         "--end: {} is a container or fills its row; --end goes beside a fixed widget, such as a label",
@@ -641,7 +647,7 @@ impl MashupDocument {
             Reflow::Edit { .. } => false,
         });
         for (index, row) in rows.iter().enumerate() {
-            if type_of(row) != Some("flexcontainer") {
+            if type_of(row) != Some("flexcontainer") || is_spacer(row) {
                 continue;
             }
             // A footer keeps its controls at the column's foot: in a column of controls it is
@@ -697,8 +703,10 @@ impl MashupDocument {
             let Some(tallest) = fixed_row_height(row, stack) else {
                 continue;
             };
+            let previous = placed_row
+                .and_then(|placed| rows[..placed].iter().rposition(|row| !is_spacer(row)));
             let owned = owns(row)
-                || (placed_row == Some(index + 1)
+                || (previous == Some(index)
                     && is_generated_container(row)
                     && row["Properties"]["flex-size"] == "default");
             // An edit only grows the row holding what changed.
@@ -718,14 +726,19 @@ impl MashupDocument {
         // to take, and one placed straight into a growing column must not spread its rows.
         if matches!(scope, Reflow::Placement { .. }) {
             let rows = children(self.at(&column_path)).to_vec();
-            let all_fixed = !rows.is_empty()
-                && rows.iter().all(|row| {
+            let content_rows = rows
+                .iter()
+                .enumerate()
+                .filter(|(_, row)| !is_spacer(row))
+                .collect::<Vec<_>>();
+            let all_fixed = !content_rows.is_empty()
+                && content_rows.iter().all(|(_, row)| {
                     type_of(row) == Some("flexcontainer")
                         && row["Properties"]["flex-size"] == "fixed"
                 });
-            if let (true, Some(last)) = (all_fixed, rows.last()) {
+            if let (true, Some((index, last))) = (all_fixed, content_rows.last()) {
                 if owns(last) && fixed_content_height(last, false).is_some() {
-                    let last_path = [column_path.as_slice(), &[rows.len() - 1]].concat();
+                    let last_path = [column_path.as_slice(), &[*index]].concat();
                     self.unfix_row(&last_path);
                 }
             }
@@ -839,6 +852,7 @@ impl MashupDocument {
         while !path.is_empty()
             && children(self.at(&path)).is_empty()
             && is_generated_container(self.at(&path))
+            && !is_spacer(self.at(&path))
             && !self.is_named_outside_layout(widget_id(self.at(&path)))
         {
             tidied.push(widget_id(self.at(&path)).to_string());
@@ -860,7 +874,7 @@ impl MashupDocument {
         let target_children = children(self.at(&target.path)).to_vec();
         let holds_containers = target_children
             .iter()
-            .any(|child| type_of(child) == Some("flexcontainer"));
+            .any(|child| type_of(child) == Some("flexcontainer") && !is_spacer(child));
         let holds_leaves = target_children
             .iter()
             .any(|child| type_of(child) != Some("flexcontainer"));
@@ -976,6 +990,94 @@ impl MashupDocument {
         Ok(placed)
     }
 
+    /// Replace only direct twaco spacers; the container's properties stay untouched.
+    pub(crate) fn gap(&mut self, target: &str, px: i32) -> Result<usize, EditError> {
+        if !(0..=200).contains(&px) {
+            return Err(EditError::Refused(format!(
+                "{target}: gap px must be between 0 and 200"
+            )));
+        }
+        let found = self.find(target)?;
+        if found.type_id != "flexcontainer" {
+            return Err(EditError::Refused(format!(
+                "{target}: gap needs a flexcontainer"
+            )));
+        }
+        let original = children(self.at(&found.path));
+        let old = original
+            .iter()
+            .filter(|child| is_spacer(child))
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut remaining = original
+            .iter()
+            .filter(|child| !is_spacer(child))
+            .cloned()
+            .collect::<Vec<_>>();
+        if remaining.len() < 2 {
+            return Err(EditError::Refused(format!(
+                "{target}: nothing to separate; gap needs at least 2 children"
+            )));
+        }
+        let mut old = old.into_iter();
+        if px > 0 && self.at(&found.path)["Properties"]["flex-direction"] == "column" {
+            remaining.sort_by_key(is_footer);
+        }
+        let axis = if self.at(&found.path)["Properties"]["flex-direction"] == "column" {
+            "height"
+        } else {
+            "width"
+        };
+        let mut result = Vec::new();
+        let mut count = 0;
+        for child in remaining {
+            if px > 0 && !result.is_empty() && !result.last().is_some_and(is_footer) {
+                let mut spacer = old.next().unwrap_or_else(|| {
+                    let number = self.allocate();
+                    let mut spacer = new_widget(
+                        widgets::catalog()
+                            .by_type("flexcontainer")
+                            .expect("catalogue container"),
+                        number,
+                        true,
+                    );
+                    set_value_property(
+                        &mut spacer,
+                        "DisplayName",
+                        Value::from(format!("container-spacer-{number}")),
+                    );
+                    spacer
+                });
+                for dimension in ["height", "width"] {
+                    for bound in ["min", "max"] {
+                        let size = if dimension == axis {
+                            format!("{px}px")
+                        } else {
+                            String::new()
+                        };
+                        set_value_property(
+                            &mut spacer,
+                            &format!("flex-{bound}-{dimension}"),
+                            Value::from(size),
+                        );
+                    }
+                }
+                set_value_property(&mut spacer, "flex-size", Value::from("fixed"));
+                set_value_property(&mut spacer, "justify-content", Value::from("flex-start"));
+                set_value_property(
+                    &mut spacer,
+                    "iconClass",
+                    Value::from("widgets-flexcontainer-fixed"),
+                );
+                result.push(spacer);
+                count += 1;
+            }
+            result.push(child);
+        }
+        *children_mut(self.at_mut(&found.path)) = result;
+        Ok(count)
+    }
+
     fn place_beside(
         &mut self,
         widget: &Widget,
@@ -983,6 +1085,9 @@ impl MashupDocument {
         side: Side,
     ) -> Result<Placed, EditError> {
         let mut anchor = self.find(anchor_word)?;
+        if is_spacer(self.at(&anchor.path)) {
+            return Err(EditError::Refused(format!("{anchor_word}: cannot place beside or below a spacer; choose a content widget and run gap again")));
+        }
         if anchor.path.is_empty() {
             return Err(EditError::Refused(format!(
                 "{} is the page's top container; place the widget inside it",
@@ -1567,6 +1672,19 @@ fn row_fills(row: &Value) -> bool {
     fills(row) || children(row).iter().any(fills)
 }
 
+fn is_spacer(widget: &Value) -> bool {
+    type_of(widget) == Some("flexcontainer")
+        && children(widget).is_empty()
+        && widget["Properties"]["DisplayName"]
+            .as_str()
+            .is_some_and(|name| {
+                name.strip_prefix("container-spacer-")
+                    .is_some_and(|number| {
+                        !number.is_empty() && number.bytes().all(|byte| byte.is_ascii_digit())
+                    })
+            })
+}
+
 /// A footer row `--bottom` made: it stays the last row of its column. The name is twaco's own
 /// (Composer numbers its containers), so a row someone called `footer-actions` is never taken
 /// for one; as a generated container it is tidied away when its last widget goes.
@@ -1588,6 +1706,7 @@ fn holds_filler(widget: &Value) -> bool {
 fn fixed_row_height(row: &Value, stack: bool) -> Option<f64> {
     let heights = children(row)
         .iter()
+        .filter(|child| !is_spacer(child))
         .map(|child| fixed_content_height(child, stack))
         .collect::<Option<Vec<_>>>()?;
     (!heights.is_empty()).then(|| heights.into_iter().fold(0.0, f64::max))
@@ -1691,6 +1810,7 @@ fn card_height(panel: &Value) -> Option<f64> {
     }
     children(panel)
         .iter()
+        .filter(|row| !is_spacer(row))
         .map(|row| {
             if is_split_row(row) {
                 natural_height(row)
@@ -1708,6 +1828,7 @@ fn card_row_height(row: &Value) -> Option<f64> {
     }
     let heights = children(row)
         .iter()
+        .filter(|child| !is_spacer(child))
         .map(card_height)
         .collect::<Option<Vec<_>>>()?;
     (!heights.is_empty()).then(|| heights.into_iter().fold(0.0, f64::max))
@@ -1718,8 +1839,15 @@ fn is_split_row(widget: &Value) -> bool {
     is_generated_container(widget)
         && widget["Properties"]["flex-direction"] == "row"
         && widget["Properties"]["justify-content"] == "space-between"
-        && children(widget).len() == 2
-        && children(widget).iter().all(is_generated_container)
+        && children(widget)
+            .iter()
+            .filter(|child| !is_spacer(child))
+            .count()
+            == 2
+        && children(widget)
+            .iter()
+            .filter(|child| !is_spacer(child))
+            .all(is_generated_container)
 }
 
 /// Containers twaco created have Composer's generated display name, unlike named template slots.
@@ -1769,6 +1897,212 @@ mod tests {
             r#"{{"UI":{{"Properties":{{"Id":"mashup-root","Type":"mashup","id_index":{id_index}}},"Widgets":[{widgets}]}},"Data":{{}},"DataBindings":[],"Events":[]}}"#
         ))
         .unwrap()
+    }
+
+    #[test]
+    fn gaps_are_fixed_replaceable_and_idempotent_on_both_axes() {
+        for (direction, dimension) in [("column", "height"), ("row", "width")] {
+            let kids = format!(
+                "{},{}",
+                container("flexcontainer-2", "one", "row", ""),
+                container("flexcontainer-3", "two", "row", ""),
+            );
+            let mut doc = document(&container("flexcontainer-1", "target", direction, &kids), 3);
+            let properties = doc.at(&[0])["Properties"].clone();
+            assert_eq!(doc.gap("target", 24).unwrap(), 1);
+            assert_eq!(doc.at(&[0])["Properties"], properties);
+            let spacer = doc.at(&[0, 1]).clone();
+            assert!(is_spacer(&spacer));
+            assert_eq!(spacer["Properties"]["flex-size"], "fixed");
+            assert_eq!(
+                spacer["Properties"][format!("flex-min-{dimension}")],
+                "24px"
+            );
+            assert_eq!(
+                spacer["Properties"][format!("flex-max-{dimension}")],
+                "24px"
+            );
+            let once = doc.to_content();
+            doc.gap("target", 24).unwrap();
+            assert_eq!(once, doc.to_content());
+            doc.gap("target", 12).unwrap();
+            assert_eq!(children(doc.at(&[0])).len(), 3);
+            assert_eq!(
+                doc.at(&[0, 1])["Properties"][format!("flex-min-{dimension}")],
+                "12px"
+            );
+            doc.gap("target", 0).unwrap();
+            assert_eq!(
+                child_ids(&doc, "target"),
+                ["flexcontainer-2", "flexcontainer-3"]
+            );
+        }
+    }
+
+    #[test]
+    fn gap_keeps_footer_last_and_placement_preserves_spacers() {
+        let kids = format!(
+            "{},{}",
+            container(
+                "flexcontainer-2",
+                "container-footer-2",
+                "row",
+                &widget("ptcsbutton", "ptcsbutton-4", "Apply", "")
+            ),
+            container(
+                "flexcontainer-3",
+                "container-3",
+                "row",
+                &widget("ptcslabel", "ptcslabel-5", "Title", "")
+            )
+        );
+        let mut doc = document(&container("flexcontainer-1", "target", "column", &kids), 5);
+        doc.gap("target", 24).unwrap();
+        assert!(is_footer(doc.at(&[0, 2])));
+        let spacer = doc.at(&[0, 1]).clone();
+        let spacer_id = widget_id(&spacer).to_string();
+        for side in [Side::Below, Side::Right, Side::End] {
+            let before = doc.to_content();
+            let error = doc
+                .place(
+                    catalogue_widget("ptcslabel"),
+                    &Placement::Beside {
+                        anchor: spacer_id.clone(),
+                        side,
+                    },
+                )
+                .unwrap_err();
+            assert!(error.to_string().contains("spacer"));
+            assert_eq!(before, doc.to_content());
+        }
+        doc.place(
+            catalogue_widget("ptcslabel"),
+            &Placement::Beside {
+                anchor: "ptcslabel-5".into(),
+                side: Side::Below,
+            },
+        )
+        .unwrap();
+        let found = doc.find(&spacer_id).unwrap();
+        assert_eq!(doc.at(&found.path), &spacer);
+        assert!(is_footer(children(doc.at(&[0])).last().unwrap()));
+        doc.gap("target", 0).unwrap();
+        assert!(doc.find(&spacer_id).is_err());
+    }
+
+    #[test]
+    fn gaps_do_not_break_card_measurement_or_empty_wrapper_tidying() {
+        let groups = format!(
+            "{},{}",
+            container(
+                "flexcontainer-4",
+                "container-4",
+                "row",
+                &widget("ptcslabel", "ptcslabel-6", "Label", "")
+            ),
+            container(
+                "flexcontainer-5",
+                "container-5",
+                "row",
+                &widget("ptcslabel", "ptcslabel-7", "Value", "")
+            )
+        );
+        let split = container("flexcontainer-3", "container-3", "row", &groups);
+        let mut split: Value = serde_json::from_str(&split).unwrap();
+        set_value_property(&mut split, "justify-content", Value::from("space-between"));
+        let panel = container("flexcontainer-2", "panel-2", "column", &split.to_string());
+        let panel2 = panel
+            .replace("-2", "-8")
+            .replace("-3", "-9")
+            .replace("-4", "-10")
+            .replace("-5", "-11")
+            .replace("-6", "-12")
+            .replace("-7", "-13");
+        let mut doc = document(
+            &container(
+                "flexcontainer-1",
+                "container-1",
+                "row",
+                &format!("{panel},{panel2}"),
+            ),
+            13,
+        );
+        let title = fixed(
+            &container(
+                "flexcontainer-14",
+                "container-14",
+                "row",
+                &widget("ptcslabel", "ptcslabel-15", "Title", ""),
+            ),
+            "40px",
+        );
+        doc.push_child(&[0, 0], serde_json::from_str(&title).unwrap());
+        let height = card_row_height(doc.at(&[0])).unwrap();
+        doc.gap("flexcontainer-2", 24).unwrap();
+        assert_eq!(card_row_height(doc.at(&[0])), Some(height));
+        doc.gap("flexcontainer-3", 24).unwrap();
+        assert!(is_split_row(doc.at(&[0, 0, 0])));
+        doc.gap("flexcontainer-1", 24).unwrap();
+        assert_eq!(card_row_height(doc.at(&[0])), Some(height));
+        let spacer = doc.at(&[0, 1]).clone();
+        let (_, removed) = doc.remove_empty_generated_wrappers(vec![0, 1]);
+        assert!(removed.is_empty());
+        assert_eq!(doc.at(&[0, 1]), &spacer);
+    }
+
+    #[test]
+    fn gap_between_bare_widgets_keeps_their_container_a_row_of_widgets() {
+        let labels = format!(
+            "{},{}",
+            widget("ptcslabel", "ptcslabel-2", "one", ""),
+            widget("ptcslabel", "ptcslabel-3", "two", ""),
+        );
+        let mut doc = document(&container("flexcontainer-1", "target", "row", &labels), 3);
+        doc.gap("target", 24).unwrap();
+        assert!(doc.problems().is_empty());
+        let spacer = doc.at(&[0, 1]).clone();
+        let placed = doc
+            .place(
+                catalogue_widget("ptcslabel"),
+                &Placement::In("target".into()),
+            )
+            .unwrap();
+        assert!(placed.containers.is_empty());
+        assert_eq!(doc.at(&[0, 1]), &spacer);
+        assert!(doc.problems().is_empty());
+        assert_eq!(doc.gap("target", 12).unwrap(), 2);
+        assert_eq!(children(doc.at(&[0])).len(), 5);
+        assert!(!is_spacer(doc.at(&[0, 0])));
+        assert!(!is_spacer(doc.at(&[0, 4])));
+        assert!(doc.problems().is_empty());
+    }
+
+    #[test]
+    fn gap_refusals_leave_the_document_unchanged() {
+        let mut doc = document(
+            &container(
+                "flexcontainer-1",
+                "target",
+                "column",
+                &widget("ptcslabel", "ptcslabel-2", "label", ""),
+            ),
+            2,
+        );
+        for (target, px, message) in [
+            ("target", -1, "between 0 and 200"),
+            ("target", 201, "between 0 and 200"),
+            ("label", 24, "flexcontainer"),
+            ("target", 24, "nothing to separate"),
+            ("target", 0, "nothing to separate"),
+        ] {
+            let before = doc.to_content();
+            assert!(doc
+                .gap(target, px)
+                .unwrap_err()
+                .to_string()
+                .contains(message));
+            assert_eq!(before, doc.to_content());
+        }
     }
 
     #[test]

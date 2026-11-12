@@ -43,9 +43,9 @@ use cli::lint::lint;
 use cli::localization::localization_cmd;
 use cli::mashup::{
     mashup_add_cmd, mashup_add_contained_cmd, mashup_bind_cmd, mashup_collection_add_cmd,
-    mashup_describe_cmd, mashup_diff_cmd, mashup_event_cmd, mashup_new_cmd, mashup_off_cmd,
-    mashup_on_cmd, mashup_param_cmd, mashup_recipe_cmd, mashup_remove_cmd, mashup_set_cmd,
-    mashup_source_add_cmd, mashup_source_list_cmd, mashup_source_remove_cmd,
+    mashup_describe_cmd, mashup_diff_cmd, mashup_event_cmd, mashup_gap_cmd, mashup_new_cmd,
+    mashup_off_cmd, mashup_on_cmd, mashup_param_cmd, mashup_recipe_cmd, mashup_remove_cmd,
+    mashup_set_cmd, mashup_source_add_cmd, mashup_source_list_cmd, mashup_source_remove_cmd,
     mashup_source_retarget_cmd, mashup_state_format_set_cmd, mashup_templates_cmd,
     mashup_unbind_cmd, mashup_validate_cmd, Mashup, MashupCollectionCommand, MashupSourceCommand,
     MashupStateFormatCommand,
@@ -283,6 +283,7 @@ fn dispatch(command: Command) -> u8 {
                 MashupCollectionCommand::Add(add) => mashup_collection_add_cmd(solution, add),
             },
             Mashup::Set(set) => mashup_set_cmd(solution, set),
+            Mashup::Gap(gap) => mashup_gap_cmd(solution, gap),
             Mashup::Source(source) => match &source.command {
                 MashupSourceCommand::Add(add) => mashup_source_add_cmd(solution, add),
                 MashupSourceCommand::List(list) => mashup_source_list_cmd(solution, list),

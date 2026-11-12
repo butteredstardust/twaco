@@ -834,6 +834,13 @@ pub(crate) const USAGE: &[Usage] = &[
       --invoke <address>      data call or widget service to run"#,
     },
     Usage {
+        path: "mashup gap",
+        group: 1,
+        text: r#"  mashup gap <mashup> <container> <px> [--apply] [--json]
+                              replace direct twaco spacers with fixed gaps (0 removes; 0..200px);
+                              run again after adding children; plan unless --apply"#,
+    },
+    Usage {
         path: "mashup remove",
         group: 1,
         text: r#"  mashup remove <mashup> <widget> [--cascade] [--apply] [--json]

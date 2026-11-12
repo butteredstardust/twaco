@@ -274,6 +274,9 @@ mashup on <mashup> --event <address> --invoke <address> [--apply] [--json]
                             run a service or widget service when a mashup event fires; plan unless --apply
     --event <address>       event address from mashup describe
     --invoke <address>      data call or widget service to run
+mashup gap <mashup> <container> <px> [--apply] [--json]
+                            replace direct twaco spacers with fixed gaps (0 removes; 0..200px);
+                            run again after adding children; plan unless --apply
 mashup remove <mashup> <widget> [--cascade] [--apply] [--json]
                             remove a widget or subtree; refuses wiring and unknown references unless --cascade;
                             plan unless --apply
