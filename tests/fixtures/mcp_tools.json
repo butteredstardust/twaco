@@ -5367,6 +5367,11 @@
           "type": "boolean",
           "default": false
         },
+        "bottom": {
+          "description": "With in: put the widget in a footer row at the bottom of that column (a filter panel's Apply and Clear); later widgets go above it.",
+          "type": "boolean",
+          "default": false
+        },
         "label": {
           "type": "string"
         },

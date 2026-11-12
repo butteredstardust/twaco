@@ -11,6 +11,10 @@ All notable changes to twaco are recorded here. The format follows
 - `adopt` warns when a new mashup shares its short name with a mashup in another project,
   including two incoming mashups. The advisory names both entities and projects without changing
   the plan or writes, and is also returned by MCP.
+- `mashup add ... --in <column> --bottom` (MCP `bottom`) puts a widget in a footer row at the foot
+  of a column, as the kits place a filter panel's Apply and Clear; widgets added later go above it.
+- Templates can style their slots: `filter-panel` gets the kits' 276px grey filter column and white
+  content with a 24px margin, and `list-page` a grey toolbar band. Mashups made before keep their look.
 - `datepicker` names the date picker, as `date-picker` does. A property a widget does not have is
   refused with the closest real names (`PlaceholderText` suggests `HintText`) in `mashup add`,
   `mashup set` and bindings.

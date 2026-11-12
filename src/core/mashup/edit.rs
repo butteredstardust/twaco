@@ -92,7 +92,13 @@ impl Side {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Placement {
     In(String),
-    Beside { anchor: String, side: Side },
+    /// In a footer row at the bottom of a column (`--in <column> --bottom`), as the kits place a
+    /// filter panel's Apply and Clear.
+    Bottom(String),
+    Beside {
+        anchor: String,
+        side: Side,
+    },
 }
 
 /// What a fixed row adds to its tallest widget: real rows of 34px fields are 45-49px, of 37px
@@ -398,6 +404,7 @@ impl MashupDocument {
     ) -> Result<Placed, EditError> {
         let placed = match placement {
             Placement::In(target) => self.place_in(widget, target),
+            Placement::Bottom(target) => self.place_at_bottom(widget, target),
             Placement::Beside {
                 anchor,
                 side: Side::End,
@@ -533,6 +540,29 @@ impl MashupDocument {
         });
         for (index, row) in rows.iter().enumerate() {
             if type_of(row) != Some("flexcontainer") {
+                continue;
+            }
+            // A footer keeps its controls at the column's foot: in a column of controls it is
+            // the row that grows, its controls at its bottom; beside a grid or a chart it is
+            // fixed to them, so what fills keeps the spare height.
+            if is_footer(row) {
+                if let Reflow::Edit { around } = scope {
+                    if !contains(row, around) {
+                        continue;
+                    }
+                }
+                let row_path = [column_path.as_slice(), &[index]].concat();
+                let beside_filler = rows
+                    .iter()
+                    .enumerate()
+                    .any(|(other, sibling)| other != index && holds_filler(sibling));
+                if beside_filler {
+                    if let Some(tallest) = fixed_row_height(row, false) {
+                        self.fix_row(&row_path, tallest, true);
+                    }
+                } else if row["Properties"]["flex-size"] == "fixed" {
+                    self.unfix_row(&row_path);
+                }
                 continue;
             }
             // A split label/value row in a card takes its natural height, as the kits' rows do.
@@ -773,12 +803,77 @@ impl MashupDocument {
                 }
             }
         }
-        if wrap_new {
-            let wrapper = self.wrap(new, &mut placed);
-            self.push_child(&target.path, wrapper);
+        let node = if wrap_new {
+            self.wrap(new, &mut placed)
         } else {
-            self.push_child(&target.path, new);
+            new
+        };
+        // A footer stays the column's last row: what is added later goes above it.
+        let count = children(self.at(&target.path)).len();
+        if count > 0 && is_footer(&children(self.at(&target.path))[count - 1]) {
+            self.insert_child(&target.path, count - 1, node);
+        } else {
+            self.push_child(&target.path, node);
         }
+        Ok(placed)
+    }
+
+    fn place_at_bottom(&mut self, widget: &Widget, target: &str) -> Result<Placed, EditError> {
+        let target = self.find(target)?;
+        if target.type_id != "flexcontainer"
+            || self.at(&target.path)["Properties"]["flex-direction"] != "column"
+        {
+            return Err(EditError::Refused(format!(
+                "--bottom: {} is not a column; --bottom puts a widget at the foot of a column",
+                target.id
+            )));
+        }
+        if let Some(footer) = children(self.at(&target.path))
+            .iter()
+            .find(|row| is_footer(row))
+        {
+            let beside = children(footer).last().map_or_else(
+                || widget_id(footer).to_string(),
+                |w| widget_id(w).to_string(),
+            );
+            return Err(EditError::Refused(format!(
+                "--bottom: {} already has a footer row; put the widget beside what is in it (--right-of {beside})",
+                target.id
+            )));
+        }
+        if widget.type_id == "flexcontainer" || fills_alone(widget) {
+            return Err(EditError::Refused(
+                "--bottom takes a control such as a button; a container or a filling widget goes --in the column".into(),
+            ));
+        }
+        // Rows go beside rows: bare widgets already in the column move into rows of their own.
+        let mut placed = Placed::default();
+        let existing = children(self.at(&target.path)).to_vec();
+        for (index, child) in existing.into_iter().enumerate() {
+            if type_of(&child) != Some("flexcontainer") {
+                let wrapper = self.wrap(child, &mut placed);
+                self.replace_child(&target.path, index, wrapper);
+            }
+        }
+        let number = self.allocate();
+        placed.id = format!("{}-{number}", widget.type_id);
+        let new = new_widget(widget, number, false);
+        let mut footer = self.wrap(new, &mut placed);
+        let footer_number = widget_id(&footer)
+            .rsplit('-')
+            .next()
+            .unwrap_or_default()
+            .to_string();
+        let properties = properties_mut(&mut footer);
+        insert_sorted(
+            properties,
+            "DisplayName",
+            Value::from(format!("footer-{footer_number}")),
+        );
+        insert_sorted(properties, "flex-direction", Value::from("row"));
+        insert_sorted(properties, "align-items", Value::from("flex-end"));
+        insert_sorted(properties, "justify-content", Value::from("flex-start"));
+        self.push_child(&target.path, footer);
         Ok(placed)
     }
 
@@ -1371,6 +1466,14 @@ fn can_fill(widget: &Value) -> bool {
 
 fn row_fills(row: &Value) -> bool {
     fills(row) || children(row).iter().any(fills)
+}
+
+/// A footer row `--bottom` made: it stays the last row of its column.
+fn is_footer(widget: &Value) -> bool {
+    type_of(widget) == Some("flexcontainer")
+        && widget["Properties"]["DisplayName"]
+            .as_str()
+            .is_some_and(|name| name.starts_with("footer-"))
 }
 
 /// Whether a widget that fills sits anywhere inside `widget`, or is it.
@@ -3200,6 +3303,76 @@ mod placement_walkthrough {
                 true
             );
         }
+    }
+
+    /// `--bottom` keeps a filter panel's buttons at its foot, as the kits do: a footer row that
+    /// grows with its controls at its bottom, stays last as widgets are added, and is fixed to
+    /// its controls beside a grid.
+    #[test]
+    fn bottom_puts_buttons_in_a_footer_that_stays_last() {
+        let catalog = widgets::catalog();
+        let place = |document: &mut MashupDocument, widget: &str, placement: Placement| {
+            document.place(catalog.resolve(widget).unwrap(), &placement)
+        };
+        let mut document = parse(crate::core::mashup::templates::BLANK).unwrap();
+        place(&mut document, "dropdown", Placement::In("center".into())).unwrap();
+        let apply = place(&mut document, "button", Placement::Bottom("center".into()))
+            .unwrap()
+            .id;
+        let clear = place(
+            &mut document,
+            "button",
+            Placement::Beside {
+                anchor: apply.clone(),
+                side: Side::Right,
+            },
+        )
+        .unwrap()
+        .id;
+        let later = place(&mut document, "dropdown", Placement::In("center".into()))
+            .unwrap()
+            .id;
+        let center = document.find("center").unwrap();
+        let rows = children(document.at(&center.path)).to_vec();
+        let footer = rows.last().unwrap();
+        assert!(is_footer(footer), "{footer}");
+        assert!(
+            contains(footer, &apply) && contains(footer, &clear),
+            "{footer}"
+        );
+        assert!(!contains(footer, &later));
+        assert_eq!(footer["Properties"]["align-items"], "flex-end");
+        assert_ne!(
+            footer["Properties"]["flex-size"], "fixed",
+            "it is the row that grows"
+        );
+        for row in &rows[..rows.len() - 1] {
+            assert_eq!(row["Properties"]["flex-size"], "fixed", "{row}");
+        }
+        // A second footer is refused, naming where the widget can go instead.
+        let refused = place(&mut document, "button", Placement::Bottom("center".into()));
+        assert!(
+            matches!(&refused, Err(EditError::Refused(why)) if why.contains("already has a footer")),
+            "{refused:?}"
+        );
+        // Not a column, a filling widget: refused.
+        let footer_id = widget_id(footer).to_string();
+        assert!(place(&mut document, "button", Placement::Bottom(footer_id)).is_err());
+        let mut other = parse(crate::core::mashup::templates::BLANK).unwrap();
+        assert!(place(&mut other, "grid", Placement::Bottom("center".into())).is_err());
+
+        // Beside a grid the footer is fixed, so the grid keeps the spare height.
+        let mut list = parse(crate::core::mashup::templates::BLANK).unwrap();
+        let grid = place(&mut list, "grid", Placement::In("center".into()))
+            .unwrap()
+            .id;
+        place(&mut list, "button", Placement::Bottom("center".into())).unwrap();
+        let center = list.find("center").unwrap();
+        let footer = children(list.at(&center.path)).last().unwrap().clone();
+        assert!(is_footer(&footer));
+        assert_eq!(footer["Properties"]["flex-size"], "fixed");
+        let grid_path = list.find(&grid).unwrap().path;
+        assert_eq!(list.at(&grid_path)["Properties"]["ResponsiveLayout"], true);
     }
 
     #[test]

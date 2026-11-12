@@ -1865,6 +1865,7 @@
         "above": { "type": "string" },
         "below": { "type": "string" },
         "end": { "description": "With right_of: put the widget at the far end of the anchor's row, which splits into a start and an end group (a label and its value, as the kits lay them out).", "type": "boolean", "default": false },
+        "bottom": { "description": "With in: put the widget in a footer row at the bottom of that column (a filter panel's Apply and Clear); later widgets go above it.", "type": "boolean", "default": false },
         "label": { "type": "string" },
         "properties": {
           "description": "Simple catalogue default properties to set by exact property name.",

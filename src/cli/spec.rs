@@ -702,12 +702,14 @@ pub(crate) const USAGE: &[Usage] = &[
     Usage {
         path: "mashup add",
         group: 1,
-        text: r#"  mashup add <mashup> <widget> [--in <container> | --right-of <widget> [--end] | --left-of <widget> | --above <widget> | --below <widget>]
+        text: r#"  mashup add <mashup> <widget> [--in <container> [--bottom] | --right-of <widget> [--end] | --left-of <widget> | --above <widget> | --below <widget>]
       [--label <text>] [--prop <name=value>]... [--input <name:TYPE[=default]>]... [--apply] [--json]
                               add a catalogue widget, or one an [[extension]] project defines, to a
                               mashup; plan unless --apply; a function widget (expression, validator,
                               navigation...) goes beside the layout
       --in <container>        add inside a responsive container (center when omitted)
+      --bottom                with --in <column>: in a footer row at the column's foot (a filter
+                              panel's Apply; --right-of it adds Clear); later widgets go above it
       --right-of/--left-of/--above/--below <widget>
                               place beside an existing widget
       --end                   with --right-of: at the far end of the row, which splits into a start

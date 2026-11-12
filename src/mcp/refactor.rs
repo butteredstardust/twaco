@@ -611,6 +611,17 @@ pub(crate) fn mashup_add_tool(
             _ => return Err(ToolError::invalid("end goes with right_of")),
         }
     }
+    if arguments.bottom {
+        use crate::core::mashup::edit::Placement;
+        match supplied.first_mut() {
+            Some(placement @ Placement::In(_)) => {
+                if let Placement::In(column) = placement.clone() {
+                    *placement = Placement::Bottom(column);
+                }
+            }
+            _ => return Err(ToolError::invalid("bottom goes with in")),
+        }
+    }
     let request = commands::mashup::MashupAddRequest {
         request: crate::core::mashup::authoring::AddRequest {
             mashup: nonempty(&arguments.mashup, "mashup")?.to_string(),

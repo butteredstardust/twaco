@@ -1115,6 +1115,10 @@ aliases and slots. Slots are responsive container names usable with `mashup add 
 | tabs | title, tabs | A tab set whose tabs each show a mashup (`--tab Label=Mashup`) |
 | dashboard | title, tiles, tile-1..tile-4, panels, side, main | Four KPI tiles above a side panel and a main panel (1:3) |
 
+`filter-panel` draws the kits' look: a 276px filter column on `#F7F7F7`, and the content on white with
+a 24px margin. `list-page` gives its toolbar the same grey band. The colours are ordinary widget styles
+in the root's StyleProperties, so `mashup set <mashup> <slot> --style background=...` changes them.
+
 `--template tabs` takes `--tab "Label=Mashup"` once per tab (up to 16; a label may be a `[[token]]`, and a
 bare `Label` leaves that tab empty). Each tab gets the container Composer gives it, holding the mashup in a
 contained mashup with its parameters cached, so `mashup bind` can reach them; without `--tab` the tab set
@@ -1200,6 +1204,13 @@ panel (a card): a column named `panel-N` whose content stacks, two widgets place
 share one row, and the row holding a panel of fixed rows is sized to fit it. `--label` selects the first available LabelText, Label, Text or Title
 property; `--prop Name=value` changes a catalogue property with its expected type. Structured
 properties take JSON, including a grid's column format:
+
+`mashup add <mashup> button --in <column> --bottom` puts a widget in a footer row at the foot of a
+column, as the kits place a filter panel's Apply; `--right-of` that button adds Clear beside it. The
+footer stays the column's last row, so widgets added later go above it. In a column of controls it is
+the row that grows, its controls at its bottom; beside a grid or a chart it is fixed to its controls.
+A compact date, as the kits show in a two-field range, is `--prop FormatToken=DD-MM-YY` on the
+date picker; the default format is Composer's.
 
 A card of label/value rows, as the design kits draw one ("● Objective ........ 12"), takes three
 more steps. `--right-of <widget> --end` puts a widget at the far end of the anchor's row: the row

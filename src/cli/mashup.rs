@@ -270,6 +270,8 @@ pub(crate) struct MashupAdd {
     pub(crate) place: Place,
     #[arg(long = "end")]
     pub(crate) end: bool,
+    #[arg(long = "bottom")]
+    pub(crate) bottom: bool,
     #[arg(long = "label", value_name = "text")]
     pub(crate) label: Option<String>,
     #[arg(long = "prop", value_name = "name=value")]
@@ -1129,6 +1131,14 @@ pub(crate) fn mashup_add_cmd(solution: &Solution, args: &MashupAdd) -> u8 {
             return FAILED;
         }
     };
+    let placement = match (args.bottom, placement) {
+        (false, placement) => placement,
+        (true, Some(Placement::In(column))) => Some(Placement::Bottom(column)),
+        (true, _) => {
+            eprintln!("{} --bottom goes with --in <column>", style::prefix());
+            return FAILED;
+        }
+    };
     let properties = match args
         .props
         .iter()
@@ -1184,6 +1194,7 @@ pub(crate) fn mashup_add_cmd(solution: &Solution, args: &MashupAdd) -> u8 {
     let where_ = match placements.first() {
         None if plan.function => "beside the layout".to_string(),
         None => "in center".to_string(),
+        Some(("--in", value)) if args.bottom => format!("at the bottom of {value}"),
         Some(("--in", value)) => format!("in {value}"),
         Some(("--right-of", value)) if args.end => format!("at the end of {value}'s row"),
         Some(("--right-of", value)) => format!("right of {value}"),
