@@ -40,6 +40,8 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Changed
 
+- The documentation no longer says `?appKey=` on a Runtime URL opens a mashup: the server starts no
+  session for it and the Runtime never forwards the key, so the mashup's calls are refused.
 - `init --from-server` reads the Groups and Organizations it compares by members up to eight at a
   time instead of one by one; its notes and its first error come out in the same order as before.
 

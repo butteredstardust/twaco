@@ -1791,8 +1791,10 @@ error says what it was and how to restore it. MCP: `call` with `as` and `lang`.
 
 ## Application keys
 
-An application key lets a browser, a script or another tool call the server as a user without
-its password (`?appKey=` on a Runtime URL, or an `appKey` header).
+An application key lets a script or another tool call the server as a user without its password:
+an `appKey` header on each request, or `?appKey=` in a request's URL. It does not open a mashup in a
+browser: `Runtime/index.html?appKey=...` loads the page, but the server starts no session for it and
+the Runtime sends the key with none of its own calls, so every one is refused (ThingWorx 10.2).
 
 ```sh
 twaco appkey create Acme.Kiosk_AK --user kiosk --expires 90d --project Acme --save default --apply
