@@ -35,6 +35,10 @@ All notable changes to twaco are recorded here. The format follows
   and `bind` do) turns single row selection on in the grid showing that service's rows, as reading
   the grid's own selection already did; a details button enabled by a selected row never enabled.
   Recipes now print what such a binding changed.
+- A chart placed in a row twaco makes keeps its own size (`OverrideChildrenAbsolute` on that row),
+  as the kits' charts do: before, Runtime positioned it absolutely, its row counted only its date
+  picker, and the label/value cards above took the page's spare height. Measured on 10.2 with the
+  KPI benchmark: chart row 527px with a hand-set flex-grow of 3 before, 587px at flex-grow 1 now.
 - A toolbar row split by `--end` in a column with a grid or a chart is fixed to its controls'
   height; it took a share of the page's spare height and pushed the grid halfway down.
 

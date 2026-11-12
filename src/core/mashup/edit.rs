@@ -445,7 +445,30 @@ impl MashupDocument {
         self.keep_footers_last();
         self.fix_rows(&placed);
         self.inherit_backgrounds(&placed);
+        self.let_chart_keep_its_size(&placed.id);
         Ok(placed)
+    }
+
+    /// A chart that fills a row twaco made keeps its own size, as the kits' charts do
+    /// (`OverrideChildrenAbsolute` on its container): Runtime then lays it out in the flow, so
+    /// its row claims the page's spare height instead of label/value cards stretching to take
+    /// it. Without it the chart is absolutely positioned, counts for nothing, and its row is
+    /// only as tall as its date picker. A grid or a contained mashup keeps filling as before.
+    fn let_chart_keep_its_size(&mut self, id: &str) {
+        let Ok(found) = self.find(id) else {
+            return;
+        };
+        if !found.type_id.starts_with("ptcschart") || !fills(self.at(&found.path)) {
+            return;
+        }
+        let Some((_, parent)) = found.path.split_last() else {
+            return;
+        };
+        if parent.is_empty() || !is_generated_container(self.at(parent)) {
+            return;
+        }
+        let parent = parent.to_vec();
+        self.set_property(&parent, "OverrideChildrenAbsolute", Value::Bool(true));
     }
 
     /// A footer is its column's last row whatever was placed beside it: a row put below it moves
@@ -3529,6 +3552,57 @@ mod placement_walkthrough {
         assert!(footer_of(&document).is_none(), "tidied {tidied:?}");
         place(&mut document, "button", Placement::Bottom("center".into()));
         assert!(footer_of(&document).is_some());
+    }
+
+    /// A chart filling a row twaco made keeps its own size, as the kits' charts do, so its row
+    /// takes the spare height; a grid keeps filling, and a container twaco did not make is left
+    /// as it is.
+    #[test]
+    fn a_chart_in_a_row_twaco_made_keeps_its_own_size() {
+        let catalog = widgets::catalog();
+        let place = |document: &mut MashupDocument, widget: &str, placement: Placement| {
+            document
+                .place(catalog.resolve(widget).unwrap(), &placement)
+                .unwrap()
+                .id
+        };
+        let keeps = |document: &MashupDocument, id: &str| {
+            let path = document.find(id).unwrap().path;
+            document.at(&path[..path.len() - 1])["Properties"]["OverrideChildrenAbsolute"].clone()
+        };
+        let mut document = parse(crate::core::mashup::templates::BLANK).unwrap();
+        let picker = place(&mut document, "datepicker", Placement::In("center".into()));
+        let chart = place(
+            &mut document,
+            "pie-chart",
+            Placement::Beside {
+                anchor: picker,
+                side: Side::Below,
+            },
+        );
+        let chart_path = document.find(&chart).unwrap().path;
+        assert_eq!(
+            document.at(&chart_path)["Properties"]["ResponsiveLayout"],
+            true
+        );
+        assert_eq!(keeps(&document, &chart), true);
+
+        let mut list = parse(crate::core::mashup::templates::BLANK).unwrap();
+        let title = place(&mut list, "label", Placement::In("center".into()));
+        let grid = place(
+            &mut list,
+            "grid",
+            Placement::Beside {
+                anchor: title,
+                side: Side::Below,
+            },
+        );
+        assert_ne!(keeps(&list, &grid), true);
+
+        // Alone in a template slot: the slot is not twaco's wrapper, so it is left alone.
+        let mut alone = parse(crate::core::mashup::templates::BLANK).unwrap();
+        let chart = place(&mut alone, "pie-chart", Placement::In("center".into()));
+        assert_ne!(keeps(&alone, &chart), true);
     }
 
     #[test]

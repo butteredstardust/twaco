@@ -1223,7 +1223,9 @@ instead, so the grid takes the spare height, as the kits' toolbars do. `mashup a
 the kits' 1px rule (`#C2C7CE`) between rows. The row holding such cards becomes a `range` row whose
 minimum is the cards' measured height (a `label` row is 19px on 10.2, a `sub-header` 27px, a
 `header` 33px). A `range` row still takes its share of the page's spare height, as every row
-does; to give most of it to a row of charts or grids, set that row's `flex-grow` to 2 or 3. `--prop` values count in that measure, so set a dot's size and margins
+does. A chart placed in a row twaco makes keeps its own size there, as the kits' charts do
+(`OverrideChildrenAbsolute` on its row), so a row of charts claims its share without help; to give
+more to a row of grids, set that row's `flex-grow` to 2 or 3. `--prop` values count in that measure, so set a dot's size and margins
 there:
 
 ```sh
