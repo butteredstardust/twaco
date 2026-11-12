@@ -243,6 +243,60 @@ fn resolve_selects_matching_handoff_and_each_explicit_source() {
     assert!(resolve(&empty_solution, None, &export).unwrap().is_none());
 }
 
+/// Two handoffs equally like the export are refused, not guessed between; a unique pick that
+/// matches under half of the export says so in its label.
+#[test]
+fn resolve_refuses_a_tie_and_flags_a_weak_pick() {
+    let (temporary, solution) = solution();
+    let entity = |name: &str, value: &str| {
+        format!("<Thing name=\"P.{name}\" projectName=\"P\"><value>{value}</value></Thing>")
+    };
+    let file = |path: &str, things: &[String]| {
+        let path = temporary.path().join(path);
+        std::fs::write(
+            &path,
+            format!("<Entities><Things>{}</Things></Entities>", things.concat()),
+        )
+        .unwrap();
+        path
+    };
+    let a = file("a.xml", &[entity("A", "1"), entity("B", "old")]);
+    let b = file("b.xml", &[entity("A", "1"), entity("B", "other")]);
+    record_handoff(&solution, "a", std::slice::from_ref(&a)).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(2));
+    record_handoff(&solution, "b", std::slice::from_ref(&b)).unwrap();
+
+    // Each handoff has A identical and B different: neither can be preferred.
+    let export_path = file("export.xml", &[entity("A", "1"), entity("B", "new")]);
+    let export = Side::from_export(&export_path).unwrap();
+    let error = resolve(&solution, None, &export).err().unwrap().to_string();
+    assert!(error.contains("handoffs b, a each have 1 of 2"), "{error}");
+    assert!(error.contains("--base"), "{error}");
+    // An explicit base settles it.
+    assert!(resolve(&solution, Some("a"), &export).unwrap().is_some());
+
+    // A unique best that matches 1 of 3 is taken, and flagged.
+    let weak_path = file(
+        "weak.xml",
+        &[
+            entity("A", "1"),
+            entity("B", "old"),
+            entity("C", "x"),
+            entity("D", "y"),
+        ],
+    );
+    let weak = Side::from_export(&weak_path).unwrap();
+    let label = resolve(&solution, None, &weak).unwrap().unwrap().label;
+    assert!(label.starts_with("handoff a (picked: 2 of 4"), "{label}");
+    let weaker_path = file(
+        "weaker.xml",
+        &[entity("B", "old"), entity("C", "x"), entity("D", "y")],
+    );
+    let weaker = Side::from_export(&weaker_path).unwrap();
+    let label = resolve(&solution, None, &weaker).unwrap().unwrap().label;
+    assert!(label.contains("picked with only 1 of 3"), "{label}");
+}
+
 #[test]
 fn suggestions_rank_each_recorded_handoff_by_export_matches() {
     let (temporary, solution) = solution();

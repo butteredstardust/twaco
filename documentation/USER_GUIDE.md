@@ -542,7 +542,8 @@ importable.
 `adopt` compares Composer's canonical form, so formatting and platform noise do not count. It
 uses the named `--base <file|handoff|git-rev>`, otherwise the most similar recorded handoff; with
 no base it uses git history to spot stale content and calls the rest unknown. The first report line
-names the selected base. Handoffs are local derived files under `.twaco/handoffs/`; pass a package
+names the selected base, and says when it matched under half of the export. Two handoffs equally
+similar are refused, not guessed between: name the one the export answers with `--base`. Handoffs are local derived files under `.twaco/handoffs/`; pass a package
 with `--base` on another machine.
 
 A base type that changed on something both sides have (a mashup parameter, a binding, a service

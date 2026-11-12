@@ -266,7 +266,8 @@ pub(crate) fn handoffs(solution: &Solution) -> Result<Vec<Handoff>, AdoptError> 
 }
 
 /// Resolve an explicit base, or choose the recorded handoff with the most entities equal to the
-/// export. A tie keeps `handoffs`' newest-first ordering.
+/// export. Two handoffs tied for the most are refused rather than guessed between: a wrong base
+/// misclassifies every entity it differs on. A pick matching under half of the export says so.
 pub(crate) fn resolve(
     solution: &Solution,
     source: Option<&str>,
@@ -302,6 +303,7 @@ pub(crate) fn resolve(
             });
     }
     let mut selected: Option<(usize, Handoff, Side)> = None;
+    let mut tied: Vec<String> = Vec::new();
     for handoff in known {
         let side = handoff_side(solution, &handoff)?;
         let matches = export
@@ -315,18 +317,42 @@ pub(crate) fn resolve(
                 })
             })
             .count();
-        if matches > 0 && selected.as_ref().is_none_or(|(best, _, _)| matches > *best) {
-            selected = Some((matches, handoff, side));
+        if matches == 0 {
+            continue;
         }
+        match &selected {
+            Some((best, _, _)) if matches < *best => {}
+            Some((best, _, _)) if matches == *best => tied.push(handoff.name.clone()),
+            _ => {
+                tied = vec![handoff.name.clone()];
+                selected = Some((matches, handoff, side));
+            }
+        }
+    }
+    let total = export.entities.len();
+    if tied.len() > 1 {
+        let matches = selected.as_ref().map_or(0, |(matches, _, _)| *matches);
+        return Err(AdoptError::Base {
+            base: "a recorded handoff".to_string(),
+            why: format!(
+                "handoffs {} each have {matches} of {total} exported entities identical;                  choose the one this export answers with --base <handoff>",
+                tied.join(", ")
+            ),
+        });
     }
     Ok(selected.map(|(matches, handoff, side)| Base {
         side,
-        label: format!(
-            "handoff {} (picked: {} of {} entities identical)",
-            handoff.name,
-            matches,
-            export.entities.len()
-        ),
+        label: if matches * 2 < total {
+            format!(
+                "handoff {} (picked with only {matches} of {total} entities identical;                  pass --base if this export does not answer it)",
+                handoff.name
+            )
+        } else {
+            format!(
+                "handoff {} (picked: {matches} of {total} entities identical)",
+                handoff.name
+            )
+        },
     }))
 }
 
