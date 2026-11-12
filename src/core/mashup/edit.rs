@@ -313,9 +313,30 @@ impl MashupDocument {
         };
         children_mut(self.at_mut(parent)).remove(index);
         let (parent, tidied) = self.remove_empty_generated_wrappers(parent.to_vec());
+        self.drop_stray_spacers(&parent);
         let around = widget_id(self.at(&parent)).to_string();
         self.reflow_at(&parent, &Reflow::Edit { around: &around });
         Ok(tidied)
+    }
+
+    /// After a removal: no spacer at either end of `parent`, none beside another, none after a
+    /// footer; what `gap` would leave for the children that remain.
+    fn drop_stray_spacers(&mut self, parent: &[usize]) {
+        let kids = children_mut(self.at_mut(parent));
+        let mut kept: Vec<Value> = Vec::with_capacity(kids.len());
+        for child in kids.drain(..) {
+            let stray = is_spacer(&child)
+                && kept
+                    .last()
+                    .is_none_or(|previous| is_spacer(previous) || is_footer(previous));
+            if !stray {
+                kept.push(child);
+            }
+        }
+        while kept.last().is_some_and(is_spacer) {
+            kept.pop();
+        }
+        *kids = kept;
     }
 
     /// Append `widget` as the last child of the widget at `parent`.
@@ -451,30 +472,29 @@ impl MashupDocument {
         self.keep_footers_last();
         self.fix_rows(&placed);
         self.inherit_backgrounds(&placed);
-        self.let_chart_keep_its_size(&placed.id);
+        self.let_charts_keep_their_size(&placed);
         Ok(placed)
     }
 
-    /// A chart that fills a row twaco made keeps its own size, as the kits' charts do
+    /// A chart that fills a row this placement made keeps its own size, as the kits' charts do
     /// (`OverrideChildrenAbsolute` on its container): Runtime then lays it out in the flow, so
     /// its row claims the page's spare height instead of label/value cards stretching to take
     /// it. Without it the chart is absolutely positioned, counts for nothing, and its row is
-    /// only as tall as its date picker. A grid or a contained mashup keeps filling as before.
-    fn let_chart_keep_its_size(&mut self, id: &str) {
-        let Ok(found) = self.find(id) else {
-            return;
-        };
-        if !found.type_id.starts_with("ptcschart") || !fills(self.at(&found.path)) {
-            return;
+    /// only as tall as its date picker. Only containers the placement created are changed (an
+    /// existing chart it wrapped included); a grid or a contained mashup keeps filling as before.
+    fn let_charts_keep_their_size(&mut self, placed: &Placed) {
+        for container in &placed.containers {
+            let Ok(found) = self.find(container) else {
+                continue;
+            };
+            let holds_chart = children(self.at(&found.path)).iter().any(|child| {
+                type_of(child).is_some_and(|type_id| type_id.starts_with("ptcschart"))
+                    && fills(child)
+            });
+            if holds_chart && type_of(self.at(&found.path)) == Some("flexcontainer") {
+                self.set_property(&found.path, "OverrideChildrenAbsolute", Value::Bool(true));
+            }
         }
-        let Some((_, parent)) = found.path.split_last() else {
-            return;
-        };
-        if parent.is_empty() || !is_generated_container(self.at(parent)) {
-            return;
-        }
-        let parent = parent.to_vec();
-        self.set_property(&parent, "OverrideChildrenAbsolute", Value::Bool(true));
     }
 
     /// A footer is its column's last row whatever was placed beside it: a row put below it moves
@@ -1014,7 +1034,7 @@ impl MashupDocument {
             .filter(|child| !is_spacer(child))
             .cloned()
             .collect::<Vec<_>>();
-        if remaining.len() < 2 {
+        if px > 0 && remaining.len() < 2 {
             return Err(EditError::Refused(format!(
                 "{target}: nothing to separate; gap needs at least 2 children"
             )));
@@ -1808,9 +1828,9 @@ fn card_height(panel: &Value) -> Option<f64> {
     if !is_panel(panel) || !children(panel).iter().any(is_split_row) {
         return None;
     }
+    // A spacer is a fixed row: its height counts like any other.
     children(panel)
         .iter()
-        .filter(|row| !is_spacer(row))
         .map(|row| {
             if is_split_row(row) {
                 natural_height(row)
@@ -3933,10 +3953,98 @@ mod placement_walkthrough {
         );
         assert_ne!(keeps(&list, &grid), true);
 
-        // Alone in a template slot: the slot is not twaco's wrapper, so it is left alone.
+        // Alone in a template slot: the slot is not twaco's wrapper, so it is left alone...
         let mut alone = parse(crate::core::mashup::templates::BLANK).unwrap();
         let chart = place(&mut alone, "pie-chart", Placement::In("center".into()));
         assert_ne!(keeps(&alone, &chart), true);
+        // ...until a placement wraps it in a row of twaco's own.
+        place(
+            &mut alone,
+            "button",
+            Placement::Beside {
+                anchor: chart.clone(),
+                side: Side::Below,
+            },
+        );
+        assert_eq!(keeps(&alone, &chart), true);
+
+        // A container that existed before (Composer names its own `container-N` too) is never
+        // changed by placing a chart in it.
+        let mut theirs = parse(crate::core::mashup::templates::BLANK).unwrap();
+        let existing = place(&mut theirs, "flexcontainer", Placement::In("center".into()));
+        let found = theirs.find(&existing).unwrap();
+        theirs.set_property(&found.path, "DisplayName", Value::from("container-7"));
+        let chart = place(&mut theirs, "pie-chart", Placement::In(existing.clone()));
+        assert_ne!(keeps(&theirs, &chart), true);
+    }
+
+    /// A spacer between a card's rows counts at its size, so the card row's minimum still fits.
+    #[test]
+    fn a_cards_spacers_count_in_its_height() {
+        let label = |id: &str| serde_json::json!({"Properties": {"Id": id, "Type": "ptcslabel", "LabelType": "label", "Margin": "0"}});
+        let group = |n: u32, justify: &str, inner: Value| serde_json::json!({"Properties": {"Id": format!("flexcontainer-{n}"), "Type": "flexcontainer", "DisplayName": format!("container-{n}"), "flex-direction": "row", "justify-content": justify}, "Widgets": [inner]});
+        let split = |n: u32| {
+            serde_json::json!({"Properties": {"Id": format!("flexcontainer-{n}"), "Type": "flexcontainer", "DisplayName": format!("container-{n}"), "flex-direction": "row", "justify-content": "space-between"},
+                "Widgets": [group(n + 1, "flex-start", label(&format!("ptcslabel-{}", n + 1))),
+                            group(n + 2, "flex-end", label(&format!("ptcslabel-{}", n + 2)))]})
+        };
+        let spacer = serde_json::json!({"Properties": {"Id": "flexcontainer-90", "Type": "flexcontainer", "DisplayName": "container-spacer-90", "flex-size": "fixed", "flex-min-height": "24px", "flex-max-height": "24px"}});
+        let panel = |rows: Vec<Value>| serde_json::json!({"Properties": {"Id": "flexcontainer-1", "Type": "flexcontainer", "DisplayName": "panel-1", "flex-direction": "column"}, "Widgets": rows});
+        let without = card_height(&panel(vec![split(10), split(20)])).unwrap();
+        let with = card_height(&panel(vec![split(10), spacer, split(20)])).unwrap();
+        assert_eq!(with - without, 24.0);
+    }
+
+    /// Removing children leaves no spacer at an end, beside another or after a footer, and
+    /// `gap 0` clears what remains even with one child left.
+    #[test]
+    fn removals_leave_no_stray_spacers() {
+        let catalog = widgets::catalog();
+        let mut document = parse(crate::core::mashup::templates::BLANK).unwrap();
+        let place = |document: &mut MashupDocument, widget: &str, placement: Placement| {
+            document
+                .place(catalog.resolve(widget).unwrap(), &placement)
+                .unwrap()
+                .id
+        };
+        let a = place(&mut document, "label", Placement::In("center".into()));
+        let b = place(
+            &mut document,
+            "label",
+            Placement::Beside {
+                anchor: a.clone(),
+                side: Side::Below,
+            },
+        );
+        let apply = place(&mut document, "button", Placement::Bottom("center".into()));
+        document.gap("center", 24).unwrap();
+        let center = |document: &MashupDocument| {
+            let found = document.find("center").unwrap();
+            children(document.at(&found.path)).to_vec()
+        };
+        assert_eq!(
+            center(&document)
+                .iter()
+                .filter(|row| is_spacer(row))
+                .count(),
+            2
+        );
+        let path = document.find(&b).unwrap().path;
+        document.remove_widget(&path).unwrap();
+        let rows = center(&document);
+        assert_eq!(
+            rows.iter().filter(|row| is_spacer(row)).count(),
+            1,
+            "{rows:?}"
+        );
+        let path = document.find(&apply).unwrap().path;
+        document.remove_widget(&path).unwrap();
+        let rows = center(&document);
+        assert!(!rows.iter().any(is_spacer), "{rows:?}");
+        assert!(!rows.last().is_some_and(is_spacer));
+        // With one child left, gap 0 still clears; a size is refused.
+        assert!(document.gap("center", 24).is_err());
+        assert!(document.gap("center", 0).is_ok());
     }
 
     #[test]

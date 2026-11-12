@@ -8,7 +8,9 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
-- `mashup gap` (MCP `mashup_gap`) replaces direct twaco spacers with fixed row or column gaps; zero removes them.
+- `mashup gap <mashup> <container> <px>` (MCP `mashup_gap`) puts the kits' fixed spacers between a
+  container's children: 24px rows between sections, 24px columns between cards. Running it again
+  replaces them, `0` removes them, and removing a child never leaves a stray spacer.
 
 - `adopt` warns when a new mashup shares its short name with a mashup in another project,
   including two incoming mashups. The advisory names both entities and projects without changing
