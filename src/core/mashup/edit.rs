@@ -442,9 +442,32 @@ impl MashupDocument {
                 self.set_property(&found.path, "flex-direction", Value::from("column"));
             }
         }
+        self.keep_footers_last();
         self.fix_rows(&placed);
         self.inherit_backgrounds(&placed);
         Ok(placed)
+    }
+
+    /// A footer is its column's last row whatever was placed beside it: a row put below it moves
+    /// above it.
+    fn keep_footers_last(&mut self) {
+        let footers: Vec<WidgetPath> = self
+            .widgets()
+            .into_iter()
+            .filter(|widget| is_footer(self.at(&widget.path)))
+            .map(|widget| widget.path)
+            .collect();
+        // Deepest first, so moving one never shifts the path of another still to move.
+        for path in footers.into_iter().rev() {
+            let Some((&index, parent)) = path.split_last() else {
+                continue;
+            };
+            let siblings = children_mut(self.at_mut(parent));
+            if index + 1 < siblings.len() {
+                let footer = siblings.remove(index);
+                siblings.push(footer);
+            }
+        }
     }
 
     /// A row twaco made inside a container with a background of its own (a template's grey
@@ -602,11 +625,8 @@ impl MashupDocument {
             // the row that grows, its controls at its bottom; beside a grid or a chart it is
             // fixed to them, so what fills keeps the spare height.
             if is_footer(row) {
-                if let Reflow::Edit { around } = scope {
-                    if !contains(row, around) {
-                        continue;
-                    }
-                }
+                // twaco's own row, re-sized on every reflow: removing the grid beside it lets it
+                // grow again.
                 let row_path = [column_path.as_slice(), &[index]].concat();
                 let beside_filler = rows
                     .iter()
@@ -924,7 +944,7 @@ impl MashupDocument {
         insert_sorted(
             properties,
             "DisplayName",
-            Value::from(format!("footer-{footer_number}")),
+            Value::from(format!("container-footer-{footer_number}")),
         );
         insert_sorted(properties, "flex-direction", Value::from("row"));
         insert_sorted(properties, "align-items", Value::from("flex-end"));
@@ -1524,12 +1544,14 @@ fn row_fills(row: &Value) -> bool {
     fills(row) || children(row).iter().any(fills)
 }
 
-/// A footer row `--bottom` made: it stays the last row of its column.
+/// A footer row `--bottom` made: it stays the last row of its column. The name is twaco's own
+/// (Composer numbers its containers), so a row someone called `footer-actions` is never taken
+/// for one; as a generated container it is tidied away when its last widget goes.
 fn is_footer(widget: &Value) -> bool {
     type_of(widget) == Some("flexcontainer")
         && widget["Properties"]["DisplayName"]
             .as_str()
-            .is_some_and(|name| name.starts_with("footer-"))
+            .is_some_and(|name| name.starts_with("container-footer-"))
 }
 
 /// Whether a widget that fills sits anywhere inside `widget`, or is it.
@@ -3429,6 +3451,84 @@ mod placement_walkthrough {
         assert_eq!(footer["Properties"]["flex-size"], "fixed");
         let grid_path = list.find(&grid).unwrap().path;
         assert_eq!(list.at(&grid_path)["Properties"]["ResponsiveLayout"], true);
+    }
+
+    /// The footer is twaco's own row: one someone named `footer-actions` keeps its size; a row
+    /// placed below the footer goes above it; removing the grid lets it grow again; removing its
+    /// last widget tidies it away, so `--bottom` works again.
+    #[test]
+    fn a_footer_stays_last_follows_removals_and_never_takes_another_row() {
+        let catalog = widgets::catalog();
+        let place = |document: &mut MashupDocument, widget: &str, placement: Placement| {
+            document
+                .place(catalog.resolve(widget).unwrap(), &placement)
+                .unwrap()
+                .id
+        };
+        let footer_of = |document: &MashupDocument| {
+            let center = document.find("center").unwrap();
+            children(document.at(&center.path))
+                .iter()
+                .find(|row| is_footer(row))
+                .cloned()
+        };
+
+        // Someone's own fixed `footer-actions` row in a column of controls keeps its height.
+        let mut document = parse(crate::core::mashup::templates::BLANK).unwrap();
+        let theirs = place(
+            &mut document,
+            "flexcontainer",
+            Placement::In("center".into()),
+        );
+        let found = document.find(&theirs).unwrap();
+        for (key, value) in [
+            ("DisplayName", "footer-actions"),
+            ("flex-size", "fixed"),
+            ("flex-min-height", "60px"),
+            ("flex-max-height", "60px"),
+        ] {
+            document.set_property(&found.path, key, Value::from(value));
+        }
+        place(&mut document, "dropdown", Placement::In("center".into()));
+        let found = document.find(&theirs).unwrap();
+        assert_eq!(document.at(&found.path)["Properties"]["flex-size"], "fixed");
+        assert!(footer_of(&document).is_none());
+
+        // A row placed below the footer's button moves above the footer.
+        let mut document = parse(crate::core::mashup::templates::BLANK).unwrap();
+        let grid = place(&mut document, "grid", Placement::In("center".into()));
+        let apply = place(&mut document, "button", Placement::Bottom("center".into()));
+        let below = place(
+            &mut document,
+            "label",
+            Placement::Beside {
+                anchor: apply.clone(),
+                side: Side::Below,
+            },
+        );
+        let center = document.find("center").unwrap();
+        let rows = children(document.at(&center.path)).to_vec();
+        assert!(is_footer(rows.last().unwrap()), "{rows:?}");
+        assert!(!contains(rows.last().unwrap(), &below));
+        assert_eq!(
+            footer_of(&document).unwrap()["Properties"]["flex-size"],
+            "fixed"
+        );
+
+        // With the grid gone, the footer grows again, its button at the column's foot.
+        let grid_path = document.find(&grid).unwrap().path;
+        document.remove_widget(&grid_path).unwrap();
+        assert_ne!(
+            footer_of(&document).unwrap()["Properties"]["flex-size"],
+            "fixed"
+        );
+
+        // Its last widget gone, the footer goes too, and a new one can be made.
+        let apply_path = document.find(&apply).unwrap().path;
+        let tidied = document.remove_widget(&apply_path).unwrap();
+        assert!(footer_of(&document).is_none(), "tidied {tidied:?}");
+        place(&mut document, "button", Placement::Bottom("center".into()));
+        assert!(footer_of(&document).is_some());
     }
 
     #[test]
