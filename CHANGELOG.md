@@ -6,7 +6,28 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- When an import fails for a profile that signs in with only an app key, the reason read from
+  ApplicationLog is the key's own user's, asked of the server once; when the server will not say
+  who the key is, the Importer's error is reported without a log reason.
+- `adopt` without `--base` refuses two recorded handoffs that are equally similar to the export,
+  naming them, instead of taking the newest; a pick that matches under half of the export says so.
+
 ## [0.1.60] - 2026-11-12
+
+### Added
+
+- A profile with `url` and `app_key` and neither username nor password signs twaco in with the
+  key, sent as an `appKey` header (no server setting needed). A profile with both keeps signing in
+  with its username and password, so `appkey create ... --save` never changes who it acts as.
+  `doctor` says which sign-in a profile uses.
+
+### Fixed
+
+- `appkey create` and `appkey show` with `--save` write into a profile that holds only a `url`.
+- The documentation no longer says the Importer refuses app keys; on ThingWorx 10.2 it accepts
+  one, as do REST reads, service calls, the Exporter and deletes.
 
 ## [0.1.59] - 2026-11-12
 
