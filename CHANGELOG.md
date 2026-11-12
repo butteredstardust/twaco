@@ -6,6 +6,12 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `adopt` warns when a new mashup shares its short name with a mashup in another project,
+  including two incoming mashups. The advisory names both entities and projects without changing
+  the plan or writes, and is also returned by MCP.
+
 ### Fixed
 
 - When an import fails for a profile that signs in with only an app key, the reason read from

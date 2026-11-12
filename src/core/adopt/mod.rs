@@ -20,6 +20,7 @@ use super::codes::{Coded, ErrorCode};
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
+mod advisory;
 mod apply;
 mod base;
 mod classify;

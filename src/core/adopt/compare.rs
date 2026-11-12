@@ -176,6 +176,11 @@ pub(crate) fn compare_with(
         }
     }
 
+    report.notes.extend(super::advisory::mashup_names(
+        solution,
+        &report.entities,
+        &here,
+    ));
     let collections: BTreeSet<&str> = exported.keys().map(|e| e.collection.as_str()).collect();
     report.absent = here
         .keys()

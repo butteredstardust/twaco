@@ -546,6 +546,16 @@ names the selected base, and says when it matched under half of the export. Two 
 similar are refused, not guessed between: name the one the export answers with `--base`. Handoffs are local derived files under `.twaco/handoffs/`; pass a package
 with `--base` on another machine.
 
+When a new mashup shares its short name with a mashup in another project, `adopt` warns with
+both full names and projects, including when both mashups are incoming. For example,
+`Acme.Billing.Orders_MU` in `Acme.Billing` shares `Orders_MU` with `Acme.Sales.Orders_MU`
+in `Acme.Sales`. The short name removes the entity's own project name followed by a dot;
+repository layout and `twaco.toml` supply the project when an existing entity has no
+`projectName`. An entity with no established project prefix gets no warning. This advice
+appears in the plan, with `--detail`, and in `notes` in CLI JSON and MCP adopt results. It
+does not change what adopt plans or writes; full-name and case-insensitive collisions are
+still refused.
+
 A base type that changed on something both sides have (a mashup parameter, a binding, a service
 parameter, a field) is listed under its own heading, with the old and new type, whatever else
 changed: whoever passes the old type now sends a value the other side does not expect. `--json`
