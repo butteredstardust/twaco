@@ -98,7 +98,7 @@ pub(super) fn resolve_end(
                 }
             }
             let contract = catalog.property(&property).ok_or_else(|| {
-                AuthoringError::Unknown(format!("{} has no property {property}", found.id))
+                AuthoringError::Unknown(catalog.no_property(&found.id, &property))
             })?;
             let valid = if source {
                 contract.source
