@@ -14,7 +14,10 @@
       "slot": "filters",
       "flex-direction": "column",
       "align-items": "stretch",
-      "fixed": "290px"
+      "fixed": "290px",
+      "style": {
+        "background": "#F7F7F7"
+      }
     },
     {
       "divider": true
@@ -23,7 +26,11 @@
       "slot": "content",
       "flex-direction": "column",
       "flex-grow": 1,
-      "align-items": "stretch"
+      "align-items": "stretch",
+      "Margin": "24",
+      "style": {
+        "background": "#ffffff"
+      }
     }
   ]
 }

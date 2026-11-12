@@ -116,6 +116,8 @@ pub struct RecipePlan {
     pub added: Vec<String>,
     /// What it wired, one line each, in `mashup describe` address form.
     pub wired: Vec<String>,
+    /// What the wiring changed besides, such as a grid's selection turned on.
+    pub notes: Vec<String>,
 }
 
 impl Recipe {
@@ -143,6 +145,7 @@ struct Work<'a> {
     context: AuthoringContext<'a>,
     added: Vec<String>,
     wired: Vec<String>,
+    notes: Vec<String>,
 }
 
 impl Work<'_> {
@@ -173,7 +176,10 @@ impl Work<'_> {
             from,
             to,
         ) {
-            Ok(_) => self.wired.push(format!("{from} -> {to}")),
+            Ok(bound) => {
+                self.wired.push(format!("{from} -> {to}"));
+                self.notes.extend(bound.warnings);
+            }
             // The wiring a recipe needs is already there: nothing to add.
             Err(AuthoringError::Exists(_)) => {}
             Err(error) => return Err(error),
@@ -389,6 +395,7 @@ pub(crate) fn plan_recipe(
         },
         added: Vec::new(),
         wired: Vec::new(),
+        notes: Vec::new(),
     };
     match &request.recipe {
         Recipe::EnableWhen {
@@ -773,13 +780,18 @@ pub(crate) fn plan_recipe(
         document,
         added,
         wired,
+        mut notes,
         ..
     } = work;
+    // Two inputs from one source raise the same note; keep the first, in order.
+    let mut seen = std::collections::BTreeSet::new();
+    notes.retain(|note| seen.insert(note.clone()));
     Ok(RecipePlan {
         edit: finish_edit(loaded, document, "mashup recipe")?,
         name: request.recipe.name(),
         added,
         wired,
+        notes,
     })
 }
 

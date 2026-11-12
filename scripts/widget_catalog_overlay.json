@@ -136,7 +136,8 @@
     "ptcsdatepicker": {
       "aliases": [
         "date-picker",
-        "date-time-picker"
+        "date-time-picker",
+        "datepicker"
       ],
       "type_display_name": "Date Time Picker"
     },

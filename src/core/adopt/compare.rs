@@ -176,6 +176,11 @@ pub(crate) fn compare_with(
         }
     }
 
+    report.notes.extend(super::advisory::mashup_names(
+        solution,
+        &report.entities,
+        &here,
+    ));
     let collections: BTreeSet<&str> = exported.keys().map(|e| e.collection.as_str()).collect();
     report.absent = here
         .keys()
@@ -287,7 +292,7 @@ fn entity_change(
     }
 }
 
-pub(super) fn compare_owned_entity(
+pub(crate) fn compare_owned_entity(
     solution: &Solution,
     entity: &EntityRef,
     left: &Element,

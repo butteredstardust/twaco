@@ -1,0 +1,12 @@
+$ twaco mashup gap --help
+exit: 0
+
+--- stdout
+  mashup gap <mashup> <container> <px> [--apply] [--json]
+                              replace direct twaco spacers with fixed gaps (0 removes; 0..200px);
+                              run again after adding children; plan unless --apply
+
+  --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+  --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+--- stderr
+

@@ -400,10 +400,9 @@ pub(crate) fn plan_add(
                 property_value(widget, name, Value::String(text.to_string()))?
             }
             None => {
-                return Err(AuthoringError::Invalid(format!(
-                    "{} has no property {name}",
-                    widget.type_id
-                )))
+                return Err(AuthoringError::Invalid(
+                    widget.no_property(&widget.type_id, name),
+                ));
             }
         };
         if let Some(contract) = widget.property(name) {

@@ -228,6 +228,61 @@ impl Widget {
             .or_else(|| catalog().base_properties.get(name))
     }
 
+    /// The refusal for a property `subject` (a widget id or type) does not have, naming close
+    /// real ones or where to list them.
+    pub(crate) fn no_property(&self, subject: &str, name: &str) -> String {
+        let close = self.close_properties(name);
+        if close.is_empty() {
+            format!(
+                "{subject} has no property {name}; `twaco widgets {}` lists them",
+                self.type_id
+            )
+        } else {
+            format!(
+                "{subject} has no property {name}; did you mean {}?",
+                close.join(", ")
+            )
+        }
+    }
+
+    /// Real property names close to `name`, for a refusal: by spelling, and by the words other
+    /// tools use for the same thing (a placeholder is ThingWorx's hint text).
+    pub(crate) fn close_properties(&self, name: &str) -> Vec<String> {
+        const SYNONYMS: &[(&str, &str)] = &[
+            ("placeholder", "hinttext"),
+            ("caption", "label"),
+            ("title", "label"),
+            ("enabled", "disabled"),
+            ("hidden", "visible"),
+            ("tooltip", "tooltipfield"),
+        ];
+        let wanted = name.to_ascii_lowercase();
+        let mut names: Vec<&String> = self.defaults.keys().collect();
+        if let Some(own) = &self.properties {
+            names.extend(own.keys());
+        }
+        names.sort();
+        names.dedup();
+        let mut close: Vec<(usize, &String)> = names
+            .into_iter()
+            .filter_map(|candidate| {
+                let lower = candidate.to_ascii_lowercase();
+                let synonym = SYNONYMS
+                    .iter()
+                    .any(|(word, real)| wanted.contains(word) && lower.contains(real));
+                let distance = strsim::levenshtein(&wanted, &lower);
+                (synonym || distance <= 2 || (wanted.len() > 4 && lower.contains(&wanted)))
+                    .then_some((if synonym { 0 } else { distance }, candidate))
+            })
+            .collect();
+        close.sort();
+        close
+            .into_iter()
+            .take(3)
+            .map(|(_, name)| name.clone())
+            .collect()
+    }
+
     /// The empty value of a numbered property Composer adds only once it is used, so the
     /// catalogue has no default for it: a chart's `DataField<N>` (series N's field) and
     /// `YAxis<N>MinimumValue`/`MaximumValue` (fixed axis bounds). The catalogue's own
@@ -268,6 +323,20 @@ impl Widget {
 mod tests {
     use super::*;
     use std::collections::BTreeSet;
+
+    #[test]
+    fn a_misnamed_property_suggests_the_real_one() {
+        let field = catalog().by_type("ptcstextfield").unwrap();
+        assert_eq!(field.close_properties("PlaceholderText")[0], "HintText");
+        assert!(field
+            .close_properties("Lable")
+            .contains(&"Label".to_string()));
+        assert!(field.close_properties("Zzzzzz").is_empty());
+        assert_eq!(
+            catalog().resolve("datepicker").unwrap().type_id,
+            "ptcsdatepicker"
+        );
+    }
 
     #[test]
     fn the_embedded_catalogue_is_for_10_2_and_every_widget_has_composer_defaults() {

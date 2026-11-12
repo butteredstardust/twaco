@@ -80,45 +80,47 @@
   },
   {
     "name": "status",
-    "description": "Compare entities with the server and the recorded baseline: in-sync, local-changed, server-changed, both-changed, not-on-server, or no baseline yet. Lists every entity that needs attention.",
+    "description": "Compare entities with the server and the recorded baseline: in-sync, local-changed, server-changed, both-changed, not-on-server, or no baseline yet. With against, compare repository XML with an export offline: same, different, only-in-export, only-in-repository (absence from a partial export does not prove deletion). No baseline or profile; refuses ancestor, record and profile. Defaults to the export scope; detail includes differing paths. Lists every entity that needs attention.",
     "inputSchema": {
-      "type": "object",
+      "additionalProperties": false,
       "properties": {
         "entity": {
-          "type": "string",
-          "description": "One entity name, full or its last dotted segment. Name one, or pass all: true."
+          "description": "One entity name, full or its last dotted segment. Name one, or pass all: true; with against, omitting both compares the export scope.",
+          "type": "string"
         },
         "all": {
+          "description": "Every entity (of the project, if one is named).",
           "type": "boolean",
-          "default": false,
-          "description": "Every entity (of the project, if one is named)."
+          "default": false
         },
         "project": {
-          "type": "string",
-          "description": "Narrow to one project of the solution."
+          "description": "Narrow to one project of the solution.",
+          "type": "string"
         },
         "record": {
+          "description": "Record a baseline for every entity whose two sides agree. Writes .twaco/baselines/<profile>.json under the workspace lock.",
           "type": "boolean",
-          "default": false,
-          "description": "Record a baseline for every entity whose two sides agree. Writes .twaco/baselines/<profile>.json under the workspace lock."
+          "default": false
         },
         "profile": {
-          "type": "string",
-          "description": "Server profile name.",
-          "default": "default"
+          "description": "Server profile name (default: default). Not with against.",
+          "type": "string"
         },
         "detail": {
-          "type": "boolean",
           "description": "Return everything instead of the summary.",
+          "type": "boolean",
           "default": false
         },
         "ancestor": {
-          "type": "string",
-          "description": "An export document inside the solution whose entities stand in for the baseline as the common ancestor, for a workspace without a usable one. Read-only: not with record."
+          "description": "An export document inside the solution used as the common ancestor for LIVE server status. Read-only: not with record or against.",
+          "type": "string"
+        },
+        "against": {
+          "description": "Compare with this export inside the solution, offline and read-only. No baseline or profile; not with ancestor or record. Omit entity and all to compare the export scope.",
+          "type": "string"
         }
       },
-      "required": [],
-      "additionalProperties": false
+      "type": "object"
     },
     "annotations": {
       "readOnlyHint": false,
@@ -1863,6 +1865,7 @@
         "above": { "type": "string" },
         "below": { "type": "string" },
         "end": { "description": "With right_of: put the widget at the far end of the anchor's row, which splits into a start and an end group (a label and its value, as the kits lay them out).", "type": "boolean", "default": false },
+        "bottom": { "description": "With in: put the widget in a footer row at the bottom of that column (a filter panel's Apply and Clear); later widgets go above it.", "type": "boolean", "default": false },
         "label": { "type": "string" },
         "properties": {
           "description": "Simple catalogue default properties to set by exact property name.",
@@ -2000,6 +2003,43 @@
       "openWorldHint": false,
       "destructiveHint": true,
       "idempotentHint": false
+    }
+  },
+  {
+    "name": "mashup_gap",
+    "description": "Replace direct twaco spacers in a flexcontainer with fixed gaps of 0 to 200 pixels. Zero removes spacers. Run again after adding children. A dry run unless dry_run is false; apply writes the entity and managed content sidecar together.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "mashup": {
+          "type": "string",
+          "description": "The existing mashup's name."
+        },
+        "container": {
+          "type": "string",
+          "description": "A flexcontainer id or unambiguous display name."
+        },
+        "px": {
+          "type": "integer",
+          "description": "Fixed spacer size, 0 to 200 pixels; zero removes spacers."
+        },
+        "dry_run": {
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "required": [
+        "mashup",
+        "container",
+        "px"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "openWorldHint": false,
+      "destructiveHint": true,
+      "idempotentHint": true
     }
   },
   {

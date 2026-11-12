@@ -256,10 +256,9 @@ pub(crate) fn plan_set(
             || widget.numbered_default(name).is_some()
             || is_state_parameters(widget, name);
         if !known {
-            return Err(AuthoringError::Invalid(format!(
-                "{} has no property {name}",
-                widget.type_id
-            )));
+            return Err(AuthoringError::Invalid(
+                widget.no_property(&widget.type_id, name),
+            ));
         }
         if widget
             .property(name)

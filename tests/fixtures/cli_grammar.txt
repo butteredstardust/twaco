@@ -192,12 +192,14 @@ help:
 |                               compare two repository mashups by executable wiring, responsive layout and visual
 |                               content; ignores Composer-generated identifiers; exits 1 when the selected tier differs
 |       --tier <tier>           executable, layout, visual or all (default all)
-|   mashup add <mashup> <widget> [--in <container> | --right-of <widget> [--end] | --left-of <widget> | --above <widget> | --below <widget>]
+|   mashup add <mashup> <widget> [--in <container> [--bottom] | --right-of <widget> [--end] | --left-of <widget> | --above <widget> | --below <widget>]
 |       [--label <text>] [--prop <name=value>]... [--input <name:TYPE[=default]>]... [--apply] [--json]
 |                               add a catalogue widget, or one an [[extension]] project defines, to a
 |                               mashup; plan unless --apply; a function widget (expression, validator,
 |                               navigation...) goes beside the layout
 |       --in <container>        add inside a responsive container (center when omitted)
+|       --bottom                with --in <column>: in a footer row at the column's foot (a filter
+|                               panel's Apply; --right-of it adds Clear); later widgets go above it
 |       --right-of/--left-of/--above/--below <widget>
 |                               place beside an existing widget
 |       --end                   with --right-of: at the far end of the row, which splits into a start
@@ -280,6 +282,9 @@ help:
 |                               run a service or widget service when a mashup event fires; plan unless --apply
 |       --event <address>       event address from mashup describe
 |       --invoke <address>      data call or widget service to run
+|   mashup gap <mashup> <container> <px> [--apply] [--json]
+|                               replace direct twaco spacers with fixed gaps (0 removes; 0..200px);
+|                               run again after adding children; plan unless --apply
 |   mashup remove <mashup> <widget> [--cascade] [--apply] [--json]
 |                               remove a widget or subtree; refuses wiring and unknown references unless --cascade;
 |                               plan unless --apply
@@ -536,9 +541,13 @@ help:
 |                                 map CSV assets into a Network hierarchy; plan unless --apply
 |   entity status [<entity>|--all] [--detail] [--record] [--ancestor <export.xml>]
 |                               entity: full name, last dotted segment, or Collection/Name
+|       --against <export.xml>   compare the export with repository XML offline; defaults to its scope
+|                               same, different, only-in-export, only-in-repository (not deletion)
+|                               no profile or baseline; not with --record, --ancestor or --profile
+|       --json                   offline --against result as JSON; --detail includes differing paths
 |       --record                 record matching working/server hashes as baseline
 |       --ancestor <export.xml>  use that export as the common ancestor instead of the baseline
-|                               (an old or missing one); reads only, not with --record
+|                               for LIVE server status; reads only, not with --record or --against
 |       --all                    also lists declared-project entities found only on the server
 |   entity pull <entity>...|--all [--profile <name>] [--apply] [--json]
 |                               take server-changed entities, extract sidecars and record baselines
@@ -3841,9 +3850,13 @@ help:
 | 
 |   entity status [<entity>|--all] [--detail] [--record] [--ancestor <export.xml>]
 |                               entity: full name, last dotted segment, or Collection/Name
+|       --against <export.xml>   compare the export with repository XML offline; defaults to its scope
+|                               same, different, only-in-export, only-in-repository (not deletion)
+|                               no profile or baseline; not with --record, --ancestor or --profile
+|       --json                   offline --against result as JSON; --detail includes differing paths
 |       --record                 record matching working/server hashes as baseline
 |       --ancestor <export.xml>  use that export as the common ancestor instead of the baseline
-|                               (an old or missing one); reads only, not with --record
+|                               for LIVE server status; reads only, not with --record or --against
 |       --all                    also lists declared-project entities found only on the server
 |   entity pull <entity>...|--all [--profile <name>] [--apply] [--json]
 |                               take server-changed entities, extract sidecars and record baselines
@@ -4758,6 +4771,18 @@ help:
 usage: twaco entity status [<entity>|--all] [--detail] [--record] [--ancestor <export.xml>]
 settings: disable-version-flag disable-help-subcommand
 subcommands: 
+arg --against
+    action: Set
+    value_name: export.xml
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 arg --all
     action: SetTrue
     value_name: -
@@ -4802,6 +4827,17 @@ arg --help
     default: -
     index: -
     other: -
+arg --json
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
 arg --log
     action: Set
     value_name: filter
@@ -4874,9 +4910,13 @@ arg <operands>
 help:
 |   entity status [<entity>|--all] [--detail] [--record] [--ancestor <export.xml>]
 |                               entity: full name, last dotted segment, or Collection/Name
+|       --against <export.xml>   compare the export with repository XML offline; defaults to its scope
+|                               same, different, only-in-export, only-in-repository (not deletion)
+|                               no profile or baseline; not with --record, --ancestor or --profile
+|       --json                   offline --against result as JSON; --detail includes differing paths
 |       --record                 record matching working/server hashes as baseline
 |       --ancestor <export.xml>  use that export as the common ancestor instead of the baseline
-|                               (an old or missing one); reads only, not with --record
+|                               for LIVE server status; reads only, not with --record or --against
 |       --all                    also lists declared-project entities found only on the server
 | 
 |   --project <name>            narrow to one project of the solution
@@ -7131,7 +7171,7 @@ help:
 == twaco mashup
 usage: twaco mashup <command>
 settings: disable-version-flag disable-help-subcommand subcommand-required arg-required-else-help
-subcommands: add add-contained bind collection describe diff event new off on param recipe remove set source state-format templates unbind validate
+subcommands: add add-contained bind collection describe diff event gap new off on param recipe remove set source state-format templates unbind validate
 arg --help
     action: Help
     value_name: -
@@ -7158,12 +7198,14 @@ help:
 |                               compare two repository mashups by executable wiring, responsive layout and visual
 |                               content; ignores Composer-generated identifiers; exits 1 when the selected tier differs
 |       --tier <tier>           executable, layout, visual or all (default all)
-|   mashup add <mashup> <widget> [--in <container> | --right-of <widget> [--end] | --left-of <widget> | --above <widget> | --below <widget>]
+|   mashup add <mashup> <widget> [--in <container> [--bottom] | --right-of <widget> [--end] | --left-of <widget> | --above <widget> | --below <widget>]
 |       [--label <text>] [--prop <name=value>]... [--input <name:TYPE[=default]>]... [--apply] [--json]
 |                               add a catalogue widget, or one an [[extension]] project defines, to a
 |                               mashup; plan unless --apply; a function widget (expression, validator,
 |                               navigation...) goes beside the layout
 |       --in <container>        add inside a responsive container (center when omitted)
+|       --bottom                with --in <column>: in a footer row at the column's foot (a filter
+|                               panel's Apply; --right-of it adds Clear); later widgets go above it
 |       --right-of/--left-of/--above/--below <widget>
 |                               place beside an existing widget
 |       --end                   with --right-of: at the far end of the row, which splits into a start
@@ -7246,6 +7288,9 @@ help:
 |                               run a service or widget service when a mashup event fires; plan unless --apply
 |       --event <address>       event address from mashup describe
 |       --invoke <address>      data call or widget service to run
+|   mashup gap <mashup> <container> <px> [--apply] [--json]
+|                               replace direct twaco spacers with fixed gaps (0 removes; 0..200px);
+|                               run again after adding children; plan unless --apply
 |   mashup remove <mashup> <widget> [--cascade] [--apply] [--json]
 |                               remove a widget or subtree; refuses wiring and unknown references unless --cascade;
 |                               plan unless --apply
@@ -7322,7 +7367,7 @@ help:
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
 
 == twaco mashup add
-usage: twaco mashup add <mashup> <widget> [--in <container> | --right-of <widget> [--end] | --left-of <widget> | --above <widget> | --below <widget>]
+usage: twaco mashup add <mashup> <widget> [--in <container> [--bottom] | --right-of <widget> [--end] | --left-of <widget> | --above <widget> | --below <widget>]
 settings: disable-version-flag disable-help-subcommand
 subcommands: 
 arg --above
@@ -7360,6 +7405,17 @@ arg --below
     other: -
     given twice: ArgumentConflict
     given bare: InvalidValue
+arg --bottom
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
 arg --end
     action: SetTrue
     value_name: -
@@ -7499,12 +7555,14 @@ arg <operands>
     index: 1
     other: -
 help:
-|   mashup add <mashup> <widget> [--in <container> | --right-of <widget> [--end] | --left-of <widget> | --above <widget> | --below <widget>]
+|   mashup add <mashup> <widget> [--in <container> [--bottom] | --right-of <widget> [--end] | --left-of <widget> | --above <widget> | --below <widget>]
 |       [--label <text>] [--prop <name=value>]... [--input <name:TYPE[=default]>]... [--apply] [--json]
 |                               add a catalogue widget, or one an [[extension]] project defines, to a
 |                               mashup; plan unless --apply; a function widget (expression, validator,
 |                               navigation...) goes beside the layout
 |       --in <container>        add inside a responsive container (center when omitted)
+|       --bottom                with --in <column>: in a footer row at the column's foot (a filter
+|                               panel's Apply; --right-of it adds Clear); later widgets go above it
 |       --right-of/--left-of/--above/--below <widget>
 |                               place beside an existing widget
 |       --end                   with --right-of: at the far end of the row, which splits into a start
@@ -8242,6 +8300,84 @@ help:
 |                               ui:<container>.<name>: a NUMBER parameter set to the time when the
 |                               event at --when fires; plan unless --apply
 |       --when <address>        the event in this mashup that fires it, as mashup on --event takes it
+| 
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
+== twaco mashup gap
+usage: twaco mashup gap <mashup> <container> <px> [--apply] [--json]
+settings: disable-version-flag disable-help-subcommand
+subcommands: 
+arg --apply
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+arg --json
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg <operands>
+    action: Append
+    value_name: operand
+    num_args: 0..
+    allow_hyphen_values: no
+    allow_negative_numbers: yes
+    required: no
+    default: -
+    index: 1
+    other: -
+help:
+|   mashup gap <mashup> <container> <px> [--apply] [--json]
+|                               replace direct twaco spacers with fixed gaps (0 removes; 0..200px);
+|                               run again after adding children; plan unless --apply
 | 
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)

@@ -24,6 +24,12 @@ username/password there. An `appKey` header works whatever `AllowApplicationKeyI
 setting governs only `?appKey=` in a URL. Send X-Requested-With XMLHttpRequest and a non-empty
 X-XSRF-TOKEN; only token presence matters, so a fixed placeholder works. Its multipart field is
 file, not files.
+
+`Runtime/index.html?appKey=<key>` authenticates only that one request: no session cookie comes back,
+and the Runtime's scripts never forward the key, so the mashup's own service calls get 401 (verified
+10.2, 2026-11-12; a browser that seems to work already had a signed-in session). A key is for
+scripts and tools, sent on every request.
+
 Composer uses purpose=import, usedefaultdataprovider=false, usedefaultqueueprovider=false,
 WithSubsystems=false, IgnoreBadValueStreamData=false, overwriteConfigurationTableValues=true, and
 overwritePropertyValues=true. twaco import/deploy handle this; a profile signs in with username

@@ -2715,16 +2715,108 @@ fn template_containers_have_no_margin_and_their_widgets_keep_composers() {
                 continue;
             }
             let document = new_document(&template, master, DEFAULT_THEME).unwrap();
+            // Only a margin the template names on purpose (the kits' content gutter) stays.
+            fn declared(nodes: &[mashup::templates::LayoutNode], out: &mut Vec<(String, Value)>) {
+                for node in nodes {
+                    if let (Some(slot), Some(margin)) = (&node.slot, node.properties.get("Margin"))
+                    {
+                        out.push((slot.clone(), margin.clone()));
+                    }
+                    declared(&node.children, out);
+                }
+            }
+            let mut margins = Vec::new();
+            declared(&template.children, &mut margins);
+            if let Some(margin) = template.page.get("Margin") {
+                margins.push(("page".to_string(), margin.clone()));
+            }
             for widget in document.widgets().into_iter().skip(1) {
-                let margin = &document.at(&widget.path)["Properties"]["Margin"];
+                let properties = &document.at(&widget.path)["Properties"];
+                let margin = &properties["Margin"];
                 if widget.type_id == "flexcontainer" {
-                    assert_eq!(margin, "", "{} {}", template.name, widget.id);
+                    let expected = margins
+                        .iter()
+                        .find(|(slot, _)| properties["DisplayName"] == slot.as_str())
+                        .map_or(Value::from(""), |(_, margin)| margin.clone());
+                    assert_eq!(margin, &expected, "{} {}", template.name, widget.id);
                 } else {
                     assert_eq!(margin, "5", "{} {}", template.name, widget.id);
                 }
             }
         }
     }
+}
+
+/// A template's slot style lands in the root StyleProperties as `mashup set --style` writes it:
+/// the filter panel's grey column and white content, as the kits draw them.
+#[test]
+fn a_filter_panel_gets_the_kits_grey_filters_and_white_content() {
+    let template = mashup::templates::layout("filter-panel").unwrap().unwrap();
+    let document = new_document(&template, false, DEFAULT_THEME).unwrap();
+    let styles = &document.root_properties()["StyleProperties"];
+    assert_eq!(styles["meta"]["type"], "WidgetStyler");
+    let background = |slot: &str| {
+        let found = document.find(slot).unwrap();
+        styles["data"][&found.id]["parts"]["$"]["$"]["background"].clone()
+    };
+    assert_eq!(background("filters"), "#F7F7F7");
+    assert_eq!(background("content"), "#ffffff");
+    let filters = document.find("filters").unwrap();
+    assert_eq!(styles["data"][&filters.id]["widget"], "flex-container");
+    assert_eq!(
+        document.at(&filters.path)["Properties"]["flex-min-width"],
+        "290px"
+    );
+    assert!(document.at(&filters.path)["Properties"]
+        .get("style")
+        .is_none());
+}
+
+/// A row placed in the grey filter column shows the grey, as the kits' rows do; one in an
+/// unstyled column gets no style entry.
+#[test]
+fn a_row_in_a_painted_column_inherits_its_background() {
+    let template = mashup::templates::layout("filter-panel").unwrap().unwrap();
+    let mut document = new_document(&template, false, DEFAULT_THEME).unwrap();
+    let catalog = crate::core::widgets::catalog();
+    let place = |document: &mut crate::core::mashup::edit::MashupDocument, slot: &str| {
+        document
+            .place(
+                catalog.resolve("dropdown").unwrap(),
+                &crate::core::mashup::edit::Placement::In(slot.into()),
+            )
+            .unwrap()
+    };
+    let first = place(&mut document, "filters");
+    let second = document
+        .place(
+            catalog.resolve("dropdown").unwrap(),
+            &crate::core::mashup::edit::Placement::Beside {
+                anchor: first.id,
+                side: crate::core::mashup::edit::Side::Below,
+            },
+        )
+        .unwrap();
+    assert!(
+        !second.containers.is_empty(),
+        "both dropdowns now have rows"
+    );
+    let styles = document.root_properties()["StyleProperties"]["data"].clone();
+    for container in &second.containers {
+        assert_eq!(
+            styles[container]["parts"]["$"]["$"]["background"], "inherit",
+            "{container}"
+        );
+    }
+    let blank = mashup::templates::layout("blank").unwrap().unwrap();
+    let mut plain = new_document(&blank, false, DEFAULT_THEME).unwrap();
+    place(&mut plain, "center");
+    let placed = place(&mut plain, "center");
+    assert!(placed.containers.iter().all(|id| plain
+        .root_properties()
+        .get("StyleProperties")
+        .and_then(|styles| styles["data"].get(id))
+        .is_none()));
 }
 
 #[test]
@@ -3665,6 +3757,58 @@ fn reading_a_grids_selection_turns_single_row_selection_on() {
     .unwrap();
     let (_, after) = grid_of(&solution);
     assert_eq!(after["RowSelection"], "single");
+}
+
+/// A service's selected rows come from the grid showing its result: reading them turns that
+/// grid's selection on, as reading the grid's own selection does.
+#[test]
+fn reading_a_services_selected_rows_turns_selection_on_in_the_grid_showing_it() {
+    let (_dir, solution) = recipe_fixture();
+    let grid_of = |solution: &Solution| {
+        let document = crate::core::mashup::edit::parse(&sidecar_content(solution)).unwrap();
+        let grid = document
+            .widgets()
+            .into_iter()
+            .find(|widget| widget.type_id == "ptcsgrid")
+            .unwrap();
+        (
+            grid.id.clone(),
+            document.at(&grid.path)["Properties"]["RowSelection"].clone(),
+        )
+    };
+    let (grid, before) = grid_of(&solution);
+    assert_eq!(before, "none");
+    let shown = bind(
+        &solution,
+        "data:Acme.Orders.Manager.GetOrders",
+        &format!("ui:{grid}.Data"),
+    )
+    .unwrap();
+    apply_edit(&solution, &shown.edit, &lock(&solution)).unwrap();
+    assert_eq!(
+        grid_of(&solution).1,
+        "none",
+        "showing rows alone selects nothing"
+    );
+    let plan = recipe(
+        &solution,
+        "enable-when",
+        RecipeArgs {
+            widget: Some("ptcsbutton-6".into()),
+            condition: Some("!!id".into()),
+            inputs: vec!["id=data:Acme.Orders.Manager.GetOrders[SelectedRows].id".into()],
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert!(
+        plan.notes
+            .iter()
+            .any(|note| note.contains(&grid) && note.contains("single")),
+        "{:?}",
+        plan.notes
+    );
+    assert_eq!(grid_of(&solution).1, "single");
 }
 
 #[test]
@@ -7374,4 +7518,49 @@ fn a_cell_menu_item_event_is_checked_against_the_menu_state_definition() {
         "{:?}",
         report[0].problems
     );
+}
+
+#[test]
+fn gap_plans_without_writing_and_applies_entity_and_sidecar_together() {
+    use crate::core::commands::{self, Mode, Notices};
+
+    let (_dir, solution) = one_project();
+    let name = "Acme.Gaps_MU";
+    let new = plan_new(&solution, &request(name)).unwrap();
+    apply_new(&solution, &new, &lock(&solution)).unwrap();
+    for _ in 0..2 {
+        let mut add = add_request(name, "container");
+        add.placement = Some(Placement::In("center".into()));
+        let plan = plan_add(&solution, &add).unwrap();
+        apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    }
+    let before = std::fs::read(&new.entity_path).unwrap();
+    let sidecar_before = std::fs::read(&new.content_path).unwrap();
+    let mut request = commands::mashup::MashupGapRequest {
+        request: GapRequest {
+            mashup: name.into(),
+            container: "center".into(),
+            px: 24,
+        },
+        mode: Mode::Plan,
+        lock_label: "test gap",
+    };
+    let planned = commands::mashup::gap(&solution, &request, &mut Notices::default()).unwrap();
+    assert!(!planned.applied);
+    assert_eq!(planned.plan.spacers, 1);
+    assert_eq!(std::fs::read(&new.entity_path).unwrap(), before);
+    assert_eq!(std::fs::read(&new.content_path).unwrap(), sidecar_before);
+    request.mode = Mode::Apply;
+    let applied = commands::mashup::gap(&solution, &request, &mut Notices::default()).unwrap();
+    assert!(applied.applied);
+    let written = std::fs::read(&new.entity_path).unwrap();
+    let assets = workspace::read_mashup(new.content_path.parent().unwrap())
+        .unwrap()
+        .unwrap();
+    let (synced, changes) = mashup::sync(&written, &assets).unwrap();
+    assert!(changes.is_empty());
+    assert_eq!(written, synced);
+    let again = commands::mashup::gap(&solution, &request, &mut Notices::default()).unwrap();
+    assert!(again.plan.edit.is_none());
+    assert_eq!(std::fs::read(&new.entity_path).unwrap(), written);
 }

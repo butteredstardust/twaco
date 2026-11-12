@@ -139,6 +139,7 @@ const ADDITIVE: &[&str] = &[
 
 /// Writing tools that, called again with the same arguments, change nothing more.
 const IDEMPOTENT: &[&str] = &[
+    "mashup_gap",
     "types",
     "fmt",
     "lint_fix_headers",
@@ -327,7 +328,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         .with_output::<outputs::LintFixHeadersResult>(),
         solution_progress_tool::<entity_requests::StatusRequest>(
             "status",
-            "Compare entities with the server and the recorded baseline: in-sync, local-changed, server-changed, both-changed, not-on-server, or no baseline yet. Lists every entity that needs attention.",
+            "Compare entities with the server and the recorded baseline: in-sync, local-changed, server-changed, both-changed, not-on-server, or no baseline yet. With against, compare repository XML with an export offline: same, different, only-in-export, only-in-repository (absence from a partial export does not prove deletion). No baseline or profile; refuses ancestor, record and profile. Defaults to the export scope; detail includes differing paths. Lists every entity that needs attention.",
             false,
             entity::status_tool,
         )
@@ -631,6 +632,13 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             refactor::mashup_on_tool,
         )
         .with_output::<outputs::MashupOnResult>(),
+        solution_tool::<refactor_requests::MashupGapRequest>(
+            "mashup_gap",
+            "Replace direct twaco spacers in a flexcontainer with fixed gaps of 0 to 200 pixels. Zero removes spacers. Run again after adding children. A dry run unless dry_run is false; apply writes the entity and managed content sidecar together.",
+            false,
+            refactor::mashup_gap_tool,
+        )
+        .with_output::<outputs::MashupGapResult>(),
         solution_tool::<refactor_requests::MashupRemoveRequest>(
             "mashup_remove",
             "Remove a widget and its subtree from an existing mashup. By default it refuses bindings, events, data-call configuration, or extension JSON that names the subtree. cascade removes only proven bindings and events, reports orphaned data calls, and never guesses which calls to delete. A dry run unless dry_run is false; apply writes the entity and managed content sidecar together.",
@@ -1098,6 +1106,7 @@ pub(crate) const GROUPS: &[(&str, &[&str])] = &[
             "mashup_source_list",
             "mashup_source_remove",
             "mashup_on",
+            "mashup_gap",
             "mashup_remove",
             "mashup_unbind",
             "mashup_off",

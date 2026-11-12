@@ -392,6 +392,22 @@ with `// @ts-ignore` on the line above.
 
 ### Status, the baseline and conflicts
 
+`twaco entity status --against export.xml` compares the repository XML with a ThingWorx
+export offline, without a profile, server access or reading or writing stored baselines.
+It uses adopt's semantic comparison, including server-owned omissions and configured adopt
+ignores, without handoff selection, history attribution or merge planning. It reports `same`,
+`different`, `only-in-export` and `only-in-repository`; `--detail` lists entities and differing
+paths, and `--json` returns counts and attention entries (all statuses with `--detail`).
+Repository-only entries are limited to collection/project pairs present in the export:
+absence from a partial export does not prove deletion. Differences return the usual drift
+exit code. Sidecars behind the XML still produce the sync advisory.
+
+The default scope is the export; an entity name or `--project Acme.Project` can narrow the
+comparison. `--all` also selects the export scope. The input supports the same export forms
+as adopt, including a single entity XML. `--against` refuses `--record`, `--profile` and `--ancestor`.
+`--ancestor` instead supplies the common ancestor for **live** server status; it does not
+turn status into an offline comparison.
+
 `twaco entity status --all` compares each entity three ways: the repository, the server, and
 the baseline. The baseline holds two hashes per entity, the repository's and the server's,
 recorded at the last deploy or push (or by `--record`, below); each side is compared with its
@@ -542,8 +558,19 @@ importable.
 `adopt` compares Composer's canonical form, so formatting and platform noise do not count. It
 uses the named `--base <file|handoff|git-rev>`, otherwise the most similar recorded handoff; with
 no base it uses git history to spot stale content and calls the rest unknown. The first report line
-names the selected base. Handoffs are local derived files under `.twaco/handoffs/`; pass a package
+names the selected base, and says when it matched under half of the export. Two handoffs equally
+similar are refused, not guessed between: name the one the export answers with `--base`. Handoffs are local derived files under `.twaco/handoffs/`; pass a package
 with `--base` on another machine.
+
+When a new mashup shares its short name with a mashup in another project, `adopt` warns with
+both full names and projects, including when both mashups are incoming. For example,
+`Acme.Billing.Orders_MU` in `Acme.Billing` shares `Orders_MU` with `Acme.Sales.Orders_MU`
+in `Acme.Sales`. The short name removes the entity's own project name followed by a dot;
+repository layout and `twaco.toml` supply the project when an existing entity has no
+`projectName`. An entity with no established project prefix gets no warning. This advice
+appears in the plan, with `--detail`, and in `notes` in CLI JSON and MCP adopt results. It
+does not change what adopt plans or writes; full-name and case-insensitive collisions are
+still refused.
 
 A base type that changed on something both sides have (a mashup parameter, a binding, a service
 parameter, a field) is listed under its own heading, with the old and new type, whatever else
@@ -1088,6 +1115,12 @@ aliases and slots. Slots are responsive container names usable with `mashup add 
 | tabs | title, tabs | A tab set whose tabs each show a mashup (`--tab Label=Mashup`) |
 | dashboard | title, tiles, tile-1..tile-4, panels, side, main | Four KPI tiles above a side panel and a main panel (1:3) |
 
+`filter-panel` draws the kits' look: a 290px filter column on `#F7F7F7`, and the content on white with
+a 24px margin. `list-page` gives its toolbar the same grey band. The colours are ordinary widget styles
+in the root's StyleProperties, so `mashup set <mashup> <slot> --style background=...` changes them.
+`dashboard` keeps the kits' 24px page margin around everything; `blank` has none, since it also serves
+contained mashups and collection cells.
+
 `--template tabs` takes `--tab "Label=Mashup"` once per tab (up to 16; a label may be a `[[token]]`, and a
 bare `Label` leaves that tab empty). Each tab gets the container Composer gives it, holding the mashup in a
 contained mashup with its parameters cached, so `mashup bind` can reach them; without `--tab` the tab set
@@ -1174,14 +1207,25 @@ share one row, and the row holding a panel of fixed rows is sized to fit it. `--
 property; `--prop Name=value` changes a catalogue property with its expected type. Structured
 properties take JSON, including a grid's column format:
 
+`mashup add <mashup> button --in <column> --bottom` puts a widget in a footer row at the foot of a
+column, as the kits place a filter panel's Apply; `--right-of` that button adds Clear beside it. The
+footer stays the column's last row, so widgets added later go above it. In a column of controls it is
+the row that grows, its controls at its bottom; beside a grid or a chart it is fixed to its controls.
+A compact date, as the kits show in a two-field range, is `--prop FormatToken=DD-MM-YY` on the
+date picker; the default format is Composer's.
+
 A card of label/value rows, as the design kits draw one ("● Objective ........ 12"), takes three
 more steps. `--right-of <widget> --end` puts a widget at the far end of the anchor's row: the row
 splits into a start group (what was there) and an end group (the new widget), spread apart and
-centred, and it keeps its natural height. `mashup add <mashup> separator --below <widget>` adds
+centred, and it keeps its natural height. In a column that also holds a grid or a chart, such a row
+(a toolbar with View Details at the start and Form at the end) is fixed to its controls' height
+instead, so the grid takes the spare height, as the kits' toolbars do. `mashup add <mashup> separator --below <widget>` adds
 the kits' 1px rule (`#C2C7CE`) between rows. The row holding such cards becomes a `range` row whose
 minimum is the cards' measured height (a `label` row is 19px on 10.2, a `sub-header` 27px, a
 `header` 33px). A `range` row still takes its share of the page's spare height, as every row
-does; to give most of it to a row of charts or grids, set that row's `flex-grow` to 2 or 3. `--prop` values count in that measure, so set a dot's size and margins
+does. A chart placed in a row twaco makes keeps its own size there, as the kits' charts do
+(`OverrideChildrenAbsolute` on its row), so a row of charts claims its share without help; to give
+more to a row of grids, set that row's `flex-grow` to 2 or 3. `--prop` values count in that measure, so set a dot's size and margins
 there:
 
 ```sh
@@ -1199,6 +1243,20 @@ ellipse (`ShapeType`) for status dots, badges and backgrounds. Its `Data` takes 
 ```sh
 twaco mashup add Acme.App.Orders_MU grid --prop 'ColumnFormat={"formatInfo":[]}' --apply
 ```
+
+Separate sections or cards with fixed empty containers, as the design kits do:
+
+```sh
+twaco mashup gap Acme.App.Orders_MU flexcontainer-2 24 --apply
+```
+
+`mashup gap <mashup> <container> <px>` plans by default and accepts `--json`.
+It replaces only direct twaco spacers: fixed-height rows in a column, fixed-width columns
+in a row, between children only. Sizes are 0 to 200px; zero removes the spacers.
+The target needs at least two content children. A footer stays last, with no spacer after it.
+Container properties stay unchanged. Run `gap` again after adding children; placement does
+not insert gaps automatically. Choose a content widget as the placement anchor: placing
+beside or below a spacer is refused.
 
 Use `mashup set` to change existing widgets exactly by id or unambiguous display name. It accepts
 several properties in one edit and plans unless `--apply`:
@@ -1353,7 +1411,9 @@ twaco mashup bind Acme.App.Orders_MU --from mashup:OrderId --to data:Acme.App.Or
 `ui:<widget-id>.<Property>`, `mashup:<Parameter>`, and `data:<Entity>.<Service>` for a result or
 `data:<Entity>.<Service>.<field-or-parameter>`. A mashup call with its own name is
 `data:<Entity>.<Service>[as <alias>]`, and a selected row field is
-`data:<Entity>.<Service>[SelectedRows].<field>` (`[as <alias>][SelectedRows]` for both). When the
+`data:<Entity>.<Service>[SelectedRows].<field>` (`[as <alias>][SelectedRows]` for both). Reading
+selected rows, from a service or from a grid, turns single row selection on in a grid that shows
+them and could not select (Composer drops a grid with none), and says so. When the
 mashup calls a service more than once, the address must name the call with `[as <alias>]`; an
 alias another service's call already has is refused. Widgets are named by id, display name or a
 type word only one widget matches, never by a loose catalogue search. The command checks property
@@ -1747,8 +1807,10 @@ error says what it was and how to restore it. MCP: `call` with `as` and `lang`.
 
 ## Application keys
 
-An application key lets a browser, a script or another tool call the server as a user without
-its password (`?appKey=` on a Runtime URL, or an `appKey` header).
+An application key lets a script or another tool call the server as a user without its password:
+an `appKey` header on each request, or `?appKey=` in a request's URL. It does not open a mashup in a
+browser: `Runtime/index.html?appKey=...` loads the page, but the server starts no session for it and
+the Runtime sends the key with none of its own calls, so every one is refused (ThingWorx 10.2).
 
 ```sh
 twaco appkey create Acme.Kiosk_AK --user kiosk --expires 90d --project Acme --save default --apply

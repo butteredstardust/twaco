@@ -2,7 +2,7 @@
 
 use super::{
     adopt, commands, config, entity, export, gitignore, init, layout, localization, lock,
-    normalise, progress, push, status, transaction, workflow, workspace,
+    normalise, parallel, progress, push, status, transaction, workflow, workspace,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -188,27 +188,74 @@ where
                     why: e.to_string(),
                 }
             })?;
+        // Keep preparation failures in order so an earlier comparison failure still wins.
+        let mut prepared = Vec::new();
         for (key, element) in entities {
-            let raw = adopt::raw_entity_bytes(&exported.xml, &key).map_err(|e| Error::Export {
-                project: project.clone(),
-                why: format!("{e:?}"),
-            })?;
-            let info = entity::parse(
-                &[
-                    b"<Entities><".as_slice(),
-                    key.collection.as_bytes(),
-                    b">",
-                    &raw,
-                    b"</",
-                    key.collection.as_bytes(),
-                    b"></Entities>",
-                ]
-                .concat(),
-            )
-            .map_err(|e| Error::Export {
-                project: project.clone(),
-                why: format!("{e:?}"),
-            })?;
+            let result = (|| -> Result<_, Error> {
+                let raw =
+                    adopt::raw_entity_bytes(&exported.xml, &key).map_err(|e| Error::Export {
+                        project: project.clone(),
+                        why: format!("{e:?}"),
+                    })?;
+                let info = entity::parse(
+                    &[
+                        b"<Entities><".as_slice(),
+                        key.collection.as_bytes(),
+                        b">",
+                        &raw,
+                        b"</",
+                        key.collection.as_bytes(),
+                        b"></Entities>",
+                    ]
+                    .concat(),
+                )
+                .map_err(|e| Error::Export {
+                    project: project.clone(),
+                    why: format!("{e:?}"),
+                })?;
+                if info.project != *project
+                    || (request.missing
+                        && already_here.contains(&(key.collection.clone(), info.name.clone())))
+                {
+                    return Ok((info, None));
+                }
+                if !adopt::is_file_name(&info.name) {
+                    return Err(Error::UnsafeName {
+                        entity: key.path(),
+                        name: info.name,
+                    });
+                }
+                let laid_out = layout::entity(&raw, None, false).map_err(|e| Error::Export {
+                    project: project.clone(),
+                    why: e.to_string(),
+                })?;
+                // As adopt writes a new entity that has no peer file to copy.
+                let document = entity::new::document(&key.collection, &laid_out);
+                Ok((info, Some(document)))
+            })();
+            let failed = result.is_err();
+            prepared.push((key, element, result));
+            if failed {
+                break;
+            }
+        }
+        let comparisons = parallel::map(&prepared, |(key, _, result)| {
+            let (info, document) = result.as_ref().ok()?;
+            let document = document.as_ref()?;
+            let members_covered = existing.as_ref().is_some_and(|solution| {
+                super::server_owned::parts(
+                    &solution.server_owned_for(&request.profile),
+                    &key.collection,
+                    &info.name,
+                )
+                .iter()
+                .any(|part| matches!(part, super::server_owned::Part::Members))
+            });
+            (!members_covered && matches!(key.collection.as_str(), "Groups" | "Organizations"))
+                .then(|| differs_only_in_members(remote, &key.collection, &info.name, document))
+        });
+        for ((key, element, result), comparison) in prepared.into_iter().zip(comparisons) {
+            let (info, document) = result?;
             // A project's export carries entities of others it needs; each named project's own
             // export brings its own, so an entity is written once, from its project's export.
             if info.project != *project {
@@ -226,12 +273,7 @@ where
             {
                 continue;
             }
-            if !adopt::is_file_name(&info.name) {
-                return Err(Error::UnsafeName {
-                    entity: key.path(),
-                    name: info.name,
-                });
-            }
+            let document = document.expect("an entity selected for writing has a document");
             if !request.missing && key.collection == "Projects" {
                 let needs: Vec<String> = normalise::project_dependencies(&element)
                     .into_iter()
@@ -243,25 +285,8 @@ where
                     .collect();
                 dependencies.insert(info.project.clone(), needs);
             }
-            let laid_out = layout::entity(&raw, None, false).map_err(|e| Error::Export {
-                project: project.clone(),
-                why: e.to_string(),
-            })?;
-            // As adopt writes a new entity that has no peer file to copy.
-            let document = entity::new::document(&key.collection, &laid_out);
-            // --missing leaves twaco.toml alone, so an entity a rule of this profile already
-            // covers needs neither the read nor a note.
-            let members_covered = existing.as_ref().is_some_and(|solution| {
-                super::server_owned::parts(
-                    &solution.server_owned_for(&request.profile),
-                    &key.collection,
-                    &info.name,
-                )
-                .iter()
-                .any(|part| matches!(part, super::server_owned::Part::Members))
-            });
-            if !members_covered && matches!(key.collection.as_str(), "Groups" | "Organizations") {
-                match differs_only_in_members(remote, &key.collection, &info.name, &document) {
+            if let Some(comparison) = comparison {
+                match comparison {
                     Ok(true) => members_owned.push(key.path()),
                     Ok(false) => {}
                     // The comparison only advises a rule the user pastes; it does not stop the
@@ -1114,7 +1139,36 @@ mod tests {
         BTreeMap<String, Vec<u8>>,
         std::sync::atomic::AtomicUsize,
         bool,
+        BTreeSet<String>,
+        Option<MemberReplies>,
     );
+
+    struct MemberReplies {
+        keys: Vec<String>,
+        completed: std::sync::Mutex<Vec<String>>,
+        ready: std::sync::Condvar,
+    }
+
+    impl MemberReplies {
+        fn complete(&self, key: &str) {
+            let index = self
+                .keys
+                .iter()
+                .position(|k| k == key)
+                .expect("unexpected read");
+            let completed = self.completed.lock().unwrap();
+            let (mut completed, timeout) = self
+                .ready
+                .wait_timeout_while(completed, std::time::Duration::from_secs(5), |done| {
+                    done.len() < self.keys.len() - index - 1
+                })
+                .unwrap();
+            assert!(!timeout.timed_out(), "member comparisons must overlap");
+            completed.push(key.to_string());
+            self.ready.notify_all();
+        }
+    }
+
     impl Members {
         fn new(export: Vec<u8>, entities: BTreeMap<String, Vec<u8>>) -> Self {
             Self(
@@ -1122,6 +1176,8 @@ mod tests {
                 entities,
                 std::sync::atomic::AtomicUsize::new(0),
                 false,
+                BTreeSet::new(),
+                None,
             )
         }
         fn reads(&self) -> usize {
@@ -1151,7 +1207,10 @@ mod tests {
             key: &super::super::entity::key::EntityKey,
         ) -> Result<Option<Vec<u8>>, super::super::server::ServerError> {
             self.2.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            if self.3 {
+            if let Some(replies) = &self.5 {
+                replies.complete(&key.to_string());
+            }
+            if self.3 || self.4.contains(&key.to_string()) {
                 return Err(super::super::server::ServerError::Http {
                     method: super::super::server::Method::Get,
                     status: 403,
@@ -1208,6 +1267,171 @@ mod tests {
         fn delete_token(&self, _: &str, _: &str) -> Result<(), super::super::server::ServerError> {
             unreachable!()
         }
+    }
+
+    fn concurrent_members(failures: &[&str]) -> Members {
+        let mut xml = String::from("<Entities>");
+        let mut each = BTreeMap::new();
+        for (collection, tag) in [("Groups", "Group"), ("Organizations", "Organization")] {
+            xml.push_str(&format!("<{collection}>"));
+            let (start, end) = if tag == "Organization" {
+                (
+                    "<OrganizationalUnits><OrganizationalUnit name=\"Unit\">",
+                    "</OrganizationalUnit></OrganizationalUnits>",
+                )
+            } else {
+                ("", "")
+            };
+            for name in ["P.A", "P.B"] {
+                xml.push_str(&format!(
+                    "<{tag} name=\"{name}\" projectName=\"P\">{start}<Members/>{end}</{tag}>"
+                ));
+                each.insert(
+                    format!("{collection}/{name}"),
+                    format!("<Entities><{collection}><{tag} name=\"{name}\" projectName=\"P\">{start}<Members><Member name=\"user\" type=\"User\"/></Members>{end}</{tag}></{collection}></Entities>").into_bytes(),
+                );
+            }
+            xml.push_str(&format!(
+                "<{tag} name=\"P.Covered\" projectName=\"P\"/><{tag} name=\"P.Foreign\" projectName=\"Q\"/></{collection}>"
+            ));
+        }
+        xml.push_str("<Things><Thing name=\"P.T\" projectName=\"P\"/></Things></Entities>");
+        let keys = each.keys().cloned().collect();
+        let mut remote = Members::new(xml.into_bytes(), each);
+        remote.4 = failures.iter().map(|key| key.to_string()).collect();
+        remote.5 = Some(MemberReplies {
+            keys,
+            completed: std::sync::Mutex::new(Vec::new()),
+            ready: std::sync::Condvar::new(),
+        });
+        remote
+    }
+
+    fn member_request(root: &Path, missing: bool) -> Request {
+        profile(root);
+        std::fs::write(
+            root.join("twaco.toml"),
+            format!(
+                "[[project]]\nname = \"{}\"\n\n[[profiles.default.server_owned]]\nentities = [\"Groups/P.Covered\", \"Organizations/P.Covered\"]\nparts = [\"members\"]\n",
+                if missing { "P" } else { "Existing" }
+            ),
+        )
+        .unwrap();
+        Request {
+            root: root.to_path_buf(),
+            projects: vec!["P".into()],
+            apply: false,
+            missing,
+            profile: "default".into(),
+        }
+    }
+
+    fn assert_reverse_replies(remote: &Members) {
+        let replies = remote.5.as_ref().unwrap();
+        assert_eq!(
+            *replies.completed.lock().unwrap(),
+            replies.keys.iter().rev().cloned().collect::<Vec<_>>()
+        );
+        assert_eq!(remote.reads(), 4);
+    }
+
+    #[test]
+    fn concurrent_member_comparisons_keep_rule_and_note_order() {
+        let temp = tempfile::tempdir().unwrap();
+        let remote = concurrent_members(&[]);
+        let plan = execute(&remote, member_request(temp.path(), false)).unwrap();
+        assert_reverse_replies(&remote);
+        let ordered = "Groups/P.A, Groups/P.B, Organizations/P.A, Organizations/P.B";
+        assert!(plan.notes.iter().any(|note| note.starts_with(ordered)));
+        assert!(plan.toml.contains(
+            "entities = [\"Groups/P.A\", \"Groups/P.B\", \"Organizations/P.A\", \"Organizations/P.B\"]"
+        ));
+        let mut immediate = concurrent_members(&[]);
+        immediate.5 = None;
+        let expected = execute(&immediate, member_request(temp.path(), false)).unwrap();
+        assert_eq!(plan.notes, expected.notes);
+        assert_eq!(plan.toml, expected.toml);
+    }
+
+    #[test]
+    fn concurrent_member_comparisons_return_the_first_error_without_writing() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut remote = concurrent_members(&["Groups/P.A", "Organizations/P.B"]);
+        remote.0 = String::from_utf8(remote.0)
+            .unwrap()
+            .replace(
+                "</Things>",
+                "<Thing name=\"P:Invalid\" projectName=\"P\"/></Things>",
+            )
+            .into_bytes();
+        let mut request = member_request(temp.path(), false);
+        let before = std::fs::read(temp.path().join("twaco.toml")).unwrap();
+        request.apply = true;
+        let error = execute(&remote, request).unwrap_err();
+        assert_reverse_replies(&remote);
+        let Error::Export { project, why } = error else {
+            panic!("expected an export error");
+        };
+        assert_eq!(project, "P");
+        assert_eq!(
+            why,
+            super::super::server::ServerError::Http {
+                method: super::super::server::Method::Get,
+                status: 403,
+                url: "Groups/P.A".into(),
+                body: String::new(),
+            }
+            .to_string()
+        );
+        assert_eq!(
+            std::fs::read(temp.path().join("twaco.toml")).unwrap(),
+            before
+        );
+        assert!(!temp.path().join("P").exists());
+        assert!(!temp.path().join("src").exists());
+        assert!(!temp.path().join(".twaco/baseline").exists());
+    }
+
+    #[test]
+    fn concurrent_member_comparisons_with_missing_note_failures_and_continue() {
+        let temp = tempfile::tempdir().unwrap();
+        let failures = ["Groups/P.A", "Organizations/P.A"];
+        let mut remote = concurrent_members(&failures);
+        let request = member_request(temp.path(), true);
+        let existing = "<Group name=\"P.Existing\" projectName=\"P\"/>";
+        remote.0 = String::from_utf8(remote.0)
+            .unwrap()
+            .replace("</Groups>", &format!("{existing}</Groups>"))
+            .into_bytes();
+        std::fs::create_dir_all(temp.path().join("Groups")).unwrap();
+        std::fs::write(
+            temp.path().join("Groups/P.Existing.xml"),
+            format!("<Entities><Groups>{existing}</Groups></Entities>"),
+        )
+        .unwrap();
+        let before = std::fs::read_to_string(temp.path().join("twaco.toml")).unwrap();
+        let plan = execute(&remote, request).unwrap();
+        assert_reverse_replies(&remote);
+        assert_eq!(plan.toml, before);
+        assert_eq!(plan.entities.get("Groups"), Some(&3));
+        assert_eq!(plan.entities.get("Organizations"), Some(&3));
+        let notes: Vec<_> = plan.notes.iter().map(String::as_str).collect();
+        assert!(notes[0].starts_with("could not compare the members of Groups/P.A "));
+        assert_eq!(
+            notes[1],
+            "skipped Groups/P.Foreign: it declares projectName \"Q\""
+        );
+        assert!(notes[2].starts_with("could not compare the members of Organizations/P.A "));
+        assert_eq!(
+            notes[3],
+            "skipped Organizations/P.Foreign: it declares projectName \"Q\""
+        );
+        assert!(notes[4].starts_with("Groups/P.B, Organizations/P.B differ"));
+        let mut immediate = concurrent_members(&failures);
+        immediate.0 = remote.0.clone();
+        immediate.5 = None;
+        let expected = execute(&immediate, member_request(temp.path(), true)).unwrap();
+        assert_eq!(plan.notes, expected.notes);
     }
 
     #[test]

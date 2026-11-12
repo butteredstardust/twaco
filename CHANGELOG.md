@@ -6,7 +6,67 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `mashup gap <mashup> <container> <px>` (MCP `mashup_gap`) puts the kits' fixed spacers between a
+  container's children: 24px rows between sections, 24px columns between cards. Running it again
+  replaces them, `0` removes them, and removing a child never leaves a stray spacer.
+
+- `adopt` warns when a new mashup shares its short name with a mashup in another project,
+  including two incoming mashups. The advisory names both entities and projects without changing
+  the plan or writes, and is also returned by MCP.
+- `mashup add ... --in <column> --bottom` (MCP `bottom`) puts a widget in a footer row at the foot
+  of a column, as the kits place a filter panel's Apply and Clear; widgets added later go above it.
+- Templates can style their slots: `filter-panel` gets the kits' grey 290px filter column and white
+  content with a 24px margin, `list-page` a grey toolbar band, and `dashboard` the kits' 24px page
+  margin. Mashups made before keep their look.
+- `datepicker` names the date picker, as `date-picker` does. A property a widget does not have is
+  refused with the closest real names (`PlaceholderText` suggests `HintText`) in `mashup add`,
+  `mashup set` and bindings.
+- `entity status --against <export.xml>` (MCP `status` with `against`) compares an export
+  with repository XML offline, without profiles or baselines. Reports same, different and
+  entries present on only one side; detail includes differing paths. Repository-only entries
+  are scoped to the export's collections/projects and do not imply deletion.
+
+### Fixed
+
+- When an import fails for a profile that signs in with only an app key, the reason read from
+  ApplicationLog is the key's own user's, asked of the server once; when the server will not say
+  who the key is, the Importer's error is reported without a log reason.
+- `adopt` without `--base` refuses two recorded handoffs that are equally similar to the export,
+  naming them, instead of taking the newest; a pick that matches under half of the export says so.
+- Binding from `data:<Entity>.<Service>[SelectedRows]` (as `recipe enable-when`, `popup --pass`
+  and `bind` do) turns single row selection on in the grid showing that service's rows, as reading
+  the grid's own selection already did; a details button enabled by a selected row never enabled.
+  Recipes now print what such a binding changed.
+- A chart placed in a row twaco makes keeps its own size (`OverrideChildrenAbsolute` on that row),
+  as the kits' charts do: before, Runtime positioned it absolutely, its row counted only its date
+  picker, and the label/value cards above took the page's spare height. Measured on 10.2 with the
+  KPI benchmark: chart row 527px with a hand-set flex-grow of 3 before, 587px at flex-grow 1 now.
+- A toolbar row split by `--end` in a column with a grid or a chart is fixed to its controls'
+  height; it took a share of the page's spare height and pushed the grid halfway down.
+
+### Changed
+
+- The documentation no longer says `?appKey=` on a Runtime URL opens a mashup: the server starts no
+  session for it and the Runtime never forwards the key, so the mashup's calls are refused.
+- `init --from-server` reads the Groups and Organizations it compares by members up to eight at a
+  time instead of one by one; its notes and its first error come out in the same order as before.
+
 ## [0.1.60] - 2026-11-12
+
+### Added
+
+- A profile with `url` and `app_key` and neither username nor password signs twaco in with the
+  key, sent as an `appKey` header (no server setting needed). A profile with both keeps signing in
+  with its username and password, so `appkey create ... --save` never changes who it acts as.
+  `doctor` says which sign-in a profile uses.
+
+### Fixed
+
+- `appkey create` and `appkey show` with `--save` write into a profile that holds only a `url`.
+- The documentation no longer says the Importer refuses app keys; on ThingWorx 10.2 it accepts
+  one, as do REST reads, service calls, the Exporter and deletes.
 
 ## [0.1.59] - 2026-11-12
 

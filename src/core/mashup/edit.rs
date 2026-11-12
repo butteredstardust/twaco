@@ -92,7 +92,13 @@ impl Side {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Placement {
     In(String),
-    Beside { anchor: String, side: Side },
+    /// In a footer row at the bottom of a column (`--in <column> --bottom`), as the kits place a
+    /// filter panel's Apply and Clear.
+    Bottom(String),
+    Beside {
+        anchor: String,
+        side: Side,
+    },
 }
 
 /// What a fixed row adds to its tallest widget: real rows of 34px fields are 45-49px, of 37px
@@ -307,9 +313,30 @@ impl MashupDocument {
         };
         children_mut(self.at_mut(parent)).remove(index);
         let (parent, tidied) = self.remove_empty_generated_wrappers(parent.to_vec());
+        self.drop_stray_spacers(&parent);
         let around = widget_id(self.at(&parent)).to_string();
         self.reflow_at(&parent, &Reflow::Edit { around: &around });
         Ok(tidied)
+    }
+
+    /// After a removal: no spacer at either end of `parent`, none beside another, none after a
+    /// footer; what `gap` would leave for the children that remain.
+    fn drop_stray_spacers(&mut self, parent: &[usize]) {
+        let kids = children_mut(self.at_mut(parent));
+        let mut kept: Vec<Value> = Vec::with_capacity(kids.len());
+        for child in kids.drain(..) {
+            let stray = is_spacer(&child)
+                && kept
+                    .last()
+                    .is_none_or(|previous| is_spacer(previous) || is_footer(previous));
+            if !stray {
+                kept.push(child);
+            }
+        }
+        while kept.last().is_some_and(is_spacer) {
+            kept.pop();
+        }
+        *kids = kept;
     }
 
     /// Append `widget` as the last child of the widget at `parent`.
@@ -372,7 +399,10 @@ impl MashupDocument {
             if widget.type_id != "flexcontainer" {
                 continue;
             }
-            let children = children(self.at(&widget.path));
+            let children = children(self.at(&widget.path))
+                .iter()
+                .filter(|child| !is_spacer(child))
+                .collect::<Vec<_>>();
             let containers = children
                 .iter()
                 .filter(|child| type_of(child) == Some("flexcontainer"))
@@ -398,6 +428,7 @@ impl MashupDocument {
     ) -> Result<Placed, EditError> {
         let placed = match placement {
             Placement::In(target) => self.place_in(widget, target),
+            Placement::Bottom(target) => self.place_at_bottom(widget, target),
             Placement::Beside {
                 anchor,
                 side: Side::End,
@@ -408,6 +439,9 @@ impl MashupDocument {
                 // document back as it was.
                 let found = self.find(anchor)?;
                 let node = self.at(&found.path);
+                if is_spacer(node) {
+                    return Err(EditError::Refused(format!("{anchor}: cannot place beside a spacer; choose a content widget and run gap again")));
+                }
                 if type_of(node) == Some("flexcontainer") || fills(node) {
                     return Err(EditError::Refused(format!(
                         "--end: {} is a container or fills its row; --end goes beside a fixed widget, such as a label",
@@ -435,8 +469,109 @@ impl MashupDocument {
                 self.set_property(&found.path, "flex-direction", Value::from("column"));
             }
         }
+        self.keep_footers_last();
         self.fix_rows(&placed);
+        self.inherit_backgrounds(&placed);
+        self.let_charts_keep_their_size(&placed);
         Ok(placed)
+    }
+
+    /// A chart that fills a row this placement made keeps its own size, as the kits' charts do
+    /// (`OverrideChildrenAbsolute` on its container): Runtime then lays it out in the flow, so
+    /// its row claims the page's spare height instead of label/value cards stretching to take
+    /// it. Without it the chart is absolutely positioned, counts for nothing, and its row is
+    /// only as tall as its date picker. Only containers the placement created are changed (an
+    /// existing chart it wrapped included); a grid or a contained mashup keeps filling as before.
+    fn let_charts_keep_their_size(&mut self, placed: &Placed) {
+        for container in &placed.containers {
+            let Ok(found) = self.find(container) else {
+                continue;
+            };
+            let holds_chart = children(self.at(&found.path)).iter().any(|child| {
+                type_of(child).is_some_and(|type_id| type_id.starts_with("ptcschart"))
+                    && fills(child)
+            });
+            if holds_chart && type_of(self.at(&found.path)) == Some("flexcontainer") {
+                self.set_property(&found.path, "OverrideChildrenAbsolute", Value::Bool(true));
+            }
+        }
+    }
+
+    /// A footer is its column's last row whatever was placed beside it: a row put below it moves
+    /// above it.
+    fn keep_footers_last(&mut self) {
+        let footers: Vec<WidgetPath> = self
+            .widgets()
+            .into_iter()
+            .filter(|widget| is_footer(self.at(&widget.path)))
+            .map(|widget| widget.path)
+            .collect();
+        // Deepest first, so moving one never shifts the path of another still to move.
+        for path in footers.into_iter().rev() {
+            let Some((&index, parent)) = path.split_last() else {
+                continue;
+            };
+            let siblings = children_mut(self.at_mut(parent));
+            if index + 1 < siblings.len() {
+                let footer = siblings.remove(index);
+                siblings.push(footer);
+            }
+        }
+    }
+
+    /// A row twaco made inside a container with a background of its own (a template's grey
+    /// filter column, a styled panel) shows that background, as the kits' rows do with
+    /// `background: inherit`; otherwise the theme paints each row white over it.
+    fn inherit_backgrounds(&mut self, placed: &Placed) {
+        for id in &placed.containers {
+            let Ok(found) = self.find(id) else {
+                continue;
+            };
+            if self.style_background(id).is_some() {
+                continue;
+            }
+            let painted = (0..found.path.len()).rev().any(|depth| {
+                let ancestor = widget_id(self.at(&found.path[..depth])).to_string();
+                self.style_background(&ancestor)
+                    .is_some_and(|background| background != "inherit")
+            });
+            if !painted {
+                continue;
+            }
+            let properties = self.root_properties_mut();
+            if !properties.contains_key("StyleProperties") {
+                insert_sorted(
+                    properties,
+                    "StyleProperties",
+                    serde_json::json!({"data": {}, "meta": {"type": "WidgetStyler", "version": "1.0"}}),
+                );
+            }
+            if let Some(data) = properties["StyleProperties"]
+                .get_mut("data")
+                .and_then(Value::as_object_mut)
+            {
+                insert_sorted(
+                    data,
+                    id,
+                    serde_json::json!({"parts": {"$": {"$": {"background": "inherit"}}}, "widget": "flex-container"}),
+                );
+            }
+        }
+    }
+
+    /// The background a widget's own style entry gives it, if any.
+    fn style_background(&self, id: &str) -> Option<String> {
+        self.root_properties()
+            .get("StyleProperties")?
+            .get("data")?
+            .get(id)?
+            .get("parts")?
+            .get("$")?
+            .get("$")?
+            .get("background")?
+            .as_str()
+            .filter(|background| !background.is_empty())
+            .map(str::to_string)
     }
 
     /// Re-measure the rows around a widget after one of its properties changes.  This is kept
@@ -532,8 +667,38 @@ impl MashupDocument {
             Reflow::Edit { .. } => false,
         });
         for (index, row) in rows.iter().enumerate() {
-            // A split label/value row takes its natural height, as the kits' rows do.
-            if type_of(row) != Some("flexcontainer") || is_split_row(row) {
+            if type_of(row) != Some("flexcontainer") || is_spacer(row) {
+                continue;
+            }
+            // A footer keeps its controls at the column's foot: in a column of controls it is
+            // the row that grows, its controls at its bottom; beside a grid or a chart it is
+            // fixed to them, so what fills keeps the spare height.
+            if is_footer(row) {
+                // twaco's own row, re-sized on every reflow: removing the grid beside it lets it
+                // grow again.
+                let row_path = [column_path.as_slice(), &[index]].concat();
+                let beside_filler = rows
+                    .iter()
+                    .enumerate()
+                    .any(|(other, sibling)| other != index && holds_filler(sibling));
+                if beside_filler {
+                    if let Some(tallest) = fixed_row_height(row, false) {
+                        self.fix_row(&row_path, tallest, true);
+                    }
+                } else if row["Properties"]["flex-size"] == "fixed" {
+                    self.unfix_row(&row_path);
+                }
+                continue;
+            }
+            // A split label/value row in a card takes its natural height, as the kits' rows do.
+            // Beside a row that fills (a grid, a chart) it would share the spare height, so a
+            // split toolbar there is fixed to its controls, as the kits' toolbars are.
+            if is_split_row(row)
+                && !rows
+                    .iter()
+                    .enumerate()
+                    .any(|(other, sibling)| other != index && holds_filler(sibling))
+            {
                 continue;
             }
             // A row of cards made of label/value rows takes at least its cards' height and no
@@ -558,8 +723,10 @@ impl MashupDocument {
             let Some(tallest) = fixed_row_height(row, stack) else {
                 continue;
             };
+            let previous = placed_row
+                .and_then(|placed| rows[..placed].iter().rposition(|row| !is_spacer(row)));
             let owned = owns(row)
-                || (placed_row == Some(index + 1)
+                || (previous == Some(index)
                     && is_generated_container(row)
                     && row["Properties"]["flex-size"] == "default");
             // An edit only grows the row holding what changed.
@@ -579,14 +746,19 @@ impl MashupDocument {
         // to take, and one placed straight into a growing column must not spread its rows.
         if matches!(scope, Reflow::Placement { .. }) {
             let rows = children(self.at(&column_path)).to_vec();
-            let all_fixed = !rows.is_empty()
-                && rows.iter().all(|row| {
+            let content_rows = rows
+                .iter()
+                .enumerate()
+                .filter(|(_, row)| !is_spacer(row))
+                .collect::<Vec<_>>();
+            let all_fixed = !content_rows.is_empty()
+                && content_rows.iter().all(|(_, row)| {
                     type_of(row) == Some("flexcontainer")
                         && row["Properties"]["flex-size"] == "fixed"
                 });
-            if let (true, Some(last)) = (all_fixed, rows.last()) {
+            if let (true, Some((index, last))) = (all_fixed, content_rows.last()) {
                 if owns(last) && fixed_content_height(last, false).is_some() {
-                    let last_path = [column_path.as_slice(), &[rows.len() - 1]].concat();
+                    let last_path = [column_path.as_slice(), &[*index]].concat();
                     self.unfix_row(&last_path);
                 }
             }
@@ -700,6 +872,7 @@ impl MashupDocument {
         while !path.is_empty()
             && children(self.at(&path)).is_empty()
             && is_generated_container(self.at(&path))
+            && !is_spacer(self.at(&path))
             && !self.is_named_outside_layout(widget_id(self.at(&path)))
         {
             tidied.push(widget_id(self.at(&path)).to_string());
@@ -721,7 +894,7 @@ impl MashupDocument {
         let target_children = children(self.at(&target.path)).to_vec();
         let holds_containers = target_children
             .iter()
-            .any(|child| type_of(child) == Some("flexcontainer"));
+            .any(|child| type_of(child) == Some("flexcontainer") && !is_spacer(child));
         let holds_leaves = target_children
             .iter()
             .any(|child| type_of(child) != Some("flexcontainer"));
@@ -763,13 +936,166 @@ impl MashupDocument {
                 }
             }
         }
-        if wrap_new {
-            let wrapper = self.wrap(new, &mut placed);
-            self.push_child(&target.path, wrapper);
+        let node = if wrap_new {
+            self.wrap(new, &mut placed)
         } else {
-            self.push_child(&target.path, new);
+            new
+        };
+        // A footer stays the column's last row: what is added later goes above it.
+        let count = children(self.at(&target.path)).len();
+        if count > 0 && is_footer(&children(self.at(&target.path))[count - 1]) {
+            self.insert_child(&target.path, count - 1, node);
+        } else {
+            self.push_child(&target.path, node);
         }
         Ok(placed)
+    }
+
+    fn place_at_bottom(&mut self, widget: &Widget, target: &str) -> Result<Placed, EditError> {
+        let target = self.find(target)?;
+        if target.type_id != "flexcontainer"
+            || self.at(&target.path)["Properties"]["flex-direction"] != "column"
+        {
+            return Err(EditError::Refused(format!(
+                "--bottom: {} is not a column; --bottom puts a widget at the foot of a column",
+                target.id
+            )));
+        }
+        if let Some(footer) = children(self.at(&target.path))
+            .iter()
+            .find(|row| is_footer(row))
+        {
+            let beside = children(footer).last().map_or_else(
+                || widget_id(footer).to_string(),
+                |w| widget_id(w).to_string(),
+            );
+            return Err(EditError::Refused(format!(
+                "--bottom: {} already has a footer row; put the widget beside what is in it (--right-of {beside})",
+                target.id
+            )));
+        }
+        if widget.type_id == "flexcontainer" || fills_alone(widget) {
+            return Err(EditError::Refused(
+                "--bottom takes a control such as a button; a container or a filling widget goes --in the column".into(),
+            ));
+        }
+        // Rows go beside rows: bare widgets already in the column move into rows of their own.
+        let mut placed = Placed::default();
+        let existing = children(self.at(&target.path)).to_vec();
+        for (index, child) in existing.into_iter().enumerate() {
+            if type_of(&child) != Some("flexcontainer") {
+                let wrapper = self.wrap(child, &mut placed);
+                self.replace_child(&target.path, index, wrapper);
+            }
+        }
+        let number = self.allocate();
+        placed.id = format!("{}-{number}", widget.type_id);
+        let new = new_widget(widget, number, false);
+        let mut footer = self.wrap(new, &mut placed);
+        let footer_number = widget_id(&footer)
+            .rsplit('-')
+            .next()
+            .unwrap_or_default()
+            .to_string();
+        let properties = properties_mut(&mut footer);
+        insert_sorted(
+            properties,
+            "DisplayName",
+            Value::from(format!("container-footer-{footer_number}")),
+        );
+        insert_sorted(properties, "flex-direction", Value::from("row"));
+        insert_sorted(properties, "align-items", Value::from("flex-end"));
+        insert_sorted(properties, "justify-content", Value::from("flex-start"));
+        self.push_child(&target.path, footer);
+        Ok(placed)
+    }
+
+    /// Replace only direct twaco spacers; the container's properties stay untouched.
+    pub(crate) fn gap(&mut self, target: &str, px: i32) -> Result<usize, EditError> {
+        if !(0..=200).contains(&px) {
+            return Err(EditError::Refused(format!(
+                "{target}: gap px must be between 0 and 200"
+            )));
+        }
+        let found = self.find(target)?;
+        if found.type_id != "flexcontainer" {
+            return Err(EditError::Refused(format!(
+                "{target}: gap needs a flexcontainer"
+            )));
+        }
+        let original = children(self.at(&found.path));
+        let old = original
+            .iter()
+            .filter(|child| is_spacer(child))
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut remaining = original
+            .iter()
+            .filter(|child| !is_spacer(child))
+            .cloned()
+            .collect::<Vec<_>>();
+        if px > 0 && remaining.len() < 2 {
+            return Err(EditError::Refused(format!(
+                "{target}: nothing to separate; gap needs at least 2 children"
+            )));
+        }
+        let mut old = old.into_iter();
+        if px > 0 && self.at(&found.path)["Properties"]["flex-direction"] == "column" {
+            remaining.sort_by_key(is_footer);
+        }
+        let axis = if self.at(&found.path)["Properties"]["flex-direction"] == "column" {
+            "height"
+        } else {
+            "width"
+        };
+        let mut result = Vec::new();
+        let mut count = 0;
+        for child in remaining {
+            if px > 0 && !result.is_empty() && !result.last().is_some_and(is_footer) {
+                let mut spacer = old.next().unwrap_or_else(|| {
+                    let number = self.allocate();
+                    let mut spacer = new_widget(
+                        widgets::catalog()
+                            .by_type("flexcontainer")
+                            .expect("catalogue container"),
+                        number,
+                        true,
+                    );
+                    set_value_property(
+                        &mut spacer,
+                        "DisplayName",
+                        Value::from(format!("container-spacer-{number}")),
+                    );
+                    spacer
+                });
+                for dimension in ["height", "width"] {
+                    for bound in ["min", "max"] {
+                        let size = if dimension == axis {
+                            format!("{px}px")
+                        } else {
+                            String::new()
+                        };
+                        set_value_property(
+                            &mut spacer,
+                            &format!("flex-{bound}-{dimension}"),
+                            Value::from(size),
+                        );
+                    }
+                }
+                set_value_property(&mut spacer, "flex-size", Value::from("fixed"));
+                set_value_property(&mut spacer, "justify-content", Value::from("flex-start"));
+                set_value_property(
+                    &mut spacer,
+                    "iconClass",
+                    Value::from("widgets-flexcontainer-fixed"),
+                );
+                result.push(spacer);
+                count += 1;
+            }
+            result.push(child);
+        }
+        *children_mut(self.at_mut(&found.path)) = result;
+        Ok(count)
     }
 
     fn place_beside(
@@ -779,6 +1105,9 @@ impl MashupDocument {
         side: Side,
     ) -> Result<Placed, EditError> {
         let mut anchor = self.find(anchor_word)?;
+        if is_spacer(self.at(&anchor.path)) {
+            return Err(EditError::Refused(format!("{anchor_word}: cannot place beside or below a spacer; choose a content widget and run gap again")));
+        }
         if anchor.path.is_empty() {
             return Err(EditError::Refused(format!(
                 "{} is the page's top container; place the widget inside it",
@@ -1363,12 +1692,41 @@ fn row_fills(row: &Value) -> bool {
     fills(row) || children(row).iter().any(fills)
 }
 
+fn is_spacer(widget: &Value) -> bool {
+    type_of(widget) == Some("flexcontainer")
+        && children(widget).is_empty()
+        && widget["Properties"]["DisplayName"]
+            .as_str()
+            .is_some_and(|name| {
+                name.strip_prefix("container-spacer-")
+                    .is_some_and(|number| {
+                        !number.is_empty() && number.bytes().all(|byte| byte.is_ascii_digit())
+                    })
+            })
+}
+
+/// A footer row `--bottom` made: it stays the last row of its column. The name is twaco's own
+/// (Composer numbers its containers), so a row someone called `footer-actions` is never taken
+/// for one; as a generated container it is tidied away when its last widget goes.
+fn is_footer(widget: &Value) -> bool {
+    type_of(widget) == Some("flexcontainer")
+        && widget["Properties"]["DisplayName"]
+            .as_str()
+            .is_some_and(|name| name.starts_with("container-footer-"))
+}
+
+/// Whether a widget that fills sits anywhere inside `widget`, or is it.
+fn holds_filler(widget: &Value) -> bool {
+    fills(widget) || children(widget).iter().any(holds_filler)
+}
+
 /// A fixed row may contain fixed leaves directly, or the per-widget wrappers made for a toolbar.
 /// `stack` measures a nested column of several rows as their sum; without it such a column is
 /// left unmeasured.
 fn fixed_row_height(row: &Value, stack: bool) -> Option<f64> {
     let heights = children(row)
         .iter()
+        .filter(|child| !is_spacer(child))
         .map(|child| fixed_content_height(child, stack))
         .collect::<Option<Vec<_>>>()?;
     (!heights.is_empty()).then(|| heights.into_iter().fold(0.0, f64::max))
@@ -1470,6 +1828,7 @@ fn card_height(panel: &Value) -> Option<f64> {
     if !is_panel(panel) || !children(panel).iter().any(is_split_row) {
         return None;
     }
+    // A spacer is a fixed row: its height counts like any other.
     children(panel)
         .iter()
         .map(|row| {
@@ -1489,6 +1848,7 @@ fn card_row_height(row: &Value) -> Option<f64> {
     }
     let heights = children(row)
         .iter()
+        .filter(|child| !is_spacer(child))
         .map(card_height)
         .collect::<Option<Vec<_>>>()?;
     (!heights.is_empty()).then(|| heights.into_iter().fold(0.0, f64::max))
@@ -1499,8 +1859,15 @@ fn is_split_row(widget: &Value) -> bool {
     is_generated_container(widget)
         && widget["Properties"]["flex-direction"] == "row"
         && widget["Properties"]["justify-content"] == "space-between"
-        && children(widget).len() == 2
-        && children(widget).iter().all(is_generated_container)
+        && children(widget)
+            .iter()
+            .filter(|child| !is_spacer(child))
+            .count()
+            == 2
+        && children(widget)
+            .iter()
+            .filter(|child| !is_spacer(child))
+            .all(is_generated_container)
 }
 
 /// Containers twaco created have Composer's generated display name, unlike named template slots.
@@ -1550,6 +1917,217 @@ mod tests {
             r#"{{"UI":{{"Properties":{{"Id":"mashup-root","Type":"mashup","id_index":{id_index}}},"Widgets":[{widgets}]}},"Data":{{}},"DataBindings":[],"Events":[]}}"#
         ))
         .unwrap()
+    }
+
+    #[test]
+    fn gaps_are_fixed_replaceable_and_idempotent_on_both_axes() {
+        for (direction, dimension) in [("column", "height"), ("row", "width")] {
+            let kids = format!(
+                "{},{}",
+                container("flexcontainer-2", "one", "row", ""),
+                container("flexcontainer-3", "two", "row", ""),
+            );
+            let mut doc = document(&container("flexcontainer-1", "target", direction, &kids), 3);
+            let properties = doc.at(&[0])["Properties"].clone();
+            assert_eq!(doc.gap("target", 24).unwrap(), 1);
+            assert_eq!(doc.at(&[0])["Properties"], properties);
+            let spacer = doc.at(&[0, 1]).clone();
+            assert!(is_spacer(&spacer));
+            assert_eq!(spacer["Properties"]["flex-size"], "fixed");
+            assert_eq!(
+                spacer["Properties"][format!("flex-min-{dimension}")],
+                "24px"
+            );
+            assert_eq!(
+                spacer["Properties"][format!("flex-max-{dimension}")],
+                "24px"
+            );
+            let once = doc.to_content();
+            doc.gap("target", 24).unwrap();
+            assert_eq!(once, doc.to_content());
+            doc.gap("target", 12).unwrap();
+            assert_eq!(children(doc.at(&[0])).len(), 3);
+            assert_eq!(
+                doc.at(&[0, 1])["Properties"][format!("flex-min-{dimension}")],
+                "12px"
+            );
+            doc.gap("target", 0).unwrap();
+            assert_eq!(
+                child_ids(&doc, "target"),
+                ["flexcontainer-2", "flexcontainer-3"]
+            );
+        }
+    }
+
+    #[test]
+    fn gap_keeps_footer_last_and_placement_preserves_spacers() {
+        let kids = format!(
+            "{},{}",
+            container(
+                "flexcontainer-2",
+                "container-footer-2",
+                "row",
+                &widget("ptcsbutton", "ptcsbutton-4", "Apply", "")
+            ),
+            container(
+                "flexcontainer-3",
+                "container-3",
+                "row",
+                &widget("ptcslabel", "ptcslabel-5", "Title", "")
+            )
+        );
+        let mut doc = document(&container("flexcontainer-1", "target", "column", &kids), 5);
+        doc.gap("target", 24).unwrap();
+        assert!(is_footer(doc.at(&[0, 2])));
+        let spacer = doc.at(&[0, 1]).clone();
+        let spacer_id = widget_id(&spacer).to_string();
+        for side in [Side::Below, Side::Right, Side::End] {
+            let before = doc.to_content();
+            let error = doc
+                .place(
+                    catalogue_widget("ptcslabel"),
+                    &Placement::Beside {
+                        anchor: spacer_id.clone(),
+                        side,
+                    },
+                )
+                .unwrap_err();
+            assert!(error.to_string().contains("spacer"));
+            assert_eq!(before, doc.to_content());
+        }
+        doc.place(
+            catalogue_widget("ptcslabel"),
+            &Placement::Beside {
+                anchor: "ptcslabel-5".into(),
+                side: Side::Below,
+            },
+        )
+        .unwrap();
+        let found = doc.find(&spacer_id).unwrap();
+        assert_eq!(doc.at(&found.path), &spacer);
+        assert!(is_footer(children(doc.at(&[0])).last().unwrap()));
+        doc.gap("target", 0).unwrap();
+        assert!(doc.find(&spacer_id).is_err());
+    }
+
+    #[test]
+    fn gaps_do_not_break_card_measurement_or_empty_wrapper_tidying() {
+        let groups = format!(
+            "{},{}",
+            container(
+                "flexcontainer-4",
+                "container-4",
+                "row",
+                &widget("ptcslabel", "ptcslabel-6", "Label", "")
+            ),
+            container(
+                "flexcontainer-5",
+                "container-5",
+                "row",
+                &widget("ptcslabel", "ptcslabel-7", "Value", "")
+            )
+        );
+        let split = container("flexcontainer-3", "container-3", "row", &groups);
+        let mut split: Value = serde_json::from_str(&split).unwrap();
+        set_value_property(&mut split, "justify-content", Value::from("space-between"));
+        let panel = container("flexcontainer-2", "panel-2", "column", &split.to_string());
+        let panel2 = panel
+            .replace("-2", "-8")
+            .replace("-3", "-9")
+            .replace("-4", "-10")
+            .replace("-5", "-11")
+            .replace("-6", "-12")
+            .replace("-7", "-13");
+        let mut doc = document(
+            &container(
+                "flexcontainer-1",
+                "container-1",
+                "row",
+                &format!("{panel},{panel2}"),
+            ),
+            13,
+        );
+        let title = fixed(
+            &container(
+                "flexcontainer-14",
+                "container-14",
+                "row",
+                &widget("ptcslabel", "ptcslabel-15", "Title", ""),
+            ),
+            "40px",
+        );
+        doc.push_child(&[0, 0], serde_json::from_str(&title).unwrap());
+        let height = card_row_height(doc.at(&[0])).unwrap();
+        // A spacer inside a card adds its height to the card...
+        doc.gap("flexcontainer-2", 24).unwrap();
+        assert_eq!(card_row_height(doc.at(&[0])), Some(height + 24.0));
+        doc.gap("flexcontainer-3", 24).unwrap();
+        assert!(is_split_row(doc.at(&[0, 0, 0])));
+        // ...one between cards adds nothing to the row's tallest card.
+        doc.gap("flexcontainer-1", 24).unwrap();
+        assert_eq!(card_row_height(doc.at(&[0])), Some(height + 24.0));
+        let spacer = doc.at(&[0, 1]).clone();
+        let (_, removed) = doc.remove_empty_generated_wrappers(vec![0, 1]);
+        assert!(removed.is_empty());
+        assert_eq!(doc.at(&[0, 1]), &spacer);
+    }
+
+    #[test]
+    fn gap_between_bare_widgets_keeps_their_container_a_row_of_widgets() {
+        let labels = format!(
+            "{},{}",
+            widget("ptcslabel", "ptcslabel-2", "one", ""),
+            widget("ptcslabel", "ptcslabel-3", "two", ""),
+        );
+        let mut doc = document(&container("flexcontainer-1", "target", "row", &labels), 3);
+        doc.gap("target", 24).unwrap();
+        assert!(doc.problems().is_empty());
+        let spacer = doc.at(&[0, 1]).clone();
+        let placed = doc
+            .place(
+                catalogue_widget("ptcslabel"),
+                &Placement::In("target".into()),
+            )
+            .unwrap();
+        assert!(placed.containers.is_empty());
+        assert_eq!(doc.at(&[0, 1]), &spacer);
+        assert!(doc.problems().is_empty());
+        assert_eq!(doc.gap("target", 12).unwrap(), 2);
+        assert_eq!(children(doc.at(&[0])).len(), 5);
+        assert!(!is_spacer(doc.at(&[0, 0])));
+        assert!(!is_spacer(doc.at(&[0, 4])));
+        assert!(doc.problems().is_empty());
+    }
+
+    #[test]
+    fn gap_refusals_leave_the_document_unchanged() {
+        let mut doc = document(
+            &container(
+                "flexcontainer-1",
+                "target",
+                "column",
+                &widget("ptcslabel", "ptcslabel-2", "label", ""),
+            ),
+            2,
+        );
+        for (target, px, message) in [
+            ("target", -1, "between 0 and 200"),
+            ("target", 201, "between 0 and 200"),
+            ("label", 24, "flexcontainer"),
+            ("target", 24, "nothing to separate"),
+        ] {
+            let before = doc.to_content();
+            assert!(doc
+                .gap(target, px)
+                .unwrap_err()
+                .to_string()
+                .contains(message));
+            assert_eq!(before, doc.to_content());
+        }
+        // Clearing always works: with nothing to clear it changes nothing.
+        let before = doc.to_content();
+        assert_eq!(doc.gap("target", 0).unwrap(), 0);
+        assert_eq!(before, doc.to_content());
     }
 
     #[test]
@@ -3118,6 +3696,360 @@ mod placement_walkthrough {
         let row_path = document.find(widget_id(&row)).unwrap().path;
         assert_eq!(document.at(&row_path)["Properties"]["flex-size"], "default");
         assert!(document.find(&panel).is_ok());
+    }
+
+    /// A list page's toolbar split by `--end` above a grid is fixed to its buttons, as the kits'
+    /// toolbars are; left at its natural size it took half the page's height beside the grid.
+    #[test]
+    fn a_split_toolbar_above_a_grid_is_fixed_to_its_buttons() {
+        let catalog = widgets::catalog();
+        let place = |document: &mut MashupDocument, widget: &str, placement: Placement| {
+            document
+                .place(catalog.resolve(widget).unwrap(), &placement)
+                .unwrap()
+                .id
+        };
+        // Toolbar first, then the grid below it, and the other way round.
+        for grid_first in [false, true] {
+            let mut document = parse(crate::core::mashup::templates::BLANK).unwrap();
+            let title = place(&mut document, "label", Placement::In("center".into()));
+            let (view, grid);
+            if grid_first {
+                grid = place(&mut document, "grid", Placement::In("center".into()));
+                view = place(
+                    &mut document,
+                    "button",
+                    Placement::Beside {
+                        anchor: grid.clone(),
+                        side: Side::Above,
+                    },
+                );
+            } else {
+                view = place(
+                    &mut document,
+                    "button",
+                    Placement::Beside {
+                        anchor: title,
+                        side: Side::Below,
+                    },
+                );
+                grid = place(
+                    &mut document,
+                    "grid",
+                    Placement::Beside {
+                        anchor: view.clone(),
+                        side: Side::Below,
+                    },
+                );
+            }
+            place(
+                &mut document,
+                "button",
+                Placement::Beside {
+                    anchor: view.clone(),
+                    side: Side::End,
+                },
+            );
+            let start = parent_of(&document, &view).clone();
+            let row = parent_of(&document, widget_id(&start)).clone();
+            assert!(is_split_row(&row), "{row}");
+            assert_eq!(
+                row["Properties"]["flex-size"], "fixed",
+                "grid first: {grid_first}"
+            );
+            let grid_path = document.find(&grid).unwrap().path;
+            assert_eq!(
+                document.at(&grid_path)["Properties"]["ResponsiveLayout"],
+                true
+            );
+        }
+    }
+
+    /// `--bottom` keeps a filter panel's buttons at its foot, as the kits do: a footer row that
+    /// grows with its controls at its bottom, stays last as widgets are added, and is fixed to
+    /// its controls beside a grid.
+    #[test]
+    fn bottom_puts_buttons_in_a_footer_that_stays_last() {
+        let catalog = widgets::catalog();
+        let place = |document: &mut MashupDocument, widget: &str, placement: Placement| {
+            document.place(catalog.resolve(widget).unwrap(), &placement)
+        };
+        let mut document = parse(crate::core::mashup::templates::BLANK).unwrap();
+        place(&mut document, "dropdown", Placement::In("center".into())).unwrap();
+        let apply = place(&mut document, "button", Placement::Bottom("center".into()))
+            .unwrap()
+            .id;
+        let clear = place(
+            &mut document,
+            "button",
+            Placement::Beside {
+                anchor: apply.clone(),
+                side: Side::Right,
+            },
+        )
+        .unwrap()
+        .id;
+        let later = place(&mut document, "dropdown", Placement::In("center".into()))
+            .unwrap()
+            .id;
+        let center = document.find("center").unwrap();
+        let rows = children(document.at(&center.path)).to_vec();
+        let footer = rows.last().unwrap();
+        assert!(is_footer(footer), "{footer}");
+        assert!(
+            contains(footer, &apply) && contains(footer, &clear),
+            "{footer}"
+        );
+        assert!(!contains(footer, &later));
+        assert_eq!(footer["Properties"]["align-items"], "flex-end");
+        assert_ne!(
+            footer["Properties"]["flex-size"], "fixed",
+            "it is the row that grows"
+        );
+        for row in &rows[..rows.len() - 1] {
+            assert_eq!(row["Properties"]["flex-size"], "fixed", "{row}");
+        }
+        // A second footer is refused, naming where the widget can go instead.
+        let refused = place(&mut document, "button", Placement::Bottom("center".into()));
+        assert!(
+            matches!(&refused, Err(EditError::Refused(why)) if why.contains("already has a footer")),
+            "{refused:?}"
+        );
+        // Not a column, a filling widget: refused.
+        let footer_id = widget_id(footer).to_string();
+        assert!(place(&mut document, "button", Placement::Bottom(footer_id)).is_err());
+        let mut other = parse(crate::core::mashup::templates::BLANK).unwrap();
+        assert!(place(&mut other, "grid", Placement::Bottom("center".into())).is_err());
+
+        // Beside a grid the footer is fixed, so the grid keeps the spare height.
+        let mut list = parse(crate::core::mashup::templates::BLANK).unwrap();
+        let grid = place(&mut list, "grid", Placement::In("center".into()))
+            .unwrap()
+            .id;
+        place(&mut list, "button", Placement::Bottom("center".into())).unwrap();
+        let center = list.find("center").unwrap();
+        let footer = children(list.at(&center.path)).last().unwrap().clone();
+        assert!(is_footer(&footer));
+        assert_eq!(footer["Properties"]["flex-size"], "fixed");
+        let grid_path = list.find(&grid).unwrap().path;
+        assert_eq!(list.at(&grid_path)["Properties"]["ResponsiveLayout"], true);
+    }
+
+    /// The footer is twaco's own row: one someone named `footer-actions` keeps its size; a row
+    /// placed below the footer goes above it; removing the grid lets it grow again; removing its
+    /// last widget tidies it away, so `--bottom` works again.
+    #[test]
+    fn a_footer_stays_last_follows_removals_and_never_takes_another_row() {
+        let catalog = widgets::catalog();
+        let place = |document: &mut MashupDocument, widget: &str, placement: Placement| {
+            document
+                .place(catalog.resolve(widget).unwrap(), &placement)
+                .unwrap()
+                .id
+        };
+        let footer_of = |document: &MashupDocument| {
+            let center = document.find("center").unwrap();
+            children(document.at(&center.path))
+                .iter()
+                .find(|row| is_footer(row))
+                .cloned()
+        };
+
+        // Someone's own fixed `footer-actions` row in a column of controls keeps its height.
+        let mut document = parse(crate::core::mashup::templates::BLANK).unwrap();
+        let theirs = place(
+            &mut document,
+            "flexcontainer",
+            Placement::In("center".into()),
+        );
+        let found = document.find(&theirs).unwrap();
+        for (key, value) in [
+            ("DisplayName", "footer-actions"),
+            ("flex-size", "fixed"),
+            ("flex-min-height", "60px"),
+            ("flex-max-height", "60px"),
+        ] {
+            document.set_property(&found.path, key, Value::from(value));
+        }
+        place(&mut document, "dropdown", Placement::In("center".into()));
+        let found = document.find(&theirs).unwrap();
+        assert_eq!(document.at(&found.path)["Properties"]["flex-size"], "fixed");
+        assert!(footer_of(&document).is_none());
+
+        // A row placed below the footer's button moves above the footer.
+        let mut document = parse(crate::core::mashup::templates::BLANK).unwrap();
+        let grid = place(&mut document, "grid", Placement::In("center".into()));
+        let apply = place(&mut document, "button", Placement::Bottom("center".into()));
+        let below = place(
+            &mut document,
+            "label",
+            Placement::Beside {
+                anchor: apply.clone(),
+                side: Side::Below,
+            },
+        );
+        let center = document.find("center").unwrap();
+        let rows = children(document.at(&center.path)).to_vec();
+        assert!(is_footer(rows.last().unwrap()), "{rows:?}");
+        assert!(!contains(rows.last().unwrap(), &below));
+        assert_eq!(
+            footer_of(&document).unwrap()["Properties"]["flex-size"],
+            "fixed"
+        );
+
+        // With the grid gone, the footer grows again, its button at the column's foot.
+        let grid_path = document.find(&grid).unwrap().path;
+        document.remove_widget(&grid_path).unwrap();
+        assert_ne!(
+            footer_of(&document).unwrap()["Properties"]["flex-size"],
+            "fixed"
+        );
+
+        // Its last widget gone, the footer goes too, and a new one can be made.
+        let apply_path = document.find(&apply).unwrap().path;
+        let tidied = document.remove_widget(&apply_path).unwrap();
+        assert!(footer_of(&document).is_none(), "tidied {tidied:?}");
+        place(&mut document, "button", Placement::Bottom("center".into()));
+        assert!(footer_of(&document).is_some());
+    }
+
+    /// A chart filling a row twaco made keeps its own size, as the kits' charts do, so its row
+    /// takes the spare height; a grid keeps filling, and a container twaco did not make is left
+    /// as it is.
+    #[test]
+    fn a_chart_in_a_row_twaco_made_keeps_its_own_size() {
+        let catalog = widgets::catalog();
+        let place = |document: &mut MashupDocument, widget: &str, placement: Placement| {
+            document
+                .place(catalog.resolve(widget).unwrap(), &placement)
+                .unwrap()
+                .id
+        };
+        let keeps = |document: &MashupDocument, id: &str| {
+            let path = document.find(id).unwrap().path;
+            document.at(&path[..path.len() - 1])["Properties"]["OverrideChildrenAbsolute"].clone()
+        };
+        let mut document = parse(crate::core::mashup::templates::BLANK).unwrap();
+        let picker = place(&mut document, "datepicker", Placement::In("center".into()));
+        let chart = place(
+            &mut document,
+            "pie-chart",
+            Placement::Beside {
+                anchor: picker,
+                side: Side::Below,
+            },
+        );
+        let chart_path = document.find(&chart).unwrap().path;
+        assert_eq!(
+            document.at(&chart_path)["Properties"]["ResponsiveLayout"],
+            true
+        );
+        assert_eq!(keeps(&document, &chart), true);
+
+        let mut list = parse(crate::core::mashup::templates::BLANK).unwrap();
+        let title = place(&mut list, "label", Placement::In("center".into()));
+        let grid = place(
+            &mut list,
+            "grid",
+            Placement::Beside {
+                anchor: title,
+                side: Side::Below,
+            },
+        );
+        assert_ne!(keeps(&list, &grid), true);
+
+        // Alone in a template slot: the slot is not twaco's wrapper, so it is left alone...
+        let mut alone = parse(crate::core::mashup::templates::BLANK).unwrap();
+        let chart = place(&mut alone, "pie-chart", Placement::In("center".into()));
+        assert_ne!(keeps(&alone, &chart), true);
+        // ...until a placement wraps it in a row of twaco's own.
+        place(
+            &mut alone,
+            "button",
+            Placement::Beside {
+                anchor: chart.clone(),
+                side: Side::Below,
+            },
+        );
+        assert_eq!(keeps(&alone, &chart), true);
+
+        // A container that existed before (Composer names its own `container-N` too) is never
+        // changed by placing a chart in it.
+        let mut theirs = parse(crate::core::mashup::templates::BLANK).unwrap();
+        let existing = place(&mut theirs, "flexcontainer", Placement::In("center".into()));
+        let found = theirs.find(&existing).unwrap();
+        theirs.set_property(&found.path, "DisplayName", Value::from("container-7"));
+        let chart = place(&mut theirs, "pie-chart", Placement::In(existing.clone()));
+        assert_ne!(keeps(&theirs, &chart), true);
+    }
+
+    /// A spacer between a card's rows counts at its size, so the card row's minimum still fits.
+    #[test]
+    fn a_cards_spacers_count_in_its_height() {
+        let label = |id: &str| serde_json::json!({"Properties": {"Id": id, "Type": "ptcslabel", "LabelType": "label", "Margin": "0"}});
+        let group = |n: u32, justify: &str, inner: Value| serde_json::json!({"Properties": {"Id": format!("flexcontainer-{n}"), "Type": "flexcontainer", "DisplayName": format!("container-{n}"), "flex-direction": "row", "justify-content": justify}, "Widgets": [inner]});
+        let split = |n: u32| {
+            serde_json::json!({"Properties": {"Id": format!("flexcontainer-{n}"), "Type": "flexcontainer", "DisplayName": format!("container-{n}"), "flex-direction": "row", "justify-content": "space-between"},
+                "Widgets": [group(n + 1, "flex-start", label(&format!("ptcslabel-{}", n + 1))),
+                            group(n + 2, "flex-end", label(&format!("ptcslabel-{}", n + 2)))]})
+        };
+        let spacer = serde_json::json!({"Properties": {"Id": "flexcontainer-90", "Type": "flexcontainer", "DisplayName": "container-spacer-90", "flex-size": "fixed", "flex-min-height": "24px", "flex-max-height": "24px"}});
+        let panel = |rows: Vec<Value>| serde_json::json!({"Properties": {"Id": "flexcontainer-1", "Type": "flexcontainer", "DisplayName": "panel-1", "flex-direction": "column"}, "Widgets": rows});
+        let without = card_height(&panel(vec![split(10), split(20)])).unwrap();
+        let with = card_height(&panel(vec![split(10), spacer, split(20)])).unwrap();
+        assert_eq!(with - without, 24.0);
+    }
+
+    /// Removing children leaves no spacer at an end, beside another or after a footer, and
+    /// `gap 0` clears what remains even with one child left.
+    #[test]
+    fn removals_leave_no_stray_spacers() {
+        let catalog = widgets::catalog();
+        let mut document = parse(crate::core::mashup::templates::BLANK).unwrap();
+        let place = |document: &mut MashupDocument, widget: &str, placement: Placement| {
+            document
+                .place(catalog.resolve(widget).unwrap(), &placement)
+                .unwrap()
+                .id
+        };
+        let a = place(&mut document, "label", Placement::In("center".into()));
+        let b = place(
+            &mut document,
+            "label",
+            Placement::Beside {
+                anchor: a.clone(),
+                side: Side::Below,
+            },
+        );
+        let apply = place(&mut document, "button", Placement::Bottom("center".into()));
+        document.gap("center", 24).unwrap();
+        let center = |document: &MashupDocument| {
+            let found = document.find("center").unwrap();
+            children(document.at(&found.path)).to_vec()
+        };
+        assert_eq!(
+            center(&document)
+                .iter()
+                .filter(|row| is_spacer(row))
+                .count(),
+            2
+        );
+        let path = document.find(&b).unwrap().path;
+        document.remove_widget(&path).unwrap();
+        let rows = center(&document);
+        assert_eq!(
+            rows.iter().filter(|row| is_spacer(row)).count(),
+            1,
+            "{rows:?}"
+        );
+        let path = document.find(&apply).unwrap().path;
+        document.remove_widget(&path).unwrap();
+        let rows = center(&document);
+        assert!(!rows.iter().any(is_spacer), "{rows:?}");
+        assert!(!rows.last().is_some_and(is_spacer));
+        // With one child left, gap 0 still clears; a size is refused.
+        assert!(document.gap("center", 24).is_err());
+        assert!(document.gap("center", 0).is_ok());
     }
 
     #[test]

@@ -308,15 +308,83 @@ pub(crate) struct EntityStatus {
     pub(crate) record: bool,
     #[arg(long = "ancestor", value_name = "export.xml", value_parser = super::flags::path())]
     pub(crate) ancestor: Option<std::path::PathBuf>,
+    #[arg(long = "against", value_name = "export.xml", value_parser = super::flags::path())]
+    pub(crate) against: Option<std::path::PathBuf>,
+    #[command(flatten)]
+    pub(crate) json: Json,
 }
 
-/// Compare working, server and tracked ancestor, optionally recording matching hashes once.
+/// Compare with an export offline, or with the server and tracked ancestor.
 pub(crate) fn entity_status(solution: &Solution, args: &EntityStatus) -> u8 {
     if args.selection.operands.len() > 1 {
         eprintln!(
             "{} entity status accepts one entity name, or --all",
             style::prefix()
         );
+        return FAILED;
+    }
+    if let Some(path) = &args.against {
+        if args.record || args.ancestor.is_some() || args.profile.profile.is_some() {
+            eprintln!(
+                "{} --against is offline; drop --record, --ancestor and --profile",
+                style::prefix()
+            );
+            return FAILED;
+        }
+        let target = if args.selection.operands.is_empty() {
+            commands::status::StatusTarget::All
+        } else {
+            commands::status::StatusTarget::Names(args.selection.operands.clone())
+        };
+        let mut notices = commands::Notices::default();
+        let result = commands::status::offline::execute(
+            solution,
+            path,
+            &target,
+            args.project.project.as_deref(),
+            &mut notices,
+        );
+        print_notices(&notices);
+        return match result {
+            Ok(report) => {
+                if args.json.json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&report.json(args.detail.detail)).unwrap()
+                    );
+                } else {
+                    println!("{} entity status(es) against export", report.entries.len());
+                    for (verdict, count) in report.counts() {
+                        println!("  {verdict:<19} {count}");
+                    }
+                    println!("Only-in-repository means absent from this export; a partial export does not prove deletion.");
+                    // Without --detail, only what needs attention, as entity status does.
+                    for entry in &report.entries {
+                        if !args.detail.detail && entry.verdict == "same" {
+                            continue;
+                        }
+                        println!("{}  {}", entry.entity, entry.verdict);
+                        if args.detail.detail {
+                            for path in &entry.paths {
+                                println!("  {path}");
+                            }
+                        }
+                    }
+                }
+                if report.ok() {
+                    OK
+                } else {
+                    DRIFT
+                }
+            }
+            Err(error) => {
+                eprintln!("{} {error}", style::prefix());
+                FAILED
+            }
+        };
+    }
+    if args.json.json {
+        eprintln!("{} --json needs --against <export.xml>", style::prefix());
         return FAILED;
     }
     let request = commands::status::StatusRequest {
@@ -447,6 +515,55 @@ pub(crate) fn entity_status(solution: &Solution, args: &EntityStatus) -> u8 {
         OK
     } else {
         DRIFT
+    }
+}
+
+#[cfg(test)]
+mod status_tests {
+    use super::*;
+
+    #[test]
+    fn against_uses_drift_exit_code_and_refuses_live_options() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::write(
+            root.join("twaco.toml"),
+            "[[project]]\nname = \"Acme.Project\"\n",
+        )
+        .unwrap();
+        std::fs::create_dir(root.join("Things")).unwrap();
+        let xml = "<Entities><Things><Thing name=\"Acme.Thing\" projectName=\"Acme.Project\"/></Things></Entities>";
+        std::fs::write(root.join("Things/Acme.Thing.xml"), xml).unwrap();
+        let path = root.join("export.xml");
+        std::fs::write(&path, xml).unwrap();
+        let solution = Solution::load(&root.join("twaco.toml")).unwrap();
+        let mut args = EntityStatus {
+            selection: Selection::default(),
+            project: Project::default(),
+            profile: Profile::default(),
+            detail: Detail::default(),
+            record: false,
+            ancestor: None,
+            against: Some(path.clone()),
+            json: Json::default(),
+        };
+        assert_eq!(entity_status(&solution, &args), OK);
+        std::fs::write(
+            &path,
+            xml.replace("<Thing name", "<Thing description=\"different\" name"),
+        )
+        .unwrap();
+        args.json.json = true;
+        assert_eq!(entity_status(&solution, &args), DRIFT);
+        args.record = true;
+        assert_eq!(entity_status(&solution, &args), FAILED);
+        args.record = false;
+        args.ancestor = Some(path);
+        assert_eq!(entity_status(&solution, &args), FAILED);
+        args.ancestor = None;
+        args.profile.profile = Some("default".into());
+        assert_eq!(entity_status(&solution, &args), FAILED);
+        assert!(!root.join(".twaco").exists());
     }
 }
 

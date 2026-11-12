@@ -237,8 +237,9 @@ pub(crate) struct StatusResult {
     counts: BTreeMap<String, u64>,
     failures: Vec<String>,
     unreadable: Vec<String>,
-    server_only: Vec<ServerOnly>,
-    server_notes: Vec<String>,
+    server_only: Option<Vec<ServerOnly>>,
+    server_notes: Option<Vec<String>>,
+    notes: Option<Vec<String>>,
     /// The export used as the ancestor instead of the baseline, when one was given.
     ancestor: Option<StatusAncestor>,
     /// Without detail: only what needs attention.
@@ -264,6 +265,7 @@ struct StatusAncestor {
 
 #[derive(Serialize, JsonSchema)]
 struct StatusEntry {
+    paths: Option<Vec<String>>,
     server_owned: Option<Vec<String>>,
     entity: String,
     verdict: String,
@@ -1640,5 +1642,16 @@ pub(crate) struct RenameResult {
     follow_up: Value,
     sql: Option<Value>,
     skipped: u64,
+    notices: Notices,
+}
+
+#[derive(Serialize, JsonSchema)]
+pub(crate) struct MashupGapResult {
+    applied: bool,
+    dry_run: bool,
+    mashup: String,
+    container: String,
+    px: i32,
+    spacers: usize,
     notices: Notices,
 }
