@@ -13,7 +13,7 @@ All notable changes to twaco are recorded here. The format follows
   the plan or writes, and is also returned by MCP.
 - `mashup add ... --in <column> --bottom` (MCP `bottom`) puts a widget in a footer row at the foot
   of a column, as the kits place a filter panel's Apply and Clear; widgets added later go above it.
-- Templates can style their slots: `filter-panel` gets the kits' 276px grey filter column and white
+- Templates can style their slots: `filter-panel` gets the kits' grey 290px filter column and white
   content with a 24px margin, and `list-page` a grey toolbar band. Mashups made before keep their look.
 - `datepicker` names the date picker, as `date-picker` does. A property a widget does not have is
   refused with the closest real names (`PlaceholderText` suggests `HintText`) in `mashup add`,

@@ -1115,7 +1115,7 @@ aliases and slots. Slots are responsive container names usable with `mashup add 
 | tabs | title, tabs | A tab set whose tabs each show a mashup (`--tab Label=Mashup`) |
 | dashboard | title, tiles, tile-1..tile-4, panels, side, main | Four KPI tiles above a side panel and a main panel (1:3) |
 
-`filter-panel` draws the kits' look: a 276px filter column on `#F7F7F7`, and the content on white with
+`filter-panel` draws the kits' look: a 290px filter column on `#F7F7F7`, and the content on white with
 a 24px margin. `list-page` gives its toolbar the same grey band. The colours are ordinary widget styles
 in the root's StyleProperties, so `mashup set <mashup> <slot> --style background=...` changes them.
 

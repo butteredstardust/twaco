@@ -443,7 +443,63 @@ impl MashupDocument {
             }
         }
         self.fix_rows(&placed);
+        self.inherit_backgrounds(&placed);
         Ok(placed)
+    }
+
+    /// A row twaco made inside a container with a background of its own (a template's grey
+    /// filter column, a styled panel) shows that background, as the kits' rows do with
+    /// `background: inherit`; otherwise the theme paints each row white over it.
+    fn inherit_backgrounds(&mut self, placed: &Placed) {
+        for id in &placed.containers {
+            let Ok(found) = self.find(id) else {
+                continue;
+            };
+            if self.style_background(id).is_some() {
+                continue;
+            }
+            let painted = (0..found.path.len()).rev().any(|depth| {
+                let ancestor = widget_id(self.at(&found.path[..depth])).to_string();
+                self.style_background(&ancestor)
+                    .is_some_and(|background| background != "inherit")
+            });
+            if !painted {
+                continue;
+            }
+            let properties = self.root_properties_mut();
+            if !properties.contains_key("StyleProperties") {
+                insert_sorted(
+                    properties,
+                    "StyleProperties",
+                    serde_json::json!({"data": {}, "meta": {"type": "WidgetStyler", "version": "1.0"}}),
+                );
+            }
+            if let Some(data) = properties["StyleProperties"]
+                .get_mut("data")
+                .and_then(Value::as_object_mut)
+            {
+                insert_sorted(
+                    data,
+                    id,
+                    serde_json::json!({"parts": {"$": {"$": {"background": "inherit"}}}, "widget": "flex-container"}),
+                );
+            }
+        }
+    }
+
+    /// The background a widget's own style entry gives it, if any.
+    fn style_background(&self, id: &str) -> Option<String> {
+        self.root_properties()
+            .get("StyleProperties")?
+            .get("data")?
+            .get(id)?
+            .get("parts")?
+            .get("$")?
+            .get("$")?
+            .get("background")?
+            .as_str()
+            .filter(|background| !background.is_empty())
+            .map(str::to_string)
     }
 
     /// Re-measure the rows around a widget after one of its properties changes.  This is kept

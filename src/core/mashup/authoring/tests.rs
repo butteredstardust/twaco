@@ -2762,11 +2762,58 @@ fn a_filter_panel_gets_the_kits_grey_filters_and_white_content() {
     assert_eq!(styles["data"][&filters.id]["widget"], "flex-container");
     assert_eq!(
         document.at(&filters.path)["Properties"]["flex-min-width"],
-        "276px"
+        "290px"
     );
     assert!(document.at(&filters.path)["Properties"]
         .get("style")
         .is_none());
+}
+
+/// A row placed in the grey filter column shows the grey, as the kits' rows do; one in an
+/// unstyled column gets no style entry.
+#[test]
+fn a_row_in_a_painted_column_inherits_its_background() {
+    let template = mashup::templates::layout("filter-panel").unwrap().unwrap();
+    let mut document = new_document(&template, false, DEFAULT_THEME).unwrap();
+    let catalog = crate::core::widgets::catalog();
+    let place = |document: &mut crate::core::mashup::edit::MashupDocument, slot: &str| {
+        document
+            .place(
+                catalog.resolve("dropdown").unwrap(),
+                &crate::core::mashup::edit::Placement::In(slot.into()),
+            )
+            .unwrap()
+    };
+    let first = place(&mut document, "filters");
+    let second = document
+        .place(
+            catalog.resolve("dropdown").unwrap(),
+            &crate::core::mashup::edit::Placement::Beside {
+                anchor: first.id,
+                side: crate::core::mashup::edit::Side::Below,
+            },
+        )
+        .unwrap();
+    assert!(
+        !second.containers.is_empty(),
+        "both dropdowns now have rows"
+    );
+    let styles = document.root_properties()["StyleProperties"]["data"].clone();
+    for container in &second.containers {
+        assert_eq!(
+            styles[container]["parts"]["$"]["$"]["background"], "inherit",
+            "{container}"
+        );
+    }
+    let blank = mashup::templates::layout("blank").unwrap().unwrap();
+    let mut plain = new_document(&blank, false, DEFAULT_THEME).unwrap();
+    place(&mut plain, "center");
+    let placed = place(&mut plain, "center");
+    assert!(placed.containers.iter().all(|id| plain
+        .root_properties()
+        .get("StyleProperties")
+        .and_then(|styles| styles["data"].get(id))
+        .is_none()));
 }
 
 #[test]
