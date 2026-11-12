@@ -743,7 +743,8 @@ appkey delete <name> [--apply]   as entity delete ApplicationKeys/<name>
     --expires <when>        30d (the default), 12h, a date (midnight UTC) or a timestamp; without
                             one the server would expire it after a day
     --whitelist <ip,...>    addresses or ranges it may be used from (default any)
-    --save <profile>        write it as app_key of that profile file, which must exist
+    --save <profile>        write it as app_key of that profile file, which must exist;
+                            a profile without username and password then signs in with it
     --show                  print the key
 test [<filter>...]          the service cases of tests/*.toml: each called as each of its test
                             users, expecting a status and optionally rows; checks and lists them

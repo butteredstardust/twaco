@@ -10,13 +10,16 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-/// Everything the read-only HTTP client needs. App keys are accepted for future endpoints but
-/// Basic authentication remains the default because ThingWorx's Importer rejects app keys.
+/// Everything the HTTP client needs. It signs in with Basic username and password, or with the
+/// app key alone when the profile has neither (see [`Profile::signs_in_with_app_key`]).
 #[derive(Clone, Deserialize, PartialEq)]
 pub struct Profile {
     #[serde(alias = "server_url")]
     pub(crate) url: String,
+    /// Empty only in a profile that signs in with its `app_key` alone.
+    #[serde(default)]
     pub(crate) username: String,
+    #[serde(default)]
     pub(crate) password: Secret,
     #[serde(default, alias = "appKey")]
     pub(crate) app_key: Option<Secret>,
@@ -143,6 +146,14 @@ impl fmt::Debug for Profile {
 }
 
 impl Profile {
+    /// Whether twaco signs in with the app key: only a profile without a username and password
+    /// does. One with both keeps Basic, so saving a key into it never changes who it acts as.
+    pub(crate) fn signs_in_with_app_key(&self) -> bool {
+        self.username.is_empty()
+            && self.password.is_empty()
+            && self.app_key.as_ref().is_some_and(|key| !key.is_empty())
+    }
+
     /// The optional Extension SDK path kept in this local profile.
     pub fn sdk(&self) -> Option<&Path> {
         self.sdk.as_deref()
@@ -152,8 +163,13 @@ impl Profile {
     pub(crate) fn value(&self, key: &str) -> Option<toml::Value> {
         match key {
             "url" | "server_url" => Some(toml::Value::String(self.url.clone())),
-            "username" => Some(toml::Value::String(self.username.clone())),
-            "password" => Some(toml::Value::String(self.password.expose().to_string())),
+            // A key-only profile has neither; a placeholder naming one is unresolved, not "".
+            "username" => Some(&self.username)
+                .filter(|username| !username.is_empty())
+                .map(|username| toml::Value::String(username.clone())),
+            "password" => Some(&self.password)
+                .filter(|password| !password.is_empty())
+                .map(|password| toml::Value::String(password.expose().to_string())),
             "app_key" | "appKey" => self
                 .app_key
                 .as_ref()
@@ -216,7 +232,11 @@ impl fmt::Display for ProfileError {
             }
             ProfileError::Invalid { path, why } => write!(f, "profile {}: {why}", path.display()),
             ProfileError::Incomplete { source, missing } => {
-                write!(f, "{source} is missing {}", missing.join(", "))
+                write!(f, "{source} is missing {}", missing.join(", "))?;
+                if missing.contains(&"username") && missing.contains(&"password") {
+                    f.write_str(" (or an app_key alone)")?;
+                }
+                Ok(())
             }
         }
     }
@@ -562,13 +582,23 @@ fn load_from(
         }
     }
 
-    let missing: Vec<&'static str> = ["url", "username", "password"]
-        .into_iter()
-        .filter(|field| {
-            values
-                .get(field)
-                .is_none_or(|value| value.expose().trim().is_empty())
-        })
+    let given = |field: &str| {
+        values
+            .get(field)
+            .is_some_and(|value| !value.expose().trim().is_empty())
+    };
+    // An app key stands in for the username and password only when both are absent; a profile
+    // with one of them is a Basic profile missing the other.
+    let key_only = given("app_key") && !given("username") && !given("password");
+    let required: &[&'static str] = if key_only {
+        &["url"]
+    } else {
+        &["url", "username", "password"]
+    };
+    let missing: Vec<&'static str> = required
+        .iter()
+        .copied()
+        .filter(|field| !given(field))
         .collect();
     if !missing.is_empty() {
         extra.values_mut().for_each(zeroize_toml);
@@ -584,8 +614,16 @@ fn load_from(
     let mut field = |name| values.remove(name);
     Ok(Profile {
         url: field("url").expect("checked above").take(),
-        username: field("username").expect("checked above").take(),
-        password: field("password").expect("checked above"),
+        username: if key_only {
+            String::new()
+        } else {
+            field("username").expect("checked above").take()
+        },
+        password: if key_only {
+            Secret::default()
+        } else {
+            field("password").expect("checked above")
+        },
         app_key: field("app_key"),
         sdk,
         extra,
@@ -693,6 +731,53 @@ mod tests {
             save_app_key_in(dir.path(), None, "../dev", &key),
             Err(ProfileError::InvalidName(_))
         ));
+    }
+
+    #[test]
+    fn an_app_key_stands_in_for_both_username_and_password_or_neither() {
+        let dir = tempfile::tempdir().unwrap();
+        let profiles = dir.path().join(".twaco/profiles");
+        std::fs::create_dir_all(&profiles).unwrap();
+        let load = |text: &str| {
+            std::fs::write(profiles.join("dev.toml"), text).unwrap();
+            load_from(dir.path(), None, "dev", &BTreeMap::new())
+        };
+
+        let key_only = load("url = \"u\"\napp_key = \"k\"\n").unwrap();
+        assert!(key_only.signs_in_with_app_key());
+        assert!(key_only.value("username").is_none());
+        assert!(key_only.value("password").is_none());
+
+        // Blank credentials beside a key are absent, never a Basic login as "".
+        let blank =
+            load("url = \"u\"\nusername = \" \"\npassword = \"\"\napp_key = \"k\"\n").unwrap();
+        assert!(blank.signs_in_with_app_key());
+        assert!(blank.username.is_empty());
+
+        let both =
+            load("url = \"u\"\nusername = \"a\"\npassword = \"p\"\napp_key = \"k\"\n").unwrap();
+        assert!(!both.signs_in_with_app_key());
+
+        // Half a Basic login is an incomplete profile, key or no key.
+        let half = load("url = \"u\"\nusername = \"a\"\napp_key = \"k\"\n").unwrap_err();
+        assert!(
+            matches!(&half, ProfileError::Incomplete { missing, .. } if missing == &["password"]),
+            "{half}"
+        );
+        let neither = load("url = \"u\"\n").unwrap_err();
+        assert!(
+            matches!(&neither, ProfileError::Incomplete { missing, .. } if missing == &["username", "password"]),
+            "{neither}"
+        );
+        assert!(neither
+            .to_string()
+            .ends_with("is missing username, password (or an app_key alone)"));
+
+        // A key saved into a profile without a login makes it a key-only profile.
+        std::fs::write(profiles.join("kiosk.toml"), "url = \"u\"\n").unwrap();
+        save_app_key_in(dir.path(), None, "kiosk", &Secret::new("k2")).unwrap();
+        let saved = load_from(dir.path(), None, "kiosk", &BTreeMap::new()).unwrap();
+        assert!(saved.signs_in_with_app_key());
     }
 
     #[cfg(unix)]

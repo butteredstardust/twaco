@@ -15,22 +15,24 @@ The corresponding XML spellings are `<Connections>`, `from=""`, and `Connection`
 represented by an implicit containment relationship. Treat an import as a full replacement rather
 than a patch.
 
-## Import (Importer) needs a session, not an app key
+## Import (Importer): app keys, headers and flags
 
-Importer returns 401 or 403 for a working app key although ordinary REST and service calls accept
-it. Send Basic username/password, X-Requested-With XMLHttpRequest, and a non-empty X-XSRF-TOKEN;
-only token presence matters, so a fixed placeholder works. Its multipart field is file, not files.
+On ThingWorx 10.2 (verified 2026-11-12) the Importer accepts an `appKey` header, as do REST
+reads, service calls, the Exporter and DELETE; an unknown key gets 401. Older servers have been
+seen to answer an import 401 or 403 for a key that ordinary calls accept: sign in with Basic
+username/password there. An `appKey` header works whatever `AllowApplicationKeyInURL` says; that
+setting governs only `?appKey=` in a URL. Send X-Requested-With XMLHttpRequest and a non-empty
+X-XSRF-TOKEN; only token presence matters, so a fixed placeholder works. Its multipart field is
+file, not files.
 Composer uses purpose=import, usedefaultdataprovider=false, usedefaultqueueprovider=false,
 WithSubsystems=false, IgnoreBadValueStreamData=false, overwriteConfigurationTableValues=true, and
-overwritePropertyValues=true. twaco import/deploy handle this; profiles need username/password and
-url, and doctor reports what resolved.
+overwritePropertyValues=true. twaco import/deploy handle this; a profile signs in with username
+and password, or with `app_key` alone, and doctor reports which.
 
-The endpoint is `/Thingworx/Importer`; ordinary calls such as `Things/{name}` and
-`Things/{name}/Services/{service}` do accept `appKey`. The multipart name is exactly `file`.
-`Authorization: Basic <base64(username:password)>` and `X-Requested-With: XMLHttpRequest` are
-part of the observed request; a present `X-XSRF-TOKEN` is sufficient. A twaco profile
-(`.twaco/profiles/<name>.toml`) therefore needs `username` and `password`, not only an app key;
-never put its credentials in source or logs.
+The endpoint is `/Thingworx/Importer`. The multipart name is exactly `file`.
+`Authorization: Basic <base64(username:password)>` (or `appKey: <key>`) and
+`X-Requested-With: XMLHttpRequest` are part of the observed request; a present `X-XSRF-TOKEN` is
+sufficient. Never put a profile's credentials in source or logs.
 
 ## GetServiceDefinitions and GetServiceDefinition do not identify source
 

@@ -20,7 +20,7 @@ Topics built into twaco, read and searched together with the solution's own mark
   drop, releases, and what never to do on a live server.
 - **`quirks`:** over fifty behaviours of a running ThingWorx server that the documentation does
   not tell you. Each was verified against a live instance. A few
-  examples: the Importer rejects app keys; `SetConfigurationTableRows` replaces a row instead
+  examples: an `appKey` header needs no server setting, where `?appKey=` does; `SetConfigurationTableRows` replaces a row instead
   of patching it; a NaN in a result row fails the whole service; `const` is function-scoped in
   the script engine; a DataBinding with two PropertyMaps applies only the first.
 - **`service-code`:** how to write ThingWorx services well: JSDoc, output contracts, building

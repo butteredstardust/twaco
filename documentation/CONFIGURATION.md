@@ -779,7 +779,7 @@ A profile is a TOML file named after it, `<name>.toml`, looked for in this order
 url = "http://localhost:8080/Thingworx"   # the server's /Thingworx address
 username = "Administrator"
 password = "..."
-app_key = "..."                           # optional; see below
+app_key = "..."                           # optional; alone, it replaces username and password
 database_password = "..."                 # any other key, for ${profile:key} placeholders
 allow_test_users = true                   # a test server: users seed and twaco test may act on it
 test_password = "..."                     # the password of every [[test.user]]
@@ -794,8 +794,13 @@ cache or the repository.
 Environment variables override a profile's fields, or replace the file entirely:
 `TWACO_URL`, `TWACO_USERNAME`, `TWACO_PASSWORD` and `TWACO_APP_KEY` (or the `TWX_` spellings).
 
-twaco signs in with the username and password: ThingWorx's Importer, which every deploy
-uses, does not accept app keys. A profile is only read by a command that talks to a server,
+twaco signs in with the username and password (Basic). A profile with an `app_key` and neither
+a username nor a password signs in with the key instead, sent as an `appKey` header; the
+server's `AllowApplicationKeyInURL` setting does not apply to a header. A profile with both keeps
+Basic, so `twaco appkey create ... --save <profile>` never changes who an existing profile acts
+as. A key acts as its user, with that user's permissions, until it expires. On ThingWorx 10.2
+the Importer, and so every deploy, accepts a key; older servers have been seen to refuse one
+with 401 or 403, and a profile with a username and password is the answer there. A profile is only read by a command that talks to a server,
 so offline commands work without one. Profile values are never printed; `twaco doctor`
 shows which file or variables a profile resolved from.
 
