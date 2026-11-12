@@ -38,6 +38,11 @@ All notable changes to twaco are recorded here. The format follows
 - A toolbar row split by `--end` in a column with a grid or a chart is fixed to its controls'
   height; it took a share of the page's spare height and pushed the grid halfway down.
 
+### Changed
+
+- `init --from-server` reads the Groups and Organizations it compares by members up to eight at a
+  time instead of one by one; its notes and its first error come out in the same order as before.
+
 ## [0.1.60] - 2026-11-12
 
 ### Added
