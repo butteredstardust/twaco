@@ -783,7 +783,9 @@ pub(crate) fn plan_recipe(
         mut notes,
         ..
     } = work;
-    notes.dedup();
+    // Two inputs from one source raise the same note; keep the first, in order.
+    let mut seen = std::collections::BTreeSet::new();
+    notes.retain(|note| seen.insert(note.clone()));
     Ok(RecipePlan {
         edit: finish_edit(loaded, document, "mashup recipe")?,
         name: request.recipe.name(),
