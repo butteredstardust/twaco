@@ -302,9 +302,11 @@ fn service_override_from_parent_refuses_an_unsynced_or_non_script_parent() {
     assert!(error.contains("run twaco sync"), "{error}");
     std::fs::write(&parent_script, &synced).unwrap();
     // A sidecar folder taken away is a removal waiting for sync, not a script to copy.
+    // Moved out of services/, so the folder left behind is empty: still managed.
     let parent_folder = parent_script.parent().unwrap().to_path_buf();
-    let kept = parent_folder.with_extension("kept");
+    let kept = solution.root.join("ReadSpeed.kept");
     std::fs::rename(&parent_folder, &kept).unwrap();
+    assert!(parent_folder.parent().unwrap().is_dir());
     let error = from_parent().unwrap_err().to_string();
     assert!(error.contains("run twaco sync"), "{error}");
     std::fs::rename(&kept, &parent_folder).unwrap();

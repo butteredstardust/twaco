@@ -2268,8 +2268,11 @@ impl Edit2<'_> {
         };
         let file = file_of(&collection, &ancestor).expect("the walk read this ancestor's file");
         let src = read_file(&file.path)?;
-        let sidecars = workspace::read_sidecars(&workspace::services_dir(self.solution, file));
-        if !sidecars.is_empty() {
+        let services = workspace::services_dir(self.solution, file);
+        let sidecars = workspace::read_sidecars(&services);
+        // As in sync and check: an existing services folder, even an empty one, means the
+        // entity is managed; only an entity without one is read from its XML alone.
+        if !sidecars.is_empty() || services.is_dir() {
             let unsynced = match crate::core::sync::sync(
                 &src,
                 &sidecars,
