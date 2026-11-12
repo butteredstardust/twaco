@@ -393,7 +393,9 @@ fn set_version(root: &Path, metadata_path: &str, version: &str) -> Result<(), St
     };
     replace(&path, &edited)?;
     if let Some(properties_edit) = properties_edit {
-        // Both files or neither.
+        // An ordinary failure here puts metadata.xml back. A crash between the two replacements,
+        // or a failed put-back, can leave the files naming different versions; ext check's
+        // version-mismatch finding, which deploy runs first, catches that next time.
         if let Err(error) = replace(&properties, &properties_edit) {
             return Err(match replace(&path, &bytes) {
                 Ok(()) => error,
