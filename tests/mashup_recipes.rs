@@ -161,6 +161,10 @@ fn two_column_form_stacks_in_each_column_through_cli_and_mcp() {
         assert_eq!(center["Widgets"].as_array().unwrap().len(), 2, "{center}");
         let form = &center["Widgets"][1];
         assert_eq!(form["Properties"]["flex-shrink"], 0);
+        assert_eq!(form["Properties"]["flex-grow"], 0);
+        assert_eq!(form["Properties"]["flex-size"], "range");
+        // The right stack is 3 x 78px + 46px; its wrapper keeps the existing 12px allowance.
+        assert_eq!(form["Properties"]["flex-min-height"], "292px");
         assert_eq!(form["Properties"]["flex-direction"], "row", "{form}");
         let columns = form["Widgets"].as_array().unwrap();
         assert_eq!(columns.len(), 2, "{center}");
@@ -195,10 +199,27 @@ fn two_column_form_stacks_in_each_column_through_cli_and_mcp() {
             .unwrap();
         assert_eq!(textarea_row["Properties"]["flex-min-height"], "100px");
         assert_eq!(textarea_row["Properties"]["flex-size"], "range");
+        assert_eq!(textarea_row["Properties"]["flex-grow"], 0);
         assert!(
             find_widget(textarea_row, &description).unwrap()["Properties"]["ResponsiveLayout"]
                 == true
         );
+
+        // Save sits immediately after the form; its row absorbs spare height below the button.
+        let form_id = form["Properties"]["Id"].as_str().unwrap();
+        let save = add("button", "Save", Some(("--below", form_id)), false);
+        let content: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        let center = find_widget(&content["UI"], "flexcontainer-2").unwrap();
+        let rows = center["Widgets"].as_array().unwrap();
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[1]["Properties"]["Id"], form_id);
+        assert_eq!(rows[1]["Properties"]["flex-grow"], 0);
+        assert_eq!(rows[1]["Properties"]["flex-shrink"], 0);
+        assert_eq!(rows[1]["Properties"]["flex-min-height"], "292px");
+        assert_eq!(leaf_ids(&rows[2]), [save]);
+        assert_eq!(rows[2]["Properties"]["flex-size"], "default");
+        assert_eq!(rows[2]["Properties"]["flex-grow"], 1);
+        assert_eq!(rows[2]["Properties"]["align-items"], "flex-start");
 
         // Default --below still adds a row beneath an entire multi-control row.
         invoke(

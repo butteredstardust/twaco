@@ -30,6 +30,13 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Fixed
 
+- New `filter-panel` mashups put `filters` inside the continuous grey `filter-column`: a centered
+  240px controls slot with `Margin` `13 0 5`. Existing `--in filters` and bottom Apply/Clear footer
+  commands keep working with the inset.
+- Textareas stacked with known form controls keep their minimum height without taking spare page
+  height, including the enclosing rows of a two-column form. A following Save stays beneath the
+  fields; lone textareas and chart/grid panels still fill. Generated rows keep their floors and
+  short-page scrolling rules.
 - Repeating `mashup recipe set-on-click` or `recipe message` with identical wiring leaves the
   entity and content sidecar byte-identical, including `message --on-failure`. Different
   expressions, inputs, parameters, triggers or message text still add their own wiring.

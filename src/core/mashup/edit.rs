@@ -679,6 +679,7 @@ impl MashupDocument {
         let column_path = column.path;
         let styles = self.value["UI"]["Properties"]["StyleProperties"]["data"].clone();
         let rows = children(self.at(&column_path)).to_vec();
+        let control_stack = is_control_stack(self.at(&column_path), &styles);
         let growing = rows.iter().position(row_fills);
         let filler = match scope {
             Reflow::Placement { placed, .. } => Some(*placed),
@@ -725,10 +726,9 @@ impl MashupDocument {
                 // twaco's own row, re-sized on every reflow: removing the grid beside it lets it
                 // grow again.
                 let row_path = [column_path.as_slice(), &[index]].concat();
-                let beside_filler = rows
-                    .iter()
-                    .enumerate()
-                    .any(|(other, sibling)| other != index && holds_filler(sibling));
+                let beside_filler = rows.iter().enumerate().any(|(other, sibling)| {
+                    other != index && holds_growing_filler(sibling, control_stack, &styles)
+                });
                 if beside_filler {
                     if let Some(tallest) = fixed_row_height(row, false, &styles) {
                         self.fix_row(&row_path, tallest, true);
@@ -742,10 +742,9 @@ impl MashupDocument {
             // Beside a row that fills (a grid, a chart) it would share the spare height, so a
             // split toolbar there is fixed to its controls, as the kits' toolbars are.
             if is_split_row(row)
-                && !rows
-                    .iter()
-                    .enumerate()
-                    .any(|(other, sibling)| other != index && holds_filler(sibling))
+                && !rows.iter().enumerate().any(|(other, sibling)| {
+                    other != index && holds_growing_filler(sibling, control_stack, &styles)
+                })
             {
                 continue;
             }
@@ -793,6 +792,7 @@ impl MashupDocument {
         // widget to fill, the last control row twaco made is the one, its controls at its top.
         // In a panel too: a panel measured into a fixed row has no spare height for its last row
         // to take, and one placed straight into a growing column must not spread its rows.
+        // Compact form rows count as sized too: a following Save grows below its controls.
         if matches!(scope, Reflow::Placement { .. }) {
             let rows = children(self.at(&column_path)).to_vec();
             let content_rows = rows
@@ -800,13 +800,20 @@ impl MashupDocument {
                 .enumerate()
                 .filter(|(_, row)| !is_spacer(row))
                 .collect::<Vec<_>>();
-            let all_fixed = !content_rows.is_empty()
+            let all_sized = !content_rows.is_empty()
                 && content_rows.iter().all(|(_, row)| {
                     type_of(row) == Some("flexcontainer")
-                        && row["Properties"]["flex-size"] == "fixed"
+                        && (row["Properties"]["flex-size"] == "fixed"
+                            || (row["Properties"]["flex-size"] == "range"
+                                && row["Properties"]["flex-grow"] == 0
+                                && holds_filler(row)
+                                && !holds_growing_filler(row, control_stack, &styles)))
                 });
-            if let (true, Some((index, last))) = (all_fixed, content_rows.last()) {
-                if owns(last) && fixed_content_height(last, false, &styles).is_some() {
+            if let (true, Some((index, last))) = (all_sized, content_rows.last()) {
+                if owns(last)
+                    && !is_divider_row(last)
+                    && fixed_content_height(last, false, &styles).is_some()
+                {
                     let last_path = [column_path.as_slice(), &[*index]].concat();
                     self.unfix_row(&last_path);
                 }
@@ -824,17 +831,24 @@ impl MashupDocument {
     /// above them all, the page, scrolls once. A row holding a widget that fills (a chart, a
     /// grid, a contained mashup) takes the spare height and, when it holds only that widget,
     /// keeps a floor (a `range` row) so it cannot shrink to nothing; beside such a row the
-    /// other rows take no spare height (`flex-grow: 0`). Only rows the placement made (`made`)
-    /// change: fixed rows, named template slots, a container that was there before (Composer
-    /// names its own `container-N` too) and a `flex-grow` or `flex-shrink` someone set to
-    /// another value are left alone.
+    /// other rows take no spare height (`flex-grow: 0`). Textareas in control stacks keep their
+    /// floor without growing, including their enclosing generated rows. Only rows the placement
+    /// made (`made`), or compact rows already marked with twaco's `flex-shrink: 0`, change:
+    /// fixed rows, named template slots, a container that was there before (Composer names its
+    /// own `container-N` too) and flex factors someone set to another value are left alone.
     fn keep_natural_heights(&mut self, column_path: &[usize], made: &[String]) {
         let rows = children(self.at(column_path)).to_vec();
-        let column_fills = rows.iter().any(|row| !is_spacer(row) && holds_filler(row));
+        let styles = self.value["UI"]["Properties"]["StyleProperties"]["data"].clone();
+        let control_stack = is_control_stack(self.at(column_path), &styles);
+        let grows = |row: &Value| holds_growing_filler(row, control_stack, &styles);
+        let column_fills = rows.iter().any(|row| !is_spacer(row) && grows(row));
         for (index, row) in rows.iter().enumerate() {
+            let fills = holds_filler(row);
+            let compact = fills && !grows(row);
             if is_spacer(row)
                 || !(is_generated_container(row) || is_panel(row))
-                || !made.iter().any(|id| id == widget_id(row))
+                || !(made.iter().any(|id| id == widget_id(row))
+                    || (compact && row["Properties"]["flex-shrink"] == 0))
             {
                 continue;
             }
@@ -843,17 +857,19 @@ impl MashupDocument {
                 continue;
             }
             let path = [column_path, &[index]].concat();
-            let fills = holds_filler(row);
-            if fills && (size.is_null() || size == "default") {
-                if let Some(floor) = filler_floor(
-                    row,
-                    &self.value["UI"]["Properties"]["StyleProperties"]["data"],
-                ) {
+            // Once a form stops growing, its floor must fit the taller column, including
+            // controls stacked there after the textarea created the first floor.
+            if fills && (size.is_null() || size == "default" || (compact && size == "range")) {
+                if let Some(floor) = filler_floor(row, &styles) {
                     self.floor_row(&path, floor);
                 }
             }
             self.set_flex_factor(&path, "flex-shrink", 0);
-            self.set_flex_factor(&path, "flex-grow", u8::from(fills || !column_fills));
+            self.set_flex_factor(
+                &path,
+                "flex-grow",
+                u8::from(!compact && (fills || !column_fills)),
+            );
         }
     }
 
@@ -1907,6 +1923,14 @@ fn row_fills(row: &Value) -> bool {
     fills(row) || children(row).iter().any(fills)
 }
 
+/// A rule keeps its thickness even when it follows a compact form row.
+fn is_divider_row(widget: &Value) -> bool {
+    type_of(widget) == Some("ptcsdivider")
+        || (type_of(widget) == Some("flexcontainer")
+            && !children(widget).is_empty()
+            && children(widget).iter().all(is_divider_row))
+}
+
 fn is_spacer(widget: &Value) -> bool {
     type_of(widget) == Some("flexcontainer")
         && children(widget).is_empty()
@@ -1933,6 +1957,41 @@ fn is_footer(widget: &Value) -> bool {
 /// Whether a widget that fills sits anywhere inside `widget`, or is it.
 fn holds_filler(widget: &Value) -> bool {
     fills(widget) || children(widget).iter().any(holds_filler)
+}
+
+/// A stack of known controls can include a resizable textarea without becoming a data panel.
+/// Unknown widgets and other catalogue fillers keep the existing filling behaviour, even when
+/// they have an explicit height. A single textarea still fills a panel of its own.
+fn is_control_stack(widget: &Value, styles: &Value) -> bool {
+    fn controls(widget: &Value, styles: &Value) -> bool {
+        if type_of(widget) == Some("flexcontainer") {
+            return children(widget).iter().all(|child| controls(child, styles));
+        }
+        type_of(widget) == Some("ptcstextarea")
+            || (type_of(widget)
+                .and_then(|kind| widgets::catalog().by_type(kind))
+                .is_some_and(|widget| !fills_alone(widget))
+                && content_height(widget, styles).is_some())
+    }
+    type_of(widget) == Some("flexcontainer")
+        && widget["Properties"]["flex-direction"] == "column"
+        && children(widget)
+            .iter()
+            .filter(|child| !is_spacer(child))
+            .count()
+            > 1
+        && controls(widget, styles)
+}
+
+/// Growth is separate from the floor: a textarea in a control stack and the wrappers above it
+/// keep their measured minimum, while spare page height belongs to a data panel or a control
+/// row whose contents stay at the top (a footer's stay at the bottom).
+fn holds_growing_filler(widget: &Value, control_stack: bool, styles: &Value) -> bool {
+    let control_stack = control_stack || is_control_stack(widget, styles);
+    (fills(widget) && !(control_stack && type_of(widget) == Some("ptcstextarea")))
+        || children(widget)
+            .iter()
+            .any(|child| holds_growing_filler(child, control_stack, styles))
 }
 
 /// The most a filling widget's row keeps when the page is short. A 10.2 chart with its title
@@ -4213,6 +4272,116 @@ mod placement_walkthrough {
     fn parent_of<'a>(document: &'a MashupDocument, id: &str) -> &'a Value {
         let path = document.find(id).unwrap().path;
         document.at(&path[..path.len() - 1])
+    }
+
+    #[test]
+    fn only_control_stacks_compact_their_textareas_and_keep_their_floors() {
+        let catalog = widgets::catalog();
+        for (kind, floor, grow) in [
+            ("textarea", "100px", 0),
+            ("grid", "300px", 1),
+            ("bar-chart", "300px", 1),
+        ] {
+            let mut document = parse(crate::core::mashup::templates::BLANK).unwrap();
+            let panel = document
+                .place(
+                    catalog.resolve("container").unwrap(),
+                    &Placement::In("center".into()),
+                )
+                .unwrap()
+                .id;
+            let field = document
+                .place(
+                    catalog.resolve("textfield").unwrap(),
+                    &Placement::In(panel.clone()),
+                )
+                .unwrap()
+                .id;
+            let data = document
+                .place(
+                    catalog.resolve(kind).unwrap(),
+                    &Placement::BelowInColumn(field),
+                )
+                .unwrap()
+                .id;
+            let row = parent_of(&document, &data);
+            assert_eq!(row["Properties"]["flex-size"], "range", "{kind}: {row}");
+            assert_eq!(row["Properties"]["flex-min-height"], floor, "{kind}: {row}");
+            assert_eq!(row["Properties"]["flex-max-height"], "");
+            assert_eq!(row["Properties"]["flex-shrink"], 0);
+            assert_eq!(row["Properties"]["flex-grow"], grow, "{kind}: {row}");
+            // A footer can take spare space below a form, but a data panel keeps filling.
+            let save = document
+                .place(
+                    catalog.resolve("button").unwrap(),
+                    &Placement::Bottom(panel),
+                )
+                .unwrap()
+                .id;
+            let footer = parent_of(&document, &save);
+            assert_eq!(
+                footer["Properties"]["flex-size"],
+                if grow == 0 { "default" } else { "fixed" }
+            );
+            assert_eq!(footer["Properties"]["align-items"], "flex-end");
+            assert_eq!(parent_of(&document, &data)["Properties"]["flex-grow"], grow);
+            assert!(document.problems().is_empty());
+        }
+        // With no control stack, even a textarea remains a filling panel.
+        for kind in ["textarea", "grid", "bar-chart"] {
+            let mut document = parse(crate::core::mashup::templates::BLANK).unwrap();
+            let panel = document
+                .place(
+                    catalog.resolve("container").unwrap(),
+                    &Placement::In("center".into()),
+                )
+                .unwrap()
+                .id;
+            let data = document
+                .place(catalog.resolve(kind).unwrap(), &Placement::In(panel))
+                .unwrap()
+                .id;
+            let row = parent_of(&document, &data);
+            assert_eq!(row["Properties"]["flex-grow"], 1, "{kind}: {row}");
+            assert_eq!(
+                document.at(&document.find(&data).unwrap().path)["Properties"]["ResponsiveLayout"],
+                true
+            );
+        }
+    }
+
+    #[test]
+    fn sized_data_and_unknown_widgets_do_not_make_a_textarea_panel_a_control_stack() {
+        let catalog = widgets::catalog();
+        for kind in ["ptcsgrid", "ptcschartbar", "acme-unknown"] {
+            let mut document = parse(crate::core::mashup::templates::BLANK).unwrap();
+            let panel = document
+                .place(
+                    catalog.resolve("container").unwrap(),
+                    &Placement::In("center".into()),
+                )
+                .unwrap()
+                .id;
+            let path = document.find(&panel).unwrap().path;
+            let number = document.allocate();
+            document.push_child(
+                &path,
+                serde_json::json!({
+                    "Properties": {"Id": format!("{kind}-{number}"), "Type": kind,
+                        "DisplayName": "Existing panel content", "ResponsiveLayout": false,
+                        "Height": 120, "Margin": ""},
+                    "Widgets": []
+                }),
+            );
+            let textarea = document
+                .place(catalog.resolve("textarea").unwrap(), &Placement::In(panel))
+                .unwrap()
+                .id;
+            let row = parent_of(&document, &textarea);
+            assert_eq!(row["Properties"]["flex-min-height"], "100px");
+            assert_eq!(row["Properties"]["flex-grow"], 1, "{kind}: {row}");
+            assert_eq!(row["Properties"]["flex-shrink"], 0);
+        }
     }
 
     #[test]

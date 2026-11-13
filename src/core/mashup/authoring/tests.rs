@@ -3094,9 +3094,10 @@ fn a_filter_panel_gets_the_kits_grey_filters_and_white_content() {
         let found = document.find(slot).unwrap();
         styles["data"][&found.id]["parts"]["$"]["$"]["background"].clone()
     };
-    assert_eq!(background("filters"), "#F7F7F7");
+    assert_eq!(background("filter-column"), "#F7F7F7");
+    assert_eq!(background("filters"), "inherit");
     assert_eq!(background("content"), "#ffffff");
-    let filters = document.find("filters").unwrap();
+    let filters = document.find("filter-column").unwrap();
     assert_eq!(styles["data"][&filters.id]["widget"], "flex-container");
     assert_eq!(
         document.at(&filters.path)["Properties"]["flex-min-width"],
@@ -3105,6 +3106,84 @@ fn a_filter_panel_gets_the_kits_grey_filters_and_white_content() {
     assert!(document.at(&filters.path)["Properties"]
         .get("style")
         .is_none());
+}
+
+#[test]
+fn filter_controls_are_inset_and_their_footer_stays_at_the_bottom() {
+    use crate::core::mashup::edit::{children, Placement, Side};
+    let template = mashup::templates::layout("filter-panel").unwrap().unwrap();
+    let mut document = new_document(&template, false, DEFAULT_THEME).unwrap();
+    let catalog = crate::core::widgets::catalog();
+    let place = |document: &mut crate::core::mashup::edit::MashupDocument, kind, placement| {
+        document
+            .place(catalog.resolve(kind).unwrap(), &placement)
+            .unwrap()
+            .id
+    };
+    let filters = document.find("filters").unwrap();
+    let column = document.find("filter-column").unwrap();
+    assert_eq!(&filters.path[..filters.path.len() - 1], &column.path);
+    assert_eq!(document.at(&column.path)["Properties"]["Margin"], "");
+    assert_eq!(
+        document.at(&column.path)["Properties"]["align-items"],
+        "center"
+    );
+    let inset = document.at(&filters.path)["Properties"].clone();
+    assert_eq!(inset["Margin"], "13 0 5");
+    assert_eq!(inset["flex-size"], "range");
+    assert_eq!(inset["flex-min-width"], "240px");
+    assert_eq!(inset["flex-max-width"], "240px");
+    assert_eq!(inset["flex-grow"], 1);
+    assert_eq!(inset["flex-shrink"], 0);
+    let search = place(&mut document, "textfield", Placement::In("filters".into()));
+    let apply = place(&mut document, "button", Placement::Bottom("filters".into()));
+    let clear = place(
+        &mut document,
+        "button",
+        Placement::Beside {
+            anchor: apply.clone(),
+            side: Side::Right,
+        },
+    );
+    let date = place(
+        &mut document,
+        "datepicker",
+        Placement::Beside {
+            anchor: search.clone(),
+            side: Side::Below,
+        },
+    );
+    let dropdown = place(&mut document, "dropdown", Placement::In("filters".into()));
+    let rows = children(document.at(&filters.path));
+    assert_eq!(rows.len(), 4);
+    for (row, id) in rows[..3].iter().zip([search, date, dropdown]) {
+        assert_eq!(children(row)[0]["Properties"]["Id"], id);
+        assert_eq!(row["Properties"]["flex-size"], "fixed");
+        assert_eq!(row["Properties"]["flex-min-height"], "56px");
+        assert_eq!(row["Properties"]["flex-max-height"], "56px");
+        assert_eq!(row["Properties"]["flex-shrink"], 1);
+    }
+    let footer = &rows[3];
+    assert_eq!(
+        children(footer)
+            .iter()
+            .map(|child| child["Properties"]["Id"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        [apply.as_str(), clear.as_str()]
+    );
+    assert_eq!(footer["Properties"]["align-items"], "flex-end");
+    assert_eq!(footer["Properties"]["flex-size"], "default");
+    assert_eq!(footer["Properties"]["flex-grow"], 1);
+    assert_eq!(footer["Properties"]["flex-shrink"], 0);
+    assert_eq!(document.at(&filters.path)["Properties"], inset);
+    let styles = &document.root_properties()["StyleProperties"]["data"];
+    for row in rows {
+        assert_eq!(
+            styles[row["Properties"]["Id"].as_str().unwrap()]["parts"]["$"]["$"]["background"],
+            "inherit"
+        );
+    }
+    assert!(document.problems().is_empty());
 }
 
 /// A row placed in the grey filter column shows the grey, as the kits' rows do; one in an

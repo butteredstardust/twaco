@@ -1111,12 +1111,16 @@ aliases and slots. Slots are responsive container names usable with `mashup add 
 | card | header, title, actions, body | Card content |
 | master-detail | list, detail | Master and detail panes |
 | kpi-tile | title, value | A compact KPI display |
-| filter-panel | filters, content | Filters beside results |
+| filter-panel | filter-column, filters, content | Filters beside results |
 | tabs | title, tabs | A tab set whose tabs each show a mashup (`--tab Label=Mashup`) |
 | dashboard | title, tiles, tile-1..tile-4, panels, side, main | Four KPI tiles above a side panel and a main panel (1:3) |
 
-`filter-panel` draws the kits' look: a 290px filter column on `#F7F7F7`, and the content on white with
-a 24px margin. `list-page` gives its toolbar the same grey band. The colours are ordinary widget styles
+`filter-panel` draws the kits' look: `filter-column` is a continuous 290px column on `#F7F7F7`.
+Inside it, `filters` is a centered 240px controls column with `Margin` `13 0 5` (13px above,
+5px below). Existing `--in filters` commands target this inner slot, including
+`--in filters --bottom` for Apply and `--right-of <apply>` for Clear: their footer stays at the
+bottom while later filters go above it. The inner column and generated rows inherit the grey
+background. Content is white with a 24px margin. `list-page` gives its toolbar the same grey band. The colours are ordinary widget styles
 in the root's StyleProperties, so `mashup set <mashup> <slot> --style background=...` changes them.
 `dashboard` keeps the kits' 24px page margin around everything; `blank` has none, since it also serves
 contained mashups and collection cells.
@@ -1218,7 +1222,9 @@ For a two-column form, use `--right-of` for the second field, then
 `--below <widget> --in-column` to stack within either field's column. Repeat it beneath each
 new field to keep that column flat. Without `--in-column`, `--below` keeps its existing rule:
 a control row twaco made is placed above the new row as a whole. The explicit option uses
-the same natural row heights, short-page scrolling rules and textarea floors as other placements.
+the same natural row heights and short-page scrolling rules as other placements. A textarea in
+a stack of controls keeps its floor (normally 100px), taking no spare page height; the form's
+enclosing rows keep that compact height too, so a following Save button sits beneath the fields.
 For example, starting with a blank mashup (the comments name the ids returned by each add):
 
 ```sh
@@ -1267,7 +1273,12 @@ makes never shrink below their content (`flex-shrink` 0); instead the page, the 
 container, scrolls once. A row holding a widget that fills (a chart, a grid, a contained mashup)
 takes the spare height and keeps a floor: a `range` row whose minimum is Composer's drop height
 for that widget, at most 300px (a chart with its legend draws cleanly at that size). A widget
-whose catalogue has no height, such as a textarea, keeps a modest 100px floor. Wrapping a filler
+whose catalogue has no height, such as a textarea, keeps a modest 100px floor. In a column with
+at least two control rows or widgets, all known controls (labels, fields, buttons and textareas),
+a textarea and its generated wrappers keep their floors with `flex-grow` 0. The last ordinary
+control row can absorb spare height with its controls at the top; an explicit `--bottom` footer
+keeps its buttons at the bottom. A lone textarea still fills its panel. Charts, grids, other data
+fillers and unknown widgets keep the filling rules, even beside a title or buttons. Wrapping a filler
 with `--below` or `--right-of` gives the new inner containers their floors too; a nested column
 keeps the sum and a nested row the tallest child's height. A horizontal divider is a 1px rule
 plus its margins, not a filler. A contained mashup's floor is measured from the child's own rows
