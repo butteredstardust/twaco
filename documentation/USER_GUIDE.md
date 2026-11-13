@@ -1351,8 +1351,9 @@ twaco mashup collection add Acme.App.Overview_MU Acme.App.KpiCard_MU \
   --preset cards --columns 4 --menu Acme.App.CardMenu_ST --apply
 ```
 
-`--width` and `--height` still set an exact size. With the preset and no `--height`, the height
-keeps the kit card's 400:270 proportion.
+`--width` and `--height` still set an exact size. With the preset and no `--height`, cells are the
+kit card's 270 px tall at any width, since a card's content needs its height; the cell menu's row
+adds 50 px below it.
 
 A cell menu (the "⋮" on each cell) is a string StateDefinition whose states are the items. Point
 the collection's `CellMenu` at it, then handle each item's `CellMenu:<item>` event; an item with

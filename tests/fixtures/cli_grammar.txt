@@ -225,7 +225,7 @@ help:
 |       --across <px>           the collection's width --columns is for (default 1400: full width in
 |                               a 1440px window)
 |       --preset <name>         cards: framed cards, the last row under the first columns, the first
-|                               selected; height follows the kit's 400x270 card unless --height
+|                               selected; cells 270px tall (the kit card's) unless --height
 |       --menu <state-definition>
 |                               a StateDefinition in the solution: its states are each cell's menu items
 |       --in <container>        add inside a responsive container (center when omitted)
@@ -7240,7 +7240,7 @@ help:
 |       --across <px>           the collection's width --columns is for (default 1400: full width in
 |                               a 1440px window)
 |       --preset <name>         cards: framed cards, the last row under the first columns, the first
-|                               selected; height follows the kit's 400x270 card unless --height
+|                               selected; cells 270px tall (the kit card's) unless --height
 |       --menu <state-definition>
 |                               a StateDefinition in the solution: its states are each cell's menu items
 |       --in <container>        add inside a responsive container (center when omitted)
@@ -8129,7 +8129,7 @@ help:
 |       --across <px>           the collection's width --columns is for (default 1400: full width in
 |                               a 1440px window)
 |       --preset <name>         cards: framed cards, the last row under the first columns, the first
-|                               selected; height follows the kit's 400x270 card unless --height
+|                               selected; cells 270px tall (the kit card's) unless --height
 |       --menu <state-definition>
 |                               a StateDefinition in the solution: its states are each cell's menu items
 |       --in <container>        add inside a responsive container (center when omitted)

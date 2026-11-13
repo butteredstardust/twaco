@@ -93,10 +93,12 @@ impl CollectionPreset {
         }
     }
 
-    /// The kit card's height for a width: 270px tall at 400px wide.
-    fn height_for(self, width: u32) -> u32 {
+    /// The kit card's height. It does not shrink with a narrower width: the card's content
+    /// (a title row over a filling dial) needs its height whatever the width, and a shorter cell
+    /// scrolls (seen live at 285x192). The cell menu's row (50px in 10.2) comes on top of it.
+    fn height(self) -> u32 {
         match self {
-            Self::Cards => u32::try_from((u64::from(width) * 270 + 200) / 400).unwrap_or(u32::MAX),
+            Self::Cards => 270,
         }
     }
 }
@@ -437,7 +439,7 @@ pub(crate) fn plan_collection_add(
 }
 
 /// The cell size to write: given, worked out from `columns`, or (for a preset with no height)
-/// the preset's proportion of the width. Paddings and gaps are the preset's or the catalogue's,
+/// the preset's height. Paddings and gaps are the preset's or the catalogue's,
 /// whichever the collection will have.
 fn cell_size(request: &CollectionAddRequest) -> Result<(Option<u32>, Option<u32>), AuthoringError> {
     let defaults = widgets::catalog()
@@ -478,12 +480,9 @@ fn cell_size(request: &CollectionAddRequest) -> Result<(Option<u32>, Option<u32>
             })?)
         }
     };
-    let height = request.height.or_else(|| {
-        request.preset.map(|preset| {
-            let width = width.unwrap_or_else(|| number("CellWidth"));
-            preset.height_for(width)
-        })
-    });
+    let height = request
+        .height
+        .or_else(|| request.preset.map(CollectionPreset::height));
     Ok((width, height))
 }
 

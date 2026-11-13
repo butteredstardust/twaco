@@ -73,7 +73,8 @@ Read from the 10.2 collection widget's source and checked against the kit's rend
 
 - With `UseMashupDimensions` false, every cell is exactly `CellWidth` wide (plus the cell-menu
   strip when the actions sit beside the cell) and `CellHeight` tall, plus a row for the cell menu
-  when `CellActionsPosition` is `bottom` (the default).
+  when `CellActionsPosition` is `bottom` (the default). That row measured 50 px in Runtime, so a
+  270 px cell with a menu takes 320 px.
 - `Layout=flex` starts a new row when `n * CellWidth + (n - 1) * ColumnGap` reaches the
   collection's width less `LeftPadding`, `RightPadding` and its scrollbar. `ColumnGap` is the
   minimum space between cells; `RowHorizontalAlignment=space-evenly` spreads what is left over
@@ -115,7 +116,8 @@ dimensions, then binds the whole result to its `Data` in one edit.
   window size: a narrower window shows fewer cells per row, a wider one more. `--width` stays
   for an exact size, and the two cannot be combined.
 - `--preset cards` writes the kit's card collection described above, frame included. Without
-  `--height`, the height keeps the kit card's 400:270 proportion of the width.
+  `--height`, cells are the kit card's 270 px tall at any width: a narrower card still needs the
+  height of its content, and a 192 px cell under a title and a filling dial scrolled.
 - `--menu <StateDefinition>` sets `CellMenu`, refusing a StateDefinition the solution lacks; the
   result lists the `CellMenu:<item>` events its states fire. The call must already exist in
 the parent. It refuses a cell mashup not in the solution, an output-only or missing cell parameter,

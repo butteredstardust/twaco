@@ -11,7 +11,7 @@ All notable changes to twaco are recorded here. The format follows
 - `mashup collection add` (MCP `mashup_collection_add`) lays cells out as the design kits do.
   `--preset cards` (`preset: "cards"`) writes the kit's card collection: a framed cell (`cell` part
   style), the last row aligned under the first columns, content at the top, a transparent cell
-  background, and the first card selected. `--columns <n>` (`columns`) works out the cell width
+  background, the first card selected, and the kit's 270px cell height at any width. `--columns <n>` (`columns`) works out the cell width
   that fits n cells on a row, from the 10.2 collection's wrap rule, for a full-width collection
   in a 1440px window or the width `--across <px>` (`across`) names. A narrower window shows fewer
   per row. `--menu <StateDefinition>` (`menu`) sets a checked cell menu and lists the events its

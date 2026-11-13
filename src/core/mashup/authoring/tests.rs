@@ -7599,13 +7599,13 @@ fn collection_add_cards_preset_writes_the_kit_card_collection() {
     request.columns = Some(4);
     request.preset = Some(CollectionPreset::Cards);
     let plan = plan_collection_add(&solution, &request).unwrap();
-    assert_eq!((plan.cell_width, plan.cell_height), (Some(285), Some(192)));
+    assert_eq!((plan.cell_width, plan.cell_height), (Some(285), Some(270)));
     apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
 
     let properties = collection_properties(&solution, &plan.id);
     for (name, expected) in [
         ("CellWidth", json!(285)),
-        ("CellHeight", json!(192)),
+        ("CellHeight", json!(270)),
         ("LeftAlignLastRow", json!(true)),
         ("ContentAlignment", json!("top")),
         ("MashupBackground", json!("transparent")),
@@ -7640,17 +7640,24 @@ fn collection_add_cards_preset_writes_the_kit_card_collection() {
 #[test]
 fn collection_add_keeps_explicit_sizes_and_catalogue_spacing() {
     let (_dir, solution) = collection_fixture();
-    // A preset with an explicit width: the height follows the kit card's proportion.
+    // A preset with an explicit width: the kit card's height.
     let mut request = collection_request(&[("id", "Id")]);
     request.width = Some(400);
     request.height = None;
     request.preset = Some(CollectionPreset::Cards);
     let plan = plan_collection_add(&solution, &request).unwrap();
     assert_eq!((plan.cell_width, plan.cell_height), (Some(400), Some(270)));
-    // An explicit height wins over the proportion.
+    // An explicit height wins over the preset's.
     request.height = Some(300);
     let plan = plan_collection_add(&solution, &request).unwrap();
     assert_eq!(plan.cell_height, Some(300));
+    // Narrow columns do not shrink the card below the height its content needs.
+    request.width = None;
+    request.height = None;
+    request.columns = Some(4);
+    request.across = Some(1000);
+    let plan = plan_collection_add(&solution, &request).unwrap();
+    assert_eq!((plan.cell_width, plan.cell_height), (Some(185), Some(270)));
     // No preset: --columns uses the catalogue's paddings (0 and 24) and gap, and sets no height.
     let mut request = collection_request(&[("id", "Id")]);
     request.width = None;
