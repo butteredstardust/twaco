@@ -967,6 +967,9 @@ pub(crate) struct MashupRecipeRequest {
     pub(crate) after: Absent<String>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) say: Absent<String>,
+    /// Error status message on Data_Error for message; may be used without say/from.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) on_failure: Absent<String>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) from: Absent<String>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]

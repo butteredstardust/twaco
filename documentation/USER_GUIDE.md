@@ -1421,6 +1421,13 @@ direction and base types before it writes, and warns when the target already has
 templates and shapes need the runtime entity binding Composer creates, so twaco asks you to add
 that call there once. The entity and managed content sidecar change in one transaction.
 
+A `SelectedRows` field bound to a text field or another non-grid widget stays empty until a row
+is selected, even when the service returns just one record. twaco warns about this binding:
+the inspected ThingWorx 10.2 Data service configuration has no automatic first-row selection
+setting. To initialize a record form, bind the full result to a list or dropdown and explicitly
+set that widget's `AutoSelectFirstRow=true`, or select a row in a grid showing the result.
+twaco preserves service settings and does not insert a hidden selection widget.
+
 ### Events
 
 ```sh
@@ -1431,11 +1438,21 @@ twaco mashup on Acme.App.Orders_MU --event data:Acme.App.Orders.Manager.SaveOrde
 
 `mashup on` makes one event run a service, until `--apply` only a plan. The event is a widget's
 (`ui:<widget>.<Event>`, one its catalogue contract lists, such as a button's `Clicked`), the
-page's `mashup:Loaded`, or a call's `ServiceInvokeCompleted`, `AllDataChanged` or
+page's `mashup:Loaded`, or a call's `ServiceInvokeCompleted`, `Data_Error`, `AllDataChanged` or
 `SelectedRowsChanged` for a call the mashup already has. It runs a data service, added as a call
 when a Thing's service is not called yet, or a widget's own service such as a grid's `Reset`.
 Widgets whose contract the catalogue does not know are refused. `mashup describe` lists the
 result as `trigger -> handler`.
+
+Use `data:<Entity>.<Service>[as <alias>].Data_Error` to react to a service failure. The inspected
+10.2 Runtime emits `Data_Error` and registers it through the normal Data event path, although
+Composer's service event list omits it. `ServiceInvokeFailed` and `ServiceInvokeError` are not
+the emitted names. `ServiceInvokeCompleted` fires on success; `AllDataChanged` also fires after
+a failure clears the result, so use completion when chaining a save to a close or reload.
+This event support was checked against local platform source and isolated runtime callbacks,
+without a live server test. Composer's binding validator can remove this unlisted event on a
+service returning NOTHING when saving the mashup; review the exported wiring after Composer
+edits and recheck it when upgrading ThingWorx.
 
 ### Removing mashup wiring and widgets
 
@@ -1491,6 +1508,7 @@ bindable properties include the parameters of the mashup it opens. The legacy `e
 twaco mashup recipe enable-when Acme.App.Edit_MU ptcsbutton-6 --if "note !== ''" --input note=ui:ptcstextfield-3.Text --apply
 twaco mashup recipe popup Acme.App.Orders_MU ptcsbutton-6 --mashup Acme.App.EditOrder_MU --pass orderId=data:Acme.App.Orders.Manager.GetOrders[SelectedRows].id --reload data:Acme.App.Orders.Manager.GetOrders --apply
 twaco mashup recipe close-after Acme.App.EditOrder_MU --after data:Acme.App.Orders.Manager.SaveOrder --apply
+twaco mashup recipe message Acme.App.EditOrder_MU --after data:Acme.App.Orders.Manager.SaveOrder --say "Saved" --on-failure "Save failed; try again" --apply
 twaco mashup recipe validate Acme.App.Edit_MU ptcsbutton-6 --if "note !== ''" --input note=ui:ptcstextfield-3.Text --then data:Acme.App.Orders.Manager.SaveOrder --else-say "A note is required" --apply
 ```
 
@@ -1501,10 +1519,10 @@ twaco mashup recipe validate Acme.App.Edit_MU ptcsbutton-6 --if "note !== ''" --
 |---|---|
 | enable-when, show-when | an expression of `--if`, fed by each `--input name=address`, into the widget's `Disabled` (negated) or `Visible`, evaluated on load and whenever an input changes |
 | text | a STRING expression (`--expr`) into a label's text |
-| message | a status message (`--say` or bound `--from`; `--kind info|warning|error`) when the `--after` call completes |
+| message | a success status message (`--say` or bound `--from`; `--kind info|warning|error`) on the `--after` call's `ServiceInvokeCompleted`; optional `--on-failure <text>` adds a separate error status message on `Data_Error`. A failure message may be used alone |
 | confirm | a confirmation (`--title`, `--say`) the click opens; its action runs `--then` |
 | popup | a navigation function opening `--mashup` (`--window`, `--size WxH`, `--title`), each `--pass name=address` into its parameters, `--reload` run when it closes |
-| close-after | the mashup closes itself (when it is a popup) once the `--after` call completes |
+| close-after | the mashup closes itself (when it is a popup) once the `--after` call succeeds; failure leaves the form open |
 | auto-refresh | `--then` run every `--every` seconds, or at a bound `--interval` |
 | validate | a validator of `--if` the click evaluates: true runs `--then`, false shows `--else-say` |
 | chart | `--data` bound into the chart and its category field `--x` named (a pie: `--x` label and `--value` fields); every other numeric column of the result becomes a series; `--kind` bar/column or linechart/areachart |

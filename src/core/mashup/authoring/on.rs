@@ -376,9 +376,15 @@ pub(super) fn resolve_trigger(
     let (call, event) = rest
         .rsplit_once('.')
         .ok_or_else(|| AuthoringError::Invalid(format!("invalid mashup address `{raw}`")))?;
+    if matches!(event, "ServiceInvokeFailed" | "ServiceInvokeError") {
+        return Err(AuthoringError::Invalid(format!(
+            "{raw}: ThingWorx 10.2 emits Data_Error on service failure; use data:{call}.Data_Error, or mashup recipe message <mashup> --after data:{call} --on-failure <text>"
+        )));
+    }
+    // 10.2 Runtime's _processDataAddedFailureHandler emits Data_Error; Composer's list omits it.
     if !matches!(
         event,
-        "ServiceInvokeCompleted" | "AllDataChanged" | "SelectedRowsChanged"
+        "ServiceInvokeCompleted" | "AllDataChanged" | "SelectedRowsChanged" | "Data_Error"
     ) {
         return Err(AuthoringError::Invalid(format!(
             "invalid mashup event `{raw}`"

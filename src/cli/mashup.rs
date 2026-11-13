@@ -452,6 +452,8 @@ pub(crate) struct MashupRecipe {
     pub(crate) after: Option<String>,
     #[arg(long = "say", value_name = "text")]
     pub(crate) say: Option<String>,
+    #[arg(long = "on-failure", value_name = "text")]
+    pub(crate) on_failure: Option<String>,
     #[arg(long = "from", value_name = "address")]
     pub(crate) from: Option<String>,
     #[arg(long = "kind", value_name = "info|warning|error")]
@@ -727,6 +729,7 @@ pub(crate) fn mashup_recipe_cmd(solution: &Solution, args: &MashupRecipe) -> u8 
         inputs: args.inputs.clone(),
         after: args.after.clone(),
         say: args.say.clone(),
+        on_failure: args.on_failure.clone(),
         from: args.from.clone(),
         kind: args.kind.clone(),
         then: args.then.clone(),

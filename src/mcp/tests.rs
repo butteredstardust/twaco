@@ -368,7 +368,19 @@ fn hand_written_tools() -> Vec<Value> {
         env!("CARGO_MANIFEST_DIR"),
         "/tests/fixtures/mcp_tools_hand_written.json"
     );
-    serde_json::from_str(&std::fs::read_to_string(HAND_WRITTEN).unwrap()).unwrap()
+    let mut tools: Vec<Value> =
+        serde_json::from_str(&std::fs::read_to_string(HAND_WRITTEN).unwrap()).unwrap();
+    // Keep the migration baseline on disk intact. This additive option postdates it; all
+    // original fields still have to retain their meaning, defaults and validation errors.
+    let recipe = tools
+        .iter_mut()
+        .find(|tool| tool["name"] == "mashup_recipe")
+        .unwrap();
+    recipe["inputSchema"]["properties"]["on_failure"] = json!({
+        "description": "Error status message on Data_Error for message; may be used without say/from.",
+        "type": "string"
+    });
+    tools
 }
 
 /// A value that fits a property, for every way the hand-written schema allows one.
@@ -528,6 +540,12 @@ fn generated_schemas_mean_what_the_hand_written_ones_did() {
             "{name}"
         );
         for key in ["description", "annotations"] {
+            // These descriptions evolved with form selection warnings and failure handling.
+            // Their current wording is checked by the golden file and tools/list tests.
+            if key == "description" && matches!(name, "mashup_bind" | "mashup_on" | "mashup_recipe")
+            {
+                continue;
+            }
             assert_eq!(generated[key], tool[key], "{name}: {key}");
         }
     }
@@ -3513,6 +3531,74 @@ fn mashup_source_tools_add_list_and_remove_a_dynamic_call() {
         json!({"mashup": "Acme.Orders_MU"}),
     );
     assert_eq!(listed["structuredContent"]["sources"], json!([]));
+}
+
+#[test]
+fn mashup_failure_messages_are_published_and_plan_before_apply() {
+    let definitions = tool_definitions();
+    let recipe = definitions
+        .iter()
+        .find(|tool| tool["name"] == "mashup_recipe")
+        .unwrap();
+    assert_eq!(
+        recipe["inputSchema"]["properties"]["on_failure"]["type"],
+        "string"
+    );
+    assert_eq!(
+        recipe["inputSchema"]["properties"]["dry_run"]["default"],
+        true
+    );
+    assert!(recipe["description"]
+        .as_str()
+        .unwrap()
+        .contains("Data_Error"));
+    let on = definitions
+        .iter()
+        .find(|tool| tool["name"] == "mashup_on")
+        .unwrap();
+    assert!(on["description"].as_str().unwrap().contains("Data_Error"));
+
+    let (_dir, root) = solution_dir();
+    std::fs::write(
+        root.join("Things/Acme.Orders.Manager.xml"),
+        r#"<Entities><Things><Thing name="Acme.Orders.Manager" projectName="P"><ThingShape><ServiceDefinitions><ServiceDefinition name="SaveOrder"><ResultType baseType="NOTHING"/></ServiceDefinition></ServiceDefinitions><ServiceImplementations/></ThingShape></Thing></Things></Entities>"#,
+    ).unwrap();
+    for (tool, args) in [
+        (
+            "mashup_new",
+            json!({"name": "Acme.Orders_MU", "dry_run": false}),
+        ),
+        (
+            "mashup_source_add",
+            json!({"mashup": "Acme.Orders_MU", "entity": "Acme.Orders.Manager", "service": "SaveOrder", "alias": "save", "dry_run": false}),
+        ),
+    ] {
+        let result = call(&root, tool, args);
+        assert_eq!(result["isError"], false, "{result}");
+    }
+    let path = root.join("Mashups/Acme.Orders_MU.xml");
+    let before = std::fs::read(&path).unwrap();
+    let args = json!({"mashup": "Acme.Orders_MU", "recipe": "message", "after": "data:Acme.Orders.Manager.SaveOrder[as save]", "on_failure": "Save failed"});
+    let planned = call(&root, "mashup_recipe", args.clone());
+    assert_eq!(planned["isError"], false, "{planned}");
+    assert_eq!(planned["structuredContent"]["applied"], false);
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    let mut args = args;
+    args["dry_run"] = json!(false);
+    let applied = call(&root, "mashup_recipe", args);
+    assert_eq!(applied["isError"], false, "{applied}");
+    assert_eq!(applied["structuredContent"]["applied"], true);
+    let xml = std::fs::read_to_string(&path).unwrap();
+    assert!(
+        xml.contains("Data_Error") && xml.contains("Save failed"),
+        "{xml}"
+    );
+    let wired = call(
+        &root,
+        "mashup_on",
+        json!({"mashup": "Acme.Orders_MU", "event": "data:Acme.Orders.Manager.SaveOrder[as save].Data_Error", "invoke": "mashup:Refresh", "dry_run": false}),
+    );
+    assert_eq!(wired["isError"], false, "{wired}");
 }
 
 #[test]

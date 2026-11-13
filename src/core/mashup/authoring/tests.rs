@@ -1197,6 +1197,51 @@ fn sidecar_content(solution: &Solution) -> String {
 }
 
 #[test]
+fn selected_rows_fields_warn_without_changing_service_selection_choices() {
+    let (dir, solution) = bind_fixture();
+    let from = "data:Acme.Orders.Manager.GetOrders[as record][SelectedRows].note";
+    let to = "ui:ptcstextfield-3.Text";
+    let planned = bind(&solution, from, to).unwrap();
+    assert!(
+        planned.warnings.iter().any(|warning| {
+            warning.contains(from)
+                && warning.contains(to)
+                && warning.contains("one-row result")
+                && warning.contains("AutoSelectFirstRow=true")
+        }),
+        "{:?}",
+        planned.warnings
+    );
+    apply_edit(&solution, &planned.edit, &lock(&solution)).unwrap();
+    rewrite_content(dir.path(), |content| {
+        content["Data"]["Things_Acme.Orders.Manager"]["Services"][0]["Properties"] =
+            json!({"AutoSelectFirstRow": false, "SelectedRows": [], "CustomSetting": "keep"});
+    });
+    let before: Value = serde_json::from_str(&sidecar_content(&solution)).unwrap();
+    let second = bind(&solution, from, "ui:ptcslabel-4.LabelText").unwrap();
+    let after: Value =
+        serde_json::from_slice(&second.edit.sidecars.as_ref().unwrap().content_after).unwrap();
+    assert_eq!(
+        before["Data"], after["Data"],
+        "service choices are preserved"
+    );
+    assert_eq!(before["UI"], after["UI"], "no selection widget is added");
+    let bytes = sidecar_content(&solution);
+    assert_eq!(
+        bind(&solution, from, to).unwrap_err().code(),
+        ErrorCode::AlreadyExists
+    );
+    assert_eq!(sidecar_content(&solution), bytes);
+    let full_result = bind(
+        &solution,
+        "data:Acme.Orders.Manager.GetOrders[as record]",
+        "ui:ptcsgrid-5.Data",
+    )
+    .unwrap();
+    assert!(full_result.warnings.is_empty());
+}
+
+#[test]
 fn bindings_to_parameters_and_from_selected_rows_reuse_calls_and_pass_the_gates() {
     let (_dir, solution) = bind_fixture();
     let ids: Vec<String> = mashup::edit::parse(&sidecar_content(&solution))
@@ -1480,6 +1525,211 @@ fn remove_unbind_and_off_are_exact_inverses() {
     )
     .unwrap();
     assert!(no_op.edit.is_none());
+}
+
+#[test]
+fn data_error_events_resolve_aliases_round_trip_and_require_existing_calls() {
+    let (_dir, solution) = recipe_fixture();
+    let trigger = "data:Acme.Orders.Manager.SaveOrder[as save].Data_Error";
+    assert!(on(&solution, trigger, "mashup:Refresh")
+        .unwrap_err()
+        .to_string()
+        .contains("not a call"));
+    let added = on(
+        &solution,
+        "mashup:Loaded",
+        "data:Acme.Orders.Manager.SaveOrder[as save]",
+    )
+    .unwrap();
+    apply_edit(&solution, &added.edit, &lock(&solution)).unwrap();
+    let plan = on(&solution, trigger, "mashup:Refresh").unwrap();
+    assert_eq!(plan.new_source, None);
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    let value: Value = serde_json::from_str(&sidecar_content(&solution)).unwrap();
+    let failure = value["Events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|event| event["EventTriggerEvent"] == "Data_Error")
+        .unwrap();
+    assert_eq!(failure["EventTriggerArea"], "Data");
+    assert_eq!(failure["EventTriggerSection"], "Things_Acme.Orders.Manager");
+    assert_eq!(failure["EventTriggerId"], "save");
+    assert!(
+        crate::core::mashup::describe::describe(&solution, "Acme.Orders_MU")
+            .unwrap()
+            .events
+            .iter()
+            .any(|event| event.trigger == trigger && event.handler == "mashup:Refresh")
+    );
+    assert_eq!(
+        on(&solution, trigger, "mashup:Refresh").unwrap_err().code(),
+        ErrorCode::AlreadyExists
+    );
+    for guessed in ["ServiceInvokeFailed", "ServiceInvokeError"] {
+        let error = on(
+            &solution,
+            &format!("data:Acme.Orders.Manager.SaveOrder.{guessed}"),
+            "mashup:Refresh",
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(
+            error.contains("Data_Error") && error.contains("--on-failure"),
+            "{error}"
+        );
+    }
+    let off = plan_off(
+        &solution,
+        &OffRequest {
+            mashup: "Acme.Orders_MU".into(),
+            event: trigger.into(),
+            invoke: "mashup:Refresh".into(),
+        },
+    )
+    .unwrap();
+    apply_edit(&solution, &off.edit, &lock(&solution)).unwrap();
+    let value: Value = serde_json::from_str(&sidecar_content(&solution)).unwrap();
+    assert!(!has_event(
+        &value,
+        "save",
+        "Data_Error",
+        "mashup-root",
+        "Refresh"
+    ));
+}
+
+#[test]
+fn message_recipes_handle_failure_separately_and_close_only_on_success() {
+    let (_dir, solution) = recipe_fixture();
+    let plan = recipe(
+        &solution,
+        "message",
+        RecipeArgs {
+            after: Some("data:Acme.Orders.Manager.SaveOrder".into()),
+            say: Some("Saved".into()),
+            kind: Some("warning".into()),
+            on_failure: Some("Save failed; try again".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(plan.added.len(), 2);
+    let value: Value = serde_json::from_str(&sidecar_content(&solution)).unwrap();
+    assert!(has_event(
+        &value,
+        "SaveOrder",
+        "ServiceInvokeCompleted",
+        &plan.added[0],
+        "ShowMessage"
+    ));
+    assert!(has_event(
+        &value,
+        "SaveOrder",
+        "Data_Error",
+        &plan.added[1],
+        "ShowMessage"
+    ));
+    assert_eq!(
+        widget_of(&value, &plan.added[1])["Message"],
+        "Save failed; try again"
+    );
+    assert_eq!(widget_of(&value, &plan.added[1])["MessageType"], "error");
+    assert_eq!(widget_of(&value, &plan.added[0])["MessageType"], "warning");
+    assert!(!has_event(
+        &value,
+        "SaveOrder",
+        "Data_Error",
+        &plan.added[0],
+        "ShowMessage"
+    ));
+    assert!(!has_event(
+        &value,
+        "SaveOrder",
+        "ServiceInvokeCompleted",
+        &plan.added[1],
+        "ShowMessage"
+    ));
+
+    let only_failure = recipe(
+        &solution,
+        "message",
+        RecipeArgs {
+            after: Some("data:Acme.Orders.Manager.SaveOrder".into()),
+            on_failure: Some("Unable to save".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(only_failure.added.len(), 1);
+    recipe(
+        &solution,
+        "close-after",
+        RecipeArgs {
+            after: Some("data:Acme.Orders.Manager.SaveOrder".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let value: Value = serde_json::from_str(&sidecar_content(&solution)).unwrap();
+    assert!(has_event(
+        &value,
+        "SaveOrder",
+        "ServiceInvokeCompleted",
+        "mashup-root",
+        "CloseIfPopup"
+    ));
+    assert!(!has_event(
+        &value,
+        "SaveOrder",
+        "Data_Error",
+        "mashup-root",
+        "CloseIfPopup"
+    ));
+    let failing: Vec<_> = crate::core::check::run(&solution)
+        .gates
+        .into_iter()
+        .filter(|gate| !gate.ok() && judged(gate))
+        .collect();
+    assert!(failing.is_empty(), "{failing:?}");
+}
+
+#[test]
+fn failure_messages_refuse_empty_text_wrong_recipes_and_invalid_sources() {
+    let (_dir, solution) = recipe_fixture();
+    for (after, text) in [
+        ("data:Acme.Orders.Manager.SaveOrder", "  "),
+        ("data:Acme.Orders.Manager.GetOrders", "Failed"),
+        ("ui:ptcsbutton-6", "Failed"),
+    ] {
+        assert!(
+            recipe(
+                &solution,
+                "message",
+                RecipeArgs {
+                    after: Some(after.into()),
+                    on_failure: Some(text.into()),
+                    ..Default::default()
+                }
+            )
+            .is_err(),
+            "{after}: {text:?}"
+        );
+    }
+    let error = Recipe::from_args(
+        "close-after",
+        &RecipeArgs {
+            after: Some("data:Acme.Orders.Manager.SaveOrder".into()),
+            on_failure: Some("Failed".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(
+        error.contains("--on-failure is for recipe message"),
+        "{error}"
+    );
 }
 
 #[test]
@@ -1827,8 +2077,9 @@ fn a_second_source_for_one_target_is_bound_with_a_warning() {
         "ui:ptcslabel-4.LabelText",
     )
     .unwrap();
-    assert_eq!(second.warnings.len(), 1, "{:?}", second.warnings);
+    assert_eq!(second.warnings.len(), 2, "{:?}", second.warnings);
     assert!(second.warnings[0].contains("ui:ptcslabel-4.LabelText already has another source"));
+    assert!(second.warnings[1].contains("only after a row is selected"));
 }
 
 #[test]

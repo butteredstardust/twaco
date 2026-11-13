@@ -280,7 +280,7 @@ help:
 |       --to <address>          target address from mashup describe
 |   mashup on <mashup> --event <address> --invoke <address> [--apply] [--json]
 |                               run a service or widget service when a mashup event fires; plan unless --apply
-|       --event <address>       event address from mashup describe
+|       --event <address>       widget/mashup event or data call event (Data_Error on failure)
 |       --invoke <address>      data call or widget service to run
 |   mashup gap <mashup> <container> <px> [--apply] [--json]
 |                               replace direct twaco spacers with fixed gaps (0 removes; 0..200px);
@@ -312,15 +312,15 @@ help:
 |                               an expression into the widget's Disabled or Visible
 |       text <label> --expr <expression> [--input name=<address>]...
 |                               a label's text computed from its inputs
-|       message --after <data call> (--say <text> | --from <address>) [--kind info|warning|error]
-|                               a status message when the call completes
+|       message --after <data call> [--say <text> | --from <address>] [--kind info|warning|error]
+|           [--on-failure <text>]   status messages on success and/or failure; give at least one
 |       confirm <button> --then <handler> [--title <text>] [--say <text>]
 |                               a confirmation before the click runs the handler
 |       popup <widget>|--on <event> --mashup <name> [--window modal-popup|popup|replace|new]
 |           [--size <WxH>] [--title <text>] [--pass name=<address>]... [--reload <handler>]
 |                               open a mashup, pass it values, run the handler when it closes
 |       close-after --after <data call>
-|                               the popup closes itself when the call completes
+|                               the popup closes itself when the call succeeds
 |       auto-refresh --then <data call> (--every <seconds> | --interval <address>)
 |                               run the call again every so often
 |       validate <widget>|--on <event> --if <condition> [--input name=<address>]... --then <handler>
@@ -7286,7 +7286,7 @@ help:
 |       --to <address>          target address from mashup describe
 |   mashup on <mashup> --event <address> --invoke <address> [--apply] [--json]
 |                               run a service or widget service when a mashup event fires; plan unless --apply
-|       --event <address>       event address from mashup describe
+|       --event <address>       widget/mashup event or data call event (Data_Error on failure)
 |       --invoke <address>      data call or widget service to run
 |   mashup gap <mashup> <container> <px> [--apply] [--json]
 |                               replace direct twaco spacers with fixed gaps (0 removes; 0..200px);
@@ -7318,15 +7318,15 @@ help:
 |                               an expression into the widget's Disabled or Visible
 |       text <label> --expr <expression> [--input name=<address>]...
 |                               a label's text computed from its inputs
-|       message --after <data call> (--say <text> | --from <address>) [--kind info|warning|error]
-|                               a status message when the call completes
+|       message --after <data call> [--say <text> | --from <address>] [--kind info|warning|error]
+|           [--on-failure <text>]   status messages on success and/or failure; give at least one
 |       confirm <button> --then <handler> [--title <text>] [--say <text>]
 |                               a confirmation before the click runs the handler
 |       popup <widget>|--on <event> --mashup <name> [--window modal-popup|popup|replace|new]
 |           [--size <WxH>] [--title <text>] [--pass name=<address>]... [--reload <handler>]
 |                               open a mashup, pass it values, run the handler when it closes
 |       close-after --after <data call>
-|                               the popup closes itself when the call completes
+|                               the popup closes itself when the call succeeds
 |       auto-refresh --then <data call> (--every <seconds> | --interval <address>)
 |                               run the call again every so often
 |       validate <widget>|--on <event> --if <condition> [--input name=<address>]... --then <handler>
@@ -8805,7 +8805,7 @@ arg <operands>
 help:
 |   mashup on <mashup> --event <address> --invoke <address> [--apply] [--json]
 |                               run a service or widget service when a mashup event fires; plan unless --apply
-|       --event <address>       event address from mashup describe
+|       --event <address>       widget/mashup event or data call event (Data_Error on failure)
 |       --invoke <address>      data call or widget service to run
 | 
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
@@ -9203,6 +9203,18 @@ arg --on
     other: -
     given twice: ArgumentConflict
     given bare: InvalidValue
+arg --on-failure
+    action: Set
+    value_name: text
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 arg --pass
     action: Append
     value_name: name=address
@@ -9340,15 +9352,15 @@ help:
 |                               an expression into the widget's Disabled or Visible
 |       text <label> --expr <expression> [--input name=<address>]...
 |                               a label's text computed from its inputs
-|       message --after <data call> (--say <text> | --from <address>) [--kind info|warning|error]
-|                               a status message when the call completes
+|       message --after <data call> [--say <text> | --from <address>] [--kind info|warning|error]
+|           [--on-failure <text>]   status messages on success and/or failure; give at least one
 |       confirm <button> --then <handler> [--title <text>] [--say <text>]
 |                               a confirmation before the click runs the handler
 |       popup <widget>|--on <event> --mashup <name> [--window modal-popup|popup|replace|new]
 |           [--size <WxH>] [--title <text>] [--pass name=<address>]... [--reload <handler>]
 |                               open a mashup, pass it values, run the handler when it closes
 |       close-after --after <data call>
-|                               the popup closes itself when the call completes
+|                               the popup closes itself when the call succeeds
 |       auto-refresh --then <data call> (--every <seconds> | --interval <address>)
 |                               run the call again every so often
 |       validate <widget>|--on <event> --if <condition> [--input name=<address>]... --then <handler>

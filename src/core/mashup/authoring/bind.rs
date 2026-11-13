@@ -235,6 +235,22 @@ pub(super) fn bind_in(
         }
     ) {
         warnings.extend(enable_selection_of_grids_showing(document, &sources));
+        if matches!(
+            &from,
+            End::Data {
+                member: Some(_),
+                ..
+            }
+        ) {
+            if let End::Ui { id, .. } = &to {
+                let target = document.find_exact(id).map_err(AuthoringError::Edit)?;
+                if target.type_id != "ptcsgrid" {
+                    warnings.push(format!(
+                        "{from_raw} fills {to_raw} only after a row is selected, even for a one-row result; twaco has no verified service-level first-row selection setting for ThingWorx 10.2. Bind the full result to a list or dropdown with AutoSelectFirstRow=true, or select a row in a grid"
+                    ));
+                }
+            }
+        }
     }
     let new_source = source_added.or(target_added);
     Ok(BindIn {

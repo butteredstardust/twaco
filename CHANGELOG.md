@@ -6,6 +6,19 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `mashup on` accepts the ThingWorx 10.2 Runtime's service failure event `Data_Error`, including
+  named calls. `mashup recipe message --on-failure <text>` (MCP `on_failure`) shows a separate
+  error message and can be used without a success message. `close-after` remains success-only.
+
+### Fixed
+
+- Binding a service's `SelectedRows` field to a non-grid widget warns that a row must first be
+  selected, even for a one-record form. No service-level first-row selection option was found
+  in the inspected 10.2 platform code; the warning explains how to select through a list,
+  dropdown or grid while preserving existing service settings.
+
 ## [0.1.62] - 2026-11-12
 
 ### Fixed

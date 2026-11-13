@@ -908,6 +908,7 @@ pub(crate) fn mashup_recipe_tool(
         inputs: arguments.inputs.items().to_vec(),
         after: arguments.after.as_ref().cloned(),
         say: arguments.say.as_ref().cloned(),
+        on_failure: arguments.on_failure.as_ref().cloned(),
         from: arguments.from.as_ref().cloned(),
         kind: arguments.kind.as_ref().cloned(),
         then: arguments.then.as_ref().cloned(),

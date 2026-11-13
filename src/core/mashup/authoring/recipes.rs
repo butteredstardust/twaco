@@ -37,12 +37,13 @@ pub enum Recipe {
         expression: String,
         inputs: Vec<(String, String)>,
     },
-    /// A status message after a service completes (114 seen).
+    /// Status messages after service success and/or failure.
     Message {
         after: String,
         text: Option<String>,
         from: Option<String>,
         kind: String,
+        on_failure: Option<String>,
     },
     /// A confirmation before a click runs its handler (44 seen).
     Confirm {
@@ -456,29 +457,49 @@ pub(crate) fn plan_recipe(
             text,
             from,
             kind,
+            on_failure,
         } => {
             if !matches!(kind.as_str(), "info" | "warning" | "error") {
                 return Err(AuthoringError::Invalid(
                     "the message type is info, warning or error".into(),
                 ));
             }
-            if text.is_some() == from.is_some() {
+            if text.is_some() && from.is_some()
+                || text.is_none() && from.is_none() && on_failure.is_none()
+            {
                 return Err(AuthoringError::Invalid(
-                    "give the message as --text, or bind it with --from".into(),
+                    "give a success message as --say or --from, and/or an error message as --on-failure".into(),
                 ));
             }
-            let mut properties = vec![("MessageType", json!(kind))];
-            if let Some(text) = text {
-                properties.push(("Message", json!(text)));
+            if text.is_some() || from.is_some() {
+                let mut properties = vec![("MessageType", json!(kind))];
+                if let Some(text) = text {
+                    properties.push(("Message", json!(text)));
+                }
+                let id = work.add("statusmessage", &properties);
+                if let Some(from) = from {
+                    work.bind(from, &format!("ui:{id}.Message"))?;
+                }
+                work.on(
+                    &call_event(after, "ServiceInvokeCompleted")?,
+                    &format!("ui:{id}.ShowMessage"),
+                )?;
             }
-            let id = work.add("statusmessage", &properties);
-            if let Some(from) = from {
-                work.bind(from, &format!("ui:{id}.Message"))?;
+            if let Some(text) = on_failure {
+                if text.trim().is_empty() {
+                    return Err(AuthoringError::Invalid(
+                        "--on-failure needs nonempty error text".into(),
+                    ));
+                }
+                let id = work.add(
+                    "statusmessage",
+                    &[("MessageType", json!("error")), ("Message", json!(text))],
+                );
+                work.on(
+                    &call_event(after, "Data_Error")?,
+                    &format!("ui:{id}.ShowMessage"),
+                )?;
             }
-            work.on(
-                &call_event(after, "ServiceInvokeCompleted")?,
-                &format!("ui:{id}.ShowMessage"),
-            )?;
         }
         Recipe::Confirm {
             trigger,
@@ -806,6 +827,7 @@ pub struct RecipeArgs {
     pub inputs: Vec<String>,
     pub after: Option<String>,
     pub say: Option<String>,
+    pub on_failure: Option<String>,
     pub from: Option<String>,
     pub kind: Option<String>,
     pub then: Option<String>,
@@ -872,6 +894,11 @@ fn required(value: &Option<String>, what: &str, recipe: &str) -> Result<String, 
 impl Recipe {
     /// Build a recipe from its name and arguments, refusing what it does not take.
     pub fn from_args(name: &str, args: &RecipeArgs) -> Result<Recipe, AuthoringError> {
+        if args.on_failure.is_some() && name != "message" {
+            return Err(AuthoringError::Invalid(
+                "--on-failure is for recipe message; close-after closes only on success".into(),
+            ));
+        }
         let inputs = pairs("--input", &args.inputs)?;
         let widget = |what: &str| required(&args.widget, what, name);
         Ok(match name {
@@ -902,6 +929,7 @@ impl Recipe {
                 text: args.say.clone(),
                 from: args.from.clone(),
                 kind: args.kind.clone().unwrap_or_else(|| "info".into()),
+                on_failure: args.on_failure.clone(),
             },
             "confirm" => Recipe::Confirm {
                 trigger: widget("the button")?,
