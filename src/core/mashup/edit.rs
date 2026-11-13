@@ -478,7 +478,9 @@ impl MashupDocument {
     /// A row of a column that this placement put side by side with another (wrapped in a new
     /// row, or in a container flipped to a row) is a column of that row now, where `flex-grow`
     /// and `flex-shrink` act across. The 0 that `keep_natural_heights` gave it in the column
-    /// would keep it from sharing the row's width, so it gets Composer's 1 back.
+    /// would keep it from sharing the row's width, so it gets Composer's 1 back. Only a row
+    /// carrying that method's mark (`flex-shrink: 0`, which Composer never writes by default)
+    /// is changed; a `flex-grow: 0` someone set on a row that still shrinks is kept.
     fn release_moved_rows(&mut self, placed: &Placed) {
         for id in placed.containers.iter().chain(&placed.flipped) {
             let Ok(found) = self.find(id) else {
@@ -492,6 +494,9 @@ impl MashupDocument {
                 let path = [found.path.as_slice(), &[index]].concat();
                 let child = self.at(&path);
                 if is_spacer(child) || !(is_generated_container(child) || is_panel(child)) {
+                    continue;
+                }
+                if self.at(&path)["Properties"]["flex-shrink"].as_f64() != Some(0.0) {
                     continue;
                 }
                 for key in ["flex-grow", "flex-shrink"] {
@@ -870,9 +875,9 @@ impl MashupDocument {
 
     /// Give the row holding the contained mashup `id` a floor of the child's measured height
     /// (`height`, from [`MashupDocument::natural_page_height`]) plus the container's own margins,
-    /// in place of the generic floor placement gave it. Only a generated row holding just that
-    /// container is changed.
-    pub(crate) fn floor_contained_row(&mut self, id: &str, height: f64) {
+    /// in place of the generic floor placement gave it. Only a row this placement made (`made`)
+    /// holding just that container is changed: an existing container keeps its own sizes.
+    pub(crate) fn floor_contained_row(&mut self, id: &str, height: f64, made: &[String]) {
         let Ok(found) = self.find(id) else {
             return;
         };
@@ -881,6 +886,7 @@ impl MashupDocument {
         };
         let row = self.at(row_path);
         if !is_generated_container(row)
+            || !made.iter().any(|made| made == widget_id(row))
             || children(row).len() != 1
             || row["Properties"]["flex-size"] == "fixed"
         {
@@ -3743,6 +3749,50 @@ mod tests {
         let body = &document.at(&document.find("flexcontainer-3").unwrap().path)["Properties"];
         assert_eq!(body["flex-shrink"], 0);
         assert_eq!(body["flex-min-height"], "300px");
+    }
+
+    /// A `flex-grow: 0` someone set on a container that still shrinks survives a placement
+    /// that puts another container beside it.
+    #[test]
+    fn a_row_moved_beside_another_keeps_an_authored_flex_grow() {
+        let catalog = widgets::catalog();
+        let label = widget("ptcslabel", "ptcslabel-4", "Note", "");
+        let authored = container("flexcontainer-3", "container-3", "column", &label);
+        let column = container("flexcontainer-2", "content", "column", &authored);
+        let mut document = document(&column, 4);
+        let path = document.find("flexcontainer-3").unwrap().path;
+        document.set_property(&path, "flex-grow", Value::from(0));
+        document
+            .place(
+                catalog.resolve("container").unwrap(),
+                &Placement::Beside {
+                    anchor: "flexcontainer-3".into(),
+                    side: Side::Right,
+                },
+            )
+            .unwrap();
+        let path = document.find("flexcontainer-3").unwrap().path;
+        assert_eq!(document.at(&path)["Properties"]["flex-grow"], 0);
+    }
+
+    /// An existing container a contained mashup is added into keeps its own floor.
+    #[test]
+    fn a_contained_floor_leaves_an_existing_container_alone() {
+        let label = widget("ptcslabel", "ptcslabel-4", "Note", "");
+        let row = container("flexcontainer-3", "container-3", "row", &label);
+        let column = container("flexcontainer-2", "content", "column", &row);
+        let mut document = document(&column, 4);
+        let path = document.find("flexcontainer-3").unwrap().path;
+        document.set_property(&path, "flex-size", Value::from("range"));
+        document.set_property(&path, "flex-min-height", Value::from("200px"));
+        document.set_property(&path, "flex-max-height", Value::from("400px"));
+        document.floor_contained_row("ptcslabel-4", 80.0, &[]);
+        let row = &document.at(&path)["Properties"];
+        assert_eq!(row["flex-min-height"], "200px");
+        assert_eq!(row["flex-max-height"], "400px");
+        document.floor_contained_row("ptcslabel-4", 80.0, &["flexcontainer-3".to_string()]);
+        let row = &document.at(&path)["Properties"];
+        assert_eq!(row["flex-min-height"], "80px");
     }
 
     #[test]

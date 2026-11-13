@@ -483,7 +483,7 @@ pub(crate) fn plan_add_contained(
     // Placement floored the row at Composer's 300px drop height; the child's own rows say how
     // tall it really is, so a KPI tile is neither clipped nor padded out when the page is short.
     if let Some(height) = child_document.natural_page_height() {
-        document.floor_contained_row(&placed.id, height);
+        document.floor_contained_row(&placed.id, height, &placed.containers);
     }
     document.set_property(
         &path,
