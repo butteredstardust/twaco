@@ -774,11 +774,19 @@ impl MashupDocument {
                 .is_some_and(|name| name.starts_with("container-form-"))
                 && node["Properties"]["flex-size"] == "range"
                 && node["Properties"]["flex-max-height"] == node["Properties"]["flex-min-height"];
-            if capped && holds_growing_filler(node, false, &styles) {
+            // A cap twaco set is released once the column is no longer a compact form: a
+            // growing filler joined it, or its textarea left.
+            if capped && (holds_growing_filler(node, false, &styles) || !holds_filler(node)) {
                 self.set_property(candidate, "flex-max-height", Value::from(""));
             }
             let node = self.at(candidate);
-            if is_generated_container(node)
+            // Only a column this placement made, or one twaco capped before, becomes a capped
+            // form: an existing Composer column keeps its name and sizes.
+            let ours = capped
+                || matches!(scope, Reflow::Placement { touched, .. }
+                    if touched.iter().any(|id| id == widget_id(node)));
+            if ours
+                && is_generated_container(node)
                 && is_control_stack(node, &styles)
                 && holds_filler(node)
                 && !holds_growing_filler(node, false, &styles)
@@ -4123,6 +4131,50 @@ mod tests {
             .unwrap();
         let path = document.find("flexcontainer-3").unwrap().path;
         assert_eq!(document.at(&path)["Properties"]["flex-grow"], 0);
+    }
+
+    /// An edit inside a Composer column holding a field and a textarea leaves that column's
+    /// name and sizes alone: only columns twaco made become capped compact forms.
+    #[test]
+    fn an_edit_in_an_authored_form_column_does_not_cap_it() {
+        let field = widget("ptcstextfield", "ptcstextfield-4", "Name", "");
+        let note = filling_widget("ptcstextarea", "ptcstextarea-5", "Notes");
+        let field_row = container("flexcontainer-6", "container-6", "row", &field);
+        let note_row = container("flexcontainer-8", "container-8", "row", &note);
+        let authored = container(
+            "flexcontainer-7",
+            "container-7",
+            "column",
+            &format!("{field_row},{note_row}"),
+        );
+        let column = container("flexcontainer-2", "content", "column", &authored);
+        let mut document = document(&column, 8);
+        let path = document.find("flexcontainer-7").unwrap().path;
+        document.set_property(&path, "flex-size", Value::from("default"));
+        document.set_property(&path, "flex-max-height", Value::from(""));
+        let before = document.at(&path)["Properties"].clone();
+        document.reflow_for("ptcstextfield-4");
+        let after = &document.at(&path)["Properties"];
+        assert_eq!(after["DisplayName"], "container-7");
+        assert_eq!(after["flex-max-height"], before["flex-max-height"]);
+        assert_eq!(after.get("flex-size"), before.get("flex-size"));
+    }
+
+    /// A form column twaco capped is released once its textarea is gone, so fields added later
+    /// are not squeezed under the old height.
+    #[test]
+    fn a_capped_form_column_without_its_textarea_is_released() {
+        let field = widget("ptcstextfield", "ptcstextfield-4", "Name", "");
+        let field_row = container("flexcontainer-6", "container-6", "row", &field);
+        let form = container("flexcontainer-7", "container-form-7", "column", &field_row);
+        let column = container("flexcontainer-2", "content", "column", &form);
+        let mut document = document(&column, 7);
+        let path = document.find("flexcontainer-7").unwrap().path;
+        document.set_property(&path, "flex-size", Value::from("range"));
+        document.set_property(&path, "flex-min-height", Value::from("178px"));
+        document.set_property(&path, "flex-max-height", Value::from("178px"));
+        document.reflow_for("ptcstextfield-4");
+        assert_eq!(document.at(&path)["Properties"]["flex-max-height"], "");
     }
 
     /// An existing container a contained mashup is added into keeps its own floor.

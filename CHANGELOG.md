@@ -9,7 +9,7 @@ All notable changes to twaco are recorded here. The format follows
 ### Added
 
 - `mashup add --below <widget> --in-column` (MCP `in_column`) stacks inside a split row's
-  column, so two-column forms keep independent field stacks. Default `--below` placement is unchanged.
+  column, so two-column forms keep independent field stacks.
 - `mashup recipe confirm` accepts `--action-label` and `--cancel-label` (MCP `action_label`,
   `cancel_label`). `recipe tracker` configures an interactive large progress tracker from a
   service result DataShape, with explicit `--field-map` / MCP `field_maps` overrides.
@@ -24,9 +24,16 @@ All notable changes to twaco are recorded here. The format follows
   background, the first card selected, and the kit's 270px cell height at any width.
   `--columns <n>` (`columns`) works out the cell width that fits n cells on a row, from the 10.2
   collection's wrap rule, for a full-width collection in a 1440px window or the width
-  `--across <px>` (`across`) names. A narrower window shows fewer per
-  row. `--menu <StateDefinition>` (`menu`) sets a checked cell menu and lists the events its
+  `--across <px>` (`across`) names. A narrower window shows fewer per row. `--menu <StateDefinition>` (`menu`) sets a checked cell menu and lists the events its
   items fire. `--width` and `--height` still set exact sizes.
+
+### Changed
+
+- `mashup add --right-of` the only widget on a page wraps the two in a new row and keeps the page
+  a column; it used to turn the page itself into a row.
+- `mashup add --below` a widget inside a two-column form places the new widget below the whole
+  form; `--in-column` stacks inside that widget's column instead.
+- Charts in rows twaco makes no longer get `OverrideChildrenAbsolute`; their row's floor sizes them.
 
 ### Fixed
 
