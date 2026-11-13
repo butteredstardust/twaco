@@ -470,29 +470,36 @@ impl MashupDocument {
             }
         }
         self.keep_footers_last();
+        self.release_moved_rows(&placed);
         self.fix_rows(&placed);
         self.inherit_backgrounds(&placed);
-        self.let_charts_keep_their_size(&placed);
         Ok(placed)
     }
 
-    /// A chart that fills a row this placement made keeps its own size, as the kits' charts do
-    /// (`OverrideChildrenAbsolute` on its container): Runtime then lays it out in the flow, so
-    /// its row claims the page's spare height instead of label/value cards stretching to take
-    /// it. Without it the chart is absolutely positioned, counts for nothing, and its row is
-    /// only as tall as its date picker. Only containers the placement created are changed (an
-    /// existing chart it wrapped included); a grid or a contained mashup keeps filling as before.
-    fn let_charts_keep_their_size(&mut self, placed: &Placed) {
-        for container in &placed.containers {
-            let Ok(found) = self.find(container) else {
+    /// A row of a column that this placement put side by side with another (wrapped in a new
+    /// row, or in a container flipped to a row) is a column of that row now, where `flex-grow`
+    /// and `flex-shrink` act across. The 0 that `keep_natural_heights` gave it in the column
+    /// would keep it from sharing the row's width, so it gets Composer's 1 back.
+    fn release_moved_rows(&mut self, placed: &Placed) {
+        for id in placed.containers.iter().chain(&placed.flipped) {
+            let Ok(found) = self.find(id) else {
                 continue;
             };
-            let holds_chart = children(self.at(&found.path)).iter().any(|child| {
-                type_of(child).is_some_and(|type_id| type_id.starts_with("ptcschart"))
-                    && fills(child)
-            });
-            if holds_chart && type_of(self.at(&found.path)) == Some("flexcontainer") {
-                self.set_property(&found.path, "OverrideChildrenAbsolute", Value::Bool(true));
+            if self.at(&found.path)["Properties"]["flex-direction"] != "row" {
+                continue;
+            }
+            let count = children(self.at(&found.path)).len();
+            for index in 0..count {
+                let path = [found.path.as_slice(), &[index]].concat();
+                let child = self.at(&path);
+                if is_spacer(child) || !(is_generated_container(child) || is_panel(child)) {
+                    continue;
+                }
+                for key in ["flex-grow", "flex-shrink"] {
+                    if self.at(&path)["Properties"][key].as_f64() == Some(0.0) {
+                        self.set_property(&path, key, Value::from(1));
+                    }
+                }
             }
         }
     }
@@ -701,9 +708,10 @@ impl MashupDocument {
             {
                 continue;
             }
-            // A row of cards made of label/value rows takes at least its cards' height and no
-            // share of the column's spare height, as the kits' card rows (`range`) do; what
-            // fills (a chart, a grid) keeps the rest.
+            // A row of cards made of label/value rows takes at least its cards' height, as the
+            // kits' card rows (`range`) do. A `range` row grows like any other; beside a row that
+            // fills (a chart, a grid) `keep_natural_heights` stops it growing, so what fills keeps
+            // the spare height.
             if let Some(tallest) = card_row_height(row) {
                 if matches!(scope, Reflow::Placement { .. }) || contains_around(row, scope) {
                     let row_path = [column_path.as_slice(), &[index]].concat();
@@ -762,7 +770,129 @@ impl MashupDocument {
                     self.unfix_row(&last_path);
                 }
             }
+            if let Reflow::Placement { touched, .. } = scope {
+                self.keep_natural_heights(&column_path, touched);
+            }
         }
+    }
+
+    /// Keep twaco's rows at their content's height when the page is short. Runtime gives every
+    /// row's box `min-height: 0` and every container `overflow: auto` (Composer's `Scrolling`
+    /// default), so in a short viewport each row shrinks below its content and grows a scrollbar
+    /// of its own. A row twaco made instead never shrinks (`flex-shrink: 0`): the container
+    /// above them all, the page, scrolls once. A row holding a widget that fills (a chart, a
+    /// grid, a contained mashup) takes the spare height and, when it holds only that widget,
+    /// keeps a floor (a `range` row) so it cannot shrink to nothing; beside such a row the
+    /// other rows take no spare height (`flex-grow: 0`). Only rows the placement made (`made`)
+    /// change: fixed rows, named template slots, a container that was there before (Composer
+    /// names its own `container-N` too) and a `flex-grow` or `flex-shrink` someone set to
+    /// another value are left alone.
+    fn keep_natural_heights(&mut self, column_path: &[usize], made: &[String]) {
+        let rows = children(self.at(column_path)).to_vec();
+        let column_fills = rows.iter().any(|row| !is_spacer(row) && holds_filler(row));
+        for (index, row) in rows.iter().enumerate() {
+            if is_spacer(row)
+                || !(is_generated_container(row) || is_panel(row))
+                || !made.iter().any(|id| id == widget_id(row))
+            {
+                continue;
+            }
+            let size = &row["Properties"]["flex-size"];
+            if size == "fixed" {
+                continue;
+            }
+            let path = [column_path, &[index]].concat();
+            let fills = holds_filler(row);
+            if fills && (size.is_null() || size == "default") {
+                if let Some(floor) = filler_floor(row) {
+                    self.floor_row(&path, floor);
+                }
+            }
+            self.set_flex_factor(&path, "flex-shrink", 0);
+            self.set_flex_factor(&path, "flex-grow", u8::from(fills || !column_fills));
+        }
+    }
+
+    /// Set `flex-grow` or `flex-shrink` to 0 or 1 unless it holds a value of someone's own.
+    fn set_flex_factor(&mut self, path: &[usize], key: &str, value: u8) {
+        let current = &self.at(path)["Properties"][key];
+        let ours = current.is_null() || current.as_f64().is_some_and(|n| n == 0.0 || n == 1.0);
+        if ours && current.as_f64() != Some(f64::from(value)) {
+            self.set_property(path, key, Value::from(value));
+        }
+    }
+
+    /// Make a row a `range` row whose minimum is `px`, as the kits size a row that may grow.
+    fn floor_row(&mut self, path: &[usize], px: f64) {
+        self.set_property(path, "flex-size", Value::from("range"));
+        self.set_property(
+            path,
+            "flex-min-height",
+            Value::from(format!("{}px", px.ceil())),
+        );
+        self.set_property(path, "flex-max-height", Value::from(""));
+        self.set_property(
+            path,
+            "iconClass",
+            Value::from("widgets-flexcontainer-fixed"),
+        );
+    }
+
+    /// Give the row holding the contained mashup `id` a floor of the child's measured height
+    /// (`height`, from [`MashupDocument::natural_page_height`]) plus the container's own margins,
+    /// in place of the generic floor placement gave it. Only a generated row holding just that
+    /// container is changed.
+    pub(crate) fn floor_contained_row(&mut self, id: &str, height: f64) {
+        let Ok(found) = self.find(id) else {
+            return;
+        };
+        let Some((_, row_path)) = found.path.split_last() else {
+            return;
+        };
+        let row = self.at(row_path);
+        if !is_generated_container(row)
+            || children(row).len() != 1
+            || row["Properties"]["flex-size"] == "fixed"
+        {
+            return;
+        }
+        let margin = vertical_margin(
+            self.at(&found.path)["Properties"]["Margin"]
+                .as_str()
+                .unwrap_or(""),
+        );
+        self.floor_row(row_path, height + margin);
+    }
+
+    /// How tall this mashup's content is when nothing fills: the rows of its top container,
+    /// each fixed to its height or measured by its widgets, with the container's margins.
+    /// `None` when a row cannot be measured (it fills, or holds a widget of unknown height).
+    pub(crate) fn natural_page_height(&self) -> Option<f64> {
+        let top = children(&self.value["UI"])
+            .iter()
+            .find(|child| type_of(child) == Some("flexcontainer"))?;
+        let margin = vertical_margin(top["Properties"]["Margin"].as_str().unwrap_or(""));
+        let rows = children(top);
+        if rows.is_empty() {
+            return None;
+        }
+        let height = if top["Properties"]["flex-direction"] == "column" {
+            rows.iter()
+                .map(|row| {
+                    fixed_row_px(row).or_else(|| {
+                        let tallest = if type_of(row) == Some("flexcontainer") {
+                            fixed_row_height(row, false)
+                        } else {
+                            fixed_content_height(row, false)
+                        };
+                        tallest.map(|tallest| (tallest + ROW_MARGIN).ceil())
+                    })
+                })
+                .sum::<Option<f64>>()?
+        } else {
+            fixed_row_height(top, false)? + ROW_MARGIN
+        };
+        Some(height + margin)
     }
 
     /// Give a row a `range` size whose minimum is `tallest` plus a row's margin. A placement
@@ -784,14 +914,7 @@ impl MashupDocument {
         {
             return;
         }
-        self.set_property(path, "flex-size", Value::from("range"));
-        self.set_property(path, "flex-min-height", Value::from(format!("{height}px")));
-        self.set_property(path, "flex-max-height", Value::from(""));
-        self.set_property(
-            path,
-            "iconClass",
-            Value::from("widgets-flexcontainer-fixed"),
-        );
+        self.floor_row(path, height);
     }
 
     fn unfix_row(&mut self, path: &[usize]) {
@@ -1718,6 +1841,33 @@ fn is_footer(widget: &Value) -> bool {
 /// Whether a widget that fills sits anywhere inside `widget`, or is it.
 fn holds_filler(widget: &Value) -> bool {
     fills(widget) || children(widget).iter().any(holds_filler)
+}
+
+/// The most a filling widget's row keeps when the page is short. A 10.2 chart with its title
+/// and legend draws cleanly at 316px and collapses at 210px; a grid shows its header and about
+/// seven rows.
+const FILLER_FLOOR: f64 = 300.0;
+
+/// The floor of a row holding one widget that fills: Composer's drop height for it, at most
+/// [`FILLER_FLOOR`]. `None` for any other row, whose height comes from its content, and for a
+/// widget Composer drops with no height.
+fn filler_floor(row: &Value) -> Option<f64> {
+    let [widget] = children(row)
+        .iter()
+        .filter(|child| !is_spacer(child))
+        .collect::<Vec<_>>()[..]
+    else {
+        return None;
+    };
+    if !fills(widget) {
+        return None;
+    }
+    let drop = widgets::catalog()
+        .by_type(type_of(widget)?)?
+        .defaults
+        .get("Height")?
+        .as_f64()?;
+    Some(drop.min(FILLER_FLOOR))
 }
 
 /// A fixed row may contain fixed leaves directly, or the per-widget wrappers made for a toolbar.
@@ -3327,6 +3477,120 @@ mod tests {
         );
     }
 
+    /// The rows a placement makes keep their content's height when the page is short
+    /// (`flex-shrink: 0`), so the page scrolls once instead of every row growing a scrollbar.
+    /// Beside a row that fills, they take no spare height; in a column of controls the last row
+    /// still grows, its controls at its top.
+    #[test]
+    fn rows_twaco_makes_keep_their_natural_height_and_leave_spare_height_to_what_fills() {
+        let catalog = widgets::catalog();
+        let place = |document: &mut MashupDocument, widget: &str, placement: Placement| {
+            document
+                .place(catalog.resolve(widget).unwrap(), &placement)
+                .unwrap()
+                .id
+        };
+        let properties = |document: &MashupDocument, id: &str| {
+            document.at(&document.find(id).unwrap().path)["Properties"].clone()
+        };
+        let row_of = |document: &MashupDocument, id: &str| {
+            let path = document.find(id).unwrap().path;
+            document.at(&path[..path.len() - 1])["Properties"].clone()
+        };
+
+        // A panel above a grid: the panel keeps its height and takes none of the spare height.
+        let mut document = parse(crate::core::mashup::templates::BLANK).unwrap();
+        let grid = place(&mut document, "grid", Placement::In("center".into()));
+        let panel = place(
+            &mut document,
+            "container",
+            Placement::Beside {
+                anchor: grid.clone(),
+                side: Side::Above,
+            },
+        );
+        let panel_row = properties(&document, &panel);
+        assert_eq!(panel_row["flex-shrink"], 0, "{panel_row}");
+        assert_eq!(panel_row["flex-grow"], 0);
+        let grid_row = row_of(&document, &grid);
+        assert_eq!(grid_row["flex-shrink"], 0, "{grid_row}");
+        assert_eq!(grid_row["flex-grow"], 1);
+        assert_eq!(grid_row["flex-min-height"], "300px");
+        // A label placed in the panel later changes neither row.
+        place(&mut document, "label", Placement::In(panel.clone()));
+        assert_eq!(properties(&document, &panel)["flex-grow"], 0);
+        assert_eq!(row_of(&document, &grid), grid_row);
+        // A second panel beside it: both share the new row's width, and that row keeps its
+        // natural height beside the grid.
+        let second = place(
+            &mut document,
+            "container",
+            Placement::Beside {
+                anchor: panel.clone(),
+                side: Side::Right,
+            },
+        );
+        for id in [&panel, &second] {
+            let card = properties(&document, id);
+            assert_eq!(card["flex-grow"], 1, "{id}: {card}");
+            assert_eq!(card["flex-shrink"], 1, "{id}: {card}");
+        }
+        let cards = row_of(&document, &panel);
+        assert_eq!(cards["flex-direction"], "row", "{cards}");
+        assert_eq!(cards["flex-shrink"], 0);
+        assert_eq!(cards["flex-grow"], 0);
+
+        // A column of controls: the fixed rows stay as they are, the last row grows.
+        let mut controls = parse(crate::core::mashup::templates::BLANK).unwrap();
+        let first = place(&mut controls, "label", Placement::In("center".into()));
+        let second = place(
+            &mut controls,
+            "button",
+            Placement::Beside {
+                anchor: first.clone(),
+                side: Side::Below,
+            },
+        );
+        let first_row = row_of(&controls, &first);
+        assert_eq!(first_row["flex-size"], "fixed", "{first_row}");
+        assert_eq!(first_row["flex-shrink"], 1);
+        let last_row = row_of(&controls, &second);
+        assert_eq!(last_row["flex-size"], "default", "{last_row}");
+        assert_eq!(last_row["flex-shrink"], 0);
+        assert_eq!(last_row["flex-grow"], 1);
+    }
+
+    /// A `flex-grow` or `flex-shrink` someone chose is theirs: only Composer's 1 and twaco's 0
+    /// are changed.
+    #[test]
+    fn a_flex_factor_someone_chose_is_kept() {
+        let grid = filling_widget("ptcsgrid", "ptcsgrid-4", "Orders");
+        let body = container("flexcontainer-3", "container-3", "row", &grid);
+        let label = widget("ptcslabel", "ptcslabel-6", "Note", "");
+        let note = container("flexcontainer-5", "container-5", "row", &label);
+        let column = container(
+            "flexcontainer-2",
+            "content",
+            "column",
+            &format!("{note},{body}"),
+        );
+        let mut document = document(&column, 6);
+        let note_path = document.find("flexcontainer-5").unwrap().path;
+        document.set_property(&note_path, "flex-grow", Value::from(2));
+        document.set_property(&note_path, "flex-shrink", Value::from(3));
+        let column_path = document.find("flexcontainer-2").unwrap().path;
+        document.keep_natural_heights(
+            &column_path,
+            &["flexcontainer-3".to_string(), "flexcontainer-5".to_string()],
+        );
+        let note = &document.at(&note_path)["Properties"];
+        assert_eq!(note["flex-grow"], 2);
+        assert_eq!(note["flex-shrink"], 3);
+        let body = &document.at(&document.find("flexcontainer-3").unwrap().path)["Properties"];
+        assert_eq!(body["flex-shrink"], 0);
+        assert_eq!(body["flex-min-height"], "300px");
+    }
+
     #[test]
     fn a_placement_leaves_an_unrelated_default_named_row_alone() {
         let label = widget("ptcslabel", "ptcslabel-4", "Note", "");
@@ -3913,11 +4177,13 @@ mod placement_walkthrough {
         assert!(footer_of(&document).is_some());
     }
 
-    /// A chart filling a row twaco made keeps its own size, as the kits' charts do, so its row
-    /// takes the spare height; a grid keeps filling, and a container twaco did not make is left
-    /// as it is.
+    /// A widget that fills a row twaco made keeps a floor there (Composer's drop height, at most
+    /// 300px) and never shrinks below it, so a short page scrolls once instead of squeezing the
+    /// chart into a scrollbar of its own. The chart stays absolutely positioned (no
+    /// `OverrideChildrenAbsolute`), so it draws to whatever its row gets. A template slot and a
+    /// container that was there before are left as they are.
     #[test]
-    fn a_chart_in_a_row_twaco_made_keeps_its_own_size() {
+    fn a_widget_that_fills_a_row_twaco_made_keeps_a_floor() {
         let catalog = widgets::catalog();
         let place = |document: &mut MashupDocument, widget: &str, placement: Placement| {
             document
@@ -3925,9 +4191,9 @@ mod placement_walkthrough {
                 .unwrap()
                 .id
         };
-        let keeps = |document: &MashupDocument, id: &str| {
+        let row_of = |document: &MashupDocument, id: &str| {
             let path = document.find(id).unwrap().path;
-            document.at(&path[..path.len() - 1])["Properties"]["OverrideChildrenAbsolute"].clone()
+            document.at(&path[..path.len() - 1])["Properties"].clone()
         };
         let mut document = parse(crate::core::mashup::templates::BLANK).unwrap();
         let picker = place(&mut document, "datepicker", Placement::In("center".into()));
@@ -3935,7 +4201,7 @@ mod placement_walkthrough {
             &mut document,
             "pie-chart",
             Placement::Beside {
-                anchor: picker,
+                anchor: picker.clone(),
                 side: Side::Below,
             },
         );
@@ -3944,34 +4210,46 @@ mod placement_walkthrough {
             document.at(&chart_path)["Properties"]["ResponsiveLayout"],
             true
         );
-        assert_eq!(keeps(&document, &chart), true);
+        let row = row_of(&document, &chart);
+        assert_eq!(row["flex-size"], "range", "{row}");
+        assert_eq!(row["flex-min-height"], "300px");
+        assert_eq!(row["flex-max-height"], "");
+        assert_eq!(row["flex-shrink"], 0);
+        assert_eq!(row["flex-grow"], 1);
+        assert_ne!(row["OverrideChildrenAbsolute"], true);
+        // The picker's row stays fixed to its control.
+        assert_eq!(row_of(&document, &picker)["flex-size"], "fixed");
 
+        // A grid's floor is the 300px cap; a KPI dial's is its smaller drop height.
         let mut list = parse(crate::core::mashup::templates::BLANK).unwrap();
         let title = place(&mut list, "label", Placement::In("center".into()));
         let grid = place(
             &mut list,
             "grid",
             Placement::Beside {
-                anchor: title,
+                anchor: title.clone(),
                 side: Side::Below,
             },
         );
-        assert_ne!(keeps(&list, &grid), true);
-
-        // Alone in a template slot: the slot is not twaco's wrapper, so it is left alone...
-        let mut alone = parse(crate::core::mashup::templates::BLANK).unwrap();
-        let chart = place(&mut alone, "pie-chart", Placement::In("center".into()));
-        assert_ne!(keeps(&alone, &chart), true);
-        // ...until a placement wraps it in a row of twaco's own.
-        place(
-            &mut alone,
-            "button",
+        assert_eq!(row_of(&list, &grid)["flex-min-height"], "300px");
+        let dial = place(
+            &mut list,
+            "kpi-dial",
             Placement::Beside {
-                anchor: chart.clone(),
+                anchor: grid,
                 side: Side::Below,
             },
         );
-        assert_eq!(keeps(&alone, &chart), true);
+        assert_eq!(row_of(&list, &dial)["flex-min-height"], "186px");
+
+        // Alone in a template slot: the slot is not twaco's row, so it keeps Composer's sizing.
+        let mut alone = parse(crate::core::mashup::templates::BLANK).unwrap();
+        let before = alone.at(&alone.find("center").unwrap().path)["Properties"].clone();
+        place(&mut alone, "pie-chart", Placement::In("center".into()));
+        let center = &alone.at(&alone.find("center").unwrap().path)["Properties"];
+        for key in ["flex-size", "flex-min-height", "flex-shrink", "flex-grow"] {
+            assert_eq!(center[key], before[key], "{key}");
+        }
 
         // A container that existed before (Composer names its own `container-N` too) is never
         // changed by placing a chart in it.
@@ -3979,8 +4257,11 @@ mod placement_walkthrough {
         let existing = place(&mut theirs, "flexcontainer", Placement::In("center".into()));
         let found = theirs.find(&existing).unwrap();
         theirs.set_property(&found.path, "DisplayName", Value::from("container-7"));
+        let before = theirs.at(&found.path).clone();
         let chart = place(&mut theirs, "pie-chart", Placement::In(existing.clone()));
-        assert_ne!(keeps(&theirs, &chart), true);
+        let after = theirs.at(&theirs.find(&existing).unwrap().path);
+        assert_eq!(after["Properties"], before["Properties"]);
+        assert_ne!(row_of(&theirs, &chart)["OverrideChildrenAbsolute"], true);
     }
 
     /// A spacer between a card's rows counts at its size, so the card row's minimum still fits.

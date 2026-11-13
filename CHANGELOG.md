@@ -6,6 +6,18 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Pages twaco lays out no longer grow a scrollbar in every row on a short screen (a laptop at
+  1440x717, or a page shown in a master): the rows a placement makes keep their content's height
+  (`flex-shrink` 0) and the page scrolls once. A row holding a chart, grid or contained mashup takes
+  the spare height and keeps a floor (a `range` row at Composer's drop height, at most 300px; a
+  contained mashup's is measured from the child's rows); beside it the other new rows take no spare
+  height. Charts are laid out by their row again (no `OverrideChildrenAbsolute`), so they draw to
+  what the row gets instead of overflowing it. Measured on 10.2 with the KPI benchmark in a master:
+  30 nested scrollbars at 1440x717 before, one page scroll now; at 1440x900, two clipped KPI tiles
+  before, nothing clipped and no scrollbar now.
+
 ## [0.1.62] - 2026-11-12
 
 ### Fixed
