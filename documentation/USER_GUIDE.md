@@ -1222,10 +1222,7 @@ centred, and it keeps its natural height. In a column that also holds a grid or 
 instead, so the grid takes the spare height, as the kits' toolbars do. `mashup add <mashup> separator --below <widget>` adds
 the kits' 1px rule (`#C2C7CE`) between rows. The row holding such cards becomes a `range` row whose
 minimum is the cards' measured height (a `label` row is 19px on 10.2, a `sub-header` 27px, a
-`header` 33px). A `range` row still takes its share of the page's spare height, as every row
-does. A chart placed in a row twaco makes keeps its own size there, as the kits' charts do
-(`OverrideChildrenAbsolute` on its row), so a row of charts claims its share without help; to give
-more to a row of grids, set that row's `flex-grow` to 2 or 3. `--prop` values count in that measure, so set a dot's size and margins
+`header` 33px). `--prop` values count in that measure, so set a dot's size and margins
 there:
 
 ```sh
@@ -1234,6 +1231,20 @@ twaco mashup add Acme.App.Kpi_MU label --right-of shape-5 --label Objective --pr
 twaco mashup add Acme.App.Kpi_MU label --right-of ptcslabel-6 --end --label 12 --prop "Margin=0 18 0 5" --apply
 twaco mashup add Acme.App.Kpi_MU separator --below shape-5 --apply
 ```
+
+Pages twaco lays out keep working on short screens (a laptop at 1440x717, or a page shown in a
+master). Runtime lets every row of a responsive container shrink to nothing and gives each one a
+scrollbar of its own, so a squeezed page would grow a scrollbar in every row. The rows a placement
+makes never shrink below their content (`flex-shrink` 0); instead the page, the outermost
+container, scrolls once. A row holding a widget that fills (a chart, a grid, a contained mashup)
+takes the spare height and keeps a floor: a `range` row whose minimum is Composer's drop height
+for that widget, at most 300px (a chart with its legend draws cleanly at that size). A contained
+mashup's floor is measured from the child's own rows instead. Beside such a row, the rows a
+placement makes take no spare height (`flex-grow` 0), so a row of cards keeps its natural height
+and the chart or grid gets the rest. A chart is laid out by its row, so it draws to whatever its
+row gets. Rows that were already there, fixed rows, template slots and a `flex-grow` or
+`flex-shrink` you set yourself are left alone; to give more spare height to one of two growing
+rows, set its `flex-grow` to 2 or 3.
 
 The catalogue also has the older Composer `shape`: a rectangle, rounded rectangle, circle or
 ellipse (`ShapeType`) for status dots, badges and backgrounds. Its `Data` takes any scalar and its

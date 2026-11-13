@@ -434,6 +434,17 @@ use Mashup linkType/linkTarget and a mashup linkDestination. Flat rows silently 
 A lone widget fills a row container's height but only a column container's width. A menu bar in a
 column sidebar remains 68px; stock masters use rows.
 
+## Short pages grow a scrollbar in every row
+
+Runtime gives every responsive container's box `min-height: 0` and its content `overflow: auto`
+(Composer's `Scrolling` default). In a short viewport each `default` row shrinks below its content and
+scrolls on its own; a `range` row stops at its minimum but its inner rows still shrink. Verified on
+10.2 with a dense page in a master at 1440x717: 30 nested scrollbars. `flex-shrink: 0` on the
+content rows and a `range` floor on rows holding a filler leave one scroll, on the page.
+`OverrideChildrenAbsolute` does not keep a row at its content's height, and a chart laid out in the
+flow by it will not shrink below its title, legend and plot (about 370px): a shorter row overflows
+by the controls above the chart.
+
 ## Composer clears responsive-container margins
 
 Although the default Margin is 5, Composer normally clears it. Retaining 5 makes fixed bands

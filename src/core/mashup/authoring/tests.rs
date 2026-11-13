@@ -2449,6 +2449,90 @@ fn add_contained_refuses_invalid_children_and_settings() {
     );
 }
 
+/// A contained mashup's row keeps the child's own height as its floor, so a KPI tile is
+/// neither clipped nor padded out when the page is short; a child whose rows cannot be measured
+/// keeps the generic floor of Composer's 300px drop height. Either way the row never shrinks.
+#[test]
+fn a_contained_mashup_row_is_floored_at_the_childs_measured_height() {
+    use crate::core::mashup::edit::Side;
+    let (_dir, solution) = contained_fixture();
+    // The child: a header and a label, each in a fixed row of twaco's.
+    let header = add_one(
+        &solution,
+        "Acme.Card_MU",
+        "label",
+        Placement::In("center".into()),
+        &[("LabelType", "header")],
+    );
+    add_one(
+        &solution,
+        "Acme.Card_MU",
+        "label",
+        Placement::Beside {
+            anchor: header,
+            side: Side::Below,
+        },
+        &[],
+    );
+    // The header's row is fixed; the last row is the growing control row a column keeps, as
+    // tall as its label: 36px, its 5px margins and a row's 12px margin.
+    let child = content_of(&solution, "Acme.Card_MU");
+    let rows = child["UI"]["Widgets"][0]["Widgets"].as_array().unwrap();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0]["Properties"]["flex-size"], "fixed");
+    assert_eq!(rows[1]["Properties"]["flex-size"], "default");
+    let header_row: f64 = rows[0]["Properties"]["flex-min-height"]
+        .as_str()
+        .unwrap()
+        .trim_end_matches("px")
+        .parse()
+        .unwrap();
+    let child_rows = header_row + 36.0 + 10.0 + 12.0;
+
+    let title = add_one(
+        &solution,
+        "Acme.Board_MU",
+        "label",
+        Placement::In("center".into()),
+        &[],
+    );
+    let floor_of = |child: &str, anchor: &str| {
+        let plan = plan_add_contained(
+            &solution,
+            &AddContainedRequest {
+                mashup: "Acme.Board_MU".into(),
+                child: child.into(),
+                placement: Some(Placement::Beside {
+                    anchor: anchor.into(),
+                    side: Side::Below,
+                }),
+                settings: vec![],
+            },
+        )
+        .unwrap();
+        apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+        let content = content_of(&solution, "Acme.Board_MU");
+        let row = parent_id(&content["UI"], &plan.placed.id).unwrap();
+        let row = find_widget(&content["UI"], &row).unwrap()["Properties"].clone();
+        assert_eq!(row["flex-size"], "range", "{row}");
+        assert_eq!(row["flex-shrink"], 0);
+        (plan.placed.id, row["flex-min-height"].clone())
+    };
+    // The child's rows plus the container's own 5px margins above and below.
+    let (tile, floor) = floor_of("Acme.Card_MU", &title);
+    assert_eq!(floor, format!("{}px", child_rows + 10.0));
+
+    // An empty child cannot be measured: the row keeps the generic floor.
+    apply_new(
+        &solution,
+        &plan_new(&solution, &request("Acme.Empty_MU")).unwrap(),
+        &lock(&solution),
+    )
+    .unwrap();
+    let (_, floor) = floor_of("Acme.Empty_MU", &tile);
+    assert_eq!(floor, "300px");
+}
+
 #[test]
 fn add_contained_beside_a_label_uses_the_normal_placement_rules() {
     let (_dir, solution) = contained_fixture();
