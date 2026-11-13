@@ -3101,11 +3101,44 @@ fn a_filter_panel_gets_the_kits_grey_filters_and_white_content() {
     assert_eq!(styles["data"][&filters.id]["widget"], "flex-container");
     assert_eq!(
         document.at(&filters.path)["Properties"]["flex-min-width"],
-        "290px"
+        "276px"
     );
     assert!(document.at(&filters.path)["Properties"]
         .get("style")
         .is_none());
+}
+
+#[test]
+fn added_control_width_and_margin_props_cannot_overflow_a_bounded_container() {
+    let (_dir, solution) = one_project();
+    let name = "Acme.Form_MU";
+    apply_new(
+        &solution,
+        &plan_new(&solution, &request(name)).unwrap(),
+        &lock(&solution),
+    )
+    .unwrap();
+    let panel = add_one(
+        &solution,
+        name,
+        "container",
+        Placement::In("center".into()),
+        &[("flex-size", "range"), ("flex-max-width", "240px")],
+    );
+    for (width, expected) in [("900", 200.0), ("100", 100.0)] {
+        let id = add_one(
+            &solution,
+            name,
+            "text-field",
+            Placement::In(panel.clone()),
+            &[("Width", width), ("Margin", "13 20 5")],
+        );
+        let content = content_of(&solution, name);
+        assert_eq!(
+            find_widget(&content["UI"], &id).unwrap()["Properties"]["Width"].as_f64(),
+            Some(expected)
+        );
+    }
 }
 
 #[test]
@@ -3129,7 +3162,8 @@ fn filter_controls_are_inset_and_their_footer_stays_at_the_bottom() {
         "center"
     );
     let inset = document.at(&filters.path)["Properties"].clone();
-    assert_eq!(inset["Margin"], "13 0 5");
+    assert_eq!(inset["Margin"], "");
+    assert_eq!(inset["align-items"], "center");
     assert_eq!(inset["flex-size"], "range");
     assert_eq!(inset["flex-min-width"], "240px");
     assert_eq!(inset["flex-max-width"], "240px");
@@ -3156,12 +3190,28 @@ fn filter_controls_are_inset_and_their_footer_stays_at_the_bottom() {
     let dropdown = place(&mut document, "dropdown", Placement::In("filters".into()));
     let rows = children(document.at(&filters.path));
     assert_eq!(rows.len(), 4);
-    for (row, id) in rows[..3].iter().zip([search, date, dropdown]) {
+    for (index, (row, id)) in rows[..3].iter().zip([search, date, dropdown]).enumerate() {
         assert_eq!(children(row)[0]["Properties"]["Id"], id);
+        assert_eq!(
+            children(row)[0]["Properties"]["Width"].as_f64(),
+            Some(240.0)
+        );
+        assert_eq!(children(row)[0]["Properties"]["ResponsiveLayout"], false);
+        assert_eq!(
+            children(row)[0]["Properties"]["Margin"],
+            if index == 0 { "5 0" } else { "13 0 5" }
+        );
+        assert_eq!(row["Properties"]["justify-content"], "center");
         assert_eq!(row["Properties"]["flex-size"], "fixed");
-        assert_eq!(row["Properties"]["flex-min-height"], "56px");
-        assert_eq!(row["Properties"]["flex-max-height"], "56px");
-        assert_eq!(row["Properties"]["flex-shrink"], 1);
+        assert_eq!(
+            row["Properties"]["flex-min-height"],
+            if index == 0 { "56px" } else { "64px" }
+        );
+        assert_eq!(
+            row["Properties"]["flex-max-height"],
+            row["Properties"]["flex-min-height"]
+        );
+        assert_eq!(row["Properties"]["flex-shrink"], 0);
     }
     let footer = &rows[3];
     assert_eq!(
@@ -3175,6 +3225,11 @@ fn filter_controls_are_inset_and_their_footer_stays_at_the_bottom() {
     assert_eq!(footer["Properties"]["flex-size"], "default");
     assert_eq!(footer["Properties"]["flex-grow"], 1);
     assert_eq!(footer["Properties"]["flex-shrink"], 0);
+    assert_eq!(footer["Properties"]["Margin"], "0 5");
+    for button in children(footer) {
+        assert_eq!(button["Properties"]["Width"], 110);
+        assert_eq!(button["Properties"]["Margin"], "0");
+    }
     assert_eq!(document.at(&filters.path)["Properties"], inset);
     let styles = &document.root_properties()["StyleProperties"]["data"];
     for row in rows {

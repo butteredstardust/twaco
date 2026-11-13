@@ -80,6 +80,182 @@ fn find_widget<'a>(widget: &'a Value, id: &str) -> Option<&'a Value> {
 }
 
 #[test]
+fn runtime_reported_filter_and_blank_form_builds_fit_through_cli_and_mcp() {
+    for mcp in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::write(root.join("twaco.toml"), "[[project]]\nname = 'Acme'\n").unwrap();
+        for (name, template) in [
+            ("Acme.Filters_MU", "filter-panel"),
+            ("Acme.Form_MU", "blank"),
+        ] {
+            invoke(
+                root,
+                mcp,
+                &["mashup", "new", name, "--template", template, "--apply"],
+                "mashup_new",
+                json!({"name":name, "template":template, "dry_run":false}),
+            );
+        }
+        let add = |name: &str,
+                   kind: &str,
+                   flag: &str,
+                   anchor: &str,
+                   label: Option<&str>,
+                   extra: Option<&str>| {
+            let mut cli = vec!["mashup", "add", name, kind, flag, anchor, "--apply"];
+            let mut args = json!({"mashup":name, "widget":kind, "dry_run":false});
+            args[flag.trim_start_matches('-').replace('-', "_")] = json!(anchor);
+            if let Some(label) = label {
+                cli.extend(["--label", label]);
+                args["label"] = json!(label);
+            }
+            if let Some(extra) = extra {
+                cli.push(extra);
+                args[extra.trim_start_matches('-').replace('-', "_")] = json!(true);
+            }
+            invoke(root, mcp, &cli, "mashup_add", args)["id"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        };
+        let filters = "Acme.Filters_MU";
+        let search = add(
+            filters,
+            "text-field",
+            "--in",
+            "filters",
+            Some("Search"),
+            None,
+        );
+        let date = add(filters, "date-picker", "--in", "filters", None, None);
+        let category = add(
+            filters,
+            "dropdown",
+            "--in",
+            "filters",
+            Some("Category"),
+            None,
+        );
+        let apply = add(
+            filters,
+            "button",
+            "--in",
+            "filters",
+            Some("Apply"),
+            Some("--bottom"),
+        );
+        let clear = add(filters, "button", "--right-of", &apply, Some("Clear"), None);
+        add(filters, "grid", "--in", "content", None, None);
+        let read = |name: &str| -> Value {
+            serde_json::from_slice(
+                &std::fs::read(root.join(format!("src/{name}/mashup/content.json"))).unwrap(),
+            )
+            .unwrap()
+        };
+        let content = read(filters);
+        let slot = find_widget(&content["UI"], "flexcontainer-4").unwrap();
+        assert_eq!(slot["Properties"]["flex-max-width"], "240px");
+        let rows = slot["Widgets"].as_array().unwrap();
+        assert_eq!(rows.len(), 4);
+        for (index, (id, height)) in [(search, "78px"), (date, "64px"), (category, "86px")]
+            .iter()
+            .enumerate()
+        {
+            let row = &rows[index];
+            let control = find_widget(row, id).unwrap();
+            assert_eq!(control["Properties"]["Width"].as_f64(), Some(240.0));
+            assert_eq!(control["Properties"]["ResponsiveLayout"], false);
+            assert_eq!(
+                control["Properties"]["Margin"],
+                if index == 0 { "5 0" } else { "13 0 5" }
+            );
+            assert_eq!(row["Properties"]["flex-size"], "fixed");
+            assert_eq!(row["Properties"]["flex-min-height"], *height);
+            assert_eq!(row["Properties"]["flex-max-height"], *height);
+            assert_eq!(row["Properties"]["flex-shrink"], 0);
+            assert_eq!(row["Properties"]["justify-content"], "center");
+        }
+        let footer = &rows[3];
+        assert_eq!(leaf_ids(footer), [apply, clear]);
+        assert_eq!(footer["Properties"]["flex-grow"], 1);
+        assert_eq!(footer["Properties"]["align-items"], "flex-end");
+        assert_eq!(footer["Properties"]["Margin"], "0 5");
+        for button in footer["Widgets"].as_array().unwrap() {
+            assert_eq!(button["Properties"]["Width"], 110);
+            assert_eq!(button["Properties"]["Margin"], "0");
+        }
+        let form = "Acme.Form_MU";
+        let left = add(form, "text-field", "--in", "center", Some("Field 01"), None);
+        let right = add(
+            form,
+            "text-field",
+            "--right-of",
+            &left,
+            Some("Field 02"),
+            None,
+        );
+        let textarea = add(
+            form,
+            "text-area",
+            "--below",
+            &left,
+            Some("Description"),
+            Some("--in-column"),
+        );
+        let date = add(
+            form,
+            "date-picker",
+            "--below",
+            &right,
+            None,
+            Some("--in-column"),
+        );
+        let enabled = add(
+            form,
+            "checkbox",
+            "--below",
+            &date,
+            Some("Enabled"),
+            Some("--in-column"),
+        );
+        let save = add(form, "button", "--below", &textarea, Some("Save"), None);
+        let content = read(form);
+        let center = find_widget(&content["UI"], "flexcontainer-2").unwrap();
+        assert_eq!(center["Properties"]["flex-direction"], "column");
+        let rows = center["Widgets"].as_array().unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0]["Properties"]["flex-grow"], 0);
+        assert_eq!(rows[0]["Properties"]["flex-shrink"], 0);
+        assert_eq!(rows[0]["Properties"]["flex-min-height"], "192px");
+        let columns = rows[0]["Widgets"].as_array().unwrap();
+        assert_eq!(leaf_ids(&columns[0]), [left, textarea]);
+        assert_eq!(leaf_ids(&columns[1]), [right, date, enabled]);
+        assert_eq!(columns[0]["Properties"]["flex-min-height"], "178px");
+        assert_eq!(columns[0]["Properties"]["flex-max-height"], "178px");
+        for column in columns {
+            assert_eq!(column["Properties"]["flex-direction"], "column");
+            assert_eq!(column["Properties"]["justify-content"], "flex-start");
+            assert_eq!(column["Properties"]["align-items"], "flex-start");
+            assert_eq!(column["Properties"]["flex-grow"], 1);
+            for row in column["Widgets"].as_array().unwrap() {
+                assert_eq!(row["Properties"]["flex-direction"], "row");
+                assert_eq!(row["Properties"]["align-items"], "flex-start");
+                assert_eq!(row["Properties"]["justify-content"], "flex-start");
+            }
+        }
+        let textarea_row = &columns[0]["Widgets"][1]["Properties"];
+        assert_eq!(textarea_row["flex-min-height"], "100px");
+        assert_eq!(textarea_row["flex-grow"], 0);
+        assert_eq!(textarea_row["flex-shrink"], 0);
+        assert_eq!(leaf_ids(&rows[1]), [save]);
+        assert_eq!(rows[1]["Properties"]["flex-grow"], 1);
+        assert_eq!(rows[1]["Properties"]["flex-shrink"], 0);
+        assert_eq!(rows[1]["Properties"]["align-items"], "flex-start");
+    }
+}
+
+#[test]
 fn two_column_form_stacks_in_each_column_through_cli_and_mcp() {
     for mcp in [false, true] {
         let dir = tempfile::tempdir().unwrap();

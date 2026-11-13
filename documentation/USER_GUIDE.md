@@ -1115,11 +1115,14 @@ aliases and slots. Slots are responsive container names usable with `mashup add 
 | tabs | title, tabs | A tab set whose tabs each show a mashup (`--tab Label=Mashup`) |
 | dashboard | title, tiles, tile-1..tile-4, panels, side, main | Four KPI tiles above a side panel and a main panel (1:3) |
 
-`filter-panel` draws the kits' look: `filter-column` is a continuous 290px column on `#F7F7F7`.
-Inside it, `filters` is a centered 240px controls column with `Margin` `13 0 5` (13px above,
-5px below). Existing `--in filters` commands target this inner slot, including
+`filter-panel` draws the kits' look: `filter-column` is a continuous 276px column on `#F7F7F7`.
+Inside it, `filters` is a centered 240px controls column. Controls added there fit its width;
+the first gets `Margin` `5 0`, later controls `13 0 5` (13px above, 5px below, no horizontal
+inset). Generated rows center the controls and keep their content height without nested
+scrollbars. Existing `--in filters` commands target this inner slot, including
 `--in filters --bottom` for Apply and `--right-of <apply>` for Clear: their footer stays at the
-bottom while later filters go above it. The inner column and generated rows inherit the grey
+bottom while later filters go above it. Footer buttons get `Width` 110 and `Margin` 0;
+the footer row gets `Margin` `0 5`. The inner column and generated rows inherit the grey
 background. Content is white with a 24px margin. `list-page` gives its toolbar the same grey band. The colours are ordinary widget styles
 in the root's StyleProperties, so `mashup set <mashup> <slot> --style background=...` changes them.
 `dashboard` keeps the kits' 24px page margin around everything; `blank` has none, since it also serves
@@ -1275,7 +1278,11 @@ takes the spare height and keeps a floor: a `range` row whose minimum is Compose
 for that widget, at most 300px (a chart with its legend draws cleanly at that size). A widget
 whose catalogue has no height, such as a textarea, keeps a modest 100px floor. In a column with
 at least two control rows or widgets, all known controls (labels, fields, buttons and textareas),
-a textarea and its generated wrappers keep their floors with `flex-grow` 0. The last ordinary
+a textarea and its generated wrappers keep their floors with `flex-grow` 0. A compact generated
+column also stops at its measured content height, keeping fields together at the top even beside
+a taller column. Side-by-side fields on a blank page keep a vertical page wrapper, and default
+`--below <textarea>` places Save below the whole split form; use `--in-column` to keep a new
+control inside the textarea's column. The last ordinary
 control row can absorb spare height with its controls at the top; an explicit `--bottom` footer
 keeps its buttons at the bottom. A lone textarea still fills its panel. Charts, grids, other data
 fillers and unknown widgets keep the filling rules, even beside a title or buttons. Wrapping a filler
@@ -1287,6 +1294,13 @@ and the chart or grid gets the rest. A chart is laid out by its row, so it draws
 row gets. Rows that were already there, fixed rows, template slots and a `flex-grow` or
 `flex-shrink` you set yourself are left alone; to give more spare height to one of two growing
 rows, set its `flex-grow` to 2 or 3.
+
+When adding a fixed-size control, twaco caps its `Width` at the available pixel width of a fixed
+or range-limited container, including through generated wrappers. Container padding, borders,
+intermediate margins and the control's horizontal margins reduce that width. Smaller widths
+stay as requested; `--prop Width=...` and `--prop Margin=...` are checked together before the
+add is written. Percentage bounds and containers without an upper width bound need a Runtime
+viewport to measure, so twaco does not guess their width.
 
 The catalogue also has the older Composer `shape`: a rectangle, rounded rectangle, circle or
 ellipse (`ShapeType`) for status dots, badges and backgrounds. Its `Data` takes any scalar and its

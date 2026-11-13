@@ -429,6 +429,7 @@ pub(crate) fn plan_add(
             .path;
         document.set_property(&path, name, value);
     }
+    document.fit_placed_width(&placed.id);
     document.reflow_for(&placed.id);
     Ok(AddPlan {
         edit: finish_edit(loaded, document, "mashup add")?,

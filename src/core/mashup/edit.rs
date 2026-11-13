@@ -477,11 +477,109 @@ impl MashupDocument {
                 self.set_property(&found.path, "flex-direction", Value::from("column"));
             }
         }
+        self.style_filter_control(&placed);
+        self.fit_placed_width(&placed.id);
         self.keep_footers_last();
         self.release_moved_rows(&placed);
         self.fix_rows(&placed);
         self.inherit_backgrounds(&placed);
         Ok(placed)
+    }
+
+    /// Fixed controls must fit even through generated wrappers. Only pixel bounds are known
+    /// offline; an unbounded or percentage-sized container does not impose a guessed width.
+    pub(crate) fn fit_placed_width(&mut self, id: &str) {
+        let Ok(found) = self.find(id) else { return };
+        let leaf = self.at(&found.path);
+        if type_of(leaf) == Some("flexcontainer") || fills(leaf) {
+            return;
+        }
+        let Some(width) = leaf["Properties"]["Width"].as_f64() else {
+            return;
+        };
+        let styles = &self.value["UI"]["Properties"]["StyleProperties"]["data"];
+        let mut available: Option<f64> = None;
+        for depth in 1..found.path.len() {
+            let node = self.at(&found.path[..depth]);
+            let p = &node["Properties"];
+            if let Some(parent) = available {
+                available = Some(parent - horizontal_margin(p["Margin"].as_str().unwrap_or("")));
+            }
+            if p["flex-size"] == "fixed" || p["flex-size"] == "range" {
+                if let Some(bound) = css_px(&p["flex-max-width"]) {
+                    available = Some(available.map_or(bound, |parent| parent.min(bound)));
+                }
+            }
+            if let Some(parent) = available {
+                let css = &styles[widget_id(node)]["parts"]["$"]["$"];
+                let [left, right] = horizontal_sides(css["padding"].as_str().unwrap_or(""));
+                let padding = css_px(&css["padding-left"]).unwrap_or(left)
+                    + css_px(&css["padding-right"]).unwrap_or(right);
+                let border = if css["border-style"] == "none" || css["border-style"] == "hidden" {
+                    0.0
+                } else {
+                    horizontal_margin(css["border-width"].as_str().unwrap_or(""))
+                };
+                available = Some(parent - padding - border);
+            }
+        }
+        if let Some(available) = available {
+            let margin = horizontal_margin(leaf["Properties"]["Margin"].as_str().unwrap_or(""));
+            let maximum = (available - margin).max(0.0).floor();
+            if width > maximum {
+                self.set_property(&found.path, "Width", Value::from(maximum));
+            }
+        }
+    }
+
+    /// The filter-panel's named slot keeps the kit's per-control insets, including after
+    /// footer placement has moved its bare controls into rows.
+    fn style_filter_control(&mut self, placed: &Placed) {
+        let Ok(filters) = self.find("filters") else {
+            return;
+        };
+        let Some((_, column)) = filters.path.split_last() else {
+            return;
+        };
+        if self.at(column)["Properties"]["DisplayName"] != "filter-column" {
+            return;
+        }
+        let Ok(found) = self.find(&placed.id) else {
+            return;
+        };
+        if !found.path.starts_with(&filters.path) || found.type_id == "flexcontainer" {
+            return;
+        }
+        let footer = (filters.path.len()..found.path.len())
+            .find(|depth| is_footer(self.at(&found.path[..*depth])));
+        if let Some(depth) = footer {
+            self.set_property(&found.path[..depth], "Margin", Value::from("0 5"));
+            if found.type_id == "ptcsbutton" {
+                self.set_property(&found.path, "Width", Value::from(110));
+                self.set_property(&found.path, "Margin", Value::from("0"));
+            }
+        } else if !can_fill(self.at(&found.path)) {
+            let first = self
+                .widgets()
+                .into_iter()
+                .find(|widget| {
+                    widget.path.starts_with(&filters.path) && widget.type_id != "flexcontainer"
+                })
+                .is_some_and(|widget| widget.id == placed.id);
+            self.set_property(
+                &found.path,
+                "Margin",
+                Value::from(if first { "5 0" } else { "13 0 5" }),
+            );
+        }
+        for id in &placed.containers {
+            if let Ok(row) = self.find(id) {
+                if row.path.starts_with(&filters.path) && !is_footer(self.at(&row.path)) {
+                    self.set_property(&row.path, "justify-content", Value::from("center"));
+                    self.set_property(&row.path, "flex-shrink", Value::from(0));
+                }
+            }
+        }
     }
 
     /// A row of a column that this placement put side by side with another (wrapped in a new
@@ -666,6 +764,51 @@ impl MashupDocument {
         }
         for column in columns {
             self.reflow_column(&column, scope);
+        }
+        let styles = self.value["UI"]["Properties"]["StyleProperties"]["data"].clone();
+        for depth in (1..=path.len()).rev() {
+            let candidate = &path[..depth];
+            let node = self.at(candidate);
+            let capped = node["Properties"]["DisplayName"]
+                .as_str()
+                .is_some_and(|name| name.starts_with("container-form-"))
+                && node["Properties"]["flex-size"] == "range"
+                && node["Properties"]["flex-max-height"] == node["Properties"]["flex-min-height"];
+            if capped && holds_growing_filler(node, false, &styles) {
+                self.set_property(candidate, "flex-max-height", Value::from(""));
+            }
+            let node = self.at(candidate);
+            if is_generated_container(node)
+                && is_control_stack(node, &styles)
+                && holds_filler(node)
+                && !holds_growing_filler(node, false, &styles)
+                && matches!(
+                    node["Properties"]["flex-size"].as_str(),
+                    Some("default" | "range")
+                )
+                && (node["Properties"]["flex-max-height"] == "" || capped)
+            {
+                // Runtime's auto margins distribute unused height between fixed rows.
+                // Stop a compact column at its content, even beside a taller column.
+                if let Some(floor) = filler_floor(node, &styles) {
+                    let number = widget_id(node)
+                        .rsplit('-')
+                        .next()
+                        .unwrap_or_default()
+                        .to_string();
+                    self.set_property(
+                        candidate,
+                        "DisplayName",
+                        Value::from(format!("container-form-{number}")),
+                    );
+                    self.floor_row(candidate, floor);
+                    self.set_property(
+                        candidate,
+                        "flex-max-height",
+                        Value::from(format!("{}px", floor.ceil())),
+                    );
+                }
+            }
         }
     }
 
@@ -1328,6 +1471,26 @@ impl MashupDocument {
                 anchor.id
             )));
         }
+        if !in_column && side.axis() == "column" {
+            let styles = &self.value["UI"]["Properties"]["StyleProperties"]["data"];
+            let form = (1..anchor.path.len())
+                .rev()
+                .take_while(|depth| is_generated_container(self.at(&anchor.path[..*depth])))
+                .filter(|depth| {
+                    let node = self.at(&anchor.path[..*depth]);
+                    holds_filler(node)
+                        && !holds_growing_filler(node, false, styles)
+                        && node["Properties"]["flex-direction"] == "row"
+                        && children(node).len() > 1
+                        && children(node)
+                            .iter()
+                            .all(|child| type_of(child) == Some("flexcontainer"))
+                })
+                .last();
+            if let Some(depth) = form {
+                anchor = self.find(widget_id(self.at(&anchor.path[..depth])))?;
+            }
+        }
         // A control row twaco made running the other way is part of the anchor, not the place to
         // put a sibling: below a field in its row, or below a toolbar button, means a new row in
         // the enclosing column, not turning the row into a column. A named container, or a cell
@@ -1384,7 +1547,9 @@ impl MashupDocument {
         let axis_matches = direction.as_deref() == Some(side.axis());
         // A lone widget's container turns to the new direction, except a panel someone added:
         // it keeps stacking its content, and the pair gets a row of its own inside it.
-        let may_turn = parent_children.len() == 1 && !is_panel(parent);
+        let may_turn = parent_children.len() == 1
+            && !is_panel(parent)
+            && !starts_page_form(&parent_path, &anchor.type_id, side);
         let sibling_possible = !fills(self.at(&anchor.path))
             && (!filler || (anchor_is_container && axis_matches))
             && (axis_matches || may_turn);
@@ -1581,7 +1746,10 @@ impl MashupDocument {
         // The anchor alone in its container (a widget that fills it): that container becomes the
         // row or column itself, holding the anchor and the new widget each in a container of
         // their own, rather than gaining one more level that holds a single container.
-        if children(self.at(parent_path)).len() == 1 && !is_panel(self.at(parent_path)) {
+        if children(self.at(parent_path)).len() == 1
+            && !is_panel(self.at(parent_path))
+            && !starts_page_form(parent_path, &anchor.type_id, side)
+        {
             let parent_id = widget_id(self.at(parent_path)).to_string();
             if self.at(parent_path)["Properties"]["flex-direction"].as_str() != Some(side.axis()) {
                 self.set_property(parent_path, "flex-direction", Value::from(side.axis()));
@@ -1886,6 +2054,34 @@ fn vertical_margin(margin: &str) -> f64 {
         [top, _, bottom] | [top, _, bottom, _] => top + bottom,
         _ => 0.0,
     }
+}
+
+fn horizontal_margin(margin: &str) -> f64 {
+    horizontal_sides(margin).iter().sum()
+}
+
+fn horizontal_sides(margin: &str) -> [f64; 2] {
+    let sides: Vec<f64> = margin
+        .split_whitespace()
+        .map(|side| side.trim_end_matches("px").parse().unwrap_or(0.0))
+        .collect();
+    match sides.as_slice() {
+        [all] => [*all, *all],
+        [_, horizontal] | [_, horizontal, _] => [*horizontal, *horizontal],
+        [_, right, _, left] => [*left, *right],
+        _ => [0.0, 0.0],
+    }
+}
+
+/// A blank page needs a vertical parent for the form and its eventual Save row. Data panels
+/// and ordinary toolbars retain the existing rule that a lone container may turn horizontally.
+fn starts_page_form(parent: &[usize], anchor_type: &str, side: Side) -> bool {
+    parent.len() == 1
+        && side.axis() == "row"
+        && matches!(
+            anchor_type,
+            "ptcstextfield" | "ptcsdatepicker" | "ptcsdropdown" | "ptcstextarea" | "ptcscheckbox"
+        )
 }
 
 fn fills(widget: &Value) -> bool {
@@ -4272,6 +4468,165 @@ mod placement_walkthrough {
     fn parent_of<'a>(document: &'a MashupDocument, id: &str) -> &'a Value {
         let path = document.find(id).unwrap().path;
         document.at(&path[..path.len() - 1])
+    }
+
+    #[test]
+    fn placed_controls_fit_pixel_width_bounds_through_wrappers_and_insets() {
+        let catalog = widgets::catalog();
+        for (mode, bound, margin, expected) in [
+            ("fixed", "240px", "5", 210),
+            ("range", "240px", "13 0 5", 220),
+            ("range", "240px", "0 7 0 13", 200),
+            ("range", "240px", "0 6", 208),
+            ("range", "90px", "0 60", 0),
+            ("default", "240px", "5", 273),
+            ("range", "50%", "5", 273),
+        ] {
+            let mut document = parse(crate::core::mashup::templates::BLANK).unwrap();
+            let center = document.find("center").unwrap();
+            document.set_property(&center.path, "flex-size", Value::from(mode));
+            document.set_property(&center.path, "flex-max-width", Value::from(bound));
+            document.set_property(&center.path, "flex-min-width", Value::from(bound));
+            document.set_property(&center.path, "Margin", Value::from("0 50"));
+            document.set_property(&[], "StyleProperties", serde_json::json!({"data": {"flexcontainer-2": {
+                "parts": {"$": {"$": {"padding":"8px", "padding-right":"8px", "border-width":"2px", "border-style":"solid"}}}
+            }}}));
+            // A footer forces both the old and the new controls into generated rows.
+            document
+                .place(
+                    catalog.resolve("button").unwrap(),
+                    &Placement::Bottom("center".into()),
+                )
+                .unwrap();
+            let mut field = catalog.resolve("textfield").unwrap().clone();
+            field.defaults.insert("Margin".into(), Value::from(margin));
+            let placed = document
+                .place(&field, &Placement::In("center".into()))
+                .unwrap();
+            let node = document.at(&document.find(&placed.id).unwrap().path);
+            assert_eq!(
+                node["Properties"]["Width"].as_f64(),
+                Some(f64::from(expected)),
+                "{mode} {bound} {margin}"
+            );
+            assert_eq!(node["Properties"]["ResponsiveLayout"], false);
+            assert!(document.problems().is_empty());
+        }
+    }
+
+    #[test]
+    fn a_two_column_form_with_save_below_the_textarea_packs_its_rows_at_the_top() {
+        let catalog = widgets::catalog();
+        let mut document = parse(crate::core::mashup::templates::BLANK).unwrap();
+        let mut add = |kind: &str, placement| {
+            document
+                .place(catalog.resolve(kind).unwrap(), &placement)
+                .unwrap()
+                .id
+        };
+        let left = add("textfield", Placement::In("center".into()));
+        let right = add(
+            "textfield",
+            Placement::Beside {
+                anchor: left.clone(),
+                side: Side::Right,
+            },
+        );
+        let description = add("textarea", Placement::BelowInColumn(left.clone()));
+        let date = add("datepicker", Placement::BelowInColumn(right.clone()));
+        let enabled = add("checkbox", Placement::BelowInColumn(date.clone()));
+        let save = add(
+            "button",
+            Placement::Beside {
+                anchor: description.clone(),
+                side: Side::Below,
+            },
+        );
+        let center = document.find("center").unwrap();
+        let rows = children(document.at(&center.path));
+        assert_eq!(rows.len(), 2, "Save belongs below the entire form");
+        assert!(contains(&rows[1], &save));
+        assert_eq!(rows[0]["Properties"]["flex-grow"], 0);
+        assert_eq!(rows[0]["Properties"]["flex-shrink"], 0);
+        assert_eq!(rows[1]["Properties"]["flex-grow"], 1);
+        assert_eq!(rows[1]["Properties"]["align-items"], "flex-start");
+        let columns = children(&rows[0]);
+        assert_eq!(columns.len(), 2);
+        for column in columns {
+            assert_eq!(column["Properties"]["flex-direction"], "column");
+            assert_eq!(column["Properties"]["justify-content"], "flex-start");
+            assert_eq!(column["Properties"]["flex-grow"], 1);
+        }
+        assert_eq!(columns[0]["Properties"]["flex-min-height"], "156px");
+        assert_eq!(columns[0]["Properties"]["flex-max-height"], "156px");
+        assert_eq!(
+            parent_of(&document, &description)["Properties"]["flex-grow"],
+            0
+        );
+        assert_eq!(
+            parent_of(&document, &description)["Properties"]["flex-shrink"],
+            0
+        );
+        assert_eq!(
+            parent_of(&document, &left)["Properties"]["flex-size"],
+            "fixed"
+        );
+        for id in [right, date, enabled] {
+            assert_eq!(
+                parent_of(&document, &id)["Properties"]["align-items"],
+                "flex-start"
+            );
+        }
+    }
+
+    #[test]
+    fn a_compact_form_column_releases_its_height_cap_when_a_grid_joins_it() {
+        let catalog = widgets::catalog();
+        let mut document = parse(crate::core::mashup::templates::BLANK).unwrap();
+        let left = document
+            .place(
+                catalog.resolve("textfield").unwrap(),
+                &Placement::In("center".into()),
+            )
+            .unwrap()
+            .id;
+        document
+            .place(
+                catalog.resolve("textfield").unwrap(),
+                &Placement::Beside {
+                    anchor: left.clone(),
+                    side: Side::Right,
+                },
+            )
+            .unwrap();
+        let textarea = document
+            .place(
+                catalog.resolve("textarea").unwrap(),
+                &Placement::BelowInColumn(left),
+            )
+            .unwrap()
+            .id;
+        let column = parent_of(&document, &textarea)["Properties"]["Id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let column = parent_of(&document, &column)["Properties"]["Id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert_eq!(
+            document.at(&document.find(&column).unwrap().path)["Properties"]["flex-max-height"],
+            "156px"
+        );
+        document
+            .place(
+                catalog.resolve("grid").unwrap(),
+                &Placement::BelowInColumn(textarea),
+            )
+            .unwrap();
+        let p = &document.at(&document.find(&column).unwrap().path)["Properties"];
+        assert_eq!(p["flex-max-height"], "");
+        assert_eq!(p["flex-grow"], 1);
     }
 
     #[test]
