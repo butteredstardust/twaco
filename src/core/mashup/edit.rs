@@ -898,6 +898,22 @@ impl MashupDocument {
                 .unwrap_or(""),
         );
         self.floor_row(row_path, height + margin);
+        // The columns this placement made around the row were floored with the generic drop
+        // height; measure them again from their rows.
+        let styles = self.value["UI"]["Properties"]["StyleProperties"]["data"].clone();
+        let mut path = row_path.to_vec();
+        while path.pop().is_some() && !path.is_empty() {
+            let node = self.at(&path);
+            if !is_generated_container(node)
+                || !made.iter().any(|made| made == widget_id(node))
+                || node["Properties"]["flex-size"] != "range"
+            {
+                continue;
+            }
+            if let Some(floor) = wrapper_floor_from(node, &styles, false) {
+                self.floor_row(&path, floor);
+            }
+        }
     }
 
     /// How tall this mashup's content is when nothing fills: the rows of its top container,
@@ -1909,6 +1925,12 @@ fn filler_floor(row: &Value, styles: &Value) -> Option<f64> {
 }
 
 fn wrapper_floor(widget: &Value, styles: &Value) -> Option<f64> {
+    wrapper_floor_from(widget, styles, true)
+}
+
+/// [`wrapper_floor`], optionally ignoring the container's own current minimum (to recompute a
+/// floor that a later, smaller measurement made stale).
+fn wrapper_floor_from(widget: &Value, styles: &Value, own_minimum: bool) -> Option<f64> {
     if fills(widget) {
         if let Some(height) = widget["Properties"]["Height"].as_f64() {
             return Some(height);
@@ -1926,6 +1948,17 @@ fn wrapper_floor(widget: &Value, styles: &Value) -> Option<f64> {
     }
     if let Some(height) = fixed_row_px(widget) {
         return Some(height);
+    }
+    // A range row around a filler already says how much it keeps (a contained mashup's floor
+    // is measured from the child); the filler's drop height would overstate it.
+    let only = children(widget)
+        .iter()
+        .filter(|child| !is_spacer(child))
+        .collect::<Vec<_>>();
+    if widget["Properties"]["flex-size"] == "range" && matches!(only[..], [child] if fills(child)) {
+        if let Some(floor) = css_px(&widget["Properties"]["flex-min-height"]) {
+            return Some(floor);
+        }
     }
     let heights = children(widget)
         .iter()
@@ -1945,7 +1978,7 @@ fn wrapper_floor(widget: &Value, styles: &Value) -> Option<f64> {
         row_allowance(widget)
     };
     let height = height + allowance + vertical_insets(widget, styles);
-    let minimum = (widget["Properties"]["flex-size"] == "range")
+    let minimum = (own_minimum && widget["Properties"]["flex-size"] == "range")
         .then(|| css_px(&widget["Properties"]["flex-min-height"]))
         .flatten()
         .unwrap_or(0.0);

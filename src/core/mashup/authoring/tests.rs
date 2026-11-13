@@ -8329,3 +8329,67 @@ fn collection_add_sets_a_checked_cell_menu_and_refuses_bad_sizing() {
     );
     assert!(handler.is_ok(), "{:?}", handler.err());
 }
+
+#[test]
+fn a_card_around_a_contained_mashup_keeps_the_childs_floor_not_the_drop_height() {
+    use crate::core::mashup::edit::Side;
+    let (_dir, solution) = contained_fixture();
+    add_one(
+        &solution,
+        "Acme.Card_MU",
+        "label",
+        Placement::In("center".into()),
+        &[("LabelType", "header")],
+    );
+    let card = add_one(
+        &solution,
+        "Acme.Board_MU",
+        "container",
+        Placement::In("center".into()),
+        &[],
+    );
+    let title = add_one(
+        &solution,
+        "Acme.Board_MU",
+        "label",
+        Placement::In(card),
+        &[],
+    );
+    let plan = plan_add_contained(
+        &solution,
+        &AddContainedRequest {
+            mashup: "Acme.Board_MU".into(),
+            child: "Acme.Card_MU".into(),
+            placement: Some(Placement::Beside {
+                anchor: title,
+                side: Side::Below,
+            }),
+            settings: vec![],
+        },
+    )
+    .unwrap();
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    let content = content_of(&solution, "Acme.Board_MU");
+    let px = |value: &Value| -> f64 {
+        value
+            .as_str()
+            .and_then(|text| text.strip_suffix("px"))
+            .and_then(|text| text.parse().ok())
+            .unwrap_or(0.0)
+    };
+    let row = parent_id(&content["UI"], &plan.placed.id).unwrap();
+    let floor = px(&find_widget(&content["UI"], &row).unwrap()["Properties"]["flex-min-height"]);
+    assert!(floor > 0.0 && floor < 300.0, "{floor}");
+    // Every column above the tile floors at most its rows: the title plus the tile's floor.
+    let mut id = row;
+    while let Some(parent) = parent_id(&content["UI"], &id) {
+        let properties = &find_widget(&content["UI"], &parent).unwrap()["Properties"];
+        if properties["flex-size"] == "range" {
+            assert!(
+                px(&properties["flex-min-height"]) < 300.0,
+                "{parent}: {properties}"
+            );
+        }
+        id = parent;
+    }
+}
