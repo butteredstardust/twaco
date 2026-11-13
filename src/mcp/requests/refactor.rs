@@ -799,6 +799,9 @@ pub(crate) struct MashupAddRequest {
     /// With in: put the widget in a footer row at the bottom of that column (a filter panel's Apply and Clear); later widgets go above it.
     #[serde(default)]
     pub(crate) bottom: bool,
+    /// With below: stack within the anchor's column of a split row, keeping the other columns beside it.
+    #[serde(default)]
+    pub(crate) in_column: bool,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) label: Absent<String>,
     /// Simple catalogue default properties to set by exact property name.

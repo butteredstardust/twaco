@@ -622,6 +622,23 @@ pub(crate) fn mashup_add_tool(
             _ => return Err(ToolError::invalid("bottom goes with in")),
         }
     }
+    if arguments.in_column {
+        use crate::core::mashup::edit::{Placement, Side};
+        match supplied.first_mut() {
+            Some(placement) => {
+                if let Placement::Beside {
+                    anchor,
+                    side: Side::Below,
+                } = placement
+                {
+                    *placement = Placement::BelowInColumn(anchor.clone());
+                } else {
+                    return Err(ToolError::invalid("in_column goes with below"));
+                }
+            }
+            None => return Err(ToolError::invalid("in_column goes with below")),
+        }
+    }
     let request = commands::mashup::MashupAddRequest {
         request: crate::core::mashup::authoring::AddRequest {
             mashup: nonempty(&arguments.mashup, "mashup")?.to_string(),

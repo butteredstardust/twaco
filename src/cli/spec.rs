@@ -703,7 +703,7 @@ pub(crate) const USAGE: &[Usage] = &[
         path: "mashup add",
         group: 1,
         text: r#"  mashup add <mashup> <widget> [--in <container> [--bottom] | --right-of <widget> [--end] | --left-of <widget> | --above <widget> | --below <widget>]
-      [--label <text>] [--prop <name=value>]... [--input <name:TYPE[=default]>]... [--apply] [--json]
+      [--in-column] [--label <text>] [--prop <name=value>]... [--input <name:TYPE[=default]>]... [--apply] [--json]
                               add a catalogue widget, or one an [[extension]] project defines, to a
                               mashup; plan unless --apply; a function widget (expression, validator,
                               navigation...) goes beside the layout
@@ -714,6 +714,8 @@ pub(crate) const USAGE: &[Usage] = &[
                               place beside an existing widget
       --end                   with --right-of: at the far end of the row, which splits into a start
                               and an end group (a label and its value, as the kits lay them out)
+      --in-column             with --below: stack within that widget's column of a split row;
+                              by default --below adds a row beneath the whole control row
       separator               as <widget>: the kits' 1px rule between rows, --below or --above one
       --label <text>          set the widget's LabelText, Label, Text or Title property
       --prop <name=value>     set one simple default property, repeatable; an extension widget's

@@ -370,8 +370,21 @@ fn hand_written_tools() -> Vec<Value> {
     );
     let mut tools: Vec<Value> =
         serde_json::from_str(&std::fs::read_to_string(HAND_WRITTEN).unwrap()).unwrap();
-    // Keep the migration baseline on disk intact. This additive option postdates it; all
+    // Keep the migration baseline on disk intact. These additive options postdate it; all
     // original fields still have to retain their meaning, defaults and validation errors.
+    let add = tools
+        .iter_mut()
+        .find(|tool| tool["name"] == "mashup_add")
+        .unwrap();
+    add["description"] = json!(add["description"].as_str().unwrap().replace(
+        "A widget that can fill",
+        "With below and in_column: true, stack within the anchor's column of a split row; default below places a new row beneath the whole control row. A widget that can fill",
+    ));
+    add["inputSchema"]["properties"]["in_column"] = json!({
+        "description": "With below: stack within the anchor's column of a split row, keeping the other columns beside it.",
+        "type": "boolean",
+        "default": false
+    });
     let recipe = tools
         .iter_mut()
         .find(|tool| tool["name"] == "mashup_recipe")
@@ -3436,6 +3449,29 @@ fn mashup_add_end_splits_the_row_and_needs_right_of() {
         refused.to_string().contains("end goes with right_of"),
         "{refused}"
     );
+}
+
+#[test]
+fn mashup_add_in_column_requires_below() {
+    let (_dir, root) = solution_dir();
+    for placement in [
+        json!({}),
+        json!({"in":"center"}),
+        json!({"right_of":"ptcstextfield-3"}),
+        json!({"above":"ptcstextfield-3"}),
+        json!({"below":"ptcstextfield-3", "end":true}),
+        json!({"in":"center", "bottom":true}),
+    ] {
+        let mut arguments =
+            json!({"mashup":"Acme.Form_MU", "widget":"textfield", "in_column":true});
+        arguments
+            .as_object_mut()
+            .unwrap()
+            .extend(placement.as_object().unwrap().clone());
+        let refused = call(&root, "mashup_add", arguments);
+        assert_eq!(refused["isError"], true, "{refused}");
+        assert!(refused.to_string().contains("goes with"), "{refused}");
+    }
 }
 
 #[test]

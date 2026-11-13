@@ -8,6 +8,8 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- `mashup add --below <widget> --in-column` (MCP `in_column`) stacks inside a split row's
+  column, so two-column forms keep independent field stacks. Default `--below` placement is unchanged.
 - `mashup recipe confirm` accepts `--action-label` and `--cancel-label` (MCP `action_label`,
   `cancel_label`). `recipe tracker` configures an interactive large progress tracker from a
   service result DataShape, with explicit `--field-map` / MCP `field_maps` overrides.
@@ -28,6 +30,9 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Fixed
 
+- Repeating `mashup recipe set-on-click` or `recipe message` with identical wiring leaves the
+  entity and content sidecar byte-identical, including `message --on-failure`. Different
+  expressions, inputs, parameters, triggers or message text still add their own wiring.
 - Filling widgets keep a usable minimum height when `mashup add --below` or `--right-of`
   wraps them in nested containers. Textareas without a catalogue height keep a 100px floor;
   horizontal dividers keep their 1px thickness instead of taking the column's spare height.

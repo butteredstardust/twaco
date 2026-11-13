@@ -167,6 +167,108 @@ struct Work<'a> {
 }
 
 impl Work<'_> {
+    // Address resolution can refresh contained parameters or add data calls. Probe a copy so
+    // detecting existing wiring cannot change the document, and reuse bind/on's address rules.
+    fn has_binding(&self, from: &str, to: &str) -> bool {
+        matches!(
+            bind_in(
+                &mut self.document.clone(),
+                Some(self.solution),
+                &self.context,
+                from,
+                to
+            ),
+            Err(AuthoringError::Exists(_))
+        )
+    }
+
+    fn has_handler(&self, event: &str, invoke: &str) -> bool {
+        matches!(
+            on_in(&mut self.document.clone(), &self.context, event, invoke),
+            Err(AuthoringError::Exists(_))
+        )
+    }
+
+    fn has_set_on_click(
+        &self,
+        trigger: &str,
+        destination: &str,
+        expression: &str,
+        base: &str,
+        inputs: &[(String, String)],
+    ) -> bool {
+        let mut names: Vec<_> = inputs.iter().map(|(name, _)| name.as_str()).collect();
+        names.sort_unstable();
+        self.document.widgets().iter().any(|widget| {
+            let props = &self.document.at(&widget.path)["Properties"];
+            if widget.type_id != "expression2"
+                || props["Expression"] != expression
+                || props["OutputBaseType"] != base
+                || props["AutoEvaluate"] != false
+                || props["DisableInitialOutput"] != true
+                || props["DataChangeType"] != "ALWAYS"
+            {
+                return false;
+            }
+            let mut existing_names: Vec<_> = props["_currentParameterDefs"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|definition| definition["ParameterName"].as_str())
+                .collect();
+            existing_names.sort_unstable();
+            existing_names == names
+                && self.has_handler(trigger, &format!("ui:{}.Evaluate", widget.id))
+                && self.has_binding(&format!("ui:{}.Output", widget.id), destination)
+                && inputs.iter().all(|(name, address)| {
+                    self.has_binding(address, &format!("ui:{}.{}", widget.id, name))
+                })
+        })
+    }
+
+    fn message(
+        &mut self,
+        event: &str,
+        text: Option<&str>,
+        from: Option<&str>,
+        kind: &str,
+    ) -> Result<(), AuthoringError> {
+        let exists = self.document.widgets().iter().any(|widget| {
+            let props = &self.document.at(&widget.path)["Properties"];
+            widget.type_id == "statusmessage"
+                && props["MessageType"] == kind
+                && text.is_none_or(|text| {
+                    props["Message"] == text
+                        && !self.document.value()["DataBindings"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .any(|binding| {
+                                binding["TargetArea"] == "UI"
+                                    && binding["TargetId"] == widget.id
+                                    && binding["PropertyMaps"].as_array().is_some_and(|maps| {
+                                        maps.iter().any(|map| map["TargetProperty"] == "Message")
+                                    })
+                            })
+                })
+                && from
+                    .is_none_or(|from| self.has_binding(from, &format!("ui:{}.Message", widget.id)))
+                && self.has_handler(event, &format!("ui:{}.ShowMessage", widget.id))
+        });
+        if exists {
+            return Ok(());
+        }
+        let mut properties = vec![("MessageType", json!(kind))];
+        if let Some(text) = text {
+            properties.push(("Message", json!(text)));
+        }
+        let id = self.add("statusmessage", &properties);
+        if let Some(from) = from {
+            self.bind(from, &format!("ui:{id}.Message"))?;
+        }
+        self.on(event, &format!("ui:{id}.ShowMessage"))
+    }
+
     /// A widget under the mashup root, beside the layout, with these properties.
     fn add(&mut self, type_id: &str, properties: &[(&str, Value)]) -> String {
         let widget = widgets::catalog()
@@ -500,18 +602,29 @@ pub(crate) fn plan_recipe(
         } => {
             let destination = format!("mashup:{parameter}");
             let base = work.source_type(&destination)?;
-            let id = work.computed("expression2", &assigning(expression), Some(&base), inputs)?;
-            let expression_widget = widget_id(&work.document, &id)?;
-            work.set(
-                &expression_widget,
-                &[
-                    ("AutoEvaluate", json!(false)),
-                    ("DisableInitialOutput", json!(true)),
-                    ("DataChangeType", json!("ALWAYS")),
-                ],
-            );
-            work.bind(&format!("ui:{id}.Output"), &destination)?;
-            work.on(&widget_event(trigger), &format!("ui:{id}.Evaluate"))?;
+            if work.has_set_on_click(
+                &widget_event(trigger),
+                &destination,
+                &assigning(expression),
+                &base,
+                inputs,
+            ) {
+                work.notes.push("set-on-click wiring already exists".into());
+            } else {
+                let id =
+                    work.computed("expression2", &assigning(expression), Some(&base), inputs)?;
+                let expression_widget = widget_id(&work.document, &id)?;
+                work.set(
+                    &expression_widget,
+                    &[
+                        ("AutoEvaluate", json!(false)),
+                        ("DisableInitialOutput", json!(true)),
+                        ("DataChangeType", json!("ALWAYS")),
+                    ],
+                );
+                work.bind(&format!("ui:{id}.Output"), &destination)?;
+                work.on(&widget_event(trigger), &format!("ui:{id}.Evaluate"))?;
+            }
         }
         Recipe::Tracker {
             widget,
@@ -567,17 +680,11 @@ pub(crate) fn plan_recipe(
                 ));
             }
             if text.is_some() || from.is_some() {
-                let mut properties = vec![("MessageType", json!(kind))];
-                if let Some(text) = text {
-                    properties.push(("Message", json!(text)));
-                }
-                let id = work.add("statusmessage", &properties);
-                if let Some(from) = from {
-                    work.bind(from, &format!("ui:{id}.Message"))?;
-                }
-                work.on(
+                work.message(
                     &call_event(after, "ServiceInvokeCompleted")?,
-                    &format!("ui:{id}.ShowMessage"),
+                    text.as_deref(),
+                    from.as_deref(),
+                    kind,
                 )?;
             }
             if let Some(text) = on_failure {
@@ -586,14 +693,7 @@ pub(crate) fn plan_recipe(
                         "--on-failure needs nonempty error text".into(),
                     ));
                 }
-                let id = work.add(
-                    "statusmessage",
-                    &[("MessageType", json!("error")), ("Message", json!(text))],
-                );
-                work.on(
-                    &call_event(after, "Data_Error")?,
-                    &format!("ui:{id}.ShowMessage"),
-                )?;
+                work.message(&call_event(after, "Data_Error")?, Some(text), None, "error")?;
             }
         }
         Recipe::Confirm {

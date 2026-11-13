@@ -95,6 +95,8 @@ pub enum Placement {
     /// In a footer row at the bottom of a column (`--in <column> --bottom`), as the kits place a
     /// filter panel's Apply and Clear.
     Bottom(String),
+    /// Stack below a widget within its column of a split row, without promoting the whole row.
+    BelowInColumn(String),
     Beside {
         anchor: String,
         side: Side,
@@ -432,6 +434,9 @@ impl MashupDocument {
         let placed = match placement {
             Placement::In(target) => self.place_in(widget, target),
             Placement::Bottom(target) => self.place_at_bottom(widget, target),
+            Placement::BelowInColumn(anchor) => {
+                self.place_beside_in_column(widget, anchor, Side::Below, true)
+            }
             Placement::Beside {
                 anchor,
                 side: Side::End,
@@ -1287,6 +1292,16 @@ impl MashupDocument {
         anchor_word: &str,
         side: Side,
     ) -> Result<Placed, EditError> {
+        self.place_beside_in_column(widget, anchor_word, side, false)
+    }
+
+    fn place_beside_in_column(
+        &mut self,
+        widget: &Widget,
+        anchor_word: &str,
+        side: Side,
+        in_column: bool,
+    ) -> Result<Placed, EditError> {
         let mut anchor = self.find(anchor_word)?;
         if is_spacer(self.at(&anchor.path)) {
             return Err(EditError::Refused(format!("{anchor_word}: cannot place beside or below a spacer; choose a content widget and run gap again")));
@@ -1308,6 +1323,9 @@ impl MashupDocument {
             let node = self.at(parent);
             if !is_generated_container(node)
                 || node["Properties"]["flex-direction"] == side.axis()
+                // Keep a split row intact, but still promote a single control's own row so
+                // repeated insertions share the enclosing column instead of nesting columns.
+                || (in_column && children(node).len() > 1)
                 || fixed_content_height(
                     node,
                     false,

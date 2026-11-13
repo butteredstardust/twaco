@@ -271,10 +271,11 @@ pub(crate) fn plan_add(
                 )),
             };
         if separator {
-            let Placement::Beside {
+            let (Placement::Beside {
                 anchor,
                 side: mashup::edit::Side::Above | mashup::edit::Side::Below,
-            } = &placement
+            }
+            | Placement::BelowInColumn(anchor)) = &placement
             else {
                 return Err(AuthoringError::Invalid(
                     "a separator goes between rows: --below or --above a widget".into(),

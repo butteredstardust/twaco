@@ -5329,7 +5329,7 @@
   },
   {
     "name": "mashup_add",
-    "description": "Add a catalogue widget, or one an [[extension]] project of the solution defines, to an existing responsive mashup. With no placement it goes in center. A widget beside another goes in the same row or column when that container runs that way; otherwise both get containers of their own in a new row or column. A widget that can fill fills only a container it is alone in. A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
+    "description": "Add a catalogue widget, or one an [[extension]] project of the solution defines, to an existing responsive mashup. With no placement it goes in center. A widget beside another goes in the same row or column when that container runs that way; otherwise both get containers of their own in a new row or column. With below and in_column: true, stack within the anchor's column of a split row; default below places a new row beneath the whole control row. A widget that can fill fills only a container it is alone in. A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
     "inputSchema": {
       "required": [
         "mashup",
@@ -5369,6 +5369,11 @@
         },
         "bottom": {
           "description": "With in: put the widget in a footer row at the bottom of that column (a filter panel's Apply and Clear); later widgets go above it.",
+          "type": "boolean",
+          "default": false
+        },
+        "in_column": {
+          "description": "With below: stack within the anchor's column of a split row, keeping the other columns beside it.",
           "type": "boolean",
           "default": false
         },

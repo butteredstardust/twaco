@@ -282,6 +282,8 @@ pub(crate) struct MashupAdd {
     pub(crate) end: bool,
     #[arg(long = "bottom")]
     pub(crate) bottom: bool,
+    #[arg(long = "in-column")]
+    pub(crate) in_column: bool,
     #[arg(long = "label", value_name = "text")]
     pub(crate) label: Option<String>,
     #[arg(long = "prop", value_name = "name=value")]
@@ -1168,6 +1170,20 @@ pub(crate) fn mashup_add_cmd(solution: &Solution, args: &MashupAdd) -> u8 {
             return FAILED;
         }
     };
+    let placement = match (args.in_column, placement) {
+        (false, placement) => placement,
+        (
+            true,
+            Some(Placement::Beside {
+                anchor,
+                side: Side::Below,
+            }),
+        ) => Some(Placement::BelowInColumn(anchor)),
+        (true, _) => {
+            eprintln!("{} --in-column goes with --below <widget>", style::prefix());
+            return FAILED;
+        }
+    };
     let properties = match args
         .props
         .iter()
@@ -1229,6 +1245,7 @@ pub(crate) fn mashup_add_cmd(solution: &Solution, args: &MashupAdd) -> u8 {
         Some(("--right-of", value)) => format!("right of {value}"),
         Some(("--left-of", value)) => format!("left of {value}"),
         Some(("--above", value)) => format!("above {value}"),
+        Some(("--below", value)) if args.in_column => format!("below {value} in its column"),
         Some(("--below", value)) => format!("below {value}"),
         Some(_) => unreachable!("only placement flags are collected"),
     };

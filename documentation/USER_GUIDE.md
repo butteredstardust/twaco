@@ -1214,6 +1214,28 @@ the row that grows, its controls at its bottom; beside a grid or a chart it is f
 A compact date, as the kits show in a two-field range, is `--prop FormatToken=DD-MM-YY` on the
 date picker; the default format is Composer's.
 
+For a two-column form, use `--right-of` for the second field, then
+`--below <widget> --in-column` to stack within either field's column. Repeat it beneath each
+new field to keep that column flat. Without `--in-column`, `--below` keeps its existing rule:
+a control row twaco made is placed above the new row as a whole. The explicit option uses
+the same natural row heights, short-page scrolling rules and textarea floors as other placements.
+For example, starting with a blank mashup (the comments name the ids returned by each add):
+
+```sh
+twaco mashup new Acme.Form_MU --apply
+twaco mashup add Acme.Form_MU label --label Form --apply                          # ptcslabel-3
+twaco mashup add Acme.Form_MU textfield --below ptcslabel-3 --label "Field 01" --apply # ptcstextfield-4
+twaco mashup add Acme.Form_MU textfield --right-of ptcstextfield-4 --label "Field 02" --apply # ptcstextfield-7
+twaco mashup add Acme.Form_MU textarea --below ptcstextfield-4 --in-column --label Description --apply # ptcstextarea-8
+twaco mashup add Acme.Form_MU datepicker --below ptcstextfield-7 --in-column --label Date --apply # ptcsdatepicker-13
+twaco mashup add Acme.Form_MU datepicker --below ptcsdatepicker-13 --in-column --label Date --apply # ptcsdatepicker-16
+twaco mashup add Acme.Form_MU checkbox --below ptcsdatepicker-16 --in-column --label Checkbox --apply
+```
+
+The left column contains Field 01 and Description; the right contains Field 02, Date, Date and
+Checkbox. Use the ids your command returns in an existing mashup. MCP `mashup_add` takes
+`below: "<widget>"` with `in_column: true`; `in_column` requires `below`.
+
 A card of label/value rows, as the design kits draw one ("● Objective ........ 12"), takes three
 more steps. `--right-of <widget> --end` puts a widget at the far end of the anchor's row: the row
 splits into a start group (what was there) and an end group (the new widget), spread apart and
@@ -1585,6 +1607,13 @@ add the progress tracker there with `mashup add` first and give its widget id to
 expressions such as `CurrentStep + 1` and `CurrentStep - 1`; feed the parameter back with
 `--input CurrentStep=mashup:CurrentStep`. Automatic evaluation and initial output are disabled,
 so that feedback waits for each click. Existing button handlers remain wired.
+
+Repeating `set-on-click` with the same trigger, expression, input bindings and destination
+parameter is a no-op: it reuses the existing expression and wiring. Repeating `message` with
+the same service call, message type and text (or `--from` binding) also writes nothing;
+`--on-failure` independently reuses the matching `Data_Error` error message. These retries
+preserve both the entity and content sidecar byte for byte. Different arguments still add
+their own wiring, so Next and Back expressions or distinct error messages remain independent.
 
 MCP uses the same `mashup_recipe` tool: `action_label`/`cancel_label`, `field_maps` (an array of
 `Property=field` strings), and `param`/`expression`/`inputs` correspond to these CLI options.

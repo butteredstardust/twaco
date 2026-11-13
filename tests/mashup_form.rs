@@ -79,6 +79,15 @@ fn form_bind_warns_and_save_messages_plan_then_wire_both_outcomes() {
     let applied: Value = serde_json::from_slice(&run(&apply).stdout).unwrap();
     assert_eq!(applied["applied"], true);
     assert_eq!(applied["added"].as_array().unwrap().len(), 2);
+    let sidecar = root.join("src/Acme.Form_MU/mashup/content.json");
+    let before = (
+        std::fs::read(&entity).unwrap(),
+        std::fs::read(&sidecar).unwrap(),
+    );
+    let repeated: Value = serde_json::from_slice(&run(&apply).stdout).unwrap();
+    assert!(repeated["added"].as_array().unwrap().is_empty());
+    assert_eq!(std::fs::read(&entity).unwrap(), before.0);
+    assert_eq!(std::fs::read(&sidecar).unwrap(), before.1);
     run(&[
         "mashup",
         "recipe",
