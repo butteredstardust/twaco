@@ -6047,6 +6047,10 @@ fn collection_request(mappings: &[(&str, &str)]) -> CollectionAddRequest {
         uid: Some("id".into()),
         width: Some(200),
         height: Some(120),
+        columns: None,
+        across: None,
+        preset: None,
+        menu: None,
         placement: None,
     }
 }
@@ -7563,4 +7567,173 @@ fn gap_plans_without_writing_and_applies_entity_and_sidecar_together() {
     let again = commands::mashup::gap(&solution, &request, &mut Notices::default()).unwrap();
     assert!(again.plan.edit.is_none());
     assert_eq!(std::fs::read(&new.entity_path).unwrap(), written);
+}
+
+#[test]
+fn collection_columns_fit_the_platform_wrap_rule() {
+    // The kit's paddings and gap: four columns in a full-width 1440px window.
+    let width = super::collection::column_width(4, 1400, 15, 24, 40).unwrap();
+    assert_eq!(width, 285);
+    // 10.2 starts a new row when n*CellWidth + (n-1)*ColumnGap reaches the room left.
+    let room = 1400 - 15 - 24 - 17;
+    assert!(4 * width + 3 * 40 < room, "four fit");
+    assert!(5 * width + 4 * 40 >= room, "a fifth wraps");
+    // Narrower than the width it was worked out for, fewer fit: a viewport outcome.
+    let narrow = 1000 - 15 - 24 - 17;
+    assert!(4 * width + 3 * 40 >= narrow);
+    assert_eq!(super::collection::column_width(40, 1400, 15, 24, 40), None);
+    assert_eq!(super::collection::column_width(1, 50, 15, 24, 40), None);
+    assert_eq!(
+        super::collection::column_width(u32::MAX, 1400, 15, 24, 40),
+        None
+    );
+    assert!(super::collection::column_width(1, u32::MAX, 15, 24, 40).is_some());
+}
+
+#[test]
+fn collection_add_cards_preset_writes_the_kit_card_collection() {
+    let (dir, solution) = collection_fixture();
+    let mut request = collection_request(&[("id", "Id")]);
+    request.width = None;
+    request.height = None;
+    request.columns = Some(4);
+    request.preset = Some(CollectionPreset::Cards);
+    let plan = plan_collection_add(&solution, &request).unwrap();
+    assert_eq!((plan.cell_width, plan.cell_height), (Some(285), Some(192)));
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+
+    let properties = collection_properties(&solution, &plan.id);
+    for (name, expected) in [
+        ("CellWidth", json!(285)),
+        ("CellHeight", json!(192)),
+        ("LeftAlignLastRow", json!(true)),
+        ("ContentAlignment", json!("top")),
+        ("MashupBackground", json!("transparent")),
+        ("LeftPadding", json!(15)),
+        ("RightPadding", json!(24)),
+        ("SelectionMode", json!("single")),
+        ("AutoSelectFirstRow", json!(true)),
+        // The distribution itself is the catalogue's, which the kit keeps.
+        ("Layout", json!("flex")),
+        ("RowHorizontalAlignment", json!("space-evenly")),
+        ("ColumnGap", json!(40)),
+    ] {
+        assert_eq!(properties[name], expected, "{name}");
+    }
+    let content: Value = serde_json::from_str(&sidecar_content(&solution)).unwrap();
+    let entry = &content["UI"]["Properties"]["StyleProperties"]["data"][&plan.id];
+    assert_eq!(entry["widget"], "ptcs-collection");
+    let frame = &entry["parts"]["cell"];
+    assert_eq!(
+        frame["$"],
+        json!({"border-color": "rgba(192,192,192,1)", "border-radius": "6px", "border-style": "solid", "border-width": "1px"})
+    );
+    for state in ["hover", "hover+selected", "pressed", "selected"] {
+        assert_eq!(frame[state]["border-style"], "solid", "{state}");
+    }
+    let report =
+        crate::core::mashup::validate::validate(&solution, Some("Acme.Orders_MU")).unwrap();
+    assert!(report[0].problems.is_empty(), "{:?}", report[0].problems);
+    drop(dir);
+}
+
+#[test]
+fn collection_add_keeps_explicit_sizes_and_catalogue_spacing() {
+    let (_dir, solution) = collection_fixture();
+    // A preset with an explicit width: the height follows the kit card's proportion.
+    let mut request = collection_request(&[("id", "Id")]);
+    request.width = Some(400);
+    request.height = None;
+    request.preset = Some(CollectionPreset::Cards);
+    let plan = plan_collection_add(&solution, &request).unwrap();
+    assert_eq!((plan.cell_width, plan.cell_height), (Some(400), Some(270)));
+    // An explicit height wins over the proportion.
+    request.height = Some(300);
+    let plan = plan_collection_add(&solution, &request).unwrap();
+    assert_eq!(plan.cell_height, Some(300));
+    // No preset: --columns uses the catalogue's paddings (0 and 24) and gap, and sets no height.
+    let mut request = collection_request(&[("id", "Id")]);
+    request.width = None;
+    request.height = None;
+    request.columns = Some(4);
+    let plan = plan_collection_add(&solution, &request).unwrap();
+    assert_eq!((plan.cell_width, plan.cell_height), (Some(289), None));
+    request.across = Some(1000);
+    let plan = plan_collection_add(&solution, &request).unwrap();
+    assert_eq!(plan.cell_width, Some(189));
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    let properties = collection_properties(&solution, &plan.id);
+    assert_eq!(properties["CellWidth"], json!(189));
+    assert_eq!(
+        properties["LeftAlignLastRow"],
+        json!(false),
+        "catalogue default"
+    );
+    let content: Value = serde_json::from_str(&sidecar_content(&solution)).unwrap();
+    assert!(
+        content["UI"]["Properties"]["StyleProperties"]["data"]
+            .get(&plan.id)
+            .is_none(),
+        "no preset, no frame"
+    );
+}
+
+#[test]
+fn collection_add_sets_a_checked_cell_menu_and_refuses_bad_sizing() {
+    let (dir, solution) = collection_fixture();
+    let before = tree_bytes(dir.path());
+    let refused = |request: CollectionAddRequest, expected: &str| {
+        let error = plan_collection_add(&solution, &request)
+            .err()
+            .unwrap_or_else(|| panic!("{expected}: not refused"))
+            .to_string();
+        assert!(error.contains(expected), "{expected}: {error}");
+    };
+    let mut both = collection_request(&[("id", "Id")]);
+    both.columns = Some(4);
+    refused(both, "not both");
+    let mut across = collection_request(&[("id", "Id")]);
+    across.width = None;
+    across.across = Some(1200);
+    refused(across, "give --columns too");
+    let mut zero = collection_request(&[("id", "Id")]);
+    zero.width = None;
+    zero.columns = Some(0);
+    refused(zero, "positive");
+    let mut crowded = collection_request(&[("id", "Id")]);
+    crowded.width = None;
+    crowded.columns = Some(40);
+    refused(crowded, "40 columns do not fit");
+    let mut missing = collection_request(&[("id", "Id")]);
+    missing.menu = Some("Acme.Menu_ST".into());
+    refused(missing, "no readable StateDefinition Acme.Menu_ST");
+    assert!(before == tree_bytes(dir.path()), "a refusal changed a file");
+
+    cell_menu_definition(dir.path(), &["Edit", "More Details"]);
+    let mut request = collection_request(&[("id", "Id")]);
+    request.menu = Some("Acme.Menu_ST".into());
+    let plan = plan_collection_add(&solution, &request).unwrap();
+    assert_eq!(
+        plan.menu,
+        Some((
+            "Acme.Menu_ST".to_string(),
+            vec![
+                "CellMenu:Edit".to_string(),
+                "CellMenu:More-Details".to_string()
+            ]
+        ))
+    );
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    assert_eq!(
+        collection_properties(&solution, &plan.id)["CellMenu"],
+        "Acme.Menu_ST"
+    );
+    let collection = plan.id.clone();
+    // The menu's items are handlers `mashup on` now accepts.
+    let handler = on(
+        &solution,
+        &format!("ui:{collection}.CellMenu:More-Details"),
+        "data:Acme.Orders.Manager.GetOrders",
+    );
+    assert!(handler.is_ok(), "{:?}", handler.err());
 }

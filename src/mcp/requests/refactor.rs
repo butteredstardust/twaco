@@ -828,6 +828,20 @@ pub(crate) struct MashupCollectionAddRequest {
     pub(crate) width: Absent<u32>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) height: Absent<u32>,
+    /// Size cells so this many fit on one row of a collection `across` pixels wide; not with width.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) columns: Absent<u32>,
+    /// The collection's width in pixels that `columns` is worked out for (default 1400, a
+    /// full-width collection in a 1440px window).
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) across: Absent<u32>,
+    /// `cards`: framed cards spread evenly per row, the last row aligned under the first
+    /// columns, the first card selected, as the design kits configure them.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) preset: Absent<CollectionPresetArg>,
+    /// A StateDefinition in the solution whose states are the cell menu's items.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) menu: Absent<String>,
     #[serde(default, rename = "in", skip_serializing_if = "Absent::is_absent")]
     pub(crate) container: Absent<String>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
@@ -840,6 +854,12 @@ pub(crate) struct MashupCollectionAddRequest {
     pub(crate) below: Absent<String>,
     #[serde(default = "default_true")]
     pub(crate) dry_run: bool,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
+pub(crate) enum CollectionPresetArg {
+    #[serde(rename = "cards")]
+    Cards,
 }
 
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]

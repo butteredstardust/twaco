@@ -9,7 +9,7 @@ use crate::core::config::Solution;
 use crate::core::mashup::address::{parse_address, Address};
 use crate::core::mashup::describe::mashup_parameters;
 use crate::core::mashup::edit::Placement;
-use crate::core::{mashup, types};
+use crate::core::{mashup, types, widgets};
 use serde_json::{json, Map, Value};
 use std::collections::BTreeSet;
 
@@ -22,7 +22,121 @@ pub struct CollectionAddRequest {
     pub uid: Option<String>,
     pub width: Option<u32>,
     pub height: Option<u32>,
+    /// Size cells so this many fit on one row of a collection `across` pixels wide.
+    pub columns: Option<u32>,
+    /// The collection's width that `columns` is worked out for; [`DEFAULT_ACROSS`] when absent.
+    pub across: Option<u32>,
+    pub preset: Option<CollectionPreset>,
+    /// A StateDefinition in the solution whose states are the cell menu's items.
+    pub menu: Option<String>,
     pub placement: Option<Placement>,
+}
+
+/// A collection presentation as the design kits configure it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CollectionPreset {
+    /// Framed cards spread evenly across each row, the last row aligned under the first columns,
+    /// the first card selected: the kit's KPI card collection.
+    Cards,
+}
+
+impl CollectionPreset {
+    pub fn parse(text: &str) -> Option<Self> {
+        match text {
+            "cards" => Some(Self::Cards),
+            _ => None,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Cards => "cards",
+        }
+    }
+
+    /// The properties the kit's card collection sets away from the catalogue defaults; its
+    /// distribution (flex, space-evenly, 40px gaps) is already the catalogue's.
+    fn properties(self) -> &'static [(&'static str, &'static str)] {
+        match self {
+            Self::Cards => &[
+                ("LeftAlignLastRow", "true"),
+                ("ContentAlignment", "top"),
+                ("MashupBackground", "transparent"),
+                ("LeftPadding", "15"),
+                ("RightPadding", "24"),
+                ("TopPadding", "24"),
+                ("BottomPadding", "24"),
+                ("SelectionMode", "single"),
+                ("AutoSelectFirstRow", "true"),
+            ],
+        }
+    }
+
+    /// The cell's frame: the collection's `cell` part style, in each state the kit styles.
+    fn style(self) -> Value {
+        match self {
+            Self::Cards => {
+                let frame = json!({"border-color": CARD_BORDER, "border-radius": "6px", "border-style": "solid"});
+                let mut normal = frame.clone();
+                normal["border-width"] = json!("1px");
+                let mut pressed = frame.clone();
+                pressed["background"] = json!("rgba(255,255,255,1)");
+                // Keys in the order Composer writes them.
+                json!({"parts": {"cell": {
+                    "$": sorted(normal),
+                    "hover": frame,
+                    "hover+selected": frame,
+                    "pressed": sorted(pressed),
+                    "selected": frame,
+                }}, "widget": "ptcs-collection"})
+            }
+        }
+    }
+
+    /// The kit card's height for a width: 270px tall at 400px wide.
+    fn height_for(self, width: u32) -> u32 {
+        match self {
+            Self::Cards => u32::try_from((u64::from(width) * 270 + 200) / 400).unwrap_or(u32::MAX),
+        }
+    }
+}
+
+const CARD_BORDER: &str = "rgba(192,192,192,1)";
+
+/// A full-width collection in a 1440px browser window, less the page's margins.
+pub const DEFAULT_ACROSS: u32 = 1400;
+
+/// What the collection keeps free for its own vertical scrollbar when its cells overflow.
+const SCROLLBAR: u32 = 17;
+
+fn sorted(value: Value) -> Value {
+    let mut map = Map::new();
+    if let Value::Object(object) = value {
+        let mut entries: Vec<_> = object.into_iter().collect();
+        entries.sort_by(|a, b| a.0.cmp(&b.0));
+        map.extend(entries);
+    }
+    Value::Object(map)
+}
+
+/// The cell width that fits `columns` cells on one row of a flex collection `across` pixels
+/// wide. The 10.2 collection starts a new row when `n*CellWidth + (n-1)*ColumnGap` reaches its
+/// width less the paddings and the scrollbar; a gap is also kept at each end, so space-evenly
+/// still shows space around the row as the kit does. `None` when no positive width fits.
+pub(crate) fn column_width(
+    columns: u32,
+    across: u32,
+    left: u32,
+    right: u32,
+    gap: u32,
+) -> Option<u32> {
+    // u64: an absurd --columns or --across is refused, never an overflow.
+    let room =
+        u64::from(across).checked_sub(u64::from(left) + u64::from(right) + u64::from(SCROLLBAR))?;
+    let free = room.checked_sub((u64::from(columns) + 1) * u64::from(gap) + 1)?;
+    u32::try_from(free / u64::from(columns))
+        .ok()
+        .filter(|width| *width > 0)
 }
 
 #[derive(Debug)]
@@ -33,6 +147,12 @@ pub struct CollectionAddPlan {
     pub mappings: Vec<(String, String)>,
     pub uid: Option<String>,
     pub binding: String,
+    /// The cell size written, when one was given or worked out.
+    pub cell_width: Option<u32>,
+    pub cell_height: Option<u32>,
+    pub preset: Option<CollectionPreset>,
+    /// The cell menu's StateDefinition and the `CellMenu:<item>` events it fires.
+    pub menu: Option<(String, Vec<String>)>,
     pub notes: Vec<String>,
 }
 
@@ -56,6 +176,21 @@ pub(crate) fn plan_collection_add(
             "--width and --height must be positive integers".into(),
         ));
     }
+    if request.columns == Some(0) || request.across == Some(0) {
+        return Err(AuthoringError::Invalid(
+            "--columns and --across must be positive integers".into(),
+        ));
+    }
+    if request.width.is_some() && request.columns.is_some() {
+        return Err(AuthoringError::Invalid(
+            "give --width or --columns, not both: --columns works the width out".into(),
+        ));
+    }
+    if request.across.is_some() && request.columns.is_none() {
+        return Err(AuthoringError::Invalid(
+            "--across is the width --columns is worked out for; give --columns too".into(),
+        ));
+    }
     let mut fields = BTreeSet::new();
     let mut parameters = BTreeSet::new();
     for (field, parameter) in &request.mappings {
@@ -75,6 +210,19 @@ pub(crate) fn plan_collection_add(
             )));
         }
     }
+    let menu = match &request.menu {
+        None => None,
+        Some(menu) => {
+            let discovered = crate::core::workspace::discover(solution);
+            let events = mashup::cell_menu::repository_events(&discovered, menu).ok_or_else(|| {
+                AuthoringError::Unknown(format!(
+                    "--menu {menu}: no readable StateDefinition {menu} in the solution; create it with `twaco new state {menu} --type string --state ...`"
+                ))
+            })?;
+            Some((menu.clone(), events))
+        }
+    };
+    let (cell_width, cell_height) = cell_size(request)?;
     let cell = load_existing(solution, &request.cell)?;
     let cell_parameters =
         mashup_parameters(&cell.entity_before).map_err(AuthoringError::Unreadable)?;
@@ -201,11 +349,19 @@ pub(crate) fn plan_collection_add(
     if let Some(uid) = &request.uid {
         properties.push(("UIDField".into(), uid.clone()));
     }
-    if let Some(width) = request.width {
+    if let Some(preset) = request.preset {
+        for (name, value) in preset.properties() {
+            properties.push(((*name).into(), (*value).into()));
+        }
+    }
+    if let Some(width) = cell_width {
         properties.push(("CellWidth".into(), width.to_string()));
     }
-    if let Some(height) = request.height {
+    if let Some(height) = cell_height {
         properties.push(("CellHeight".into(), height.to_string()));
+    }
+    if let Some((menu, _)) = &menu {
+        properties.push(("CellMenu".into(), menu.clone()));
     }
     // `plan_add` owns catalogue defaults, id allocation and responsive placement. Re-open its
     // pure result so the binding joins the same final sync and transaction.
@@ -222,6 +378,16 @@ pub(crate) fn plan_collection_add(
     )?;
     let assets = mashup::extract(&added.edit.entity_after).map_err(AuthoringError::Mashup)?;
     document = mashup::edit::parse(&assets.content).map_err(AuthoringError::Edit)?;
+    if let Some(preset) = request.preset {
+        super::set::style_properties(document.root_properties(), &request.mashup)?;
+        super::set::copy_style_entry(
+            &mut document,
+            &added.placed.id,
+            preset.style(),
+            None,
+            &mut Vec::new(),
+        );
+    }
     let target = format!("ui:{}.Data", added.placed.id);
     bind_in(
         &mut document,
@@ -239,7 +405,7 @@ pub(crate) fn plan_collection_add(
                 && event["EventHandlerId"] == section
                 && event["EventHandlerService"] == call
         });
-    let notes = (!has_event)
+    let mut notes: Vec<String> = (!has_event)
         .then(|| {
             format!(
                 "nothing runs {call}; add `twaco mashup on {} --event mashup:Loaded --invoke {}`",
@@ -248,6 +414,13 @@ pub(crate) fn plan_collection_add(
         })
         .into_iter()
         .collect();
+    if let Some((menu, events)) = &menu {
+        if events.is_empty() {
+            notes.push(format!(
+                "{menu} has no state with a value, so the cell menu has no items"
+            ));
+        }
+    }
     Ok(CollectionAddPlan {
         edit: finish_edit(parent, document, "mashup collection add")?,
         id: added.placed.id,
@@ -255,8 +428,63 @@ pub(crate) fn plan_collection_add(
         mappings: request.mappings.clone(),
         uid: request.uid.clone(),
         binding: format!("{} -> {target}", request.data),
+        cell_width,
+        cell_height,
+        preset: request.preset,
+        menu,
         notes,
     })
+}
+
+/// The cell size to write: given, worked out from `columns`, or (for a preset with no height)
+/// the preset's proportion of the width. Paddings and gaps are the preset's or the catalogue's,
+/// whichever the collection will have.
+fn cell_size(request: &CollectionAddRequest) -> Result<(Option<u32>, Option<u32>), AuthoringError> {
+    let defaults = widgets::catalog()
+        .by_type("ptcscollection")
+        .map(|widget| widget.defaults.clone())
+        .unwrap_or_default();
+    let number = |name: &str| -> u32 {
+        request
+            .preset
+            .and_then(|preset| {
+                preset
+                    .properties()
+                    .iter()
+                    .find(|(key, _)| *key == name)
+                    .and_then(|(_, value)| value.parse().ok())
+            })
+            .or_else(|| {
+                defaults
+                    .get(name)
+                    .and_then(Value::as_u64)
+                    .and_then(|n| u32::try_from(n).ok())
+            })
+            .unwrap_or(0)
+    };
+    let width = match request.columns {
+        None => request.width,
+        Some(columns) => {
+            let across = request.across.unwrap_or(DEFAULT_ACROSS);
+            let (left, right, gap) = (
+                number("LeftPadding"),
+                number("RightPadding"),
+                number("ColumnGap"),
+            );
+            Some(column_width(columns, across, left, right, gap).ok_or_else(|| {
+                AuthoringError::Refused(format!(
+                    "{columns} columns do not fit a collection {across}px wide (paddings {left}+{right}px, gaps {gap}px); give a larger --across or fewer --columns"
+                ))
+            })?)
+        }
+    };
+    let height = request.height.or_else(|| {
+        request.preset.map(|preset| {
+            let width = width.unwrap_or_else(|| number("CellWidth"));
+            preset.height_for(width)
+        })
+    });
+    Ok((width, height))
 }
 
 pub fn collection_add_plan_json(
@@ -270,5 +498,9 @@ pub fn collection_add_plan_json(
     }
     json!({"applied": applied, "mashup": plan.edit.mashup, "id": plan.id, "cell": plan.cell,
         "mappings": plan.mappings.iter().map(|(field, parameter)| json!({"field":field,"parameter":parameter})).collect::<Vec<_>>(),
-        "uid": plan.uid, "binding": plan.binding, "notes": plan.notes, "files": files})
+        "uid": plan.uid, "binding": plan.binding,
+        "cell_width": plan.cell_width, "cell_height": plan.cell_height,
+        "preset": plan.preset.map(CollectionPreset::name),
+        "menu": plan.menu.as_ref().map(|(name, events)| json!({"state_definition": name, "events": events})),
+        "notes": plan.notes, "files": files})
 }

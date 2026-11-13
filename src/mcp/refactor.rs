@@ -697,6 +697,14 @@ pub(crate) fn mashup_collection_add_tool(
             uid: arguments.uid.as_ref().cloned(),
             width: arguments.width.as_ref().copied(),
             height: arguments.height.as_ref().copied(),
+            columns: arguments.columns.as_ref().copied(),
+            across: arguments.across.as_ref().copied(),
+            preset: arguments.preset.as_ref().map(|preset| match preset {
+                super::requests::refactor::CollectionPresetArg::Cards => {
+                    crate::core::mashup::authoring::CollectionPreset::Cards
+                }
+            }),
+            menu: arguments.menu.as_ref().cloned(),
             placement: supplied.into_iter().next(),
         },
         mode: if dry_run { Mode::Plan } else { Mode::Apply },

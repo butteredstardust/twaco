@@ -67,17 +67,57 @@ twaco mashup on P.Page_MU --event mashup:Loaded --invoke data:P.Kpi_TS.GetChartD
 - `CellWidth` and `CellHeight` are the cell's size in pixels; the cell mashup's content must fit
   it, or the cell scrolls.
 
+## How cells are laid out (10.2)
+
+Read from the 10.2 collection widget's source and checked against the kit's rendering:
+
+- With `UseMashupDimensions` false, every cell is exactly `CellWidth` wide (plus the cell-menu
+  strip when the actions sit beside the cell) and `CellHeight` tall, plus a row for the cell menu
+  when `CellActionsPosition` is `bottom` (the default).
+- `Layout=flex` starts a new row when `n * CellWidth + (n - 1) * ColumnGap` reaches the
+  collection's width less `LeftPadding`, `RightPadding` and its scrollbar. `ColumnGap` is the
+  minimum space between cells; `RowHorizontalAlignment=space-evenly` spreads what is left over
+  evenly around the cells.
+- How many cells a row holds therefore depends on the window. The kit's card page (400x270 cells)
+  shows four per row only when the collection is over about 1,780 CSS px wide (its reference
+  rendering was about 2,200 CSS px wide); in a 1440 px window at 100% it shows three.
+- `LeftAlignLastRow` pads a short last row with invisible cells of the same width, so its cells
+  sit under the first columns instead of being centred.
+- `RowHorizontalAlignment=stretch` gives each cell `flex: 1 0 auto`: `CellWidth` becomes a
+  minimum and the cells grow to fill each row (with `LeftAlignLastRow`, the last row's cells keep
+  the columns' width). This fills the width at any window size, but it was not checked in Runtime.
+
+The kit's card collection (six KPI dial cards) sets, beside the catalogue defaults it keeps
+(`Layout` flex, `RowHorizontalAlignment` space-evenly, `ColumnGap` and `RowGap` 40, `TopPadding`,
+`RightPadding` and `BottomPadding` 24): `CellWidth` 400, `CellHeight` 270, `LeftAlignLastRow`
+true, `ContentAlignment` top, `MashupBackground` transparent, `LeftPadding` 15, `SelectionMode`
+single, `AutoSelectFirstRow` true and a `CellMenu`. The card's frame is the collection's `cell`
+part style: a 1px solid `rgba(192,192,192,1)` border with a 6px radius, repeated in the hover,
+selected and pressed states (pressed also sets a white background). `--preset cards` writes
+exactly these.
+
 ## Command
 
 ```text
 twaco mashup collection add <parent> <cell-mashup> --data <data:Entity.Service>
     --map <row field>=<cell parameter>[,<row field>=<cell parameter>...] [--uid <row field>]
-    [--width <px>] [--height <px>]
+    [--width <px> | --columns <n> [--across <px>]] [--height <px>]
+    [--preset cards] [--menu <StateDefinition>]
     [--in <container> | --right-of <widget> | --left-of <widget> | --above <widget> | --below <widget>] [--apply] [--json]
 ```
 
 It adds a `ptcscollection` with `Mashup`, `MashupPropertyBinding`, optional `UIDField`, and cell
-dimensions, then binds the whole result to its `Data` in one edit. The call must already exist in
+dimensions, then binds the whole result to its `Data` in one edit.
+
+- `--columns <n>` works `CellWidth` out from the wrap rule above, so `n` cells fit on a row of a
+  collection `--across` px wide (default 1400: a full-width collection in a 1440 px window), with
+  a gap kept at each end so space-evenly still shows space around the row. It is a width for one
+  window size: a narrower window shows fewer cells per row, a wider one more. `--width` stays
+  for an exact size, and the two cannot be combined.
+- `--preset cards` writes the kit's card collection described above, frame included. Without
+  `--height`, the height keeps the kit card's 400:270 proportion of the width.
+- `--menu <StateDefinition>` sets `CellMenu`, refusing a StateDefinition the solution lacks; the
+  result lists the `CellMenu:<item>` events its states fire. The call must already exist in
 the parent. It refuses a cell mashup not in the solution, an output-only or missing cell parameter,
 a duplicate mapping, a row field the result's DataShape lacks (when the shape is known), and a
 field whose base type does not fit the parameter. Plan unless `--apply`; MCP is

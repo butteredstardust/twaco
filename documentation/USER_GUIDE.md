@@ -1339,6 +1339,21 @@ the result to `Data` in one edit. It reports when nothing invokes the source cal
 [Collections: the serialized contract](MASHUP_COLLECTIONS.md) for the stored properties and
 runtime behaviour.
 
+Cards as the design kits lay them out (framed, spread evenly across each row, the last row under
+the first columns, the first card selected) take `--preset cards`. `--columns 4` works out the
+cell width that fits four on a row of a full-width collection in a 1440 px window (`--across
+<px>` names another collection width). A narrower window shows fewer cards per row. `--menu`
+names the cell menu's StateDefinition:
+
+```sh
+twaco mashup collection add Acme.App.Overview_MU Acme.App.KpiCard_MU \
+  --data data:Acme.App.Plant.GetKpis --map title=Title,value=Value --uid id \
+  --preset cards --columns 4 --menu Acme.App.CardMenu_ST --apply
+```
+
+`--width` and `--height` still set an exact size. With the preset and no `--height`, the height
+keeps the kit card's 400:270 proportion.
+
 A cell menu (the "⋮" on each cell) is a string StateDefinition whose states are the items. Point
 the collection's `CellMenu` at it, then handle each item's `CellMenu:<item>` event; an item with
 spaces fires its value with hyphens (`More Details` fires `CellMenu:More-Details`):
