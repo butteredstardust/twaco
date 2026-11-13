@@ -1222,8 +1222,12 @@ centred, and it keeps its natural height. In a column that also holds a grid or 
 instead, so the grid takes the spare height, as the kits' toolbars do. `mashup add <mashup> separator --below <widget>` adds
 the kits' 1px rule (`#C2C7CE`) between rows. The row holding such cards becomes a `range` row whose
 minimum is the cards' measured height (a `label` row is 19px on 10.2, a `sub-header` 27px, a
-`header` 33px). `--prop` values count in that measure, so set a dot's size and margins
-there:
+`header` 33px, before margins). Generated title rows use the same natural label height plus
+its top and bottom margins: a default label with 5px margins takes 29px, a sub-header 37px,
+a header 43px. Inline label font size and line height count too. The cards' own vertical margins
+and borders also count in the enclosing row's minimum, so their inner rows fit without squeezing.
+Explicit widget and row sizes are preserved. `--prop` values count in that measure, so set a
+dot's size and margins there:
 
 ```sh
 twaco mashup add Acme.App.Kpi_MU shape --below ptcslabel-4 --prop Width=12 --prop Height=12 --prop "Margin=0 5" --apply
@@ -1238,9 +1242,12 @@ scrollbar of its own, so a squeezed page would grow a scrollbar in every row. Th
 makes never shrink below their content (`flex-shrink` 0); instead the page, the outermost
 container, scrolls once. A row holding a widget that fills (a chart, a grid, a contained mashup)
 takes the spare height and keeps a floor: a `range` row whose minimum is Composer's drop height
-for that widget, at most 300px (a chart with its legend draws cleanly at that size). A contained
-mashup's floor is measured from the child's own rows instead. Beside such a row, the rows a
-placement makes take no spare height (`flex-grow` 0), so a row of cards keeps its natural height
+for that widget, at most 300px (a chart with its legend draws cleanly at that size). A widget
+whose catalogue has no height, such as a textarea, keeps a modest 100px floor. Wrapping a filler
+with `--below` or `--right-of` gives the new inner containers their floors too; a nested column
+keeps the sum and a nested row the tallest child's height. A horizontal divider is a 1px rule
+plus its margins, not a filler. A contained mashup's floor is measured from the child's own rows
+instead. Beside such a row, the rows a placement makes take no spare height (`flex-grow` 0), so a row of cards keeps its natural height
 and the chart or grid gets the rest. A chart is laid out by its row, so it draws to whatever its
 row gets. Rows that were already there, fixed rows, template slots and a `flex-grow` or
 `flex-shrink` you set yourself are left alone; to give more spare height to one of two growing
