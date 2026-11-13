@@ -380,6 +380,27 @@ fn hand_written_tools() -> Vec<Value> {
         "description": "Error status message on Data_Error for message; may be used without say/from.",
         "type": "string"
     });
+    for (name, description, kind) in [
+        (
+            "param",
+            "Destination mashup parameter for set-on-click.",
+            "string",
+        ),
+        (
+            "field_maps",
+            "Tracker overrides as `Property=field`, using catalogue field-map property names.",
+            "array",
+        ),
+        ("action_label", "Confirmation action button text.", "string"),
+        ("cancel_label", "Confirmation cancel button text.", "string"),
+    ] {
+        let mut property = json!({"description": description, "type": kind});
+        if kind == "array" {
+            property["items"] = json!({"type": "string"});
+        }
+        recipe["inputSchema"]["properties"][name] = property;
+    }
+    recipe["inputSchema"]["properties"]["recipe"]["description"] = json!("enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, picker, tracker or set-on-click.");
     tools
 }
 

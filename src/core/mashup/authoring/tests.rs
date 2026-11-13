@@ -4262,6 +4262,8 @@ fn each_recipe_writes_the_wiring_real_mashups_use() {
             then: Some("data:Acme.Orders.Manager.GetOrders".into()),
             title: Some("Reload?".into()),
             say: Some("Reload the orders?".into()),
+            action_label: Some("Reload".into()),
+            cancel_label: Some("Keep orders".into()),
             ..Default::default()
         },
     )
@@ -4269,6 +4271,14 @@ fn each_recipe_writes_the_wiring_real_mashups_use() {
     let value: Value = serde_json::from_str(&sidecar_content(&solution)).unwrap();
     let confirmation = &plan.added[0];
     assert_eq!(widget_of(&value, confirmation)["TitleText"], "Reload?");
+    assert_eq!(
+        widget_of(&value, confirmation)["ActionButtonLabel"],
+        "Reload"
+    );
+    assert_eq!(
+        widget_of(&value, confirmation)["CancelButtonLabel"],
+        "Keep orders"
+    );
     assert!(has_event(
         &value,
         "ptcsbutton-6",
@@ -7814,4 +7824,252 @@ fn gap_plans_without_writing_and_applies_entity_and_sidecar_together() {
     let again = commands::mashup::gap(&solution, &request, &mut Notices::default()).unwrap();
     assert!(again.plan.edit.is_none());
     assert_eq!(std::fs::read(&new.entity_path).unwrap(), written);
+}
+
+#[test]
+fn columns_hide_unlisted_fields_and_format_dates_from_an_existing_named_binding() {
+    let (dir, solution) = recipe_fixture();
+    write(
+        dir.path(),
+        "acme/DataShapes/Acme.Orders.Order_DS.xml",
+        r#"<Entities><DataShapes><DataShape name="Acme.Orders.Order_DS" projectName="Acme"><FieldDefinitions><FieldDefinition name="id" baseType="LONG"/><FieldDefinition name="note" baseType="STRING"/><FieldDefinition name="start" baseType="DATETIME"/><FieldDefinition name="end" baseType="DATETIME"/><FieldDefinition name="description" baseType="STRING"/></FieldDefinitions></DataShape></DataShapes></Entities>"#,
+    );
+    let before = sidecar_content(&solution);
+    let error = recipe(
+        &solution,
+        "columns",
+        RecipeArgs {
+            widget: Some("ptcsgrid-5".into()),
+            columns: vec!["start".into()],
+            ..Default::default()
+        },
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(
+        error.contains("needs the grid's data") && error.contains("--data"),
+        "{error}"
+    );
+    assert_eq!(sidecar_content(&solution), before);
+    let plan = bind(
+        &solution,
+        "data:Acme.Orders.Manager.GetOrders[as orders]",
+        "ui:ptcsgrid-5.Data",
+    )
+    .unwrap();
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    let args = RecipeArgs {
+        widget: Some("ptcsgrid-5".into()),
+        columns: vec!["start:Started:180".into(), "note:Note".into()],
+        ..Default::default()
+    };
+    recipe(&solution, "columns", args.clone()).unwrap();
+    let document = mashup::edit::parse(&sidecar_content(&solution)).unwrap();
+    let columns = document.at(&document.find("ptcsgrid-5").unwrap().path)["Properties"]
+        ["ColumnFormat"]["formatInfo"]
+        .as_array()
+        .unwrap();
+    assert_eq!(columns.len(), 5);
+    assert_eq!(columns[0]["FieldName"], "start");
+    assert_eq!(columns[0]["FormatOptions"]["renderer"], "DATETIME");
+    assert_eq!(
+        columns[0]["FormatOptions"]["FormatString"],
+        "[[dateTimeFormat_Default]]"
+    );
+    assert_eq!(columns[0]["Width"], 180);
+    assert_eq!(columns[1]["FieldName"], "note");
+    for column in &columns[..2] {
+        assert_eq!(column["inLayout"], true);
+        assert_eq!(column["hidden"], false);
+    }
+    for column in &columns[2..] {
+        assert_eq!(column["inLayout"], false);
+        assert_eq!(column["hidden"], true);
+    }
+    // A previously excluded date becomes visible and formatted on the next recipe.
+    recipe(
+        &solution,
+        "columns",
+        RecipeArgs {
+            columns: vec!["end".into()],
+            ..args.clone()
+        },
+    )
+    .unwrap();
+    let document = mashup::edit::parse(&sidecar_content(&solution)).unwrap();
+    let columns = &document.at(&document.find("ptcsgrid-5").unwrap().path)["Properties"]
+        ["ColumnFormat"]["formatInfo"];
+    assert_eq!(columns[0]["FieldName"], "end");
+    assert_eq!(columns[0]["inLayout"], true);
+    assert_eq!(columns[0]["FormatOptions"]["renderer"], "DATETIME");
+    let error = recipe(
+        &solution,
+        "columns",
+        RecipeArgs {
+            columns: vec!["note".into(), "note".into()],
+            ..args
+        },
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("repeats field note"));
+}
+
+#[test]
+fn tracker_recipe_maps_shapes_and_refuses_unmatched_fields_without_writing() {
+    let (dir, solution) = recipe_fixture();
+    let shape = |fields: &str| {
+        write(
+            dir.path(),
+            "acme/DataShapes/Acme.Orders.Order_DS.xml",
+            &format!(
+                r#"<Entities><DataShapes><DataShape name="Acme.Orders.Order_DS" projectName="Acme"><FieldDefinitions>{fields}</FieldDefinitions></DataShape></DataShapes></Entities>"#
+            ),
+        )
+    };
+    let fields = r#"<FieldDefinition name="step_number" baseType="INTEGER"/><FieldDefinition name="Title" baseType="STRING"/><FieldDefinition name="status" baseType="STRING"/><FieldDefinition name="isInteractive" baseType="BOOLEAN"/><FieldDefinition name="mashupName" baseType="MASHUPNAME"/>"#;
+    shape(fields);
+    let args = RecipeArgs {
+        widget: Some("new".into()),
+        data: Some("data:Acme.Orders.Manager.GetOrders[as steps]".into()),
+        ..Default::default()
+    };
+    let plan = recipe(&solution, "tracker", args.clone()).unwrap();
+    assert_eq!(plan.added.len(), 1);
+    let id = plan.added[0].clone();
+    let document = mashup::edit::parse(&sidecar_content(&solution)).unwrap();
+    let found = document.find(&id).unwrap();
+    let props = &document.at(&found.path)["Properties"];
+    assert_eq!(found.type_id, "ptcsprogresstracker");
+    for (property, expected) in [
+        ("StepNumberField", "step_number"),
+        ("StepLabelField", "Title"),
+        ("StepStateField", "status"),
+        ("StepInteractiveField", "isInteractive"),
+        ("StepMashupNameField", "mashupName"),
+    ] {
+        assert_eq!(props[property], expected);
+        assert!(widgets::catalog()
+            .by_type("ptcsprogresstracker")
+            .unwrap()
+            .property(property)
+            .is_some());
+    }
+    assert_eq!(props["IsInteractive"], true);
+    assert_eq!(props["StepSize"], "large");
+    assert!(has_binding(document.value(), "steps", "", &id, "Data"));
+    // Existing widget, repeat binding and explicit overrides also work.
+    shape(&fields.replace("Title", "caption"));
+    let before = sidecar_content(&solution);
+    let error = recipe(
+        &solution,
+        "tracker",
+        RecipeArgs {
+            widget: Some(id.clone()),
+            ..args.clone()
+        },
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(
+        error.contains("StepLabelField")
+            && error.contains("--field-map")
+            && error.contains("caption"),
+        "{error}"
+    );
+    assert_eq!(sidecar_content(&solution), before);
+    recipe(
+        &solution,
+        "tracker",
+        RecipeArgs {
+            widget: Some(id),
+            field_maps: vec!["StepLabelField=caption".into()],
+            ..args
+        },
+    )
+    .unwrap();
+}
+
+#[test]
+fn set_on_click_is_typed_click_only_and_supports_parameter_feedback() {
+    let (_dir, solution) = recipe_fixture();
+    let mut parameter = param_request("Acme.Orders_MU", ParameterAction::Add, "CurrentStep");
+    parameter.base_type = Some("NUMBER".into());
+    param(&solution, &parameter).unwrap();
+    let args = RecipeArgs {
+        widget: Some("ptcsbutton-6".into()),
+        param: Some("CurrentStep".into()),
+        expression: Some("CurrentStep + 1".into()),
+        inputs: vec!["CurrentStep=mashup:CurrentStep".into()],
+        ..Default::default()
+    };
+    let plan = recipe(&solution, "set-on-click", args.clone()).unwrap();
+    let value: Value = serde_json::from_str(&sidecar_content(&solution)).unwrap();
+    let id = &plan.added[0];
+    let expression = widget_of(&value, id);
+    assert_eq!(expression["Expression"], "Output = (CurrentStep + 1);");
+    assert_eq!(expression["OutputBaseType"], "NUMBER");
+    assert_eq!(expression["AutoEvaluate"], false);
+    assert_eq!(expression["DisableInitialOutput"], true);
+    assert_eq!(expression["DataChangeType"], "ALWAYS");
+    assert_eq!(expression["_currentParameterDefs"][0]["BaseType"], "NUMBER");
+    assert!(has_binding(
+        &value,
+        "mashup-root",
+        "CurrentStep",
+        id,
+        "CurrentStep"
+    ));
+    assert!(has_binding(
+        &value,
+        id,
+        "Output",
+        "mashup-root",
+        "CurrentStep"
+    ));
+    assert!(has_event(&value, "ptcsbutton-6", "Clicked", id, "Evaluate"));
+    assert!(!has_event(&value, "mashup-root", "Loaded", id, "Evaluate"));
+    let before = sidecar_content(&solution);
+    assert!(recipe(
+        &solution,
+        "set-on-click",
+        RecipeArgs {
+            param: Some("Missing".into()),
+            ..args
+        }
+    )
+    .unwrap_err()
+    .to_string()
+    .contains("parameter Missing"));
+    assert_eq!(sidecar_content(&solution), before);
+}
+
+#[test]
+fn columns_on_a_grid_whose_shape_is_unknown_write_the_listed_columns_only() {
+    let (dir, solution) = recipe_fixture();
+    std::fs::remove_file(dir.path().join("acme/DataShapes/Acme.Orders.Order_DS.xml")).unwrap();
+    let plan = bind(
+        &solution,
+        "data:Acme.Orders.Manager.GetOrders[as orders]",
+        "ui:ptcsgrid-5.Data",
+    )
+    .unwrap();
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    recipe(
+        &solution,
+        "columns",
+        RecipeArgs {
+            widget: Some("ptcsgrid-5".into()),
+            columns: vec!["note:Note".into()],
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let document = mashup::edit::parse(&sidecar_content(&solution)).unwrap();
+    let columns = document.at(&document.find("ptcsgrid-5").unwrap().path)["Properties"]
+        ["ColumnFormat"]["formatInfo"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert_eq!(columns.len(), 1);
+    assert_eq!(columns[0]["FieldName"], "note");
 }

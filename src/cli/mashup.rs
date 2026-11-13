@@ -448,6 +448,14 @@ pub(crate) struct MashupRecipe {
     pub(crate) expression: Option<String>,
     #[arg(long = "input", value_name = "name:TYPE")]
     pub(crate) inputs: Vec<String>,
+    #[arg(long = "param", value_name = "name:TYPE[:...]")]
+    pub(crate) params: Vec<String>,
+    #[arg(long = "field-map", value_name = "Property=field")]
+    pub(crate) field_maps: Vec<String>,
+    #[arg(long = "action-label", value_name = "text")]
+    pub(crate) action_label: Option<String>,
+    #[arg(long = "cancel-label", value_name = "text")]
+    pub(crate) cancel_label: Option<String>,
     #[arg(long = "after", value_name = "address")]
     pub(crate) after: Option<String>,
     #[arg(long = "say", value_name = "text")]
@@ -722,8 +730,16 @@ pub(crate) fn mashup_recipe_cmd(solution: &Solution, args: &MashupRecipe) -> u8 
             return FAILED;
         }
     };
+    if args.params.len() > 1 {
+        eprintln!("{} give --param once", style::prefix());
+        return FAILED;
+    }
     let recipe_args = mashup::authoring::RecipeArgs {
         widget,
+        param: args.params.first().cloned(),
+        field_maps: args.field_maps.clone(),
+        action_label: args.action_label.clone(),
+        cancel_label: args.cancel_label.clone(),
         condition: args.condition.clone(),
         expression: args.expression.clone(),
         inputs: args.inputs.clone(),

@@ -8,12 +8,20 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- `mashup recipe confirm` accepts `--action-label` and `--cancel-label` (MCP `action_label`,
+  `cancel_label`). `recipe tracker` configures an interactive large progress tracker from a
+  service result DataShape, with explicit `--field-map` / MCP `field_maps` overrides.
+- `mashup recipe set-on-click` sets a mashup parameter from a typed expression when a button is
+  clicked, including parameter feedback for Next/Back controls; available through `mashup_recipe`.
 - `mashup on` accepts the ThingWorx 10.2 Runtime's service failure event `Data_Error`, including
   named calls. `mashup recipe message --on-failure <text>` (MCP `on_failure`) shows a separate
   error message and can be used without a success message. `close-after` remains success-only.
 
 ### Fixed
 
+- `mashup recipe columns` excludes unlisted DataShape fields from the grid layout and resolves
+  an existing Data binding (including named calls) to render DATETIME columns with the platform's
+  localized default date/time format. A missing result DataShape is refused with setup guidance.
 - Binding a service's `SelectedRows` field to a non-grid widget warns that a row must first be
   selected, even for a one-record form. No service-level first-row selection option was found
   in the inspected 10.2 platform code; the warning explains how to select through a list,

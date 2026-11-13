@@ -10,7 +10,7 @@ use crate::core::mashup;
 use crate::core::mashup::address::parse_address;
 use crate::core::mashup::describe::mashup_parameters;
 use crate::core::mashup::edit::MashupDocument;
-use crate::core::{types, widgets};
+use crate::core::{bindings, types, widgets};
 use serde_json::{json, Value};
 
 /// The most series a combo chart holds (DataField1..DataField24 in the 10.2 widget).
@@ -37,6 +37,19 @@ pub enum Recipe {
         expression: String,
         inputs: Vec<(String, String)>,
     },
+    /// Evaluate on a click and write a mashup parameter, without evaluating on input changes.
+    SetOnClick {
+        trigger: String,
+        parameter: String,
+        expression: String,
+        inputs: Vec<(String, String)>,
+    },
+    /// An interactive progress tracker whose field maps follow the result DataShape.
+    Tracker {
+        widget: String,
+        data: String,
+        field_maps: Vec<(String, String)>,
+    },
     /// Status messages after service success and/or failure.
     Message {
         after: String,
@@ -51,6 +64,8 @@ pub enum Recipe {
         then: String,
         title: Option<String>,
         message: Option<String>,
+        action_label: Option<String>,
+        cancel_label: Option<String>,
     },
     /// A popup (or page) opened by an event, given values, and a refresh when it closes (165/166 seen).
     Popup {
@@ -127,6 +142,8 @@ impl Recipe {
             Self::EnableWhen { .. } => "enable-when",
             Self::ShowWhen { .. } => "show-when",
             Self::Text { .. } => "text",
+            Self::SetOnClick { .. } => "set-on-click",
+            Self::Tracker { .. } => "tracker",
             Self::Message { .. } => "message",
             Self::Confirm { .. } => "confirm",
             Self::Popup { .. } => "popup",
@@ -227,6 +244,29 @@ impl Work<'_> {
             .data_shapes
             .iter()
             .find(|s| s.name == shape_name)?;
+        Some(
+            shape
+                .fields
+                .iter()
+                .map(|f| (f.name.clone(), f.base_type.clone()))
+                .collect(),
+        )
+    }
+
+    /// Resolve the existing binding too, including a named call's underlying service.
+    fn bound_fields(&self, widget: &str) -> Option<Vec<(String, String)>> {
+        let sections = bindings::data_sections(self.document.value());
+        let resolver = bindings::Resolver::new(self.context.model, self.context.platform);
+        let mut bindings = bindings::whole_data_bindings(self.document.value())
+            .into_iter()
+            .filter(|binding| binding.widget == widget);
+        let binding = bindings.next()?;
+        if bindings.next().is_some() {
+            return None;
+        }
+        let (section, call) = bindings::service_at(&sections, &binding.section, &binding.call)?;
+        let service = resolver.service(section, &call.target).service?;
+        let shape = resolver.checkable_shape(service.result.data_shape.as_deref()?)?;
         Some(
             shape
                 .fields
@@ -452,6 +492,61 @@ pub(crate) fn plan_recipe(
             )?;
             work.on("mashup:Loaded", &format!("ui:{id}.Evaluate"))?;
         }
+        Recipe::SetOnClick {
+            trigger,
+            parameter,
+            expression,
+            inputs,
+        } => {
+            let destination = format!("mashup:{parameter}");
+            let base = work.source_type(&destination)?;
+            let id = work.computed("expression2", &assigning(expression), Some(&base), inputs)?;
+            let expression_widget = widget_id(&work.document, &id)?;
+            work.set(
+                &expression_widget,
+                &[
+                    ("AutoEvaluate", json!(false)),
+                    ("DisableInitialOutput", json!(true)),
+                    ("DataChangeType", json!("ALWAYS")),
+                ],
+            );
+            work.bind(&format!("ui:{id}.Output"), &destination)?;
+            work.on(&widget_event(trigger), &format!("ui:{id}.Evaluate"))?;
+        }
+        Recipe::Tracker {
+            widget,
+            data,
+            field_maps,
+        } => {
+            // Resolve and validate every map before creating a visual widget.
+            let fields = work.result_fields(data).ok_or_else(|| AuthoringError::Invalid(
+                format!("tracker needs {data} to return a DataShape available in the repository; add its DataShape before mapping {}", TRACKER_MAPS.iter().map(|(name, _, _)| *name).collect::<Vec<_>>().join(", "))
+            ))?;
+            let maps = tracker_maps(&fields, field_maps)?;
+            let target = if widget == "new" {
+                let catalog = widgets::catalog()
+                    .by_type("ptcsprogresstracker")
+                    .expect("catalogue tracker");
+                let placed = work
+                    .document
+                    .place(catalog, &mashup::edit::Placement::In("center".into()))
+                    .map_err(AuthoringError::Edit)?;
+                work.added.push(placed.id.clone());
+                widget_id(&work.document, &placed.id)?
+            } else {
+                widget_id(&work.document, widget)?
+            };
+            if target.type_id != "ptcsprogresstracker" {
+                return Err(AuthoringError::Invalid(format!(
+                    "{} is a {}, not a progress tracker",
+                    target.id, target.type_id
+                )));
+            }
+            let mut properties = vec![("IsInteractive", json!(true)), ("StepSize", json!("large"))];
+            properties.extend(maps.iter().map(|(name, field)| (*name, json!(field))));
+            work.set(&target, &properties);
+            work.bind(data, &format!("ui:{}.Data", target.id))?;
+        }
         Recipe::Message {
             after,
             text,
@@ -506,6 +601,8 @@ pub(crate) fn plan_recipe(
             then,
             title,
             message,
+            action_label,
+            cancel_label,
         } => {
             let mut properties = Vec::new();
             if let Some(title) = title {
@@ -513,6 +610,12 @@ pub(crate) fn plan_recipe(
             }
             if let Some(message) = message {
                 properties.push(("MessageText", json!(message)));
+            }
+            if let Some(label) = action_label {
+                properties.push(("ActionButtonLabel", json!(label)));
+            }
+            if let Some(label) = cancel_label {
+                properties.push(("CancelButtonLabel", json!(label)));
             }
             let id = work.add("ptcsconfirmation", &properties);
             work.on(&widget_event(trigger), &format!("ui:{id}.OpenConfirmation"))?;
@@ -708,7 +811,23 @@ pub(crate) fn plan_recipe(
                     "columns needs at least one --column".into(),
                 ));
             }
-            let fields = data.as_deref().and_then(|data| work.result_fields(data));
+            if let Some(data) = data {
+                work.bind(data, &format!("ui:{}.Data", target.id))?;
+            }
+            // Without a known DataShape the listed columns are written as given and the grid
+            // keeps showing the fields it is not told about.
+            let fields = work.bound_fields(&target.id);
+            if fields.is_none()
+                && !bindings::whole_data_bindings(work.document.value())
+                    .iter()
+                    .any(|binding| binding.widget == target.id)
+            {
+                return Err(AuthoringError::Invalid(format!(
+                    "columns for {} needs the grid's data; bind Data or give --data <data call>",
+                    target.id
+                )));
+            }
+            let known = fields.clone();
             let mut format = Vec::new();
             for text in columns {
                 let mut parts = text.splitn(3, ':');
@@ -734,16 +853,30 @@ pub(crate) fn plan_recipe(
                             )))?)
                     }
                 };
-                let base = work.field(&fields, &name)?;
+                if format
+                    .iter()
+                    .any(|column: &Value| column["FieldName"] == name)
+                {
+                    return Err(AuthoringError::Invalid(format!(
+                        "--column repeats field {name}; list each field once"
+                    )));
+                }
+                let base = work.field(&known, &name)?;
                 format.push(column_format(&name, &title, width, &base));
+            }
+            // Composer keeps all fields in the configuration, even those outside the layout.
+            for (name, base) in fields.iter().flatten() {
+                if !format.iter().any(|column| column["FieldName"] == *name) {
+                    let mut column = column_format(name, name, json!("auto"), base);
+                    column["inLayout"] = json!(false);
+                    column["hidden"] = json!(true);
+                    format.push(column);
+                }
             }
             work.set(
                 &target,
                 &[("ColumnFormat", json!({ "formatInfo": format }))],
             );
-            if let Some(data) = data {
-                work.bind(data, &format!("ui:{}.Data", target.id))?;
-            }
         }
         Recipe::Picker {
             widget,
@@ -823,6 +956,9 @@ pub struct RecipeArgs {
     pub widget: Option<String>,
     pub condition: Option<String>,
     pub expression: Option<String>,
+    pub param: Option<String>,
+    /// Tracker `Property=field` overrides.
+    pub field_maps: Vec<String>,
     /// `name=address`, repeatable.
     pub inputs: Vec<String>,
     pub after: Option<String>,
@@ -832,6 +968,8 @@ pub struct RecipeArgs {
     pub kind: Option<String>,
     pub then: Option<String>,
     pub title: Option<String>,
+    pub action_label: Option<String>,
+    pub cancel_label: Option<String>,
     pub on: Option<String>,
     pub target: Option<String>,
     pub window: Option<String>,
@@ -869,6 +1007,8 @@ pub const RECIPES: &[&str] = &[
     "chart",
     "columns",
     "picker",
+    "tracker",
+    "set-on-click",
 ];
 
 fn pairs(flag: &str, values: &[String]) -> Result<Vec<(String, String)>, AuthoringError> {
@@ -899,6 +1039,18 @@ impl Recipe {
                 "--on-failure is for recipe message; close-after closes only on success".into(),
             ));
         }
+        for (given, flag, recipe) in [
+            (args.action_label.is_some(), "--action-label", "confirm"),
+            (args.cancel_label.is_some(), "--cancel-label", "confirm"),
+            (args.param.is_some(), "--param", "set-on-click"),
+            (!args.field_maps.is_empty(), "--field-map", "tracker"),
+        ] {
+            if given && name != recipe {
+                return Err(AuthoringError::Invalid(format!(
+                    "{flag} is for recipe {recipe}"
+                )));
+            }
+        }
         let inputs = pairs("--input", &args.inputs)?;
         let widget = |what: &str| required(&args.widget, what, name);
         Ok(match name {
@@ -924,6 +1076,17 @@ impl Recipe {
                 expression: required(&args.expression, "--expr <expression>", name)?,
                 inputs,
             },
+            "set-on-click" => Recipe::SetOnClick {
+                trigger: widget("the button")?,
+                parameter: required(&args.param, "--param <name>", name)?,
+                expression: required(&args.expression, "--expr <expression>", name)?,
+                inputs,
+            },
+            "tracker" => Recipe::Tracker {
+                widget: widget("the progress tracker, or new")?,
+                data: required(&args.data, "--data <service result>", name)?,
+                field_maps: pairs("--field-map", &args.field_maps)?,
+            },
             "message" => Recipe::Message {
                 after: required(&args.after, "--after <data call>", name)?,
                 text: args.say.clone(),
@@ -936,6 +1099,8 @@ impl Recipe {
                 then: required(&args.then, "--then <handler>", name)?,
                 title: args.title.clone(),
                 message: args.say.clone(),
+                action_label: args.action_label.clone(),
+                cancel_label: args.cancel_label.clone(),
             },
             "popup" => {
                 let size = match &args.size {
@@ -1081,4 +1246,241 @@ fn column_format(name: &str, title: &str, width: Value, base: &str) -> Value {
         "sortable": true,
         "stripHtml": false
     })
+}
+
+/// Maps a tracker needs; the others are left unset when no field matches.
+const TRACKER_REQUIRED: &[&str] = &["StepNumberField", "StepLabelField"];
+
+/// Catalogue field maps and deliberately conservative, case/separator-insensitive aliases.
+const TRACKER_MAPS: &[(&str, &[&str], &[&str])] = &[
+    (
+        "StepNumberField",
+        &["stepnumber", "number", "step", "index", "ordinal"],
+        &["NUMBER", "INTEGER", "LONG"],
+    ),
+    (
+        "StepLabelField",
+        &[
+            "steplabel",
+            "stepname",
+            "label",
+            "title",
+            "name",
+            "description",
+        ],
+        &["STRING", "TEXT"],
+    ),
+    (
+        "StepStateField",
+        &["stepstate", "state", "status"],
+        &["STRING", "TEXT"],
+    ),
+    (
+        "StepInteractiveField",
+        &[
+            "stepinteractive",
+            "isinteractive",
+            "interactive",
+            "enabled",
+            "canselect",
+        ],
+        &["BOOLEAN"],
+    ),
+    (
+        "StepMashupNameField",
+        &["stepmashupname", "stepmashup", "mashupname", "mashup"],
+        &["MASHUPNAME", "STRING"],
+    ),
+];
+
+fn tracker_maps(
+    fields: &[(String, String)],
+    overrides: &[(String, String)],
+) -> Result<Vec<(&'static str, String)>, AuthoringError> {
+    let mut explicit = std::collections::BTreeMap::new();
+    for (property, field) in overrides {
+        if !TRACKER_MAPS.iter().any(|(name, _, _)| property == name) {
+            return Err(AuthoringError::Invalid(format!(
+                "unknown tracker map {property}; use {}",
+                TRACKER_MAPS
+                    .iter()
+                    .map(|(name, _, _)| *name)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )));
+        }
+        if explicit.insert(property.as_str(), field.as_str()).is_some() {
+            return Err(AuthoringError::Invalid(format!(
+                "tracker map {property} is given twice"
+            )));
+        }
+    }
+    let normalize = |name: &str| {
+        name.chars()
+            .filter(char::is_ascii_alphanumeric)
+            .flat_map(char::to_lowercase)
+            .collect::<String>()
+    };
+    let mut maps = Vec::new();
+    let mut unmatched = Vec::new();
+    for &(property, aliases, bases) in TRACKER_MAPS {
+        let field = if let Some(field) = explicit.get(property) {
+            fields
+                .iter()
+                .find(|(name, _)| name == field)
+                .ok_or_else(|| {
+                    AuthoringError::Invalid(format!(
+                        "tracker map {property} names missing field {field}; available fields: {}",
+                        fields
+                            .iter()
+                            .map(|(name, _)| name.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ))
+                })?
+        } else {
+            let candidates: Vec<_> = fields
+                .iter()
+                .filter(|(name, base)| {
+                    aliases.contains(&normalize(name).as_str()) && bases.contains(&base.as_str())
+                })
+                .collect();
+            match candidates.as_slice() {
+                [field] => *field,
+                [] if !TRACKER_REQUIRED.contains(&property) => continue,
+                _ => {
+                    unmatched.push(if candidates.is_empty() {
+                        property.to_string()
+                    } else {
+                        format!(
+                            "{property} (ambiguous: {})",
+                            candidates
+                                .iter()
+                                .map(|(name, _)| name.as_str())
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        )
+                    });
+                    continue;
+                }
+            }
+        };
+        if !bases.contains(&field.1.as_str()) {
+            return Err(AuthoringError::Invalid(format!(
+                "tracker map {property} field {} is {}; use a {} field",
+                field.0,
+                field.1,
+                bases.join("/")
+            )));
+        }
+        maps.push((property, field.0.clone()));
+    }
+    if !unmatched.is_empty() {
+        return Err(AuthoringError::Invalid(format!("tracker has unmatched field maps: {}; give --field-map Property=field for each (MCP field_maps); available fields: {}", unmatched.join("; "), fields.iter().map(|(name, _)| name.as_str()).collect::<Vec<_>>().join(", "))));
+    }
+    Ok(maps)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tracker_maps_require_complete_unambiguous_typed_fields_and_valid_overrides() {
+        let fields: Vec<_> = [
+            ("number", "NUMBER"),
+            ("name", "STRING"),
+            ("description", "STRING"),
+            ("state", "STRING"),
+        ]
+        .into_iter()
+        .map(|(name, base)| (name.into(), base.into()))
+        .collect();
+        let error = tracker_maps(&fields, &[]).unwrap_err().to_string();
+        for missing in [
+            "StepLabelField (ambiguous: name, description)",
+            "--field-map",
+        ] {
+            assert!(error.contains(missing), "{error}");
+        }
+        // Optional maps with no matching field stay unset; the required ones must match.
+        let maps = tracker_maps(&fields, &[("StepLabelField".into(), "name".into())]).unwrap();
+        assert_eq!(
+            maps,
+            vec![
+                ("StepNumberField", "number".to_string()),
+                ("StepLabelField", "name".to_string()),
+                ("StepStateField", "state".to_string()),
+            ]
+        );
+        let error = tracker_maps(&fields[1..2], &[]).unwrap_err().to_string();
+        assert!(error.contains("StepNumberField"), "{error}");
+        assert!(!error.contains("StepMashupNameField"), "{error}");
+        for (overrides, expected) in [
+            (
+                vec![("LabelField", "name")],
+                "unknown tracker map LabelField",
+            ),
+            (
+                vec![
+                    ("StepLabelField", "name"),
+                    ("StepLabelField", "description"),
+                ],
+                "given twice",
+            ),
+            (vec![("StepLabelField", "missing")], "missing field missing"),
+            (
+                vec![("StepNumberField", "name")],
+                "use a NUMBER/INTEGER/LONG field",
+            ),
+        ] {
+            let overrides: Vec<_> = overrides
+                .into_iter()
+                .map(|(p, f)| (p.into(), f.into()))
+                .collect();
+            assert!(tracker_maps(&fields, &overrides)
+                .unwrap_err()
+                .to_string()
+                .contains(expected));
+        }
+        for (recipe, args, flag) in [
+            (
+                "text",
+                RecipeArgs {
+                    action_label: Some("Delete".into()),
+                    ..Default::default()
+                },
+                "--action-label",
+            ),
+            (
+                "text",
+                RecipeArgs {
+                    cancel_label: Some("Keep".into()),
+                    ..Default::default()
+                },
+                "--cancel-label",
+            ),
+            (
+                "text",
+                RecipeArgs {
+                    param: Some("Step".into()),
+                    ..Default::default()
+                },
+                "--param",
+            ),
+            (
+                "text",
+                RecipeArgs {
+                    field_maps: vec!["StepLabelField=name".into()],
+                    ..Default::default()
+                },
+                "--field-map",
+            ),
+        ] {
+            assert!(Recipe::from_args(recipe, &args)
+                .unwrap_err()
+                .to_string()
+                .contains(flag));
+        }
+    }
 }

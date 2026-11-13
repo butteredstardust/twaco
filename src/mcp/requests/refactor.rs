@@ -949,7 +949,7 @@ pub(crate) struct MashupParameterRequest {
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct MashupRecipeRequest {
-    /// enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh or validate.
+    /// enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, picker, tracker or set-on-click.
     pub(crate) recipe: String,
     /// The mashup to write it in.
     pub(crate) mashup: String,
@@ -960,6 +960,18 @@ pub(crate) struct MashupRecipeRequest {
     pub(crate) condition: Absent<String>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) expression: Absent<String>,
+    /// Destination mashup parameter for set-on-click.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) param: Absent<String>,
+    /// Tracker overrides as `Property=field`, using catalogue field-map property names.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) field_maps: Absent<Vec<String>>,
+    /// Confirmation action button text.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) action_label: Absent<String>,
+    /// Confirmation cancel button text.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) cancel_label: Absent<String>,
     /// `name=address` inputs of the condition or expression.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) inputs: Absent<Vec<String>>,

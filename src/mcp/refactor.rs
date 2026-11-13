@@ -903,6 +903,10 @@ pub(crate) fn mashup_recipe_tool(
     let dry_run = arguments.dry_run;
     let recipe_args = RecipeArgs {
         widget: arguments.widget.as_ref().cloned(),
+        param: arguments.param.as_ref().cloned(),
+        field_maps: arguments.field_maps.items().to_vec(),
+        action_label: arguments.action_label.as_ref().cloned(),
+        cancel_label: arguments.cancel_label.as_ref().cloned(),
         condition: arguments.condition.as_ref().cloned(),
         expression: arguments.expression.as_ref().cloned(),
         inputs: arguments.inputs.items().to_vec(),

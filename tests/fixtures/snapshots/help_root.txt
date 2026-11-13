@@ -294,6 +294,7 @@ usage: twaco <command>
       message --after <data call> [--say <text> | --from <address>] [--kind info|warning|error]
           [--on-failure <text>]   status messages on success and/or failure; give at least one
       confirm <button> --then <handler> [--title <text>] [--say <text>]
+          [--action-label <text>] [--cancel-label <text>]
                               a confirmation before the click runs the handler
       popup <widget>|--on <event> --mashup <name> [--window modal-popup|popup|replace|new]
           [--size <WxH>] [--title <text>] [--pass name=<address>]... [--reload <handler>]
@@ -307,9 +308,13 @@ usage: twaco <command>
       chart <chart> --data <data call> --x <field> [--value <field>] [--kind <chart type>]
                               draw a service result: the category field (a pie: label and value)
       columns <grid> --column field[:Title[:width]]... [--data <data call>]
-                              a grid's columns, rendered by each field's base type
+                              only these columns in order, with readable dates; --data or existing binding
       picker <dropdown|list> --data <data call> --x <display field> [--value <field>]
           [--selected <address>]   fill a dropdown or list from a service result
+      tracker <widget|new> --data <data call> [--field-map Property=field]...
+                              interactive large tracker; infer all five maps from the result DataShape
+      set-on-click <button> --param <name> --expr <expression> [--input name=<address>]...
+                              set a mashup parameter on click; no automatic evaluation
   mashup event add <mashup> <name> --when <address> [--apply] [--json]
                               give a mashup an event its parents react to with mashup on --event
                               ui:<container>.<name>: a NUMBER parameter set to the time when the

@@ -1510,6 +1510,10 @@ twaco mashup recipe popup Acme.App.Orders_MU ptcsbutton-6 --mashup Acme.App.Edit
 twaco mashup recipe close-after Acme.App.EditOrder_MU --after data:Acme.App.Orders.Manager.SaveOrder --apply
 twaco mashup recipe message Acme.App.EditOrder_MU --after data:Acme.App.Orders.Manager.SaveOrder --say "Saved" --on-failure "Save failed; try again" --apply
 twaco mashup recipe validate Acme.App.Edit_MU ptcsbutton-6 --if "note !== ''" --input note=ui:ptcstextfield-3.Text --then data:Acme.App.Orders.Manager.SaveOrder --else-say "A note is required" --apply
+twaco mashup recipe confirm Acme.App.Orders_MU ptcsbutton-6 --then data:Acme.App.Orders.Manager.DeleteOrder --title "Delete order?" --action-label Delete --cancel-label Keep --apply
+twaco mashup recipe columns Acme.App.Orders_MU ptcsgrid-5 --data data:Acme.App.Orders.Manager.GetOrders --column id:Order:100 --column title:Title --column start:Started:180 --apply
+twaco mashup recipe tracker Acme.App.Wizard_MU new --data data:Acme.App.Wizard.Manager.GetSteps --field-map StepLabelField=caption --apply
+twaco mashup recipe set-on-click Acme.App.Wizard_MU ptcsbutton-6 --param CurrentStep --expr "CurrentStep + 1" --input CurrentStep=mashup:CurrentStep --apply
 ```
 
 `mashup recipe` writes, in one edit, the wiring real mashups repeat, from the same pieces `mashup add`,
@@ -1520,14 +1524,35 @@ twaco mashup recipe validate Acme.App.Edit_MU ptcsbutton-6 --if "note !== ''" --
 | enable-when, show-when | an expression of `--if`, fed by each `--input name=address`, into the widget's `Disabled` (negated) or `Visible`, evaluated on load and whenever an input changes |
 | text | a STRING expression (`--expr`) into a label's text |
 | message | a success status message (`--say` or bound `--from`; `--kind info|warning|error`) on the `--after` call's `ServiceInvokeCompleted`; optional `--on-failure <text>` adds a separate error status message on `Data_Error`. A failure message may be used alone |
-| confirm | a confirmation (`--title`, `--say`) the click opens; its action runs `--then` |
+| confirm | a confirmation (`--title`, `--say`) the click opens; its action runs `--then`; `--action-label` and `--cancel-label` set its button text |
 | popup | a navigation function opening `--mashup` (`--window`, `--size WxH`, `--title`), each `--pass name=address` into its parameters, `--reload` run when it closes |
 | close-after | the mashup closes itself (when it is a popup) once the `--after` call succeeds; failure leaves the form open |
 | auto-refresh | `--then` run every `--every` seconds, or at a bound `--interval` |
 | validate | a validator of `--if` the click evaluates: true runs `--then`, false shows `--else-say` |
 | chart | `--data` bound into the chart and its category field `--x` named (a pie: `--x` label and `--value` fields); every other numeric column of the result becomes a series; `--kind` bar/column or linechart/areachart |
-| columns | the grid's `ColumnFormat`: each `--column field[:Title[:width]]` in order, rendered by the field's base type; `--data` also bound |
+| columns | only the listed `--column field[:Title[:width]]` fields visible, in order; unlisted DataShape fields excluded from the layout; DATETIME fields use the localized default date/time format. Uses `--data` or the grid's existing binding; without a known DataShape only the listed columns are written and unlisted fields stay visible |
 | picker | a dropdown or list filled from `--data`, showing `--x`, valued by `--value`, its selection bound from `--selected` |
+| tracker | a progress tracker (existing widget or `new` in `center`) bound to `--data`, with `IsInteractive=true`, `StepSize=large` and field maps inferred from its result DataShape (number and label required); `--field-map Property=field` overrides any map |
+| set-on-click | an expression of `--expr`, fed by `--input name=address`, evaluated by the button's click and bound into the existing `--param` mashup parameter, using that parameter's type; no evaluation on load or input changes |
+
+`tracker` matches field names ignoring case and separators: number/step/stepNumber for
+`StepNumberField`, name/title/label/description for `StepLabelField`, state/status for
+`StepStateField`, interactive/isInteractive/enabled for `StepInteractiveField`, and
+mashup/mashupName/stepMashup for `StepMashupNameField`. The number and label maps are required; the other three stay unset when
+no field matches. Missing required or ambiguous matches are refused together, with the property names and available fields listed;
+use repeatable `--field-map StepLabelField=caption` overrides to resolve them. Number fields must
+be numeric, labels and states text, interactive flags BOOLEAN, and mashup names STRING or
+MASHUPNAME. The service's DataShape must be in the repository. For placement in another slot,
+add the progress tracker there with `mashup add` first and give its widget id to the recipe.
+
+`set-on-click` needs an existing mashup parameter. For Next and Back, use separate buttons and
+expressions such as `CurrentStep + 1` and `CurrentStep - 1`; feed the parameter back with
+`--input CurrentStep=mashup:CurrentStep`. Automatic evaluation and initial output are disabled,
+so that feedback waits for each click. Existing button handlers remain wired.
+
+MCP uses the same `mashup_recipe` tool: `action_label`/`cancel_label`, `field_maps` (an array of
+`Property=field` strings), and `param`/`expression`/`inputs` correspond to these CLI options.
+`dry_run` defaults to true; use `dry_run: false` to apply.
 
 ### Validating mashups
 
