@@ -622,6 +622,23 @@ pub(crate) fn mashup_add_tool(
             _ => return Err(ToolError::invalid("bottom goes with in")),
         }
     }
+    if arguments.in_column {
+        use crate::core::mashup::edit::{Placement, Side};
+        match supplied.first_mut() {
+            Some(placement) => {
+                if let Placement::Beside {
+                    anchor,
+                    side: Side::Below,
+                } = placement
+                {
+                    *placement = Placement::BelowInColumn(anchor.clone());
+                } else {
+                    return Err(ToolError::invalid("in_column goes with below"));
+                }
+            }
+            None => return Err(ToolError::invalid("in_column goes with below")),
+        }
+    }
     let request = commands::mashup::MashupAddRequest {
         request: crate::core::mashup::authoring::AddRequest {
             mashup: nonempty(&arguments.mashup, "mashup")?.to_string(),
@@ -697,6 +714,14 @@ pub(crate) fn mashup_collection_add_tool(
             uid: arguments.uid.as_ref().cloned(),
             width: arguments.width.as_ref().copied(),
             height: arguments.height.as_ref().copied(),
+            columns: arguments.columns.as_ref().copied(),
+            across: arguments.across.as_ref().copied(),
+            preset: arguments.preset.as_ref().map(|preset| match preset {
+                super::requests::refactor::CollectionPresetArg::Cards => {
+                    crate::core::mashup::authoring::CollectionPreset::Cards
+                }
+            }),
+            menu: arguments.menu.as_ref().cloned(),
             placement: supplied.into_iter().next(),
         },
         mode: if dry_run { Mode::Plan } else { Mode::Apply },
@@ -903,11 +928,16 @@ pub(crate) fn mashup_recipe_tool(
     let dry_run = arguments.dry_run;
     let recipe_args = RecipeArgs {
         widget: arguments.widget.as_ref().cloned(),
+        param: arguments.param.as_ref().cloned(),
+        field_maps: arguments.field_maps.items().to_vec(),
+        action_label: arguments.action_label.as_ref().cloned(),
+        cancel_label: arguments.cancel_label.as_ref().cloned(),
         condition: arguments.condition.as_ref().cloned(),
         expression: arguments.expression.as_ref().cloned(),
         inputs: arguments.inputs.items().to_vec(),
         after: arguments.after.as_ref().cloned(),
         say: arguments.say.as_ref().cloned(),
+        on_failure: arguments.on_failure.as_ref().cloned(),
         from: arguments.from.as_ref().cloned(),
         kind: arguments.kind.as_ref().cloned(),
         then: arguments.then.as_ref().cloned(),

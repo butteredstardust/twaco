@@ -1111,12 +1111,19 @@ aliases and slots. Slots are responsive container names usable with `mashup add 
 | card | header, title, actions, body | Card content |
 | master-detail | list, detail | Master and detail panes |
 | kpi-tile | title, value | A compact KPI display |
-| filter-panel | filters, content | Filters beside results |
+| filter-panel | filter-column, filters, content | Filters beside results |
 | tabs | title, tabs | A tab set whose tabs each show a mashup (`--tab Label=Mashup`) |
 | dashboard | title, tiles, tile-1..tile-4, panels, side, main | Four KPI tiles above a side panel and a main panel (1:3) |
 
-`filter-panel` draws the kits' look: a 290px filter column on `#F7F7F7`, and the content on white with
-a 24px margin. `list-page` gives its toolbar the same grey band. The colours are ordinary widget styles
+`filter-panel` draws the kits' look: `filter-column` is a continuous 276px column on `#F7F7F7`.
+Inside it, `filters` is a centered 240px controls column. Controls added there fit its width;
+the first gets `Margin` `5 0`, later controls `13 0 5` (13px above, 5px below, no horizontal
+inset). Generated rows center the controls and keep their content height without nested
+scrollbars. Existing `--in filters` commands target this inner slot, including
+`--in filters --bottom` for Apply and `--right-of <apply>` for Clear: their footer stays at the
+bottom while later filters go above it. Footer buttons get `Width` 110 and `Margin` 0;
+the footer row gets `Margin` `0 5`. The inner column and generated rows inherit the grey
+background. Content is white with a 24px margin. `list-page` gives its toolbar the same grey band. The colours are ordinary widget styles
 in the root's StyleProperties, so `mashup set <mashup> <slot> --style background=...` changes them.
 `dashboard` keeps the kits' 24px page margin around everything; `blank` has none, since it also serves
 contained mashups and collection cells.
@@ -1214,19 +1221,46 @@ the row that grows, its controls at its bottom; beside a grid or a chart it is f
 A compact date, as the kits show in a two-field range, is `--prop FormatToken=DD-MM-YY` on the
 date picker; the default format is Composer's.
 
+For a two-column form, use `--right-of` for the second field, then
+`--below <widget> --in-column` to stack within either field's column. Repeat it beneath each
+new field to keep that column flat. Without `--in-column`, `--below` keeps its existing rule:
+a control row twaco made is placed above the new row as a whole. The explicit option uses
+the same natural row heights and short-page scrolling rules as other placements. A textarea in
+a stack of controls keeps its floor (normally 100px), taking no spare page height; the form's
+enclosing rows keep that compact height too, so a following Save button sits beneath the fields.
+For example, starting with a blank mashup (the comments name the ids returned by each add):
+
+```sh
+twaco mashup new Acme.Form_MU --apply
+twaco mashup add Acme.Form_MU label --label Form --apply                          # ptcslabel-3
+twaco mashup add Acme.Form_MU textfield --below ptcslabel-3 --label "Field 01" --apply # ptcstextfield-4
+twaco mashup add Acme.Form_MU textfield --right-of ptcstextfield-4 --label "Field 02" --apply # ptcstextfield-7
+twaco mashup add Acme.Form_MU textarea --below ptcstextfield-4 --in-column --label Description --apply # ptcstextarea-8
+twaco mashup add Acme.Form_MU datepicker --below ptcstextfield-7 --in-column --label Date --apply # ptcsdatepicker-13
+twaco mashup add Acme.Form_MU datepicker --below ptcsdatepicker-13 --in-column --label Date --apply # ptcsdatepicker-16
+twaco mashup add Acme.Form_MU checkbox --below ptcsdatepicker-16 --in-column --label Checkbox --apply
+```
+
+The left column contains Field 01 and Description; the right contains Field 02, Date, Date and
+Checkbox. Use the ids your command returns in an existing mashup. MCP `mashup_add` takes
+`below: "<widget>"` with `in_column: true`; `in_column` requires `below`.
+
 A card of label/value rows, as the design kits draw one ("● Objective ........ 12"), takes three
 more steps. `--right-of <widget> --end` puts a widget at the far end of the anchor's row: the row
 splits into a start group (what was there) and an end group (the new widget), spread apart and
-centred, and it keeps its natural height. In a column that also holds a grid or a chart, such a row
+centred. A split text row in a card keeps a 25px minimum and can grow for larger text or margins;
+with 19px body text and a separator, its pitch is 26px. The extra space belongs to the row,
+not the labels' margins. In a column that also holds a grid or a chart, such a row
 (a toolbar with View Details at the start and Form at the end) is fixed to its controls' height
 instead, so the grid takes the spare height, as the kits' toolbars do. `mashup add <mashup> separator --below <widget>` adds
 the kits' 1px rule (`#C2C7CE`) between rows. The row holding such cards becomes a `range` row whose
 minimum is the cards' measured height (a `label` row is 19px on 10.2, a `sub-header` 27px, a
-`header` 33px). A `range` row still takes its share of the page's spare height, as every row
-does. A chart placed in a row twaco makes keeps its own size there, as the kits' charts do
-(`OverrideChildrenAbsolute` on its row), so a row of charts claims its share without help; to give
-more to a row of grids, set that row's `flex-grow` to 2 or 3. `--prop` values count in that measure, so set a dot's size and margins
-there:
+`header` 33px, before margins). Generated title rows use the same natural label height plus
+its top and bottom margins: a default label with 5px margins takes 29px, a sub-header 37px,
+a header 43px. Inline label font size and line height count too. The cards' own vertical margins,
+padding and borders also count in the enclosing row's minimum, so their inner rows fit without squeezing.
+Explicit widget and row sizes are preserved. `--prop` values count in that measure, so set a
+dot's size and margins there:
 
 ```sh
 twaco mashup add Acme.App.Kpi_MU shape --below ptcslabel-4 --prop Width=12 --prop Height=12 --prop "Margin=0 5" --apply
@@ -1234,6 +1268,39 @@ twaco mashup add Acme.App.Kpi_MU label --right-of shape-5 --label Objective --pr
 twaco mashup add Acme.App.Kpi_MU label --right-of ptcslabel-6 --end --label 12 --prop "Margin=0 18 0 5" --apply
 twaco mashup add Acme.App.Kpi_MU separator --below shape-5 --apply
 ```
+
+Pages twaco lays out keep working on short screens (a laptop at 1440x717, or a page shown in a
+master). Runtime lets every row of a responsive container shrink to nothing and gives each one a
+scrollbar of its own, so a squeezed page would grow a scrollbar in every row. The rows a placement
+makes never shrink below their content (`flex-shrink` 0); instead the page, the outermost
+container, scrolls once. A row holding a widget that fills (a chart, a grid, a contained mashup)
+takes the spare height and keeps a floor: a `range` row whose minimum is Composer's drop height
+for that widget, at most 300px (a chart with its legend draws cleanly at that size). A widget
+whose catalogue has no height, such as a textarea, keeps a modest 100px floor. In a column with
+at least two control rows or widgets, all known controls (labels, fields, buttons and textareas),
+a textarea and its generated wrappers keep their floors with `flex-grow` 0. A compact generated
+column also stops at its measured content height, keeping fields together at the top even beside
+a taller column. Side-by-side fields on a blank page keep a vertical page wrapper, and default
+`--below <textarea>` places Save below the whole split form; use `--in-column` to keep a new
+control inside the textarea's column. The last ordinary
+control row can absorb spare height with its controls at the top; an explicit `--bottom` footer
+keeps its buttons at the bottom. A lone textarea still fills its panel. Charts, grids, other data
+fillers and unknown widgets keep the filling rules, even beside a title or buttons. Wrapping a filler
+with `--below` or `--right-of` gives the new inner containers their floors too; a nested column
+keeps the sum and a nested row the tallest child's height. A horizontal divider is a 1px rule
+plus its margins, not a filler. A contained mashup's floor is measured from the child's own rows
+instead. Beside such a row, the rows a placement makes take no spare height (`flex-grow` 0), so a row of cards keeps its natural height
+and the chart or grid gets the rest. A chart is laid out by its row, so it draws to whatever its
+row gets. Rows that were already there, fixed rows, template slots and a `flex-grow` or
+`flex-shrink` you set yourself are left alone; to give more spare height to one of two growing
+rows, set its `flex-grow` to 2 or 3.
+
+When adding a fixed-size control, twaco caps its `Width` at the available pixel width of a fixed
+or range-limited container, including through generated wrappers. Container padding, borders,
+intermediate margins and the control's horizontal margins reduce that width. Smaller widths
+stay as requested; `--prop Width=...` and `--prop Margin=...` are checked together before the
+add is written. Percentage bounds and containers without an upper width bound need a Runtime
+viewport to measure, so twaco does not guess their width.
 
 The catalogue also has the older Composer `shape`: a rectangle, rounded rectangle, circle or
 ellipse (`ShapeType`) for status dots, badges and backgrounds. Its `Data` takes any scalar and its
@@ -1339,6 +1406,22 @@ the result to `Data` in one edit. It reports when nothing invokes the source cal
 [Collections: the serialized contract](MASHUP_COLLECTIONS.md) for the stored properties and
 runtime behaviour.
 
+Cards as the design kits lay them out (framed, spread evenly across each row, the last row under
+the first columns, the first card selected) take `--preset cards`. `--columns 4` works out the
+cell width that fits four on a row of a full-width collection in a 1440 px window (`--across
+<px>` names another collection width). A narrower window shows fewer cards per row. `--menu`
+names the cell menu's StateDefinition:
+
+```sh
+twaco mashup collection add Acme.App.Overview_MU Acme.App.KpiCard_MU \
+  --data data:Acme.App.Plant.GetKpis --map title=Title,value=Value --uid id \
+  --preset cards --columns 4 --menu Acme.App.CardMenu_ST --apply
+```
+
+`--width` and `--height` still set an exact size. With the preset and no `--height`, cells are the
+kit card's 270 px tall at any width, since a card's content needs its height; the cell menu's row
+adds 50 px below it.
+
 A cell menu (the "⋮" on each cell) is a string StateDefinition whose states are the items. Point
 the collection's `CellMenu` at it, then handle each item's `CellMenu:<item>` event; an item with
 spaces fires its value with hyphens (`More Details` fires `CellMenu:More-Details`):
@@ -1421,6 +1504,13 @@ direction and base types before it writes, and warns when the target already has
 templates and shapes need the runtime entity binding Composer creates, so twaco asks you to add
 that call there once. The entity and managed content sidecar change in one transaction.
 
+A `SelectedRows` field bound to a text field or another non-grid widget stays empty until a row
+is selected, even when the service returns just one record. twaco warns about this binding:
+the inspected ThingWorx 10.2 Data service configuration has no automatic first-row selection
+setting. To initialize a record form, bind the full result to a list or dropdown and explicitly
+set that widget's `AutoSelectFirstRow=true`, or select a row in a grid showing the result.
+twaco preserves service settings and does not insert a hidden selection widget.
+
 ### Events
 
 ```sh
@@ -1431,11 +1521,21 @@ twaco mashup on Acme.App.Orders_MU --event data:Acme.App.Orders.Manager.SaveOrde
 
 `mashup on` makes one event run a service, until `--apply` only a plan. The event is a widget's
 (`ui:<widget>.<Event>`, one its catalogue contract lists, such as a button's `Clicked`), the
-page's `mashup:Loaded`, or a call's `ServiceInvokeCompleted`, `AllDataChanged` or
+page's `mashup:Loaded`, or a call's `ServiceInvokeCompleted`, `Data_Error`, `AllDataChanged` or
 `SelectedRowsChanged` for a call the mashup already has. It runs a data service, added as a call
 when a Thing's service is not called yet, or a widget's own service such as a grid's `Reset`.
 Widgets whose contract the catalogue does not know are refused. `mashup describe` lists the
 result as `trigger -> handler`.
+
+Use `data:<Entity>.<Service>[as <alias>].Data_Error` to react to a service failure. The inspected
+10.2 Runtime emits `Data_Error` and registers it through the normal Data event path, although
+Composer's service event list omits it. `ServiceInvokeFailed` and `ServiceInvokeError` are not
+the emitted names. `ServiceInvokeCompleted` fires on success; `AllDataChanged` also fires after
+a failure clears the result, so use completion when chaining a save to a close or reload.
+This event support was checked against local platform source and isolated runtime callbacks,
+without a live server test. Composer's binding validator can remove this unlisted event on a
+service returning NOTHING when saving the mashup; review the exported wiring after Composer
+edits and recheck it when upgrading ThingWorx.
 
 ### Removing mashup wiring and widgets
 
@@ -1491,7 +1591,12 @@ bindable properties include the parameters of the mashup it opens. The legacy `e
 twaco mashup recipe enable-when Acme.App.Edit_MU ptcsbutton-6 --if "note !== ''" --input note=ui:ptcstextfield-3.Text --apply
 twaco mashup recipe popup Acme.App.Orders_MU ptcsbutton-6 --mashup Acme.App.EditOrder_MU --pass orderId=data:Acme.App.Orders.Manager.GetOrders[SelectedRows].id --reload data:Acme.App.Orders.Manager.GetOrders --apply
 twaco mashup recipe close-after Acme.App.EditOrder_MU --after data:Acme.App.Orders.Manager.SaveOrder --apply
+twaco mashup recipe message Acme.App.EditOrder_MU --after data:Acme.App.Orders.Manager.SaveOrder --say "Saved" --on-failure "Save failed; try again" --apply
 twaco mashup recipe validate Acme.App.Edit_MU ptcsbutton-6 --if "note !== ''" --input note=ui:ptcstextfield-3.Text --then data:Acme.App.Orders.Manager.SaveOrder --else-say "A note is required" --apply
+twaco mashup recipe confirm Acme.App.Orders_MU ptcsbutton-6 --then data:Acme.App.Orders.Manager.DeleteOrder --title "Delete order?" --action-label Delete --cancel-label Keep --apply
+twaco mashup recipe columns Acme.App.Orders_MU ptcsgrid-5 --data data:Acme.App.Orders.Manager.GetOrders --column id:Order:100 --column title:Title --column start:Started:180 --apply
+twaco mashup recipe tracker Acme.App.Wizard_MU new --data data:Acme.App.Wizard.Manager.GetSteps --field-map StepLabelField=caption --apply
+twaco mashup recipe set-on-click Acme.App.Wizard_MU ptcsbutton-6 --param CurrentStep --expr "CurrentStep + 1" --input CurrentStep=mashup:CurrentStep --apply
 ```
 
 `mashup recipe` writes, in one edit, the wiring real mashups repeat, from the same pieces `mashup add`,
@@ -1501,15 +1606,43 @@ twaco mashup recipe validate Acme.App.Edit_MU ptcsbutton-6 --if "note !== ''" --
 |---|---|
 | enable-when, show-when | an expression of `--if`, fed by each `--input name=address`, into the widget's `Disabled` (negated) or `Visible`, evaluated on load and whenever an input changes |
 | text | a STRING expression (`--expr`) into a label's text |
-| message | a status message (`--say` or bound `--from`; `--kind info|warning|error`) when the `--after` call completes |
-| confirm | a confirmation (`--title`, `--say`) the click opens; its action runs `--then` |
+| message | a success status message (`--say` or bound `--from`; `--kind info|warning|error`) on the `--after` call's `ServiceInvokeCompleted`; optional `--on-failure <text>` adds a separate error status message on `Data_Error`. A failure message may be used alone |
+| confirm | a confirmation (`--title`, `--say`) the click opens; its action runs `--then`; `--action-label` and `--cancel-label` set its button text |
 | popup | a navigation function opening `--mashup` (`--window`, `--size WxH`, `--title`), each `--pass name=address` into its parameters, `--reload` run when it closes |
-| close-after | the mashup closes itself (when it is a popup) once the `--after` call completes |
+| close-after | the mashup closes itself (when it is a popup) once the `--after` call succeeds; failure leaves the form open |
 | auto-refresh | `--then` run every `--every` seconds, or at a bound `--interval` |
 | validate | a validator of `--if` the click evaluates: true runs `--then`, false shows `--else-say` |
 | chart | `--data` bound into the chart and its category field `--x` named (a pie: `--x` label and `--value` fields); every other numeric column of the result becomes a series; `--kind` bar/column or linechart/areachart |
-| columns | the grid's `ColumnFormat`: each `--column field[:Title[:width]]` in order, rendered by the field's base type; `--data` also bound |
+| columns | only the listed `--column field[:Title[:width]]` fields visible, in order; unlisted DataShape fields excluded from the layout; DATETIME fields use the localized default date/time format. Uses `--data` or the grid's existing binding; without a known DataShape only the listed columns are written and unlisted fields stay visible |
 | picker | a dropdown or list filled from `--data`, showing `--x`, valued by `--value`, its selection bound from `--selected` |
+| tracker | a progress tracker (existing widget or `new` in `center`) bound to `--data`, with `IsInteractive=true`, `StepSize=large` and field maps inferred from its result DataShape (number and label required); `--field-map Property=field` overrides any map |
+| set-on-click | an expression of `--expr`, fed by `--input name=address`, evaluated by the button's click and bound into the existing `--param` mashup parameter, using that parameter's type; no evaluation on load or input changes |
+
+`tracker` matches field names ignoring case and separators: number/step/stepNumber for
+`StepNumberField`, name/title/label/description for `StepLabelField`, state/status for
+`StepStateField`, interactive/isInteractive/enabled for `StepInteractiveField`, and
+mashup/mashupName/stepMashup for `StepMashupNameField`. The number and label maps are required; the other three stay unset when
+no field matches. Missing required or ambiguous matches are refused together, with the property names and available fields listed;
+use repeatable `--field-map StepLabelField=caption` overrides to resolve them. Number fields must
+be numeric, labels and states text, interactive flags BOOLEAN, and mashup names STRING or
+MASHUPNAME. The service's DataShape must be in the repository. For placement in another slot,
+add the progress tracker there with `mashup add` first and give its widget id to the recipe.
+
+`set-on-click` needs an existing mashup parameter. For Next and Back, use separate buttons and
+expressions such as `CurrentStep + 1` and `CurrentStep - 1`; feed the parameter back with
+`--input CurrentStep=mashup:CurrentStep`. Automatic evaluation and initial output are disabled,
+so that feedback waits for each click. Existing button handlers remain wired.
+
+Repeating `set-on-click` with the same trigger, expression, input bindings and destination
+parameter is a no-op: it reuses the existing expression and wiring. Repeating `message` with
+the same service call, message type and text (or `--from` binding) also writes nothing;
+`--on-failure` independently reuses the matching `Data_Error` error message. These retries
+preserve both the entity and content sidecar byte for byte. Different arguments still add
+their own wiring, so Next and Back expressions or distinct error messages remain independent.
+
+MCP uses the same `mashup_recipe` tool: `action_label`/`cancel_label`, `field_maps` (an array of
+`Property=field` strings), and `param`/`expression`/`inputs` correspond to these CLI options.
+`dry_run` defaults to true; use `dry_run: false` to apply.
 
 ### Validating mashups
 

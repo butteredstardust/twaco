@@ -703,7 +703,7 @@ pub(crate) const USAGE: &[Usage] = &[
         path: "mashup add",
         group: 1,
         text: r#"  mashup add <mashup> <widget> [--in <container> [--bottom] | --right-of <widget> [--end] | --left-of <widget> | --above <widget> | --below <widget>]
-      [--label <text>] [--prop <name=value>]... [--input <name:TYPE[=default]>]... [--apply] [--json]
+      [--in-column] [--label <text>] [--prop <name=value>]... [--input <name:TYPE[=default]>]... [--apply] [--json]
                               add a catalogue widget, or one an [[extension]] project defines, to a
                               mashup; plan unless --apply; a function widget (expression, validator,
                               navigation...) goes beside the layout
@@ -714,6 +714,8 @@ pub(crate) const USAGE: &[Usage] = &[
                               place beside an existing widget
       --end                   with --right-of: at the far end of the row, which splits into a start
                               and an end group (a label and its value, as the kits lay them out)
+      --in-column             with --below: stack within that widget's column of a split row;
+                              by default --below adds a row beneath the whole control row
       separator               as <widget>: the kits' 1px rule between rows, --below or --above one
       --label <text>          set the widget's LabelText, Label, Text or Title property
       --prop <name=value>     set one simple default property, repeatable; an extension widget's
@@ -725,7 +727,8 @@ pub(crate) const USAGE: &[Usage] = &[
         path: "mashup collection add",
         group: 1,
         text: r#"  mashup collection add <parent> <cell-mashup> --data <address> --map <value>
-      [--uid <row-field>] [--width <px>] [--height <px>]
+      [--uid <row-field>] [--width <px> | --columns <n> [--across <px>]] [--height <px>]
+      [--preset cards] [--menu <state-definition>]
       [--in <container> | --right-of <widget> | --left-of <widget> | --above <widget> | --below <widget>] [--apply] [--json]
                               add a collection that renders a cell mashup once per service-result row; plan unless --apply
       --data <address>        an existing whole service result from mashup source add
@@ -733,6 +736,14 @@ pub(crate) const USAGE: &[Usage] = &[
                               separated by commas
       --uid <row-field>       the row field that identifies each cell
       --width/--height <px>   positive cell dimensions in pixels
+      --columns <n>           work the cell width out so n cells fit on a row, spread evenly; a
+                              narrower window shows fewer per row
+      --across <px>           the collection's width --columns is for (default 1400: full width in
+                              a 1440px window)
+      --preset <name>         cards: framed cards, the last row under the first columns, the first
+                              selected; cells 270px tall (the kit card's) unless --height
+      --menu <state-definition>
+                              a StateDefinition in the solution: its states are each cell's menu items
       --in <container>        add inside a responsive container (center when omitted)
       --right-of/--left-of/--above/--below <widget>
                               place beside an existing widget"#,
@@ -830,7 +841,7 @@ pub(crate) const USAGE: &[Usage] = &[
         group: 1,
         text: r#"  mashup on <mashup> --event <address> --invoke <address> [--apply] [--json]
                               run a service or widget service when a mashup event fires; plan unless --apply
-      --event <address>       event address from mashup describe
+      --event <address>       widget/mashup event or data call event (Data_Error on failure)
       --invoke <address>      data call or widget service to run"#,
     },
     Usage {
@@ -886,15 +897,16 @@ pub(crate) const USAGE: &[Usage] = &[
                               an expression into the widget's Disabled or Visible
       text <label> --expr <expression> [--input name=<address>]...
                               a label's text computed from its inputs
-      message --after <data call> (--say <text> | --from <address>) [--kind info|warning|error]
-                              a status message when the call completes
+      message --after <data call> [--say <text> | --from <address>] [--kind info|warning|error]
+          [--on-failure <text>]   status messages on success and/or failure; give at least one
       confirm <button> --then <handler> [--title <text>] [--say <text>]
+          [--action-label <text>] [--cancel-label <text>]
                               a confirmation before the click runs the handler
       popup <widget>|--on <event> --mashup <name> [--window modal-popup|popup|replace|new]
           [--size <WxH>] [--title <text>] [--pass name=<address>]... [--reload <handler>]
                               open a mashup, pass it values, run the handler when it closes
       close-after --after <data call>
-                              the popup closes itself when the call completes
+                              the popup closes itself when the call succeeds
       auto-refresh --then <data call> (--every <seconds> | --interval <address>)
                               run the call again every so often
       validate <widget>|--on <event> --if <condition> [--input name=<address>]... --then <handler>
@@ -902,9 +914,13 @@ pub(crate) const USAGE: &[Usage] = &[
       chart <chart> --data <data call> --x <field> [--value <field>] [--kind <chart type>]
                               draw a service result: the category field (a pie: label and value)
       columns <grid> --column field[:Title[:width]]... [--data <data call>]
-                              a grid's columns, rendered by each field's base type
+                              only these columns in order, with readable dates; --data or existing binding
       picker <dropdown|list> --data <data call> --x <display field> [--value <field>]
-          [--selected <address>]   fill a dropdown or list from a service result"#,
+          [--selected <address>]   fill a dropdown or list from a service result
+      tracker <widget|new> --data <data call> [--field-map Property=field]...
+                              interactive large tracker; infer all five maps from the result DataShape
+      set-on-click <button> --param <name> --expr <expression> [--input name=<address>]...
+                              set a mashup parameter on click; no automatic evaluation"#,
     },
     Usage {
         path: "mashup event",

@@ -2178,6 +2178,19 @@ name = \"Acme\"
     ]);
     assert!(!refused.status.success());
     assert!(String::from_utf8_lossy(&refused.stderr).contains("--end goes with --right-of"));
+    for placement in [
+        vec![],
+        vec!["--in", "center"],
+        vec!["--right-of", "ptcslabel-3"],
+        vec!["--above", "ptcslabel-3"],
+        vec!["--in", "center", "--bottom"],
+    ] {
+        let mut args = vec!["mashup", "add", "Acme.Kpi_MU", "label", "--in-column"];
+        args.extend(placement);
+        let refused = twaco(&args);
+        assert!(!refused.status.success());
+        assert!(String::from_utf8_lossy(&refused.stderr).contains("--in-column goes with --below"));
+    }
 }
 
 /// `thing service override` and `--revert` from the command line, and the flags it refuses.

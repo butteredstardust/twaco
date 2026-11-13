@@ -569,7 +569,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         .with_output::<outputs::MashupTemplatesResult>(),
         solution_tool::<refactor_requests::MashupAddRequest>(
             "mashup_add",
-            "Add a catalogue widget, or one an [[extension]] project of the solution defines, to an existing responsive mashup. With no placement it goes in center. A widget beside another goes in the same row or column when that container runs that way; otherwise both get containers of their own in a new row or column. A widget that can fill fills only a container it is alone in. A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
+            "Add a catalogue widget, or one an [[extension]] project of the solution defines, to an existing responsive mashup. With no placement it goes in center. A widget beside another goes in the same row or column when that container runs that way; otherwise both get containers of their own in a new row or column. With below and in_column: true, stack within the anchor's column of a split row; default below places a new row beneath the whole control row. A widget that can fill fills only a container it is alone in. A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
             false,
             refactor::mashup_add_tool,
         )
@@ -602,7 +602,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         .with_output::<outputs::MashupAddResult>(),
         solution_tool::<refactor_requests::MashupBindRequest>(
             "mashup_bind",
-            "Add one data binding to an existing mashup. Addresses are exactly those mashup describe prints: ui:<widget>.<Property>, mashup:<Parameter>, and data:<Entity>.<Service> with an optional [as alias], [SelectedRows], field or parameter. A missing Thing call is created; templates and shapes need an existing call. A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
+            "Add one data binding to an existing mashup. Addresses are exactly those mashup describe prints: ui:<widget>.<Property>, mashup:<Parameter>, and data:<Entity>.<Service> with an optional [as alias], [SelectedRows], field or parameter. SelectedRows fields targeting non-grid widgets warn that a row must first be selected, even for one-row results. A missing Thing call is created; templates and shapes need an existing call. A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
             false,
             refactor::mashup_bind_tool,
         )
@@ -627,7 +627,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         ).with_output::<outputs::MashupSourceRemoveResult>(),
         solution_tool::<refactor_requests::MashupOnRequest>(
             "mashup_on",
-            "Run a data call or widget service when one mashup event fires. Triggers are ui:<widget>.<Event>, mashup:Loaded, or an existing data:<Entity>.<Service>[as alias].ServiceInvokeCompleted, AllDataChanged or SelectedRowsChanged; handlers are data calls or widget services. A missing Thing handler call is created; templates and shapes need an existing call. A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
+            "Run a data call or widget service when one mashup event fires. Triggers are ui:<widget>.<Event>, mashup:Loaded, or an existing data:<Entity>.<Service>[as alias].ServiceInvokeCompleted, Data_Error (failure), AllDataChanged or SelectedRowsChanged; handlers are data calls or widget services. A missing Thing handler call is created; templates and shapes need an existing call. A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
             false,
             refactor::mashup_on_tool,
         )
@@ -676,7 +676,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         .with_output::<outputs::MashupParameterResult>(),
         solution_tool::<refactor_requests::MashupRecipeRequest>(
             "mashup_recipe",
-            "Write one recipe: the wiring real mashups repeat, in one edit. enable-when/show-when (widget, condition, inputs name=address: an expression into Disabled/Visible), text (widget, expression, inputs: a label's computed text), message (after a data call: say or from, kind info|warning|error), confirm (widget, then, title, say), popup (widget or on, target mashup, window modal-popup|popup|replace|new, size WxH, title, pass name=address, reload handler on close), close-after (after a data call the popup closes itself), auto-refresh (then data call, every seconds or interval address), validate (widget or on, condition, inputs, then, else_say), chart (widget, data, x, value for a pie, kind), columns (widget, columns field[:Title[:width]], data), picker (widget, data, x display field, value, selected). A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
+            "Write one recipe: the wiring real mashups repeat, in one edit. enable-when/show-when (widget, condition, inputs name=address: an expression into Disabled/Visible), text (widget, expression, inputs: a label's computed text), message (after a data call: success say or from, kind info|warning|error; on_failure text shows a separate error on Data_Error and may be used alone), confirm (widget, then, title, say, action_label, cancel_label), popup (widget or on, target mashup, window modal-popup|popup|replace|new, size WxH, title, pass name=address, reload handler on close), close-after (after a data call succeeds the popup closes itself; failure leaves it open), auto-refresh (then data call, every seconds or interval address), validate (widget or on, condition, inputs, then, else_say), chart (widget, data, x, value for a pie, kind), columns (widget, columns field[:Title[:width]], data or existing binding; only listed fields visible, readable DATETIME), picker (widget, data, x display field, value, selected), tracker (widget or new, data; interactive large tracker with five DataShape field maps inferred, field_maps Property=field overrides required for missing or ambiguous maps), set-on-click (widget, param, expression, inputs; evaluate only on click and write the mashup parameter). A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
             false,
             refactor::mashup_recipe_tool,
         )

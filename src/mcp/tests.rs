@@ -368,7 +368,53 @@ fn hand_written_tools() -> Vec<Value> {
         env!("CARGO_MANIFEST_DIR"),
         "/tests/fixtures/mcp_tools_hand_written.json"
     );
-    serde_json::from_str(&std::fs::read_to_string(HAND_WRITTEN).unwrap()).unwrap()
+    let mut tools: Vec<Value> =
+        serde_json::from_str(&std::fs::read_to_string(HAND_WRITTEN).unwrap()).unwrap();
+    // Keep the migration baseline on disk intact. These additive options postdate it; all
+    // original fields still have to retain their meaning, defaults and validation errors.
+    let add = tools
+        .iter_mut()
+        .find(|tool| tool["name"] == "mashup_add")
+        .unwrap();
+    add["description"] = json!(add["description"].as_str().unwrap().replace(
+        "A widget that can fill",
+        "With below and in_column: true, stack within the anchor's column of a split row; default below places a new row beneath the whole control row. A widget that can fill",
+    ));
+    add["inputSchema"]["properties"]["in_column"] = json!({
+        "description": "With below: stack within the anchor's column of a split row, keeping the other columns beside it.",
+        "type": "boolean",
+        "default": false
+    });
+    let recipe = tools
+        .iter_mut()
+        .find(|tool| tool["name"] == "mashup_recipe")
+        .unwrap();
+    recipe["inputSchema"]["properties"]["on_failure"] = json!({
+        "description": "Error status message on Data_Error for message; may be used without say/from.",
+        "type": "string"
+    });
+    for (name, description, kind) in [
+        (
+            "param",
+            "Destination mashup parameter for set-on-click.",
+            "string",
+        ),
+        (
+            "field_maps",
+            "Tracker overrides as `Property=field`, using catalogue field-map property names.",
+            "array",
+        ),
+        ("action_label", "Confirmation action button text.", "string"),
+        ("cancel_label", "Confirmation cancel button text.", "string"),
+    ] {
+        let mut property = json!({"description": description, "type": kind});
+        if kind == "array" {
+            property["items"] = json!({"type": "string"});
+        }
+        recipe["inputSchema"]["properties"][name] = property;
+    }
+    recipe["inputSchema"]["properties"]["recipe"]["description"] = json!("enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, picker, tracker or set-on-click.");
+    tools
 }
 
 /// A value that fits a property, for every way the hand-written schema allows one.
@@ -528,6 +574,12 @@ fn generated_schemas_mean_what_the_hand_written_ones_did() {
             "{name}"
         );
         for key in ["description", "annotations"] {
+            // These descriptions evolved with form selection warnings and failure handling.
+            // Their current wording is checked by the golden file and tools/list tests.
+            if key == "description" && matches!(name, "mashup_bind" | "mashup_on" | "mashup_recipe")
+            {
+                continue;
+            }
             assert_eq!(generated[key], tool[key], "{name}: {key}");
         }
     }
@@ -1358,6 +1410,24 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
     assert_eq!(
         rename["inputSchema"]["properties"]["kind"]["enum"],
         json!(["entity", "prefix", "field", "service", "param", "table", "property"])
+    );
+    let collection = tools
+        .iter()
+        .find(|t| t["name"] == "mashup_collection_add")
+        .unwrap();
+    assert_eq!(
+        collection["inputSchema"]["properties"]["preset"]["enum"],
+        json!(["cards"])
+    );
+    for parameter in ["columns", "across"] {
+        assert_eq!(
+            collection["inputSchema"]["properties"][parameter]["type"], "integer",
+            "{parameter}"
+        );
+    }
+    assert_eq!(
+        collection["inputSchema"]["properties"]["menu"]["type"],
+        "string"
     );
     assert_eq!(
         rename["inputSchema"]["properties"]["scope"]["type"],
@@ -3382,6 +3452,29 @@ fn mashup_add_end_splits_the_row_and_needs_right_of() {
 }
 
 #[test]
+fn mashup_add_in_column_requires_below() {
+    let (_dir, root) = solution_dir();
+    for placement in [
+        json!({}),
+        json!({"in":"center"}),
+        json!({"right_of":"ptcstextfield-3"}),
+        json!({"above":"ptcstextfield-3"}),
+        json!({"below":"ptcstextfield-3", "end":true}),
+        json!({"in":"center", "bottom":true}),
+    ] {
+        let mut arguments =
+            json!({"mashup":"Acme.Form_MU", "widget":"textfield", "in_column":true});
+        arguments
+            .as_object_mut()
+            .unwrap()
+            .extend(placement.as_object().unwrap().clone());
+        let refused = call(&root, "mashup_add", arguments);
+        assert_eq!(refused["isError"], true, "{refused}");
+        assert!(refused.to_string().contains("goes with"), "{refused}");
+    }
+}
+
+#[test]
 fn mashup_add_contained_applies_a_repository_child() {
     let (_dir, root) = solution_dir();
     assert_eq!(
@@ -3513,6 +3606,74 @@ fn mashup_source_tools_add_list_and_remove_a_dynamic_call() {
         json!({"mashup": "Acme.Orders_MU"}),
     );
     assert_eq!(listed["structuredContent"]["sources"], json!([]));
+}
+
+#[test]
+fn mashup_failure_messages_are_published_and_plan_before_apply() {
+    let definitions = tool_definitions();
+    let recipe = definitions
+        .iter()
+        .find(|tool| tool["name"] == "mashup_recipe")
+        .unwrap();
+    assert_eq!(
+        recipe["inputSchema"]["properties"]["on_failure"]["type"],
+        "string"
+    );
+    assert_eq!(
+        recipe["inputSchema"]["properties"]["dry_run"]["default"],
+        true
+    );
+    assert!(recipe["description"]
+        .as_str()
+        .unwrap()
+        .contains("Data_Error"));
+    let on = definitions
+        .iter()
+        .find(|tool| tool["name"] == "mashup_on")
+        .unwrap();
+    assert!(on["description"].as_str().unwrap().contains("Data_Error"));
+
+    let (_dir, root) = solution_dir();
+    std::fs::write(
+        root.join("Things/Acme.Orders.Manager.xml"),
+        r#"<Entities><Things><Thing name="Acme.Orders.Manager" projectName="P"><ThingShape><ServiceDefinitions><ServiceDefinition name="SaveOrder"><ResultType baseType="NOTHING"/></ServiceDefinition></ServiceDefinitions><ServiceImplementations/></ThingShape></Thing></Things></Entities>"#,
+    ).unwrap();
+    for (tool, args) in [
+        (
+            "mashup_new",
+            json!({"name": "Acme.Orders_MU", "dry_run": false}),
+        ),
+        (
+            "mashup_source_add",
+            json!({"mashup": "Acme.Orders_MU", "entity": "Acme.Orders.Manager", "service": "SaveOrder", "alias": "save", "dry_run": false}),
+        ),
+    ] {
+        let result = call(&root, tool, args);
+        assert_eq!(result["isError"], false, "{result}");
+    }
+    let path = root.join("Mashups/Acme.Orders_MU.xml");
+    let before = std::fs::read(&path).unwrap();
+    let args = json!({"mashup": "Acme.Orders_MU", "recipe": "message", "after": "data:Acme.Orders.Manager.SaveOrder[as save]", "on_failure": "Save failed"});
+    let planned = call(&root, "mashup_recipe", args.clone());
+    assert_eq!(planned["isError"], false, "{planned}");
+    assert_eq!(planned["structuredContent"]["applied"], false);
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    let mut args = args;
+    args["dry_run"] = json!(false);
+    let applied = call(&root, "mashup_recipe", args);
+    assert_eq!(applied["isError"], false, "{applied}");
+    assert_eq!(applied["structuredContent"]["applied"], true);
+    let xml = std::fs::read_to_string(&path).unwrap();
+    assert!(
+        xml.contains("Data_Error") && xml.contains("Save failed"),
+        "{xml}"
+    );
+    let wired = call(
+        &root,
+        "mashup_on",
+        json!({"mashup": "Acme.Orders_MU", "event": "data:Acme.Orders.Manager.SaveOrder[as save].Data_Error", "invoke": "mashup:Refresh", "dry_run": false}),
+    );
+    assert_eq!(wired["isError"], false, "{wired}");
 }
 
 #[test]

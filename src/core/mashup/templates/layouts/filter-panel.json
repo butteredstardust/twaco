@@ -11,13 +11,28 @@
   "master_slot": "content",
   "children": [
     {
-      "slot": "filters",
+      "slot": "filter-column",
       "flex-direction": "column",
-      "align-items": "stretch",
-      "fixed": "290px",
+      "align-items": "center",
+      "fixed": "276px",
       "style": {
         "background": "#F7F7F7"
-      }
+      },
+      "children": [
+        {
+          "slot": "filters",
+          "flex-direction": "column",
+          "align-items": "center",
+          "flex-size": "range",
+          "flex-min-width": "240px",
+          "flex-max-width": "240px",
+          "flex-shrink": 0,
+          "Margin": "",
+          "style": {
+            "background": "inherit"
+          }
+        }
+      ]
     },
     {
       "divider": true

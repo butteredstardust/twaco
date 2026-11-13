@@ -7,18 +7,17 @@ pub(crate) fn is_link(path: &Path) -> bool {
     let Ok(metadata) = std::fs::symlink_metadata(path) else {
         return false;
     };
-    if metadata.file_type().is_symlink() {
-        return true;
-    }
+    let symlink = metadata.file_type().is_symlink();
     #[cfg(windows)]
     {
         use std::os::windows::fs::MetadataExt;
         const REPARSE_POINT: u32 = 0x400;
-        if metadata.file_attributes() & REPARSE_POINT != 0 {
-            return true;
-        }
+        symlink || metadata.file_attributes() & REPARSE_POINT != 0
     }
-    false
+    #[cfg(not(windows))]
+    {
+        symlink
+    }
 }
 
 /// Refuse a path any of whose parts, below `root`, is a link: what lies behind it is not this

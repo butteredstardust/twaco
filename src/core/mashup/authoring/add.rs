@@ -271,10 +271,11 @@ pub(crate) fn plan_add(
                 )),
             };
         if separator {
-            let Placement::Beside {
+            let (Placement::Beside {
                 anchor,
                 side: mashup::edit::Side::Above | mashup::edit::Side::Below,
-            } = &placement
+            }
+            | Placement::BelowInColumn(anchor)) = &placement
             else {
                 return Err(AuthoringError::Invalid(
                     "a separator goes between rows: --below or --above a widget".into(),
@@ -428,6 +429,7 @@ pub(crate) fn plan_add(
             .path;
         document.set_property(&path, name, value);
     }
+    document.fit_placed_width(&placed.id);
     document.reflow_for(&placed.id);
     Ok(AddPlan {
         edit: finish_edit(loaded, document, "mashup add")?,
@@ -480,6 +482,11 @@ pub(crate) fn plan_add_contained(
         .map_err(AuthoringError::Edit)?
         .path;
     document.set_property(&path, "Name", json!(request.child));
+    // Placement floored the row at Composer's 300px drop height; the child's own rows say how
+    // tall it really is, so a KPI tile is neither clipped nor padded out when the page is short.
+    if let Some(height) = child_document.natural_page_height() {
+        document.floor_contained_row(&placed.id, height, &placed.containers);
+    }
     document.set_property(
         &path,
         "MashupParameters",

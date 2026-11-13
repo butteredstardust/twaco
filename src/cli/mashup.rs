@@ -89,6 +89,14 @@ pub(crate) struct MashupCollectionAdd {
     pub(crate) width: Option<u32>,
     #[arg(long = "height", value_name = "px")]
     pub(crate) height: Option<u32>,
+    #[arg(long = "columns", value_name = "n")]
+    pub(crate) columns: Option<u32>,
+    #[arg(long = "across", value_name = "px")]
+    pub(crate) across: Option<u32>,
+    #[arg(long = "preset", value_name = "name")]
+    pub(crate) preset: Option<String>,
+    #[arg(long = "menu", value_name = "state-definition")]
+    pub(crate) menu: Option<String>,
     #[command(flatten)]
     pub(crate) place: Place,
     #[command(flatten)]
@@ -274,6 +282,8 @@ pub(crate) struct MashupAdd {
     pub(crate) end: bool,
     #[arg(long = "bottom")]
     pub(crate) bottom: bool,
+    #[arg(long = "in-column")]
+    pub(crate) in_column: bool,
     #[arg(long = "label", value_name = "text")]
     pub(crate) label: Option<String>,
     #[arg(long = "prop", value_name = "name=value")]
@@ -448,10 +458,20 @@ pub(crate) struct MashupRecipe {
     pub(crate) expression: Option<String>,
     #[arg(long = "input", value_name = "name:TYPE")]
     pub(crate) inputs: Vec<String>,
+    #[arg(long = "param", value_name = "name:TYPE[:...]")]
+    pub(crate) params: Vec<String>,
+    #[arg(long = "field-map", value_name = "Property=field")]
+    pub(crate) field_maps: Vec<String>,
+    #[arg(long = "action-label", value_name = "text")]
+    pub(crate) action_label: Option<String>,
+    #[arg(long = "cancel-label", value_name = "text")]
+    pub(crate) cancel_label: Option<String>,
     #[arg(long = "after", value_name = "address")]
     pub(crate) after: Option<String>,
     #[arg(long = "say", value_name = "text")]
     pub(crate) say: Option<String>,
+    #[arg(long = "on-failure", value_name = "text")]
+    pub(crate) on_failure: Option<String>,
     #[arg(long = "from", value_name = "address")]
     pub(crate) from: Option<String>,
     #[arg(long = "kind", value_name = "info|warning|error")]
@@ -720,13 +740,22 @@ pub(crate) fn mashup_recipe_cmd(solution: &Solution, args: &MashupRecipe) -> u8 
             return FAILED;
         }
     };
+    if args.params.len() > 1 {
+        eprintln!("{} give --param once", style::prefix());
+        return FAILED;
+    }
     let recipe_args = mashup::authoring::RecipeArgs {
         widget,
+        param: args.params.first().cloned(),
+        field_maps: args.field_maps.clone(),
+        action_label: args.action_label.clone(),
+        cancel_label: args.cancel_label.clone(),
         condition: args.condition.clone(),
         expression: args.expression.clone(),
         inputs: args.inputs.clone(),
         after: args.after.clone(),
         say: args.say.clone(),
+        on_failure: args.on_failure.clone(),
         from: args.from.clone(),
         kind: args.kind.clone(),
         then: args.then.clone(),
@@ -1141,6 +1170,20 @@ pub(crate) fn mashup_add_cmd(solution: &Solution, args: &MashupAdd) -> u8 {
             return FAILED;
         }
     };
+    let placement = match (args.in_column, placement) {
+        (false, placement) => placement,
+        (
+            true,
+            Some(Placement::Beside {
+                anchor,
+                side: Side::Below,
+            }),
+        ) => Some(Placement::BelowInColumn(anchor)),
+        (true, _) => {
+            eprintln!("{} --in-column goes with --below <widget>", style::prefix());
+            return FAILED;
+        }
+    };
     let properties = match args
         .props
         .iter()
@@ -1202,6 +1245,7 @@ pub(crate) fn mashup_add_cmd(solution: &Solution, args: &MashupAdd) -> u8 {
         Some(("--right-of", value)) => format!("right of {value}"),
         Some(("--left-of", value)) => format!("left of {value}"),
         Some(("--above", value)) => format!("above {value}"),
+        Some(("--below", value)) if args.in_column => format!("below {value} in its column"),
         Some(("--below", value)) => format!("below {value}"),
         Some(_) => unreachable!("only placement flags are collected"),
     };
@@ -1360,6 +1404,19 @@ pub(crate) fn mashup_collection_add_cmd(solution: &Solution, args: &MashupCollec
             return FAILED;
         }
     };
+    let preset = match args.preset.as_deref() {
+        None => None,
+        Some(name) => match mashup::authoring::CollectionPreset::parse(name) {
+            Some(preset) => Some(preset),
+            None => {
+                eprintln!(
+                    "{} --preset {name:?} is not a collection preset; the one there is: cards",
+                    style::prefix()
+                );
+                return FAILED;
+            }
+        },
+    };
     let request = commands::mashup::MashupCollectionAddRequest {
         request: mashup::authoring::CollectionAddRequest {
             mashup: mashup_name.clone(),
@@ -1369,6 +1426,10 @@ pub(crate) fn mashup_collection_add_cmd(solution: &Solution, args: &MashupCollec
             uid: args.uid.clone(),
             width: args.width,
             height: args.height,
+            columns: args.columns,
+            across: args.across,
+            preset,
+            menu: args.menu.clone(),
             placement,
         },
         mode: if args.apply.apply {
@@ -1421,6 +1482,19 @@ pub(crate) fn mashup_collection_add_cmd(solution: &Solution, args: &MashupCollec
         println!("  uid: {uid}");
     }
     println!("  binding: {}", outcome.plan.binding);
+    match (outcome.plan.cell_width, outcome.plan.cell_height) {
+        (None, None) => {}
+        (width, height) => {
+            let px = |size: Option<u32>| size.map_or("default".to_string(), |n| format!("{n}px"));
+            println!("  cell: {} x {}", px(width), px(height));
+        }
+    }
+    if let Some(preset) = outcome.plan.preset {
+        println!("  preset: {}", preset.name());
+    }
+    if let Some((menu, events)) = &outcome.plan.menu {
+        println!("  menu: {menu} ({})", events.join(", "));
+    }
     for note in &outcome.plan.notes {
         println!("  note: {note}");
     }

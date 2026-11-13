@@ -6,6 +6,75 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `mashup add --below <widget> --in-column` (MCP `in_column`) stacks inside a split row's
+  column, so two-column forms keep independent field stacks.
+- `mashup recipe confirm` accepts `--action-label` and `--cancel-label` (MCP `action_label`,
+  `cancel_label`). `recipe tracker` configures an interactive large progress tracker from a
+  service result DataShape, with explicit `--field-map` / MCP `field_maps` overrides.
+- `mashup recipe set-on-click` sets a mashup parameter from a typed expression when a button is
+  clicked, including parameter feedback for Next/Back controls; available through `mashup_recipe`.
+- `mashup on` accepts the ThingWorx 10.2 Runtime's service failure event `Data_Error`, including
+  named calls. `mashup recipe message --on-failure <text>` (MCP `on_failure`) shows a separate
+  error message and can be used without a success message. `close-after` remains success-only.
+- `mashup collection add` (MCP `mashup_collection_add`) lays cells out as the design kits do.
+  `--preset cards` (`preset: "cards"`) writes the kit's card collection: a framed cell (`cell` part
+  style), the last row aligned under the first columns, content at the top, a transparent cell
+  background, the first card selected, and the kit's 270px cell height at any width.
+  `--columns <n>` (`columns`) works out the cell width that fits n cells on a row, from the 10.2
+  collection's wrap rule, for a full-width collection in a 1440px window or the width
+  `--across <px>` (`across`) names. A narrower window shows fewer per row. `--menu <StateDefinition>` (`menu`) sets a checked cell menu and lists the events its
+  items fire. `--width` and `--height` still set exact sizes.
+
+### Changed
+
+- `mashup add --right-of` the only widget on a page wraps the two in a new row and keeps the page
+  a column; it used to turn the page itself into a row.
+- `mashup add --below` a widget inside a two-column form places the new widget below the whole
+  form; `--in-column` stacks inside that widget's column instead.
+- Charts in rows twaco makes no longer get `OverrideChildrenAbsolute`; their row's floor sizes them.
+
+### Fixed
+
+- New `filter-panel` mashups put a centered 240px `filters` slot inside the continuous grey
+  276px `filter-column`. Controls fit the slot with the kits' per-control margins (`5 0` first,
+  then `13 0 5`), and their rows keep their height without nested scrollbars. The bottom
+  Apply/Clear footer uses 110px buttons with no button margin. Added fixed-size controls also
+  fit pixel width bounds in other containers, accounting for margins, padding and borders.
+- Textareas stacked with known form controls keep their minimum height without taking spare page
+  height, including the enclosing rows of a two-column form. Compact columns stop at their
+  content height so Runtime cannot spread the fields vertically; side-by-side fields on a blank
+  page keep a vertical page wrapper. A following Save placed below the textarea stays beneath
+  the whole form; lone textareas and chart/grid panels still fill. Generated rows keep their
+  floors and short-page scrolling rules.
+- Repeating `mashup recipe set-on-click` or `recipe message` with identical wiring leaves the
+  entity and content sidecar byte-identical, including `message --on-failure`. Different
+  expressions, inputs, parameters, triggers or message text still add their own wiring.
+- Filling widgets keep a usable minimum height when `mashup add --below` or `--right-of`
+  wraps them in nested containers. Textareas without a catalogue height keep a 100px floor;
+  horizontal dividers keep their 1px thickness instead of taking the column's spare height.
+- Generated title rows use the label's natural text height and margins. Split label/value rows
+  in cards keep a 25px minimum (26px pitch with a separator), can grow for larger text, and do
+  not shrink on short pages. Card rows include each card's own margins, padding and border in
+  their minimum height, so the inner rows are not squeezed. Explicit sizes are preserved.
+- `mashup recipe columns` excludes unlisted DataShape fields from the grid layout and resolves
+  an existing Data binding (including named calls) to render DATETIME columns with the platform's
+  localized default date/time format. Without a known DataShape only the listed columns are written.
+- Binding a service's `SelectedRows` field to a non-grid widget warns that a row must first be
+  selected, even for a one-record form. No service-level first-row selection option was found
+  in the inspected 10.2 platform code; the warning explains how to select through a list,
+  dropdown or grid while preserving existing service settings.
+- Pages twaco lays out no longer grow a scrollbar in every row on a short screen (a laptop at
+  1440x717, or a page shown in a master): the rows a placement makes keep their content's height
+  (`flex-shrink` 0) and the page scrolls once. A row holding a chart, grid or contained mashup takes
+  the spare height and keeps a floor (a `range` row at Composer's drop height, at most 300px; a
+  contained mashup's is measured from the child's rows); beside it the other new rows take no spare
+  height. Charts are laid out by their row again (no `OverrideChildrenAbsolute`), so they draw to
+  what the row gets instead of overflowing it. Measured on 10.2 with the KPI benchmark in a master:
+  30 nested scrollbars at 1440x717 before, one page scroll now; at 1440x900, two clipped KPI tiles
+  before, nothing clipped and no scrollbar now.
+
 ## [0.1.62] - 2026-11-12
 
 ### Fixed

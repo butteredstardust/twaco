@@ -5329,7 +5329,7 @@
   },
   {
     "name": "mashup_add",
-    "description": "Add a catalogue widget, or one an [[extension]] project of the solution defines, to an existing responsive mashup. With no placement it goes in center. A widget beside another goes in the same row or column when that container runs that way; otherwise both get containers of their own in a new row or column. A widget that can fill fills only a container it is alone in. A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
+    "description": "Add a catalogue widget, or one an [[extension]] project of the solution defines, to an existing responsive mashup. With no placement it goes in center. A widget beside another goes in the same row or column when that container runs that way; otherwise both get containers of their own in a new row or column. With below and in_column: true, stack within the anchor's column of a split row; default below places a new row beneath the whole control row. A widget that can fill fills only a container it is alone in. A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
     "inputSchema": {
       "required": [
         "mashup",
@@ -5369,6 +5369,11 @@
         },
         "bottom": {
           "description": "With in: put the widget in a footer row at the bottom of that column (a filter panel's Apply and Clear); later widgets go above it.",
+          "type": "boolean",
+          "default": false
+        },
+        "in_column": {
+          "description": "With below: stack within the anchor's column of a split row, keeping the other columns beside it.",
           "type": "boolean",
           "default": false
         },
@@ -5514,6 +5519,27 @@
           "type": "integer",
           "minimum": 0
         },
+        "columns": {
+          "description": "Size cells so this many fit on one row of a collection `across` pixels wide; not with width.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "across": {
+          "description": "The collection's width in pixels that `columns` is worked out for (default 1400, a\nfull-width collection in a 1440px window).",
+          "type": "integer",
+          "minimum": 0
+        },
+        "preset": {
+          "description": "`cards`: framed cards spread evenly per row, the last row aligned under the first\ncolumns, the first card selected, as the design kits configure them.",
+          "type": "string",
+          "enum": [
+            "cards"
+          ]
+        },
+        "menu": {
+          "description": "A StateDefinition in the solution whose states are the cell menu's items.",
+          "type": "string"
+        },
         "in": {
           "type": "string"
         },
@@ -5581,6 +5607,30 @@
         },
         "binding": {
           "type": "string"
+        },
+        "cell_width": {
+          "description": "The CellWidth and CellHeight written, when given or worked out.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "cell_height": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "preset": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "menu": {
+          "description": "The cell menu's StateDefinition and the events its items fire."
         },
         "notes": {
           "type": "array",
@@ -5937,7 +5987,7 @@
   },
   {
     "name": "mashup_bind",
-    "description": "Add one data binding to an existing mashup. Addresses are exactly those mashup describe prints: ui:<widget>.<Property>, mashup:<Parameter>, and data:<Entity>.<Service> with an optional [as alias], [SelectedRows], field or parameter. A missing Thing call is created; templates and shapes need an existing call. A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
+    "description": "Add one data binding to an existing mashup. Addresses are exactly those mashup describe prints: ui:<widget>.<Property>, mashup:<Parameter>, and data:<Entity>.<Service> with an optional [as alias], [SelectedRows], field or parameter. SelectedRows fields targeting non-grid widgets warn that a row must first be selected, even for one-row results. A missing Thing call is created; templates and shapes need an existing call. A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
     "inputSchema": {
       "required": [
         "mashup",
@@ -6430,7 +6480,7 @@
   },
   {
     "name": "mashup_on",
-    "description": "Run a data call or widget service when one mashup event fires. Triggers are ui:<widget>.<Event>, mashup:Loaded, or an existing data:<Entity>.<Service>[as alias].ServiceInvokeCompleted, AllDataChanged or SelectedRowsChanged; handlers are data calls or widget services. A missing Thing handler call is created; templates and shapes need an existing call. A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
+    "description": "Run a data call or widget service when one mashup event fires. Triggers are ui:<widget>.<Event>, mashup:Loaded, or an existing data:<Entity>.<Service>[as alias].ServiceInvokeCompleted, Data_Error (failure), AllDataChanged or SelectedRowsChanged; handlers are data calls or widget services. A missing Thing handler call is created; templates and shapes need an existing call. A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
     "inputSchema": {
       "required": [
         "mashup",
@@ -7099,7 +7149,7 @@
   },
   {
     "name": "mashup_recipe",
-    "description": "Write one recipe: the wiring real mashups repeat, in one edit. enable-when/show-when (widget, condition, inputs name=address: an expression into Disabled/Visible), text (widget, expression, inputs: a label's computed text), message (after a data call: say or from, kind info|warning|error), confirm (widget, then, title, say), popup (widget or on, target mashup, window modal-popup|popup|replace|new, size WxH, title, pass name=address, reload handler on close), close-after (after a data call the popup closes itself), auto-refresh (then data call, every seconds or interval address), validate (widget or on, condition, inputs, then, else_say), chart (widget, data, x, value for a pie, kind), columns (widget, columns field[:Title[:width]], data), picker (widget, data, x display field, value, selected). A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
+    "description": "Write one recipe: the wiring real mashups repeat, in one edit. enable-when/show-when (widget, condition, inputs name=address: an expression into Disabled/Visible), text (widget, expression, inputs: a label's computed text), message (after a data call: success say or from, kind info|warning|error; on_failure text shows a separate error on Data_Error and may be used alone), confirm (widget, then, title, say, action_label, cancel_label), popup (widget or on, target mashup, window modal-popup|popup|replace|new, size WxH, title, pass name=address, reload handler on close), close-after (after a data call succeeds the popup closes itself; failure leaves it open), auto-refresh (then data call, every seconds or interval address), validate (widget or on, condition, inputs, then, else_say), chart (widget, data, x, value for a pie, kind), columns (widget, columns field[:Title[:width]], data or existing binding; only listed fields visible, readable DATETIME), picker (widget, data, x display field, value, selected), tracker (widget or new, data; interactive large tracker with five DataShape field maps inferred, field_maps Property=field overrides required for missing or ambiguous maps), set-on-click (widget, param, expression, inputs; evaluate only on click and write the mashup parameter). A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
     "inputSchema": {
       "required": [
         "recipe",
@@ -7109,7 +7159,7 @@
       "type": "object",
       "properties": {
         "recipe": {
-          "description": "enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh or validate.",
+          "description": "enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, picker, tracker or set-on-click.",
           "type": "string"
         },
         "mashup": {
@@ -7126,6 +7176,25 @@
         "expression": {
           "type": "string"
         },
+        "param": {
+          "description": "Destination mashup parameter for set-on-click.",
+          "type": "string"
+        },
+        "field_maps": {
+          "description": "Tracker overrides as `Property=field`, using catalogue field-map property names.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "action_label": {
+          "description": "Confirmation action button text.",
+          "type": "string"
+        },
+        "cancel_label": {
+          "description": "Confirmation cancel button text.",
+          "type": "string"
+        },
         "inputs": {
           "description": "`name=address` inputs of the condition or expression.",
           "type": "array",
@@ -7137,6 +7206,10 @@
           "type": "string"
         },
         "say": {
+          "type": "string"
+        },
+        "on_failure": {
+          "description": "Error status message on Data_Error for message; may be used without say/from.",
           "type": "string"
         },
         "from": {

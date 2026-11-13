@@ -952,7 +952,7 @@ fn setting_a_label_type_remeasures_its_fixed_row() {
     let document = crate::core::mashup::edit::MashupDocument::new(before).unwrap();
     let first = document.find(&first.placed.id).unwrap();
     let row = &first.path[..first.path.len() - 1];
-    assert_eq!(document.at(row)["Properties"]["flex-min-height"], "58px");
+    assert_eq!(document.at(row)["Properties"]["flex-min-height"], "29px");
 
     set_and_apply(
         &solution,
@@ -966,7 +966,7 @@ fn setting_a_label_type_remeasures_its_fixed_row() {
     let document = crate::core::mashup::edit::MashupDocument::new(after).unwrap();
     let first = document.find(&first.id).unwrap();
     let row = &first.path[..first.path.len() - 1];
-    assert_eq!(document.at(row)["Properties"]["flex-min-height"], "67px");
+    assert_eq!(document.at(row)["Properties"]["flex-min-height"], "55px");
 }
 
 #[test]
@@ -1194,6 +1194,51 @@ fn sidecar_content(solution: &Solution) -> String {
         .unwrap()
         .unwrap()
         .content
+}
+
+#[test]
+fn selected_rows_fields_warn_without_changing_service_selection_choices() {
+    let (dir, solution) = bind_fixture();
+    let from = "data:Acme.Orders.Manager.GetOrders[as record][SelectedRows].note";
+    let to = "ui:ptcstextfield-3.Text";
+    let planned = bind(&solution, from, to).unwrap();
+    assert!(
+        planned.warnings.iter().any(|warning| {
+            warning.contains(from)
+                && warning.contains(to)
+                && warning.contains("one-row result")
+                && warning.contains("AutoSelectFirstRow=true")
+        }),
+        "{:?}",
+        planned.warnings
+    );
+    apply_edit(&solution, &planned.edit, &lock(&solution)).unwrap();
+    rewrite_content(dir.path(), |content| {
+        content["Data"]["Things_Acme.Orders.Manager"]["Services"][0]["Properties"] =
+            json!({"AutoSelectFirstRow": false, "SelectedRows": [], "CustomSetting": "keep"});
+    });
+    let before: Value = serde_json::from_str(&sidecar_content(&solution)).unwrap();
+    let second = bind(&solution, from, "ui:ptcslabel-4.LabelText").unwrap();
+    let after: Value =
+        serde_json::from_slice(&second.edit.sidecars.as_ref().unwrap().content_after).unwrap();
+    assert_eq!(
+        before["Data"], after["Data"],
+        "service choices are preserved"
+    );
+    assert_eq!(before["UI"], after["UI"], "no selection widget is added");
+    let bytes = sidecar_content(&solution);
+    assert_eq!(
+        bind(&solution, from, to).unwrap_err().code(),
+        ErrorCode::AlreadyExists
+    );
+    assert_eq!(sidecar_content(&solution), bytes);
+    let full_result = bind(
+        &solution,
+        "data:Acme.Orders.Manager.GetOrders[as record]",
+        "ui:ptcsgrid-5.Data",
+    )
+    .unwrap();
+    assert!(full_result.warnings.is_empty());
 }
 
 #[test]
@@ -1480,6 +1525,211 @@ fn remove_unbind_and_off_are_exact_inverses() {
     )
     .unwrap();
     assert!(no_op.edit.is_none());
+}
+
+#[test]
+fn data_error_events_resolve_aliases_round_trip_and_require_existing_calls() {
+    let (_dir, solution) = recipe_fixture();
+    let trigger = "data:Acme.Orders.Manager.SaveOrder[as save].Data_Error";
+    assert!(on(&solution, trigger, "mashup:Refresh")
+        .unwrap_err()
+        .to_string()
+        .contains("not a call"));
+    let added = on(
+        &solution,
+        "mashup:Loaded",
+        "data:Acme.Orders.Manager.SaveOrder[as save]",
+    )
+    .unwrap();
+    apply_edit(&solution, &added.edit, &lock(&solution)).unwrap();
+    let plan = on(&solution, trigger, "mashup:Refresh").unwrap();
+    assert_eq!(plan.new_source, None);
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    let value: Value = serde_json::from_str(&sidecar_content(&solution)).unwrap();
+    let failure = value["Events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|event| event["EventTriggerEvent"] == "Data_Error")
+        .unwrap();
+    assert_eq!(failure["EventTriggerArea"], "Data");
+    assert_eq!(failure["EventTriggerSection"], "Things_Acme.Orders.Manager");
+    assert_eq!(failure["EventTriggerId"], "save");
+    assert!(
+        crate::core::mashup::describe::describe(&solution, "Acme.Orders_MU")
+            .unwrap()
+            .events
+            .iter()
+            .any(|event| event.trigger == trigger && event.handler == "mashup:Refresh")
+    );
+    assert_eq!(
+        on(&solution, trigger, "mashup:Refresh").unwrap_err().code(),
+        ErrorCode::AlreadyExists
+    );
+    for guessed in ["ServiceInvokeFailed", "ServiceInvokeError"] {
+        let error = on(
+            &solution,
+            &format!("data:Acme.Orders.Manager.SaveOrder.{guessed}"),
+            "mashup:Refresh",
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(
+            error.contains("Data_Error") && error.contains("--on-failure"),
+            "{error}"
+        );
+    }
+    let off = plan_off(
+        &solution,
+        &OffRequest {
+            mashup: "Acme.Orders_MU".into(),
+            event: trigger.into(),
+            invoke: "mashup:Refresh".into(),
+        },
+    )
+    .unwrap();
+    apply_edit(&solution, &off.edit, &lock(&solution)).unwrap();
+    let value: Value = serde_json::from_str(&sidecar_content(&solution)).unwrap();
+    assert!(!has_event(
+        &value,
+        "save",
+        "Data_Error",
+        "mashup-root",
+        "Refresh"
+    ));
+}
+
+#[test]
+fn message_recipes_handle_failure_separately_and_close_only_on_success() {
+    let (_dir, solution) = recipe_fixture();
+    let plan = recipe(
+        &solution,
+        "message",
+        RecipeArgs {
+            after: Some("data:Acme.Orders.Manager.SaveOrder".into()),
+            say: Some("Saved".into()),
+            kind: Some("warning".into()),
+            on_failure: Some("Save failed; try again".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(plan.added.len(), 2);
+    let value: Value = serde_json::from_str(&sidecar_content(&solution)).unwrap();
+    assert!(has_event(
+        &value,
+        "SaveOrder",
+        "ServiceInvokeCompleted",
+        &plan.added[0],
+        "ShowMessage"
+    ));
+    assert!(has_event(
+        &value,
+        "SaveOrder",
+        "Data_Error",
+        &plan.added[1],
+        "ShowMessage"
+    ));
+    assert_eq!(
+        widget_of(&value, &plan.added[1])["Message"],
+        "Save failed; try again"
+    );
+    assert_eq!(widget_of(&value, &plan.added[1])["MessageType"], "error");
+    assert_eq!(widget_of(&value, &plan.added[0])["MessageType"], "warning");
+    assert!(!has_event(
+        &value,
+        "SaveOrder",
+        "Data_Error",
+        &plan.added[0],
+        "ShowMessage"
+    ));
+    assert!(!has_event(
+        &value,
+        "SaveOrder",
+        "ServiceInvokeCompleted",
+        &plan.added[1],
+        "ShowMessage"
+    ));
+
+    let only_failure = recipe(
+        &solution,
+        "message",
+        RecipeArgs {
+            after: Some("data:Acme.Orders.Manager.SaveOrder".into()),
+            on_failure: Some("Unable to save".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(only_failure.added.len(), 1);
+    recipe(
+        &solution,
+        "close-after",
+        RecipeArgs {
+            after: Some("data:Acme.Orders.Manager.SaveOrder".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let value: Value = serde_json::from_str(&sidecar_content(&solution)).unwrap();
+    assert!(has_event(
+        &value,
+        "SaveOrder",
+        "ServiceInvokeCompleted",
+        "mashup-root",
+        "CloseIfPopup"
+    ));
+    assert!(!has_event(
+        &value,
+        "SaveOrder",
+        "Data_Error",
+        "mashup-root",
+        "CloseIfPopup"
+    ));
+    let failing: Vec<_> = crate::core::check::run(&solution)
+        .gates
+        .into_iter()
+        .filter(|gate| !gate.ok() && judged(gate))
+        .collect();
+    assert!(failing.is_empty(), "{failing:?}");
+}
+
+#[test]
+fn failure_messages_refuse_empty_text_wrong_recipes_and_invalid_sources() {
+    let (_dir, solution) = recipe_fixture();
+    for (after, text) in [
+        ("data:Acme.Orders.Manager.SaveOrder", "  "),
+        ("data:Acme.Orders.Manager.GetOrders", "Failed"),
+        ("ui:ptcsbutton-6", "Failed"),
+    ] {
+        assert!(
+            recipe(
+                &solution,
+                "message",
+                RecipeArgs {
+                    after: Some(after.into()),
+                    on_failure: Some(text.into()),
+                    ..Default::default()
+                }
+            )
+            .is_err(),
+            "{after}: {text:?}"
+        );
+    }
+    let error = Recipe::from_args(
+        "close-after",
+        &RecipeArgs {
+            after: Some("data:Acme.Orders.Manager.SaveOrder".into()),
+            on_failure: Some("Failed".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(
+        error.contains("--on-failure is for recipe message"),
+        "{error}"
+    );
 }
 
 #[test]
@@ -1827,8 +2077,9 @@ fn a_second_source_for_one_target_is_bound_with_a_warning() {
         "ui:ptcslabel-4.LabelText",
     )
     .unwrap();
-    assert_eq!(second.warnings.len(), 1, "{:?}", second.warnings);
+    assert_eq!(second.warnings.len(), 2, "{:?}", second.warnings);
     assert!(second.warnings[0].contains("ui:ptcslabel-4.LabelText already has another source"));
+    assert!(second.warnings[1].contains("only after a row is selected"));
 }
 
 #[test]
@@ -2196,6 +2447,90 @@ fn add_contained_refuses_invalid_children_and_settings() {
         add("Acme.Master_MM", vec![]).unwrap_err().code(),
         ErrorCode::GuardRefused
     );
+}
+
+/// A contained mashup's row keeps the child's own height as its floor, so a KPI tile is
+/// neither clipped nor padded out when the page is short; a child whose rows cannot be measured
+/// keeps the generic floor of Composer's 300px drop height. Either way the row never shrinks.
+#[test]
+fn a_contained_mashup_row_is_floored_at_the_childs_measured_height() {
+    use crate::core::mashup::edit::Side;
+    let (_dir, solution) = contained_fixture();
+    // The child: a header and a label, each in a fixed row of twaco's.
+    let header = add_one(
+        &solution,
+        "Acme.Card_MU",
+        "label",
+        Placement::In("center".into()),
+        &[("LabelType", "header")],
+    );
+    add_one(
+        &solution,
+        "Acme.Card_MU",
+        "label",
+        Placement::Beside {
+            anchor: header,
+            side: Side::Below,
+        },
+        &[],
+    );
+    // The header's row is fixed; the last row is the growing control row a column keeps, as
+    // tall as its label: 19px plus its two 5px margins.
+    let child = content_of(&solution, "Acme.Card_MU");
+    let rows = child["UI"]["Widgets"][0]["Widgets"].as_array().unwrap();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0]["Properties"]["flex-size"], "fixed");
+    assert_eq!(rows[1]["Properties"]["flex-size"], "default");
+    let header_row: f64 = rows[0]["Properties"]["flex-min-height"]
+        .as_str()
+        .unwrap()
+        .trim_end_matches("px")
+        .parse()
+        .unwrap();
+    let child_rows = header_row + 19.0 + 10.0;
+
+    let title = add_one(
+        &solution,
+        "Acme.Board_MU",
+        "label",
+        Placement::In("center".into()),
+        &[],
+    );
+    let floor_of = |child: &str, anchor: &str| {
+        let plan = plan_add_contained(
+            &solution,
+            &AddContainedRequest {
+                mashup: "Acme.Board_MU".into(),
+                child: child.into(),
+                placement: Some(Placement::Beside {
+                    anchor: anchor.into(),
+                    side: Side::Below,
+                }),
+                settings: vec![],
+            },
+        )
+        .unwrap();
+        apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+        let content = content_of(&solution, "Acme.Board_MU");
+        let row = parent_id(&content["UI"], &plan.placed.id).unwrap();
+        let row = find_widget(&content["UI"], &row).unwrap()["Properties"].clone();
+        assert_eq!(row["flex-size"], "range", "{row}");
+        assert_eq!(row["flex-shrink"], 0);
+        (plan.placed.id, row["flex-min-height"].clone())
+    };
+    // The child's rows plus the container's own 5px margins above and below.
+    let (tile, floor) = floor_of("Acme.Card_MU", &title);
+    assert_eq!(floor, format!("{}px", child_rows + 10.0));
+
+    // An empty child cannot be measured: the row keeps the generic floor.
+    apply_new(
+        &solution,
+        &plan_new(&solution, &request("Acme.Empty_MU")).unwrap(),
+        &lock(&solution),
+    )
+    .unwrap();
+    let (_, floor) = floor_of("Acme.Empty_MU", &tile);
+    assert_eq!(floor, "300px");
 }
 
 #[test]
@@ -2759,17 +3094,151 @@ fn a_filter_panel_gets_the_kits_grey_filters_and_white_content() {
         let found = document.find(slot).unwrap();
         styles["data"][&found.id]["parts"]["$"]["$"]["background"].clone()
     };
-    assert_eq!(background("filters"), "#F7F7F7");
+    assert_eq!(background("filter-column"), "#F7F7F7");
+    assert_eq!(background("filters"), "inherit");
     assert_eq!(background("content"), "#ffffff");
-    let filters = document.find("filters").unwrap();
+    let filters = document.find("filter-column").unwrap();
     assert_eq!(styles["data"][&filters.id]["widget"], "flex-container");
     assert_eq!(
         document.at(&filters.path)["Properties"]["flex-min-width"],
-        "290px"
+        "276px"
     );
     assert!(document.at(&filters.path)["Properties"]
         .get("style")
         .is_none());
+}
+
+#[test]
+fn added_control_width_and_margin_props_cannot_overflow_a_bounded_container() {
+    let (_dir, solution) = one_project();
+    let name = "Acme.Form_MU";
+    apply_new(
+        &solution,
+        &plan_new(&solution, &request(name)).unwrap(),
+        &lock(&solution),
+    )
+    .unwrap();
+    let panel = add_one(
+        &solution,
+        name,
+        "container",
+        Placement::In("center".into()),
+        &[("flex-size", "range"), ("flex-max-width", "240px")],
+    );
+    for (width, expected) in [("900", 200.0), ("100", 100.0)] {
+        let id = add_one(
+            &solution,
+            name,
+            "text-field",
+            Placement::In(panel.clone()),
+            &[("Width", width), ("Margin", "13 20 5")],
+        );
+        let content = content_of(&solution, name);
+        assert_eq!(
+            find_widget(&content["UI"], &id).unwrap()["Properties"]["Width"].as_f64(),
+            Some(expected)
+        );
+    }
+}
+
+#[test]
+fn filter_controls_are_inset_and_their_footer_stays_at_the_bottom() {
+    use crate::core::mashup::edit::{children, Placement, Side};
+    let template = mashup::templates::layout("filter-panel").unwrap().unwrap();
+    let mut document = new_document(&template, false, DEFAULT_THEME).unwrap();
+    let catalog = crate::core::widgets::catalog();
+    let place = |document: &mut crate::core::mashup::edit::MashupDocument, kind, placement| {
+        document
+            .place(catalog.resolve(kind).unwrap(), &placement)
+            .unwrap()
+            .id
+    };
+    let filters = document.find("filters").unwrap();
+    let column = document.find("filter-column").unwrap();
+    assert_eq!(&filters.path[..filters.path.len() - 1], &column.path);
+    assert_eq!(document.at(&column.path)["Properties"]["Margin"], "");
+    assert_eq!(
+        document.at(&column.path)["Properties"]["align-items"],
+        "center"
+    );
+    let inset = document.at(&filters.path)["Properties"].clone();
+    assert_eq!(inset["Margin"], "");
+    assert_eq!(inset["align-items"], "center");
+    assert_eq!(inset["flex-size"], "range");
+    assert_eq!(inset["flex-min-width"], "240px");
+    assert_eq!(inset["flex-max-width"], "240px");
+    assert_eq!(inset["flex-grow"], 1);
+    assert_eq!(inset["flex-shrink"], 0);
+    let search = place(&mut document, "textfield", Placement::In("filters".into()));
+    let apply = place(&mut document, "button", Placement::Bottom("filters".into()));
+    let clear = place(
+        &mut document,
+        "button",
+        Placement::Beside {
+            anchor: apply.clone(),
+            side: Side::Right,
+        },
+    );
+    let date = place(
+        &mut document,
+        "datepicker",
+        Placement::Beside {
+            anchor: search.clone(),
+            side: Side::Below,
+        },
+    );
+    let dropdown = place(&mut document, "dropdown", Placement::In("filters".into()));
+    let rows = children(document.at(&filters.path));
+    assert_eq!(rows.len(), 4);
+    for (index, (row, id)) in rows[..3].iter().zip([search, date, dropdown]).enumerate() {
+        assert_eq!(children(row)[0]["Properties"]["Id"], id);
+        assert_eq!(
+            children(row)[0]["Properties"]["Width"].as_f64(),
+            Some(240.0)
+        );
+        assert_eq!(children(row)[0]["Properties"]["ResponsiveLayout"], false);
+        assert_eq!(
+            children(row)[0]["Properties"]["Margin"],
+            if index == 0 { "5 0" } else { "13 0 5" }
+        );
+        assert_eq!(row["Properties"]["justify-content"], "center");
+        assert_eq!(row["Properties"]["flex-size"], "fixed");
+        assert_eq!(
+            row["Properties"]["flex-min-height"],
+            if index == 0 { "56px" } else { "64px" }
+        );
+        assert_eq!(
+            row["Properties"]["flex-max-height"],
+            row["Properties"]["flex-min-height"]
+        );
+        assert_eq!(row["Properties"]["flex-shrink"], 0);
+    }
+    let footer = &rows[3];
+    assert_eq!(
+        children(footer)
+            .iter()
+            .map(|child| child["Properties"]["Id"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        [apply.as_str(), clear.as_str()]
+    );
+    assert_eq!(footer["Properties"]["align-items"], "flex-end");
+    assert_eq!(footer["Properties"]["flex-size"], "default");
+    assert_eq!(footer["Properties"]["flex-grow"], 1);
+    assert_eq!(footer["Properties"]["flex-shrink"], 0);
+    assert_eq!(footer["Properties"]["Margin"], "0 5");
+    for button in children(footer) {
+        assert_eq!(button["Properties"]["Width"], 110);
+        assert_eq!(button["Properties"]["Margin"], "0");
+    }
+    assert_eq!(document.at(&filters.path)["Properties"], inset);
+    let styles = &document.root_properties()["StyleProperties"]["data"];
+    for row in rows {
+        assert_eq!(
+            styles[row["Properties"]["Id"].as_str().unwrap()]["parts"]["$"]["$"]["background"],
+            "inherit"
+        );
+    }
+    assert!(document.problems().is_empty());
 }
 
 /// A row placed in the grey filter column shows the grey, as the kits' rows do; one in an
@@ -4011,6 +4480,8 @@ fn each_recipe_writes_the_wiring_real_mashups_use() {
             then: Some("data:Acme.Orders.Manager.GetOrders".into()),
             title: Some("Reload?".into()),
             say: Some("Reload the orders?".into()),
+            action_label: Some("Reload".into()),
+            cancel_label: Some("Keep orders".into()),
             ..Default::default()
         },
     )
@@ -4018,6 +4489,14 @@ fn each_recipe_writes_the_wiring_real_mashups_use() {
     let value: Value = serde_json::from_str(&sidecar_content(&solution)).unwrap();
     let confirmation = &plan.added[0];
     assert_eq!(widget_of(&value, confirmation)["TitleText"], "Reload?");
+    assert_eq!(
+        widget_of(&value, confirmation)["ActionButtonLabel"],
+        "Reload"
+    );
+    assert_eq!(
+        widget_of(&value, confirmation)["CancelButtonLabel"],
+        "Keep orders"
+    );
     assert!(has_event(
         &value,
         "ptcsbutton-6",
@@ -6047,6 +6526,10 @@ fn collection_request(mappings: &[(&str, &str)]) -> CollectionAddRequest {
         uid: Some("id".into()),
         width: Some(200),
         height: Some(120),
+        columns: None,
+        across: None,
+        preset: None,
+        menu: None,
         placement: None,
     }
 }
@@ -7222,6 +7705,13 @@ fn a_card_of_label_value_rows_and_separators_gets_a_measured_range_row() {
         Placement::In("center".into()),
         &[("LabelType", "header")],
     );
+    let chart = add_one(
+        &solution,
+        name,
+        "bar-chart",
+        Placement::In("center".into()),
+        &[],
+    );
     let mut cards: Vec<String> = Vec::new();
     for index in 0..2 {
         let card = if index == 0 {
@@ -7230,7 +7720,7 @@ fn a_card_of_label_value_rows_and_separators_gets_a_measured_range_row() {
                 name,
                 "container",
                 Placement::In("center".into()),
-                &[],
+                &[("Margin", "8")],
             )
         } else {
             add_one(
@@ -7238,17 +7728,39 @@ fn a_card_of_label_value_rows_and_separators_gets_a_measured_range_row() {
                 name,
                 "container",
                 beside(&cards[0], Side::Right),
-                &[],
+                &[("Margin", "8")],
             )
         };
+        let frame = plan_set(
+            &solution,
+            &SetRequest {
+                mashup: name.into(),
+                widget: card.clone(),
+                properties: Vec::new(),
+                style_from: None,
+                styles: [
+                    "border-width=1px",
+                    "border-style=solid",
+                    "padding-top=8px",
+                    "padding-bottom=8px",
+                    "padding-left=16px",
+                    "padding-right=16px",
+                ]
+                .into_iter()
+                .map(str::to_string)
+                .collect(),
+            },
+        )
+        .unwrap();
+        apply_edit(&solution, frame.edit.as_ref().unwrap(), &lock(&solution)).unwrap();
         let mut previous = add_one(
             &solution,
             name,
             "label",
             Placement::In(card.clone()),
-            &[("LabelType", "sub-header")],
+            &[("LabelType", "sub-header"), ("Margin", "0")],
         );
-        for row in 0..3 {
+        for row in 0..4 {
             if row > 0 {
                 previous = add_one(
                     &solution,
@@ -7289,18 +7801,51 @@ fn a_card_of_label_value_rows_and_separators_gets_a_measured_range_row() {
     let properties = &row["Properties"];
     assert_eq!(properties["flex-size"], "range", "{properties}");
     assert_eq!(properties["flex-max-height"], "");
-    // The title row as fixed, three label rows of 19px, two 1px separators, and a row margin.
+    assert_eq!(properties["flex-shrink"], 0);
+    assert_eq!(properties["flex-grow"], 0);
+    let chart_row = parent_id(&content["UI"], &chart).unwrap();
+    let chart_row = &find_widget(&content["UI"], &chart_row).unwrap()["Properties"];
+    assert_eq!(chart_row["flex-min-height"], "300px");
+    assert_eq!(chart_row["flex-shrink"], 0);
+    assert_eq!(chart_row["flex-grow"], 1);
+    // Title 27px + four 25px rows + three rules + frame (16 + 16 + 2) + 12px allowance.
     let title = &find_widget(&content["UI"], &cards[0]).unwrap()["Widgets"][0]["Properties"];
-    let title_px: f64 = title["flex-min-height"]
-        .as_str()
-        .unwrap()
-        .trim_end_matches("px")
-        .parse()
-        .unwrap();
-    assert_eq!(
-        properties["flex-min-height"],
-        format!("{}px", (title_px + 3.0 * 19.0 + 2.0 + 12.0).ceil())
-    );
+    assert_eq!(title["flex-min-height"], "27px");
+    assert_eq!(properties["flex-min-height"], "176px");
+    for card in &cards {
+        let card = find_widget(&content["UI"], card).unwrap();
+        let rows: Vec<_> = card["Widgets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|row| row["Properties"]["justify-content"] == "space-between")
+            .collect();
+        assert_eq!(rows.len(), 4);
+        for row in rows {
+            assert_eq!(row["Properties"]["flex-size"], "range");
+            assert_eq!(row["Properties"]["flex-min-height"], "25px");
+            assert_eq!(row["Properties"]["flex-max-height"], "");
+            assert_eq!(row["Properties"]["flex-shrink"], 0);
+            assert_eq!(row["Properties"]["flex-grow"], 1);
+        }
+        // Centered 19px labels in 25px rows; the separator is a separate fixed 1px row.
+        let mut top = 0.0;
+        let mut label_tops = Vec::new();
+        for row in card["Widgets"].as_array().unwrap() {
+            let px: f64 = row["Properties"]["flex-min-height"]
+                .as_str()
+                .unwrap()
+                .trim_end_matches("px")
+                .parse()
+                .unwrap();
+            if row["Properties"]["justify-content"] == "space-between" {
+                label_tops.push(top + (px - 19.0) / 2.0);
+            }
+            top += px;
+        }
+        assert_eq!(label_tops, [30.0, 56.0, 82.0, 108.0]);
+        assert_eq!(top, 130.0);
+    }
     // The separator carries the kits' colour as a root style entry.
     let styles = &content["UI"]["Properties"]["StyleProperties"]["data"];
     let separators: Vec<_> = styles
@@ -7309,7 +7854,7 @@ fn a_card_of_label_value_rows_and_separators_gets_a_measured_range_row() {
         .values()
         .filter(|entry| entry["parts"]["$"]["$"]["background"] == "#C2C7CE")
         .collect();
-    assert_eq!(separators.len(), 4, "{styles}");
+    assert_eq!(separators.len(), 6, "{styles}");
 }
 
 #[test]
@@ -7372,8 +7917,8 @@ fn placement_measures_the_widget_with_the_props_it_is_given() {
     let content = content_of(&solution, name);
     let row = parent_id(&content["UI"], &tall).unwrap();
     let row = &find_widget(&content["UI"], &row).unwrap()["Properties"];
-    // A 36px label with 40px of vertical margin and the row's 12px: measured as given.
-    assert_eq!(row["flex-min-height"], "88px", "{row}");
+    // A 19px label with 40px of vertical margin: measured as given.
+    assert_eq!(row["flex-min-height"], "59px", "{row}");
 }
 
 #[test]
@@ -7563,4 +8108,492 @@ fn gap_plans_without_writing_and_applies_entity_and_sidecar_together() {
     let again = commands::mashup::gap(&solution, &request, &mut Notices::default()).unwrap();
     assert!(again.plan.edit.is_none());
     assert_eq!(std::fs::read(&new.entity_path).unwrap(), written);
+}
+
+#[test]
+fn columns_hide_unlisted_fields_and_format_dates_from_an_existing_named_binding() {
+    let (dir, solution) = recipe_fixture();
+    write(
+        dir.path(),
+        "acme/DataShapes/Acme.Orders.Order_DS.xml",
+        r#"<Entities><DataShapes><DataShape name="Acme.Orders.Order_DS" projectName="Acme"><FieldDefinitions><FieldDefinition name="id" baseType="LONG"/><FieldDefinition name="note" baseType="STRING"/><FieldDefinition name="start" baseType="DATETIME"/><FieldDefinition name="end" baseType="DATETIME"/><FieldDefinition name="description" baseType="STRING"/></FieldDefinitions></DataShape></DataShapes></Entities>"#,
+    );
+    let before = sidecar_content(&solution);
+    let error = recipe(
+        &solution,
+        "columns",
+        RecipeArgs {
+            widget: Some("ptcsgrid-5".into()),
+            columns: vec!["start".into()],
+            ..Default::default()
+        },
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(
+        error.contains("needs the grid's data") && error.contains("--data"),
+        "{error}"
+    );
+    assert_eq!(sidecar_content(&solution), before);
+    let plan = bind(
+        &solution,
+        "data:Acme.Orders.Manager.GetOrders[as orders]",
+        "ui:ptcsgrid-5.Data",
+    )
+    .unwrap();
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    let args = RecipeArgs {
+        widget: Some("ptcsgrid-5".into()),
+        columns: vec!["start:Started:180".into(), "note:Note".into()],
+        ..Default::default()
+    };
+    recipe(&solution, "columns", args.clone()).unwrap();
+    let document = mashup::edit::parse(&sidecar_content(&solution)).unwrap();
+    let columns = document.at(&document.find("ptcsgrid-5").unwrap().path)["Properties"]
+        ["ColumnFormat"]["formatInfo"]
+        .as_array()
+        .unwrap();
+    assert_eq!(columns.len(), 5);
+    assert_eq!(columns[0]["FieldName"], "start");
+    assert_eq!(columns[0]["FormatOptions"]["renderer"], "DATETIME");
+    assert_eq!(
+        columns[0]["FormatOptions"]["FormatString"],
+        "[[dateTimeFormat_Default]]"
+    );
+    assert_eq!(columns[0]["Width"], 180);
+    assert_eq!(columns[1]["FieldName"], "note");
+    for column in &columns[..2] {
+        assert_eq!(column["inLayout"], true);
+        assert_eq!(column["hidden"], false);
+    }
+    for column in &columns[2..] {
+        assert_eq!(column["inLayout"], false);
+        assert_eq!(column["hidden"], true);
+    }
+    // A previously excluded date becomes visible and formatted on the next recipe.
+    recipe(
+        &solution,
+        "columns",
+        RecipeArgs {
+            columns: vec!["end".into()],
+            ..args.clone()
+        },
+    )
+    .unwrap();
+    let document = mashup::edit::parse(&sidecar_content(&solution)).unwrap();
+    let columns = &document.at(&document.find("ptcsgrid-5").unwrap().path)["Properties"]
+        ["ColumnFormat"]["formatInfo"];
+    assert_eq!(columns[0]["FieldName"], "end");
+    assert_eq!(columns[0]["inLayout"], true);
+    assert_eq!(columns[0]["FormatOptions"]["renderer"], "DATETIME");
+    let error = recipe(
+        &solution,
+        "columns",
+        RecipeArgs {
+            columns: vec!["note".into(), "note".into()],
+            ..args
+        },
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("repeats field note"));
+}
+
+#[test]
+fn tracker_recipe_maps_shapes_and_refuses_unmatched_fields_without_writing() {
+    let (dir, solution) = recipe_fixture();
+    let shape = |fields: &str| {
+        write(
+            dir.path(),
+            "acme/DataShapes/Acme.Orders.Order_DS.xml",
+            &format!(
+                r#"<Entities><DataShapes><DataShape name="Acme.Orders.Order_DS" projectName="Acme"><FieldDefinitions>{fields}</FieldDefinitions></DataShape></DataShapes></Entities>"#
+            ),
+        )
+    };
+    let fields = r#"<FieldDefinition name="step_number" baseType="INTEGER"/><FieldDefinition name="Title" baseType="STRING"/><FieldDefinition name="status" baseType="STRING"/><FieldDefinition name="isInteractive" baseType="BOOLEAN"/><FieldDefinition name="mashupName" baseType="MASHUPNAME"/>"#;
+    shape(fields);
+    let args = RecipeArgs {
+        widget: Some("new".into()),
+        data: Some("data:Acme.Orders.Manager.GetOrders[as steps]".into()),
+        ..Default::default()
+    };
+    let plan = recipe(&solution, "tracker", args.clone()).unwrap();
+    assert_eq!(plan.added.len(), 1);
+    let id = plan.added[0].clone();
+    let document = mashup::edit::parse(&sidecar_content(&solution)).unwrap();
+    let found = document.find(&id).unwrap();
+    let props = &document.at(&found.path)["Properties"];
+    assert_eq!(found.type_id, "ptcsprogresstracker");
+    for (property, expected) in [
+        ("StepNumberField", "step_number"),
+        ("StepLabelField", "Title"),
+        ("StepStateField", "status"),
+        ("StepInteractiveField", "isInteractive"),
+        ("StepMashupNameField", "mashupName"),
+    ] {
+        assert_eq!(props[property], expected);
+        assert!(widgets::catalog()
+            .by_type("ptcsprogresstracker")
+            .unwrap()
+            .property(property)
+            .is_some());
+    }
+    assert_eq!(props["IsInteractive"], true);
+    assert_eq!(props["StepSize"], "large");
+    assert!(has_binding(document.value(), "steps", "", &id, "Data"));
+    // Existing widget, repeat binding and explicit overrides also work.
+    shape(&fields.replace("Title", "caption"));
+    let before = sidecar_content(&solution);
+    let error = recipe(
+        &solution,
+        "tracker",
+        RecipeArgs {
+            widget: Some(id.clone()),
+            ..args.clone()
+        },
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(
+        error.contains("StepLabelField")
+            && error.contains("--field-map")
+            && error.contains("caption"),
+        "{error}"
+    );
+    assert_eq!(sidecar_content(&solution), before);
+    recipe(
+        &solution,
+        "tracker",
+        RecipeArgs {
+            widget: Some(id),
+            field_maps: vec!["StepLabelField=caption".into()],
+            ..args
+        },
+    )
+    .unwrap();
+}
+
+#[test]
+fn set_on_click_is_typed_click_only_and_supports_parameter_feedback() {
+    let (_dir, solution) = recipe_fixture();
+    let mut parameter = param_request("Acme.Orders_MU", ParameterAction::Add, "CurrentStep");
+    parameter.base_type = Some("NUMBER".into());
+    param(&solution, &parameter).unwrap();
+    let args = RecipeArgs {
+        widget: Some("ptcsbutton-6".into()),
+        param: Some("CurrentStep".into()),
+        expression: Some("CurrentStep + 1".into()),
+        inputs: vec!["CurrentStep=mashup:CurrentStep".into()],
+        ..Default::default()
+    };
+    let plan = recipe(&solution, "set-on-click", args.clone()).unwrap();
+    let value: Value = serde_json::from_str(&sidecar_content(&solution)).unwrap();
+    let id = &plan.added[0];
+    let expression = widget_of(&value, id);
+    assert_eq!(expression["Expression"], "Output = (CurrentStep + 1);");
+    assert_eq!(expression["OutputBaseType"], "NUMBER");
+    assert_eq!(expression["AutoEvaluate"], false);
+    assert_eq!(expression["DisableInitialOutput"], true);
+    assert_eq!(expression["DataChangeType"], "ALWAYS");
+    assert_eq!(expression["_currentParameterDefs"][0]["BaseType"], "NUMBER");
+    assert!(has_binding(
+        &value,
+        "mashup-root",
+        "CurrentStep",
+        id,
+        "CurrentStep"
+    ));
+    assert!(has_binding(
+        &value,
+        id,
+        "Output",
+        "mashup-root",
+        "CurrentStep"
+    ));
+    assert!(has_event(&value, "ptcsbutton-6", "Clicked", id, "Evaluate"));
+    assert!(!has_event(&value, "mashup-root", "Loaded", id, "Evaluate"));
+    let before = sidecar_content(&solution);
+    assert!(recipe(
+        &solution,
+        "set-on-click",
+        RecipeArgs {
+            param: Some("Missing".into()),
+            ..args
+        }
+    )
+    .unwrap_err()
+    .to_string()
+    .contains("parameter Missing"));
+    assert_eq!(sidecar_content(&solution), before);
+}
+
+#[test]
+fn columns_on_a_grid_whose_shape_is_unknown_write_the_listed_columns_only() {
+    let (dir, solution) = recipe_fixture();
+    std::fs::remove_file(dir.path().join("acme/DataShapes/Acme.Orders.Order_DS.xml")).unwrap();
+    let plan = bind(
+        &solution,
+        "data:Acme.Orders.Manager.GetOrders[as orders]",
+        "ui:ptcsgrid-5.Data",
+    )
+    .unwrap();
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    recipe(
+        &solution,
+        "columns",
+        RecipeArgs {
+            widget: Some("ptcsgrid-5".into()),
+            columns: vec!["note:Note".into()],
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let document = mashup::edit::parse(&sidecar_content(&solution)).unwrap();
+    let columns = document.at(&document.find("ptcsgrid-5").unwrap().path)["Properties"]
+        ["ColumnFormat"]["formatInfo"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert_eq!(columns.len(), 1);
+    assert_eq!(columns[0]["FieldName"], "note");
+}
+
+#[test]
+fn collection_columns_fit_the_platform_wrap_rule() {
+    // The kit's paddings and gap: four columns in a full-width 1440px window.
+    let width = super::collection::column_width(4, 1400, 15, 24, 40).unwrap();
+    assert_eq!(width, 285);
+    // 10.2 starts a new row when n*CellWidth + (n-1)*ColumnGap reaches the room left.
+    let room = 1400 - 15 - 24 - 17;
+    assert!(4 * width + 3 * 40 < room, "four fit");
+    assert!(5 * width + 4 * 40 >= room, "a fifth wraps");
+    // Narrower than the width it was worked out for, fewer fit: a viewport outcome.
+    let narrow = 1000 - 15 - 24 - 17;
+    assert!(4 * width + 3 * 40 >= narrow);
+    assert_eq!(super::collection::column_width(40, 1400, 15, 24, 40), None);
+    assert_eq!(super::collection::column_width(1, 50, 15, 24, 40), None);
+    assert_eq!(
+        super::collection::column_width(u32::MAX, 1400, 15, 24, 40),
+        None
+    );
+    assert!(super::collection::column_width(1, u32::MAX, 15, 24, 40).is_some());
+}
+
+#[test]
+fn collection_add_cards_preset_writes_the_kit_card_collection() {
+    let (dir, solution) = collection_fixture();
+    let mut request = collection_request(&[("id", "Id")]);
+    request.width = None;
+    request.height = None;
+    request.columns = Some(4);
+    request.preset = Some(CollectionPreset::Cards);
+    let plan = plan_collection_add(&solution, &request).unwrap();
+    assert_eq!((plan.cell_width, plan.cell_height), (Some(285), Some(270)));
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+
+    let properties = collection_properties(&solution, &plan.id);
+    for (name, expected) in [
+        ("CellWidth", json!(285)),
+        ("CellHeight", json!(270)),
+        ("LeftAlignLastRow", json!(true)),
+        ("ContentAlignment", json!("top")),
+        ("MashupBackground", json!("transparent")),
+        ("LeftPadding", json!(15)),
+        ("RightPadding", json!(24)),
+        ("SelectionMode", json!("single")),
+        ("AutoSelectFirstRow", json!(true)),
+        // The distribution itself is the catalogue's, which the kit keeps.
+        ("Layout", json!("flex")),
+        ("RowHorizontalAlignment", json!("space-evenly")),
+        ("ColumnGap", json!(40)),
+    ] {
+        assert_eq!(properties[name], expected, "{name}");
+    }
+    let content: Value = serde_json::from_str(&sidecar_content(&solution)).unwrap();
+    let entry = &content["UI"]["Properties"]["StyleProperties"]["data"][&plan.id];
+    assert_eq!(entry["widget"], "ptcs-collection");
+    let frame = &entry["parts"]["cell"];
+    assert_eq!(
+        frame["$"],
+        json!({"border-color": "rgba(192,192,192,1)", "border-radius": "6px", "border-style": "solid", "border-width": "1px"})
+    );
+    for state in ["hover", "hover+selected", "pressed", "selected"] {
+        assert_eq!(frame[state]["border-style"], "solid", "{state}");
+    }
+    let report =
+        crate::core::mashup::validate::validate(&solution, Some("Acme.Orders_MU")).unwrap();
+    assert!(report[0].problems.is_empty(), "{:?}", report[0].problems);
+    drop(dir);
+}
+
+#[test]
+fn collection_add_keeps_explicit_sizes_and_catalogue_spacing() {
+    let (_dir, solution) = collection_fixture();
+    // A preset with an explicit width: the kit card's height.
+    let mut request = collection_request(&[("id", "Id")]);
+    request.width = Some(400);
+    request.height = None;
+    request.preset = Some(CollectionPreset::Cards);
+    let plan = plan_collection_add(&solution, &request).unwrap();
+    assert_eq!((plan.cell_width, plan.cell_height), (Some(400), Some(270)));
+    // An explicit height wins over the preset's.
+    request.height = Some(300);
+    let plan = plan_collection_add(&solution, &request).unwrap();
+    assert_eq!(plan.cell_height, Some(300));
+    // Narrow columns do not shrink the card below the height its content needs.
+    request.width = None;
+    request.height = None;
+    request.columns = Some(4);
+    request.across = Some(1000);
+    let plan = plan_collection_add(&solution, &request).unwrap();
+    assert_eq!((plan.cell_width, plan.cell_height), (Some(185), Some(270)));
+    // No preset: --columns uses the catalogue's paddings (0 and 24) and gap, and sets no height.
+    let mut request = collection_request(&[("id", "Id")]);
+    request.width = None;
+    request.height = None;
+    request.columns = Some(4);
+    let plan = plan_collection_add(&solution, &request).unwrap();
+    assert_eq!((plan.cell_width, plan.cell_height), (Some(289), None));
+    request.across = Some(1000);
+    let plan = plan_collection_add(&solution, &request).unwrap();
+    assert_eq!(plan.cell_width, Some(189));
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    let properties = collection_properties(&solution, &plan.id);
+    assert_eq!(properties["CellWidth"], json!(189));
+    assert_eq!(
+        properties["LeftAlignLastRow"],
+        json!(false),
+        "catalogue default"
+    );
+    let content: Value = serde_json::from_str(&sidecar_content(&solution)).unwrap();
+    assert!(
+        content["UI"]["Properties"]["StyleProperties"]["data"]
+            .get(&plan.id)
+            .is_none(),
+        "no preset, no frame"
+    );
+}
+
+#[test]
+fn collection_add_sets_a_checked_cell_menu_and_refuses_bad_sizing() {
+    let (dir, solution) = collection_fixture();
+    let before = tree_bytes(dir.path());
+    let refused = |request: CollectionAddRequest, expected: &str| {
+        let error = plan_collection_add(&solution, &request)
+            .err()
+            .unwrap_or_else(|| panic!("{expected}: not refused"))
+            .to_string();
+        assert!(error.contains(expected), "{expected}: {error}");
+    };
+    let mut both = collection_request(&[("id", "Id")]);
+    both.columns = Some(4);
+    refused(both, "not both");
+    let mut across = collection_request(&[("id", "Id")]);
+    across.width = None;
+    across.across = Some(1200);
+    refused(across, "give --columns too");
+    let mut zero = collection_request(&[("id", "Id")]);
+    zero.width = None;
+    zero.columns = Some(0);
+    refused(zero, "positive");
+    let mut crowded = collection_request(&[("id", "Id")]);
+    crowded.width = None;
+    crowded.columns = Some(40);
+    refused(crowded, "40 columns do not fit");
+    let mut missing = collection_request(&[("id", "Id")]);
+    missing.menu = Some("Acme.Menu_ST".into());
+    refused(missing, "no readable StateDefinition Acme.Menu_ST");
+    assert!(before == tree_bytes(dir.path()), "a refusal changed a file");
+
+    cell_menu_definition(dir.path(), &["Edit", "More Details"]);
+    let mut request = collection_request(&[("id", "Id")]);
+    request.menu = Some("Acme.Menu_ST".into());
+    let plan = plan_collection_add(&solution, &request).unwrap();
+    assert_eq!(
+        plan.menu,
+        Some((
+            "Acme.Menu_ST".to_string(),
+            vec![
+                "CellMenu:Edit".to_string(),
+                "CellMenu:More-Details".to_string()
+            ]
+        ))
+    );
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    assert_eq!(
+        collection_properties(&solution, &plan.id)["CellMenu"],
+        "Acme.Menu_ST"
+    );
+    let collection = plan.id.clone();
+    // The menu's items are handlers `mashup on` now accepts.
+    let handler = on(
+        &solution,
+        &format!("ui:{collection}.CellMenu:More-Details"),
+        "data:Acme.Orders.Manager.GetOrders",
+    );
+    assert!(handler.is_ok(), "{:?}", handler.err());
+}
+
+#[test]
+fn a_card_around_a_contained_mashup_keeps_the_childs_floor_not_the_drop_height() {
+    use crate::core::mashup::edit::Side;
+    let (_dir, solution) = contained_fixture();
+    add_one(
+        &solution,
+        "Acme.Card_MU",
+        "label",
+        Placement::In("center".into()),
+        &[("LabelType", "header")],
+    );
+    let card = add_one(
+        &solution,
+        "Acme.Board_MU",
+        "container",
+        Placement::In("center".into()),
+        &[],
+    );
+    let title = add_one(
+        &solution,
+        "Acme.Board_MU",
+        "label",
+        Placement::In(card),
+        &[],
+    );
+    let plan = plan_add_contained(
+        &solution,
+        &AddContainedRequest {
+            mashup: "Acme.Board_MU".into(),
+            child: "Acme.Card_MU".into(),
+            placement: Some(Placement::Beside {
+                anchor: title,
+                side: Side::Below,
+            }),
+            settings: vec![],
+        },
+    )
+    .unwrap();
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    let content = content_of(&solution, "Acme.Board_MU");
+    let px = |value: &Value| -> f64 {
+        value
+            .as_str()
+            .and_then(|text| text.strip_suffix("px"))
+            .and_then(|text| text.parse().ok())
+            .unwrap_or(0.0)
+    };
+    let row = parent_id(&content["UI"], &plan.placed.id).unwrap();
+    let floor = px(&find_widget(&content["UI"], &row).unwrap()["Properties"]["flex-min-height"]);
+    assert!(floor > 0.0 && floor < 300.0, "{floor}");
+    // Every column above the tile floors at most its rows: the title plus the tile's floor.
+    let mut id = row;
+    while let Some(parent) = parent_id(&content["UI"], &id) {
+        let properties = &find_widget(&content["UI"], &parent).unwrap()["Properties"];
+        if properties["flex-size"] == "range" {
+            assert!(
+                px(&properties["flex-min-height"]) < 300.0,
+                "{parent}: {properties}"
+            );
+        }
+        id = parent;
+    }
 }

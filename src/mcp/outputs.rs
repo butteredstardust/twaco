@@ -1394,6 +1394,12 @@ pub(crate) struct MashupCollectionAddResult {
     mappings: Vec<Value>,
     uid: Option<String>,
     binding: String,
+    /// The CellWidth and CellHeight written, when given or worked out.
+    cell_width: Option<u32>,
+    cell_height: Option<u32>,
+    preset: Option<String>,
+    /// The cell menu's StateDefinition and the events its items fire.
+    menu: Option<Value>,
     notes: Vec<String>,
     files: Vec<String>,
     notices: Notices,

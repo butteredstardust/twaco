@@ -799,6 +799,9 @@ pub(crate) struct MashupAddRequest {
     /// With in: put the widget in a footer row at the bottom of that column (a filter panel's Apply and Clear); later widgets go above it.
     #[serde(default)]
     pub(crate) bottom: bool,
+    /// With below: stack within the anchor's column of a split row, keeping the other columns beside it.
+    #[serde(default)]
+    pub(crate) in_column: bool,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) label: Absent<String>,
     /// Simple catalogue default properties to set by exact property name.
@@ -828,6 +831,20 @@ pub(crate) struct MashupCollectionAddRequest {
     pub(crate) width: Absent<u32>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) height: Absent<u32>,
+    /// Size cells so this many fit on one row of a collection `across` pixels wide; not with width.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) columns: Absent<u32>,
+    /// The collection's width in pixels that `columns` is worked out for (default 1400, a
+    /// full-width collection in a 1440px window).
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) across: Absent<u32>,
+    /// `cards`: framed cards spread evenly per row, the last row aligned under the first
+    /// columns, the first card selected, as the design kits configure them.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) preset: Absent<CollectionPresetArg>,
+    /// A StateDefinition in the solution whose states are the cell menu's items.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) menu: Absent<String>,
     #[serde(default, rename = "in", skip_serializing_if = "Absent::is_absent")]
     pub(crate) container: Absent<String>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
@@ -840,6 +857,12 @@ pub(crate) struct MashupCollectionAddRequest {
     pub(crate) below: Absent<String>,
     #[serde(default = "default_true")]
     pub(crate) dry_run: bool,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
+pub(crate) enum CollectionPresetArg {
+    #[serde(rename = "cards")]
+    Cards,
 }
 
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
@@ -949,7 +972,7 @@ pub(crate) struct MashupParameterRequest {
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct MashupRecipeRequest {
-    /// enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh or validate.
+    /// enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, picker, tracker or set-on-click.
     pub(crate) recipe: String,
     /// The mashup to write it in.
     pub(crate) mashup: String,
@@ -960,6 +983,18 @@ pub(crate) struct MashupRecipeRequest {
     pub(crate) condition: Absent<String>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) expression: Absent<String>,
+    /// Destination mashup parameter for set-on-click.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) param: Absent<String>,
+    /// Tracker overrides as `Property=field`, using catalogue field-map property names.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) field_maps: Absent<Vec<String>>,
+    /// Confirmation action button text.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) action_label: Absent<String>,
+    /// Confirmation cancel button text.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) cancel_label: Absent<String>,
     /// `name=address` inputs of the condition or expression.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) inputs: Absent<Vec<String>>,
@@ -967,6 +1002,9 @@ pub(crate) struct MashupRecipeRequest {
     pub(crate) after: Absent<String>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) say: Absent<String>,
+    /// Error status message on Data_Error for message; may be used without say/from.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) on_failure: Absent<String>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) from: Absent<String>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
