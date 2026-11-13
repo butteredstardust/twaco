@@ -1398,6 +1398,24 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
         rename["inputSchema"]["properties"]["kind"]["enum"],
         json!(["entity", "prefix", "field", "service", "param", "table", "property"])
     );
+    let collection = tools
+        .iter()
+        .find(|t| t["name"] == "mashup_collection_add")
+        .unwrap();
+    assert_eq!(
+        collection["inputSchema"]["properties"]["preset"]["enum"],
+        json!(["cards"])
+    );
+    for parameter in ["columns", "across"] {
+        assert_eq!(
+            collection["inputSchema"]["properties"][parameter]["type"], "integer",
+            "{parameter}"
+        );
+    }
+    assert_eq!(
+        collection["inputSchema"]["properties"]["menu"]["type"],
+        "string"
+    );
     assert_eq!(
         rename["inputSchema"]["properties"]["scope"]["type"],
         "string"

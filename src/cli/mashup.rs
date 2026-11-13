@@ -89,6 +89,14 @@ pub(crate) struct MashupCollectionAdd {
     pub(crate) width: Option<u32>,
     #[arg(long = "height", value_name = "px")]
     pub(crate) height: Option<u32>,
+    #[arg(long = "columns", value_name = "n")]
+    pub(crate) columns: Option<u32>,
+    #[arg(long = "across", value_name = "px")]
+    pub(crate) across: Option<u32>,
+    #[arg(long = "preset", value_name = "name")]
+    pub(crate) preset: Option<String>,
+    #[arg(long = "menu", value_name = "state-definition")]
+    pub(crate) menu: Option<String>,
     #[command(flatten)]
     pub(crate) place: Place,
     #[command(flatten)]
@@ -1379,6 +1387,19 @@ pub(crate) fn mashup_collection_add_cmd(solution: &Solution, args: &MashupCollec
             return FAILED;
         }
     };
+    let preset = match args.preset.as_deref() {
+        None => None,
+        Some(name) => match mashup::authoring::CollectionPreset::parse(name) {
+            Some(preset) => Some(preset),
+            None => {
+                eprintln!(
+                    "{} --preset {name:?} is not a collection preset; the one there is: cards",
+                    style::prefix()
+                );
+                return FAILED;
+            }
+        },
+    };
     let request = commands::mashup::MashupCollectionAddRequest {
         request: mashup::authoring::CollectionAddRequest {
             mashup: mashup_name.clone(),
@@ -1388,6 +1409,10 @@ pub(crate) fn mashup_collection_add_cmd(solution: &Solution, args: &MashupCollec
             uid: args.uid.clone(),
             width: args.width,
             height: args.height,
+            columns: args.columns,
+            across: args.across,
+            preset,
+            menu: args.menu.clone(),
             placement,
         },
         mode: if args.apply.apply {
@@ -1440,6 +1465,19 @@ pub(crate) fn mashup_collection_add_cmd(solution: &Solution, args: &MashupCollec
         println!("  uid: {uid}");
     }
     println!("  binding: {}", outcome.plan.binding);
+    match (outcome.plan.cell_width, outcome.plan.cell_height) {
+        (None, None) => {}
+        (width, height) => {
+            let px = |size: Option<u32>| size.map_or("default".to_string(), |n| format!("{n}px"));
+            println!("  cell: {} x {}", px(width), px(height));
+        }
+    }
+    if let Some(preset) = outcome.plan.preset {
+        println!("  preset: {}", preset.name());
+    }
+    if let Some((menu, events)) = &outcome.plan.menu {
+        println!("  menu: {menu} ({})", events.join(", "));
+    }
     for note in &outcome.plan.notes {
         println!("  note: {note}");
     }

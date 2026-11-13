@@ -190,7 +190,8 @@ usage: twaco <command>
       --input <name:TYPE[=default]>
                               an expression's or validator's input, with a typed default; repeatable
   mashup collection add <parent> <cell-mashup> --data <address> --map <value>
-      [--uid <row-field>] [--width <px>] [--height <px>]
+      [--uid <row-field>] [--width <px> | --columns <n> [--across <px>]] [--height <px>]
+      [--preset cards] [--menu <state-definition>]
       [--in <container> | --right-of <widget> | --left-of <widget> | --above <widget> | --below <widget>] [--apply] [--json]
                               add a collection that renders a cell mashup once per service-result row; plan unless --apply
       --data <address>        an existing whole service result from mashup source add
@@ -198,6 +199,14 @@ usage: twaco <command>
                               separated by commas
       --uid <row-field>       the row field that identifies each cell
       --width/--height <px>   positive cell dimensions in pixels
+      --columns <n>           work the cell width out so n cells fit on a row, spread evenly; a
+                              narrower window shows fewer per row
+      --across <px>           the collection's width --columns is for (default 1400: full width in
+                              a 1440px window)
+      --preset <name>         cards: framed cards, the last row under the first columns, the first
+                              selected; cells 270px tall (the kit card's) unless --height
+      --menu <state-definition>
+                              a StateDefinition in the solution: its states are each cell's menu items
       --in <container>        add inside a responsive container (center when omitted)
       --right-of/--left-of/--above/--below <widget>
                               place beside an existing widget

@@ -16,12 +16,21 @@ All notable changes to twaco are recorded here. The format follows
 - `mashup on` accepts the ThingWorx 10.2 Runtime's service failure event `Data_Error`, including
   named calls. `mashup recipe message --on-failure <text>` (MCP `on_failure`) shows a separate
   error message and can be used without a success message. `close-after` remains success-only.
+- `mashup collection add` (MCP `mashup_collection_add`) lays cells out as the design kits do.
+  `--preset cards` (`preset: "cards"`) writes the kit's card collection: a framed cell (`cell` part
+  style), the last row aligned under the first columns, content at the top, a transparent cell
+  background, the first card selected, and the kit's 270px cell height at any width.
+  `--columns <n>` (`columns`) works out the cell width that fits n cells on a row, from the 10.2
+  collection's wrap rule, for a full-width collection in a 1440px window or the width
+  `--across <px>` (`across`) names. A narrower window shows fewer
+  per row. `--menu <StateDefinition>` (`menu`) sets a checked cell menu and lists the events its
+  items fire. `--width` and `--height` still set exact sizes.
 
 ### Fixed
 
 - `mashup recipe columns` excludes unlisted DataShape fields from the grid layout and resolves
   an existing Data binding (including named calls) to render DATETIME columns with the platform's
-  localized default date/time format. A missing result DataShape is refused with setup guidance.
+  localized default date/time format. Without a known DataShape only the listed columns are written.
 - Binding a service's `SelectedRows` field to a non-grid widget warns that a row must first be
   selected, even for a one-record form. No service-level first-row selection option was found
   in the inspected 10.2 platform code; the warning explains how to select through a list,

@@ -5514,6 +5514,27 @@
           "type": "integer",
           "minimum": 0
         },
+        "columns": {
+          "description": "Size cells so this many fit on one row of a collection `across` pixels wide; not with width.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "across": {
+          "description": "The collection's width in pixels that `columns` is worked out for (default 1400, a\nfull-width collection in a 1440px window).",
+          "type": "integer",
+          "minimum": 0
+        },
+        "preset": {
+          "description": "`cards`: framed cards spread evenly per row, the last row aligned under the first\ncolumns, the first card selected, as the design kits configure them.",
+          "type": "string",
+          "enum": [
+            "cards"
+          ]
+        },
+        "menu": {
+          "description": "A StateDefinition in the solution whose states are the cell menu's items.",
+          "type": "string"
+        },
         "in": {
           "type": "string"
         },
@@ -5581,6 +5602,30 @@
         },
         "binding": {
           "type": "string"
+        },
+        "cell_width": {
+          "description": "The CellWidth and CellHeight written, when given or worked out.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "cell_height": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "preset": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "menu": {
+          "description": "The cell menu's StateDefinition and the events its items fire."
         },
         "notes": {
           "type": "array",

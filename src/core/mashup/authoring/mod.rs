@@ -37,7 +37,9 @@ pub(crate) use add::{
 pub use bind::BindRequest;
 use bind::{bind_in, data_call, existing_data_call};
 pub(crate) use bind::{plan_bind, BindPlan};
-pub use collection::{collection_add_plan_json, CollectionAddRequest};
+pub use collection::{
+    collection_add_plan_json, CollectionAddRequest, CollectionPreset, DEFAULT_ACROSS,
+};
 pub(crate) use collection::{plan_collection_add, CollectionAddPlan};
 use end::{
     allowed, area, base, details, menu_service, property, resolve_end, resolve_service,
