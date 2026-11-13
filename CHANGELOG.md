@@ -31,9 +31,10 @@ All notable changes to twaco are recorded here. The format follows
 - Filling widgets keep a usable minimum height when `mashup add --below` or `--right-of`
   wraps them in nested containers. Textareas without a catalogue height keep a 100px floor;
   horizontal dividers keep their 1px thickness instead of taking the column's spare height.
-- Generated label rows, including card titles, use the label's natural text height and margins
-  consistently with split label/value rows. Card rows include each card's own margins and border
-  in their minimum height, so the inner rows are not squeezed. Explicit sizes are preserved.
+- Generated title rows use the label's natural text height and margins. Split label/value rows
+  in cards keep a 25px minimum (26px pitch with a separator), can grow for larger text, and do
+  not shrink on short pages. Card rows include each card's own margins, padding and border in
+  their minimum height, so the inner rows are not squeezed. Explicit sizes are preserved.
 - `mashup recipe columns` excludes unlisted DataShape fields from the grid layout and resolves
   an existing Data binding (including named calls) to render DATETIME columns with the platform's
   localized default date/time format. Without a known DataShape only the listed columns are written.

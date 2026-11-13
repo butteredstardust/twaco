@@ -7571,6 +7571,13 @@ fn a_card_of_label_value_rows_and_separators_gets_a_measured_range_row() {
         Placement::In("center".into()),
         &[("LabelType", "header")],
     );
+    let chart = add_one(
+        &solution,
+        name,
+        "bar-chart",
+        Placement::In("center".into()),
+        &[],
+    );
     let mut cards: Vec<String> = Vec::new();
     for index in 0..2 {
         let card = if index == 0 {
@@ -7579,7 +7586,7 @@ fn a_card_of_label_value_rows_and_separators_gets_a_measured_range_row() {
                 name,
                 "container",
                 Placement::In("center".into()),
-                &[],
+                &[("Margin", "8")],
             )
         } else {
             add_one(
@@ -7587,17 +7594,39 @@ fn a_card_of_label_value_rows_and_separators_gets_a_measured_range_row() {
                 name,
                 "container",
                 beside(&cards[0], Side::Right),
-                &[],
+                &[("Margin", "8")],
             )
         };
+        let frame = plan_set(
+            &solution,
+            &SetRequest {
+                mashup: name.into(),
+                widget: card.clone(),
+                properties: Vec::new(),
+                style_from: None,
+                styles: [
+                    "border-width=1px",
+                    "border-style=solid",
+                    "padding-top=8px",
+                    "padding-bottom=8px",
+                    "padding-left=16px",
+                    "padding-right=16px",
+                ]
+                .into_iter()
+                .map(str::to_string)
+                .collect(),
+            },
+        )
+        .unwrap();
+        apply_edit(&solution, frame.edit.as_ref().unwrap(), &lock(&solution)).unwrap();
         let mut previous = add_one(
             &solution,
             name,
             "label",
             Placement::In(card.clone()),
-            &[("LabelType", "sub-header")],
+            &[("LabelType", "sub-header"), ("Margin", "0")],
         );
-        for row in 0..3 {
+        for row in 0..4 {
             if row > 0 {
                 previous = add_one(
                     &solution,
@@ -7638,10 +7667,51 @@ fn a_card_of_label_value_rows_and_separators_gets_a_measured_range_row() {
     let properties = &row["Properties"];
     assert_eq!(properties["flex-size"], "range", "{properties}");
     assert_eq!(properties["flex-max-height"], "");
-    // 27px sub-header + 10px margins; three 19px rows, two 1px separators, 12px allowance.
+    assert_eq!(properties["flex-shrink"], 0);
+    assert_eq!(properties["flex-grow"], 0);
+    let chart_row = parent_id(&content["UI"], &chart).unwrap();
+    let chart_row = &find_widget(&content["UI"], &chart_row).unwrap()["Properties"];
+    assert_eq!(chart_row["flex-min-height"], "300px");
+    assert_eq!(chart_row["flex-shrink"], 0);
+    assert_eq!(chart_row["flex-grow"], 1);
+    // Title 27px + four 25px rows + three rules + frame (16 + 16 + 2) + 12px allowance.
     let title = &find_widget(&content["UI"], &cards[0]).unwrap()["Widgets"][0]["Properties"];
-    assert_eq!(title["flex-min-height"], "37px");
-    assert_eq!(properties["flex-min-height"], "108px");
+    assert_eq!(title["flex-min-height"], "27px");
+    assert_eq!(properties["flex-min-height"], "176px");
+    for card in &cards {
+        let card = find_widget(&content["UI"], card).unwrap();
+        let rows: Vec<_> = card["Widgets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|row| row["Properties"]["justify-content"] == "space-between")
+            .collect();
+        assert_eq!(rows.len(), 4);
+        for row in rows {
+            assert_eq!(row["Properties"]["flex-size"], "range");
+            assert_eq!(row["Properties"]["flex-min-height"], "25px");
+            assert_eq!(row["Properties"]["flex-max-height"], "");
+            assert_eq!(row["Properties"]["flex-shrink"], 0);
+            assert_eq!(row["Properties"]["flex-grow"], 1);
+        }
+        // Centered 19px labels in 25px rows; the separator is a separate fixed 1px row.
+        let mut top = 0.0;
+        let mut label_tops = Vec::new();
+        for row in card["Widgets"].as_array().unwrap() {
+            let px: f64 = row["Properties"]["flex-min-height"]
+                .as_str()
+                .unwrap()
+                .trim_end_matches("px")
+                .parse()
+                .unwrap();
+            if row["Properties"]["justify-content"] == "space-between" {
+                label_tops.push(top + (px - 19.0) / 2.0);
+            }
+            top += px;
+        }
+        assert_eq!(label_tops, [30.0, 56.0, 82.0, 108.0]);
+        assert_eq!(top, 130.0);
+    }
     // The separator carries the kits' colour as a root style entry.
     let styles = &content["UI"]["Properties"]["StyleProperties"]["data"];
     let separators: Vec<_> = styles
@@ -7650,7 +7720,7 @@ fn a_card_of_label_value_rows_and_separators_gets_a_measured_range_row() {
         .values()
         .filter(|entry| entry["parts"]["$"]["$"]["background"] == "#C2C7CE")
         .collect();
-    assert_eq!(separators.len(), 4, "{styles}");
+    assert_eq!(separators.len(), 6, "{styles}");
 }
 
 #[test]

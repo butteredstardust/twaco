@@ -1217,15 +1217,17 @@ date picker; the default format is Composer's.
 A card of label/value rows, as the design kits draw one ("● Objective ........ 12"), takes three
 more steps. `--right-of <widget> --end` puts a widget at the far end of the anchor's row: the row
 splits into a start group (what was there) and an end group (the new widget), spread apart and
-centred, and it keeps its natural height. In a column that also holds a grid or a chart, such a row
+centred. A split text row in a card keeps a 25px minimum and can grow for larger text or margins;
+with 19px body text and a separator, its pitch is 26px. The extra space belongs to the row,
+not the labels' margins. In a column that also holds a grid or a chart, such a row
 (a toolbar with View Details at the start and Form at the end) is fixed to its controls' height
 instead, so the grid takes the spare height, as the kits' toolbars do. `mashup add <mashup> separator --below <widget>` adds
 the kits' 1px rule (`#C2C7CE`) between rows. The row holding such cards becomes a `range` row whose
 minimum is the cards' measured height (a `label` row is 19px on 10.2, a `sub-header` 27px, a
 `header` 33px, before margins). Generated title rows use the same natural label height plus
 its top and bottom margins: a default label with 5px margins takes 29px, a sub-header 37px,
-a header 43px. Inline label font size and line height count too. The cards' own vertical margins
-and borders also count in the enclosing row's minimum, so their inner rows fit without squeezing.
+a header 43px. Inline label font size and line height count too. The cards' own vertical margins,
+padding and borders also count in the enclosing row's minimum, so their inner rows fit without squeezing.
 Explicit widget and row sizes are preserved. `--prop` values count in that measure, so set a
 dot's size and margins there:
 

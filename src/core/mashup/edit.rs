@@ -104,6 +104,10 @@ pub enum Placement {
 /// The control-row allowance used by the design kits. Text and dividers use their own margins.
 const ROW_MARGIN: f64 = 12.0;
 
+/// The growing text rows in the kit's cards measure 25px on 10.2 (26px with the
+/// separator). Keep that floor on short pages without adding margins to their labels.
+const CARD_TEXT_ROW_MIN: f64 = 25.0;
+
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct Placed {
     /// The id of the new widget.
@@ -729,7 +733,7 @@ impl MashupDocument {
                 }
                 continue;
             }
-            // A split label/value row in a card takes its natural height, as the kits' rows do.
+            // A split label/value row in a card grows from its content and text-row floor.
             // Beside a row that fills (a grid, a chart) it would share the spare height, so a
             // split toolbar there is fixed to its controls, as the kits' toolbars are.
             if is_split_row(row)
@@ -1417,7 +1421,7 @@ impl MashupDocument {
 
     /// Split the row the new widget joined into a start group (what was there) and an end group
     /// (the new widget), spread apart and centred, as the kits' label/value rows are. The row
-    /// keeps its natural height: reflow leaves a split row alone.
+    /// keeps its natural height, with a floor for text rows inside a card.
     fn split_at_end(&mut self, mut placed: Placed) -> Result<Placed, EditError> {
         let new = self.find(&placed.id)?;
         let refuse = |why: &str| Err(EditError::Refused(format!("--end: {why}")));
@@ -1471,6 +1475,11 @@ impl MashupDocument {
         );
         self.set_property(&parent_path, "align-items", Value::from("center"));
         self.unfix_row(&parent_path);
+        let (_, column_path) = parent_path.split_last().expect("a row has a parent");
+        if is_panel(self.at(column_path)) && is_label_value_row(self.at(&parent_path)) {
+            self.floor_row(&parent_path, CARD_TEXT_ROW_MIN);
+            self.set_flex_factor(&parent_path, "flex-shrink", 0);
+        }
         Ok(placed)
     }
 
@@ -1931,6 +1940,11 @@ fn wrapper_floor(widget: &Value, styles: &Value) -> Option<f64> {
 /// [`wrapper_floor`], optionally ignoring the container's own current minimum (to recompute a
 /// floor that a later, smaller measurement made stale).
 fn wrapper_floor_from(widget: &Value, styles: &Value, own_minimum: bool) -> Option<f64> {
+    // The start/end groups are part of one text row, not separate control rows each
+    // entitled to a control allowance.
+    if is_label_value_row(widget) {
+        return natural_height(widget, styles);
+    }
     if fills(widget) {
         if let Some(height) = widget["Properties"]["Height"].as_f64() {
             return Some(height);
@@ -1989,6 +2003,9 @@ fn wrapper_floor_from(widget: &Value, styles: &Value, own_minimum: bool) -> Opti
 /// `stack` measures a nested column of several rows as their sum; without it such a column is
 /// left unmeasured.
 fn fixed_row_height(row: &Value, stack: bool, styles: &Value) -> Option<f64> {
+    if is_label_value_row(row) {
+        return natural_height(row, styles);
+    }
     let heights = children(row)
         .iter()
         .filter(|child| !is_spacer(child))
@@ -1998,6 +2015,9 @@ fn fixed_row_height(row: &Value, stack: bool, styles: &Value) -> Option<f64> {
 }
 
 fn fixed_content_height(widget: &Value, stack: bool, styles: &Value) -> Option<f64> {
+    if is_label_value_row(widget) {
+        return natural_height(widget, styles);
+    }
     if type_of(widget) != Some("flexcontainer") {
         return (!fills(widget))
             .then(|| content_height(widget, styles))
@@ -2064,14 +2084,23 @@ fn contains_around(row: &Value, scope: &Reflow) -> bool {
 
 /// How tall a label/value row renders: its tallest widget, each as measured on 10.2 (a
 /// `label` 19px, a `sub-header` 27px, a `header` 33px) or by its own `Height`, with its
-/// vertical margins. `None` when a widget's height is not known.
+/// vertical margins and container minima. `None` when a widget's height is not known.
 fn natural_height(widget: &Value, styles: &Value) -> Option<f64> {
     if type_of(widget) == Some("flexcontainer") {
         let heights = children(widget)
             .iter()
             .map(|child| natural_height(child, styles))
             .collect::<Option<Vec<_>>>()?;
-        return Some(heights.into_iter().fold(0.0, f64::max) + vertical_insets(widget, styles));
+        let height = heights.into_iter().fold(0.0, f64::max) + vertical_insets(widget, styles);
+        let minimum = if matches!(
+            widget["Properties"]["flex-size"].as_str(),
+            Some("fixed" | "range")
+        ) {
+            css_px(&widget["Properties"]["flex-min-height"]).unwrap_or(0.0)
+        } else {
+            0.0
+        };
+        return Some(height.max(minimum));
     }
     let properties = &widget["Properties"];
     let own = properties["Height"].as_f64();
@@ -2135,14 +2164,14 @@ fn row_allowance(row: &Value) -> f64 {
                 && !children(widget).is_empty()
                 && children(widget).iter().all(natural_only))
     }
-    if natural_only(row) {
+    if natural_only(row) || is_label_value_row(row) {
         0.0
     } else {
         ROW_MARGIN
     }
 }
 
-/// The card's own box consumes space outside its rows, including the root styler's border.
+/// The card's own box consumes space outside its rows: margin, padding and styler border.
 fn vertical_insets(widget: &Value, styles: &Value) -> f64 {
     let css = &styles[widget_id(widget)]["parts"]["$"]["$"];
     let border = css["border-width"]
@@ -2154,7 +2183,11 @@ fn vertical_insets(widget: &Value, styles: &Value) -> f64 {
     } else {
         border
     };
-    vertical_margin(widget["Properties"]["Margin"].as_str().unwrap_or("")) + border
+    let padding = ["padding-top", "padding-bottom"]
+        .iter()
+        .filter_map(|key| css_px(&css[*key]))
+        .sum::<f64>();
+    vertical_margin(widget["Properties"]["Margin"].as_str().unwrap_or("")) + border + padding
 }
 
 /// The height of a card someone added that holds label/value rows: its fixed rows and
@@ -2205,6 +2238,17 @@ fn is_split_row(widget: &Value) -> bool {
             .iter()
             .filter(|child| !is_spacer(child))
             .all(is_generated_container)
+}
+
+/// Text with optional status marks, rather than a split toolbar of controls.
+fn is_label_value_row(widget: &Value) -> bool {
+    fn text_or_mark(widget: &Value) -> bool {
+        matches!(type_of(widget), Some("ptcslabel" | "shape"))
+            || (type_of(widget) == Some("flexcontainer")
+                && !children(widget).is_empty()
+                && children(widget).iter().all(text_or_mark))
+    }
+    is_split_row(widget) && children(widget).iter().all(text_or_mark)
 }
 
 /// Containers twaco created have Composer's generated display name, unlike named template slots.
@@ -4399,12 +4443,78 @@ mod placement_walkthrough {
         document.reflow_for(&value);
         let styles = &document.value["UI"]["Properties"]["StyleProperties"]["data"];
         let card = document.at(&document.find(&panel).unwrap().path);
-        assert_eq!(card_height(card, styles), Some(57.0)); // 29 + 16 + 10 + 2.
+        assert_eq!(card_height(card, styles), Some(66.0)); // 29 + 25 + 10 + 2.
         assert_eq!(
             parent_of(&document, &panel)["Properties"]["flex-min-height"],
-            "69px"
+            "78px"
         ); // + 12.
         assert_eq!(children(card)[0]["Properties"]["flex-min-height"], "29px");
+    }
+
+    #[test]
+    fn card_text_pitch_counts_the_row_floor_once_and_keeps_larger_content() {
+        for (line, margin, expected) in [(19, "0 5", 25.0), (31, "0 5", 31.0), (19, "3 5", 25.0)] {
+            let mut document = parse(crate::core::mashup::templates::BLANK).unwrap();
+            let (panel, dot, name) = card_with_row(&mut document);
+            for (id, height, margin) in [(&dot, 12, "0 5"), (&name, line, margin)] {
+                let path = document.find(id).unwrap().path;
+                document.set_property(&path, "Height", Value::from(height));
+                document.set_property(&path, "Margin", Value::from(margin));
+            }
+            let value = document
+                .place(
+                    widgets::catalog().resolve("label").unwrap(),
+                    &Placement::Beside {
+                        anchor: name.clone(),
+                        side: Side::End,
+                    },
+                )
+                .unwrap()
+                .id;
+            let path = document.find(&value).unwrap().path;
+            document.set_property(&path, "Height", Value::from(line));
+            document.set_property(&path, "Margin", Value::from(margin));
+            let path = document.find(&panel).unwrap().path;
+            document.set_property(&path, "Margin", Value::from("8"));
+            document.root_properties_mut().insert(
+                "StyleProperties".into(),
+                serde_json::json!({"data": {
+                    &panel: {"parts": {"$": {"$": {
+                        "border-width": "1px", "border-style": "solid",
+                        "padding-top": "8px", "padding-bottom": "8px",
+                        "padding-left": "16px", "padding-right": "16px"
+                    }}}}
+                }}),
+            );
+            document.reflow_for(&value);
+            let row = parent_of(&document, widget_id(parent_of(&document, &value)));
+            let styles = &document.value["UI"]["Properties"]["StyleProperties"]["data"];
+            assert_eq!(natural_height(row, styles), Some(expected));
+            assert_eq!(fixed_row_height(row, false, styles), Some(expected));
+            assert_eq!(fixed_content_height(row, false, styles), Some(expected));
+            assert_eq!(wrapper_floor(row, styles), Some(expected));
+            let card = document.at(&path);
+            // The title stays 29px; frame = 16px margin + 16px padding + 2px border.
+            assert_eq!(card_height(card, styles), Some(29.0 + expected + 34.0));
+            let row_path = document.find(widget_id(row)).unwrap().path;
+            // Authored fixed/range sizes survive later edits, including a larger label.
+            for size in ["fixed", "range"] {
+                document.set_property(&row_path, "flex-size", Value::from(size));
+                document.set_property(&row_path, "flex-min-height", Value::from("60px"));
+                document.set_property(
+                    &row_path,
+                    "flex-max-height",
+                    Value::from(if size == "fixed" { "60px" } else { "" }),
+                );
+                let before = document.at(&row_path)["Properties"].clone();
+                document.reflow_for(&value);
+                assert_eq!(document.at(&row_path)["Properties"], before);
+                assert_eq!(
+                    natural_height(document.at(&row_path), &Value::Null),
+                    Some(60.0)
+                );
+            }
+        }
     }
 
     #[test]
@@ -4516,8 +4626,10 @@ mod placement_walkthrough {
         let row = parent_of(&document, widget_id(&start)).clone();
         assert!(is_split_row(&row), "{row}");
         assert_eq!(row["Properties"]["align-items"], "center");
-        assert_eq!(row["Properties"]["flex-size"], "default");
-        assert_eq!(row["Properties"]["flex-min-height"], "");
+        assert_eq!(row["Properties"]["flex-size"], "range");
+        assert_eq!(row["Properties"]["flex-min-height"], "25px");
+        assert_eq!(row["Properties"]["flex-max-height"], "");
+        assert_eq!(row["Properties"]["flex-shrink"], 0);
         // The row stays natural when the card grows below it.
         document
             .place(
@@ -4529,7 +4641,7 @@ mod placement_walkthrough {
             )
             .unwrap();
         let row_path = document.find(widget_id(&row)).unwrap().path;
-        assert_eq!(document.at(&row_path)["Properties"]["flex-size"], "default");
+        assert_eq!(document.at(&row_path)["Properties"]["flex-size"], "range");
         assert!(document.find(&panel).is_ok());
     }
 
