@@ -5360,6 +5360,7 @@ fn source_request(entity: &str, service: &str) -> SourceAddRequest {
         cache_keys: Vec::new(),
         cache_strategy: None,
         max_result_sets: None,
+        param_values: Vec::new(),
     }
 }
 
@@ -5458,6 +5459,42 @@ fn source_add_writes_each_kind_as_composer_does() {
         .unwrap_err()
         .to_string();
     assert!(error.contains("is not a service"), "{error}");
+}
+
+#[test]
+fn source_add_writes_fixed_parameter_values_into_the_call() {
+    let (_dir, solution) = source_fixture();
+    let before = sidecar_content(&solution);
+    let mut request = source_request("Acme.Orders.Manager", "SaveOrder");
+    request.param_values = vec!["id=7".into(), "note=ready=yes".into()];
+    let error = plan_source_add(
+        &solution,
+        &SourceAddRequest {
+            param_values: vec!["status=1".into()],
+            ..request.clone()
+        },
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(
+        error.contains("Acme.Orders.Manager.SaveOrder has no parameter status")
+            && error.contains("id, note"),
+        "{error}"
+    );
+    assert_eq!(sidecar_content(&solution), before);
+    add_source(&solution, &request).unwrap();
+    let content: Value = serde_json::from_str(&sidecar_content(&solution)).unwrap();
+    let call = content["Data"]["Things_Acme.Orders.Manager"]["Services"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|call| call["Name"] == "SaveOrder")
+        .unwrap()
+        .clone();
+    assert_eq!(call["Parameters"], json!({"id": 7, "note": "ready=yes"}));
+    let report =
+        crate::core::mashup::validate::validate(&solution, Some("Acme.Orders_MU")).unwrap();
+    assert!(report[0].problems.is_empty(), "{:?}", report[0].problems);
 }
 
 #[test]

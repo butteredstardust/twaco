@@ -182,6 +182,8 @@ pub(crate) struct MashupSourceAdd {
     pub(crate) cache_strategy: Option<String>,
     #[arg(long = "max-result-sets", value_name = "n")]
     pub(crate) max_result_sets: Option<u32>,
+    #[arg(long = "param-value", value_name = "name=value")]
+    pub(crate) param_values: Vec<String>,
     #[command(flatten)]
     pub(crate) apply: Apply,
     #[command(flatten)]
@@ -1919,6 +1921,7 @@ pub(crate) fn mashup_source_add_cmd(solution: &Solution, args: &MashupSourceAdd)
             cache_keys: args.cache_keys.clone(),
             cache_strategy: args.cache_strategy.clone(),
             max_result_sets: args.max_result_sets,
+            param_values: args.param_values.clone(),
         },
         mode: if args.apply.apply {
             Mode::Apply

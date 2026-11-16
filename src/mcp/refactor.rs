@@ -1069,6 +1069,7 @@ pub(crate) fn mashup_source_add_tool(
             cache_keys: arguments.cache_keys.items().to_vec(),
             cache_strategy: arguments.cache_strategy.as_ref().cloned(),
             max_result_sets: arguments.max_result_sets.as_ref().copied(),
+            param_values: arguments.param_values.items().to_vec(),
         },
         mode: if dry_run { Mode::Plan } else { Mode::Apply },
         lock_label: "mcp mashup_source_add",

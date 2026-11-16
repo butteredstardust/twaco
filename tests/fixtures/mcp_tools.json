@@ -6184,6 +6184,13 @@
           "type": "integer",
           "minimum": 0
         },
+        "param_values": {
+          "description": "`name=value` fixed service parameters, typed by each parameter's base type.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "dry_run": {
           "type": "boolean",
           "default": true

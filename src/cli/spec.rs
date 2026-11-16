@@ -781,10 +781,13 @@ pub(crate) const USAGE: &[Usage] = &[
         group: 1,
         text: r#"  mashup source add <mashup> <entity> <service> [--dynamic] [--on-load] [--as <new>] [--entity-from <address>]
       [--every <seconds>] [--cache [--cache-key <parameter>]...]
-      [--cache-strategy <INSTANCE|SESSION|USER>] [--max-result-sets <n>] [--apply] [--json]
+      [--cache-strategy <INSTANCE|SESSION|USER>] [--max-result-sets <n>] [--param-value <name=value>]...
+      [--apply] [--json]
                               call a Thing's, ThingTemplate's or ThingShape's service from a mashup;
                               a shape's call is dynamic: it runs on the Thing its EntityName binding
                               names; plan unless --apply
+      --param-value           a fixed value for one of the service's parameters, typed by its base type
+                              (true/false, a number, or text); repeatable
       --dynamic               a ThingTemplate's call runs on a Thing bound to EntityName, not on
                               the template
       --on-load               invoke the call when the mashup finishes loading

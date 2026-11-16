@@ -67,6 +67,8 @@ pub struct SourceAddRequest {
     pub cache_keys: Vec<String>,
     pub cache_strategy: Option<String>,
     pub max_result_sets: Option<u32>,
+    /// `name=value` fixed service parameters, split on the first `=`.
+    pub param_values: Vec<String>,
 }
 #[derive(Debug)]
 pub struct SourceAddPlan {
@@ -202,6 +204,14 @@ pub(crate) fn plan_source_add(
             )));
         }
     }
+    let signature: Vec<(&str, &str)> = service
+        .parameters
+        .iter()
+        .map(|parameter| (parameter.name.as_str(), parameter.value.base_type.as_str()))
+        .collect();
+    let fixed = fixed_parameters(&signature, &request.param_values, || {
+        format!("{}.{}", request.entity, request.service)
+    })?;
     let key = format!("{}_{}", kind.entity_type(), request.entity);
     if let Some(existing) = document.value()["Data"]
         .as_object()
@@ -296,7 +306,7 @@ pub(crate) fn plan_source_add(
     }
     insert(&mut value, "Id", Value::String(Uuid::new_v4().to_string()));
     insert(&mut value, "Name", Value::String(call.clone()));
-    insert(&mut value, "Parameters", Value::Object(Map::new()));
+    insert(&mut value, "Parameters", Value::Object(fixed));
     insert(
         &mut value,
         "RefreshInterval",
@@ -351,6 +361,73 @@ pub(crate) fn plan_source_add(
         call,
         event,
     })
+}
+
+/// Fixed parameter values as Composer stores them in a call's `Parameters`: BOOLEAN and numeric
+/// values as JSON booleans and numbers, every other base type as a string.
+fn fixed_parameters(
+    parameters: &[(&str, &str)],
+    given: &[String],
+    service: impl Fn() -> String,
+) -> Result<Map<String, Value>, AuthoringError> {
+    let mut fixed = Map::new();
+    for text in given {
+        let (name, raw) = text
+            .split_once('=')
+            .filter(|(name, _)| !name.trim().is_empty())
+            .ok_or_else(|| {
+                AuthoringError::Invalid(format!("--param-value {text:?} must be name=value"))
+            })?;
+        let name = name.trim();
+        let parameter = parameters
+            .iter()
+            .find(|(parameter, _)| *parameter == name)
+            .ok_or_else(|| {
+                let names: Vec<&str> = parameters.iter().map(|(name, _)| *name).collect();
+                AuthoringError::Unknown(format!(
+                    "{} has no parameter {name}; its parameters are {}",
+                    service(),
+                    if names.is_empty() {
+                        "none".to_string()
+                    } else {
+                        names.join(", ")
+                    }
+                ))
+            })?;
+        let wrong = |what: &str| {
+            AuthoringError::Invalid(format!(
+                "--param-value {name}={raw}: {name} is {}, so the value must be {what}",
+                parameter.1
+            ))
+        };
+        let value = match parameter.1 {
+            "BOOLEAN" => match raw {
+                "true" => Value::Bool(true),
+                "false" => Value::Bool(false),
+                _ => return Err(wrong("true or false")),
+            },
+            "INTEGER" | "LONG" => {
+                Value::from(raw.parse::<i64>().map_err(|_| wrong("a whole number"))?)
+            }
+            "NUMBER" => {
+                serde_json::Number::from_f64(raw.parse::<f64>().map_err(|_| wrong("a number"))?)
+                    .map(Value::Number)
+                    .ok_or_else(|| wrong("a finite number"))?
+            }
+            "INFOTABLE" => {
+                return Err(wrong(
+                    "bound, not fixed: an INFOTABLE has no fixed value here",
+                ))
+            }
+            _ => Value::String(raw.to_string()),
+        };
+        if fixed.insert(name.to_string(), value).is_some() {
+            return Err(AuthoringError::Invalid(format!(
+                "--param-value gives {name} twice"
+            )));
+        }
+    }
+    Ok(fixed)
 }
 
 fn allocate(services: &[Value], service: &str) -> String {
@@ -922,4 +999,52 @@ fn call_service(call: &Value) -> &str {
         .filter(|target| !target.is_empty())
         .or_else(|| call["Name"].as_str())
         .unwrap_or("")
+}
+
+#[cfg(test)]
+mod fixed_parameter_tests {
+    use super::fixed_parameters;
+    use serde_json::json;
+
+    const SIGNATURE: &[(&str, &str)] = &[
+        ("enabled", "BOOLEAN"),
+        ("count", "INTEGER"),
+        ("rate", "NUMBER"),
+        ("tag", "STRING"),
+        ("rows", "INFOTABLE"),
+    ];
+
+    fn fixed(given: &[&str]) -> Result<serde_json::Value, String> {
+        let given: Vec<String> = given.iter().map(|text| text.to_string()).collect();
+        fixed_parameters(SIGNATURE, &given, || "Acme.Timer.Run".into())
+            .map(serde_json::Value::Object)
+            .map_err(|error| error.to_string())
+    }
+
+    #[test]
+    fn values_are_typed_as_composer_stores_them() {
+        assert_eq!(
+            fixed(&["enabled=true", "count=3", "rate=2.5", "tag=a=b"]).unwrap(),
+            json!({"enabled": true, "count": 3, "rate": 2.5, "tag": "a=b"})
+        );
+        assert_eq!(fixed(&[]).unwrap(), json!({}));
+    }
+
+    #[test]
+    fn unknown_names_wrong_types_and_repeats_are_refused() {
+        let error = fixed(&["missing=1"]).unwrap_err();
+        assert!(
+            error.contains("no parameter missing") && error.contains("enabled, count"),
+            "{error}"
+        );
+        assert!(fixed(&["enabled=yes"])
+            .unwrap_err()
+            .contains("true or false"));
+        assert!(fixed(&["count=1.5"]).unwrap_err().contains("whole number"));
+        assert!(fixed(&["rate=fast"]).unwrap_err().contains("a number"));
+        assert!(fixed(&["rows=x"]).unwrap_err().contains("bound, not fixed"));
+        assert!(fixed(&["tag=a", "tag=b"]).unwrap_err().contains("twice"));
+        assert!(fixed(&["=x"]).unwrap_err().contains("name=value"));
+        assert!(fixed(&["tag"]).unwrap_err().contains("name=value"));
+    }
 }

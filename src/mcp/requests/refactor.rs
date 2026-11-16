@@ -1127,6 +1127,9 @@ pub(crate) struct MashupSourceAddRequest {
     /// How many result sets to cache; needs cache.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) max_result_sets: Absent<u32>,
+    /// `name=value` fixed service parameters, typed by each parameter's base type.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) param_values: Absent<Vec<String>>,
     #[serde(default = "default_true")]
     pub(crate) dry_run: bool,
 }
