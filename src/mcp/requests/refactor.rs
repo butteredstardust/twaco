@@ -1048,6 +1048,15 @@ pub(crate) struct MashupRecipeRequest {
     /// What a picker's selection is bound from.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) selected: Absent<String>,
+    /// Grid columns its users may edit, each one of `columns` (recipe columns).
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) editable_columns: Absent<Vec<String>>,
+    /// A picker without the "(None)" row.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) no_none_row: Absent<bool>,
+    /// A picker that selects its first row.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) auto_select_first: Absent<bool>,
     #[serde(default = "default_true")]
     pub(crate) dry_run: bool,
 }

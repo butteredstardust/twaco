@@ -6,6 +6,10 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `mashup recipe columns --editable-column <field>` (MCP `editable_columns`) makes listed columns editable and sets the grid's IsEditable; `recipe picker --no-none-row` and `--auto-select-first` (MCP `no_none_row`, `auto_select_first`) turn off the "(None)" row and select the first row.
+
 ### Fixed
 
 - DataShape renames keep service definition and script sidecars in step, including call argument dataShapeName references; unrelated script strings remain review findings.

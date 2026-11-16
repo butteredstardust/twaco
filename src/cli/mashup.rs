@@ -508,6 +508,12 @@ pub(crate) struct MashupRecipe {
     pub(crate) columns: Vec<String>,
     #[arg(long = "selected", value_name = "address")]
     pub(crate) selected: Option<String>,
+    #[arg(long = "editable-column", value_name = "field")]
+    pub(crate) editable: Vec<String>,
+    #[arg(long = "no-none-row")]
+    pub(crate) no_none_row: bool,
+    #[arg(long = "auto-select-first")]
+    pub(crate) auto_select_first: bool,
     #[command(flatten)]
     pub(crate) apply: Apply,
     #[command(flatten)]
@@ -774,6 +780,9 @@ pub(crate) fn mashup_recipe_cmd(solution: &Solution, args: &MashupRecipe) -> u8 
         value: args.value.clone(),
         columns: args.columns.clone(),
         selected: args.selected.clone(),
+        editable: args.editable.clone(),
+        no_none_row: args.no_none_row,
+        auto_select_first: args.auto_select_first,
     };
     let recipe = match mashup::authoring::Recipe::from_args(name, &recipe_args) {
         Ok(recipe) => recipe,

@@ -956,6 +956,13 @@ pub(crate) fn mashup_recipe_tool(
         value: arguments.value.as_ref().cloned(),
         columns: arguments.columns.items().to_vec(),
         selected: arguments.selected.as_ref().cloned(),
+        editable: arguments.editable_columns.items().to_vec(),
+        no_none_row: arguments.no_none_row.as_ref().copied().unwrap_or(false),
+        auto_select_first: arguments
+            .auto_select_first
+            .as_ref()
+            .copied()
+            .unwrap_or(false),
     };
     let recipe = Recipe::from_args(nonempty(&arguments.recipe, "recipe")?, &recipe_args)
         .map_err(ToolError::coded)?;

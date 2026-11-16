@@ -99,6 +99,8 @@ pub enum Recipe {
         widget: String,
         data: Option<String>,
         columns: Vec<String>,
+        /// Listed columns made editable; the grid is made editable with them.
+        editable: Vec<String>,
     },
     /// A dropdown or list filled from a service result, showing one field.
     Picker {
@@ -107,6 +109,10 @@ pub enum Recipe {
         display: String,
         value: Option<String>,
         selected: Option<String>,
+        /// ClearSelectionItem off: no "(None)" row.
+        no_none_row: bool,
+        /// AutoSelectFirstRow on.
+        auto_select_first: bool,
     },
     /// A check before an action: the handler runs when it holds, a message shows when not.
     Validate {
@@ -898,6 +904,7 @@ pub(crate) fn plan_recipe(
             widget,
             data,
             columns,
+            editable,
         } => {
             let target = widget_id(&work.document, widget)?;
             if target.type_id != "ptcsgrid" {
@@ -964,6 +971,18 @@ pub(crate) fn plan_recipe(
                 let base = work.field(&known, &name)?;
                 format.push(column_format(&name, &title, width, &base));
             }
+            for name in editable {
+                let column = format
+                    .iter_mut()
+                    .find(|column| column["FieldName"] == *name)
+                    .ok_or_else(|| {
+                        AuthoringError::Invalid(format!(
+                            "--editable-column {name} is not one of the --column fields"
+                        ))
+                    })?;
+                column["AllowEdit"] = json!(true);
+                column["editable"] = json!(true);
+            }
             // Composer keeps all fields in the configuration, even those outside the layout.
             for (name, base) in fields.iter().flatten() {
                 if !format.iter().any(|column| column["FieldName"] == *name) {
@@ -977,6 +996,14 @@ pub(crate) fn plan_recipe(
                 &target,
                 &[("ColumnFormat", json!({ "formatInfo": format }))],
             );
+            // A column is only editable in Runtime when its grid is.
+            if !editable.is_empty() {
+                work.set(&target, &[("IsEditable", json!(true))]);
+                work.notes.push(format!(
+                    "{}.IsEditable set for its editable columns",
+                    target.id
+                ));
+            }
         }
         Recipe::Picker {
             widget,
@@ -984,6 +1011,8 @@ pub(crate) fn plan_recipe(
             display,
             value,
             selected,
+            no_none_row,
+            auto_select_first,
         } => {
             let target = widget_id(&work.document, widget)?;
             if !matches!(target.type_id.as_str(), "ptcsdropdown" | "ptcslist") {
@@ -1001,6 +1030,12 @@ pub(crate) fn plan_recipe(
             if let Some(value) = value {
                 work.field(&fields, value)?;
                 properties.push(("ValueField", json!(value)));
+            }
+            if *no_none_row {
+                properties.push(("ClearSelectionItem", json!(false)));
+            }
+            if *auto_select_first {
+                properties.push(("AutoSelectFirstRow", json!(true)));
             }
             work.set(&target, &properties);
             work.bind(data, &format!("ui:{}.Data", target.id))?;
@@ -1091,6 +1126,12 @@ pub struct RecipeArgs {
     pub columns: Vec<String>,
     /// What a picker's selection is bound from.
     pub selected: Option<String>,
+    /// Columns a grid's users may edit, each one of `columns`.
+    pub editable: Vec<String>,
+    /// A picker without the "(None)" row.
+    pub no_none_row: bool,
+    /// A picker that selects its first row.
+    pub auto_select_first: bool,
 }
 
 /// The recipe names, for help and errors.
@@ -1144,6 +1185,9 @@ impl Recipe {
             (args.cancel_label.is_some(), "--cancel-label", "confirm"),
             (args.param.is_some(), "--param", "set-on-click"),
             (!args.field_maps.is_empty(), "--field-map", "tracker"),
+            (!args.editable.is_empty(), "--editable-column", "columns"),
+            (args.no_none_row, "--no-none-row", "picker"),
+            (args.auto_select_first, "--auto-select-first", "picker"),
         ] {
             if given && name != recipe {
                 return Err(AuthoringError::Invalid(format!(
@@ -1270,6 +1314,7 @@ impl Recipe {
                 widget: widget("the grid")?,
                 data: args.data.clone(),
                 columns: args.columns.clone(),
+                editable: args.editable.clone(),
             },
             "picker" => Recipe::Picker {
                 widget: widget("the dropdown or list")?,
@@ -1277,6 +1322,8 @@ impl Recipe {
                 display: required(&args.x, "--x <display field>", name)?,
                 value: args.value.clone(),
                 selected: args.selected.clone(),
+                no_none_row: args.no_none_row,
+                auto_select_first: args.auto_select_first,
             },
             other => {
                 return Err(AuthoringError::Invalid(format!(

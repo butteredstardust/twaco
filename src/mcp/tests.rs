@@ -414,6 +414,21 @@ fn hand_written_tools() -> Vec<Value> {
         ),
         ("action_label", "Confirmation action button text.", "string"),
         ("cancel_label", "Confirmation cancel button text.", "string"),
+        (
+            "editable_columns",
+            "Grid columns its users may edit, each one of `columns` (recipe columns).",
+            "array",
+        ),
+        (
+            "no_none_row",
+            "A picker without the \"(None)\" row.",
+            "boolean",
+        ),
+        (
+            "auto_select_first",
+            "A picker that selects its first row.",
+            "boolean",
+        ),
     ] {
         let mut property = json!({"description": description, "type": kind});
         if kind == "array" {

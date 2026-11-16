@@ -8199,6 +8199,124 @@ fn columns_hide_unlisted_fields_and_format_dates_from_an_existing_named_binding(
 }
 
 #[test]
+fn columns_editable_and_picker_flags_set_only_what_they_name() {
+    let (_dir, solution) = recipe_fixture();
+    let orders = || Some("data:Acme.Orders.Manager.GetOrders".to_string());
+    let grid = |document: &mashup::edit::MashupDocument| {
+        document.at(&document.find("ptcsgrid-5").unwrap().path)["Properties"].clone()
+    };
+    let args = RecipeArgs {
+        widget: Some("ptcsgrid-5".into()),
+        data: orders(),
+        columns: vec!["note:Note".into(), "id:Order".into()],
+        ..Default::default()
+    };
+    // Without --editable nothing is editable.
+    recipe(&solution, "columns", args.clone()).unwrap();
+    let document = mashup::edit::parse(&sidecar_content(&solution)).unwrap();
+    assert_ne!(grid(&document)["IsEditable"], true);
+    for column in grid(&document)["ColumnFormat"]["formatInfo"]
+        .as_array()
+        .unwrap()
+    {
+        assert_eq!(column["editable"], false);
+    }
+    let plan = plan_recipe(
+        &solution,
+        &RecipeRequest {
+            mashup: "Acme.Orders_MU".into(),
+            recipe: Recipe::from_args(
+                "columns",
+                &RecipeArgs {
+                    editable: vec!["note".into()],
+                    ..args.clone()
+                },
+            )
+            .unwrap(),
+        },
+    )
+    .unwrap();
+    assert!(plan.notes.iter().any(|note| note.contains("IsEditable")));
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    let document = mashup::edit::parse(&sidecar_content(&solution)).unwrap();
+    let properties = grid(&document);
+    assert_eq!(properties["IsEditable"], true);
+    let columns = properties["ColumnFormat"]["formatInfo"].as_array().unwrap();
+    let column = |name: &str| {
+        columns
+            .iter()
+            .find(|column| column["FieldName"] == name)
+            .unwrap()
+    };
+    assert_eq!(column("note")["editable"], true);
+    assert_eq!(column("note")["AllowEdit"], true);
+    assert_eq!(column("id")["editable"], false);
+    let error = recipe(
+        &solution,
+        "columns",
+        RecipeArgs {
+            editable: vec!["description".into()],
+            ..args.clone()
+        },
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("not one of the --column fields"));
+
+    let plan = plan_add(&solution, &add_request("Acme.Orders_MU", "dropdown")).unwrap();
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    let dropdown = plan.placed.id;
+    let picker = RecipeArgs {
+        widget: Some(dropdown.clone()),
+        data: orders(),
+        x: Some("note".into()),
+        ..Default::default()
+    };
+    let picked = |solution: &Solution| {
+        let document = mashup::edit::parse(&sidecar_content(solution)).unwrap();
+        document.at(&document.find_exact(&dropdown).unwrap().path)["Properties"].clone()
+    };
+    recipe(&solution, "picker", picker.clone()).unwrap();
+    let defaults = picked(&solution);
+    recipe(
+        &solution,
+        "picker",
+        RecipeArgs {
+            no_none_row: true,
+            auto_select_first: true,
+            ..picker
+        },
+    )
+    .unwrap();
+    let flagged = picked(&solution);
+    assert_eq!(flagged["ClearSelectionItem"], false);
+    assert_eq!(flagged["AutoSelectFirstRow"], true);
+    assert_ne!(defaults["ClearSelectionItem"], false);
+    assert_ne!(defaults["AutoSelectFirstRow"], true);
+    // Each flag belongs to its recipe.
+    for (name, args) in [
+        (
+            "picker",
+            RecipeArgs {
+                editable: vec!["note".into()],
+                ..Default::default()
+            },
+        ),
+        (
+            "columns",
+            RecipeArgs {
+                no_none_row: true,
+                ..Default::default()
+            },
+        ),
+    ] {
+        assert!(Recipe::from_args(name, &args)
+            .unwrap_err()
+            .to_string()
+            .contains("is for recipe"));
+    }
+}
+
+#[test]
 fn tracker_recipe_maps_shapes_and_refuses_unmatched_fields_without_writing() {
     let (dir, solution) = recipe_fixture();
     let shape = |fields: &str| {

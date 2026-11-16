@@ -7308,6 +7308,21 @@
           "description": "What a picker's selection is bound from.",
           "type": "string"
         },
+        "editable_columns": {
+          "description": "Grid columns its users may edit, each one of `columns` (recipe columns).",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "no_none_row": {
+          "description": "A picker without the \"(None)\" row.",
+          "type": "boolean"
+        },
+        "auto_select_first": {
+          "description": "A picker that selects its first row.",
+          "type": "boolean"
+        },
         "dry_run": {
           "type": "boolean",
           "default": true

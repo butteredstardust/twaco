@@ -332,10 +332,13 @@ mashup recipe <recipe> <mashup> [<widget>] [recipe flags] [--apply] [--json]
         [--else-say <text>]   run the handler when the condition holds, else show the text
     chart <chart> --data <data call> --x <field> [--value <field>] [--kind <chart type>]
                             draw a service result: the category field (a pie: label and value)
-    columns <grid> --column field[:Title[:width]]... [--data <data call>]
-                            only these columns in order, with readable dates; --data or existing binding
+    columns <grid> --column field[:Title[:width]]... [--data <data call>] [--editable-column <field>]...
+                            only these columns in order, with readable dates; --data or existing binding;
+                            --editable-column makes a listed column (and so the grid) editable
     picker <dropdown|list> --data <data call> --x <display field> [--value <field>]
-        [--selected <address>]   fill a dropdown or list from a service result
+        [--selected <address>] [--no-none-row] [--auto-select-first]
+                            fill a dropdown or list from a service result; without the "(None)" row,
+                            or selecting the first row
     tracker <widget|new> --data <data call> [--field-map Property=field]...
                             interactive large tracker; infer all five maps from the result DataShape
     set-on-click <button> --param <name> --expr <expression> [--input name=<address>]...
