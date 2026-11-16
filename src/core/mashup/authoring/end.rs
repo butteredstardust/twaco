@@ -181,6 +181,16 @@ pub(super) fn resolve_end(
             });
             if source {
                 let (base, property_type) = match member.as_deref() {
+                    None if found.result.base_type != "INFOTABLE" => {
+                        let alias = alias
+                            .as_ref()
+                            .map(|alias| format!("[as {alias}]"))
+                            .unwrap_or_default();
+                        let source = format!("data:{}.{}{alias}", entity.name, service);
+                        return Err(AuthoringError::Refused(format!(
+                            "{source} is a whole scalar result; use `{source}.result`"
+                        )));
+                    }
                     None => (found.result.base_type.clone(), "InfoTable".to_string()),
                     Some(name) => {
                         // A result field may share a parameter's name; the field is the source.
@@ -468,6 +478,19 @@ pub(super) fn menu_service(
         return Err(AuthoringError::Invalid(
             "a menu address names a service result, not a parameter or SelectedRows".into(),
         ));
+    }
+    // Menu recipes require a table; keep that diagnosis before the scalar binding safeguard.
+    if let Address::Data { entity_service, .. } = &address {
+        let (entity, service) = resolve_service(context.model, context.platform, entity_service)?;
+        let found =
+            catalog::lookup_service(entity, &context.model.entities, context.platform, &service)
+                .service
+                .expect("resolved above");
+        if found.result.base_type != "INFOTABLE" {
+            return Err(AuthoringError::Refused(
+                "the menu service must return an INFOTABLE".into(),
+            ));
+        }
     }
     let end = resolve_end(document, None, context, address, true, &mut Vec::new())?;
     if base(&end) != "INFOTABLE" {

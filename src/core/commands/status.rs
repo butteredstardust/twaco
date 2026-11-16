@@ -6,7 +6,7 @@ use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::Solution;
 use crate::core::entity::key::EntityKey;
 use crate::core::progress::Progress;
-use crate::core::{lock, profile, push, search, status, workspace};
+use crate::core::{lock, profile, push, status, workspace};
 use serde_json::Value;
 use std::collections::BTreeSet;
 use std::fmt;
@@ -358,6 +358,38 @@ where
     })
 }
 
+// Project inventory types are independent of the verified Spotlight search filters.
+const ENTITY_COLLECTIONS: &[(&str, &str)] = &[
+    ("AIAgents", "AIAgent"),
+    ("ApplicationKeys", "ApplicationKey"),
+    ("Authenticators", "Authenticator"),
+    ("Dashboards", "Dashboard"),
+    ("DataShapes", "DataShape"),
+    ("DirectoryServices", "DirectoryService"),
+    ("ExtensionPackages", "ExtensionPackage"),
+    ("Groups", "Group"),
+    ("LocalizationTables", "LocalizationTable"),
+    ("Logs", "Log"),
+    ("Mashups", "Mashup"),
+    ("MCPNamespaces", "MCPNamespace"),
+    ("MediaEntities", "MediaEntity"),
+    ("Menus", "Menu"),
+    ("Networks", "Network"),
+    ("Organizations", "Organization"),
+    ("PersistenceProviders", "PersistenceProvider"),
+    ("Projects", "Project"),
+    ("QueueProviders", "QueueProvider"),
+    ("Resources", "Resource"),
+    ("StateDefinitions", "StateDefinition"),
+    ("StyleDefinitions", "StyleDefinition"),
+    ("StyleThemes", "StyleTheme"),
+    ("Subsystems", "Subsystem"),
+    ("ThingShapes", "ThingShape"),
+    ("ThingTemplates", "ThingTemplate"),
+    ("Things", "Thing"),
+    ("Users", "User"),
+];
+
 /// Inventory every declared project (or only `narrowed_to`, when the status names one) without allowing
 /// a failed inventory to obscure the normal per-entity comparison. The service returns an
 /// InfoTable serialized as `{ "rows": [...] }`.
@@ -422,7 +454,7 @@ fn server_only(
             if type_name == "Project" && name == project.name {
                 continue;
             }
-            let collection = search::TYPES
+            let collection = ENTITY_COLLECTIONS
                 .iter()
                 .find(|(_, singular)| *singular == type_name)
                 .map(|(collection, _)| *collection);
@@ -554,6 +586,75 @@ mod tests {
         let elsewhere = "<Entities><Things><Thing name=\"P.Other\"></Thing></Things></Entities>";
         assert_eq!(verdict(elsewhere), status::Verdict::NoBaselineDiffers);
         assert!(!Baseline::path(&solution.root, "default").exists());
+    }
+
+    #[test]
+    fn queue_provider_inventory_is_covered_and_the_entity_can_be_pulled() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("QueueProviders")).unwrap();
+        std::fs::create_dir_all(root.join(".twaco/profiles")).unwrap();
+        std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"Acme\"\n").unwrap();
+        std::fs::write(
+            root.join(".twaco/profiles/default.toml"),
+            "url = \"http://example.invalid/Thingworx/\"\nusername = \"u\"\npassword = \"p\"\n",
+        )
+        .unwrap();
+        let xml = |description| {
+            format!("<Entities><QueueProviders><QueueProvider name=\"Acme.Queue\" projectName=\"Acme\" description=\"{description}\"></QueueProvider></QueueProviders></Entities>")
+        };
+        let path = root.join("QueueProviders/Acme.Queue.xml");
+        std::fs::write(&path, xml("local")).unwrap();
+        let solution = Solution::load(&root.join("twaco.toml")).unwrap();
+        let inventory =
+            serde_json::json!({"rows": [{"name":"Acme.Queue", "type":"QueueProvider"}]});
+        let outcome = execute(
+            &solution,
+            &StatusRequest {
+                target: StatusTarget::All,
+                project: None,
+                record: false,
+                profile: "default".into(),
+                lock_label: "status",
+                refuse_unreadable: true,
+                refuse_record_failures: false,
+                ancestor: None,
+            },
+            |_| InventoryFake {
+                entity: xml("server").into_bytes(),
+                inventory,
+                fails: false,
+            },
+            &mut Notices::default(),
+            &crate::core::progress::NONE,
+        )
+        .unwrap();
+        assert!(outcome.server_only.is_empty(), "{:?}", outcome.server_only);
+        assert!(outcome.server_notes.is_empty());
+        assert!(outcome.failures.is_empty());
+        assert_eq!(outcome.statuses.len(), 1);
+        assert_eq!(outcome.statuses[0].collection, "QueueProviders");
+        let pulled = super::super::pull::execute(
+            &solution,
+            &super::super::pull::PullRequest {
+                target: super::super::pull::Target::Names(vec!["Acme.Queue".into()]),
+                mode: super::super::Mode::Apply,
+                profile: "default".into(),
+                lock_label: "entity pull",
+            },
+            |_| Fake(xml("server").into_bytes()),
+            &mut Notices::default(),
+            &crate::core::progress::NONE,
+        )
+        .unwrap();
+        assert!(pulled.applied);
+        assert_eq!(pulled.entities, ["QueueProviders/Acme.Queue"]);
+        assert!(std::fs::read_to_string(path)
+            .unwrap()
+            .contains("description=\"server\""));
+        assert!(!crate::core::search::TYPES
+            .iter()
+            .any(|(_, kind)| *kind == "QueueProvider"));
     }
 
     #[test]

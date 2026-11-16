@@ -373,7 +373,7 @@ help:
 |   new building-block <name> [--type standard|abstract|implementation] [--display-name <text>] [--description <text>]
 |       [--parent <block>] [--model-logic] [--no-management-shape] [--root <dir>] [--base-extension PTC.Base:<version>]
 |       [--apply] [--json]
-|                               create a building block: its project, entry point, manager, groups and
+|                               create a building block (namespaced name, e.g. Acme.Orders): its project, entry point, manager, groups and
 |                               organization as files, and its project in twaco.toml; plan unless --apply
 |       --type                  standard (own manager, default), abstract (no manager Thing) or implementation
 |       --parent <block>        the abstract block an implementation implements
@@ -12408,7 +12408,7 @@ help:
 |   new building-block <name> [--type standard|abstract|implementation] [--display-name <text>] [--description <text>]
 |       [--parent <block>] [--model-logic] [--no-management-shape] [--root <dir>] [--base-extension PTC.Base:<version>]
 |       [--apply] [--json]
-|                               create a building block: its project, entry point, manager, groups and
+|                               create a building block (namespaced name, e.g. Acme.Orders): its project, entry point, manager, groups and
 |                               organization as files, and its project in twaco.toml; plan unless --apply
 |       --type                  standard (own manager, default), abstract (no manager Thing) or implementation
 |       --parent <block>        the abstract block an implementation implements
@@ -12864,7 +12864,7 @@ help:
 |   new building-block <name> [--type standard|abstract|implementation] [--display-name <text>] [--description <text>]
 |       [--parent <block>] [--model-logic] [--no-management-shape] [--root <dir>] [--base-extension PTC.Base:<version>]
 |       [--apply] [--json]
-|                               create a building block: its project, entry point, manager, groups and
+|                               create a building block (namespaced name, e.g. Acme.Orders): its project, entry point, manager, groups and
 |                               organization as files, and its project in twaco.toml; plan unless --apply
 |       --type                  standard (own manager, default), abstract (no manager Thing) or implementation
 |       --parent <block>        the abstract block an implementation implements

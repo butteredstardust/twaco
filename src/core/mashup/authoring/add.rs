@@ -33,6 +33,7 @@ pub struct AddPlan {
     pub label: String,
     /// A function widget, which goes beside the layout.
     pub function: bool,
+    pub notes: Vec<String>,
 }
 
 /// A contained mashup is a `mashupcontainer` whose public properties mirror the child's
@@ -349,6 +350,14 @@ pub(crate) fn plan_add(
             .path;
         document.set_property(&path, property, Value::String(label.clone()));
     }
+    let mut properties = request
+        .properties
+        .iter()
+        .map(|(name, value)| (name.clone(), Value::String(value.clone())))
+        .collect();
+    let notes =
+        super::set::menubar_properties(&document, &widget.type_id, &placed.id, &mut properties)?;
+
     for (name, text) in &request.properties {
         if [
             "Id",
@@ -429,6 +438,13 @@ pub(crate) fn plan_add(
             .path;
         document.set_property(&path, name, value);
     }
+    if !notes.is_empty() {
+        let path = document
+            .find_exact(&placed.id)
+            .map_err(AuthoringError::Edit)?
+            .path;
+        document.set_property(&path, "DataSource", json!("menuentity"));
+    }
     document.fit_placed_width(&placed.id);
     document.reflow_for(&placed.id);
     Ok(AddPlan {
@@ -437,6 +453,7 @@ pub(crate) fn plan_add(
         widget: widget.type_id.clone(),
         label: widget.type_display_name.clone(),
         function: widget.function,
+        notes,
     })
 }
 
@@ -693,6 +710,7 @@ pub fn add_plan_json(solution: &Solution, plan: &AddPlan, applied: bool) -> Valu
     json!({
         "applied": applied,
         "mashup": plan.edit.mashup,
+        "notes": plan.notes,
         "widget": plan.widget,
         "id": plan.placed.id,
         "containers": plan.placed.containers,
@@ -714,7 +732,7 @@ pub fn add_contained_plan_json(
         files.push(relative(&sidecars.content_path));
     }
     json!({
-        "applied": applied, "mashup": plan.edit.mashup, "child": plan.child,
+        "notes": [], "applied": applied, "mashup": plan.edit.mashup, "child": plan.child,
         "widget": "mashupcontainer", "id": plan.placed.id,
         "containers": plan.placed.containers, "flipped": plan.placed.flipped,
         "wrapped": plan.placed.wrapped, "parameters": plan.parameters.iter().map(|parameter| json!({

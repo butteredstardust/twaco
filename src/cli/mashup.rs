@@ -1259,6 +1259,9 @@ pub(crate) fn mashup_add_cmd(solution: &Solution, args: &MashupAdd) -> u8 {
         plan.placed.id,
         plan.edit.mashup
     );
+    for note in &plan.notes {
+        println!("  {note}");
+    }
     for container in &plan.placed.containers {
         println!("  new container {container}");
     }
@@ -1626,6 +1629,11 @@ pub(crate) fn mashup_set_cmd(solution: &Solution, args: &MashupSet) -> u8 {
                 outcome.plan.widget,
                 change.property
             );
+        }
+    }
+    if !args.json.json {
+        for note in &outcome.plan.notes {
+            println!("  {note}");
         }
     }
     OK

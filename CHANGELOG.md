@@ -6,6 +6,14 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Scalar service bindings require `.result`; mashup validation flags existing whole scalar result bindings.
+- Grid INTEGER and LONG columns use `0`; NUMBER columns retain `0.00`.
+- Menubar add/set selects `DataSource=menuentity` for `PrimaryNavMenu`, reports the choice, and refuses conflicting sources or existing Data bindings.
+- Status recognizes QueueProviders from project inventory; Spotlight search filters are unchanged.
+- CLI and MCP building-block help now states that a namespaced name, e.g. Acme.Orders, is required.
+
 ## [0.1.63] - 2026-11-13
 
 ### Added

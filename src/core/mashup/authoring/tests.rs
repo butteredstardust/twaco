@@ -4922,7 +4922,7 @@ fn chart_columns_and_picker_recipes_configure_widgets_from_the_result_shape() {
     assert_eq!(format[1]["Title"], "Order");
     assert_eq!(format[1]["Width"], 120);
     assert_eq!(format[1]["FormatOptions"]["renderer"], "NUMBER");
-    assert_eq!(format[1]["FormatOptions"]["FormatString"], "0.00");
+    assert_eq!(format[1]["FormatOptions"]["FormatString"], "0");
     assert_eq!(props(dropdown)["DisplayField"], "note");
     assert_eq!(props(dropdown)["DisplayFieldBaseType"], "STRING");
     assert_eq!(props(dropdown)["ValueField"], "id");
@@ -8595,5 +8595,186 @@ fn a_card_around_a_contained_mashup_keeps_the_childs_floor_not_the_drop_height()
             );
         }
         id = parent;
+    }
+}
+
+#[test]
+fn scalar_whole_results_are_refused_and_existing_bindings_are_reported() {
+    let (dir, solution) = source_fixture();
+    write(
+        dir.path(),
+        "acme/Things/Acme.Count.xml",
+        r#"<Entities><Things><Thing name="Acme.Count" projectName="Acme"><ThingShape><ServiceDefinitions><ServiceDefinition name="GetCount"><ResultType baseType="NUMBER"/></ServiceDefinition></ServiceDefinitions></ThingShape></Thing></Things></Entities>"#,
+    );
+    let target = "ui:ptcstextfield-3.NumericValue".to_string();
+    for source in [
+        "data:Acme.Count.GetCount",
+        "data:Acme.Count.GetCount[as Count]",
+    ] {
+        let error = bind(&solution, source, &target).unwrap_err().to_string();
+        assert!(error.contains(source), "{error}");
+        assert!(error.contains(&format!("use `{source}.result`")), "{error}");
+    }
+    let plan = bind(
+        &solution,
+        "data:Acme.Count.GetCount[as Count].result",
+        &target,
+    )
+    .unwrap();
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    // Model a binding saved by an older twaco or Composer; validation must leave it alone.
+    rewrite_mashup(dir.path(), "Acme.Orders_MU", |value| {
+        let binding = &mut value["DataBindings"][0];
+        binding["Id"] = json!("Acme.LegacyBinding");
+        binding["PropertyMaps"][0]["SourceProperty"] = json!("");
+        binding["PropertyMaps"][0]["SourcePropertyType"] = json!("InfoTable");
+    });
+    let before = sidecar_content(&solution);
+    let reports =
+        crate::core::mashup::validate::validate(&solution, Some("Acme.Orders_MU")).unwrap();
+    let finding = reports[0]
+        .problems
+        .iter()
+        .find(|problem| problem.rule == "scalar-whole-result")
+        .unwrap();
+    assert!(
+        finding.message.contains("Acme.LegacyBinding"),
+        "{}",
+        finding.message
+    );
+    assert!(
+        finding
+            .message
+            .contains("data:Acme.Count.GetCount[as Count].result"),
+        "{}",
+        finding.message
+    );
+    assert_eq!(sidecar_content(&solution), before);
+    bind(
+        &solution,
+        "data:Acme.Orders.Manager.GetOrders",
+        "ui:ptcsgrid-5.Data",
+    )
+    .unwrap();
+}
+
+#[test]
+fn menubar_menu_entities_select_the_data_source_in_add_and_set() {
+    let (_dir, solution) = one_project();
+    let name = "Acme.Orders_MU";
+    apply_new(
+        &solution,
+        &plan_new(&solution, &request(name)).unwrap(),
+        &lock(&solution),
+    )
+    .unwrap();
+    let mut add = add_request(name, "ptcsmenubar");
+    add.properties = vec![("PrimaryNavMenu".into(), "Acme.Navigation".into())];
+    let plan = plan_add(&solution, &add).unwrap();
+    let content: Value =
+        serde_json::from_slice(&plan.edit.sidecars.as_ref().unwrap().content_after).unwrap();
+    let document = mashup::edit::MashupDocument::new(content).unwrap();
+    assert_eq!(
+        document.at(&document.find_exact(&plan.placed.id).unwrap().path)["Properties"]
+            ["DataSource"],
+        "menuentity"
+    );
+    let note = "DataSource set to menuentity because PrimaryNavMenu is set";
+    assert_eq!(
+        add_plan_json(&solution, &plan, false)["notes"],
+        json!([note])
+    );
+    add.properties
+        .push(("DataSource".into(), "infotable".into()));
+    let error = plan_add(&solution, &add).unwrap_err().to_string();
+    assert!(
+        error.contains("PrimaryNavMenu") && error.contains("DataSource"),
+        "{error}"
+    );
+    add.properties.last_mut().unwrap().1 = "invalid".into();
+    let error = plan_add(&solution, &add).unwrap_err().to_string();
+    assert!(
+        error.contains("PrimaryNavMenu") && error.contains("DataSource"),
+        "{error}"
+    );
+    add.properties.clear();
+    let plan = plan_add(&solution, &add).unwrap();
+    let id = plan.placed.id.clone();
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    let mut set = SetRequest {
+        mashup: name.into(),
+        widget: id,
+        properties: vec![
+            ("PrimaryNavMenu".into(), json!("Acme.Navigation")),
+            ("AlwaysOpen".into(), json!(true)),
+            ("StayOpenOnSelection".into(), json!(true)),
+        ],
+        style_from: None,
+        styles: Vec::new(),
+    };
+    let plan = plan_set(&solution, &set).unwrap();
+    for property in ["DataSource", "AlwaysOpen", "StayOpenOnSelection"] {
+        assert!(plan
+            .changed
+            .iter()
+            .any(|change| change.property == property));
+    }
+    assert_eq!(
+        set_plan_json(&solution, &plan, false)["notes"],
+        json!([note])
+    );
+    assert_eq!(
+        plan.changed
+            .iter()
+            .find(|change| change.property == "DataSource")
+            .unwrap()
+            .after,
+        "menuentity"
+    );
+    set.properties
+        .push(("DataSource".into(), json!("infotable")));
+    let error = plan_set(&solution, &set).unwrap_err().to_string();
+    assert!(
+        error.contains("PrimaryNavMenu") && error.contains("DataSource"),
+        "{error}"
+    );
+    set.properties.pop();
+    set.properties
+        .push(("DataSource".into(), json!("menuentity")));
+    assert!(plan_set(&solution, &set).unwrap().notes.is_empty());
+    set.properties = vec![("PrimaryNavMenu".into(), json!(""))];
+    assert!(plan_set(&solution, &set).unwrap().notes.is_empty());
+}
+
+#[test]
+fn menubar_menu_entity_refuses_an_existing_data_binding() {
+    let (dir, solution) = bind_fixture();
+    let plan = plan_add(&solution, &add_request("Acme.Orders_MU", "ptcsmenubar")).unwrap();
+    let id = plan.placed.id.clone();
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    for property in ["Data", "PrimaryNavData"] {
+        rewrite_mashup(dir.path(), "Acme.Orders_MU", |value| {
+            value["DataBindings"] = json!([{"SourceArea":"Data", "SourceSection":"Things_Acme.Orders.Manager", "SourceId":"GetOrders", "TargetArea":"UI", "TargetId":id, "PropertyMaps":[{"TargetProperty":property, "SourcePropertyType":"InfoTable"}]}]);
+        });
+        let before = sidecar_content(&solution);
+        let error = plan_set(
+            &solution,
+            &SetRequest {
+                mashup: "Acme.Orders_MU".into(),
+                widget: id.clone(),
+                properties: vec![("PrimaryNavMenu".into(), json!("Acme.Navigation"))],
+                style_from: None,
+                styles: Vec::new(),
+            },
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(
+            error.contains("Data binding")
+                && error.contains("mashup unbind")
+                && error.contains("service-backed menu"),
+            "{error}"
+        );
+        assert_eq!(sidecar_content(&solution), before);
     }
 }

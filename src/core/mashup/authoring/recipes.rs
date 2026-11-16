@@ -1310,7 +1310,8 @@ pub fn recipe_plan_json(solution: &Solution, plan: &RecipePlan, applied: bool) -
 fn column_format(name: &str, title: &str, width: Value, base: &str) -> Value {
     let (renderer, format, editor) = match base {
         "STRING" | "TEXT" | "THINGNAME" | "USERNAME" | "GUID" => ("STRING", "full", "textfield"),
-        "NUMBER" | "INTEGER" | "LONG" => ("NUMBER", "0.00", "textfield"),
+        "NUMBER" => ("NUMBER", "0.00", "textfield"),
+        "INTEGER" | "LONG" => ("NUMBER", "0", "textfield"),
         "BOOLEAN" => ("BOOLEAN", "checkbox", "checkbox"),
         "DATETIME" => ("DATETIME", "[[dateTimeFormat_Default]]", "datepicker"),
         "IMAGELINK" => ("IMAGELINK", "", ""),
@@ -1581,6 +1582,15 @@ mod tests {
                 .unwrap_err()
                 .to_string()
                 .contains(flag));
+        }
+    }
+
+    #[test]
+    fn numeric_column_formats_preserve_integer_precision() {
+        for (base, expected) in [("INTEGER", "0"), ("LONG", "0"), ("NUMBER", "0.00")] {
+            let column = column_format("Acme.Count", "Count", json!(120), base);
+            assert_eq!(column["FormatOptions"]["FormatString"], expected);
+            assert_eq!(column["FormatOptions"]["renderer"], "NUMBER");
         }
     }
 }

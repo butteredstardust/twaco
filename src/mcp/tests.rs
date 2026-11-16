@@ -372,6 +372,14 @@ fn hand_written_tools() -> Vec<Value> {
         serde_json::from_str(&std::fs::read_to_string(HAND_WRITTEN).unwrap()).unwrap();
     // Keep the migration baseline on disk intact. These additive options postdate it; all
     // original fields still have to retain their meaning, defaults and validation errors.
+    let block = tools
+        .iter_mut()
+        .find(|tool| tool["name"] == "new_building_block")
+        .unwrap();
+    block["description"] = json!(block["description"].as_str().unwrap().replace(
+        "Create a new building block in the repository, as",
+        "Create a new building block in the repository (namespaced name, e.g. Acme.Orders), as",
+    ));
     let add = tools
         .iter_mut()
         .find(|tool| tool["name"] == "mashup_add")
@@ -4371,4 +4379,17 @@ fn mashup_gap_defaults_to_plan_and_applies_fixed_spacers() {
     let refused = call(&root, "mashup_gap", arguments);
     assert_eq!(refused["isError"], true);
     assert_eq!(std::fs::read(&path).unwrap(), written);
+}
+
+#[test]
+fn building_block_tool_requires_a_namespaced_name() {
+    let tools = tool_definitions();
+    let block = tools
+        .iter()
+        .find(|tool| tool["name"] == "new_building_block")
+        .unwrap();
+    assert!(block["description"]
+        .as_str()
+        .unwrap()
+        .contains("namespaced name, e.g. Acme.Orders"));
 }

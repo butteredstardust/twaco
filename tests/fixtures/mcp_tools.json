@@ -3797,7 +3797,7 @@
   },
   {
     "name": "new_building_block",
-    "description": "Create a new building block in the repository, as the building-block framework's Create New Building Block does on a server: its project, EntryPoint template and Thing, Management shape, Manager template and Thing (not for an abstract block), default and admin groups and organization, as files, plus the project in twaco.toml. The files match what the framework produced on a server. The permission helper and the ui and test types are not created. A dry run unless dry_run is false; an apply takes the workspace lock.",
+    "description": "Create a new building block in the repository (namespaced name, e.g. Acme.Orders), as the building-block framework's Create New Building Block does on a server: its project, EntryPoint template and Thing, Management shape, Manager template and Thing (not for an abstract block), default and admin groups and organization, as files, plus the project in twaco.toml. The files match what the framework produced on a server. The permission helper and the ui and test types are not created. A dry run unless dry_run is false; an apply takes the workspace lock.",
     "inputSchema": {
       "required": [
         "name"
@@ -5408,6 +5408,7 @@
     },
     "outputSchema": {
       "required": [
+        "notes",
         "applied",
         "dry_run",
         "mashup",
@@ -5418,6 +5419,12 @@
         "files"
       ],
       "properties": {
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "applied": {
           "type": "boolean"
         },
@@ -5712,6 +5719,7 @@
     },
     "outputSchema": {
       "required": [
+        "notes",
         "applied",
         "dry_run",
         "mashup",
@@ -5721,6 +5729,12 @@
         "files"
       ],
       "properties": {
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "applied": {
           "type": "boolean"
         },
@@ -5812,6 +5826,7 @@
     },
     "outputSchema": {
       "required": [
+        "notes",
         "applied",
         "dry_run",
         "mashup",
@@ -5821,6 +5836,12 @@
         "files"
       ],
       "properties": {
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "applied": {
           "type": "boolean"
         },
@@ -5917,6 +5938,7 @@
     },
     "outputSchema": {
       "required": [
+        "notes",
         "applied",
         "dry_run",
         "mashup",
@@ -5927,6 +5949,12 @@
         "files"
       ],
       "properties": {
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "applied": {
           "type": "boolean"
         },

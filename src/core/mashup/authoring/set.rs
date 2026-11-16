@@ -30,6 +30,7 @@ pub struct SetPlan {
     pub type_id: String,
     pub changed: Vec<Change>,
     pub style_copy: Option<StyleCopy>,
+    pub notes: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -56,6 +57,8 @@ pub(crate) fn plan_set(
     let found = document
         .find_exact(&request.widget)
         .map_err(AuthoringError::Edit)?;
+    let mut properties = request.properties.clone();
+    let notes = menubar_properties(&document, &found.type_id, &found.id, &mut properties)?;
     let root = found.id == ROOT_ID;
     let widget = if root {
         None
@@ -196,7 +199,7 @@ pub(crate) fn plan_set(
             });
         }
     }
-    for (name, supplied) in &request.properties {
+    for (name, supplied) in &properties {
         if root {
             if name == "CustomMashupCss" {
                 let text = supplied.as_str().ok_or_else(|| {
@@ -331,6 +334,7 @@ pub(crate) fn plan_set(
         type_id: found.type_id,
         changed,
         style_copy,
+        notes,
     })
 }
 
@@ -634,5 +638,59 @@ pub fn set_plan_json(solution: &Solution, plan: &SetPlan, applied: bool) -> Valu
         }
         files
     });
-    json!({"mashup": plan.mashup, "widget": plan.widget, "type": plan.type_id, "changed": plan.changed.iter().map(|change| json!({"property": change.property, "before": change.before, "after": change.after})).collect::<Vec<_>>(), "style_copy": plan.style_copy.as_ref().map(|copy| json!({"mashup": copy.reference_mashup, "widget": copy.reference_widget, "copied": copy.copied})), "files": files, "applied": applied})
+    json!({"notes": plan.notes, "mashup": plan.mashup, "widget": plan.widget, "type": plan.type_id, "changed": plan.changed.iter().map(|change| json!({"property": change.property, "before": change.before, "after": change.after})).collect::<Vec<_>>(), "style_copy": plan.style_copy.as_ref().map(|copy| json!({"mashup": copy.reference_mashup, "widget": copy.reference_widget, "copied": copy.copied})), "files": files, "applied": applied})
+}
+
+/// A Menu entity and a service-backed menu are exclusive Runtime data sources.
+pub(super) fn menubar_properties(
+    document: &crate::core::mashup::edit::MashupDocument,
+    type_id: &str,
+    id: &str,
+    properties: &mut Vec<(String, Value)>,
+) -> Result<Vec<String>, AuthoringError> {
+    if type_id != "ptcsmenubar"
+        || !properties.iter().any(|(name, value)| {
+            name == "PrimaryNavMenu" && value.as_str().is_some_and(|name| !name.is_empty())
+        })
+    {
+        return Ok(Vec::new());
+    }
+    if document.value()["DataBindings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .any(|binding| {
+            binding["TargetArea"] == "UI"
+                && binding["TargetId"] == id
+                && binding["PropertyMaps"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .any(|map| {
+                        matches!(
+                            map["TargetProperty"].as_str(),
+                            Some("Data" | "PrimaryNavData")
+                        )
+                    })
+        })
+    {
+        return Err(AuthoringError::Refused(format!(
+            "{id}.PrimaryNavMenu conflicts with its Data binding; remove that binding first with mashup unbind or keep the service-backed menu"
+        )));
+    }
+    if properties.iter().any(|(name, _)| name == "DataSource") {
+        if properties
+            .iter()
+            .any(|(name, value)| name == "DataSource" && value != "menuentity")
+        {
+            return Err(AuthoringError::Refused(
+                "PrimaryNavMenu requires DataSource=menuentity; do not set a conflicting DataSource".into()
+            ));
+        }
+        return Ok(Vec::new());
+    }
+    properties.push(("DataSource".into(), json!("menuentity")));
+    Ok(vec![
+        "DataSource set to menuentity because PrimaryNavMenu is set".into(),
+    ])
 }
