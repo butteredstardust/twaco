@@ -1,9 +1,9 @@
 //! `mashup new`: a mashup built from a layout template, with its entity file and sidecars.
 
 use super::{
-    bind_in, cache_entry, contained_parameters, load_existing, menu_service, on_in, parse_loaded,
-    parse_new_parameter, set_content_parameter, splice_parameter_definition, AuthoringContext,
-    AuthoringError, ParameterDefinition,
+    bind_in, cache_entry, contained_parameters, content_round_trips, load_existing, menu_service,
+    on_in, parse_loaded, parse_new_parameter, set_content_parameter, splice_parameter_definition,
+    AuthoringContext, AuthoringError, ParameterDefinition,
 };
 use crate::core::config::Solution;
 use crate::core::entity::key::EntityKey;
@@ -276,8 +276,9 @@ pub(crate) fn plan_new(
     } else {
         MashupKind::Mashup
     };
-    let assets =
+    let mut assets =
         mashup::assets_from_payload(&document.to_content()).map_err(AuthoringError::Mashup)?;
+    remove_content_css(&mut assets);
     let entity_template =
         mashup::templates::entity_xml(&request.name, &project.name, kind, &visibility)
             .map_err(|e| AuthoringError::Invalid(e.to_string()))?;
@@ -418,7 +419,13 @@ fn plan_copy(solution: &Solution, request: &NewRequest) -> Result<NewPlan, Autho
     // The source has already been checked by load_existing. Re-extracting proves the spliced
     // XML still represents exactly the sidecars we will create.
     let extracted = mashup::extract(&entity).map_err(AuthoringError::Mashup)?;
-    if extracted != loaded.assets {
+    if extracted.css != loaded.assets.css
+        || !content_round_trips(
+            &loaded.assets.content,
+            &extracted.content,
+            loaded.sidecars.is_some(),
+        )
+    {
         return Err(AuthoringError::Refused(format!(
             "{from}: copying its identity changed mashup content; twaco will not re-serialise it"
         )));
@@ -453,7 +460,11 @@ fn plan_copy(solution: &Solution, request: &NewRequest) -> Result<NewPlan, Autho
         content_path,
         css_path,
         entity,
-        assets: loaded.assets,
+        assets: {
+            let mut assets = loaded.assets;
+            remove_content_css(&mut assets);
+            assets
+        },
         widgets: document.widgets(),
         menus: Vec::new(),
         tabs: Vec::new(),
@@ -1008,4 +1019,13 @@ fn build_tabs(
     }
     document.set_property(&tabset.path, "Items", Value::Array(items));
     Ok(tabs)
+}
+
+fn remove_content_css(assets: &mut mashup::Assets) {
+    let mut content: Value = serde_json::from_str(&assets.content).expect("mashup content is JSON");
+    content
+        .as_object_mut()
+        .expect("mashup content is an object")
+        .remove("CustomMashupCss");
+    assets.content = mashup::to_sidecar(&content);
 }

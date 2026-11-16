@@ -8778,3 +8778,82 @@ fn menubar_menu_entity_refuses_an_existing_data_binding() {
         assert_eq!(sidecar_content(&solution), before);
     }
 }
+
+#[test]
+fn nonempty_css_sidecar_allows_edits_with_absent_or_legacy_content_css() {
+    for legacy in [None, Some(""), Some(".old { color: blue; }")] {
+        let (_dir, solution) = one_project();
+        let name = "Acme.Css_MU";
+        let new = plan_new(&solution, &request(name)).unwrap();
+        assert!(!new.assets.content.contains("CustomMashupCss"));
+        apply_new(&solution, &new, &lock(&solution)).unwrap();
+        let label = plan_add(&solution, &add_request(name, "button")).unwrap();
+        apply_edit(&solution, &label.edit, &lock(&solution)).unwrap();
+        if let Some(legacy_css) = legacy {
+            let mut content: Value =
+                serde_json::from_slice(&std::fs::read(&new.content_path).unwrap()).unwrap();
+            content["CustomMashupCss"] = json!(legacy_css);
+            std::fs::write(&new.content_path, mashup::to_sidecar(&content)).unwrap();
+        }
+        let before = std::fs::read(&new.content_path).unwrap();
+        std::fs::write(&new.css_path, ".a { color: red; }\n").unwrap();
+        let discovery = workspace::discover(&solution);
+        let synced = crate::core::workflow::sync(
+            &solution,
+            &discovery.entities,
+            &discovery.unreadable,
+            crate::core::workflow::SyncOptions::default(),
+        );
+        assert!(synced.log.errors().next().is_none(), "{:?}", synced.log);
+        let set = plan_set(
+            &solution,
+            &SetRequest {
+                mashup: name.into(),
+                widget: label.placed.id.clone(),
+                properties: vec![("Label".into(), json!("Hi"))],
+                style_from: None,
+                styles: Vec::new(),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            std::fs::read(&new.content_path).unwrap(),
+            before,
+            "planning leaves existing content alone"
+        );
+        apply_edit(&solution, set.edit.as_ref().unwrap(), &lock(&solution)).unwrap();
+        let mut copy_request = request("Acme.Copy_MU");
+        copy_request.from = Some(name.into());
+        let copied = plan_new(&solution, &copy_request).unwrap();
+        assert!(!copied.assets.content.contains("CustomMashupCss"));
+        assert_eq!(copied.assets.css, ".a { color: red; }\n");
+        apply_new(&solution, &copied, &lock(&solution)).unwrap();
+        let (_, changes) = mashup::sync(&copied.entity, &copied.assets).unwrap();
+        assert!(changes.is_empty(), "{changes:?}");
+        assert_eq!(
+            mashup::extract(&std::fs::read(&new.entity_path).unwrap())
+                .unwrap()
+                .css,
+            ".a { color: red; }\n"
+        );
+    }
+}
+
+#[test]
+fn managed_css_round_trip_still_refuses_real_content_differences() {
+    assert!(content_round_trips(
+        r#"{"UI":{},"CustomMashupCss":""}"#,
+        r#"{"UI":{},"CustomMashupCss":".a{}"}"#,
+        true
+    ));
+    assert!(!content_round_trips(
+        r#"{"UI":{"Label":"Hi"},"CustomMashupCss":""}"#,
+        r#"{"UI":{"Label":"Bye"},"CustomMashupCss":".a{}"}"#,
+        true
+    ));
+    assert!(!content_round_trips(
+        r#"{"UI":{},"CustomMashupCss":""}"#,
+        r#"{"UI":{},"CustomMashupCss":".a{}"}"#,
+        false
+    ));
+}

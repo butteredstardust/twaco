@@ -7,6 +7,8 @@ use serde_json::Value;
 use std::time::Duration;
 
 pub trait Remote {
+    /// Persisted IndustrialThing gateway references, which incoming dependencies omit.
+    fn industrial_references(&self) -> Result<Vec<(String, String)>, ServerError>;
     fn exists(&self, key: &EntityKey) -> Result<bool, ServerError>;
     fn incoming(&self, key: &EntityKey) -> Result<Vec<Dependent>, ServerError>;
     fn fetch(&self, key: &EntityKey) -> Result<Vec<u8>, ServerError>;
@@ -26,6 +28,35 @@ pub trait Remote {
 }
 
 impl Remote for Client {
+    fn industrial_references(&self) -> Result<Vec<(String, String)>, ServerError> {
+        let target = ServiceTarget::platform("ThingShapes", "IndustrialThingShape");
+        let service = "QueryImplementingThingsWithData";
+        let invalid = || ServerError::InvalidResponse {
+            url: format!("{target}/Services/{service}"),
+            why: "expected rows with name and IndustrialThing gateway reference".into(),
+        };
+        let value = self
+            .call_service(
+                &target,
+                service,
+                &serde_json::json!({"maxItems": i32::MAX}),
+                Duration::from_secs(120),
+            )?
+            .ok_or_else(invalid)?;
+        let rows = value["rows"].as_array().ok_or_else(invalid)?;
+        rows.iter()
+            .map(|row| {
+                let name = row["name"].as_str().ok_or_else(invalid)?;
+                let gateway = match &row["IndustrialThing"] {
+                    Value::Null => "",
+                    Value::String(value) => value,
+                    _ => return Err(invalid()),
+                };
+                Ok((name.to_string(), gateway.to_string()))
+            })
+            .collect()
+    }
+
     fn exists(&self, key: &EntityKey) -> Result<bool, ServerError> {
         self.entity_exists(key)
     }

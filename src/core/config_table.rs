@@ -7,7 +7,9 @@
 //! Restore follows verified platform behavior with throwaway entities:
 //! `SetConfigurationTableRows` **upserts by primary key** (it updates matching rows and adds new
 //! ones, leaving the rest) and `DeleteConfigurationTableRows` removes rows by key. So restore
-//! writes the saved rows first and deletes the extras after. The table is never briefly empty,
+//! writes the saved rows first and deletes the extras after. Single-row tables use
+//! `SetConfigurationTable` with the whole saved table instead. The server definition decides
+//! which service is valid; an unreadable definition refuses the restore. The table is never briefly empty,
 //! which matters because open mashups read it. The key comes from the table's own DataShape,
 //! never assumed, and a multi-row table without one is refused rather than guessed at.
 
@@ -593,6 +595,8 @@ pub(crate) fn read_backup(path: &Path, thing: &str, table_name: &str) -> Result<
 /// What a restore changes, computed before anything is written.
 #[derive(Debug, PartialEq, Eq)]
 pub struct RestorePlan {
+    /// The service used to write the saved table.
+    pub service: &'static str,
     /// Saved rows that differ from, or are missing on, the server.
     pub writes: usize,
     /// Keys of rows on the server that the backup does not hold.
@@ -637,6 +641,7 @@ pub(crate) fn plan_restore(current: &Table, saved: &Table) -> Result<RestorePlan
             differences_by("server", &current.rows, "backup", &saved.rows, &key, exact).is_empty();
         if same {
             return Ok(RestorePlan {
+                service: "SetConfigurationTableRows",
                 writes: 0,
                 deletes: Vec::new(),
             });
@@ -647,6 +652,7 @@ pub(crate) fn plan_restore(current: &Table, saved: &Table) -> Result<RestorePlan
             return Err(TableError::NoPrimaryKey);
         }
         return Ok(RestorePlan {
+            service: "SetConfigurationTableRows",
             writes: 1,
             deletes: Vec::new(),
         });
@@ -681,7 +687,11 @@ pub(crate) fn plan_restore(current: &Table, saved: &Table) -> Result<RestorePlan
         .map(|row| key_of(row, &key, exact))
         .filter(|k| !saved_keys.contains(k))
         .collect();
-    Ok(RestorePlan { writes, deletes })
+    Ok(RestorePlan {
+        service: "SetConfigurationTableRows",
+        writes,
+        deletes,
+    })
 }
 
 /// How the table read back differs from the backup, by cell and by row count.
@@ -709,14 +719,26 @@ pub(crate) fn restore(
     apply: bool,
 ) -> Result<RestorePlan, TableError> {
     let current = fetch(remote, thing, table_name)?;
-    let plan = plan_restore(&current, saved)?;
+    let target = thing_target(thing).map_err(TableError::Remote)?;
+    let definition = remote.call(&target, "GetConfigurationTableDefinition", &json!({"tableName": table_name}))
+        .map_err(|why| TableError::Repository(format!("{thing}.{table_name}: cannot read configuration table definition: {why}; nothing was written")))?;
+    let multi_row = definition.as_ref().and_then(|value| value["rows"][0]["isMultiRow"].as_bool())
+        .ok_or_else(|| TableError::Repository(format!("{thing}.{table_name}: configuration table definition has no boolean isMultiRow; nothing was written")))?;
+    let mut plan = plan_restore(&current, saved)?;
+    if !multi_row {
+        plan.service = "SetConfigurationTable";
+    }
     if !apply || (plan.writes == 0 && plan.deletes.is_empty()) {
         return Ok(plan);
     }
-    let target = thing_target(thing).map_err(TableError::Remote)?;
     let key = primary_key(&current.data_shape);
     let mut calls: Vec<Value> = Vec::new();
-    if plan.writes > 0 {
+    if !multi_row {
+        calls.push(json!({
+            "service": "SetConfigurationTable", "tableName": table_name, "persistent": true,
+            "configurationTable": {"dataShape": saved.data_shape, "rows": saved.rows},
+        }));
+    } else if plan.writes > 0 {
         calls.push(json!({
             "service": "SetConfigurationTableRows",
             "tableName": table_name,
@@ -727,7 +749,7 @@ pub(crate) fn restore(
     for row in current
         .rows
         .iter()
-        .filter(|row| plan.deletes.contains(&key_of(row, &key, exact)))
+        .filter(|row| multi_row && plan.deletes.contains(&key_of(row, &key, exact)))
     {
         let key_values: Map<String, Value> = key
             .iter()
@@ -885,6 +907,8 @@ mod tests {
         ignore_set: bool,
         append_set: bool,
         fail_delete: bool,
+        multi_row: bool,
+        fail_definition: bool,
     }
 
     impl Fake {
@@ -898,6 +922,8 @@ mod tests {
                 ignore_set: false,
                 append_set: false,
                 fail_delete: false,
+                multi_row: true,
+                fail_definition: false,
             }
         }
     }
@@ -912,6 +938,22 @@ mod tests {
             self.calls.borrow_mut().push(service.to_string());
             let mut table = self.table.borrow_mut();
             match service {
+                "GetConfigurationTableDefinition" if self.fail_definition => {
+                    Err(ServerError::InvalidUrl("definition unavailable".into()))
+                }
+                "GetConfigurationTableDefinition" => {
+                    Ok(Some(json!({"rows": [{"isMultiRow": self.multi_row}]})))
+                }
+                "SetConfigurationTable" => {
+                    assert_eq!(parameters["persistent"], true);
+                    table.rows = parameters["configurationTable"]["rows"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .map(|row| row.as_object().unwrap().clone())
+                        .collect();
+                    Ok(None)
+                }
                 "GetConfigurationTable" => Ok(Some(
                     json!({ "dataShape": table.data_shape, "rows": table.rows }),
                 )),
@@ -942,6 +984,58 @@ mod tests {
                 }
                 other => panic!("unexpected service {other}"),
             }
+        }
+    }
+
+    #[test]
+    fn single_row_restore_uses_whole_table_and_plan_only_reads() {
+        let saved = Table {
+            data_shape: shape(&[]),
+            rows: vec![row("Acme.Key", json!("saved"))],
+        };
+        for apply in [false, true] {
+            let mut fake = Fake::with(vec![row("Acme.Key", json!("current"))]);
+            fake.multi_row = false;
+            fake.table.borrow_mut().data_shape = shape(&[]);
+            let plan = restore(&fake, "Acme.Timer", "Settings", &saved, apply).unwrap();
+            assert_eq!(plan.service, "SetConfigurationTable");
+            let calls = fake.calls.borrow();
+            assert!(!calls.iter().any(|call| call == "SetConfigurationTableRows"));
+            assert_eq!(
+                calls
+                    .iter()
+                    .filter(|call| *call == "GetConfigurationTableDefinition")
+                    .count(),
+                1
+            );
+            assert_eq!(
+                calls.iter().any(|call| call == "SetConfigurationTable"),
+                apply
+            );
+            if apply {
+                assert_eq!(fake.table.borrow().rows, saved.rows);
+            }
+        }
+    }
+
+    #[test]
+    fn restore_refuses_failed_definition_without_writes() {
+        let mut fake = Fake::with(vec![row("Acme.Key", json!("current"))]);
+        fake.fail_definition = true;
+        let saved = Table {
+            data_shape: shape(&["Key"]),
+            rows: vec![row("Acme.Key", json!("saved"))],
+        };
+        for apply in [false, true] {
+            let error = restore(&fake, "Acme.Timer", "Settings", &saved, apply)
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains("Settings"), "{error}");
+            assert!(fake
+                .calls
+                .borrow()
+                .iter()
+                .all(|call| call.starts_with("Get")));
         }
     }
 
@@ -988,6 +1082,7 @@ mod tests {
         assert_eq!(
             plan,
             RestorePlan {
+                service: "SetConfigurationTableRows",
                 writes: 1,
                 deletes: vec!["c".to_string()]
             }
@@ -996,6 +1091,7 @@ mod tests {
             *fake.calls.borrow(),
             [
                 "GetConfigurationTable",
+                "GetConfigurationTableDefinition",
                 "SetConfigurationTableRows",
                 "DeleteConfigurationTableRows",
                 "GetConfigurationTable"
@@ -1015,11 +1111,15 @@ mod tests {
         assert_eq!(
             plan,
             RestorePlan {
+                service: "SetConfigurationTableRows",
                 writes: 1,
                 deletes: vec!["z".to_string()]
             }
         );
-        assert_eq!(*fake.calls.borrow(), ["GetConfigurationTable"]);
+        assert_eq!(
+            *fake.calls.borrow(),
+            ["GetConfigurationTable", "GetConfigurationTableDefinition"]
+        );
     }
 
     #[test]
@@ -1030,7 +1130,10 @@ mod tests {
         };
         let fake = Fake::with(vec![row("a", json!(1.0))]);
         restore(&fake, "T", "CT", &saved, true).unwrap();
-        assert_eq!(*fake.calls.borrow(), ["GetConfigurationTable"]);
+        assert_eq!(
+            *fake.calls.borrow(),
+            ["GetConfigurationTable", "GetConfigurationTableDefinition"]
+        );
     }
 
     #[test]
@@ -1055,7 +1158,10 @@ mod tests {
         fake.table.borrow_mut().data_shape = shape(&[]);
         let error = restore(&fake, "T", "CT", &saved, true).unwrap_err();
         assert!(matches!(error, TableError::NoPrimaryKey));
-        assert_eq!(*fake.calls.borrow(), ["GetConfigurationTable"]);
+        assert_eq!(
+            *fake.calls.borrow(),
+            ["GetConfigurationTable", "GetConfigurationTableDefinition"]
+        );
     }
 
     #[test]
@@ -1068,7 +1174,10 @@ mod tests {
         fake.table.borrow_mut().data_shape = shape(&[]);
         let error = restore(&fake, "T", "CT", &saved, true).unwrap_err();
         assert!(matches!(error, TableError::NoPrimaryKey), "{error}");
-        assert_eq!(*fake.calls.borrow(), ["GetConfigurationTable"]);
+        assert_eq!(
+            *fake.calls.borrow(),
+            ["GetConfigurationTable", "GetConfigurationTableDefinition"]
+        );
     }
 
     #[test]
@@ -1080,7 +1189,10 @@ mod tests {
         let fake = Fake::with(vec![row("a", json!("1")), row("b", json!("2"))]);
         let error = restore(&fake, "T", "CT", &saved, true).unwrap_err();
         assert!(matches!(error, TableError::KeyMismatch { .. }), "{error}");
-        assert_eq!(*fake.calls.borrow(), ["GetConfigurationTable"]);
+        assert_eq!(
+            *fake.calls.borrow(),
+            ["GetConfigurationTable", "GetConfigurationTableDefinition"]
+        );
     }
 
     #[test]
@@ -1104,11 +1216,10 @@ mod tests {
             restore(&fake, "T", "CT", &missing, true),
             Err(TableError::BadKey(_))
         ));
-        assert!(fake
-            .calls
-            .borrow()
-            .iter()
-            .all(|call| call == "GetConfigurationTable"));
+        assert!(fake.calls.borrow().iter().all(|call| matches!(
+            call.as_str(),
+            "GetConfigurationTable" | "GetConfigurationTableDefinition"
+        )));
     }
 
     #[test]
@@ -1124,6 +1235,7 @@ mod tests {
         assert_eq!(
             plan,
             RestorePlan {
+                service: "SetConfigurationTableRows",
                 writes: 2,
                 deletes: vec![]
             }
@@ -1167,6 +1279,7 @@ mod tests {
             *fake.calls.borrow(),
             [
                 "GetConfigurationTable",
+                "GetConfigurationTableDefinition",
                 "SetConfigurationTableRows",
                 "DeleteConfigurationTableRows",
                 "GetConfigurationTable"

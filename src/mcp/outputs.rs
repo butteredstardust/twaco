@@ -596,6 +596,7 @@ pub(crate) struct ConfigTableResult {
     backup: Option<String>,
     next: Option<String>,
     /// restore
+    service: Option<String>,
     dry_run: Option<bool>,
     rows_written: Option<Value>,
     rows_removed: Option<Value>,

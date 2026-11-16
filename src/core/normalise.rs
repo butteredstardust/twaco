@@ -4,7 +4,7 @@
 //! they are hash input, never an export. Length-prefixing makes element, attribute, text and
 //! CDATA boundaries unambiguous without choosing an escaping style.
 //!
-//! Normalisation version 10 has exactly these non-semantic rules:
+//! Normalisation version 11 has exactly these non-semantic rules:
 //!
 //! - apply XML 1.0 line-end and CDATA-attribute whitespace normalisation to literal XML input
 //!   before unescaping character references or applying payload-specific rules;
@@ -16,6 +16,9 @@
 //!   `effectiveAlertConfiguration`, `effectiveLocalPropertyBindings`,
 //!   `effectiveRemoteEventBindings`, `effectiveRemotePropertyBindings`, and
 //!   `effectiveRemoteServiceBindings`, observed only as direct entity children;
+//! - remove a Menu's direct-child `effectiveMenu`, computed from its attributes and MenuItems;
+//! - ignore empty `aspect.defaultValue` only on service ParameterDefinitions FieldDefinitions,
+//!   matching the attribute dropped by 10.2 (version 11);
 //! - remove direct-child `ConfigurationChanges`, observed on live MediaEntities and
 //!   containing audit action, user, and timestamp rather than entity source;
 //! - remove `lastModifiedDate` attributes, fetch-time metadata stripped by the same exporter;
@@ -67,8 +70,8 @@
 //! No generated id, default attribute, or other exception is included without a live/committed
 //! observation. Apart from the rules above, CDATA bytes are never decoded, re-indented, or joined.
 //!
-//! Without server ownership, hashes remain `v10:<sha256>` byte for byte. With ownership they are
-//! `v10:so1:<policy-sha256>:<content-sha256>`: the policy digest covers the sorted, deduplicated
+//! Without server ownership, hashes remain `v11:<sha256>` byte for byte. With ownership they are
+//! `v11:so1:<policy-sha256>:<content-sha256>`: the policy digest covers the sorted, deduplicated
 //! union of applicable part labels (newline-delimited). `so1` versions selector semantics.
 //! Content uses the same comparison tree with owned nodes omitted. Baselines must compare the
 //! entire prefix before the final colon; adding, removing or changing ownership invalidates
@@ -78,7 +81,7 @@ use super::scan::{self, Kind, ScanError, Token};
 use sha2::{Digest, Sha256};
 
 /// The normalisation version every hash carries; a baseline from another one says nothing.
-pub(crate) const HASH_VERSION: &str = "v10";
+pub(crate) const HASH_VERSION: &str = "v11";
 pub(crate) const LIVE_ONLY_ELEMENTS: [&[u8]; 9] = [
     b"effectiveShape",
     b"Owner",
@@ -794,8 +797,9 @@ fn child_elements(children: Vec<Node>) -> Vec<Element> {
 
 fn strip_live_only(element: &mut Element) {
     // The evidence supports removing these elements only at the entity boundary.
+    let menu = element.name == b"Menu";
     element.children.retain(|child| {
-        !matches!(child, Node::Element(child) if LIVE_ONLY_ELEMENTS.contains(&child.name.as_slice()))
+        !matches!(child, Node::Element(child) if LIVE_ONLY_ELEMENTS.contains(&child.name.as_slice()) || menu && child.name == b"effectiveMenu")
     });
     strip_live_only_attributes(element);
 }
@@ -843,6 +847,7 @@ fn normalise_special_payloads(entity: &mut Element) {
 /// Values only acquire a type from their own entity.  In particular, an inherited property is
 /// deliberately not guessed: the local document does not prove which definition the server uses.
 fn normalise_typed_values(entity: &mut Element) {
+    normalise_parameter_defaults(entity);
     normalise_definition_aspects(entity);
     normalise_configuration_tables(entity);
 
@@ -868,6 +873,32 @@ fn normalise_typed_values(entity: &mut Element) {
                     }
                 }
             }
+        }
+    }
+}
+
+fn normalise_parameter_defaults(element: &mut Element) {
+    if element.name == b"ServiceDefinition" {
+        for child in &mut element.children {
+            if let Node::Element(parameters) = child {
+                if parameters.name != b"ParameterDefinitions" {
+                    continue;
+                }
+                for child in &mut parameters.children {
+                    if let Node::Element(field) = child {
+                        if field.name == b"FieldDefinition" {
+                            field.attributes.retain(|(name, value)| {
+                                name != b"aspect.defaultValue" || !value.is_empty()
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+    for child in &mut element.children {
+        if let Node::Element(child) = child {
+            normalise_parameter_defaults(child);
         }
     }
 }
@@ -1860,8 +1891,54 @@ mod tests {
     }
 
     #[test]
-    fn hash_and_framing_are_version_nine() {
-        assert!(hash(b"<Thing/>").unwrap().starts_with("v10:"));
+    fn menu_computed_root_description_is_ignored_but_items_still_differ() {
+        let local = include_bytes!("../../tests/fixtures/menu/local.xml");
+        let server = include_bytes!("../../tests/fixtures/menu/server.xml");
+        assert_eq!(hash(local).unwrap(), hash(server).unwrap());
+        let changed = String::from_utf8(server.to_vec())
+            .unwrap()
+            .replace("Acme.Home", "Acme.Other");
+        assert_ne!(hash(local).unwrap(), hash(changed.as_bytes()).unwrap());
+        assert_ne!(
+            hash(b"<Thing><effectiveMenu/></Thing>").unwrap(),
+            hash(b"<Thing/>").unwrap()
+        );
+        assert_ne!(
+            hash(b"<Menu><MenuItems><effectiveMenu/></MenuItems></Menu>").unwrap(),
+            hash(b"<Menu><MenuItems/></Menu>").unwrap()
+        );
+    }
+
+    #[test]
+    fn empty_service_parameter_default_equals_absent_only_in_that_context() {
+        let xml = r#"<Thing name="Acme.Thing"><ThingShape><ServiceDefinitions><ServiceDefinition name="Run"><ParameterDefinitions><FieldDefinition name="msg" baseType="STRING" aspect.defaultValue=""/></ParameterDefinitions></ServiceDefinition></ServiceDefinitions></ThingShape></Thing>"#;
+        let absent = xml.replace(r#" aspect.defaultValue="""#, "");
+        assert_eq!(
+            hash(xml.as_bytes()).unwrap(),
+            hash(absent.as_bytes()).unwrap()
+        );
+        let nonempty = xml.replace(
+            r#"aspect.defaultValue="""#,
+            r#"aspect.defaultValue="hello""#,
+        );
+        assert_ne!(
+            hash(nonempty.as_bytes()).unwrap(),
+            hash(absent.as_bytes()).unwrap()
+        );
+        for xml in [
+            r#"<DataShape name="Acme.Row"><FieldDefinitions><FieldDefinition name="msg" baseType="STRING" aspect.defaultValue=""/></FieldDefinitions></DataShape>"#,
+            r#"<Thing name="Acme.Thing"><ThingShape><PropertyDefinitions><PropertyDefinition name="msg" baseType="STRING" aspect.defaultValue=""/></PropertyDefinitions></ThingShape></Thing>"#,
+        ] {
+            assert_ne!(
+                hash(xml.as_bytes()).unwrap(),
+                hash(xml.replace(r#" aspect.defaultValue="""#, "").as_bytes()).unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn hash_version_eleven_keeps_version_nine_framing() {
+        assert!(hash(b"<Thing/>").unwrap().starts_with("v11:"));
         assert!(normalise(b"<Thing/>")
             .unwrap()
             .starts_with(b"twaco-entity-normalise-v9\0"));

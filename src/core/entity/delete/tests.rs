@@ -20,6 +20,9 @@ struct Fake {
     depends_on: BTreeMap<String, String>,
     /// Exporter XML by entity name.
     exports: BTreeMap<String, String>,
+    gateways: BTreeSet<String>,
+    industrial: Vec<(String, String)>,
+    template_xml: BTreeMap<String, String>,
 }
 
 impl Fake {
@@ -38,11 +41,21 @@ impl Fake {
             disabled: BTreeSet::new(),
             depends_on: BTreeMap::new(),
             exports: BTreeMap::new(),
+            gateways: BTreeSet::new(),
+            industrial: Vec::new(),
+            template_xml: BTreeMap::new(),
         }
     }
 }
 
 impl Remote for Fake {
+    fn industrial_references(&self) -> Result<Vec<(String, String)>, ServerError> {
+        self.calls
+            .borrow_mut()
+            .push("QueryImplementingThingsWithData".into());
+        Ok(self.industrial.clone())
+    }
+
     fn exists(&self, key: &EntityKey) -> Result<bool, ServerError> {
         self.calls.borrow_mut().push(format!("GET {key}"));
         Ok(self
@@ -85,11 +98,16 @@ impl Remote for Fake {
     }
     fn fetch(&self, key: &EntityKey) -> Result<Vec<u8>, ServerError> {
         self.calls.borrow_mut().push(format!("FETCH {key}"));
+        if let Some(xml) = self.template_xml.get(key.name()) {
+            return Ok(xml.as_bytes().to_vec());
+        }
         if key.collection() == "Projects" {
             let projects = self.depends_on.get(key.name()).cloned().unwrap_or_default();
             return Ok(format!("<Entities><Projects><Project name=\"{}\" dependsOn=\"{{&quot;projects&quot;:&quot;{projects}&quot;}}\"/></Projects></Entities>", key.name()).into_bytes());
         }
-        let template = if self.repository_things.contains(key.name()) {
+        let template = if self.gateways.contains(key.name()) {
+            "IndustrialGateway"
+        } else if self.repository_things.contains(key.name()) {
             "FileRepository"
         } else {
             "GenericThing"
@@ -1051,4 +1069,113 @@ fn a_cycle_entity_left_after_a_failed_delete_gets_its_defaults_back() {
     let imports: Vec<&String> = calls.iter().filter(|c| c.starts_with("IMPORT")).collect();
     assert_eq!(imports.len(), 2, "{calls:?}");
     assert!(imports[1].contains(original), "{calls:?}");
+}
+
+#[test]
+fn industrial_things_delete_before_gateway_with_no_incoming_dependencies() {
+    let (_dir, _, solution) = solution();
+    let mut fake = Fake::new(&[("Things", "Acme.A Gateway"), ("Things", "Acme.ZIndustrial")]);
+    fake.gateways.insert("Acme.A Gateway".into());
+    fake.industrial
+        .push(("Acme.ZIndustrial".into(), "Acme.A Gateway".into()));
+    let report = execute(
+        &fake,
+        &solution,
+        &["Things/Acme.A Gateway", "Things/Acme.ZIndustrial"],
+        true,
+        false,
+    );
+    assert!(report
+        .entities
+        .iter()
+        .all(|entity| entity.status == Status::Deleted));
+    let calls = fake.calls.borrow();
+    let industrial = calls
+        .iter()
+        .position(|call| call == "SERVICE DeleteThing Acme.ZIndustrial")
+        .unwrap();
+    let gateway = calls
+        .iter()
+        .position(|call| call == "SERVICE DeleteThing Acme.A Gateway")
+        .unwrap();
+    assert!(industrial < gateway, "{calls:?}");
+    assert_eq!(
+        calls
+            .iter()
+            .filter(|call| *call == "QueryImplementingThingsWithData")
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn outside_industrial_reference_refuses_the_whole_delete_even_with_force() {
+    let (_dir, _, solution) = solution();
+    for apply in [false, true] {
+        let mut fake = Fake::new(&[("Things", "Acme.Gateway"), ("Things", "Acme.Other")]);
+        fake.gateways.insert("Acme.Gateway".into());
+        fake.industrial
+            .push(("Acme.Outside".into(), "Acme.Gateway".into()));
+        let report = execute(
+            &fake,
+            &solution,
+            &["Things/Acme.Gateway", "Things/Acme.Other"],
+            apply,
+            true,
+        );
+        assert!(report
+            .entities
+            .iter()
+            .all(|entity| entity.status == Status::Refused));
+        let message = &report.entities[0].refusals[0].message;
+        assert!(
+            message.contains("Acme.Gateway")
+                && message.contains("Acme.Outside")
+                && message.contains("delete or rebind them first"),
+            "{message}"
+        );
+        assert!(!fake
+            .calls
+            .borrow()
+            .iter()
+            .any(|call| call.starts_with("SERVICE")
+                || call.starts_with("DELETE")
+                || call.starts_with("IMPORT")
+                || call.starts_with("BACKUP")));
+    }
+}
+
+#[test]
+fn delete_without_gateway_never_queries_industrial_things() {
+    let (_dir, _, solution) = solution();
+    let fake = Fake::new(&[("Things", "Acme.Other")]);
+    execute(&fake, &solution, &["Things/Acme.Other"], true, false);
+    assert!(!fake
+        .calls
+        .borrow()
+        .iter()
+        .any(|call| call == "QueryImplementingThingsWithData"));
+}
+
+#[test]
+fn gateway_detection_follows_the_server_template_chain_in_bare_entity_responses() {
+    let (_dir, _, solution) = solution();
+    let mut fake = Fake::new(&[("Things", "Acme.Gateway")]);
+    fake.template_xml.insert(
+        "Acme.Gateway".into(),
+        r#"<Thing name="Acme.Gateway" thingTemplate="Acme.Gateway_TT"/>"#.into(),
+    );
+    fake.template_xml.insert(
+        "Acme.Gateway_TT".into(),
+        r#"<ThingTemplate name="Acme.Gateway_TT" baseThingTemplate="IndustrialGateway"/>"#.into(),
+    );
+    fake.industrial
+        .push(("Acme.Outside".into(), "Acme.Gateway".into()));
+    let report = execute(&fake, &solution, &["Things/Acme.Gateway"], false, false);
+    assert_eq!(report.entities[0].status, Status::Refused);
+    assert!(fake
+        .calls
+        .borrow()
+        .iter()
+        .any(|call| call == "QueryImplementingThingsWithData"));
 }

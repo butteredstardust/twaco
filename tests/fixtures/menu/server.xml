@@ -1,0 +1,1 @@
+<Entities><Menus><Menu name="Acme.Main" description="Main navigation" menuLabel="Main"><MenuItems><MenuItem title="Home" linkDestination="Acme.Home"/></MenuItems><effectiveMenu><Rows><Row><description><![CDATA[Main navigation]]></description><linkType>Menu</linkType><title>Main</title></Row></Rows></effectiveMenu></Menu></Menus></Entities>

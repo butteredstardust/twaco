@@ -8084,8 +8084,14 @@
             "null"
           ]
         },
-        "dry_run": {
+        "service": {
           "description": "restore",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "dry_run": {
           "type": [
             "boolean",
             "null"

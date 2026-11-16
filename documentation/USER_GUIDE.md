@@ -2026,7 +2026,10 @@ keep a `jar:file:` URL and report the SDK version.
 - **`twaco config-table <Thing> <Table> --backup before.json`** saves a configuration table
   before a test that writes it. `--diff` compares it with the repository, and
   `--restore before.json --apply` puts it back. `SetConfigurationTableRows` replaces whole
-  rows, so a backup is the only undo.
+  rows, so a backup is the only undo. Restore reads `GetConfigurationTableDefinition` first:
+  single-row tables use `SetConfigurationTable`, multi-row tables use
+  `SetConfigurationTableRows`. The plan names the service; an unreadable definition refuses
+  the restore before any write.
 - **`twaco settings --search <words>`** finds a subsystem setting by name or description.
   It is read-only, and password values are never shown.
 

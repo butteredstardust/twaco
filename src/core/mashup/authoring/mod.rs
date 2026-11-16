@@ -230,27 +230,10 @@ fn finish_edit_with_css(
     };
     let (entity_after, _) =
         mashup::sync(&loaded.entity_before, &assets_after).map_err(AuthoringError::Mashup)?;
-    let mut extracted = mashup::extract(&entity_after)
+    let extracted = mashup::extract(&entity_after)
         .map_err(AuthoringError::Mashup)?
         .content;
-    // Managed content deliberately leaves CSS in custom.css; sync fills the XML's top-level
-    // copy from that file, so remove that generated copy before proving content round-trips.
-    if loaded.sidecars.is_some()
-        && !serde_json::from_str::<Value>(&content)
-            .expect("mashup content serialises as JSON")
-            .as_object()
-            .expect("mashup content is an object")
-            .contains_key("CustomMashupCss")
-    {
-        let mut value: Value =
-            serde_json::from_str(&extracted).expect("mashup extract returns JSON it formatted");
-        value
-            .as_object_mut()
-            .expect("mashup content is an object")
-            .remove("CustomMashupCss");
-        extracted = mashup::to_sidecar(&value);
-    }
-    if extracted != content {
+    if !content_round_trips(&content, &extracted, loaded.sidecars.is_some()) {
         return Err(AuthoringError::Invalid(format!(
             "{}: mashup content did not round-trip through the entity file",
             loaded.mashup
@@ -275,6 +258,22 @@ fn finish_edit_with_css(
         entity_after,
         sidecars,
     })
+}
+
+// custom.css owns the generated top-level stylesheet, including legacy stale content keys.
+fn content_round_trips(content: &str, extracted: &str, managed_css: bool) -> bool {
+    if !managed_css {
+        return content == extracted;
+    }
+    let without_css = |text: &str| {
+        let mut value: Value = serde_json::from_str(text).expect("mashup content is JSON");
+        value
+            .as_object_mut()
+            .expect("mashup content is an object")
+            .remove("CustomMashupCss");
+        mashup::to_sidecar(&value)
+    };
+    without_css(content) == without_css(extracted)
 }
 
 struct AuthoringContext<'a> {

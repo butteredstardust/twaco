@@ -8,6 +8,12 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Fixed
 
+- Configuration-table restore reads the table definition and uses SetConfigurationTable for single-row tables; plans name the restore service and refuse unreadable definitions.
+- Entity delete orders Industrial Things before their gateways and refuses the whole set when an outside Industrial Thing still references a targeted gateway.
+- Menu writers copy the menu description into the effective root row; comparison ignores server-computed effectiveMenu while retaining MenuItems changes.
+- Empty service-parameter defaults compare as absent; project validation rejects empty numeric, BOOLEAN and DATETIME defaults before the server refuses import with HTTP 406. Comparison hashes are version 11; older baselines are invalidated as with previous version changes.
+- Mashup edits with non-empty custom.css work with legacy empty or stale CustomMashupCss keys; newly written content sidecars omit the generated key.
+
 - Scalar service bindings require `.result`; mashup validation flags existing whole scalar result bindings.
 - Grid INTEGER and LONG columns use `0`; NUMBER columns retain `0.00`.
 - Menubar add/set selects `DataSource=menuentity` for `PrimaryNavMenu`, reports the choice, and refuses conflicting sources or existing Data bindings.

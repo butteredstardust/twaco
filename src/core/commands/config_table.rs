@@ -226,6 +226,9 @@ mod tests {
             _: &Value,
         ) -> Result<Option<Value>, ServerError> {
             self.calls.borrow_mut().push(service.to_string());
+            if service == "GetConfigurationTableDefinition" {
+                return Ok(Some(json!({"rows":[{"isMultiRow":true}]})));
+            }
             Ok(Some(json!({
                 "dataShape": { "fieldDefinitions": {
                     "Key": { "name": "Key", "aspects": { "isPrimaryKey": true } },
@@ -373,11 +376,10 @@ mod tests {
         .unwrap();
         assert_eq!(plan.effects(), Effects::new(Access::Read, Access::Read));
         assert!(
-            remote
-                .calls
-                .borrow()
-                .iter()
-                .all(|call| call == "GetConfigurationTable"),
+            remote.calls.borrow().iter().all(|call| matches!(
+                call.as_str(),
+                "GetConfigurationTable" | "GetConfigurationTableDefinition"
+            )),
             "{:?}",
             remote.calls.borrow()
         );

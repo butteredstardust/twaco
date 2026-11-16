@@ -189,6 +189,7 @@ pub(crate) fn config_table(solution: &Solution, args: &ConfigTable) -> u8 {
                             format!(" ({})", plan.deletes.join(", "))
                         }
                     );
+                    println!("restore service: {}", plan.service);
                     if apply {
                         println!("read back and matching the backup");
                     } else {
