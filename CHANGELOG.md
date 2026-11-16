@@ -8,6 +8,11 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Fixed
 
+- DataShape renames keep service definition and script sidecars in step, including call argument dataShapeName references; unrelated script strings remain review findings.
+- Entity renames and server_owned patterns accept names with internal single spaces.
+- Missing entity and selector errors quote and escape input and explain invisible whitespace or control characters.
+- Entity rename accepts Collection/Name selectors to disambiguate the old entity and accepts the same collection on the new name.
+
 - Configuration-table restore reads the table definition and uses SetConfigurationTable for single-row tables; plans name the restore service and refuse unreadable definitions.
 - Entity delete orders Industrial Things before their gateways and refuses the whole set when an outside Industrial Thing still references a targeted gateway.
 - Menu writers copy the menu description into the effective root row; comparison ignores server-computed effectiveMenu while retaining MenuItems changes.

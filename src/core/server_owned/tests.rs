@@ -1008,3 +1008,21 @@ fn an_entry_point_owns_its_lifecycle_state_on_the_server() {
         .replace("1.0.0", "1.0.1");
     assert_ne!(hash(&state("Configured")), hash(other_version.as_bytes()));
 }
+
+#[test]
+fn exact_entity_pattern_with_spaces_matches_only_its_entity() {
+    let rule = Rule::try_from(RuleInput {
+        entities: vec!["Things/Acme Stream_thing".into()],
+        parts: part("property-values"),
+    })
+    .unwrap();
+    assert!(rule.matches("Things", "Acme Stream_thing"));
+    assert!(!rule.matches("Things", "Acme Stream2_thing"));
+    assert!(!rule.matches("ThingTemplates", "Acme Stream_thing"));
+    let glob = Rule::try_from(RuleInput {
+        entities: vec!["Things/Acme Stream*".into()],
+        parts: part("property-values"),
+    })
+    .unwrap();
+    assert!(glob.matches("Things", "Acme Stream2_thing"));
+}

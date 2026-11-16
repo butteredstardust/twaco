@@ -257,7 +257,8 @@ fn resolve<'a>(entities: &[&'a Entity], name: &str) -> Result<&'a Entity, Catalo
         .collect();
     match suffix.as_slice() {
         [] => Err(CatalogError::UnknownEntity(format!(
-            "no entity named {name} in this solution"
+            "no entity named {} in this solution",
+            crate::core::workspace::quoted_selector(name)
         ))),
         [entity] => Ok(entity),
         many => Err(CatalogError::Ambiguous(format!(
@@ -332,7 +333,8 @@ fn resolve_service<'a>(
         .collect();
     match declaring.as_slice() {
         [] => Err(CatalogError::UnknownEntity(format!(
-            "no entity or service named {name} in this solution"
+            "no entity or service named {} in this solution",
+            crate::core::workspace::quoted_selector(name)
         ))),
         [entity] => Ok((entity, name.to_string())),
         many => Err(CatalogError::Ambiguous(format!(
@@ -1111,7 +1113,7 @@ mod tests {
         )
         .unwrap_err()
         .to_string()
-        .contains("no entity or service named Missing"));
+        .contains("no entity or service named \"Missing\""));
     }
 
     fn one(solution: &Solution, entity: &str, body: bool) -> Result<Catalog, CatalogError> {

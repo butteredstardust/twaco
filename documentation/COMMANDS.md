@@ -124,6 +124,7 @@ handoff list|record <file.xml>... --name <name> [--apply]
                             list recorded collaborator bases, or plan/copy one under .twaco/handoffs
 rename entity <old> <new> [--apply] [--text] [--detail] [--json] [--skip-checks]
                             rename exactly one entity; plan unless --apply
+                            old accepts Collection/Name; new keeps that collection; quote names with spaces
     --sql | --sql-dir <dir> | --no-sql   the database half, as for rename field
 rename prefix <old> <new> [--apply] [--text] [--detail] [--json] [--skip-checks]
                             rename a project/building-block prefix; --text includes other files

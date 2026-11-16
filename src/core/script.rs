@@ -201,6 +201,8 @@ pub struct Script {
     /// never assigned again, redeclared differently, or taken as a parameter.
     pub(crate) thing_variables: BTreeMap<String, String>,
     pub(crate) object_strings: Vec<ObjectString>,
+    /// String values of direct properties in object literals passed to calls.
+    pub(crate) call_object_strings: Vec<ObjectString>,
     /// Every object literal, in source order of its opening brace. Nested values refer to this
     /// arena by index so each literal is represented once.
     pub(crate) objects: Vec<ObjectLiteral>,
@@ -636,6 +638,28 @@ impl<'a> Builder<'a> {
             other => other.visit_with(self),
         }
         for arg in args {
+            if arg.spread.is_none() {
+                if let Expr::Object(object) = Self::strip_parens(&arg.expr) {
+                    for prop in &object.props {
+                        let Some(prop) = prop.as_prop() else { continue };
+                        let Prop::KeyValue(pair) = &**prop else {
+                            continue;
+                        };
+                        let Some(key) = self.key(&pair.key) else {
+                            continue;
+                        };
+                        if let Expr::Lit(Lit::Str(string)) = Self::strip_parens(&pair.value) {
+                            if let Some(span) = self.inner(string.span) {
+                                self.script.call_object_strings.push(ObjectString {
+                                    key: key.text,
+                                    value: self.text(span),
+                                    value_span: span,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
             arg.visit_with(self);
         }
     }

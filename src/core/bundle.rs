@@ -558,14 +558,22 @@ pub(crate) fn select_included(
         }
         if !selector.contains('/') {
             let entity = workspace::resolve(&candidates, selector)
-                .map_err(|error| format!("entity selector {selector}: {error}"))?
+                .map_err(|error| {
+                    format!(
+                        "entity selector {}: {error}",
+                        workspace::quoted_selector(selector)
+                    )
+                })?
                 .clone();
             if seen.insert(entity.path.clone()) {
                 selected.push(entity);
             }
             continue;
         }
-        return Err(format!("entity selector {selector} matched no entities"));
+        return Err(format!(
+            "entity selector {} matched no entities",
+            workspace::quoted_selector(selector)
+        ));
     }
     Ok(selected)
 }
@@ -888,5 +896,16 @@ ui_collections = [\"ThingTemplates\"]
         // The one that mattered: a Thing's rows must not arrive before its template's columns.
         assert!(position("ThingTemplates") < position("Things"));
         assert!(position("Things") < position("Mashups"));
+    }
+}
+
+#[cfg(test)]
+mod selector_diagnostic_tests {
+    #[test]
+    fn missing_included_selector_quotes_invisible_characters() {
+        let error =
+            super::select_included(Vec::new(), &["ApplicationKeys/Acme\r".into()]).unwrap_err();
+        assert!(error.contains(r#""ApplicationKeys/Acme\r""#), "{error}");
+        assert!(error.contains("trailing carriage return"), "{error}");
     }
 }

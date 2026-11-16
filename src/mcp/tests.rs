@@ -582,9 +582,13 @@ fn generated_schemas_mean_what_the_hand_written_ones_did() {
             "{name}"
         );
         for key in ["description", "annotations"] {
-            // These descriptions evolved with form selection warnings and failure handling.
+            // These descriptions evolved with rename selectors, form warnings and failure handling.
             // Their current wording is checked by the golden file and tools/list tests.
-            if key == "description" && matches!(name, "mashup_bind" | "mashup_on" | "mashup_recipe")
+            if key == "description"
+                && matches!(
+                    name,
+                    "mashup_bind" | "mashup_on" | "mashup_recipe" | "rename"
+                )
             {
                 continue;
             }

@@ -113,12 +113,17 @@ impl fmt::Display for WorkspaceError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             WorkspaceError::UnknownEntity { name } => {
-                write!(f, "no entity named {name} in this solution")
+                write!(
+                    f,
+                    "no entity named {} in this solution",
+                    quoted_selector(name)
+                )
             }
             WorkspaceError::UnknownCollection { name, found } => {
                 write!(
                     f,
-                    "unknown collection {name}; use one of {}",
+                    "unknown collection {}; use one of {}",
+                    quoted_selector(name),
                     found.join(", ")
                 )
             }
@@ -137,6 +142,20 @@ impl fmt::Display for WorkspaceError {
 }
 
 impl std::error::Error for WorkspaceError {}
+
+/// Preserve invisible input in diagnostics rather than silently trimming selectors.
+pub(crate) fn quoted_selector(name: &str) -> String {
+    let hint = if name.ends_with('\r') {
+        " (the name has a trailing carriage return)"
+    } else if name.trim() != name {
+        " (the name has leading/trailing whitespace)"
+    } else if name.chars().any(char::is_control) {
+        " (the name has control characters)"
+    } else {
+        ""
+    };
+    format!("{name:?}{hint}")
+}
 
 /// What a scan of the solution found, including what it could not read.
 #[derive(Debug, Default)]
@@ -999,7 +1018,7 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(
-            unknown.contains("unknown collection Unknown")
+            unknown.contains("unknown collection \"Unknown\"")
                 && unknown.contains("Things")
                 && unknown.contains("ThingShapes")
         );
@@ -1260,5 +1279,32 @@ mod tests {
             .map(|finding| finding.file.as_str())
             .collect();
         assert_eq!(unread, ["P-SC/Thinsg"]);
+    }
+}
+
+#[cfg(test)]
+mod selector_diagnostic_tests {
+    use super::*;
+
+    #[test]
+    fn missing_selector_is_escaped_and_explains_invisible_input() {
+        let error = resolve(&[], "ApplicationKeys/Acme\r")
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains(r#""ApplicationKeys/Acme\r""#), "{error}");
+        assert!(
+            error.contains("the name has a trailing carriage return"),
+            "{error}"
+        );
+        for name in [" Acme", "Acme ", "Acme\n"] {
+            assert!(resolve(&[], name)
+                .unwrap_err()
+                .to_string()
+                .contains("whitespace"));
+        }
+        assert!(resolve(&[], "Acme\0Key")
+            .unwrap_err()
+            .to_string()
+            .contains("control characters"));
     }
 }

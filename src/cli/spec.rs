@@ -574,6 +574,7 @@ pub(crate) const USAGE: &[Usage] = &[
         group: 1,
         text: r#"  rename entity <old> <new> [--apply] [--text] [--detail] [--json] [--skip-checks]
                               rename exactly one entity; plan unless --apply
+                              old accepts Collection/Name; new keeps that collection; quote names with spaces
       --sql | --sql-dir <dir> | --no-sql   the database half, as for rename field"#,
     },
     Usage {

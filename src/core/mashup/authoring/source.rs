@@ -169,7 +169,10 @@ pub(crate) fn plan_source_add(
         .iter()
         .find(|entity| entity.name == request.entity)
         .ok_or_else(|| {
-            AuthoringError::Unknown(format!("no entity {} in the solution", request.entity))
+            AuthoringError::Unknown(format!(
+                "no entity {} in the solution",
+                crate::core::workspace::quoted_selector(&request.entity)
+            ))
         })?;
     let kind = SourceKind::of(&request.entity, &entity.collection, request.dynamic)?;
     if request.entity_from.is_some() && !kind.dynamic() {
@@ -573,14 +576,20 @@ pub(crate) fn plan_source_retarget(
         .iter()
         .find(|entity| entity.name == request.from)
         .ok_or_else(|| {
-            AuthoringError::Unknown(format!("no entity {} in the solution", request.from))
+            AuthoringError::Unknown(format!(
+                "no entity {} in the solution",
+                crate::core::workspace::quoted_selector(&request.from)
+            ))
         })?;
     let to_entity = model
         .entities
         .iter()
         .find(|entity| entity.name == request.to)
         .ok_or_else(|| {
-            AuthoringError::Unknown(format!("no entity {} in the solution", request.to))
+            AuthoringError::Unknown(format!(
+                "no entity {} in the solution",
+                crate::core::workspace::quoted_selector(&request.to)
+            ))
         })?;
     if from_entity.collection != to_entity.collection
         || !matches!(

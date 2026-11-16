@@ -149,7 +149,8 @@ pub(super) fn resolve_end(
                     .find(|entity| entity.name == entity_service)
                     .ok_or_else(|| {
                         AuthoringError::Unknown(format!(
-                            "no entity {entity_service} in the solution"
+                            "no entity {} in the solution",
+                            crate::core::workspace::quoted_selector(&entity_service)
                         ))
                     })?;
                 return Ok(End::Data {

@@ -13,8 +13,20 @@ pub fn scan_xml(
     mode: refs::Mode,
     new: &str,
 ) -> Result<XmlPass, scan::ScanError> {
+    scan_xml_with_identity(src, name, mode, new, true, None)
+}
+
+/// The same structural pass, leaving another entity's own identity untouched.
+pub(crate) fn scan_xml_with_identity(
+    src: &[u8],
+    name: &str,
+    mode: refs::Mode,
+    new: &str,
+    rename_identity: bool,
+    collection: Option<&str>,
+) -> Result<XmlPass, scan::ScanError> {
     debug_assert!(
-        refs::validate_new_name(new).is_ok(),
+        refs::validate_entity_name(new).is_ok(),
         "scan_xml requires a validated replacement name"
     );
     let tokens = scan::tokenize(src)?;
@@ -27,9 +39,23 @@ pub fn scan_xml(
                 let element = span_text(src, token.name).to_owned();
                 for attribute in scan::attributes(src, token)? {
                     let attribute_name = span_text(src, attribute.name).to_owned();
+                    if mode == refs::Mode::Entity
+                        && collection.is_some_and(|target| {
+                            attribute_collection(&element, &attribute_name)
+                                .is_some_and(|owner| owner != target)
+                        })
+                    {
+                        continue;
+                    }
                     // `Entities > <Collection> > <Entity name=...>`: the root element's name is the
                     // entity's own name, wherever the entity is of a kind this list has never heard of.
-                    let place = if attribute_name == "name" && elements.len() == 2 {
+                    let place = if attribute_name == "name"
+                        && elements.len() == 2
+                        && elements.first().is_some_and(|root| root == "Entities")
+                    {
+                        if !rename_identity {
+                            continue;
+                        }
                         Place::EntityName {
                             element: element.clone(),
                         }
@@ -47,6 +73,7 @@ pub fn scan_xml(
                         new,
                         place,
                         false,
+                        collection,
                         &mut pass,
                     );
                 }
@@ -81,6 +108,7 @@ pub fn scan_xml(
                                 element: element.clone(),
                             },
                             false,
+                            collection,
                             &mut pass,
                         );
                     }
@@ -98,6 +126,7 @@ pub fn scan_xml(
                             element: element.clone(),
                         },
                         true,
+                        collection,
                         &mut pass,
                     );
                 }
@@ -120,7 +149,7 @@ pub(crate) fn scan_text(
     new: &str,
 ) -> Result<XmlPass, std::str::Utf8Error> {
     debug_assert!(
-        refs::validate_new_name(new).is_ok(),
+        refs::validate_entity_name(new).is_ok(),
         "scan_text requires a validated replacement name"
     );
     scan_text_with(src, name, mode, new, None)
@@ -135,6 +164,7 @@ pub(crate) struct Qualified {
     pub(crate) entities: std::collections::BTreeSet<String>,
     /// The renamed entity's services, inherited ones included, and its own properties and events.
     pub(crate) members: std::collections::BTreeSet<String>,
+    pub(crate) collection: Option<String>,
 }
 
 /// `scan_text`, and with `qualified` also `Old.Member`: an entity mode hit that the name
@@ -151,7 +181,7 @@ pub(crate) fn scan_text_with(
     qualified: Option<&Qualified>,
 ) -> Result<XmlPass, std::str::Utf8Error> {
     debug_assert!(
-        refs::validate_new_name(new).is_ok(),
+        refs::validate_entity_name(new).is_ok(),
         "scan_text requires a validated replacement name"
     );
     let text = std::str::from_utf8(src)?;
@@ -164,6 +194,7 @@ pub(crate) fn scan_text_with(
         new,
         Place::File,
         true,
+        None,
         &mut pass,
     );
     if let (refs::Mode::Entity, Some(qualified), false) = (mode, qualified, name.is_empty()) {
@@ -232,8 +263,18 @@ fn inspect(
     new: &str,
     place: Place,
     blob: bool,
+    collection: Option<&str>,
     pass: &mut XmlPass,
 ) {
+    if mode == refs::Mode::Entity
+        && (matches!(&place, Place::Script)
+            || matches!(&place, Place::Cdata { element } if element == "code"))
+    {
+        let dbinfo = crate::core::dbinfo::scan_entity(src)
+            .is_ok_and(|scripts| scripts.iter().any(|(offset, _)| *offset == span.start));
+        inspect_script(src, span, name, new, dbinfo, collection, pass);
+        return;
+    }
     let value = span_text(src, span);
     let hits = if blob {
         refs::find_in_text(value, name, mode)
@@ -246,7 +287,7 @@ fn inspect(
         // An unqualified name can be a common word (`Node`, `Network`): a value or a quoted string
         // that merely equals it is not evidence of a reference. Only the places that are known to
         // name an entity apply; everything else is a finding for a person.
-        if mode == refs::Mode::Entity && !refs::is_qualified(name) {
+        if mode == refs::Mode::Entity && !refs::is_qualified(name) && !name.contains(' ') {
             if follows_derived_prefix(value, hit.start) {
                 // `Things_<name>` is an id built from the entity's name, inside a larger blob or not.
                 tier = refs::Tier::Exact;
@@ -265,6 +306,132 @@ fn inspect(
         if applied {
             pass.edits
                 .push(splice::Edit::new(absolute, new.as_bytes().to_vec()));
+        }
+    }
+}
+
+pub(crate) fn scan_entity_script(
+    src: &[u8],
+    name: &str,
+    mode: refs::Mode,
+    new: &str,
+    dbinfo: bool,
+    collection: Option<&str>,
+) -> Result<XmlPass, std::str::Utf8Error> {
+    std::str::from_utf8(src)?;
+    let mut pass = XmlPass::new(src);
+    if mode == refs::Mode::Entity {
+        inspect_script(
+            src,
+            scan::Span::new(0, src.len()),
+            name,
+            new,
+            dbinfo,
+            collection,
+            &mut pass,
+        );
+    } else {
+        inspect(
+            src,
+            scan::Span::new(0, src.len()),
+            name,
+            mode,
+            new,
+            Place::Script,
+            true,
+            collection,
+            &mut pass,
+        );
+    }
+    Ok(pass)
+}
+
+/// The parser supplies spans only: collection lookups and DataShape API arguments are
+/// references; comments, logging strings and unrelated object values remain for review.
+fn inspect_script(
+    src: &[u8],
+    span: scan::Span,
+    name: &str,
+    new: &str,
+    dbinfo: bool,
+    collection: Option<&str>,
+    pass: &mut XmlPass,
+) {
+    use crate::core::script;
+    let bytes = &src[span.start..span.end];
+    let mut structural = std::collections::BTreeSet::new();
+    let mut dotted = std::collections::BTreeSet::new();
+    if let Ok(parsed) = script::parse(bytes) {
+        for member in &parsed.members {
+            if let script::Receiver::Variable(receiver) = &member.receiver {
+                if crate::core::bundle::COLLECTION_ORDER.contains(&receiver.as_str())
+                    && collection.is_none_or(|target| target == receiver)
+                    && &bytes[member.property.start..member.property.end] == name.as_bytes()
+                {
+                    structural.insert((member.property.start, member.property.end));
+                    if !member.string_index {
+                        dotted.insert((member.property.start, member.property.end));
+                    }
+                }
+            }
+        }
+        for property in &parsed.call_object_strings {
+            if property.key == "dataShapeName"
+                && property.value == name
+                && collection.is_none_or(|target| target == "DataShapes")
+            {
+                structural.insert((property.value_span.start, property.value_span.end));
+            }
+        }
+        // DBConnection's literal table contract also names DataShapes outside call arguments.
+        let shapes = if dbinfo && collection.is_none_or(|target| target == "DataShapes") {
+            crate::core::dbinfo::scan_script(bytes).shapes
+        } else {
+            Vec::new()
+        };
+        for shape in shapes {
+            for reference in std::iter::once(shape.data_shape).chain(
+                shape
+                    .foreign_keys
+                    .into_iter()
+                    .filter_map(|key| key.reference_shape),
+            ) {
+                if reference.value == name {
+                    structural.insert((reference.span.start, reference.span.end));
+                }
+            }
+        }
+    }
+    let mut mentions = structural.clone();
+    mentions.extend(
+        refs::find_in_text(span_text(src, span), name, refs::Mode::Entity)
+            .into_iter()
+            .map(|hit| (hit.start, hit.end)),
+    );
+    for (start, end) in mentions {
+        let absolute = scan::Span::new(span.start + start, span.start + end);
+        if structural.contains(&(start, end)) {
+            super::findings::add_service_edit(src, absolute, new, Place::Script, pass);
+            if dotted.contains(&(start, end)) && refs::validate_field_name(new, "member").is_err() {
+                // A dotted access cannot express spaces or a dotted entity name. Replace its
+                // dot and property with a string index, retaining every other script byte.
+                if let Some(dot) = bytes[..start]
+                    .iter()
+                    .rposition(|byte| !byte.is_ascii_whitespace())
+                {
+                    if bytes[dot] == b'.' {
+                        let edit = pass.edits.last_mut().unwrap();
+                        edit.span.start = span.start + dot;
+                        edit.replacement =
+                            format!("[{}]", serde_json::to_string(new).unwrap()).into_bytes();
+                    }
+                }
+            }
+            if refs::is_qualified(name) {
+                pass.findings.last_mut().unwrap().tier = refs::Tier::Embedded;
+            }
+        } else {
+            super::findings::add_review(src, absolute, Place::Script, pass);
         }
     }
 }
@@ -346,4 +513,16 @@ fn is_entity_collection_index(value: &str, start: usize) -> bool {
             | b"MediaEntities"
             | b"Networks"
     )
+}
+
+fn attribute_collection(element: &str, attribute: &str) -> Option<&'static str> {
+    match attribute {
+        "projectName" => Some("Projects"),
+        "thingTemplate" | "baseThingTemplate" | "aspect.thingTemplate" => Some("ThingTemplates"),
+        "aspect.thingShape" => Some("ThingShapes"),
+        "aspect.dataShape" | "dataShapeName" => Some("DataShapes"),
+        "valueStream" | "inheritedValueStream" => Some("Things"),
+        "name" if element == "ImplementedShape" => Some("ThingShapes"),
+        _ => None,
+    }
 }

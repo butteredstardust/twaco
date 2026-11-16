@@ -494,7 +494,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         .with_output::<outputs::HandoffResult>(),
         solution_tool::<refactor_requests::RenameRequest>(
             "rename",
-            "Rename one entity, a dotted project/building-block prefix, a DataShape field, a declared service, one service parameter, or a configuration table. A dry run unless dry_run is false; an apply takes the workspace lock. The result carries a plan_digest: pass it back with dry_run false to apply exactly the plan that was reviewed.",
+            "Rename one entity (old accepts Collection/Name; new must keep that collection; names may contain internal single spaces), a dotted project/building-block prefix, a DataShape field, a declared service, one service parameter, or a configuration table. A dry run unless dry_run is false; an apply takes the workspace lock. The result carries a plan_digest: pass it back with dry_run false to apply exactly the plan that was reviewed.",
             false,
             refactor::rename_tool,
         )
