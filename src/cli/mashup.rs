@@ -720,8 +720,12 @@ pub(crate) fn mashup_new_cmd(solution: &Solution, args: &MashupNew) -> u8 {
             None => println!("  tab {}: {label} (empty)", index + 1),
         }
     }
-    for (service, property) in &plan.menus {
-        println!("  menu: {service} -> {property}, loaded with the page");
+    for (source, property) in &plan.menus {
+        if property == "PrimaryNavMenu" {
+            println!("  menu: Menu {source} -> {property} (DataSource menuentity)");
+        } else {
+            println!("  menu: {source} -> {property}, loaded with the page");
+        }
     }
     if !outcome.applied {
         println!("run again with --apply to write it");
