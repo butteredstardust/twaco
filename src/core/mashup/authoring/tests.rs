@@ -5462,6 +5462,52 @@ fn source_add_writes_each_kind_as_composer_does() {
 }
 
 #[test]
+fn platform_services_resolve_through_the_cache_and_a_missing_cache_says_how_to_fill_it() {
+    let (dir, solution) = source_fixture();
+    write(
+        dir.path(),
+        "acme/Things/Acme.Orders.Poll.xml",
+        r#"<Entities><Things><Thing name="Acme.Orders.Poll" projectName="Acme" thingTemplate="Timer"><ThingShape><ServiceDefinitions/></ThingShape></Thing></Things></Entities>"#,
+    );
+    let error = plan_source_add(
+        &solution,
+        &source_request("Acme.Orders.Poll", "EnableTimer"),
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(
+        error.contains("twaco types --platform") && error.contains("template chain"),
+        "{error}"
+    );
+    write(
+        dir.path(),
+        ".twaco/platform.json",
+        r#"{"templates": {
+            "Timer": {"services": {"EnableTimer": {"inputs": {}, "result": {"baseType": "NOTHING"}}}},
+            "GenericThing": {"services": {"GetProperties": {"inputs": {}, "result": {"baseType": "INFOTABLE"}}}}
+        }}"#,
+    );
+    plan_source_add(
+        &solution,
+        &source_request("Acme.Orders.Poll", "EnableTimer"),
+    )
+    .unwrap();
+    plan_source_add(
+        &solution,
+        &source_request("Acme.Orders.Poll", "GetProperties"),
+    )
+    .unwrap();
+    // With the whole chain visible, an unknown service is still refused, without the hint.
+    let error = plan_source_add(&solution, &source_request("Acme.Orders.Poll", "Nope"))
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("is not a service") && !error.contains("types --platform"),
+        "{error}"
+    );
+}
+
+#[test]
 fn source_add_writes_fixed_parameter_values_into_the_call() {
     let (_dir, solution) = source_fixture();
     let before = sidecar_content(&solution);

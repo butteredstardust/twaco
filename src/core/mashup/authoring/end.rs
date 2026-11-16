@@ -418,6 +418,7 @@ pub(super) fn resolve_service<'a>(
     raw: &str,
 ) -> Result<(&'a types::Entity, String), AuthoringError> {
     let mut matches = Vec::new();
+    let mut unseen_chain = false;
     for entity in &model.entities {
         if !matches!(
             entity.collection.as_str(),
@@ -431,17 +432,21 @@ pub(super) fn resolve_service<'a>(
         let mut ends = vec![rest];
         ends.extend(rest.match_indices('.').map(|(at, _)| &rest[..at]));
         for service in ends {
-            if catalog::lookup_service(entity, &model.entities, platform, service)
-                .service
-                .is_some()
-            {
+            let lookup = catalog::lookup_service(entity, &model.entities, platform, service);
+            if lookup.service.is_some() {
                 matches.push((entity, service.to_string()));
+            } else if !lookup.complete {
+                unseen_chain = true;
             }
         }
     }
     matches.sort_by(|a, b| (&a.0.name, &a.1).cmp(&(&b.0.name, &b.1)));
     matches.dedup_by(|a, b| a.0.name == b.0.name && a.1 == b.1);
     match matches.as_slice() {
+        [] if unseen_chain => Err(AuthoringError::Unknown(format!(
+            "no entity and service twaco can see match data:{raw}; {}",
+            catalog::INCOMPLETE_CHAIN_HINT
+        ))),
         [] => Err(AuthoringError::Unknown(format!(
             "no entity and service in the solution match data:{raw}"
         ))),

@@ -460,6 +460,10 @@ fn callable_services(
         .collect()
 }
 
+/// What to say when a service lookup could not see every template and shape on the chain: a
+/// platform service (a Timer's EnableTimer, a Thing's GetProperties) is found only through the cache.
+pub(crate) const INCOMPLETE_CHAIN_HINT: &str = "its template chain is not all in the solution or the platform cache; run `twaco types --platform` to fetch the platform's templates and shapes, then try again";
+
 /// Resolve one service through the same local inheritance order as the catalog. `complete` says
 /// that every referenced template and shape (including GenericThing) was available locally or in
 /// the optional platform cache, so a missing service is safe to diagnose.

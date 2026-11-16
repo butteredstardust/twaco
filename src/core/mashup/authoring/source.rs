@@ -183,15 +183,24 @@ pub(crate) fn plan_source_add(
             request.entity
         )));
     }
-    let service =
-        catalog::lookup_service(entity, &model.entities, platform.as_ref(), &request.service)
-            .service
-            .ok_or_else(|| {
-                AuthoringError::Unknown(format!(
-                    "{}.{} is not a service in the solution",
-                    request.entity, request.service
-                ))
-            })?;
+    let lookup =
+        catalog::lookup_service(entity, &model.entities, platform.as_ref(), &request.service);
+    let complete = lookup.complete;
+    let service = lookup.service.ok_or_else(|| {
+        AuthoringError::Unknown(if complete {
+            format!(
+                "{}.{} is not a service in the solution or on its platform templates",
+                request.entity, request.service
+            )
+        } else {
+            format!(
+                "{}.{} is not a service twaco can see: {}",
+                request.entity,
+                request.service,
+                catalog::INCOMPLETE_CHAIN_HINT
+            )
+        })
+    })?;
     for key in &request.cache_keys {
         if !service
             .parameters
