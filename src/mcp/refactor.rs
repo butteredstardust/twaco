@@ -511,6 +511,7 @@ pub(crate) fn mashup_new_tool(
         && (!arguments.template.is_absent()
             || !arguments.layout.is_absent()
             || !arguments.primary_menu.is_absent()
+            || !arguments.menu_entity.is_absent()
             || !arguments.secondary_menu.is_absent()
             || !arguments.theme.is_absent()
             || arguments.master
@@ -533,6 +534,7 @@ pub(crate) fn mashup_new_tool(
             project: arguments.project.as_ref().cloned(),
             template,
             primary_menu: arguments.primary_menu.as_ref().cloned(),
+            menu_entity: arguments.menu_entity.as_ref().cloned(),
             secondary_menu: arguments.secondary_menu.as_ref().cloned(),
             theme: arguments.theme.as_ref().cloned(),
             master: arguments.master,

@@ -331,6 +331,9 @@ pub(crate) struct MashupNewRequest {
     /// The INFOTABLE service result used as a sidebar's primary menu.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) primary_menu: Absent<String>,
+    /// A Menu entity in the solution as a sidebar's primary menu, instead of primary_menu.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) menu_entity: Absent<String>,
     /// The INFOTABLE service result used as a sidebar's secondary menu.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) secondary_menu: Absent<String>,

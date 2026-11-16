@@ -5092,7 +5092,7 @@
   },
   {
     "name": "mashup_new",
-    "description": "Create a ThingWorx 10.2 responsive mashup from an embedded layout template, with its entity file and managed content.json and custom.css sidecars. template is a name or alias (blank by default); mashup_templates lists the slots where mashup_add can place widgets. Menu templates require primary_menu and may use secondary_menu. master puts its page container in the template's master slot. A dry run unless dry_run is false; an apply takes the workspace lock and writes every file or none.",
+    "description": "Create a ThingWorx 10.2 responsive mashup from an embedded layout template, with its entity file and managed content.json and custom.css sidecars. template is a name or alias (blank by default); mashup_templates lists the slots where mashup_add can place widgets. Menu templates require primary_menu (a service result) or menu_entity (a Menu in the solution); secondary_menu goes with primary_menu. master puts its page container in the template's master slot. A dry run unless dry_run is false; an apply takes the workspace lock and writes every file or none.",
     "inputSchema": {
       "required": [
         "name"
@@ -5122,6 +5122,10 @@
         },
         "primary_menu": {
           "description": "The INFOTABLE service result used as a sidebar's primary menu.",
+          "type": "string"
+        },
+        "menu_entity": {
+          "description": "A Menu entity in the solution as a sidebar's primary menu, instead of primary_menu.",
           "type": "string"
         },
         "secondary_menu": {

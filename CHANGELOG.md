@@ -8,6 +8,7 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- `mashup new --template sidebar|header-sidebar --menu-entity <Menu>` (MCP `menu_entity`) uses a Menu in the solution as the menu bar's source, with no service or load event, instead of `--primary-menu <service>`.
 - `mashup recipe columns --editable-column <field>` (MCP `editable_columns`) makes listed columns editable and sets the grid's IsEditable; `recipe picker --no-none-row` and `--auto-select-first` (MCP `no_none_row`, `auto_select_first`) turn off the "(None)" row and select the first row.
 
 ### Fixed

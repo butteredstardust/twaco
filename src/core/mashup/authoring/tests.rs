@@ -37,6 +37,7 @@ fn request(name: &str) -> NewRequest {
         project: None,
         template: "blank".into(),
         primary_menu: None,
+        menu_entity: None,
         secondary_menu: None,
         theme: None,
         master: false,
@@ -561,6 +562,70 @@ fn sidebar_menu_requests_refuse_missing_wrong_or_non_sidebar_menus() {
     .unwrap_err();
     assert_eq!(error.code(), ErrorCode::InvalidArguments);
     assert!(mashup::templates::layout("stacked").unwrap().is_none());
+}
+
+#[test]
+fn a_menu_entity_is_the_menu_bar_source_without_a_service() {
+    let (dir, solution) = one_project();
+    let sidebar = |primary: Option<&str>, entity: Option<&str>, secondary: Option<&str>| {
+        plan_new(
+            &solution,
+            &NewRequest {
+                template: "sidebar".into(),
+                primary_menu: primary.map(Into::into),
+                menu_entity: entity.map(Into::into),
+                secondary_menu: secondary.map(Into::into),
+                ..request("Acme.Nav_MU")
+            },
+        )
+    };
+    let missing = sidebar(None, Some("Acme.Main_MN"), None).unwrap_err();
+    assert_eq!(missing.code(), ErrorCode::UnknownEntity);
+    assert!(missing.to_string().contains("new menu"), "{missing}");
+    write(
+        dir.path(),
+        "acme/Menus/Acme.Main_MN.xml",
+        r#"<Entities><Menus><Menu name="Acme.Main_MN" projectName="Acme"/></Menus></Entities>"#,
+    );
+    let plan = sidebar(None, Some("Acme.Main_MN"), None).unwrap();
+    assert_eq!(
+        plan.menus,
+        [("Acme.Main_MN".to_string(), "PrimaryNavMenu".to_string())]
+    );
+    let document = mashup::edit::parse(&plan.assets.content).unwrap();
+    let bar = document
+        .widgets()
+        .into_iter()
+        .find(|widget| widget.type_id == "ptcsmenubar")
+        .unwrap();
+    let properties = &document.at(&document.find_exact(&bar.id).unwrap().path)["Properties"];
+    assert_eq!(properties["PrimaryNavMenu"], "Acme.Main_MN");
+    assert_eq!(properties["DataSource"], "menuentity");
+    // No service call and so no load event.
+    assert!(document.value()["DataBindings"]
+        .as_array()
+        .is_none_or(|bindings| bindings.is_empty()));
+    assert!(document.value()["Events"]
+        .as_array()
+        .is_none_or(|events| events.is_empty()));
+    for (primary, entity, secondary, says) in [
+        (None, None, None, "--menu-entity <Menu> is required"),
+        (
+            Some("data:Acme.Nav.Manager.GetTable"),
+            Some("Acme.Main_MN"),
+            None,
+            "not both",
+        ),
+        (
+            None,
+            Some("Acme.Main_MN"),
+            Some("data:Acme.Nav.Manager.GetTable"),
+            "--secondary-menu",
+        ),
+    ] {
+        let error = sidebar(primary, entity, secondary).unwrap_err().to_string();
+        assert!(error.contains(says), "{error}");
+    }
 }
 
 #[test]

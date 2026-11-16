@@ -555,7 +555,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         .with_output::<outputs::EntityEditResult>(),
         solution_tool::<refactor_requests::MashupNewRequest>(
             "mashup_new",
-            "Create a ThingWorx 10.2 responsive mashup from an embedded layout template, with its entity file and managed content.json and custom.css sidecars. template is a name or alias (blank by default); mashup_templates lists the slots where mashup_add can place widgets. Menu templates require primary_menu and may use secondary_menu. master puts its page container in the template's master slot. A dry run unless dry_run is false; an apply takes the workspace lock and writes every file or none.",
+            "Create a ThingWorx 10.2 responsive mashup from an embedded layout template, with its entity file and managed content.json and custom.css sidecars. template is a name or alias (blank by default); mashup_templates lists the slots where mashup_add can place widgets. Menu templates require primary_menu (a service result) or menu_entity (a Menu in the solution); secondary_menu goes with primary_menu. master puts its page container in the template's master slot. A dry run unless dry_run is false; an apply takes the workspace lock and writes every file or none.",
             false,
             refactor::mashup_new_tool,
         )

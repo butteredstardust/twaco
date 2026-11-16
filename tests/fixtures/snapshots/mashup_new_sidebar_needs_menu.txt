@@ -4,4 +4,4 @@ exit: 2
 --- stdout
 
 --- stderr
-twaco: --primary-menu is required for --template sidebar
+twaco: --primary-menu <service> or --menu-entity <Menu> is required for --template sidebar

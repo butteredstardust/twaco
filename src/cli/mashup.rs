@@ -560,6 +560,8 @@ pub(crate) struct MashupNew {
     pub(crate) layout: Option<String>,
     #[arg(long = "primary-menu", value_name = "address")]
     pub(crate) primary_menu: Option<String>,
+    #[arg(long = "menu-entity", value_name = "Menu")]
+    pub(crate) menu_entity: Option<String>,
     #[arg(long = "secondary-menu", value_name = "address")]
     pub(crate) secondary_menu: Option<String>,
     #[arg(long = "theme", value_name = "theme")]
@@ -598,6 +600,7 @@ pub(crate) fn mashup_new_cmd(solution: &Solution, args: &MashupNew) -> u8 {
             ("--param", !args.params.is_empty()),
             ("--tab", !args.tabs.is_empty()),
             ("--primary-menu", args.primary_menu.is_some()),
+            ("--menu-entity", args.menu_entity.is_some()),
             ("--secondary-menu", args.secondary_menu.is_some()),
             ("--theme", args.theme.is_some()),
         ] {
@@ -620,6 +623,7 @@ pub(crate) fn mashup_new_cmd(solution: &Solution, args: &MashupNew) -> u8 {
             project: args.project.project.clone(),
             template,
             primary_menu: args.primary_menu.clone(),
+            menu_entity: args.menu_entity.clone(),
             secondary_menu: args.secondary_menu.clone(),
             theme: args.theme.clone(),
             master: args.master,

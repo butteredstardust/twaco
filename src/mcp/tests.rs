@@ -393,6 +393,18 @@ fn hand_written_tools() -> Vec<Value> {
         "type": "boolean",
         "default": false
     });
+    let new = tools
+        .iter_mut()
+        .find(|tool| tool["name"] == "mashup_new")
+        .unwrap();
+    new["description"] = json!(new["description"].as_str().unwrap().replace(
+        "Menu templates require primary_menu and may use secondary_menu.",
+        "Menu templates require primary_menu (a service result) or menu_entity (a Menu in the solution); secondary_menu goes with primary_menu.",
+    ));
+    new["inputSchema"]["properties"]["menu_entity"] = json!({
+        "description": "A Menu entity in the solution as a sidebar's primary menu, instead of primary_menu.",
+        "type": "string"
+    });
     let recipe = tools
         .iter_mut()
         .find(|tool| tool["name"] == "mashup_recipe")

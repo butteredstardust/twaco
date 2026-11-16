@@ -350,8 +350,8 @@ mashup event add <mashup> <name> --when <address> [--apply] [--json]
     --when <address>        the event in this mashup that fires it, as mashup on --event takes it
 mashup templates [<name>] [--json]
                             list the embedded responsive mashup templates and their slots
-mashup new <name> [--project <name>] [--from <address> | --template <name>] [--primary-menu <address>]
-    [--secondary-menu <address>] [--theme <StyleTheme>] [--master]
+mashup new <name> [--project <name>] [--from <address> | --template <name>]
+    [--primary-menu <address> | --menu-entity <Menu>] [--secondary-menu <address>] [--theme <StyleTheme>] [--master]
     [--visibility <principal>]... [--param <name:TYPE[:DIRECTION]|name:INFOTABLE:DataShape[:DIRECTION]>]... [--tab <Label=Mashup>]...
     [--apply] [--json]
                             create a ThingWorx 10.2 responsive mashup as Composer would: its entity file
@@ -359,7 +359,8 @@ mashup new <name> [--project <name>] [--from <address> | --template <name>] [--p
     --from <address>        copy a repository mashup exactly, except identity and permissions
     --template              layout template name or alias (default: blank); see mashup templates
     --layout                compatibility alias for --template
-    --primary-menu          required INFOTABLE service result for a template's menu bar
+    --primary-menu          an INFOTABLE service result for a template's menu bar
+    --menu-entity <Menu>    a Menu in the solution for a template's menu bar instead (no service)
     --secondary-menu        optional INFOTABLE service result for a template's menu bar
     --theme <StyleTheme>    a StyleTheme in the solution (default: PTC Convergence Theme)
     --master                a master mashup, with a page container filling the center

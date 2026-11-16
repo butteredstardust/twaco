@@ -25,8 +25,10 @@ pub struct NewRequest {
     pub project: Option<String>,
     /// An embedded layout template name or alias.
     pub template: String,
-    /// The required primary menu service for a template with a menu bar.
+    /// The primary menu service for a template with a menu bar; it or `menu_entity` is required.
     pub primary_menu: Option<String>,
+    /// A Menu entity as the primary menu instead of a service.
+    pub menu_entity: Option<String>,
     /// The optional secondary menu service for a template with a menu bar.
     pub secondary_menu: Option<String>,
     /// A StyleTheme in the solution, or 10.2's default.
@@ -228,14 +230,32 @@ pub(crate) fn plan_new(
         .widgets()
         .into_iter()
         .find(|widget| widget.type_id == "ptcsmenubar");
-    match (menu.as_ref(), request.primary_menu.as_ref()) {
-        (Some(_), None) => {
+    match (
+        menu.as_ref(),
+        request.primary_menu.as_ref(),
+        request.menu_entity.as_ref(),
+    ) {
+        (Some(_), None, None) => {
             return Err(AuthoringError::Invalid(format!(
-                "--primary-menu is required for --template {}",
+                "--primary-menu <service> or --menu-entity <Menu> is required for --template {}",
                 template.name
             )));
         }
-        (None, _) if request.primary_menu.is_some() || request.secondary_menu.is_some() => {
+        (Some(_), Some(_), Some(_)) => {
+            return Err(AuthoringError::Invalid(
+                "give --primary-menu or --menu-entity, not both".into(),
+            ));
+        }
+        (Some(_), None, Some(_)) if request.secondary_menu.is_some() => {
+            return Err(AuthoringError::Invalid(
+                "--secondary-menu is a service menu beside --primary-menu; a --menu-entity menu bar has none".into(),
+            ));
+        }
+        (None, _, _)
+            if request.primary_menu.is_some()
+                || request.secondary_menu.is_some()
+                || request.menu_entity.is_some() =>
+        {
             return Err(AuthoringError::Invalid(
                 "menus are for a template with a menu bar (sidebar, header-sidebar)".into(),
             ));
@@ -244,6 +264,23 @@ pub(crate) fn plan_new(
     }
     let tabs = build_tabs(solution, &request.name, &mut document, &request.tabs)?;
     let mut menus = Vec::new();
+    if let Some(entity) = &request.menu_entity {
+        if !workspace::entities(solution)
+            .iter()
+            .any(|found| found.info.collection == "Menus" && found.info.name == *entity)
+        {
+            return Err(AuthoringError::Unknown(format!(
+                "no Menu {} in the solution; create it with twaco new menu",
+                workspace::quoted_selector(entity)
+            )));
+        }
+        // A Menu entity is the menu bar's data source itself: no service, no load event.
+        let id = menu.as_ref().expect("checked menu").id.clone();
+        let path = document.find_exact(&id).map_err(AuthoringError::Edit)?.path;
+        document.set_property(&path, "PrimaryNavMenu", Value::String(entity.clone()));
+        document.set_property(&path, "DataSource", Value::String("menuentity".into()));
+        menus.push((entity.clone(), "PrimaryNavMenu".to_string()));
+    }
     if let Some(primary_menu) = &request.primary_menu {
         let (model, _) = types::load_model(solution);
         let platform = types::cached_platform(solution);
@@ -333,6 +370,7 @@ fn plan_copy(solution: &Solution, request: &NewRequest) -> Result<NewPlan, Autho
         (!request.params.is_empty(), "--param"),
         (!request.tabs.is_empty(), "--tab"),
         (request.primary_menu.is_some(), "--primary-menu"),
+        (request.menu_entity.is_some(), "--menu-entity"),
         (request.secondary_menu.is_some(), "--secondary-menu"),
         (request.theme.is_some(), "--theme"),
     ];

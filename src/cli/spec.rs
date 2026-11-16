@@ -944,8 +944,8 @@ pub(crate) const USAGE: &[Usage] = &[
     Usage {
         path: "mashup new",
         group: 1,
-        text: r#"  mashup new <name> [--project <name>] [--from <address> | --template <name>] [--primary-menu <address>]
-      [--secondary-menu <address>] [--theme <StyleTheme>] [--master]
+        text: r#"  mashup new <name> [--project <name>] [--from <address> | --template <name>]
+      [--primary-menu <address> | --menu-entity <Menu>] [--secondary-menu <address>] [--theme <StyleTheme>] [--master]
       [--visibility <principal>]... [--param <name:TYPE[:DIRECTION]|name:INFOTABLE:DataShape[:DIRECTION]>]... [--tab <Label=Mashup>]...
       [--apply] [--json]
                               create a ThingWorx 10.2 responsive mashup as Composer would: its entity file
@@ -953,7 +953,8 @@ pub(crate) const USAGE: &[Usage] = &[
       --from <address>        copy a repository mashup exactly, except identity and permissions
       --template              layout template name or alias (default: blank); see mashup templates
       --layout                compatibility alias for --template
-      --primary-menu          required INFOTABLE service result for a template's menu bar
+      --primary-menu          an INFOTABLE service result for a template's menu bar
+      --menu-entity <Menu>    a Menu in the solution for a template's menu bar instead (no service)
       --secondary-menu        optional INFOTABLE service result for a template's menu bar
       --theme <StyleTheme>    a StyleTheme in the solution (default: PTC Convergence Theme)
       --master                a master mashup, with a page container filling the center
