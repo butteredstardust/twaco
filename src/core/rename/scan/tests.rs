@@ -185,6 +185,7 @@ fn text_pass_renames_entity_dot_member_and_leaves_longer_entity_names_alone() {
             .map(String::from)
             .into(),
         members: ["GetOrder", "Count"].map(String::from).into(),
+        collection: None,
     };
     let src = b"overrides = [\"Acme.App.X.GetOrder\"]\n\
         read Acme.App.X.Count.value, see Acme.App.X.Child and Acme.App.X.Child.GetOrder\n\
@@ -228,6 +229,7 @@ fn an_unqualified_name_before_a_member_is_only_reported() {
     let qualified = Qualified {
         entities: ["Node"].map(String::from).into(),
         members: ["Start"].map(String::from).into(),
+        collection: None,
     };
     let src = b"Node.Start() and Node.js\n";
     let pass = scan_text_with(src, "Node", refs::Mode::Entity, "Vertex", Some(&qualified)).unwrap();
@@ -903,4 +905,50 @@ fn an_escaped_parameter_key_is_refused_and_a_taken_name_is_a_conflict() {
         conflicts,
         ["parameter new in project.deploy.deploy_parameters"]
     );
+}
+
+#[test]
+fn datashape_script_references_are_structural_and_other_literals_are_reviewed() {
+    let src = br#"DataShapes.Rows; DataShapes["Rows"];
+f(0, { "dataShapeName": "Rows" });
+var other = { dataShapeName: "Rows" };
+logger.info("Rows"); // Rows
+"#;
+    let pass = scan_entity_script(
+        src,
+        "Rows",
+        refs::Mode::Entity,
+        "Acme Items_DS",
+        false,
+        None,
+    )
+    .unwrap();
+    let after = String::from_utf8(apply(src, &pass)).unwrap();
+    assert!(after.starts_with(r#"DataShapes["Acme Items_DS"]; DataShapes["Acme Items_DS"];"#));
+    assert!(after.contains(r#"f(0, { "dataShapeName": "Acme Items_DS" })"#));
+    assert!(after.contains(r#"var other = { dataShapeName: "Rows" }"#));
+    assert!(after.contains(r#"logger.info("Rows"); // Rows"#));
+    assert_eq!(pass.edits.len(), 3);
+    assert_eq!(pass.findings.iter().filter(|f| !f.applied).count(), 3);
+}
+
+#[test]
+fn collection_qualified_identity_leaves_other_collections_references_unchanged() {
+    let src = br#"<Entities><Things><Thing name="Acme.Shared" projectName="Acme.Project"><ResultType aspect.dataShape="Acme.Shared"/><code><![CDATA[Things["Acme.Shared"].Run(); DataShapes["Acme.Shared"]; f({dataShapeName: "Acme.Shared"});]]></code></Thing></Things></Entities>"#;
+    let pass = scan_xml_with_identity(
+        src,
+        "Acme.Shared",
+        refs::Mode::Entity,
+        "Acme.Rows",
+        false,
+        Some("DataShapes"),
+    )
+    .unwrap();
+    let after = String::from_utf8(apply(src, &pass)).unwrap();
+    assert!(after.contains(r#"<Thing name="Acme.Shared""#));
+    assert!(after.contains(r#"aspect.dataShape="Acme.Rows""#));
+    assert!(after.contains(r#"Things["Acme.Shared"]"#));
+    assert!(after.contains(r#"DataShapes["Acme.Rows"]"#));
+    assert!(after.contains(r#"dataShapeName: "Acme.Rows""#));
+    assert_eq!(pass.edits.len(), 3);
 }

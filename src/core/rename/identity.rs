@@ -2,9 +2,9 @@
 
 use super::{
     catalog, check, plan_field, plan_param, plan_property, plan_service, plan_table, push_change,
-    read, refs, refuse_collisions, repo, scan, scan_text_file, validate_spec, workspace, BTreeSet,
-    FileChange, FileKind, Kind, Move, Path, PathBuf, Plan, RenameError, Solution, Spec,
-    CONFIG_FILE,
+    read, refs, refuse_collisions, refuse_spaced_supersets, repo, scan, scan_text_file,
+    validate_spec, workspace, BTreeSet, FileChange, FileKind, Kind, Move, Path, PathBuf, Plan,
+    RenameError, Solution, Spec, CONFIG_FILE,
 };
 
 /// Computes every move, finding and byte edit for a rename without changing the workspace.
@@ -32,7 +32,11 @@ pub fn plan(solution: &Solution, spec: &Spec) -> Result<Plan, RenameError> {
 }
 
 pub(super) fn plan_identity(solution: &Solution, spec: &Spec) -> Result<Plan, RenameError> {
-    validate_spec(spec)?;
+    if spec.kind == Kind::Entity && spec.old.is_empty() {
+        return Err(RenameError::InvalidOld {
+            message: "old name must not be empty".to_string(),
+        });
+    }
     let mut discovery = workspace::discover(solution);
     if !discovery.unreadable.is_empty() {
         return Err(RenameError::Unreadable {
@@ -43,11 +47,47 @@ pub(super) fn plan_identity(solution: &Solution, spec: &Spec) -> Result<Plan, Re
     discovery.entities.sort_by(|a, b| a.path.cmp(&b.path));
     discovery.entities.dedup_by(|a, b| a.path == b.path);
 
+    let mut normalized = spec.clone();
+    let selected = if spec.kind == Kind::Entity {
+        let entity =
+            workspace::resolve(&discovery.entities, &spec.old).map_err(|error| match error {
+                workspace::WorkspaceError::UnknownEntity { .. } => RenameError::Unknown {
+                    old: spec.old.clone(),
+                },
+                workspace::WorkspaceError::Ambiguous { found, .. } => RenameError::Ambiguous {
+                    old: spec.old.clone(),
+                    files: found.into_iter().map(PathBuf::from).collect(),
+                },
+                other => RenameError::InvalidOld {
+                    message: other.to_string(),
+                },
+            })?;
+        normalized.old = entity.info.name.clone();
+        if let Some((collection, name)) = spec.new.split_once('/') {
+            if !collection.eq_ignore_ascii_case(&entity.info.collection) {
+                return Err(RenameError::InvalidNew {
+                    message: format!(
+                        "rename does not move collections; use {}/Name",
+                        entity.info.collection
+                    ),
+                });
+            }
+            normalized.new = name.to_string();
+        }
+        Some(entity.path.clone())
+    } else {
+        None
+    };
+    let spec = &normalized;
+    validate_spec(spec)?;
+
     let matching: Vec<&workspace::EntityFile> = discovery
         .entities
         .iter()
         .filter(|entity| {
-            entity.info.name == spec.old
+            selected
+                .as_ref()
+                .map_or(entity.info.name == spec.old, |path| entity.path == *path)
                 || (spec.kind == Kind::Prefix
                     && entity.info.name.starts_with(&format!("{}.", spec.old)))
         })
@@ -105,6 +145,9 @@ pub(super) fn plan_identity(solution: &Solution, spec: &Spec) -> Result<Plan, Re
         });
     }
     refuse_collisions(&discovery.entities, &moves)?;
+    if spec.kind == Kind::Entity {
+        refuse_spaced_supersets(&discovery.entities, &spec.old)?;
+    }
 
     let mode = match spec.kind {
         Kind::Entity => refs::Mode::Entity,
@@ -118,11 +161,18 @@ pub(super) fn plan_identity(solution: &Solution, spec: &Spec) -> Result<Plan, Re
     let mut changes = Vec::new();
     for entity in &discovery.entities {
         let bytes = read(&entity.path)?;
-        let pass = scan::scan_xml(&bytes, &spec.old, mode, &spec.new).map_err(|error| {
-            RenameError::Xml {
-                path: entity.path.clone(),
-                why: error.to_string(),
-            }
+        let rename_identity = selected.as_ref().is_none_or(|path| *path == entity.path);
+        let pass = scan::scan_xml_with_identity(
+            &bytes,
+            &spec.old,
+            mode,
+            &spec.new,
+            rename_identity,
+            selected.as_ref().map(|_| moves[0].collection.as_str()),
+        )
+        .map_err(|error| RenameError::Xml {
+            path: entity.path.clone(),
+            why: error.to_string(),
         })?;
         push_change(
             &mut changes,
@@ -141,8 +191,11 @@ pub(super) fn plan_identity(solution: &Solution, spec: &Spec) -> Result<Plan, Re
     let config_path = solution.root.join(CONFIG_FILE);
     let mut covered = entity_paths.clone();
     covered.insert(config_path.clone());
-    let qualified =
-        (mode == refs::Mode::Entity).then(|| qualified_names(solution, &discovery, spec));
+    let qualified = (mode == refs::Mode::Entity).then(|| {
+        let mut names = qualified_names(solution, &discovery, spec);
+        names.collection = Some(moves[0].collection.clone());
+        names
+    });
     let qualified = qualified.as_ref();
     let mut skipped = Vec::new();
     scan_text_file(

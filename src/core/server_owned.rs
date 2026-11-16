@@ -121,9 +121,11 @@ impl TryFrom<RuleInput> for Rule {
             let valid = pattern.split_once('/').is_some_and(|(collection, name)| {
                 super::bundle::COLLECTION_ORDER.contains(&collection)
                     && !name.is_empty()
-                    && !name
-                        .chars()
-                        .any(|c| c.is_control() || c.is_whitespace() || "/\\?[]".contains(c))
+                    && name.trim() == name
+                    && !name.contains("  ")
+                    && !name.chars().any(|c| {
+                        c.is_control() || (c.is_whitespace() && c != ' ') || "/\\?[]".contains(c)
+                    })
                     && name != "."
                     && name != ".."
             });

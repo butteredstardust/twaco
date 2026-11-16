@@ -47,8 +47,13 @@ pub(super) fn validate_spec(spec: &Spec) -> Result<(), RenameError> {
             message: "scope is only valid for a field, service or table rename".to_string(),
         });
     }
-    refs::validate_new_name(&spec.new).map_err(|message| RenameError::InvalidNew { message })?;
-    refs::validate_new_name(&spec.old).map_err(|message| RenameError::InvalidOld {
+    let validate = if spec.kind == Kind::Entity {
+        refs::validate_entity_name
+    } else {
+        refs::validate_new_name
+    };
+    validate(&spec.new).map_err(|message| RenameError::InvalidNew { message })?;
+    validate(&spec.old).map_err(|message| RenameError::InvalidOld {
         message: message.replacen("new name", "old name", 1),
     })?;
     if spec.old == spec.new {
@@ -65,6 +70,39 @@ pub(super) fn validate_spec(spec: &Spec) -> Result<(), RenameError> {
         });
     }
     Ok(())
+}
+
+/// Refuse an entity rename when another entity's name is this one joined by a space to more
+/// name (`Acme.Foo Bar` for `Acme.Foo`): a text reference to that entity would contain this name
+/// as a whole token, and the rename would rewrite part of it.
+pub(super) fn refuse_spaced_supersets(
+    entities: &[workspace::EntityFile],
+    old: &str,
+) -> Result<(), RenameError> {
+    let mut longer: Vec<&str> = entities
+        .iter()
+        .map(|entity| entity.info.name.as_str())
+        .filter(|name| {
+            name.len() > old.len()
+                && (name
+                    .strip_prefix(old)
+                    .is_some_and(|rest| rest.starts_with(' '))
+                    || name
+                        .strip_suffix(old)
+                        .is_some_and(|rest| rest.ends_with(' ')))
+        })
+        .collect();
+    if longer.is_empty() {
+        return Ok(());
+    }
+    longer.sort_unstable();
+    longer.dedup();
+    Err(RenameError::InvalidOld {
+        message: format!(
+            "{old} is part of the longer entity name {}; references to it would be rewritten too. Rename that entity first",
+            longer.join(", ")
+        ),
+    })
 }
 
 pub(super) fn refuse_collisions(
@@ -125,7 +163,41 @@ pub(super) fn scan_text_file(
     skipped: &mut Vec<PathBuf>,
 ) -> Result<(), RenameError> {
     let bytes = read(path)?;
-    match scan::scan_text_with(&bytes, &spec.old, mode, &spec.new, qualified) {
+    if kind == FileKind::Sidecar
+        && path
+            .file_name()
+            .is_some_and(|name| name == "definition.xml")
+    {
+        let pass = scan::scan_xml_with_identity(
+            &bytes,
+            &spec.old,
+            mode,
+            &spec.new,
+            false,
+            qualified.and_then(|q| q.collection.as_deref()),
+        )
+        .map_err(|error| RenameError::Xml {
+            path: path.to_path_buf(),
+            why: error.to_string(),
+        })?;
+        push_change(changes, path.to_path_buf(), kind, &bytes, pass);
+        return Ok(());
+    }
+    let scanned = if kind == FileKind::Sidecar && path.extension().is_some_and(|ext| ext == "js") {
+        scan::scan_entity_script(
+            &bytes,
+            &spec.old,
+            mode,
+            &spec.new,
+            path.parent()
+                .and_then(Path::file_name)
+                .is_some_and(|name| name == "GetDBInfo"),
+            qualified.and_then(|q| q.collection.as_deref()),
+        )
+    } else {
+        scan::scan_text_with(&bytes, &spec.old, mode, &spec.new, qualified)
+    };
+    match scanned {
         Ok(mut pass) => {
             // A SQL file outside the sources is a migration or a query: a migration documents an old
             // name and a new one (including the one an earlier rename generated), so rewriting it

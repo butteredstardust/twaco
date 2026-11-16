@@ -102,7 +102,8 @@ pub(crate) fn plan(solution: &Solution, request: &Request) -> Result<Plan, Repro
             [file] => *file,
             [] => {
                 return Err(ReprojectError::Unknown(format!(
-                    "no entity {wanted} in the solution"
+                    "no entity {} in the solution",
+                    workspace::quoted_selector(wanted)
                 )))
             }
             _ => {
@@ -412,7 +413,7 @@ mod tests {
                 .to_string()
         };
         assert!(refused(&["A.User"], "C").contains("project C is not in twaco.toml"));
-        assert!(refused(&["A.Nope"], "B").contains("no entity A.Nope"));
+        assert!(refused(&["A.Nope"], "B").contains("no entity \"A.Nope\""));
         assert!(refused(&["A.User"], "A").contains("already in project A"));
         write(&solution.root, "b/Things/sub/A.User.xml", "taken");
         assert!(refused(&["A.User"], "B").contains("already exists"));

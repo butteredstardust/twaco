@@ -331,6 +331,9 @@ pub(crate) struct MashupNewRequest {
     /// The INFOTABLE service result used as a sidebar's primary menu.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) primary_menu: Absent<String>,
+    /// A Menu entity in the solution as a sidebar's primary menu, instead of primary_menu.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) menu_entity: Absent<String>,
     /// The INFOTABLE service result used as a sidebar's secondary menu.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) secondary_menu: Absent<String>,
@@ -1048,6 +1051,15 @@ pub(crate) struct MashupRecipeRequest {
     /// What a picker's selection is bound from.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) selected: Absent<String>,
+    /// Grid columns its users may edit, each one of `columns` (recipe columns).
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) editable_columns: Absent<Vec<String>>,
+    /// A picker without the "(None)" row.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) no_none_row: Absent<bool>,
+    /// A picker that selects its first row.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) auto_select_first: Absent<bool>,
     #[serde(default = "default_true")]
     pub(crate) dry_run: bool,
 }
@@ -1115,6 +1127,9 @@ pub(crate) struct MashupSourceAddRequest {
     /// How many result sets to cache; needs cache.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) max_result_sets: Absent<u32>,
+    /// `name=value` fixed service parameters, typed by each parameter's base type.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) param_values: Absent<Vec<String>>,
     #[serde(default = "default_true")]
     pub(crate) dry_run: bool,
 }

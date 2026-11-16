@@ -4,4 +4,4 @@ exit: 2
 --- stdout
 
 --- stderr
-twaco: no entity named Acme.Orders.Nope in this solution
+twaco: no entity named "Acme.Orders.Nope" in this solution

@@ -1249,3 +1249,11 @@ fn state_format_selectors_reach_the_handler_and_refuse_repetition() {
         .is_err());
     }
 }
+
+#[test]
+fn building_block_help_requires_a_namespaced_name() {
+    let help = node(&spec::tree(), "new building-block")
+        .render_help()
+        .to_string();
+    assert!(help.contains("namespaced name, e.g. Acme.Orders"), "{help}");
+}

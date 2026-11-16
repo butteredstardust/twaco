@@ -511,6 +511,7 @@ pub(crate) fn mashup_new_tool(
         && (!arguments.template.is_absent()
             || !arguments.layout.is_absent()
             || !arguments.primary_menu.is_absent()
+            || !arguments.menu_entity.is_absent()
             || !arguments.secondary_menu.is_absent()
             || !arguments.theme.is_absent()
             || arguments.master
@@ -533,6 +534,7 @@ pub(crate) fn mashup_new_tool(
             project: arguments.project.as_ref().cloned(),
             template,
             primary_menu: arguments.primary_menu.as_ref().cloned(),
+            menu_entity: arguments.menu_entity.as_ref().cloned(),
             secondary_menu: arguments.secondary_menu.as_ref().cloned(),
             theme: arguments.theme.as_ref().cloned(),
             master: arguments.master,
@@ -956,6 +958,13 @@ pub(crate) fn mashup_recipe_tool(
         value: arguments.value.as_ref().cloned(),
         columns: arguments.columns.items().to_vec(),
         selected: arguments.selected.as_ref().cloned(),
+        editable: arguments.editable_columns.items().to_vec(),
+        no_none_row: arguments.no_none_row.as_ref().copied().unwrap_or(false),
+        auto_select_first: arguments
+            .auto_select_first
+            .as_ref()
+            .copied()
+            .unwrap_or(false),
     };
     let recipe = Recipe::from_args(nonempty(&arguments.recipe, "recipe")?, &recipe_args)
         .map_err(ToolError::coded)?;
@@ -1060,6 +1069,7 @@ pub(crate) fn mashup_source_add_tool(
             cache_keys: arguments.cache_keys.items().to_vec(),
             cache_strategy: arguments.cache_strategy.as_ref().cloned(),
             max_result_sets: arguments.max_result_sets.as_ref().copied(),
+            param_values: arguments.param_values.items().to_vec(),
         },
         mode: if dry_run { Mode::Plan } else { Mode::Apply },
         lock_label: "mcp mashup_source_add",

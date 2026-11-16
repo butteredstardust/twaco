@@ -173,6 +173,22 @@ pub fn validate_new_name(new: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Validates an entity filename, allowing single spaces within its name.
+/// Prefixes and member identifiers retain their own stricter grammars.
+pub(crate) fn validate_entity_name(name: &str) -> Result<(), String> {
+    if name.trim() != name || name.contains("  ") {
+        return Err(format!(
+            "new name {name:?} may contain only single internal spaces"
+        ));
+    }
+    validate_new_name(&name.replace(' ', "_")).map_err(|message| {
+        message.replace(
+            &format!("{:?}", name.replace(' ', "_")),
+            &format!("{name:?}"),
+        )
+    })
+}
+
 /// Validates a field-like name as an XML element-compatible ThingWorx identifier.
 pub(crate) fn validate_field_name(name: &str, noun: &str) -> Result<(), String> {
     if name.is_empty() {
@@ -663,5 +679,36 @@ mod tests {
         let hits = find_in_text(text, name, mode);
         assert_eq!(hits.len(), 1, "unexpected hits for {text:?}");
         hits[0].clone()
+    }
+}
+
+#[cfg(test)]
+mod entity_name_tests {
+    use super::*;
+
+    #[test]
+    fn entity_spaces_do_not_relax_the_prefix_or_member_grammar() {
+        assert!(validate_entity_name("Acme Stream_thing").is_ok());
+        assert!(validate_new_name("Acme Stream_thing").is_err());
+        assert!(validate_field_name("Acme Stream_thing", "member").is_err());
+        for name in [
+            " Acme",
+            "Acme ",
+            "Acme  Stream",
+            " ",
+            "a/b",
+            "a:b",
+            "a..b",
+            "a\r",
+            "a\t",
+            "a<",
+            "a>",
+            "a|",
+            "a?",
+            "a*",
+            "CON",
+        ] {
+            assert!(validate_entity_name(name).is_err(), "{name:?}");
+        }
     }
 }

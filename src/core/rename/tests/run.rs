@@ -317,3 +317,217 @@ fn a_plan_digest_applies_exactly_the_plan_that_was_reviewed() {
     .applied
     .is_some());
 }
+
+#[test]
+fn datashape_rename_keeps_definitions_and_scripts_in_step_with_and_without_text() {
+    for old in ["Rows", "Acme.Rows_DS"] {
+        for include_outside in [false, true] {
+            let fixture = run_fixture();
+            write(
+                &fixture.root,
+                "twaco.toml",
+                "[[project]]\nname='Acme.Project'\ncollections=['Things','DataShapes']\n",
+            );
+            let solution = Solution::load(&fixture.root.join(CONFIG_FILE)).unwrap();
+            let script = format!(
+                r#"var t = DataShapes["{old}"];
+Resources["InfoTableFunctions"].CreateInfoTableFromDataShape({{ infoTableName: "t", dataShapeName: "{old}" }});
+// {old}
+logger.info("{old}");
+var unrelated = {{ dataShapeName: "{old}" }};
+"#
+            );
+            let xml = format!(
+                r#"<Entities><Things><Thing name="Acme.Reader" projectName="Acme.Project"><ThingShape><ServiceDefinitions><ServiceDefinition name="Run"><ResultType name="result" baseType="INFOTABLE" aspect.dataShape="{old}"/><ParameterDefinitions><FieldDefinition name="rows" baseType="INFOTABLE" aspect.dataShape="{old}"/></ParameterDefinitions></ServiceDefinition></ServiceDefinitions><ServiceImplementations><ServiceImplementation name="Run" handlerName="Script"><ConfigurationTables><ConfigurationTable name="Script"><Rows><Row><code><![CDATA[{script}]]></code></Row></Rows></ConfigurationTable></ConfigurationTables></ServiceImplementation></ServiceImplementations></ThingShape></Thing></Things></Entities>
+"#
+            );
+            write(&fixture.root, "Things/Acme.Reader.xml", &xml);
+            write(
+                &fixture.root,
+                &format!("DataShapes/{old}.xml"),
+                &format!(
+                    r#"<Entities><DataShapes><DataShape name="{old}" projectName="Acme.Project"><FieldDefinitions/></DataShape></DataShapes></Entities>"#
+                ),
+            );
+            let found = workspace::discover(&solution);
+            let extracted = crate::core::workflow::extract(
+                &solution,
+                &found.entities,
+                &[],
+                true,
+                &locked(&fixture),
+            );
+            assert_eq!(extracted.failed, 0, "{:?}", extracted.log);
+            assert!(sync_problems(&solution).is_empty());
+            let mut options = run_options(true, true);
+            options.include_outside = include_outside;
+            let outcome = run(
+                &solution,
+                &spec(Kind::Entity, old, "Acme.Items_DS"),
+                &options,
+                Some(&locked(&fixture)),
+            )
+            .unwrap();
+            assert_eq!(
+                outcome.verification.unwrap().sync_problems,
+                Vec::<String>::new()
+            );
+            assert!(
+                sync_problems(&solution).is_empty(),
+                "sync --all must be an identity"
+            );
+            let script_after = std::fs::read_to_string(
+                fixture.root.join("src/Acme.Reader/services/Run/script.js"),
+            )
+            .unwrap();
+            assert!(script_after.contains(r#"DataShapes["Acme.Items_DS"]"#));
+            assert!(script_after.contains(r#"dataShapeName: "Acme.Items_DS""#));
+            assert!(script_after.contains(&format!("// {old}")));
+            assert!(script_after.contains(&format!(r#"logger.info("{old}")"#)));
+            assert!(
+                script_after.contains(&format!(r#"var unrelated = {{ dataShapeName: "{old}" }}"#))
+            );
+            let definition = std::fs::read_to_string(
+                fixture
+                    .root
+                    .join("src/Acme.Reader/services/Run/definition.xml"),
+            )
+            .unwrap();
+            assert_eq!(
+                definition
+                    .matches(r#"aspect.dataShape="Acme.Items_DS""#)
+                    .count(),
+                2
+            );
+            assert!(
+                outcome
+                    .plan
+                    .changes
+                    .iter()
+                    .filter(|c| c.path.ends_with("script.js"))
+                    .flat_map(|c| &c.findings)
+                    .filter(|f| !f.applied && f.tier == refs::Tier::Review)
+                    .count()
+                    >= 3
+            );
+            let entity_after =
+                std::fs::read_to_string(fixture.root.join("Things/Acme.Reader.xml")).unwrap();
+            assert!(entity_after.contains(script_after.trim_end()));
+        }
+    }
+}
+
+#[test]
+fn entity_names_with_spaces_move_and_update_whole_references() {
+    let fixture = run_fixture();
+    write(
+        &fixture.root,
+        "Things/Acme Stream_thing.xml",
+        r#"<Entities><Things><Thing name="Acme Stream_thing" projectName="P"/></Things></Entities>"#,
+    );
+    write(
+        &fixture.root,
+        "Things/Acme.Reader.xml",
+        r#"<Entities><Things><Thing name="Acme.Reader" valueStream="Acme Stream_thing"><Reference>Acme Stream_thing</Reference><code><![CDATA[Things["Acme Stream_thing"].Run(); Things.Acme;]]></code></Thing></Things></Entities>"#,
+    );
+    run(
+        &fixture.solution,
+        &spec(Kind::Entity, "Acme Stream_thing", "Acme Stream2_thing"),
+        &run_options(true, true),
+        Some(&locked(&fixture)),
+    )
+    .unwrap();
+    assert!(!fixture.root.join("Things/Acme Stream_thing.xml").exists());
+    assert!(fixture.root.join("Things/Acme Stream2_thing.xml").is_file());
+    let reader = std::fs::read_to_string(fixture.root.join("Things/Acme.Reader.xml")).unwrap();
+    assert!(reader.contains(r#"Things["Acme Stream2_thing"]"#));
+    assert!(reader.contains(r#"valueStream="Acme Stream2_thing""#));
+    assert!(reader.contains("<Reference>Acme Stream2_thing</Reference>"));
+    assert!(reader.contains("Things.Acme;"));
+}
+
+#[test]
+fn a_name_inside_a_longer_spaced_entity_name_is_refused_and_writes_nothing() {
+    let fixture = run_fixture();
+    write(
+        &fixture.root,
+        "Things/Acme.Foo.xml",
+        r#"<Entities><Things><Thing name="Acme.Foo" projectName="P"/></Things></Entities>"#,
+    );
+    write(
+        &fixture.root,
+        "Things/Acme.Foo Bar.xml",
+        r#"<Entities><Things><Thing name="Acme.Foo Bar" projectName="P"/></Things></Entities>"#,
+    );
+    let reader = r#"<Entities><Things><Thing name="Acme.Reader" valueStream="Acme.Foo Bar"><code><![CDATA[Things["Acme.Foo Bar"].Run();]]></code></Thing></Things></Entities>"#;
+    write(&fixture.root, "Things/Acme.Reader.xml", reader);
+    let error = run(
+        &fixture.solution,
+        &spec(Kind::Entity, "Acme.Foo", "Acme.Baz"),
+        &run_options(true, true),
+        Some(&locked(&fixture)),
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(
+        error.contains("Acme.Foo Bar") && error.contains("Rename that entity first"),
+        "{error}"
+    );
+    assert!(fixture.root.join("Things/Acme.Foo.xml").is_file());
+    assert_eq!(
+        std::fs::read_to_string(fixture.root.join("Things/Acme.Reader.xml")).unwrap(),
+        reader
+    );
+    // The longer name itself renames normally.
+    run(
+        &fixture.solution,
+        &spec(Kind::Entity, "Acme.Foo Bar", "Acme.Foo Baz"),
+        &run_options(true, true),
+        Some(&locked(&fixture)),
+    )
+    .unwrap();
+    let after = std::fs::read_to_string(fixture.root.join("Things/Acme.Reader.xml")).unwrap();
+    assert!(after.contains(r#"Things["Acme.Foo Baz"]"#), "{after}");
+}
+
+#[test]
+fn qualified_entity_rename_applies_and_verifies_without_renaming_another_identity() {
+    for new in ["Acme.NewKey", "ApplicationKeys/Acme.NewKey"] {
+        let fixture = run_fixture();
+        write(
+            &fixture.root,
+            "twaco.toml",
+            "[[project]]\nname='Acme.Project'\ncollections=['Things','ApplicationKeys']\n",
+        );
+        let solution = Solution::load(&fixture.root.join(CONFIG_FILE)).unwrap();
+        write(
+            &fixture.root,
+            "Things/Acme.Key.xml",
+            r#"<Entities><Things><Thing name="Acme.Key" projectName="Acme.Project" valueStream="Acme.Key"><code><![CDATA[Things["Acme.Key"].Run();]]></code></Thing></Things></Entities>"#,
+        );
+        write(
+            &fixture.root,
+            "ApplicationKeys/Acme.Key.xml",
+            r#"<Entities><ApplicationKeys><ApplicationKey name="Acme.Key" projectName="Acme.Project"/></ApplicationKeys></Entities>"#,
+        );
+        let other = fixture.root.join("Things/Acme.Key.xml");
+        let before = std::fs::read(&other).unwrap();
+        let outcome = run(
+            &solution,
+            &spec(Kind::Entity, "ApplicationKeys/Acme.Key", new),
+            &run_options(true, true),
+            Some(&locked(&fixture)),
+        )
+        .unwrap();
+        assert!(outcome.verification.unwrap().sync_problems.is_empty());
+        assert!(fixture
+            .root
+            .join("ApplicationKeys/Acme.NewKey.xml")
+            .is_file());
+        assert_eq!(std::fs::read(&other).unwrap(), before);
+        assert!(outcome
+            .follow_up
+            .iter()
+            .all(|note| !note.contains("could not be planned")));
+    }
+}

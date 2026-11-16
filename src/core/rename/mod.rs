@@ -511,7 +511,7 @@ impl fmt::Display for RenameError {
                 f,
                 "cannot rename nested prefixes {old:?} and {new:?} in one step; use an unrelated temporary prefix first"
             ),
-            RenameError::Unknown { old } => write!(f, "no entity matches {old:?}; check the name and rename kind"),
+            RenameError::Unknown { old } => write!(f, "no entity matches {}; check the name and rename kind", workspace::quoted_selector(old)),
             RenameError::ServiceScope { message } => f.write_str(message),
             RenameError::TableScope { message } => f.write_str(message),
             RenameError::Ambiguous { old, files } => write!(
@@ -624,7 +624,10 @@ pub(crate) use self::run::run;
 #[allow(unused_imports)]
 use self::{
     apply::*,
-    common::{push_change, read, refuse_collisions, scan_text_file, validate_spec},
+    common::{
+        push_change, read, refuse_collisions, refuse_spaced_supersets, scan_text_file,
+        validate_spec,
+    },
     field::plan_field,
     identity::*,
     member::{plan_param, plan_service},

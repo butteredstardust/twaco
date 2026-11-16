@@ -257,7 +257,8 @@ fn resolve<'a>(entities: &[&'a Entity], name: &str) -> Result<&'a Entity, Catalo
         .collect();
     match suffix.as_slice() {
         [] => Err(CatalogError::UnknownEntity(format!(
-            "no entity named {name} in this solution"
+            "no entity named {} in this solution",
+            crate::core::workspace::quoted_selector(name)
         ))),
         [entity] => Ok(entity),
         many => Err(CatalogError::Ambiguous(format!(
@@ -332,7 +333,8 @@ fn resolve_service<'a>(
         .collect();
     match declaring.as_slice() {
         [] => Err(CatalogError::UnknownEntity(format!(
-            "no entity or service named {name} in this solution"
+            "no entity or service named {} in this solution",
+            crate::core::workspace::quoted_selector(name)
         ))),
         [entity] => Ok((entity, name.to_string())),
         many => Err(CatalogError::Ambiguous(format!(
@@ -457,6 +459,10 @@ fn callable_services(
         })
         .collect()
 }
+
+/// What to say when a service lookup could not see every template and shape on the chain: a
+/// platform service (a Timer's EnableTimer, a Thing's GetProperties) is found only through the cache.
+pub(crate) const INCOMPLETE_CHAIN_HINT: &str = "its template chain is not all in the solution or the platform cache; run `twaco types --platform` to fetch the platform's templates and shapes, then try again";
 
 /// Resolve one service through the same local inheritance order as the catalog. `complete` says
 /// that every referenced template and shape (including GenericThing) was available locally or in
@@ -1111,7 +1117,7 @@ mod tests {
         )
         .unwrap_err()
         .to_string()
-        .contains("no entity or service named Missing"));
+        .contains("no entity or service named \"Missing\""));
     }
 
     fn one(solution: &Solution, entity: &str, body: bool) -> Result<Catalog, CatalogError> {

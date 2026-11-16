@@ -181,10 +181,48 @@ fn check_one(
     ));
     problems.extend(check_member_names(&file, &src));
     problems.extend(check_multirow_tables(&file, &src));
+    problems.extend(check_parameter_defaults(&file, &entity.info.name, &src));
     if entity.info.collection == "Mashups" {
         problems.extend(check_mashup(&file, &src));
     }
     problems.extend(check_tags(&file, &src, vocabularies));
+    problems
+}
+
+/// Empty defaults on scalar non-text parameters cause the server to reject the whole import.
+fn check_parameter_defaults(file: &str, entity: &str, src: &[u8]) -> Vec<Problem> {
+    let Ok(tokens) = scan::tokenize(src) else {
+        return Vec::new();
+    };
+    let text = |index: usize, name: &str| {
+        scan::attribute(src, &tokens[index], name)
+            .ok()
+            .flatten()
+            .map(|span| scan::decode_entities(&String::from_utf8_lossy(span.of(src))))
+            .unwrap_or_default()
+    };
+    let mut problems = Vec::new();
+    for (service, token) in tokens.iter().enumerate() {
+        if token.kind != Kind::Start || token.name.of(src) != b"ServiceDefinition" {
+            continue;
+        }
+        for parameters in scan::child_tags(&tokens, src, "ParameterDefinitions", service) {
+            for field in scan::child_tags(&tokens, src, "FieldDefinition", parameters) {
+                let empty = scan::attribute(src, &tokens[field], "aspect.defaultValue")
+                    .ok()
+                    .flatten()
+                    .is_some_and(|span| span.of(src).is_empty());
+                if empty
+                    && matches!(
+                        text(field, "baseType").as_str(),
+                        "NUMBER" | "INTEGER" | "LONG" | "BOOLEAN" | "DATETIME"
+                    )
+                {
+                    problems.push(Problem { file: file.into(), rule: "empty-parameter-default", message: format!("{entity} service {} parameter {}: the server refuses an empty default on {} with HTTP 406; remove the aspect.defaultValue attribute", text(service, "name"), text(field, "name"), text(field, "baseType")) });
+                }
+            }
+        }
+    }
     problems
 }
 
@@ -553,6 +591,27 @@ mod tests {
             ["service-without-definition"],
             "another entity's"
         );
+    }
+
+    #[test]
+    fn integer_empty_parameter_default_is_an_error_but_string_is_valid() {
+        let xml = r#"<Thing name="Acme.Thing"><ThingShape><ServiceDefinitions><ServiceDefinition name="Run"><ParameterDefinitions><FieldDefinition name="count" baseType="INTEGER" aspect.defaultValue=""/><FieldDefinition name="msg" baseType="STRING" aspect.defaultValue=""/></ParameterDefinitions></ServiceDefinition></ServiceDefinitions></ThingShape></Thing>"#;
+        let problems = check_parameter_defaults("Acme.Thing.xml", "Acme.Thing", xml.as_bytes());
+        assert_eq!(problems.len(), 1);
+        assert_eq!(problems[0].rule, "empty-parameter-default");
+        for text in [
+            "Acme.Thing",
+            "Run",
+            "count",
+            "HTTP 406",
+            "remove the aspect.defaultValue attribute",
+        ] {
+            assert!(
+                problems[0].message.contains(text),
+                "{}",
+                problems[0].message
+            );
+        }
     }
 
     #[test]

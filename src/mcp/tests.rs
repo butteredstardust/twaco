@@ -372,6 +372,14 @@ fn hand_written_tools() -> Vec<Value> {
         serde_json::from_str(&std::fs::read_to_string(HAND_WRITTEN).unwrap()).unwrap();
     // Keep the migration baseline on disk intact. These additive options postdate it; all
     // original fields still have to retain their meaning, defaults and validation errors.
+    let block = tools
+        .iter_mut()
+        .find(|tool| tool["name"] == "new_building_block")
+        .unwrap();
+    block["description"] = json!(block["description"].as_str().unwrap().replace(
+        "Create a new building block in the repository, as",
+        "Create a new building block in the repository (namespaced name, e.g. Acme.Orders), as",
+    ));
     let add = tools
         .iter_mut()
         .find(|tool| tool["name"] == "mashup_add")
@@ -384,6 +392,18 @@ fn hand_written_tools() -> Vec<Value> {
         "description": "With below: stack within the anchor's column of a split row, keeping the other columns beside it.",
         "type": "boolean",
         "default": false
+    });
+    let new = tools
+        .iter_mut()
+        .find(|tool| tool["name"] == "mashup_new")
+        .unwrap();
+    new["description"] = json!(new["description"].as_str().unwrap().replace(
+        "Menu templates require primary_menu and may use secondary_menu.",
+        "Menu templates require primary_menu (a service result) or menu_entity (a Menu in the solution); secondary_menu goes with primary_menu.",
+    ));
+    new["inputSchema"]["properties"]["menu_entity"] = json!({
+        "description": "A Menu entity in the solution as a sidebar's primary menu, instead of primary_menu.",
+        "type": "string"
     });
     let recipe = tools
         .iter_mut()
@@ -406,6 +426,21 @@ fn hand_written_tools() -> Vec<Value> {
         ),
         ("action_label", "Confirmation action button text.", "string"),
         ("cancel_label", "Confirmation cancel button text.", "string"),
+        (
+            "editable_columns",
+            "Grid columns its users may edit, each one of `columns` (recipe columns).",
+            "array",
+        ),
+        (
+            "no_none_row",
+            "A picker without the \"(None)\" row.",
+            "boolean",
+        ),
+        (
+            "auto_select_first",
+            "A picker that selects its first row.",
+            "boolean",
+        ),
     ] {
         let mut property = json!({"description": description, "type": kind});
         if kind == "array" {
@@ -574,9 +609,13 @@ fn generated_schemas_mean_what_the_hand_written_ones_did() {
             "{name}"
         );
         for key in ["description", "annotations"] {
-            // These descriptions evolved with form selection warnings and failure handling.
+            // These descriptions evolved with rename selectors, form warnings and failure handling.
             // Their current wording is checked by the golden file and tools/list tests.
-            if key == "description" && matches!(name, "mashup_bind" | "mashup_on" | "mashup_recipe")
+            if key == "description"
+                && matches!(
+                    name,
+                    "mashup_bind" | "mashup_on" | "mashup_recipe" | "rename"
+                )
             {
                 continue;
             }
@@ -2798,7 +2837,7 @@ fn status_record_returns_matching_entities_in_sync_and_keeps_differing_verdicts(
     )
     .unwrap();
     std::fs::create_dir_all(root.join(".twaco/baselines")).unwrap();
-    std::fs::write(root.join(".twaco/baselines/default.json"),r#"{"entities":{"Things":{"Acme.Same":{"local":"v10:old","server":"v10:old"},"Acme.Different":{"local":"v10:old","server":"v10:old"}}}}"#).unwrap();
+    std::fs::write(root.join(".twaco/baselines/default.json"),r#"{"entities":{"Things":{"Acme.Same":{"local":"v11:old","server":"v11:old"},"Acme.Different":{"local":"v11:old","server":"v11:old"}}}}"#).unwrap();
     let before = call(root, "status", json!({"all":true,"detail":true}));
     assert_eq!(body(&before)["counts"]["converged"], 1);
     assert_eq!(body(&before)["counts"]["both-changed"], 1);
@@ -4371,4 +4410,17 @@ fn mashup_gap_defaults_to_plan_and_applies_fixed_spacers() {
     let refused = call(&root, "mashup_gap", arguments);
     assert_eq!(refused["isError"], true);
     assert_eq!(std::fs::read(&path).unwrap(), written);
+}
+
+#[test]
+fn building_block_tool_requires_a_namespaced_name() {
+    let tools = tool_definitions();
+    let block = tools
+        .iter()
+        .find(|tool| tool["name"] == "new_building_block")
+        .unwrap();
+    assert!(block["description"]
+        .as_str()
+        .unwrap()
+        .contains("namespaced name, e.g. Acme.Orders"));
 }

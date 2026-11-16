@@ -381,3 +381,56 @@ fn counts_add_up_to_every_finding() {
         planned.changes.len() + planned.outside.len()
     );
 }
+
+#[test]
+fn entity_selectors_accept_same_collection_and_disambiguate_identity() {
+    for new in ["Acme.NewKey", "ApplicationKeys/Acme.NewKey"] {
+        let fixture = fixture();
+        entity(&fixture.root, "ApplicationKeys", "Acme.Key", "Acme.App");
+        entity(&fixture.root, "Things", "Acme.Key", "Acme.App");
+        let planned = plan(
+            &fixture.solution,
+            &spec(Kind::Entity, "ApplicationKeys/Acme.Key", new),
+        )
+        .unwrap();
+        assert_eq!(planned.moves.len(), 1);
+        assert_eq!(planned.moves[0].collection, "ApplicationKeys");
+        assert_eq!(planned.moves[0].new_name, "Acme.NewKey");
+        assert_eq!(planned.spec.old, "Acme.Key");
+        let other = fixture.root.join("Things/Acme.Key.xml");
+        let original = std::fs::read(&other).unwrap();
+        if let Some(change) = planned.changes.iter().find(|c| c.path == other) {
+            let after = crate::core::splice::splice(&original, &change.edits).unwrap();
+            assert!(String::from_utf8(after)
+                .unwrap()
+                .contains(r#"name="Acme.Key""#));
+        }
+        assert!(
+            matches!(plan(&fixture.solution, &spec(Kind::Entity, "ApplicationKeys/Acme.Key", "Things/Acme.NewKey")), Err(RenameError::InvalidNew { message }) if message.contains("rename does not move collections"))
+        );
+    }
+}
+
+#[test]
+fn entity_names_refuse_unsafe_spaces_and_paths() {
+    let fixture = fixture();
+    for name in [
+        " Acme.New",
+        "Acme.New ",
+        "Acme  New",
+        "a/b",
+        "a:b",
+        "a\\b",
+        "a\r",
+        "a..b",
+    ] {
+        assert!(
+            plan(
+                &fixture.solution,
+                &spec(Kind::Entity, "Acme.App.Manager", name)
+            )
+            .is_err(),
+            "{name:?}"
+        );
+    }
+}

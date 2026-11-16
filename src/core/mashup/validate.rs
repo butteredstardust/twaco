@@ -116,6 +116,7 @@ pub(crate) fn validate_in(
             Ok(content) => {
                 check_content(&content, &mut problems);
                 if let Ok(value) = serde_json::from_str::<Value>(&content) {
+                    scalar_result_problems(&value, &resolver, &mut problems);
                     chart_axis_problems(&file.info.name, &value, &resolver, &mut problems);
                     collection_problems(&value, discovered, &resolver, &mut problems);
                     state_format_problems(&value, discovered, &mut problems);
@@ -909,6 +910,57 @@ fn state_format_problems(
                     push_unique(problems, Problem { rule: "state-format-drift".into(), severity: Severity::Advisory,
                         message: format!("{label} has a snapshot that differs from StateDefinition {name}; use mashup state-format set to refresh it") });
                 }
+            }
+        }
+    }
+}
+
+fn scalar_result_problems(
+    content: &Value,
+    resolver: &bindings::Resolver<'_>,
+    problems: &mut Vec<Problem>,
+) {
+    let sections = bindings::data_sections(content);
+    for (index, binding) in content["DataBindings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .enumerate()
+    {
+        if binding["SourceArea"] != "Data" {
+            continue;
+        }
+        let section_name = binding["SourceSection"].as_str().unwrap_or_default();
+        let call_name = binding["SourceId"].as_str().unwrap_or_default();
+        let Some((section, call)) = bindings::service_at(&sections, section_name, call_name) else {
+            continue;
+        };
+        let Some(service) = resolver.service(section, &call.target).service else {
+            continue;
+        };
+        if service.result.base_type.eq_ignore_ascii_case("INFOTABLE") {
+            continue;
+        }
+        for map in binding["PropertyMaps"].as_array().into_iter().flatten() {
+            if map["SourcePropertyType"] == "InfoTable"
+                || map["SourceProperty"].as_str().is_none_or(str::is_empty)
+            {
+                let source = if call.instance == call.target {
+                    format!("data:{}.{}", section.entity, call.target)
+                } else {
+                    format!(
+                        "data:{}.{}[as {}]",
+                        section.entity, call.target, call.instance
+                    )
+                };
+                let id = binding["Id"]
+                    .as_str()
+                    .map(str::to_string)
+                    .unwrap_or_else(|| format!("DataBindings[{index}]"));
+                push_unique(problems, problem("scalar-whole-result", format!(
+                    "binding {id} from {source} to {}.{} uses a whole scalar result; use `{source}.result`",
+                    binding["TargetId"].as_str().unwrap_or_default(), map["TargetProperty"].as_str().unwrap_or_default()
+                )));
             }
         }
     }

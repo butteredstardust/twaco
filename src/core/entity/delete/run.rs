@@ -28,6 +28,7 @@ pub(crate) fn run(
         .collect();
     let project_dependents = project_dependents(remote, &targets)?;
     let mut entities = Vec::new();
+    let mut gateways = BTreeSet::new();
     for target in targets {
         let Target {
             key,
@@ -137,6 +138,12 @@ pub(crate) fn run(
             let bytes = remote
                 .fetch(&key)
                 .map_err(|why| DeleteError::Remote { entity: label, why })?;
+            if is_industrial_gateway(remote, &bytes).map_err(|why| DeleteError::Remote {
+                entity: key.to_string(),
+                why,
+            })? {
+                gateways.insert(key.name().to_string());
+            }
             if is_file_repository(&bytes) {
                 let message = "deleting this FileRepository Thing deletes all of its files";
                 if acknowledged.file_repository_data_loss {
@@ -167,6 +174,57 @@ pub(crate) fn run(
         });
     }
 
+    if !gateways.is_empty() {
+        let references = remote
+            .industrial_references()
+            .map_err(|why| DeleteError::Remote {
+                entity: "ThingShapes/IndustrialThingShape".into(),
+                why,
+            })?;
+        let mut blocked = Vec::new();
+        for gateway in &gateways {
+            let mut outside = Vec::new();
+            let entity = entities
+                .iter_mut()
+                .find(|entity| entity.collection == "Things" && &entity.name == gateway)
+                .expect("gateway is in delete set");
+            for (thing, referenced) in &references {
+                if referenced != gateway {
+                    continue;
+                }
+                let key = EntityKey::new("Things", thing)
+                    .map_err(|why| DeleteError::Target(why.to_string()))?;
+                let dependent = Dependent {
+                    collection: "Things".into(),
+                    name: thing.clone(),
+                };
+                if !entity.dependents.contains(&dependent) {
+                    entity.dependents.push(dependent);
+                }
+                if !target_set.contains(&key) {
+                    outside.push(thing.as_str());
+                }
+            }
+            if !outside.is_empty() {
+                outside.sort_unstable();
+                blocked.push(format!("gateway {gateway} is referenced by Industrial Things: {}; delete or rebind them first", outside.join(", ")));
+            }
+        }
+        if !blocked.is_empty() {
+            let message = blocked.join("; ");
+            for entity in &mut entities {
+                if entity.status == Status::Ready {
+                    entity.status = Status::Refused;
+                }
+                if entity.status == Status::Refused {
+                    entity.refusals.push(Refusal {
+                        code: GuardCode::OutsideDependents,
+                        message: message.clone(),
+                    });
+                }
+            }
+        }
+    }
     super::cycle::plan(remote, &mut entities)
         .map_err(|(entity, why)| DeleteError::Remote { entity, why })?;
     delete_dependents_first(&mut entities);
@@ -385,4 +443,60 @@ fn is_file_repository(bytes: &[u8]) -> bool {
         .is_some_and(|span| {
             scan::decode_entities(&String::from_utf8_lossy(span.of(bytes))) == "FileRepository"
         })
+}
+
+// Read the server's template chain: runtime gateway references may be absent from repository XML.
+fn is_industrial_gateway(
+    remote: &dyn Remote,
+    bytes: &[u8],
+) -> Result<bool, crate::core::server::ServerError> {
+    use crate::core::server::ServerError;
+    let mut bytes = bytes.to_vec();
+    let mut seen = BTreeSet::new();
+    loop {
+        let tokens = scan::tokenize(&bytes).map_err(|error| ServerError::InvalidResponse {
+            url: "entity template chain".into(),
+            why: error.to_string(),
+        })?;
+        let entity = crate::core::sidecar::entity_element(&tokens, &bytes)
+            .or_else(|| {
+                tokens.iter().position(|token| {
+                    matches!(token.kind, Kind::Start | Kind::Empty)
+                        && matches!(token.name.of(&bytes), b"Thing" | b"ThingTemplate")
+                })
+            })
+            .ok_or_else(|| ServerError::InvalidResponse {
+                url: "entity template chain".into(),
+                why: "missing entity element".into(),
+            })?;
+        let attribute = if tokens[entity].name.of(&bytes) == b"Thing" {
+            "thingTemplate"
+        } else {
+            "baseThingTemplate"
+        };
+        let template = scan::attribute(&bytes, &tokens[entity], attribute)
+            .ok()
+            .flatten()
+            .map(|span| scan::decode_entities(&String::from_utf8_lossy(span.of(&bytes))))
+            .unwrap_or_default();
+        if template == "IndustrialGateway" {
+            return Ok(true);
+        }
+        if template.is_empty() || template == "GenericThing" {
+            return Ok(false);
+        }
+        if !seen.insert(template.clone()) {
+            return Err(ServerError::InvalidResponse {
+                url: "entity template chain".into(),
+                why: format!("cycle at ThingTemplates/{template}"),
+            });
+        }
+        let key = EntityKey::new("ThingTemplates", &template).map_err(|error| {
+            ServerError::InvalidResponse {
+                url: "entity template chain".into(),
+                why: error.to_string(),
+            }
+        })?;
+        bytes = remote.fetch(&key)?;
+    }
 }

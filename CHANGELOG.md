@@ -6,6 +6,33 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `mashup new --template sidebar|header-sidebar --menu-entity <Menu>` (MCP `menu_entity`) uses a Menu in the solution as the menu bar's source, with no service or load event, instead of `--primary-menu <service>`.
+- `mashup source add ... --param-value name=value` (MCP `param_values`) gives a service call fixed parameter values, stored as Composer does: BOOLEAN and numeric parameters as JSON booleans and numbers, others as text. Unknown parameters and values of the wrong type are refused.
+- `mashup add <mashup> ptcstabset` creates a container per tab as the `tabs` template does, and `mashup set` of `NumberOfTabs` adds or removes trailing tab containers (refusing one that holds widgets). `mashup set` accepts a tab set's `Tab<n>Name`, `Value`, `Visible`, `Disabled`, `Icon` and `SVGIcon` up to `NumberOfTabs`.
+- `mashup recipe columns --editable-column <field>` (MCP `editable_columns`) makes listed columns editable and sets the grid's IsEditable; `recipe picker --no-none-row` and `--auto-select-first` (MCP `no_none_row`, `auto_select_first`) turn off the "(None)" row and select the first row.
+
+### Fixed
+
+- `mashup source add` and data addresses no longer say a platform service (a Timer's EnableTimer, a Thing's GetProperties) "is not a service in the solution" when the platform cache lacks the entity's template: they say the template chain is not all visible and to run `twaco types --platform`.
+- DataShape renames keep service definition and script sidecars in step, including call argument dataShapeName references; unrelated script strings remain review findings.
+- Entity renames and server_owned patterns accept names with internal single spaces; renaming a name that is part of a longer spaced entity name (`Acme.Foo` beside `Acme.Foo Bar`) is refused rather than rewriting that entity's references.
+- Missing entity and selector errors quote and escape input and explain invisible whitespace or control characters.
+- Entity rename accepts Collection/Name selectors to disambiguate the old entity and accepts the same collection on the new name.
+
+- Configuration-table restore reads the table definition and uses SetConfigurationTable for single-row tables; plans name the restore service and refuse unreadable definitions.
+- Entity delete orders Industrial Things before their gateways and refuses the whole set when an outside Industrial Thing still references a targeted gateway.
+- Menu writers copy the menu description into the effective root row; comparison ignores server-computed effectiveMenu while retaining MenuItems changes.
+- Empty service-parameter defaults compare as absent; project validation rejects empty numeric, BOOLEAN and DATETIME defaults before the server refuses import with HTTP 406. Comparison hashes are version 11; older baselines are invalidated as with previous version changes.
+- Mashup edits with non-empty custom.css work with legacy empty or stale CustomMashupCss keys; newly written content sidecars omit the generated key.
+
+- Scalar service bindings require `.result`; mashup validation flags existing whole scalar result bindings.
+- Grid INTEGER and LONG columns use `0`; NUMBER columns retain `0.00`.
+- Menubar add/set selects `DataSource=menuentity` for `PrimaryNavMenu`, reports the choice, and refuses conflicting sources or existing Data bindings.
+- Status recognizes QueueProviders from project inventory; Spotlight search filters are unchanged.
+- CLI and MCP building-block help now states that a namespaced name, e.g. Acme.Orders, is required.
+
 ## [0.1.63] - 2026-11-13
 
 ### Added

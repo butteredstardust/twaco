@@ -983,6 +983,11 @@ pub(crate) fn menu_row_xml(menu: &str, index: usize, row: &MenuRow<'_>) -> Strin
 
 fn menu_xml(request: &NewRequest, project: &str) -> Result<String, IllegalXmlChar> {
     let label = request.label.as_deref().unwrap_or("");
+    let root_description = if request.description.is_empty() {
+        String::new()
+    } else {
+        cdata(&request.description)
+    };
     let root_title = if label.is_empty() {
         String::new()
     } else {
@@ -1018,7 +1023,7 @@ fn menu_xml(request: &NewRequest, project: &str) -> Result<String, IllegalXmlCha
                         <FieldDefinition aspect.defaultValue=\"false\" baseType=\"BOOLEAN\" description=\"Is disabled\" name=\"isDisabled\" ordinal=\"0\"></FieldDefinition>
                         <FieldDefinition aspect.defaultValue=\"false\" baseType=\"BOOLEAN\" description=\"Is hidden\" name=\"isHidden\" ordinal=\"0\"></FieldDefinition>\n                        <FieldDefinition aspect.isPrimaryKey=\"true\" baseType=\"STRING\" description=\"Link destination\" name=\"linkDestination\" ordinal=\"0\"></FieldDefinition>\n                        <FieldDefinition baseType=\"STRING\" description=\"Link target (Popup, Mashup, New)\" name=\"linkTarget\" ordinal=\"0\"></FieldDefinition>\n                        <FieldDefinition aspect.isPrimaryKey=\"true\" baseType=\"STRING\" description=\"Link type (Mashup, Hyperlink, Logout, or Menu)\" name=\"linkType\" ordinal=\"0\"></FieldDefinition>\n                        <FieldDefinition baseType=\"STRING\" description=\"Menu entry id\" name=\"menuId\" ordinal=\"0\"></FieldDefinition>\n                        <FieldDefinition baseType=\"STRING\" description=\"Menu entry parent id\" name=\"parentMenuId\" ordinal=\"0\"></FieldDefinition>\n                        <FieldDefinition baseType=\"STRING\" description=\"Menu entry title\" name=\"title\" ordinal=\"0\"></FieldDefinition>
                         <FieldDefinition baseType=\"STRING\" description=\"An optional field that specifies the tooltip text for the menu item\" name=\"tooltip\" ordinal=\"0\"></FieldDefinition>
-                        <FieldDefinition baseType=\"IMAGELINK\" description=\"An optional field that specifies the tooltip icon for the menu item\" name=\"tooltipIcon\" ordinal=\"0\"></FieldDefinition>\n                    </FieldDefinitions>\n                </DataShape>\n                <Rows>\n                    <Row>\n                        <description></description>\n                        <imageURL></imageURL>\n                        <linkPriority>0.0</linkPriority>\n                        <linkType><![CDATA[Menu]]></linkType>\n                        <menuId><![CDATA[{}]]></menuId>\n                        <parentMenuId></parentMenuId>\n                        <title>{}</title>\n                    </Row>{rows}\n                </Rows>\n            </effectiveMenu>\n        </Menu>\n{}", header("Menus"), escape(&request.description)?, escape(label)?, escape(&request.name)?, common_tail(&[])?, request.name, root_title, footer("Menus")))
+                        <FieldDefinition baseType=\"IMAGELINK\" description=\"An optional field that specifies the tooltip icon for the menu item\" name=\"tooltipIcon\" ordinal=\"0\"></FieldDefinition>\n                    </FieldDefinitions>\n                </DataShape>\n                <Rows>\n                    <Row>\n                        <description>{root_description}</description>\n                        <imageURL></imageURL>\n                        <linkPriority>0.0</linkPriority>\n                        <linkType><![CDATA[Menu]]></linkType>\n                        <menuId><![CDATA[{}]]></menuId>\n                        <parentMenuId></parentMenuId>\n                        <title>{}</title>\n                    </Row>{rows}\n                </Rows>\n            </effectiveMenu>\n        </Menu>\n{}", header("Menus"), escape(&request.description)?, escape(label)?, escape(&request.name)?, common_tail(&[])?, request.name, root_title, footer("Menus")))
 }
 
 fn theme_content(request: &NewRequest) -> String {
@@ -1867,6 +1872,21 @@ mod tests {
         assert!(std::str::from_utf8(&plans[5].entity)
             .unwrap()
             .contains("<![CDATA[0 0 2 * * ?]]>"));
+    }
+
+    #[test]
+    fn new_menu_root_description_matches_menu_attribute() {
+        let mut request = request(Kind::Menu, "Acme.Main");
+        request.description = "Main navigation & tools ]]>".into();
+        request.label = Some("Main".into());
+        let xml = menu_xml(&request, "Acme").unwrap();
+        assert!(
+            xml.contains(
+                "<description><![CDATA[Main navigation & tools ]]]]><![CDATA[>]]></description>"
+            ),
+            "{xml}"
+        );
+        assert!(xml.contains("<title><![CDATA[Main]]></title>"));
     }
 
     #[test]

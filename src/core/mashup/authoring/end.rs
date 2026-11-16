@@ -149,7 +149,8 @@ pub(super) fn resolve_end(
                     .find(|entity| entity.name == entity_service)
                     .ok_or_else(|| {
                         AuthoringError::Unknown(format!(
-                            "no entity {entity_service} in the solution"
+                            "no entity {} in the solution",
+                            crate::core::workspace::quoted_selector(&entity_service)
                         ))
                     })?;
                 return Ok(End::Data {
@@ -181,6 +182,16 @@ pub(super) fn resolve_end(
             });
             if source {
                 let (base, property_type) = match member.as_deref() {
+                    None if found.result.base_type != "INFOTABLE" => {
+                        let alias = alias
+                            .as_ref()
+                            .map(|alias| format!("[as {alias}]"))
+                            .unwrap_or_default();
+                        let source = format!("data:{}.{}{alias}", entity.name, service);
+                        return Err(AuthoringError::Refused(format!(
+                            "{source} is a whole scalar result; use `{source}.result`"
+                        )));
+                    }
                     None => (found.result.base_type.clone(), "InfoTable".to_string()),
                     Some(name) => {
                         // A result field may share a parameter's name; the field is the source.
@@ -407,6 +418,7 @@ pub(super) fn resolve_service<'a>(
     raw: &str,
 ) -> Result<(&'a types::Entity, String), AuthoringError> {
     let mut matches = Vec::new();
+    let mut unseen_chain = false;
     for entity in &model.entities {
         if !matches!(
             entity.collection.as_str(),
@@ -420,17 +432,21 @@ pub(super) fn resolve_service<'a>(
         let mut ends = vec![rest];
         ends.extend(rest.match_indices('.').map(|(at, _)| &rest[..at]));
         for service in ends {
-            if catalog::lookup_service(entity, &model.entities, platform, service)
-                .service
-                .is_some()
-            {
+            let lookup = catalog::lookup_service(entity, &model.entities, platform, service);
+            if lookup.service.is_some() {
                 matches.push((entity, service.to_string()));
+            } else if !lookup.complete {
+                unseen_chain = true;
             }
         }
     }
     matches.sort_by(|a, b| (&a.0.name, &a.1).cmp(&(&b.0.name, &b.1)));
     matches.dedup_by(|a, b| a.0.name == b.0.name && a.1 == b.1);
     match matches.as_slice() {
+        [] if unseen_chain => Err(AuthoringError::Unknown(format!(
+            "no entity and service twaco can see match data:{raw}; {}",
+            catalog::INCOMPLETE_CHAIN_HINT
+        ))),
         [] => Err(AuthoringError::Unknown(format!(
             "no entity and service in the solution match data:{raw}"
         ))),
@@ -468,6 +484,19 @@ pub(super) fn menu_service(
         return Err(AuthoringError::Invalid(
             "a menu address names a service result, not a parameter or SelectedRows".into(),
         ));
+    }
+    // Menu recipes require a table; keep that diagnosis before the scalar binding safeguard.
+    if let Address::Data { entity_service, .. } = &address {
+        let (entity, service) = resolve_service(context.model, context.platform, entity_service)?;
+        let found =
+            catalog::lookup_service(entity, &context.model.entities, context.platform, &service)
+                .service
+                .expect("resolved above");
+        if found.result.base_type != "INFOTABLE" {
+            return Err(AuthoringError::Refused(
+                "the menu service must return an INFOTABLE".into(),
+            ));
+        }
     }
     let end = resolve_end(document, None, context, address, true, &mut Vec::new())?;
     if base(&end) != "INFOTABLE" {

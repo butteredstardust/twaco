@@ -574,6 +574,7 @@ pub(crate) const USAGE: &[Usage] = &[
         group: 1,
         text: r#"  rename entity <old> <new> [--apply] [--text] [--detail] [--json] [--skip-checks]
                               rename exactly one entity; plan unless --apply
+                              old accepts Collection/Name; new keeps that collection; quote names with spaces
       --sql | --sql-dir <dir> | --no-sql   the database half, as for rename field"#,
     },
     Usage {
@@ -780,10 +781,13 @@ pub(crate) const USAGE: &[Usage] = &[
         group: 1,
         text: r#"  mashup source add <mashup> <entity> <service> [--dynamic] [--on-load] [--as <new>] [--entity-from <address>]
       [--every <seconds>] [--cache [--cache-key <parameter>]...]
-      [--cache-strategy <INSTANCE|SESSION|USER>] [--max-result-sets <n>] [--apply] [--json]
+      [--cache-strategy <INSTANCE|SESSION|USER>] [--max-result-sets <n>] [--param-value <name=value>]...
+      [--apply] [--json]
                               call a Thing's, ThingTemplate's or ThingShape's service from a mashup;
                               a shape's call is dynamic: it runs on the Thing its EntityName binding
                               names; plan unless --apply
+      --param-value           a fixed value for one of the service's parameters, typed by its base type
+                              (true/false, a number, or text); repeatable
       --dynamic               a ThingTemplate's call runs on a Thing bound to EntityName, not on
                               the template
       --on-load               invoke the call when the mashup finishes loading
@@ -913,10 +917,13 @@ pub(crate) const USAGE: &[Usage] = &[
           [--else-say <text>]   run the handler when the condition holds, else show the text
       chart <chart> --data <data call> --x <field> [--value <field>] [--kind <chart type>]
                               draw a service result: the category field (a pie: label and value)
-      columns <grid> --column field[:Title[:width]]... [--data <data call>]
-                              only these columns in order, with readable dates; --data or existing binding
+      columns <grid> --column field[:Title[:width]]... [--data <data call>] [--editable-column <field>]...
+                              only these columns in order, with readable dates; --data or existing binding;
+                              --editable-column makes a listed column (and so the grid) editable
       picker <dropdown|list> --data <data call> --x <display field> [--value <field>]
-          [--selected <address>]   fill a dropdown or list from a service result
+          [--selected <address>] [--no-none-row] [--auto-select-first]
+                              fill a dropdown or list from a service result; without the "(None)" row,
+                              or selecting the first row
       tracker <widget|new> --data <data call> [--field-map Property=field]...
                               interactive large tracker; infer all five maps from the result DataShape
       set-on-click <button> --param <name> --expr <expression> [--input name=<address>]...
@@ -940,8 +947,8 @@ pub(crate) const USAGE: &[Usage] = &[
     Usage {
         path: "mashup new",
         group: 1,
-        text: r#"  mashup new <name> [--project <name>] [--from <address> | --template <name>] [--primary-menu <address>]
-      [--secondary-menu <address>] [--theme <StyleTheme>] [--master]
+        text: r#"  mashup new <name> [--project <name>] [--from <address> | --template <name>]
+      [--primary-menu <address> | --menu-entity <Menu>] [--secondary-menu <address>] [--theme <StyleTheme>] [--master]
       [--visibility <principal>]... [--param <name:TYPE[:DIRECTION]|name:INFOTABLE:DataShape[:DIRECTION]>]... [--tab <Label=Mashup>]...
       [--apply] [--json]
                               create a ThingWorx 10.2 responsive mashup as Composer would: its entity file
@@ -949,7 +956,8 @@ pub(crate) const USAGE: &[Usage] = &[
       --from <address>        copy a repository mashup exactly, except identity and permissions
       --template              layout template name or alias (default: blank); see mashup templates
       --layout                compatibility alias for --template
-      --primary-menu          required INFOTABLE service result for a template's menu bar
+      --primary-menu          an INFOTABLE service result for a template's menu bar
+      --menu-entity <Menu>    a Menu in the solution for a template's menu bar instead (no service)
       --secondary-menu        optional INFOTABLE service result for a template's menu bar
       --theme <StyleTheme>    a StyleTheme in the solution (default: PTC Convergence Theme)
       --master                a master mashup, with a page container filling the center
@@ -963,7 +971,7 @@ pub(crate) const USAGE: &[Usage] = &[
         text: r#"  new building-block <name> [--type standard|abstract|implementation] [--display-name <text>] [--description <text>]
       [--parent <block>] [--model-logic] [--no-management-shape] [--root <dir>] [--base-extension PTC.Base:<version>]
       [--apply] [--json]
-                              create a building block: its project, entry point, manager, groups and
+                              create a building block (namespaced name, e.g. Acme.Orders): its project, entry point, manager, groups and
                               organization as files, and its project in twaco.toml; plan unless --apply
       --type                  standard (own manager, default), abstract (no manager Thing) or implementation
       --parent <block>        the abstract block an implementation implements

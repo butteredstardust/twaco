@@ -34,7 +34,7 @@ pub(crate) use table::{scan_configuration_table, scan_table_script};
 #[cfg(test)]
 pub(crate) use xml::scan_text;
 pub use xml::scan_xml;
-pub(crate) use xml::{scan_text_with, Qualified};
+pub(crate) use xml::{scan_entity_script, scan_text_with, scan_xml_with_identity, Qualified};
 
 #[cfg(test)]
 mod tests;

@@ -269,6 +269,7 @@ pub(crate) fn config_table_tool(
                 "thing": thing,
                 "table": table,
                 "dry_run": dry_run,
+                "service": plan.service,
                 "rows_written": plan.writes,
                 "rows_removed": plan.deletes,
                 "note": if dry_run { "nothing was written; pass dry_run: false to restore" } else { "restored and read back" },

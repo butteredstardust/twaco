@@ -2871,3 +2871,37 @@ fn an_override_on_an_unextracted_entity_gives_its_other_services_folders_too() {
     assert!(services.join("Local/script.js").is_file());
     assert_in_step(&solution);
 }
+
+#[test]
+fn menu_item_add_repairs_legacy_root_description_from_menu_attribute() {
+    let (_dir, solution) = fixture();
+    new(&solution, Kind::Menu, "Acme.Main", |request| {
+        request.description = "Main & tools".into();
+        request.items = vec!["Start=Acme.Start".into()];
+    });
+    let path = workspace::entities(&solution)
+        .into_iter()
+        .find(|file| file.info.name == "Acme.Main")
+        .unwrap()
+        .path;
+    let xml = std::fs::read_to_string(&path).unwrap().replace(
+        "<description><![CDATA[Main & tools]]></description>",
+        "<description></description>",
+    );
+    std::fs::write(&path, xml).unwrap();
+    run(
+        &solution,
+        "Acme.Main",
+        Action::MenuItemAdd {
+            title: "Home".into(),
+            mashup: "Acme.Home".into(),
+            default: false,
+            before: None,
+        },
+    );
+    let after = std::fs::read_to_string(path).unwrap();
+    assert!(
+        after.contains("<description><![CDATA[Main & tools]]></description>"),
+        "{after}"
+    );
+}

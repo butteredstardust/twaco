@@ -4,4 +4,4 @@ exit: 2
 --- stdout
 
 --- stderr
-twaco: no entity named Nope.Entity in this solution
+twaco: no entity named "Nope.Entity" in this solution

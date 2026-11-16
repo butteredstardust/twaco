@@ -3532,7 +3532,7 @@
   },
   {
     "name": "rename",
-    "description": "Rename one entity, a dotted project/building-block prefix, a DataShape field, a declared service, one service parameter, or a configuration table. A dry run unless dry_run is false; an apply takes the workspace lock. The result carries a plan_digest: pass it back with dry_run false to apply exactly the plan that was reviewed.",
+    "description": "Rename one entity (old accepts Collection/Name; new must keep that collection; names may contain internal single spaces), a dotted project/building-block prefix, a DataShape field, a declared service, one service parameter, or a configuration table. A dry run unless dry_run is false; an apply takes the workspace lock. The result carries a plan_digest: pass it back with dry_run false to apply exactly the plan that was reviewed.",
     "inputSchema": {
       "required": [
         "kind",
@@ -3797,7 +3797,7 @@
   },
   {
     "name": "new_building_block",
-    "description": "Create a new building block in the repository, as the building-block framework's Create New Building Block does on a server: its project, EntryPoint template and Thing, Management shape, Manager template and Thing (not for an abstract block), default and admin groups and organization, as files, plus the project in twaco.toml. The files match what the framework produced on a server. The permission helper and the ui and test types are not created. A dry run unless dry_run is false; an apply takes the workspace lock.",
+    "description": "Create a new building block in the repository (namespaced name, e.g. Acme.Orders), as the building-block framework's Create New Building Block does on a server: its project, EntryPoint template and Thing, Management shape, Manager template and Thing (not for an abstract block), default and admin groups and organization, as files, plus the project in twaco.toml. The files match what the framework produced on a server. The permission helper and the ui and test types are not created. A dry run unless dry_run is false; an apply takes the workspace lock.",
     "inputSchema": {
       "required": [
         "name"
@@ -5092,7 +5092,7 @@
   },
   {
     "name": "mashup_new",
-    "description": "Create a ThingWorx 10.2 responsive mashup from an embedded layout template, with its entity file and managed content.json and custom.css sidecars. template is a name or alias (blank by default); mashup_templates lists the slots where mashup_add can place widgets. Menu templates require primary_menu and may use secondary_menu. master puts its page container in the template's master slot. A dry run unless dry_run is false; an apply takes the workspace lock and writes every file or none.",
+    "description": "Create a ThingWorx 10.2 responsive mashup from an embedded layout template, with its entity file and managed content.json and custom.css sidecars. template is a name or alias (blank by default); mashup_templates lists the slots where mashup_add can place widgets. Menu templates require primary_menu (a service result) or menu_entity (a Menu in the solution); secondary_menu goes with primary_menu. master puts its page container in the template's master slot. A dry run unless dry_run is false; an apply takes the workspace lock and writes every file or none.",
     "inputSchema": {
       "required": [
         "name"
@@ -5122,6 +5122,10 @@
         },
         "primary_menu": {
           "description": "The INFOTABLE service result used as a sidebar's primary menu.",
+          "type": "string"
+        },
+        "menu_entity": {
+          "description": "A Menu entity in the solution as a sidebar's primary menu, instead of primary_menu.",
           "type": "string"
         },
         "secondary_menu": {
@@ -5408,6 +5412,7 @@
     },
     "outputSchema": {
       "required": [
+        "notes",
         "applied",
         "dry_run",
         "mashup",
@@ -5418,6 +5423,12 @@
         "files"
       ],
       "properties": {
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "applied": {
           "type": "boolean"
         },
@@ -5712,6 +5723,7 @@
     },
     "outputSchema": {
       "required": [
+        "notes",
         "applied",
         "dry_run",
         "mashup",
@@ -5721,6 +5733,12 @@
         "files"
       ],
       "properties": {
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "applied": {
           "type": "boolean"
         },
@@ -5812,6 +5830,7 @@
     },
     "outputSchema": {
       "required": [
+        "notes",
         "applied",
         "dry_run",
         "mashup",
@@ -5821,6 +5840,12 @@
         "files"
       ],
       "properties": {
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "applied": {
           "type": "boolean"
         },
@@ -5917,6 +5942,7 @@
     },
     "outputSchema": {
       "required": [
+        "notes",
         "applied",
         "dry_run",
         "mashup",
@@ -5927,6 +5953,12 @@
         "files"
       ],
       "properties": {
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "applied": {
           "type": "boolean"
         },
@@ -6151,6 +6183,13 @@
           "description": "How many result sets to cache; needs cache.",
           "type": "integer",
           "minimum": 0
+        },
+        "param_values": {
+          "description": "`name=value` fixed service parameters, typed by each parameter's base type.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         },
         "dry_run": {
           "type": "boolean",
@@ -7280,6 +7319,21 @@
           "description": "What a picker's selection is bound from.",
           "type": "string"
         },
+        "editable_columns": {
+          "description": "Grid columns its users may edit, each one of `columns` (recipe columns).",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "no_none_row": {
+          "description": "A picker without the \"(None)\" row.",
+          "type": "boolean"
+        },
+        "auto_select_first": {
+          "description": "A picker that selects its first row.",
+          "type": "boolean"
+        },
         "dry_run": {
           "type": "boolean",
           "default": true
@@ -8056,8 +8110,14 @@
             "null"
           ]
         },
-        "dry_run": {
+        "service": {
           "description": "restore",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "dry_run": {
           "type": [
             "boolean",
             "null"

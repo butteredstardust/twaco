@@ -182,6 +182,8 @@ pub(crate) struct MashupSourceAdd {
     pub(crate) cache_strategy: Option<String>,
     #[arg(long = "max-result-sets", value_name = "n")]
     pub(crate) max_result_sets: Option<u32>,
+    #[arg(long = "param-value", value_name = "name=value")]
+    pub(crate) param_values: Vec<String>,
     #[command(flatten)]
     pub(crate) apply: Apply,
     #[command(flatten)]
@@ -508,6 +510,12 @@ pub(crate) struct MashupRecipe {
     pub(crate) columns: Vec<String>,
     #[arg(long = "selected", value_name = "address")]
     pub(crate) selected: Option<String>,
+    #[arg(long = "editable-column", value_name = "field")]
+    pub(crate) editable: Vec<String>,
+    #[arg(long = "no-none-row")]
+    pub(crate) no_none_row: bool,
+    #[arg(long = "auto-select-first")]
+    pub(crate) auto_select_first: bool,
     #[command(flatten)]
     pub(crate) apply: Apply,
     #[command(flatten)]
@@ -554,6 +562,8 @@ pub(crate) struct MashupNew {
     pub(crate) layout: Option<String>,
     #[arg(long = "primary-menu", value_name = "address")]
     pub(crate) primary_menu: Option<String>,
+    #[arg(long = "menu-entity", value_name = "Menu")]
+    pub(crate) menu_entity: Option<String>,
     #[arg(long = "secondary-menu", value_name = "address")]
     pub(crate) secondary_menu: Option<String>,
     #[arg(long = "theme", value_name = "theme")]
@@ -592,6 +602,7 @@ pub(crate) fn mashup_new_cmd(solution: &Solution, args: &MashupNew) -> u8 {
             ("--param", !args.params.is_empty()),
             ("--tab", !args.tabs.is_empty()),
             ("--primary-menu", args.primary_menu.is_some()),
+            ("--menu-entity", args.menu_entity.is_some()),
             ("--secondary-menu", args.secondary_menu.is_some()),
             ("--theme", args.theme.is_some()),
         ] {
@@ -614,6 +625,7 @@ pub(crate) fn mashup_new_cmd(solution: &Solution, args: &MashupNew) -> u8 {
             project: args.project.project.clone(),
             template,
             primary_menu: args.primary_menu.clone(),
+            menu_entity: args.menu_entity.clone(),
             secondary_menu: args.secondary_menu.clone(),
             theme: args.theme.clone(),
             master: args.master,
@@ -708,8 +720,12 @@ pub(crate) fn mashup_new_cmd(solution: &Solution, args: &MashupNew) -> u8 {
             None => println!("  tab {}: {label} (empty)", index + 1),
         }
     }
-    for (service, property) in &plan.menus {
-        println!("  menu: {service} -> {property}, loaded with the page");
+    for (source, property) in &plan.menus {
+        if property == "PrimaryNavMenu" {
+            println!("  menu: Menu {source} -> {property} (DataSource menuentity)");
+        } else {
+            println!("  menu: {source} -> {property}, loaded with the page");
+        }
     }
     if !outcome.applied {
         println!("run again with --apply to write it");
@@ -774,6 +790,9 @@ pub(crate) fn mashup_recipe_cmd(solution: &Solution, args: &MashupRecipe) -> u8 
         value: args.value.clone(),
         columns: args.columns.clone(),
         selected: args.selected.clone(),
+        editable: args.editable.clone(),
+        no_none_row: args.no_none_row,
+        auto_select_first: args.auto_select_first,
     };
     let recipe = match mashup::authoring::Recipe::from_args(name, &recipe_args) {
         Ok(recipe) => recipe,
@@ -1259,6 +1278,9 @@ pub(crate) fn mashup_add_cmd(solution: &Solution, args: &MashupAdd) -> u8 {
         plan.placed.id,
         plan.edit.mashup
     );
+    for note in &plan.notes {
+        println!("  {note}");
+    }
     for container in &plan.placed.containers {
         println!("  new container {container}");
     }
@@ -1628,6 +1650,11 @@ pub(crate) fn mashup_set_cmd(solution: &Solution, args: &MashupSet) -> u8 {
             );
         }
     }
+    if !args.json.json {
+        for note in &outcome.plan.notes {
+            println!("  {note}");
+        }
+    }
     OK
 }
 
@@ -1898,6 +1925,7 @@ pub(crate) fn mashup_source_add_cmd(solution: &Solution, args: &MashupSourceAdd)
             cache_keys: args.cache_keys.clone(),
             cache_strategy: args.cache_strategy.clone(),
             max_result_sets: args.max_result_sets,
+            param_values: args.param_values.clone(),
         },
         mode: if args.apply.apply {
             Mode::Apply

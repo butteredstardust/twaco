@@ -1,9 +1,9 @@
 //! `mashup new`: a mashup built from a layout template, with its entity file and sidecars.
 
 use super::{
-    bind_in, cache_entry, contained_parameters, load_existing, menu_service, on_in, parse_loaded,
-    parse_new_parameter, set_content_parameter, splice_parameter_definition, AuthoringContext,
-    AuthoringError, ParameterDefinition,
+    bind_in, cache_entry, contained_parameters, content_round_trips, load_existing, menu_service,
+    on_in, parse_loaded, parse_new_parameter, set_content_parameter, splice_parameter_definition,
+    AuthoringContext, AuthoringError, ParameterDefinition,
 };
 use crate::core::config::Solution;
 use crate::core::entity::key::EntityKey;
@@ -25,8 +25,10 @@ pub struct NewRequest {
     pub project: Option<String>,
     /// An embedded layout template name or alias.
     pub template: String,
-    /// The required primary menu service for a template with a menu bar.
+    /// The primary menu service for a template with a menu bar; it or `menu_entity` is required.
     pub primary_menu: Option<String>,
+    /// A Menu entity as the primary menu instead of a service.
+    pub menu_entity: Option<String>,
     /// The optional secondary menu service for a template with a menu bar.
     pub secondary_menu: Option<String>,
     /// A StyleTheme in the solution, or 10.2's default.
@@ -228,14 +230,32 @@ pub(crate) fn plan_new(
         .widgets()
         .into_iter()
         .find(|widget| widget.type_id == "ptcsmenubar");
-    match (menu.as_ref(), request.primary_menu.as_ref()) {
-        (Some(_), None) => {
+    match (
+        menu.as_ref(),
+        request.primary_menu.as_ref(),
+        request.menu_entity.as_ref(),
+    ) {
+        (Some(_), None, None) => {
             return Err(AuthoringError::Invalid(format!(
-                "--primary-menu is required for --template {}",
+                "--primary-menu <service> or --menu-entity <Menu> is required for --template {}",
                 template.name
             )));
         }
-        (None, _) if request.primary_menu.is_some() || request.secondary_menu.is_some() => {
+        (Some(_), Some(_), Some(_)) => {
+            return Err(AuthoringError::Invalid(
+                "give --primary-menu or --menu-entity, not both".into(),
+            ));
+        }
+        (Some(_), None, Some(_)) if request.secondary_menu.is_some() => {
+            return Err(AuthoringError::Invalid(
+                "--secondary-menu is a service menu beside --primary-menu; a --menu-entity menu bar has none".into(),
+            ));
+        }
+        (None, _, _)
+            if request.primary_menu.is_some()
+                || request.secondary_menu.is_some()
+                || request.menu_entity.is_some() =>
+        {
             return Err(AuthoringError::Invalid(
                 "menus are for a template with a menu bar (sidebar, header-sidebar)".into(),
             ));
@@ -244,6 +264,23 @@ pub(crate) fn plan_new(
     }
     let tabs = build_tabs(solution, &request.name, &mut document, &request.tabs)?;
     let mut menus = Vec::new();
+    if let Some(entity) = &request.menu_entity {
+        if !workspace::entities(solution)
+            .iter()
+            .any(|found| found.info.collection == "Menus" && found.info.name == *entity)
+        {
+            return Err(AuthoringError::Unknown(format!(
+                "no Menu {} in the solution; create it with twaco new menu",
+                workspace::quoted_selector(entity)
+            )));
+        }
+        // A Menu entity is the menu bar's data source itself: no service, no load event.
+        let id = menu.as_ref().expect("checked menu").id.clone();
+        let path = document.find_exact(&id).map_err(AuthoringError::Edit)?.path;
+        document.set_property(&path, "PrimaryNavMenu", Value::String(entity.clone()));
+        document.set_property(&path, "DataSource", Value::String("menuentity".into()));
+        menus.push((entity.clone(), "PrimaryNavMenu".to_string()));
+    }
     if let Some(primary_menu) = &request.primary_menu {
         let (model, _) = types::load_model(solution);
         let platform = types::cached_platform(solution);
@@ -276,8 +313,9 @@ pub(crate) fn plan_new(
     } else {
         MashupKind::Mashup
     };
-    let assets =
+    let mut assets =
         mashup::assets_from_payload(&document.to_content()).map_err(AuthoringError::Mashup)?;
+    remove_content_css(&mut assets);
     let entity_template =
         mashup::templates::entity_xml(&request.name, &project.name, kind, &visibility)
             .map_err(|e| AuthoringError::Invalid(e.to_string()))?;
@@ -332,6 +370,7 @@ fn plan_copy(solution: &Solution, request: &NewRequest) -> Result<NewPlan, Autho
         (!request.params.is_empty(), "--param"),
         (!request.tabs.is_empty(), "--tab"),
         (request.primary_menu.is_some(), "--primary-menu"),
+        (request.menu_entity.is_some(), "--menu-entity"),
         (request.secondary_menu.is_some(), "--secondary-menu"),
         (request.theme.is_some(), "--theme"),
     ];
@@ -418,7 +457,13 @@ fn plan_copy(solution: &Solution, request: &NewRequest) -> Result<NewPlan, Autho
     // The source has already been checked by load_existing. Re-extracting proves the spliced
     // XML still represents exactly the sidecars we will create.
     let extracted = mashup::extract(&entity).map_err(AuthoringError::Mashup)?;
-    if extracted != loaded.assets {
+    if extracted.css != loaded.assets.css
+        || !content_round_trips(
+            &loaded.assets.content,
+            &extracted.content,
+            loaded.sidecars.is_some(),
+        )
+    {
         return Err(AuthoringError::Refused(format!(
             "{from}: copying its identity changed mashup content; twaco will not re-serialise it"
         )));
@@ -453,7 +498,11 @@ fn plan_copy(solution: &Solution, request: &NewRequest) -> Result<NewPlan, Autho
         content_path,
         css_path,
         entity,
-        assets: loaded.assets,
+        assets: {
+            let mut assets = loaded.assets;
+            remove_content_css(&mut assets);
+            assets
+        },
         widgets: document.widgets(),
         menus: Vec::new(),
         tabs: Vec::new(),
@@ -1008,4 +1057,122 @@ fn build_tabs(
     }
     document.set_property(&tabset.path, "Items", Value::Array(items));
     Ok(tabs)
+}
+
+/// A tab set's NumberOfTabs, which Composer may store as a number or as text; 2 when unset.
+pub(super) fn tab_count(value: &Value) -> usize {
+    value
+        .as_u64()
+        .and_then(|n| usize::try_from(n).ok())
+        .or_else(|| value.as_str().and_then(|text| text.trim().parse().ok()))
+        .or_else(|| {
+            value
+                .as_f64()
+                .filter(|n| n.fract() == 0.0)
+                .and_then(|n| format!("{n:.0}").parse().ok())
+        })
+        .unwrap_or(2)
+}
+
+/// Give a tab set exactly `count` tabs, as the `tabs` template builds them: one flex container per
+/// tab (`<tab set> #<n>`, `userCannotRemove`), `Tab<n>Name` and `Tab<n>Value` for new tabs, and
+/// `Items` and `NumberOfTabs` to match. Existing tabs keep their containers and names; a trailing
+/// tab whose container still holds widgets is not removed. Returns the tab containers added.
+pub(super) fn sync_tabs(
+    document: &mut MashupDocument,
+    tabset_id: &str,
+    count: usize,
+) -> Result<Vec<String>, AuthoringError> {
+    if !(1..=16).contains(&count) {
+        return Err(AuthoringError::Invalid("a tab set has 1 to 16 tabs".into()));
+    }
+    let path = document
+        .find_exact(tabset_id)
+        .map_err(AuthoringError::Edit)?
+        .path;
+    let existing = document.at(&path)["Widgets"].as_array().map_or(0, Vec::len);
+    for index in (count..existing).rev() {
+        let child = [path.as_slice(), &[index]].concat();
+        let holds = document.at(&child)["Widgets"]
+            .as_array()
+            .is_some_and(|widgets| !widgets.is_empty());
+        if holds {
+            let name = document.at(&child)["Properties"]["DisplayName"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string();
+            return Err(AuthoringError::Refused(format!(
+                "tab {} ({name}) still holds widgets; remove them first",
+                index + 1
+            )));
+        }
+        document
+            .remove_widget(&child)
+            .map_err(AuthoringError::Edit)?;
+    }
+    let catalog = widgets::catalog();
+    let container = catalog
+        .by_type("flexcontainer")
+        .expect("the catalogue has the flex container; a test checks it");
+    let tabset_name = document.at(&path)["Properties"]["DisplayName"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
+    let mut added = Vec::new();
+    for index in existing..count {
+        let mut tab = mashup::edit::new_widget(container, document.allocate(), true);
+        tab["Properties"]["DisplayName"] = json!(format!("{tabset_name} #{}", index + 1));
+        mashup::edit::insert_sorted(
+            mashup::edit::properties_mut(&mut tab),
+            "userCannotRemove",
+            json!(true),
+        );
+        added.push(
+            tab["Properties"]["Id"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string(),
+        );
+        document.push_child(&path, tab);
+    }
+    let mut items = Vec::new();
+    for n in 1..=count {
+        let properties = &document.at(&path)["Properties"];
+        let name = properties[format!("Tab{n}Name")]
+            .as_str()
+            .filter(|name| !name.is_empty())
+            .map_or_else(|| format!("Tab Name {n}"), str::to_string);
+        let value = properties[format!("Tab{n}Value")]
+            .as_str()
+            .filter(|value| !value.is_empty())
+            .map_or_else(|| format!("TabValue{n}"), str::to_string);
+        document.set_property(&path, &format!("Tab{n}Name"), json!(name));
+        document.set_property(&path, &format!("Tab{n}Value"), json!(value));
+        items.push(json!({"disabled": false, "name": name, "value": value, "visible": true}));
+    }
+    // A removed tab leaves no Tab<n> properties behind for a later NumberOfTabs to reuse.
+    if let Some(properties) = document.at_mut(&path)["Properties"].as_object_mut() {
+        properties.retain(|key, _| {
+            key.strip_prefix("Tab")
+                .map(|rest| {
+                    rest.chars()
+                        .take_while(char::is_ascii_digit)
+                        .collect::<String>()
+                })
+                .and_then(|digits| digits.parse::<usize>().ok())
+                .is_none_or(|tab| tab <= count)
+        });
+    }
+    document.set_property(&path, "Items", Value::Array(items));
+    document.set_property(&path, "NumberOfTabs", json!(count));
+    Ok(added)
+}
+
+fn remove_content_css(assets: &mut mashup::Assets) {
+    let mut content: Value = serde_json::from_str(&assets.content).expect("mashup content is JSON");
+    content
+        .as_object_mut()
+        .expect("mashup content is an object")
+        .remove("CustomMashupCss");
+    assets.content = mashup::to_sidecar(&content);
 }

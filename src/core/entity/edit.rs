@@ -3205,7 +3205,7 @@ fn menu_item_remove(doc: &Doc, title: &str, plan: &mut Plan) -> Result<(), EditE
 }
 
 /// `after` (the menu with its items edited) with the item rows of `<effectiveMenu>` written
-/// again from the items, in order and numbered; the root row stays.
+/// again from the items, in order and numbered; the root description follows the Menu.
 fn with_rows(doc: &Doc, after: Vec<u8>) -> Result<Vec<u8>, EditError> {
     let doc = Doc::parse(doc.file.clone(), after)?;
     let (_, entries) = menu_entries(&doc)?;
@@ -3237,7 +3237,17 @@ fn with_rows(doc: &Doc, after: Vec<u8>) -> Result<Vec<u8>, EditError> {
         Span::new(root_end, rows_end),
         format!("{row_xml}\n{rows_indent}").into_bytes(),
     );
-    splice_all(&doc.src, vec![edit])
+    let description = doc.only_child(root, "description")?;
+    let text = doc.attr(doc.entity, "description").unwrap_or_default();
+    let description_edit = Edit::new(
+        doc.inner(description)?,
+        if text.is_empty() {
+            Vec::new()
+        } else {
+            entity::new::cdata(&text).into_bytes()
+        },
+    );
+    splice_all(&doc.src, vec![edit, description_edit])
 }
 
 /// Reindent a block of lines that each begin with a newline (the menu writers' shape).

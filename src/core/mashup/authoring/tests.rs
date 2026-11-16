@@ -37,6 +37,7 @@ fn request(name: &str) -> NewRequest {
         project: None,
         template: "blank".into(),
         primary_menu: None,
+        menu_entity: None,
         secondary_menu: None,
         theme: None,
         master: false,
@@ -564,6 +565,70 @@ fn sidebar_menu_requests_refuse_missing_wrong_or_non_sidebar_menus() {
 }
 
 #[test]
+fn a_menu_entity_is_the_menu_bar_source_without_a_service() {
+    let (dir, solution) = one_project();
+    let sidebar = |primary: Option<&str>, entity: Option<&str>, secondary: Option<&str>| {
+        plan_new(
+            &solution,
+            &NewRequest {
+                template: "sidebar".into(),
+                primary_menu: primary.map(Into::into),
+                menu_entity: entity.map(Into::into),
+                secondary_menu: secondary.map(Into::into),
+                ..request("Acme.Nav_MU")
+            },
+        )
+    };
+    let missing = sidebar(None, Some("Acme.Main_MN"), None).unwrap_err();
+    assert_eq!(missing.code(), ErrorCode::UnknownEntity);
+    assert!(missing.to_string().contains("new menu"), "{missing}");
+    write(
+        dir.path(),
+        "acme/Menus/Acme.Main_MN.xml",
+        r#"<Entities><Menus><Menu name="Acme.Main_MN" projectName="Acme"/></Menus></Entities>"#,
+    );
+    let plan = sidebar(None, Some("Acme.Main_MN"), None).unwrap();
+    assert_eq!(
+        plan.menus,
+        [("Acme.Main_MN".to_string(), "PrimaryNavMenu".to_string())]
+    );
+    let document = mashup::edit::parse(&plan.assets.content).unwrap();
+    let bar = document
+        .widgets()
+        .into_iter()
+        .find(|widget| widget.type_id == "ptcsmenubar")
+        .unwrap();
+    let properties = &document.at(&document.find_exact(&bar.id).unwrap().path)["Properties"];
+    assert_eq!(properties["PrimaryNavMenu"], "Acme.Main_MN");
+    assert_eq!(properties["DataSource"], "menuentity");
+    // No service call and so no load event.
+    assert!(document.value()["DataBindings"]
+        .as_array()
+        .is_none_or(|bindings| bindings.is_empty()));
+    assert!(document.value()["Events"]
+        .as_array()
+        .is_none_or(|events| events.is_empty()));
+    for (primary, entity, secondary, says) in [
+        (None, None, None, "--menu-entity <Menu> is required"),
+        (
+            Some("data:Acme.Nav.Manager.GetTable"),
+            Some("Acme.Main_MN"),
+            None,
+            "not both",
+        ),
+        (
+            None,
+            Some("Acme.Main_MN"),
+            Some("data:Acme.Nav.Manager.GetTable"),
+            "--secondary-menu",
+        ),
+    ] {
+        let error = sidebar(primary, entity, secondary).unwrap_err().to_string();
+        assert!(error.contains(says), "{error}");
+    }
+}
+
+#[test]
 fn a_theme_must_be_the_default_or_in_the_solution() {
     let (dir, solution) = one_project();
     let error = plan_new(
@@ -854,6 +919,112 @@ fn cli_text_follows_the_default_type_when_there_is_no_base_type() {
         property_value(flex, name, json!(flipped.to_string())).unwrap(),
         json!(flipped)
     );
+}
+
+#[test]
+fn an_added_tab_set_gets_tab_containers_and_numbered_tab_properties() {
+    let (_dir, solution) = one_project();
+    let name = "Acme.Orders_MU";
+    apply_new(
+        &solution,
+        &plan_new(&solution, &request(name)).unwrap(),
+        &lock(&solution),
+    )
+    .unwrap();
+    let added = plan_add(&solution, &add_request(name, "ptcstabset")).unwrap();
+    assert!(
+        added
+            .notes
+            .iter()
+            .any(|note| note.contains("tab container")),
+        "{:?}",
+        added.notes
+    );
+    apply_edit(&solution, &added.edit, &lock(&solution)).unwrap();
+    let tabset = added.placed.id;
+    let tabs = |solution: &Solution| {
+        let document = mashup::edit::parse(&sidecar_content(solution)).unwrap();
+        document
+            .at(&document.find_exact(&tabset).unwrap().path)
+            .clone()
+    };
+    let widget = tabs(&solution);
+    let containers = widget["Widgets"].as_array().unwrap();
+    assert_eq!(containers.len(), 2);
+    assert!(containers
+        .iter()
+        .all(|tab| tab["Properties"]["Type"] == "flexcontainer"
+            && tab["Properties"]["userCannotRemove"] == true));
+    assert_eq!(widget["Properties"]["NumberOfTabs"], 2);
+    assert!(widget["Properties"]["Tab2Name"]
+        .as_str()
+        .is_some_and(|name| !name.is_empty()));
+    assert_eq!(widget["Properties"]["Items"].as_array().unwrap().len(), 2);
+    let set = |properties: Vec<(&str, Value)>| {
+        plan_set(
+            &solution,
+            &SetRequest {
+                mashup: name.into(),
+                widget: tabset.clone(),
+                properties: properties
+                    .into_iter()
+                    .map(|(name, value)| (name.to_string(), value))
+                    .collect(),
+                style_from: None,
+                styles: Vec::new(),
+            },
+        )
+    };
+    // A tab beyond NumberOfTabs is refused until there are that many tabs.
+    let error = set(vec![("Tab3Icon", json!("Acme.Icon_MD"))])
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("set NumberOfTabs first"), "{error}");
+    let grown = set(vec![
+        ("NumberOfTabs", json!(3)),
+        ("Tab3Name", json!("History")),
+        ("Tab3SVGIcon", json!("Acme.History_MD")),
+        ("Tab2Visible", json!("false")),
+        ("TabMode", json!("iconlabel")),
+        ("TabWidthConfig", json!("even")),
+    ])
+    .unwrap();
+    assert!(grown
+        .notes
+        .iter()
+        .any(|note| note.contains("added tab container")));
+    apply_edit(&solution, grown.edit.as_ref().unwrap(), &lock(&solution)).unwrap();
+    let widget = tabs(&solution);
+    assert_eq!(widget["Widgets"].as_array().unwrap().len(), 3);
+    assert_eq!(widget["Properties"]["Tab3Name"], "History");
+    assert_eq!(widget["Properties"]["Tab3SVGIcon"], "Acme.History_MD");
+    assert_eq!(widget["Properties"]["Tab2Visible"], false);
+    assert_eq!(widget["Properties"]["Items"][2]["name"], "History");
+    // A tab whose container holds a widget is not dropped.
+    let second = widget["Widgets"][1]["Properties"]["Id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let label = plan_add(
+        &solution,
+        &AddRequest {
+            placement: Some(Placement::In(second)),
+            ..add_request(name, "label")
+        },
+    )
+    .unwrap();
+    apply_edit(&solution, &label.edit, &lock(&solution)).unwrap();
+    let error = set(vec![("NumberOfTabs", json!(1))])
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("still holds widgets"), "{error}");
+    let shrunk = set(vec![("NumberOfTabs", json!(2))]).unwrap();
+    apply_edit(&solution, shrunk.edit.as_ref().unwrap(), &lock(&solution)).unwrap();
+    let widget = tabs(&solution);
+    assert_eq!(widget["Widgets"].as_array().unwrap().len(), 2);
+    assert!(widget["Properties"].get("Tab3Name").is_none());
+    assert!(widget["Properties"].get("Tab3SVGIcon").is_none());
+    assert_eq!(widget["Properties"]["Tab2Visible"], false);
 }
 
 #[test]
@@ -4922,7 +5093,7 @@ fn chart_columns_and_picker_recipes_configure_widgets_from_the_result_shape() {
     assert_eq!(format[1]["Title"], "Order");
     assert_eq!(format[1]["Width"], 120);
     assert_eq!(format[1]["FormatOptions"]["renderer"], "NUMBER");
-    assert_eq!(format[1]["FormatOptions"]["FormatString"], "0.00");
+    assert_eq!(format[1]["FormatOptions"]["FormatString"], "0");
     assert_eq!(props(dropdown)["DisplayField"], "note");
     assert_eq!(props(dropdown)["DisplayFieldBaseType"], "STRING");
     assert_eq!(props(dropdown)["ValueField"], "id");
@@ -5295,6 +5466,7 @@ fn source_request(entity: &str, service: &str) -> SourceAddRequest {
         cache_keys: Vec::new(),
         cache_strategy: None,
         max_result_sets: None,
+        param_values: Vec::new(),
     }
 }
 
@@ -5393,6 +5565,88 @@ fn source_add_writes_each_kind_as_composer_does() {
         .unwrap_err()
         .to_string();
     assert!(error.contains("is not a service"), "{error}");
+}
+
+#[test]
+fn platform_services_resolve_through_the_cache_and_a_missing_cache_says_how_to_fill_it() {
+    let (dir, solution) = source_fixture();
+    write(
+        dir.path(),
+        "acme/Things/Acme.Orders.Poll.xml",
+        r#"<Entities><Things><Thing name="Acme.Orders.Poll" projectName="Acme" thingTemplate="Timer"><ThingShape><ServiceDefinitions/></ThingShape></Thing></Things></Entities>"#,
+    );
+    let error = plan_source_add(
+        &solution,
+        &source_request("Acme.Orders.Poll", "EnableTimer"),
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(
+        error.contains("twaco types --platform") && error.contains("template chain"),
+        "{error}"
+    );
+    write(
+        dir.path(),
+        ".twaco/platform.json",
+        r#"{"templates": {
+            "Timer": {"services": {"EnableTimer": {"inputs": {}, "result": {"baseType": "NOTHING"}}}},
+            "GenericThing": {"services": {"GetProperties": {"inputs": {}, "result": {"baseType": "INFOTABLE"}}}}
+        }}"#,
+    );
+    plan_source_add(
+        &solution,
+        &source_request("Acme.Orders.Poll", "EnableTimer"),
+    )
+    .unwrap();
+    plan_source_add(
+        &solution,
+        &source_request("Acme.Orders.Poll", "GetProperties"),
+    )
+    .unwrap();
+    // With the whole chain visible, an unknown service is still refused, without the hint.
+    let error = plan_source_add(&solution, &source_request("Acme.Orders.Poll", "Nope"))
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("is not a service") && !error.contains("types --platform"),
+        "{error}"
+    );
+}
+
+#[test]
+fn source_add_writes_fixed_parameter_values_into_the_call() {
+    let (_dir, solution) = source_fixture();
+    let before = sidecar_content(&solution);
+    let mut request = source_request("Acme.Orders.Manager", "SaveOrder");
+    request.param_values = vec!["id=7".into(), "note=ready=yes".into()];
+    let error = plan_source_add(
+        &solution,
+        &SourceAddRequest {
+            param_values: vec!["status=1".into()],
+            ..request.clone()
+        },
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(
+        error.contains("Acme.Orders.Manager.SaveOrder has no parameter status")
+            && error.contains("id, note"),
+        "{error}"
+    );
+    assert_eq!(sidecar_content(&solution), before);
+    add_source(&solution, &request).unwrap();
+    let content: Value = serde_json::from_str(&sidecar_content(&solution)).unwrap();
+    let call = content["Data"]["Things_Acme.Orders.Manager"]["Services"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|call| call["Name"] == "SaveOrder")
+        .unwrap()
+        .clone();
+    assert_eq!(call["Parameters"], json!({"id": 7, "note": "ready=yes"}));
+    let report =
+        crate::core::mashup::validate::validate(&solution, Some("Acme.Orders_MU")).unwrap();
+    assert!(report[0].problems.is_empty(), "{:?}", report[0].problems);
 }
 
 #[test]
@@ -8199,6 +8453,124 @@ fn columns_hide_unlisted_fields_and_format_dates_from_an_existing_named_binding(
 }
 
 #[test]
+fn columns_editable_and_picker_flags_set_only_what_they_name() {
+    let (_dir, solution) = recipe_fixture();
+    let orders = || Some("data:Acme.Orders.Manager.GetOrders".to_string());
+    let grid = |document: &mashup::edit::MashupDocument| {
+        document.at(&document.find("ptcsgrid-5").unwrap().path)["Properties"].clone()
+    };
+    let args = RecipeArgs {
+        widget: Some("ptcsgrid-5".into()),
+        data: orders(),
+        columns: vec!["note:Note".into(), "id:Order".into()],
+        ..Default::default()
+    };
+    // Without --editable nothing is editable.
+    recipe(&solution, "columns", args.clone()).unwrap();
+    let document = mashup::edit::parse(&sidecar_content(&solution)).unwrap();
+    assert_ne!(grid(&document)["IsEditable"], true);
+    for column in grid(&document)["ColumnFormat"]["formatInfo"]
+        .as_array()
+        .unwrap()
+    {
+        assert_eq!(column["editable"], false);
+    }
+    let plan = plan_recipe(
+        &solution,
+        &RecipeRequest {
+            mashup: "Acme.Orders_MU".into(),
+            recipe: Recipe::from_args(
+                "columns",
+                &RecipeArgs {
+                    editable: vec!["note".into()],
+                    ..args.clone()
+                },
+            )
+            .unwrap(),
+        },
+    )
+    .unwrap();
+    assert!(plan.notes.iter().any(|note| note.contains("IsEditable")));
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    let document = mashup::edit::parse(&sidecar_content(&solution)).unwrap();
+    let properties = grid(&document);
+    assert_eq!(properties["IsEditable"], true);
+    let columns = properties["ColumnFormat"]["formatInfo"].as_array().unwrap();
+    let column = |name: &str| {
+        columns
+            .iter()
+            .find(|column| column["FieldName"] == name)
+            .unwrap()
+    };
+    assert_eq!(column("note")["editable"], true);
+    assert_eq!(column("note")["AllowEdit"], true);
+    assert_eq!(column("id")["editable"], false);
+    let error = recipe(
+        &solution,
+        "columns",
+        RecipeArgs {
+            editable: vec!["description".into()],
+            ..args.clone()
+        },
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("not one of the --column fields"));
+
+    let plan = plan_add(&solution, &add_request("Acme.Orders_MU", "dropdown")).unwrap();
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    let dropdown = plan.placed.id;
+    let picker = RecipeArgs {
+        widget: Some(dropdown.clone()),
+        data: orders(),
+        x: Some("note".into()),
+        ..Default::default()
+    };
+    let picked = |solution: &Solution| {
+        let document = mashup::edit::parse(&sidecar_content(solution)).unwrap();
+        document.at(&document.find_exact(&dropdown).unwrap().path)["Properties"].clone()
+    };
+    recipe(&solution, "picker", picker.clone()).unwrap();
+    let defaults = picked(&solution);
+    recipe(
+        &solution,
+        "picker",
+        RecipeArgs {
+            no_none_row: true,
+            auto_select_first: true,
+            ..picker
+        },
+    )
+    .unwrap();
+    let flagged = picked(&solution);
+    assert_eq!(flagged["ClearSelectionItem"], false);
+    assert_eq!(flagged["AutoSelectFirstRow"], true);
+    assert_ne!(defaults["ClearSelectionItem"], false);
+    assert_ne!(defaults["AutoSelectFirstRow"], true);
+    // Each flag belongs to its recipe.
+    for (name, args) in [
+        (
+            "picker",
+            RecipeArgs {
+                editable: vec!["note".into()],
+                ..Default::default()
+            },
+        ),
+        (
+            "columns",
+            RecipeArgs {
+                no_none_row: true,
+                ..Default::default()
+            },
+        ),
+    ] {
+        assert!(Recipe::from_args(name, &args)
+            .unwrap_err()
+            .to_string()
+            .contains("is for recipe"));
+    }
+}
+
+#[test]
 fn tracker_recipe_maps_shapes_and_refuses_unmatched_fields_without_writing() {
     let (dir, solution) = recipe_fixture();
     let shape = |fields: &str| {
@@ -8596,4 +8968,264 @@ fn a_card_around_a_contained_mashup_keeps_the_childs_floor_not_the_drop_height()
         }
         id = parent;
     }
+}
+
+#[test]
+fn scalar_whole_results_are_refused_and_existing_bindings_are_reported() {
+    let (dir, solution) = source_fixture();
+    write(
+        dir.path(),
+        "acme/Things/Acme.Count.xml",
+        r#"<Entities><Things><Thing name="Acme.Count" projectName="Acme"><ThingShape><ServiceDefinitions><ServiceDefinition name="GetCount"><ResultType baseType="NUMBER"/></ServiceDefinition></ServiceDefinitions></ThingShape></Thing></Things></Entities>"#,
+    );
+    let target = "ui:ptcstextfield-3.NumericValue".to_string();
+    for source in [
+        "data:Acme.Count.GetCount",
+        "data:Acme.Count.GetCount[as Count]",
+    ] {
+        let error = bind(&solution, source, &target).unwrap_err().to_string();
+        assert!(error.contains(source), "{error}");
+        assert!(error.contains(&format!("use `{source}.result`")), "{error}");
+    }
+    let plan = bind(
+        &solution,
+        "data:Acme.Count.GetCount[as Count].result",
+        &target,
+    )
+    .unwrap();
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    // Model a binding saved by an older twaco or Composer; validation must leave it alone.
+    rewrite_mashup(dir.path(), "Acme.Orders_MU", |value| {
+        let binding = &mut value["DataBindings"][0];
+        binding["Id"] = json!("Acme.LegacyBinding");
+        binding["PropertyMaps"][0]["SourceProperty"] = json!("");
+        binding["PropertyMaps"][0]["SourcePropertyType"] = json!("InfoTable");
+    });
+    let before = sidecar_content(&solution);
+    let reports =
+        crate::core::mashup::validate::validate(&solution, Some("Acme.Orders_MU")).unwrap();
+    let finding = reports[0]
+        .problems
+        .iter()
+        .find(|problem| problem.rule == "scalar-whole-result")
+        .unwrap();
+    assert!(
+        finding.message.contains("Acme.LegacyBinding"),
+        "{}",
+        finding.message
+    );
+    assert!(
+        finding
+            .message
+            .contains("data:Acme.Count.GetCount[as Count].result"),
+        "{}",
+        finding.message
+    );
+    assert_eq!(sidecar_content(&solution), before);
+    bind(
+        &solution,
+        "data:Acme.Orders.Manager.GetOrders",
+        "ui:ptcsgrid-5.Data",
+    )
+    .unwrap();
+}
+
+#[test]
+fn menubar_menu_entities_select_the_data_source_in_add_and_set() {
+    let (_dir, solution) = one_project();
+    let name = "Acme.Orders_MU";
+    apply_new(
+        &solution,
+        &plan_new(&solution, &request(name)).unwrap(),
+        &lock(&solution),
+    )
+    .unwrap();
+    let mut add = add_request(name, "ptcsmenubar");
+    add.properties = vec![("PrimaryNavMenu".into(), "Acme.Navigation".into())];
+    let plan = plan_add(&solution, &add).unwrap();
+    let content: Value =
+        serde_json::from_slice(&plan.edit.sidecars.as_ref().unwrap().content_after).unwrap();
+    let document = mashup::edit::MashupDocument::new(content).unwrap();
+    assert_eq!(
+        document.at(&document.find_exact(&plan.placed.id).unwrap().path)["Properties"]
+            ["DataSource"],
+        "menuentity"
+    );
+    let note = "DataSource set to menuentity because PrimaryNavMenu is set";
+    assert_eq!(
+        add_plan_json(&solution, &plan, false)["notes"],
+        json!([note])
+    );
+    add.properties
+        .push(("DataSource".into(), "infotable".into()));
+    let error = plan_add(&solution, &add).unwrap_err().to_string();
+    assert!(
+        error.contains("PrimaryNavMenu") && error.contains("DataSource"),
+        "{error}"
+    );
+    add.properties.last_mut().unwrap().1 = "invalid".into();
+    let error = plan_add(&solution, &add).unwrap_err().to_string();
+    assert!(
+        error.contains("PrimaryNavMenu") && error.contains("DataSource"),
+        "{error}"
+    );
+    add.properties.clear();
+    let plan = plan_add(&solution, &add).unwrap();
+    let id = plan.placed.id.clone();
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    let mut set = SetRequest {
+        mashup: name.into(),
+        widget: id,
+        properties: vec![
+            ("PrimaryNavMenu".into(), json!("Acme.Navigation")),
+            ("AlwaysOpen".into(), json!(true)),
+            ("StayOpenOnSelection".into(), json!(true)),
+        ],
+        style_from: None,
+        styles: Vec::new(),
+    };
+    let plan = plan_set(&solution, &set).unwrap();
+    for property in ["DataSource", "AlwaysOpen", "StayOpenOnSelection"] {
+        assert!(plan
+            .changed
+            .iter()
+            .any(|change| change.property == property));
+    }
+    assert_eq!(
+        set_plan_json(&solution, &plan, false)["notes"],
+        json!([note])
+    );
+    assert_eq!(
+        plan.changed
+            .iter()
+            .find(|change| change.property == "DataSource")
+            .unwrap()
+            .after,
+        "menuentity"
+    );
+    set.properties
+        .push(("DataSource".into(), json!("infotable")));
+    let error = plan_set(&solution, &set).unwrap_err().to_string();
+    assert!(
+        error.contains("PrimaryNavMenu") && error.contains("DataSource"),
+        "{error}"
+    );
+    set.properties.pop();
+    set.properties
+        .push(("DataSource".into(), json!("menuentity")));
+    assert!(plan_set(&solution, &set).unwrap().notes.is_empty());
+    set.properties = vec![("PrimaryNavMenu".into(), json!(""))];
+    assert!(plan_set(&solution, &set).unwrap().notes.is_empty());
+}
+
+#[test]
+fn menubar_menu_entity_refuses_an_existing_data_binding() {
+    let (dir, solution) = bind_fixture();
+    let plan = plan_add(&solution, &add_request("Acme.Orders_MU", "ptcsmenubar")).unwrap();
+    let id = plan.placed.id.clone();
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    for property in ["Data", "PrimaryNavData"] {
+        rewrite_mashup(dir.path(), "Acme.Orders_MU", |value| {
+            value["DataBindings"] = json!([{"SourceArea":"Data", "SourceSection":"Things_Acme.Orders.Manager", "SourceId":"GetOrders", "TargetArea":"UI", "TargetId":id, "PropertyMaps":[{"TargetProperty":property, "SourcePropertyType":"InfoTable"}]}]);
+        });
+        let before = sidecar_content(&solution);
+        let error = plan_set(
+            &solution,
+            &SetRequest {
+                mashup: "Acme.Orders_MU".into(),
+                widget: id.clone(),
+                properties: vec![("PrimaryNavMenu".into(), json!("Acme.Navigation"))],
+                style_from: None,
+                styles: Vec::new(),
+            },
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(
+            error.contains("Data binding")
+                && error.contains("mashup unbind")
+                && error.contains("service-backed menu"),
+            "{error}"
+        );
+        assert_eq!(sidecar_content(&solution), before);
+    }
+}
+
+#[test]
+fn nonempty_css_sidecar_allows_edits_with_absent_or_legacy_content_css() {
+    for legacy in [None, Some(""), Some(".old { color: blue; }")] {
+        let (_dir, solution) = one_project();
+        let name = "Acme.Css_MU";
+        let new = plan_new(&solution, &request(name)).unwrap();
+        assert!(!new.assets.content.contains("CustomMashupCss"));
+        apply_new(&solution, &new, &lock(&solution)).unwrap();
+        let label = plan_add(&solution, &add_request(name, "button")).unwrap();
+        apply_edit(&solution, &label.edit, &lock(&solution)).unwrap();
+        if let Some(legacy_css) = legacy {
+            let mut content: Value =
+                serde_json::from_slice(&std::fs::read(&new.content_path).unwrap()).unwrap();
+            content["CustomMashupCss"] = json!(legacy_css);
+            std::fs::write(&new.content_path, mashup::to_sidecar(&content)).unwrap();
+        }
+        let before = std::fs::read(&new.content_path).unwrap();
+        std::fs::write(&new.css_path, ".a { color: red; }\n").unwrap();
+        let discovery = workspace::discover(&solution);
+        let synced = crate::core::workflow::sync(
+            &solution,
+            &discovery.entities,
+            &discovery.unreadable,
+            crate::core::workflow::SyncOptions::default(),
+        );
+        assert!(synced.log.errors().next().is_none(), "{:?}", synced.log);
+        let set = plan_set(
+            &solution,
+            &SetRequest {
+                mashup: name.into(),
+                widget: label.placed.id.clone(),
+                properties: vec![("Label".into(), json!("Hi"))],
+                style_from: None,
+                styles: Vec::new(),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            std::fs::read(&new.content_path).unwrap(),
+            before,
+            "planning leaves existing content alone"
+        );
+        apply_edit(&solution, set.edit.as_ref().unwrap(), &lock(&solution)).unwrap();
+        let mut copy_request = request("Acme.Copy_MU");
+        copy_request.from = Some(name.into());
+        let copied = plan_new(&solution, &copy_request).unwrap();
+        assert!(!copied.assets.content.contains("CustomMashupCss"));
+        assert_eq!(copied.assets.css, ".a { color: red; }\n");
+        apply_new(&solution, &copied, &lock(&solution)).unwrap();
+        let (_, changes) = mashup::sync(&copied.entity, &copied.assets).unwrap();
+        assert!(changes.is_empty(), "{changes:?}");
+        assert_eq!(
+            mashup::extract(&std::fs::read(&new.entity_path).unwrap())
+                .unwrap()
+                .css,
+            ".a { color: red; }\n"
+        );
+    }
+}
+
+#[test]
+fn managed_css_round_trip_still_refuses_real_content_differences() {
+    assert!(content_round_trips(
+        r#"{"UI":{},"CustomMashupCss":""}"#,
+        r#"{"UI":{},"CustomMashupCss":".a{}"}"#,
+        true
+    ));
+    assert!(!content_round_trips(
+        r#"{"UI":{"Label":"Hi"},"CustomMashupCss":""}"#,
+        r#"{"UI":{"Label":"Bye"},"CustomMashupCss":".a{}"}"#,
+        true
+    ));
+    assert!(!content_round_trips(
+        r#"{"UI":{},"CustomMashupCss":""}"#,
+        r#"{"UI":{},"CustomMashupCss":".a{}"}"#,
+        false
+    ));
 }

@@ -319,6 +319,9 @@ mod tests {
     }
 
     impl entity::delete::Remote for Fake {
+        fn industrial_references(&self) -> Result<Vec<(String, String)>, ServerError> {
+            panic!("no gateway targeted")
+        }
         fn exists(&self, key: &EntityKey) -> Result<bool, ServerError> {
             Ok(self
                 .state

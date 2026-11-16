@@ -350,7 +350,7 @@ A solution without `[lint]` keeps today's gates (`checks-v1`). To take up the fu
 
 | Gate | Fails when |
 | --- | --- |
-| line endings | a file mixes CRLF and LF, which is a tool's half-rewrite. Files the solution's own `.gitignore` files match are skipped (patterns only: a tracked file that matches one is skipped too), and so is anything a `.ignore` file lists, for tracked files kept verbatim such as raw exports. Ignore files above the solution and global excludes do not count |
+| line endings | a file mixes CRLF and LF, which is a tool's half-rewrite; a file entirely in CRLF, or entirely in LF, passes. Files the solution's own `.gitignore` files match are skipped (patterns only: a tracked file that matches one is skipped too), and so is anything a `.ignore` file lists, for tracked files kept verbatim such as raw exports. Ignore files above the solution and global excludes do not count |
 | sidecars | a sidecar and its XML disagree, a defined service sidecar lacks its `definition.xml` or `script.js`, an override has a definition mismatch or lacks `script.js`, a fields or DataTable sidecar cannot be read, or a sidecar directory has no entity; an entity without sidecars is simply unmanaged |
 | formatting | a script is not as the built-in formatter writes it (`twaco fmt` fixes it) |
 | script traps | a script uses something the ThingWorx Rhino engine punishes (see below) |
@@ -1295,6 +1295,19 @@ row gets. Rows that were already there, fixed rows, template slots and a `flex-g
 `flex-shrink` you set yourself are left alone; to give more spare height to one of two growing
 rows, set its `flex-grow` to 2 or 3.
 
+Three things to know when you build a layout by hand. A container from `mashup add <mashup>
+flexcontainer` grows like any responsive container (`flex-grow` 1), so a row of buttons beside a
+grid takes an equal share of the height; give it `--prop flex-grow=0` to keep its controls' height.
+A column whose children all have a fixed height spreads them out, because Runtime gives each a
+share of the spare height rather than honouring `justify-content`; add a growing child below them
+(or set the column's own height) to keep them together at the top. And `--right-of <widget>` or
+`--left-of <widget>` on a lone widget turns its column container into a row, as the summary's
+`flipped` says, so later `--in <that container>` adds land in that row too; place the next widget
+`--below` the row, or give `--in` a container that is still a column. A template slot keeps the
+size the template gives it: `list-page`'s toolbar is a fixed 50px row (`flex-size` `fixed`, equal
+`flex-min-height` and `flex-max-height`), which clips a two-line description. Make it taller with
+`mashup set <mashup> <toolbar container> --prop flex-min-height=72px --prop flex-max-height=72px`.
+
 When adding a fixed-size control, twaco caps its `Width` at the available pixel width of a fixed
 or range-limited container, including through generated wrappers. Container padding, borders,
 intermediate margins and the control's horizontal margins reduce that width. Smaller widths
@@ -2026,7 +2039,10 @@ keep a `jar:file:` URL and report the SDK version.
 - **`twaco config-table <Thing> <Table> --backup before.json`** saves a configuration table
   before a test that writes it. `--diff` compares it with the repository, and
   `--restore before.json --apply` puts it back. `SetConfigurationTableRows` replaces whole
-  rows, so a backup is the only undo.
+  rows, so a backup is the only undo. Restore reads `GetConfigurationTableDefinition` first:
+  single-row tables use `SetConfigurationTable`, multi-row tables use
+  `SetConfigurationTableRows`. The plan names the service; an unreadable definition refuses
+  the restore before any write.
 - **`twaco settings --search <words>`** finds a subsystem setting by name or description.
   It is read-only, and password values are never shown.
 
