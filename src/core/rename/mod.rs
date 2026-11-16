@@ -624,7 +624,10 @@ pub(crate) use self::run::run;
 #[allow(unused_imports)]
 use self::{
     apply::*,
-    common::{push_change, read, refuse_collisions, scan_text_file, validate_spec},
+    common::{
+        push_change, read, refuse_collisions, refuse_spaced_supersets, scan_text_file,
+        validate_spec,
+    },
     field::plan_field,
     identity::*,
     member::{plan_param, plan_service},

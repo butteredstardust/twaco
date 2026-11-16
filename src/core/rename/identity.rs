@@ -2,9 +2,9 @@
 
 use super::{
     catalog, check, plan_field, plan_param, plan_property, plan_service, plan_table, push_change,
-    read, refs, refuse_collisions, repo, scan, scan_text_file, validate_spec, workspace, BTreeSet,
-    FileChange, FileKind, Kind, Move, Path, PathBuf, Plan, RenameError, Solution, Spec,
-    CONFIG_FILE,
+    read, refs, refuse_collisions, refuse_spaced_supersets, repo, scan, scan_text_file,
+    validate_spec, workspace, BTreeSet, FileChange, FileKind, Kind, Move, Path, PathBuf, Plan,
+    RenameError, Solution, Spec, CONFIG_FILE,
 };
 
 /// Computes every move, finding and byte edit for a rename without changing the workspace.
@@ -145,6 +145,9 @@ pub(super) fn plan_identity(solution: &Solution, spec: &Spec) -> Result<Plan, Re
         });
     }
     refuse_collisions(&discovery.entities, &moves)?;
+    if spec.kind == Kind::Entity {
+        refuse_spaced_supersets(&discovery.entities, &spec.old)?;
+    }
 
     let mode = match spec.kind {
         Kind::Entity => refs::Mode::Entity,

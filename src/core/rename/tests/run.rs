@@ -447,6 +447,50 @@ fn entity_names_with_spaces_move_and_update_whole_references() {
 }
 
 #[test]
+fn a_name_inside_a_longer_spaced_entity_name_is_refused_and_writes_nothing() {
+    let fixture = run_fixture();
+    write(
+        &fixture.root,
+        "Things/Acme.Foo.xml",
+        r#"<Entities><Things><Thing name="Acme.Foo" projectName="P"/></Things></Entities>"#,
+    );
+    write(
+        &fixture.root,
+        "Things/Acme.Foo Bar.xml",
+        r#"<Entities><Things><Thing name="Acme.Foo Bar" projectName="P"/></Things></Entities>"#,
+    );
+    let reader = r#"<Entities><Things><Thing name="Acme.Reader" valueStream="Acme.Foo Bar"><code><![CDATA[Things["Acme.Foo Bar"].Run();]]></code></Thing></Things></Entities>"#;
+    write(&fixture.root, "Things/Acme.Reader.xml", reader);
+    let error = run(
+        &fixture.solution,
+        &spec(Kind::Entity, "Acme.Foo", "Acme.Baz"),
+        &run_options(true, true),
+        Some(&locked(&fixture)),
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(
+        error.contains("Acme.Foo Bar") && error.contains("Rename that entity first"),
+        "{error}"
+    );
+    assert!(fixture.root.join("Things/Acme.Foo.xml").is_file());
+    assert_eq!(
+        std::fs::read_to_string(fixture.root.join("Things/Acme.Reader.xml")).unwrap(),
+        reader
+    );
+    // The longer name itself renames normally.
+    run(
+        &fixture.solution,
+        &spec(Kind::Entity, "Acme.Foo Bar", "Acme.Foo Baz"),
+        &run_options(true, true),
+        Some(&locked(&fixture)),
+    )
+    .unwrap();
+    let after = std::fs::read_to_string(fixture.root.join("Things/Acme.Reader.xml")).unwrap();
+    assert!(after.contains(r#"Things["Acme.Foo Baz"]"#), "{after}");
+}
+
+#[test]
 fn qualified_entity_rename_applies_and_verifies_without_renaming_another_identity() {
     for new in ["Acme.NewKey", "ApplicationKeys/Acme.NewKey"] {
         let fixture = run_fixture();

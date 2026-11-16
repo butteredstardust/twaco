@@ -1150,6 +1150,19 @@ pub(super) fn sync_tabs(
         document.set_property(&path, &format!("Tab{n}Value"), json!(value));
         items.push(json!({"disabled": false, "name": name, "value": value, "visible": true}));
     }
+    // A removed tab leaves no Tab<n> properties behind for a later NumberOfTabs to reuse.
+    if let Some(properties) = document.at_mut(&path)["Properties"].as_object_mut() {
+        properties.retain(|key, _| {
+            key.strip_prefix("Tab")
+                .map(|rest| {
+                    rest.chars()
+                        .take_while(char::is_ascii_digit)
+                        .collect::<String>()
+                })
+                .and_then(|digits| digits.parse::<usize>().ok())
+                .is_none_or(|tab| tab <= count)
+        });
+    }
     document.set_property(&path, "Items", Value::Array(items));
     document.set_property(&path, "NumberOfTabs", json!(count));
     Ok(added)

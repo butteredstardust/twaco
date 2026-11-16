@@ -17,7 +17,7 @@ All notable changes to twaco are recorded here. The format follows
 
 - `mashup source add` and data addresses no longer say a platform service (a Timer's EnableTimer, a Thing's GetProperties) "is not a service in the solution" when the platform cache lacks the entity's template: they say the template chain is not all visible and to run `twaco types --platform`.
 - DataShape renames keep service definition and script sidecars in step, including call argument dataShapeName references; unrelated script strings remain review findings.
-- Entity renames and server_owned patterns accept names with internal single spaces.
+- Entity renames and server_owned patterns accept names with internal single spaces; renaming a name that is part of a longer spaced entity name (`Acme.Foo` beside `Acme.Foo Bar`) is refused rather than rewriting that entity's references.
 - Missing entity and selector errors quote and escape input and explain invisible whitespace or control characters.
 - Entity rename accepts Collection/Name selectors to disambiguate the old entity and accepts the same collection on the new name.
 

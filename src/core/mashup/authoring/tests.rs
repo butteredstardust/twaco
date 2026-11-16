@@ -1020,7 +1020,11 @@ fn an_added_tab_set_gets_tab_containers_and_numbered_tab_properties() {
     assert!(error.contains("still holds widgets"), "{error}");
     let shrunk = set(vec![("NumberOfTabs", json!(2))]).unwrap();
     apply_edit(&solution, shrunk.edit.as_ref().unwrap(), &lock(&solution)).unwrap();
-    assert_eq!(tabs(&solution)["Widgets"].as_array().unwrap().len(), 2);
+    let widget = tabs(&solution);
+    assert_eq!(widget["Widgets"].as_array().unwrap().len(), 2);
+    assert!(widget["Properties"].get("Tab3Name").is_none());
+    assert!(widget["Properties"].get("Tab3SVGIcon").is_none());
+    assert_eq!(widget["Properties"]["Tab2Visible"], false);
 }
 
 #[test]

@@ -72,6 +72,39 @@ pub(super) fn validate_spec(spec: &Spec) -> Result<(), RenameError> {
     Ok(())
 }
 
+/// Refuse an entity rename when another entity's name is this one joined by a space to more
+/// name (`Acme.Foo Bar` for `Acme.Foo`): a text reference to that entity would contain this name
+/// as a whole token, and the rename would rewrite part of it.
+pub(super) fn refuse_spaced_supersets(
+    entities: &[workspace::EntityFile],
+    old: &str,
+) -> Result<(), RenameError> {
+    let mut longer: Vec<&str> = entities
+        .iter()
+        .map(|entity| entity.info.name.as_str())
+        .filter(|name| {
+            name.len() > old.len()
+                && (name
+                    .strip_prefix(old)
+                    .is_some_and(|rest| rest.starts_with(' '))
+                    || name
+                        .strip_suffix(old)
+                        .is_some_and(|rest| rest.ends_with(' ')))
+        })
+        .collect();
+    if longer.is_empty() {
+        return Ok(());
+    }
+    longer.sort_unstable();
+    longer.dedup();
+    Err(RenameError::InvalidOld {
+        message: format!(
+            "{old} is part of the longer entity name {}; references to it would be rewritten too. Rename that entity first",
+            longer.join(", ")
+        ),
+    })
+}
+
 pub(super) fn refuse_collisions(
     entities: &[workspace::EntityFile],
     moves: &[Move],
