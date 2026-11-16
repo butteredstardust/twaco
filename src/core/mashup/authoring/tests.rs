@@ -922,6 +922,108 @@ fn cli_text_follows_the_default_type_when_there_is_no_base_type() {
 }
 
 #[test]
+fn an_added_tab_set_gets_tab_containers_and_numbered_tab_properties() {
+    let (_dir, solution) = one_project();
+    let name = "Acme.Orders_MU";
+    apply_new(
+        &solution,
+        &plan_new(&solution, &request(name)).unwrap(),
+        &lock(&solution),
+    )
+    .unwrap();
+    let added = plan_add(&solution, &add_request(name, "ptcstabset")).unwrap();
+    assert!(
+        added
+            .notes
+            .iter()
+            .any(|note| note.contains("tab container")),
+        "{:?}",
+        added.notes
+    );
+    apply_edit(&solution, &added.edit, &lock(&solution)).unwrap();
+    let tabset = added.placed.id;
+    let tabs = |solution: &Solution| {
+        let document = mashup::edit::parse(&sidecar_content(solution)).unwrap();
+        document
+            .at(&document.find_exact(&tabset).unwrap().path)
+            .clone()
+    };
+    let widget = tabs(&solution);
+    let containers = widget["Widgets"].as_array().unwrap();
+    assert_eq!(containers.len(), 2);
+    assert!(containers
+        .iter()
+        .all(|tab| tab["Properties"]["Type"] == "flexcontainer"
+            && tab["Properties"]["userCannotRemove"] == true));
+    assert_eq!(widget["Properties"]["NumberOfTabs"], 2);
+    assert!(widget["Properties"]["Tab2Name"]
+        .as_str()
+        .is_some_and(|name| !name.is_empty()));
+    assert_eq!(widget["Properties"]["Items"].as_array().unwrap().len(), 2);
+    let set = |properties: Vec<(&str, Value)>| {
+        plan_set(
+            &solution,
+            &SetRequest {
+                mashup: name.into(),
+                widget: tabset.clone(),
+                properties: properties
+                    .into_iter()
+                    .map(|(name, value)| (name.to_string(), value))
+                    .collect(),
+                style_from: None,
+                styles: Vec::new(),
+            },
+        )
+    };
+    // A tab beyond NumberOfTabs is refused until there are that many tabs.
+    let error = set(vec![("Tab3Icon", json!("Acme.Icon_MD"))])
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("set NumberOfTabs first"), "{error}");
+    let grown = set(vec![
+        ("NumberOfTabs", json!(3)),
+        ("Tab3Name", json!("History")),
+        ("Tab3SVGIcon", json!("Acme.History_MD")),
+        ("Tab2Visible", json!("false")),
+        ("TabMode", json!("iconlabel")),
+        ("TabWidthConfig", json!("even")),
+    ])
+    .unwrap();
+    assert!(grown
+        .notes
+        .iter()
+        .any(|note| note.contains("added tab container")));
+    apply_edit(&solution, grown.edit.as_ref().unwrap(), &lock(&solution)).unwrap();
+    let widget = tabs(&solution);
+    assert_eq!(widget["Widgets"].as_array().unwrap().len(), 3);
+    assert_eq!(widget["Properties"]["Tab3Name"], "History");
+    assert_eq!(widget["Properties"]["Tab3SVGIcon"], "Acme.History_MD");
+    assert_eq!(widget["Properties"]["Tab2Visible"], false);
+    assert_eq!(widget["Properties"]["Items"][2]["name"], "History");
+    // A tab whose container holds a widget is not dropped.
+    let second = widget["Widgets"][1]["Properties"]["Id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let label = plan_add(
+        &solution,
+        &AddRequest {
+            placement: Some(Placement::In(second)),
+            ..add_request(name, "label")
+        },
+    )
+    .unwrap();
+    apply_edit(&solution, &label.edit, &lock(&solution)).unwrap();
+    let error = set(vec![("NumberOfTabs", json!(1))])
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("still holds widgets"), "{error}");
+    let shrunk = set(vec![("NumberOfTabs", json!(2))]).unwrap();
+    apply_edit(&solution, shrunk.edit.as_ref().unwrap(), &lock(&solution)).unwrap();
+    assert_eq!(tabs(&solution)["Widgets"].as_array().unwrap().len(), 2);
+}
+
+#[test]
 fn set_changes_a_flex_container_and_keeps_root_css_in_its_sidecar() {
     let (_dir, solution) = one_project();
     let name = "Acme.Orders_MU";

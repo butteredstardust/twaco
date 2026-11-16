@@ -58,7 +58,7 @@ pub(crate) fn plan_set(
         .find_exact(&request.widget)
         .map_err(AuthoringError::Edit)?;
     let mut properties = request.properties.clone();
-    let notes = menubar_properties(&document, &found.type_id, &found.id, &mut properties)?;
+    let mut notes = menubar_properties(&document, &found.type_id, &found.id, &mut properties)?;
     let root = found.id == ROOT_ID;
     let widget = if root {
         None
@@ -285,6 +285,31 @@ pub(crate) fn plan_set(
             }
         }
         change_property(&mut document, &found.path, name, value, &mut changed);
+    }
+    if found.type_id == "ptcstabset" {
+        let count = super::new::tab_count(&document.at(&found.path)["Properties"]["NumberOfTabs"]);
+        for (name, _) in &properties {
+            let Some(rest) = name.strip_prefix("Tab") else {
+                continue;
+            };
+            let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+            if let Ok(n) = digits.parse::<usize>() {
+                if n == 0 || n > count {
+                    return Err(AuthoringError::Invalid(format!(
+                        "{name}: the tab set has {count} tab(s); set NumberOfTabs first"
+                    )));
+                }
+            }
+        }
+        if changed
+            .iter()
+            .any(|change| change.property == "NumberOfTabs")
+        {
+            let added = super::new::sync_tabs(&mut document, &found.id, count)?;
+            if !added.is_empty() {
+                notes.push(format!("added tab container(s) {}", added.join(", ")));
+            }
+        }
     }
     // Composer shows a fixed-size container with its own palette icon and saves it that way.
     if found.type_id == "flexcontainer" {

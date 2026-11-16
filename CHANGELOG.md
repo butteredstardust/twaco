@@ -10,6 +10,7 @@ All notable changes to twaco are recorded here. The format follows
 
 - `mashup new --template sidebar|header-sidebar --menu-entity <Menu>` (MCP `menu_entity`) uses a Menu in the solution as the menu bar's source, with no service or load event, instead of `--primary-menu <service>`.
 - `mashup source add ... --param-value name=value` (MCP `param_values`) gives a service call fixed parameter values, stored as Composer does: BOOLEAN and numeric parameters as JSON booleans and numbers, others as text. Unknown parameters and values of the wrong type are refused.
+- `mashup add <mashup> ptcstabset` creates a container per tab as the `tabs` template does, and `mashup set` of `NumberOfTabs` adds or removes trailing tab containers (refusing one that holds widgets). `mashup set` accepts a tab set's `Tab<n>Name`, `Value`, `Visible`, `Disabled`, `Icon` and `SVGIcon` up to `NumberOfTabs`.
 - `mashup recipe columns --editable-column <field>` (MCP `editable_columns`) makes listed columns editable and sets the grid's IsEditable; `recipe picker --no-none-row` and `--auto-select-first` (MCP `no_none_row`, `auto_select_first`) turn off the "(None)" row and select the first row.
 
 ### Fixed

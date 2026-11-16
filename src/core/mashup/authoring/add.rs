@@ -445,6 +445,21 @@ pub(crate) fn plan_add(
             .path;
         document.set_property(&path, "DataSource", json!("menuentity"));
     }
+    let mut notes = notes;
+    // A tab set shows one container per tab; without them Composer has nowhere to drop a tab's content.
+    if widget.type_id == "ptcstabset" {
+        let path = document
+            .find_exact(&placed.id)
+            .map_err(AuthoringError::Edit)?
+            .path;
+        let count = super::new::tab_count(&document.at(&path)["Properties"]["NumberOfTabs"]);
+        let tabs = super::new::sync_tabs(&mut document, &placed.id, count)?;
+        notes.push(format!(
+            "{} tab container(s): {}; add a tab's content with --in <container>",
+            tabs.len(),
+            tabs.join(", ")
+        ));
+    }
     document.fit_placed_width(&placed.id);
     document.reflow_for(&placed.id);
     Ok(AddPlan {

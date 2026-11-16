@@ -288,6 +288,22 @@ impl Widget {
     /// `YAxis<N>MinimumValue`/`MaximumValue` (fixed axis bounds). The catalogue's own
     /// `DataLabel<N>` or `YAxis<N>Label` proves the index exists.
     pub(crate) fn numbered_default(&self, name: &str) -> Option<Value> {
+        // A tab set's per-tab properties, Tab<n><Suffix>; set checks n against NumberOfTabs.
+        if self.type_id == "ptcstabset" {
+            if let Some(rest) = name.strip_prefix("Tab") {
+                let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
+                if digits > 0 {
+                    match &rest[digits..] {
+                        "Name" | "Value" | "Icon" | "SVGIcon" => {
+                            return Some(Value::String(String::new()))
+                        }
+                        "Visible" => return Some(Value::Bool(true)),
+                        "Disabled" => return Some(Value::Bool(false)),
+                        _ => {}
+                    }
+                }
+            }
+        }
         const FAMILIES: &[(&str, &str, &str, &str)] = &[
             ("DataField", "", "DataLabel", ""),
             ("YAxis", "MinimumValue", "YAxis", "Label"),

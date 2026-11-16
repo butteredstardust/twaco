@@ -1059,6 +1059,102 @@ fn build_tabs(
     Ok(tabs)
 }
 
+/// A tab set's NumberOfTabs, which Composer may store as a number or as text; 2 when unset.
+pub(super) fn tab_count(value: &Value) -> usize {
+    value
+        .as_u64()
+        .and_then(|n| usize::try_from(n).ok())
+        .or_else(|| value.as_str().and_then(|text| text.trim().parse().ok()))
+        .or_else(|| {
+            value
+                .as_f64()
+                .filter(|n| n.fract() == 0.0)
+                .and_then(|n| format!("{n:.0}").parse().ok())
+        })
+        .unwrap_or(2)
+}
+
+/// Give a tab set exactly `count` tabs, as the `tabs` template builds them: one flex container per
+/// tab (`<tab set> #<n>`, `userCannotRemove`), `Tab<n>Name` and `Tab<n>Value` for new tabs, and
+/// `Items` and `NumberOfTabs` to match. Existing tabs keep their containers and names; a trailing
+/// tab whose container still holds widgets is not removed. Returns the tab containers added.
+pub(super) fn sync_tabs(
+    document: &mut MashupDocument,
+    tabset_id: &str,
+    count: usize,
+) -> Result<Vec<String>, AuthoringError> {
+    if !(1..=16).contains(&count) {
+        return Err(AuthoringError::Invalid("a tab set has 1 to 16 tabs".into()));
+    }
+    let path = document
+        .find_exact(tabset_id)
+        .map_err(AuthoringError::Edit)?
+        .path;
+    let existing = document.at(&path)["Widgets"].as_array().map_or(0, Vec::len);
+    for index in (count..existing).rev() {
+        let child = [path.as_slice(), &[index]].concat();
+        let holds = document.at(&child)["Widgets"]
+            .as_array()
+            .is_some_and(|widgets| !widgets.is_empty());
+        if holds {
+            let name = document.at(&child)["Properties"]["DisplayName"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string();
+            return Err(AuthoringError::Refused(format!(
+                "tab {} ({name}) still holds widgets; remove them first",
+                index + 1
+            )));
+        }
+        document
+            .remove_widget(&child)
+            .map_err(AuthoringError::Edit)?;
+    }
+    let catalog = widgets::catalog();
+    let container = catalog
+        .by_type("flexcontainer")
+        .expect("the catalogue has the flex container; a test checks it");
+    let tabset_name = document.at(&path)["Properties"]["DisplayName"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
+    let mut added = Vec::new();
+    for index in existing..count {
+        let mut tab = mashup::edit::new_widget(container, document.allocate(), true);
+        tab["Properties"]["DisplayName"] = json!(format!("{tabset_name} #{}", index + 1));
+        mashup::edit::insert_sorted(
+            mashup::edit::properties_mut(&mut tab),
+            "userCannotRemove",
+            json!(true),
+        );
+        added.push(
+            tab["Properties"]["Id"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string(),
+        );
+        document.push_child(&path, tab);
+    }
+    let mut items = Vec::new();
+    for n in 1..=count {
+        let properties = &document.at(&path)["Properties"];
+        let name = properties[format!("Tab{n}Name")]
+            .as_str()
+            .filter(|name| !name.is_empty())
+            .map_or_else(|| format!("Tab Name {n}"), str::to_string);
+        let value = properties[format!("Tab{n}Value")]
+            .as_str()
+            .filter(|value| !value.is_empty())
+            .map_or_else(|| format!("TabValue{n}"), str::to_string);
+        document.set_property(&path, &format!("Tab{n}Name"), json!(name));
+        document.set_property(&path, &format!("Tab{n}Value"), json!(value));
+        items.push(json!({"disabled": false, "name": name, "value": value, "visible": true}));
+    }
+    document.set_property(&path, "Items", Value::Array(items));
+    document.set_property(&path, "NumberOfTabs", json!(count));
+    Ok(added)
+}
+
 fn remove_content_css(assets: &mut mashup::Assets) {
     let mut content: Value = serde_json::from_str(&assets.content).expect("mashup content is JSON");
     content
