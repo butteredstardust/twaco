@@ -10,6 +10,47 @@ use clap::FromArgMatches as _;
 /// The command a command line names: its path, how many words name it, and the flags it takes.
 type Route = (&'static str, usize, Vec<String>);
 
+#[test]
+fn the_help_index_shows_every_command_in_the_first_25_lines() {
+    let listing = spec::listing();
+    let first = listing.lines().take(25).collect::<Vec<_>>().join("\n");
+    for command in USAGE {
+        let name = command.path.split_whitespace().next().unwrap();
+        assert!(
+            first
+                .split(|c: char| !c.is_ascii_alphanumeric() && c != '-')
+                .any(|word| word == name),
+            "{name} is absent from the first 25 lines"
+        );
+    }
+    let index = listing.split_once("\n\n").unwrap().1;
+    let index = index.split_once("\n\n").unwrap().0;
+    assert!(index.lines().count() + 2 <= 25);
+    for line in index.lines() {
+        assert!(line.chars().count() <= 100, "index line too long: {line}");
+    }
+}
+
+#[test]
+fn every_top_level_family_without_a_subcommand_prints_its_listing() {
+    let tree = spec::tree();
+    for family in tree
+        .get_subcommands()
+        .filter(|node| spec::command(node.get_name()).is_none() && node.has_subcommands())
+    {
+        let name = family.get_name();
+        let error = tree
+            .clone()
+            .try_get_matches_from(["twaco", name])
+            .unwrap_err();
+        assert_eq!(
+            error.kind(),
+            clap::error::ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
+        );
+        assert_eq!(error.to_string(), family.clone().render_help().to_string());
+    }
+}
+
 fn route(args: &[String]) -> Result<Route, String> {
     let two = args.iter().take(2).cloned().collect::<Vec<_>>().join(" ");
     let one = args.first().cloned().unwrap_or_default();

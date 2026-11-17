@@ -2074,6 +2074,10 @@ keep a `jar:file:` URL and report the SDK version.
   holds a repository's tree. `push` and `pull` never delete, and a file that differs on both
   sides needs `--overwrite`.
 
+  In Git Bash, disable MSYS path rewriting for repository paths: for example,
+  `MSYS_NO_PATHCONV=1 twaco repo put MyRepository file.md /a/b.md`, or use `//a/b.md`
+  instead of `/a/b.md`. This also applies to source-control export and import `--path`.
+
 - **Extensions:** `twaco ext list`, `show`, `import` and `remove`. `import` without `--apply`
   only has the server validate the package; nothing is installed.
 - **Finding entities:** `twaco search <text>` asks the server what Composer's Spotlight box

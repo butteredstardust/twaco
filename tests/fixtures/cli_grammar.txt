@@ -25,6 +25,18 @@ arg --version
 help:
 | usage: twaco <command>
 | 
+|   Set up: init, doctor, projects, mcp, update, completions
+|   Work on the repository: extract, sync, fmt, check, lint, types, catalog, contract, impact, trace,
+|     unused, docs, adopt, handoff, rename, move, copy, retemplate, reproject, widgets, mashup, new,
+|     thing, timer, scheduler, style, media, menu, mcp-namespace, agent, state
+|   Deploy and compare: block, network, entity, permissions, requirements, datatable, bundle, deploy,
+|     config-table, db
+|   Run and observe: call, model, access, logs, settings
+|   Server content: repo, localization, users, appkey, test, ext, search, export, import
+|   Release: package
+|   Knowledge: guide, help, javadoc
+| twaco <command> --help shows one command; the full listing follows.
+| 
 |   init [--write]              propose a twaco.toml from the repository's own entities; --write
 |                               also writes AGENTS.md and CLAUDE.md where absent, and adds the
 |                               lines twaco needs to .gitignore

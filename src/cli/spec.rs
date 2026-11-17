@@ -321,6 +321,29 @@ fn help_of(command: &Usage, takes: &dyn Fn(&str) -> bool) -> String {
 /// `twaco` with no arguments: every command, in its group's order, then the shared flags.
 pub(crate) fn listing() -> String {
     let mut out = String::from("usage: twaco <command>\n\n");
+    for (group, (title, _)) in GROUPS.iter().enumerate() {
+        let mut names = Vec::new();
+        for command in USAGE.iter().filter(|c| c.group == group) {
+            let name = command.path.split_whitespace().next().unwrap();
+            if !names.contains(&name) {
+                names.push(name);
+            }
+        }
+        let mut line = format!("  {title}: ");
+        for (i, name) in names.iter().enumerate() {
+            let entry = format!("{name}{}", if i + 1 < names.len() { "," } else { "" });
+            if line.len() + entry.len() > 100 {
+                out.push_str(line.trim_end());
+                out.push('\n');
+                line = String::from("    ");
+            }
+            line.push_str(&entry);
+            line.push(' ');
+        }
+        out.push_str(line.trim_end());
+        out.push('\n');
+    }
+    out.push_str("twaco <command> --help shows one command; the full listing follows.\n\n");
     for group in 0..GROUPS.len() {
         for command in USAGE.iter().filter(|c| c.group == group) {
             out.push_str(command.text);

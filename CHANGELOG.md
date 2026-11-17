@@ -6,6 +6,11 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Repository paths rewritten by Git Bash are refused with guidance to use `MSYS_NO_PATHCONV=1` or a `//` prefix.
+- `twaco --help` starts with a compact command index so truncated output still shows every command family.
+
 ## [0.1.64] - 2026-11-16
 
 ### Added

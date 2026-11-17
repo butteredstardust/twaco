@@ -166,6 +166,7 @@ pub(crate) fn source_control(
     zip: Option<&str>,
     apply: bool,
 ) -> Result<(String, Option<String>), ExportError> {
+    super::repo::refuse_windows_path(path).map_err(|e| ExportError::Invalid(e.to_string()))?;
     // An empty value is no filter: sent, the server would take it as none and export everything.
     let set = |value: &Option<String>| {
         value
@@ -364,6 +365,31 @@ mod tests {
             error.to_string().contains("not an <Entities> export"),
             "{error}"
         );
+    }
+
+    #[test]
+    fn a_source_control_export_refuses_windows_paths_before_planning_or_writing() {
+        let fake = Fake {
+            calls: RefCell::new(Vec::new()),
+        };
+        let filters = Filters {
+            project: Some("P".into()),
+            ..Filters::default()
+        };
+        for apply in [false, true] {
+            let error = source_control(
+                &fake,
+                "R",
+                "C:/Program Files/Git/out",
+                &filters,
+                None,
+                apply,
+            )
+            .unwrap_err();
+            assert!(matches!(error, ExportError::Invalid(_)));
+            assert!(error.to_string().contains("MSYS_NO_PATHCONV=1"));
+            assert!(fake.calls.borrow().is_empty());
+        }
     }
 
     #[test]
