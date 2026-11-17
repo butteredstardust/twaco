@@ -12254,7 +12254,6 @@
       "auto_resize": true,
       "defaults": {
         "Area": "UI",
-        "CurrentStepMashup": "",
         "CustomClass": "",
         "DisableAutoStepCompletion": false,
         "Disabled": false,

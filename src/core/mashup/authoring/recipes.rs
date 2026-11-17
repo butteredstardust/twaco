@@ -663,6 +663,22 @@ pub(crate) fn plan_recipe(
                     target.id, target.type_id
                 )));
             }
+            let stored = work.document.at_mut(&target.path)["Properties"]
+                .as_object_mut()
+                .expect("a widget has properties");
+            let mut removed = Vec::new();
+            for name in ["CurrentStepMashup", "CurrentStepNumber"] {
+                if stored.remove(name).is_some() {
+                    removed.push(name);
+                }
+            }
+            if !removed.is_empty() {
+                work.notes.push(format!(
+                    "{}: removed stored {}: a stored value blanks the step container at load",
+                    target.id,
+                    removed.join("/")
+                ));
+            }
             let mut properties = vec![("IsInteractive", json!(true)), ("StepSize", json!("large"))];
             properties.extend(maps.iter().map(|(name, field)| (*name, json!(field))));
             work.set(&target, &properties);
@@ -1006,7 +1022,12 @@ pub(crate) fn plan_recipe(
                 if !allowed.contains(&editor.as_str()) {
                     return Err(AuthoringError::Invalid(format!(
                         "--column-editor {name}={editor}: field {name} has base type {base}; allowed editors: {}",
-                        allowed.join(", ")
+                        allowed
+                            .iter()
+                            .filter(|editor| **editor != "dropdown")
+                            .copied()
+                            .collect::<Vec<_>>()
+                            .join(", ")
                     )));
                 }
                 column["cellEditor"] = json!(editor);

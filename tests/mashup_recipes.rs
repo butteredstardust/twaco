@@ -708,6 +708,64 @@ fn recipe_retries_match_wiring_and_preserve_different_arguments() {
 }
 
 #[test]
+fn added_tracker_omits_current_mashup_and_refuses_setting_the_output() {
+    for mcp in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::write(root.join("twaco.toml"), "[[project]]\nname = 'Acme'\n").unwrap();
+        invoke(
+            root,
+            mcp,
+            &["mashup", "new", "Acme.Steps_MU", "--apply"],
+            "mashup_new",
+            json!({"name":"Acme.Steps_MU", "dry_run":false}),
+        );
+        let added = invoke(
+            root,
+            mcp,
+            &[
+                "mashup",
+                "add",
+                "Acme.Steps_MU",
+                "progress-tracker",
+                "--apply",
+            ],
+            "mashup_add",
+            json!({"mashup":"Acme.Steps_MU", "widget":"progress-tracker", "dry_run":false}),
+        );
+        let sidecar = root.join("src/Acme.Steps_MU/mashup/content.json");
+        let before = std::fs::read(&sidecar).unwrap();
+        let content: Value = serde_json::from_slice(&before).unwrap();
+        assert!(properties(&content["UI"], "ptcsprogresstracker")
+            .unwrap()
+            .get("CurrentStepMashup")
+            .is_none());
+        let entity = root.join("Mashups/Acme.Steps_MU.xml");
+        let entity_before = std::fs::read(&entity).unwrap();
+        let refused = Command::new(env!("CARGO_BIN_EXE_twaco"))
+            .current_dir(root)
+            .env_clear()
+            .args([
+                "mashup",
+                "set",
+                "Acme.Steps_MU",
+                added["id"].as_str().unwrap(),
+                "--prop",
+                "CurrentStepMashup=Acme.Step_MU",
+                "--apply",
+            ])
+            .output()
+            .unwrap();
+        assert!(!refused.status.success());
+        assert!(
+            String::from_utf8_lossy(&refused.stderr).contains("CurrentStepMashup is not editable")
+        );
+        assert_eq!(std::fs::read(&sidecar).unwrap(), before);
+        assert_eq!(std::fs::read(&entity).unwrap(), entity_before);
+    }
+}
+
+#[test]
 fn recipe_options_plan_and_apply_through_cli_and_mcp() {
     for mcp in [false, true] {
         let dir = tempfile::tempdir().unwrap();
@@ -883,10 +941,64 @@ fn recipe_options_plan_and_apply_through_cli_and_mcp() {
                 }
                 "tracker" => {
                     let props = properties(&content["UI"], "ptcsprogresstracker").unwrap();
+                    assert!(props.get("CurrentStepMashup").is_none());
+                    assert!(props.get("CurrentStepNumber").is_none());
                     assert_eq!(props["IsInteractive"], true);
                     assert_eq!(props["StepSize"], "large");
                     assert_eq!(props["StepLabelField"], "caption");
                     assert_eq!(props["StepMashupNameField"], "mashup");
+                    let id = props["Id"].as_str().unwrap();
+                    let stored = std::fs::read_to_string(&sidecar).unwrap().replace(
+                        "\"Type\": \"ptcsprogresstracker\"",
+                        "\"CurrentStepMashup\": \"\", \"CurrentStepNumber\": 1, \"Type\": \"ptcsprogresstracker\"",
+                    );
+                    std::fs::write(&sidecar, &stored).unwrap();
+                    let synced = twaco::core::mashup::sync(
+                        &std::fs::read(&entity).unwrap(),
+                        &twaco::core::mashup::Assets {
+                            content: stored.clone(),
+                            css: std::fs::read_to_string(sidecar.with_file_name("custom.css"))
+                                .unwrap(),
+                        },
+                    )
+                    .unwrap()
+                    .0;
+                    std::fs::write(&entity, synced).unwrap();
+                    cli[4] = id;
+                    let mut repair_args = json!({"mashup":"Acme.Steps_MU", "recipe":"tracker", "widget":id,
+                        "data":"data:Acme.Manager.GetSteps", "field_maps":["StepLabelField=caption"]});
+                    let plan = invoke(
+                        root,
+                        mcp,
+                        &cli[..cli.len() - 1],
+                        "mashup_recipe",
+                        repair_args.clone(),
+                    );
+                    assert_eq!(plan["unchanged"], false);
+                    let text_plan = Command::new(env!("CARGO_BIN_EXE_twaco"))
+                        .current_dir(root)
+                        .env_clear()
+                        .args(&cli[..cli.len() - 1])
+                        .output()
+                        .unwrap();
+                    assert!(text_plan.status.success());
+                    assert!(String::from_utf8_lossy(&text_plan.stderr).contains(
+                        "removed stored CurrentStepMashup/CurrentStepNumber: a stored value blanks the step container at load"
+                    ));
+                    assert_eq!(std::fs::read_to_string(&sidecar).unwrap(), stored);
+                    repair_args["dry_run"] = json!(false);
+                    invoke(root, mcp, &cli, "mashup_recipe", repair_args.clone());
+                    let repaired = std::fs::read(&sidecar).unwrap();
+                    let repaired_content: Value = serde_json::from_slice(&repaired).unwrap();
+                    let repaired_props =
+                        properties(&repaired_content["UI"], "ptcsprogresstracker").unwrap();
+                    assert!(repaired_props.get("CurrentStepMashup").is_none());
+                    assert!(repaired_props.get("CurrentStepNumber").is_none());
+                    let entity_before = std::fs::read(&entity).unwrap();
+                    let repeated = invoke(root, mcp, &cli, "mashup_recipe", repair_args);
+                    assert_eq!(repeated["unchanged"], true);
+                    assert_eq!(std::fs::read(&sidecar).unwrap(), repaired);
+                    assert_eq!(std::fs::read(&entity).unwrap(), entity_before);
                 }
                 "set-on-click" => {
                     let props = properties(&content["UI"], "expression2").unwrap();

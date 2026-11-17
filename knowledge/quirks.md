@@ -563,6 +563,16 @@ omits the value instead of persisting NULL. A reusable ThingShape must call `me.
 not a fixed Thing. For InfoTables, conversion such as `String(...)` and `new Date(...)` inside
 `forEach` avoids Java-backed row views; an unconverted indexed copy can repeat the first row.
 
+## Progress tracker stored outputs blank the step container at load
+
+Verified on ThingWorx 10.2 Runtime: a `ptcsprogresstracker` must not store
+`CurrentStepMashup` or `CurrentStepNumber` in its properties. With `CurrentStepMashup`
+bound to a contained mashup's `Name` in `Acme.Steps_MU`, a stored value blanks the
+step container until a step is clicked. Even `"CurrentStepMashup": ""` alone causes
+this. Remove both stored properties so the tracker computes its initial step;
+step 1 then loads immediately and Next advances to step 2 with step 1 checked.
+`mashup recipe tracker` removes these stored values from an existing tracker.
+
 ## Additional mashup binding and widget observations
 
 For a full table binding, use `SourceDetails: "AllData"` and `SourceProperty: ""`; Composer usually

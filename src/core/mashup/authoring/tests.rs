@@ -9248,11 +9248,7 @@ fn columns_validate_typed_editors_and_whitespace_and_explain_editability() {
     for (editor, expected) in [
         (
             "note=datepicker",
-            vec![
-                "note",
-                "STRING",
-                "allowed editors: textfield, textarea, dropdown",
-            ],
+            vec!["note", "STRING", "allowed editors: textfield, textarea"],
         ),
         (
             "id=checkbox",

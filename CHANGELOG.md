@@ -12,6 +12,7 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Fixed
 
+- Progress trackers omit the stored output that blanks the step container at load; the tracker recipe removes stored CurrentStepMashup/CurrentStepNumber from existing trackers.
 - Repeating an identical mashup recipe reports that there is nothing to write, in plan and apply mode; JSON and MCP include `unchanged`.
 - JavaScript parser panics are handled as parse errors so malformed scripts cannot take twaco down.
 - Repository paths rewritten by Git Bash are refused with guidance to use `MSYS_NO_PATHCONV=1` or a `//` prefix.
