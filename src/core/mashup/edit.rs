@@ -1874,9 +1874,10 @@ pub(crate) fn new_widget(widget: &Widget, number: u64, alone: bool) -> Value {
         properties.insert("ContentAlignment".into(), Value::from("top"));
     }
     if widget.type_id != "flexcontainer" {
+        // A tracker stretches across its row while retaining the height that sizes it.
         properties.insert(
             "ResponsiveLayout".into(),
-            Value::from(fills_alone(widget) && alone),
+            Value::from((fills_alone(widget) || widget.type_id == "ptcsprogresstracker") && alone),
         );
         if fills_alone(widget) && alone {
             // Responsive widgets fill their row; Composer does not retain the drop dimensions.
@@ -2023,6 +2024,11 @@ fn content_height(widget: &Value, styles: &Value) -> Option<f64> {
             .as_str()
             .is_some_and(|label| !label.is_empty());
         Some(match type_of(widget)? {
+            "ptcsprogresstracker" => widgets::catalog()
+                .by_type("ptcsprogresstracker")?
+                .defaults
+                .get("Height")?
+                .as_f64()?,
             "ptcsdivider" => {
                 if properties["VerticalDivider"] == true {
                     34.0
@@ -2093,8 +2099,10 @@ fn starts_page_form(parent: &[usize], anchor_type: &str, side: Side) -> bool {
 }
 
 fn fills(widget: &Value) -> bool {
-    !matches!(type_of(widget), Some("flexcontainer" | "ptcsdivider"))
-        && widget["Properties"]["ResponsiveLayout"] == Value::Bool(true)
+    !matches!(
+        type_of(widget),
+        Some("flexcontainer" | "ptcsdivider" | "ptcsprogresstracker")
+    ) && widget["Properties"]["ResponsiveLayout"] == Value::Bool(true)
 }
 
 /// How far a reflow may reshape: a placement owns what it made, an edit owns nothing.
@@ -2111,10 +2119,14 @@ fn contains(widget: &Value, id: &str) -> bool {
     widget_id(widget) == id || children(widget).iter().any(|child| contains(child, id))
 }
 
-/// Shapes are fixed marks in the kits; dividers stretch across the row but keep their thickness.
-/// Neither should claim the column's spare height even though the catalogue allows resizing.
+/// Shapes, dividers and progress trackers keep their height even when they stretch horizontally.
+/// They do not claim the column's spare height even though the catalogue allows resizing.
 fn fills_alone(widget: &Widget) -> bool {
-    widget.auto_resize && !matches!(widget.type_id.as_str(), "shape" | "ptcsdivider")
+    widget.auto_resize
+        && !matches!(
+            widget.type_id.as_str(),
+            "shape" | "ptcsdivider" | "ptcsprogresstracker"
+        )
 }
 
 fn can_fill(widget: &Value) -> bool {
@@ -5162,6 +5174,129 @@ mod placement_walkthrough {
                 .unwrap();
             assert_eq!(document.at(row_path)["Properties"], before);
         }
+    }
+
+    #[test]
+    fn a_progress_tracker_above_a_grid_keeps_a_fixed_control_row() {
+        let catalog = widgets::catalog();
+        for tracker_first in [false, true] {
+            let mut document = parse(crate::core::mashup::templates::BLANK).unwrap();
+            let first = if tracker_first {
+                "ptcsprogresstracker"
+            } else {
+                "ptcsgrid"
+            };
+            let second = if tracker_first {
+                "ptcsgrid"
+            } else {
+                "ptcsprogresstracker"
+            };
+            let anchor = document
+                .place(
+                    catalog.by_type(first).unwrap(),
+                    &Placement::In("center".into()),
+                )
+                .unwrap();
+            let added = document
+                .place(
+                    catalog.by_type(second).unwrap(),
+                    &Placement::Beside {
+                        anchor: anchor.id.clone(),
+                        side: if tracker_first {
+                            Side::Below
+                        } else {
+                            Side::Above
+                        },
+                    },
+                )
+                .unwrap();
+            let (tracker, grid) = if tracker_first {
+                (anchor.id, added.id)
+            } else {
+                (added.id, anchor.id)
+            };
+            let row = parent_of(&document, &tracker);
+            assert_eq!(row["Properties"]["flex-size"], "fixed", "{row}");
+            assert_eq!(row["Properties"]["flex-min-height"], "112px");
+            assert_eq!(row["Properties"]["flex-max-height"], "112px");
+            let props = &document.at(&document.find(&tracker).unwrap().path)["Properties"];
+            assert_eq!(props["ResponsiveLayout"], true);
+            assert_eq!(props["FillContainer"], true);
+            assert_eq!(props["Height"], 90);
+            let grid_row = parent_of(&document, &grid);
+            assert!(matches!(
+                grid_row["Properties"]["flex-size"].as_str(),
+                Some("default" | "range")
+            ));
+            assert_eq!(grid_row["Properties"]["flex-grow"], 1);
+            assert_eq!(grid_row["Properties"]["flex-max-height"], "");
+            let column = parent_of(&document, widget_id(row));
+            assert_eq!(widget_id(&children(column)[0]), widget_id(row));
+            assert_eq!(widget_id(&children(column)[1]), widget_id(grid_row));
+        }
+    }
+
+    #[test]
+    fn progress_tracker_height_uses_its_own_or_catalogue_height_and_margins() {
+        let mut tracker = new_widget(
+            widgets::catalog().by_type("ptcsprogresstracker").unwrap(),
+            4,
+            true,
+        );
+        for (height, expected) in [(Some(135), 145.0), (None, 100.0)] {
+            properties_mut(&mut tracker).remove("Height");
+            if let Some(height) = height {
+                set_value_property(&mut tracker, "Height", Value::from(height));
+            }
+            assert_eq!(content_height(&tracker, &Value::Null), Some(expected));
+            assert_eq!(wrapper_floor(&tracker, &Value::Null), Some(expected));
+            let row = serde_json::json!({"Properties": {"Id": "flexcontainer-3", "Type": "flexcontainer"}, "Widgets": [tracker.clone()]});
+            assert_eq!(fixed_row_height(&row, false, &Value::Null), Some(expected));
+            assert_eq!(wrapper_floor(&row, &Value::Null), Some(expected + 12.0));
+        }
+    }
+
+    #[test]
+    fn progress_tracker_reflow_preserves_default_rows_and_grows_fixed_rows() {
+        let mut document = parse(&serde_json::json!({
+            "UI": {"Properties": {"Id": "mashup-root", "Type": "mashup", "id_index": 5}, "Widgets": [{
+                "Properties": {"Id": "flexcontainer-2", "Type": "flexcontainer", "DisplayName": "center", "flex-direction": "column"}, "Widgets": [{
+                    "Properties": {"Id": "flexcontainer-3", "Type": "flexcontainer", "DisplayName": "container-3", "flex-direction": "row"}, "Widgets": [{
+                        "Properties": {"Id": "ptcsprogresstracker-4", "Type": "ptcsprogresstracker", "ResponsiveLayout": true}, "Widgets": []
+                    }]
+                }]
+            }]}
+        }).to_string()).unwrap();
+        let row_path = document.find("flexcontainer-3").unwrap().path;
+        document.set_property(&row_path, "flex-size", Value::from("default"));
+        let before = document.clone();
+        document.reflow_for("ptcsprogresstracker-4");
+        assert_eq!(document, before);
+
+        document.set_property(&row_path, "flex-size", Value::from("fixed"));
+        document.set_property(&row_path, "flex-min-height", Value::from("50px"));
+        document.set_property(&row_path, "flex-max-height", Value::from("50px"));
+        document.reflow_for("ptcsprogresstracker-4");
+        assert_eq!(
+            document.at(&row_path)["Properties"]["flex-min-height"],
+            "102px"
+        );
+        assert_eq!(
+            document.at(&row_path)["Properties"]["flex-max-height"],
+            "102px"
+        );
+
+        let tracker_path = document.find("ptcsprogresstracker-4").unwrap().path;
+        document.set_property(&tracker_path, "Height", Value::from(140));
+        document.reflow_for("ptcsprogresstracker-4");
+        assert_eq!(
+            document.at(&row_path)["Properties"]["flex-min-height"],
+            "152px"
+        );
+        assert_eq!(
+            document.at(&row_path)["Properties"]["flex-max-height"],
+            "152px"
+        );
     }
 
     #[test]

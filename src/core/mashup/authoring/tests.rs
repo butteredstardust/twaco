@@ -8646,6 +8646,62 @@ fn tracker_recipe_maps_shapes_and_refuses_unmatched_fields_without_writing() {
 }
 
 #[test]
+fn tracker_recipe_new_sizes_its_row_beside_a_growing_grid() {
+    let (dir, solution) = bind_fixture();
+    write(
+        dir.path(),
+        "acme/DataShapes/Acme.Orders.Order_DS.xml",
+        r#"<Entities><DataShapes><DataShape name="Acme.Orders.Order_DS" projectName="Acme"><FieldDefinitions><FieldDefinition name="stepNumber" baseType="INTEGER"/><FieldDefinition name="label" baseType="STRING"/><FieldDefinition name="state" baseType="STRING"/><FieldDefinition name="interactive" baseType="BOOLEAN"/><FieldDefinition name="mashupName" baseType="MASHUPNAME"/></FieldDefinitions></DataShape></DataShapes></Entities>"#,
+    );
+    rewrite_content(dir.path(), |content| {
+        let mut document = mashup::edit::parse(mashup::templates::BLANK).unwrap();
+        let grid = document
+            .place(
+                widgets::catalog().resolve("grid").unwrap(),
+                &Placement::In("center".into()),
+            )
+            .unwrap();
+        document
+            .place(
+                widgets::catalog().resolve("label").unwrap(),
+                &Placement::Beside {
+                    anchor: grid.id,
+                    side: mashup::edit::Side::Above,
+                },
+            )
+            .unwrap();
+        *content = document.value().clone();
+    });
+    let plan = recipe(
+        &solution,
+        "tracker",
+        RecipeArgs {
+            widget: Some("new".into()),
+            data: Some("data:Acme.Orders.Manager.GetOrders[as steps]".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let document = mashup::edit::parse(&sidecar_content(&solution)).unwrap();
+    let tracker = document.find(&plan.added[0]).unwrap();
+    let props = &document.at(&tracker.path)["Properties"];
+    assert_eq!(props["ResponsiveLayout"], true);
+    assert_eq!(props["FillContainer"], true);
+    let row = &document.at(&tracker.path[..tracker.path.len() - 1])["Properties"];
+    assert_eq!(row["flex-size"], "fixed", "{row}");
+    assert_eq!(row["flex-min-height"], "112px");
+    assert_eq!(row["flex-max-height"], "112px");
+    let grid = document
+        .widgets()
+        .into_iter()
+        .find(|widget| widget.type_id == "ptcsgrid")
+        .unwrap();
+    let row = &document.at(&grid.path[..grid.path.len() - 1])["Properties"];
+    assert_eq!(row["flex-grow"], 1);
+    assert_eq!(row["flex-max-height"], "");
+}
+
+#[test]
 fn set_on_click_is_typed_click_only_and_supports_parameter_feedback() {
     let (_dir, solution) = recipe_fixture();
     let mut parameter = param_request("Acme.Orders_MU", ParameterAction::Add, "CurrentStep");
