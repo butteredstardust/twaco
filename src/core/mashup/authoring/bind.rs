@@ -245,8 +245,9 @@ pub(super) fn bind_in(
             if let End::Ui { id, .. } = &to {
                 let target = document.find_exact(id).map_err(AuthoringError::Edit)?;
                 if target.type_id != "ptcsgrid" {
+                    let first_row = from_raw.replace("[SelectedRows]", "");
                     warnings.push(format!(
-                        "{from_raw} fills {to_raw} only after a row is selected, even for a one-row result; twaco has no verified service-level first-row selection setting for ThingWorx 10.2. Bind the full result to a list or dropdown with AutoSelectFirstRow=true, or select a row in a grid"
+                        "{from_raw} fills {to_raw} only after a row is selected, even for a one-row result; for a record form fed by a one-record service such as GetRecord(id), bind {first_row} instead to take the first row of the result (ThingWorx All Data)"
                     ));
                 }
             }

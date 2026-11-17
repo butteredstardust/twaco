@@ -12,6 +12,7 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Fixed
 
+- `mashup recipe validate` evaluates only on its event, preventing saves on form load; selected-row binding warnings name the first-row All Data address for record forms.
 - Template menu bars show item icons and fit their labels when expanded for both service and Menu entity sources.
 - Entity edits accept one-line exports, preserving their compact layout and untouched bytes.
 - Progress tracker rows size to the tracker's height, leaving spare column height to the grid or contained mashup below.

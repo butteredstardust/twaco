@@ -1445,7 +1445,8 @@ fn selected_rows_fields_warn_without_changing_service_selection_choices() {
             warning.contains(from)
                 && warning.contains(to)
                 && warning.contains("one-row result")
-                && warning.contains("AutoSelectFirstRow=true")
+                && warning.contains("data:Acme.Orders.Manager.GetOrders[as record].note")
+                && warning.contains("first row")
         }),
         "{:?}",
         planned.warnings
@@ -1477,6 +1478,40 @@ fn selected_rows_fields_warn_without_changing_service_selection_choices() {
     )
     .unwrap();
     assert!(full_result.warnings.is_empty());
+}
+
+#[test]
+fn record_form_fields_use_all_data_instead_of_selected_rows() {
+    let (dir, solution) = bind_fixture();
+    write(
+        dir.path(),
+        "acme/Things/Acme.Records.xml",
+        r#"<Entities><Things><Thing name="Acme.Records" projectName="Acme"><ThingShape><ServiceDefinitions><ServiceDefinition name="GetRecord"><ParameterDefinitions><FieldDefinition name="id" baseType="LONG"/></ParameterDefinitions><ResultType baseType="INFOTABLE" aspect.dataShape="Acme.Record_DS"/></ServiceDefinition></ServiceDefinitions><ServiceImplementations/></ThingShape></Thing></Things></Entities>"#,
+    );
+    write(
+        dir.path(),
+        "acme/DataShapes/Acme.Record_DS.xml",
+        r#"<Entities><DataShapes><DataShape name="Acme.Record_DS" projectName="Acme"><FieldDefinitions><FieldDefinition name="title" baseType="STRING"/></FieldDefinitions></DataShape></DataShapes></Entities>"#,
+    );
+    let to = "ui:ptcstextfield-3.Text";
+    let selected = bind(
+        &solution,
+        "data:Acme.Records.GetRecord[SelectedRows].title",
+        to,
+    )
+    .unwrap();
+    assert_eq!(selected.warnings.len(), 1);
+    assert!(selected.warnings[0].contains("only after a row is selected"));
+    assert!(selected.warnings[0].contains("data:Acme.Records.GetRecord.title"));
+    assert!(selected.warnings[0].contains("first row"));
+
+    let first = bind(&solution, "data:Acme.Records.GetRecord.title", to).unwrap();
+    assert!(first.warnings.is_empty(), "{:?}", first.warnings);
+    let content: Value =
+        serde_json::from_slice(&first.edit.sidecars.as_ref().unwrap().content_after).unwrap();
+    let binding = &content["DataBindings"][0];
+    assert_eq!(binding["SourceDetails"], "AllData");
+    assert_eq!(binding["PropertyMaps"][0]["SourceProperty"], "title");
 }
 
 #[test]
@@ -4657,6 +4692,7 @@ fn each_recipe_writes_the_wiring_real_mashups_use() {
         "ptcslabel-4",
         "Visible"
     ));
+    assert_eq!(widget_of(&value, &plan.added[0])["AutoEvaluate"], true);
     // text: a STRING expression into the label's text.
     let plan = recipe(
         &solution,
@@ -4674,6 +4710,7 @@ fn each_recipe_writes_the_wiring_real_mashups_use() {
         widget_of(&value, &plan.added[0])["Expression"],
         "Output = ('Note: ' + note);"
     );
+    assert_eq!(widget_of(&value, &plan.added[0])["AutoEvaluate"], true);
     assert!(has_binding(
         &value,
         &plan.added[0],
@@ -4855,6 +4892,7 @@ fn each_recipe_writes_the_wiring_real_mashups_use() {
     let value: Value = serde_json::from_str(&sidecar_content(&solution)).unwrap();
     let (validator, message) = (&plan.added[0], &plan.added[1]);
     assert_eq!(widget_of(&value, validator)["Type"], "validator2");
+    assert_eq!(widget_of(&value, validator)["AutoEvaluate"], false);
     assert!(has_event(
         &value,
         "ptcsbutton-6",

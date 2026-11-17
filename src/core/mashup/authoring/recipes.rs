@@ -443,6 +443,7 @@ impl Work<'_> {
         expression: &str,
         output: Option<&str>,
         inputs: &[(String, String)],
+        auto_evaluate: bool,
     ) -> Result<String, AuthoringError> {
         let mut definitions = Vec::new();
         for (name, address) in inputs {
@@ -472,7 +473,7 @@ impl Work<'_> {
             .collect();
         let mut properties = vec![
             ("Expression", json!(expression)),
-            ("AutoEvaluate", json!(true)),
+            ("AutoEvaluate", json!(auto_evaluate)),
             ("_currentParameterDefs", Value::Array(entries)),
         ];
         if let Some(output) = output {
@@ -566,7 +567,7 @@ pub(crate) fn plan_recipe(
             } else {
                 format!("Output = ({condition});")
             };
-            let id = work.computed("expression2", &expression, Some("BOOLEAN"), inputs)?;
+            let id = work.computed("expression2", &expression, Some("BOOLEAN"), inputs, true)?;
             work.bind(
                 &format!("ui:{id}.Output"),
                 &format!(
@@ -595,6 +596,7 @@ pub(crate) fn plan_recipe(
                 &assigning(expression),
                 Some("STRING"),
                 inputs,
+                true,
             )?;
             work.bind(
                 &format!("ui:{id}.Output"),
@@ -619,8 +621,13 @@ pub(crate) fn plan_recipe(
             ) {
                 work.notes.push("set-on-click wiring already exists".into());
             } else {
-                let id =
-                    work.computed("expression2", &assigning(expression), Some(&base), inputs)?;
+                let id = work.computed(
+                    "expression2",
+                    &assigning(expression),
+                    Some(&base),
+                    inputs,
+                    false,
+                )?;
                 let expression_widget = widget_id(&work.document, &id)?;
                 work.set(
                     &expression_widget,
@@ -1120,7 +1127,7 @@ pub(crate) fn plan_recipe(
             then,
             otherwise,
         } => {
-            let id = work.computed("validator2", &assigning(condition), None, inputs)?;
+            let id = work.computed("validator2", &assigning(condition), None, inputs, false)?;
             work.on(&widget_event(trigger), &format!("ui:{id}.Evaluate"))?;
             work.on(&format!("ui:{id}.True"), then)?;
             if let Some(text) = otherwise {

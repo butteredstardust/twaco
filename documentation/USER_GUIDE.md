@@ -1526,11 +1526,11 @@ templates and shapes need the runtime entity binding Composer creates, so twaco 
 that call there once. The entity and managed content sidecar change in one transaction.
 
 A `SelectedRows` field bound to a text field or another non-grid widget stays empty until a row
-is selected, even when the service returns just one record. twaco warns about this binding:
-the inspected ThingWorx 10.2 Data service configuration has no automatic first-row selection
-setting. To initialize a record form, bind the full result to a list or dropdown and explicitly
-set that widget's `AutoSelectFirstRow=true`, or select a row in a grid showing the result.
-twaco preserves service settings and does not insert a hidden selection widget.
+is selected, even when the service returns just one record. twaco warns and names the replacement
+address. For a record form fed by a one-row service such as `GetRecord(id)`, bind fields from
+`data:<Entity>.<Service>.<field>` (for example, `data:Acme.Records.GetRecord.title`): this reads
+the first row of the result through ThingWorx All Data. `[SelectedRows]` is for rows a user
+selects in a grid.
 
 ### Events
 
@@ -1632,7 +1632,7 @@ twaco mashup recipe set-on-click Acme.App.Wizard_MU ptcsbutton-6 --param Current
 | popup | a navigation function opening `--mashup` (`--window`, `--size WxH`, `--title`), each `--pass name=address` into its parameters, `--reload` run when it closes |
 | close-after | the mashup closes itself (when it is a popup) once the `--after` call succeeds; failure leaves the form open |
 | auto-refresh | `--then` run every `--every` seconds, or at a bound `--interval` |
-| validate | a validator of `--if` the click evaluates: true runs `--then`, false shows `--else-say` |
+| validate | a validator of `--if` that evaluates only when its event fires (`AutoEvaluate=false`): true runs `--then`, false shows `--else-say` |
 | chart | `--data` bound into the chart and its category field `--x` named (a pie: `--x` label and `--value` fields); every other numeric column of the result becomes a series; `--kind` bar/column or linechart/areachart |
 | columns | only the listed `--column field[:Title[:width]]` fields visible, in order; unlisted DataShape fields excluded from the layout; DATETIME fields use the localized default date/time format. Uses `--data` or the grid's existing binding; without a known DataShape only the listed columns are written and unlisted fields stay visible |
 | picker | a dropdown or list filled from `--data`, showing `--x`, valued by `--value`, its selection bound from `--selected` |

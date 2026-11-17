@@ -3,6 +3,16 @@
 These are behaviours measured on live ThingWorx servers from 9.5 through 10.2. They are not a
 substitute for testing the target server. Examples use Acme.Orders names.
 
+## Validators can save a form on load (verified on 10.2 Runtime)
+
+A `validator2` with `AutoEvaluate=true` evaluates as soon as loaded values reach its inputs.
+If its `True` event runs a save, opening the form can save and close it without a click.
+For example, `Acme.Records.GetRecord` loading a title into a popup field can trigger
+`Acme.Records.Save` through the validator. Use `AutoEvaluate=false` (the catalogue default)
+and wire the Save button's `Clicked` event to `Evaluate` so validation runs only when asked.
+For a one-record form, `data:Acme.Records.GetRecord.title` reads the first row through All Data;
+`data:Acme.Records.GetRecord[SelectedRows].title` stays empty until a row is selected.
+
 ## Networks are declarative forests (verified on 10.1)
 
 Network XML stores Connection elements under Connections. An empty from is a root; a Thing has one
