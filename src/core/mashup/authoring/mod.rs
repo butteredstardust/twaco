@@ -101,6 +101,20 @@ pub struct EditPlan {
     pub sidecars: Option<SidecarEdit>,
 }
 
+impl EditPlan {
+    pub(crate) fn unchanged(&self) -> bool {
+        // Sidecar writes preserve an existing byte-order mark.
+        let same_sidecar = |before: &[u8], after: &[u8]| {
+            before == after || before.strip_prefix(b"\xEF\xBB\xBF") == Some(after)
+        };
+        self.entity_before == self.entity_after
+            && self.sidecars.as_ref().is_none_or(|sidecars| {
+                same_sidecar(&sidecars.content_before, &sidecars.content_after)
+                    && same_sidecar(&sidecars.css_before, &sidecars.css_after)
+            })
+    }
+}
+
 struct ExistingMashup {
     mashup: String,
     entity_path: PathBuf,

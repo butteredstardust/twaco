@@ -785,6 +785,7 @@ pub struct MashupRecipeRequest {
 pub struct MashupRecipeOutcome {
     pub plan: mashup::authoring::RecipePlan,
     pub applied: bool,
+    pub unchanged: bool,
     #[allow(
         dead_code,
         reason = "the command facade's Effects (COMMAND_FACADE.md); no adapter reads it yet"
@@ -806,6 +807,7 @@ pub fn recipe(
                 .iter()
                 .for_each(|note| notices.push(note.clone()));
             Ok(MashupRecipeOutcome {
+                unchanged: plan.edit.unchanged(),
                 plan,
                 applied: false,
                 effects: Effects::new(Access::Read, Access::None),
@@ -818,15 +820,26 @@ pub fn recipe(
                 .map_err(MashupCommandError::Config)?;
             let plan = mashup::authoring::plan_recipe(&reloaded, &request.request)
                 .map_err(MashupCommandError::Authoring)?;
-            mashup::authoring::apply_edit(&reloaded, &plan.edit, &lock)
-                .map_err(MashupCommandError::Authoring)?;
+            let unchanged = plan.edit.unchanged();
+            if !unchanged {
+                mashup::authoring::apply_edit(&reloaded, &plan.edit, &lock)
+                    .map_err(MashupCommandError::Authoring)?;
+            }
             plan.notes
                 .iter()
                 .for_each(|note| notices.push(note.clone()));
             Ok(MashupRecipeOutcome {
                 plan,
-                applied: true,
-                effects: Effects::new(Access::Write, Access::None),
+                applied: !unchanged,
+                unchanged,
+                effects: Effects::new(
+                    if unchanged {
+                        Access::Read
+                    } else {
+                        Access::Write
+                    },
+                    Access::None,
+                ),
             })
         }
     }

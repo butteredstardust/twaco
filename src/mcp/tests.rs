@@ -427,6 +427,16 @@ fn hand_written_tools() -> Vec<Value> {
         ("action_label", "Confirmation action button text.", "string"),
         ("cancel_label", "Confirmation cancel button text.", "string"),
         (
+            "column_editors",
+            "Grid cell editors as `field=editor` (recipe columns); does not imply editability.",
+            "array",
+        ),
+        (
+            "preserve_whitespace",
+            "Grid columns that preserve whitespace when shown (recipe columns).",
+            "array",
+        ),
+        (
             "editable_columns",
             "Grid columns its users may edit, each one of `columns` (recipe columns).",
             "array",

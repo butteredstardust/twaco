@@ -428,6 +428,12 @@ and the like. `entity status --record` records the current state as the baseline
 two sides already agree, for a repository adopting twaco. It reports how many baselines it
 recorded; counts, detail and the exit status reflect the updated baseline.
 
+After upgrading to a release that changes the comparison hash version (v0.1.64 moved from
+v10 to v11), older baselines count as missing: run `twaco entity status --all --record`.
+It records baselines only where the repository and server already agree. Entities listed as
+`no-baseline-differs` need investigation with `entity diff`, pull or adopt; `--record` does
+not resolve their differences.
+
 When only the server changed an entity, `twaco entity pull Acme.Thing --apply` takes that
 server version, preserving the repository file's layout and line endings, rewrites its sidecars,
 and records its baseline. `entity pull --all` takes every `server-changed` entity; a
@@ -1097,6 +1103,8 @@ under the project's `Mashups` folder, and its `content.json` and `custom.css` si
 same sync as every other mashup, so a new mashup is already in sync. `--template` selects a named
 layout (and `--layout` remains a compatibility alias); `twaco mashup templates` lists the names,
 aliases and slots. Slots are responsive container names usable with `mashup add --in <slot>`.
+With `--primary-menu` or `--menu-entity`, the template's menu bar shows icons from the menu
+items' `imageURL` (e.g. `cds:icon_*`) and fits its labels when expanded.
 
 | Template | Slots | For |
 | --- | --- | --- |
@@ -1518,11 +1526,11 @@ templates and shapes need the runtime entity binding Composer creates, so twaco 
 that call there once. The entity and managed content sidecar change in one transaction.
 
 A `SelectedRows` field bound to a text field or another non-grid widget stays empty until a row
-is selected, even when the service returns just one record. twaco warns about this binding:
-the inspected ThingWorx 10.2 Data service configuration has no automatic first-row selection
-setting. To initialize a record form, bind the full result to a list or dropdown and explicitly
-set that widget's `AutoSelectFirstRow=true`, or select a row in a grid showing the result.
-twaco preserves service settings and does not insert a hidden selection widget.
+is selected, even when the service returns just one record. twaco warns and names the replacement
+address. For a record form fed by a one-row service such as `GetRecord(id)`, bind fields from
+`data:<Entity>.<Service>.<field>` (for example, `data:Acme.Records.GetRecord.title`): this reads
+the first row of the result through ThingWorx All Data. `[SelectedRows]` is for rows a user
+selects in a grid.
 
 ### Events
 
@@ -1624,12 +1632,26 @@ twaco mashup recipe set-on-click Acme.App.Wizard_MU ptcsbutton-6 --param Current
 | popup | a navigation function opening `--mashup` (`--window`, `--size WxH`, `--title`), each `--pass name=address` into its parameters, `--reload` run when it closes |
 | close-after | the mashup closes itself (when it is a popup) once the `--after` call succeeds; failure leaves the form open |
 | auto-refresh | `--then` run every `--every` seconds, or at a bound `--interval` |
-| validate | a validator of `--if` the click evaluates: true runs `--then`, false shows `--else-say` |
+| validate | a validator of `--if` that evaluates only when its event fires (`AutoEvaluate=false`): true runs `--then`, false shows `--else-say` |
 | chart | `--data` bound into the chart and its category field `--x` named (a pie: `--x` label and `--value` fields); every other numeric column of the result becomes a series; `--kind` bar/column or linechart/areachart |
 | columns | only the listed `--column field[:Title[:width]]` fields visible, in order; unlisted DataShape fields excluded from the layout; DATETIME fields use the localized default date/time format. Uses `--data` or the grid's existing binding; without a known DataShape only the listed columns are written and unlisted fields stay visible |
 | picker | a dropdown or list filled from `--data`, showing `--x`, valued by `--value`, its selection bound from `--selected` |
 | tracker | a progress tracker (existing widget or `new` in `center`) bound to `--data`, with `IsInteractive=true`, `StepSize=large` and field maps inferred from its result DataShape (number and label required); `--field-map Property=field` overrides any map |
 | set-on-click | an expression of `--expr`, fed by `--input name=address`, evaluated by the button's click and bound into the existing `--param` mashup parameter, using that parameter's type; no evaluation on load or input changes |
+
+For `columns`, repeat `--editable-column <field>` to make listed columns and the grid editable.
+`--column-editor <field>=<editor>` chooses an editor allowed by that field's base type;
+STRING defaults to `textfield`, TEXT to `textarea`. Dropdown editors need a source and are
+not supported by this recipe. Repeat `--preserve-whitespace <field>` to keep newlines and spaces
+when shown (`preserveWhiteSpaces: true`; false by default). Both options require a listed
+`--column` field and neither makes it editable. Editable columns need `textarea` to keep newlines
+while editing; other editors produce a plan note. An editor on a noneditable column also produces
+a note. MCP uses lists `column_editors` (each `field=editor`) and `preserve_whitespace` (field names).
+For a TEXT `Notes` field:
+
+```sh
+twaco mashup recipe columns Acme.App.Orders_MU ptcsgrid-5 --data data:Acme.App.Orders.Manager.GetOrders --column Notes --editable-column Notes --column-editor Notes=textarea --preserve-whitespace Notes --apply
+```
 
 `tracker` matches field names ignoring case and separators: number/step/stepNumber for
 `StepNumberField`, name/title/label/description for `StepLabelField`, state/status for
@@ -2073,6 +2095,10 @@ keep a `jar:file:` URL and report the SDK version.
   and `pull` mirror Composer's Repository page. `filerepository/<repo>/` in the solution
   holds a repository's tree. `push` and `pull` never delete, and a file that differs on both
   sides needs `--overwrite`.
+
+  In Git Bash, disable MSYS path rewriting for repository paths: for example,
+  `MSYS_NO_PATHCONV=1 twaco repo put MyRepository file.md /a/b.md`, or use `//a/b.md`
+  instead of `/a/b.md`. This also applies to source-control export and import `--path`.
 
 - **Extensions:** `twaco ext list`, `show`, `import` and `remove`. `import` without `--apply`
   only has the server validate the package; nothing is installed.

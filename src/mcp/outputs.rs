@@ -1577,6 +1577,7 @@ pub(crate) struct MashupParameterResult {
 #[derive(Serialize, JsonSchema)]
 pub(crate) struct MashupRecipeResult {
     applied: bool,
+    unchanged: bool,
     dry_run: bool,
     mashup: String,
     recipe: String,

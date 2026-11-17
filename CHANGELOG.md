@@ -6,6 +6,26 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `mashup recipe columns` supports typed `--column-editor` and `--preserve-whitespace` options (also in MCP); TEXT columns default to textarea.
+
+### Fixed
+
+- `mashup recipe validate` evaluates only on its event, preventing saves on form load; selected-row binding warnings name the first-row All Data address for record forms.
+- Template menu bars show item icons and fit their labels when expanded for both service and Menu entity sources.
+- Entity edits accept one-line exports, preserving their compact layout and untouched bytes.
+- Progress tracker rows size to the tracker's height, leaving spare column height to the grid or contained mashup below.
+- Progress trackers omit the stored output that blanks the step container at load; the tracker recipe removes stored CurrentStepMashup/CurrentStepNumber from existing trackers.
+- Repeating an identical mashup recipe reports that there is nothing to write, in plan and apply mode; JSON and MCP include `unchanged`.
+- JavaScript parser panics are handled as parse errors so malformed scripts cannot take twaco down.
+- Repository paths rewritten by Git Bash are refused with guidance to use `MSYS_NO_PATHCONV=1` or a `//` prefix.
+- `twaco --help` starts with a compact command index so truncated output still shows every command family.
+
+### Notes
+
+- After upgrading to a release that changes the comparison hash version (v0.1.64 moved from v10 to v11), run `twaco entity status --all --record` to recover baselines invalidated by the version change. It records baselines only where the repository and server already agree. Entities listed as `no-baseline-differs` need investigation with `entity diff`, pull or adopt; `--record` does not resolve their differences.
+
 ## [0.1.64] - 2026-11-16
 
 ### Added

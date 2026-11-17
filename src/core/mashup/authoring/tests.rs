@@ -406,6 +406,73 @@ fn add_in_a_template_slot_places_the_widget_in_that_container() {
 }
 
 #[test]
+fn template_menubars_show_icons_and_fit_expanded_labels() {
+    let (dir, solution) = one_project();
+    write(
+        dir.path(),
+        "acme/Menus/Acme.Main_MN.xml",
+        r#"<Entities><Menus><Menu name="Acme.Main_MN" projectName="Acme"/></Menus></Entities>"#,
+    );
+    write(
+        dir.path(),
+        "acme/Things/Acme.Nav.Manager.xml",
+        r#"<Entities><Things><Thing name="Acme.Nav.Manager" projectName="Acme"><ThingShape><ServiceDefinitions><ServiceDefinition name="GetMenu"><ResultType baseType="INFOTABLE"/></ServiceDefinition></ServiceDefinitions><ServiceImplementations/></ThingShape></Thing></Things></Entities>"#,
+    );
+    for template in ["sidebar", "header-sidebar", "sidebar-header"] {
+        for master in [false, true] {
+            for entity_menu in [false, true] {
+                let plan = plan_new(
+                    &solution,
+                    &NewRequest {
+                        template: template.into(),
+                        master,
+                        primary_menu: (!entity_menu)
+                            .then(|| "data:Acme.Nav.Manager.GetMenu".into()),
+                        menu_entity: entity_menu.then(|| "Acme.Main_MN".into()),
+                        ..request("Acme.Nav_MU")
+                    },
+                )
+                .unwrap();
+                let document = mashup::edit::parse(&plan.assets.content).unwrap();
+                let bar = document
+                    .widgets()
+                    .into_iter()
+                    .find(|widget| widget.type_id == "ptcsmenubar")
+                    .unwrap();
+                let properties =
+                    &document.at(&document.find_exact(&bar.id).unwrap().path)["Properties"];
+                for property in ["PrimaryNavIcons", "DisableResizing"] {
+                    assert_eq!(
+                        properties[property], true,
+                        "{template}, master={master}, entity_menu={entity_menu}: {property}"
+                    );
+                }
+                assert_eq!(properties["SecondaryNavIcons"], false);
+            }
+        }
+    }
+}
+
+#[test]
+fn added_menubars_keep_catalogue_icon_and_resizing_defaults() {
+    let (_dir, solution) = one_project();
+    let name = "Acme.Nav_MU";
+    apply_new(
+        &solution,
+        &plan_new(&solution, &request(name)).unwrap(),
+        &lock(&solution),
+    )
+    .unwrap();
+    let plan = plan_add(&solution, &add_request(name, "ptcsmenubar")).unwrap();
+    let content = &plan.edit.sidecars.as_ref().unwrap().content_after;
+    let document = mashup::edit::parse(std::str::from_utf8(content).unwrap()).unwrap();
+    let properties =
+        &document.at(&document.find_exact(&plan.placed.id).unwrap().path)["Properties"];
+    assert_eq!(properties["PrimaryNavIcons"], false);
+    assert_eq!(properties["DisableResizing"], false);
+}
+
+#[test]
 fn sidebar_menus_are_service_calls_bound_and_loaded_like_bind_and_on() {
     let (dir, solution) = one_project();
     write(
@@ -1378,7 +1445,8 @@ fn selected_rows_fields_warn_without_changing_service_selection_choices() {
             warning.contains(from)
                 && warning.contains(to)
                 && warning.contains("one-row result")
-                && warning.contains("AutoSelectFirstRow=true")
+                && warning.contains("data:Acme.Orders.Manager.GetOrders[as record].note")
+                && warning.contains("first row")
         }),
         "{:?}",
         planned.warnings
@@ -1410,6 +1478,40 @@ fn selected_rows_fields_warn_without_changing_service_selection_choices() {
     )
     .unwrap();
     assert!(full_result.warnings.is_empty());
+}
+
+#[test]
+fn record_form_fields_use_all_data_instead_of_selected_rows() {
+    let (dir, solution) = bind_fixture();
+    write(
+        dir.path(),
+        "acme/Things/Acme.Records.xml",
+        r#"<Entities><Things><Thing name="Acme.Records" projectName="Acme"><ThingShape><ServiceDefinitions><ServiceDefinition name="GetRecord"><ParameterDefinitions><FieldDefinition name="id" baseType="LONG"/></ParameterDefinitions><ResultType baseType="INFOTABLE" aspect.dataShape="Acme.Record_DS"/></ServiceDefinition></ServiceDefinitions><ServiceImplementations/></ThingShape></Thing></Things></Entities>"#,
+    );
+    write(
+        dir.path(),
+        "acme/DataShapes/Acme.Record_DS.xml",
+        r#"<Entities><DataShapes><DataShape name="Acme.Record_DS" projectName="Acme"><FieldDefinitions><FieldDefinition name="title" baseType="STRING"/></FieldDefinitions></DataShape></DataShapes></Entities>"#,
+    );
+    let to = "ui:ptcstextfield-3.Text";
+    let selected = bind(
+        &solution,
+        "data:Acme.Records.GetRecord[SelectedRows].title",
+        to,
+    )
+    .unwrap();
+    assert_eq!(selected.warnings.len(), 1);
+    assert!(selected.warnings[0].contains("only after a row is selected"));
+    assert!(selected.warnings[0].contains("data:Acme.Records.GetRecord.title"));
+    assert!(selected.warnings[0].contains("first row"));
+
+    let first = bind(&solution, "data:Acme.Records.GetRecord.title", to).unwrap();
+    assert!(first.warnings.is_empty(), "{:?}", first.warnings);
+    let content: Value =
+        serde_json::from_slice(&first.edit.sidecars.as_ref().unwrap().content_after).unwrap();
+    let binding = &content["DataBindings"][0];
+    assert_eq!(binding["SourceDetails"], "AllData");
+    assert_eq!(binding["PropertyMaps"][0]["SourceProperty"], "title");
 }
 
 #[test]
@@ -4590,6 +4692,7 @@ fn each_recipe_writes_the_wiring_real_mashups_use() {
         "ptcslabel-4",
         "Visible"
     ));
+    assert_eq!(widget_of(&value, &plan.added[0])["AutoEvaluate"], true);
     // text: a STRING expression into the label's text.
     let plan = recipe(
         &solution,
@@ -4607,6 +4710,7 @@ fn each_recipe_writes_the_wiring_real_mashups_use() {
         widget_of(&value, &plan.added[0])["Expression"],
         "Output = ('Note: ' + note);"
     );
+    assert_eq!(widget_of(&value, &plan.added[0])["AutoEvaluate"], true);
     assert!(has_binding(
         &value,
         &plan.added[0],
@@ -4788,6 +4892,7 @@ fn each_recipe_writes_the_wiring_real_mashups_use() {
     let value: Value = serde_json::from_str(&sidecar_content(&solution)).unwrap();
     let (validator, message) = (&plan.added[0], &plan.added[1]);
     assert_eq!(widget_of(&value, validator)["Type"], "validator2");
+    assert_eq!(widget_of(&value, validator)["AutoEvaluate"], false);
     assert!(has_event(
         &value,
         "ptcsbutton-6",
@@ -8646,6 +8751,62 @@ fn tracker_recipe_maps_shapes_and_refuses_unmatched_fields_without_writing() {
 }
 
 #[test]
+fn tracker_recipe_new_sizes_its_row_beside_a_growing_grid() {
+    let (dir, solution) = bind_fixture();
+    write(
+        dir.path(),
+        "acme/DataShapes/Acme.Orders.Order_DS.xml",
+        r#"<Entities><DataShapes><DataShape name="Acme.Orders.Order_DS" projectName="Acme"><FieldDefinitions><FieldDefinition name="stepNumber" baseType="INTEGER"/><FieldDefinition name="label" baseType="STRING"/><FieldDefinition name="state" baseType="STRING"/><FieldDefinition name="interactive" baseType="BOOLEAN"/><FieldDefinition name="mashupName" baseType="MASHUPNAME"/></FieldDefinitions></DataShape></DataShapes></Entities>"#,
+    );
+    rewrite_content(dir.path(), |content| {
+        let mut document = mashup::edit::parse(mashup::templates::BLANK).unwrap();
+        let grid = document
+            .place(
+                widgets::catalog().resolve("grid").unwrap(),
+                &Placement::In("center".into()),
+            )
+            .unwrap();
+        document
+            .place(
+                widgets::catalog().resolve("label").unwrap(),
+                &Placement::Beside {
+                    anchor: grid.id,
+                    side: mashup::edit::Side::Above,
+                },
+            )
+            .unwrap();
+        *content = document.value().clone();
+    });
+    let plan = recipe(
+        &solution,
+        "tracker",
+        RecipeArgs {
+            widget: Some("new".into()),
+            data: Some("data:Acme.Orders.Manager.GetOrders[as steps]".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let document = mashup::edit::parse(&sidecar_content(&solution)).unwrap();
+    let tracker = document.find(&plan.added[0]).unwrap();
+    let props = &document.at(&tracker.path)["Properties"];
+    assert_eq!(props["ResponsiveLayout"], true);
+    assert_eq!(props["FillContainer"], true);
+    let row = &document.at(&tracker.path[..tracker.path.len() - 1])["Properties"];
+    assert_eq!(row["flex-size"], "fixed", "{row}");
+    assert_eq!(row["flex-min-height"], "112px");
+    assert_eq!(row["flex-max-height"], "112px");
+    let grid = document
+        .widgets()
+        .into_iter()
+        .find(|widget| widget.type_id == "ptcsgrid")
+        .unwrap();
+    let row = &document.at(&grid.path[..grid.path.len() - 1])["Properties"];
+    assert_eq!(row["flex-grow"], 1);
+    assert_eq!(row["flex-max-height"], "");
+}
+
+#[test]
 fn set_on_click_is_typed_click_only_and_supports_parameter_feedback() {
     let (_dir, solution) = recipe_fixture();
     let mut parameter = param_request("Acme.Orders_MU", ParameterAction::Add, "CurrentStep");
@@ -9228,4 +9389,137 @@ fn managed_css_round_trip_still_refuses_real_content_differences() {
         r#"{"UI":{},"CustomMashupCss":".a{}"}"#,
         false
     ));
+}
+
+#[test]
+fn columns_validate_typed_editors_and_whitespace_and_explain_editability() {
+    let (dir, solution) = recipe_fixture();
+    write(
+        dir.path(),
+        "acme/DataShapes/Acme.Orders.Order_DS.xml",
+        r#"<Entities><DataShapes><DataShape name="Acme.Orders.Order_DS" projectName="Acme"><FieldDefinitions><FieldDefinition name="id" baseType="NUMBER"/><FieldDefinition name="note" baseType="STRING"/><FieldDefinition name="Notes" baseType="TEXT"/></FieldDefinitions></DataShape></DataShapes></Entities>"#,
+    );
+    let args = RecipeArgs {
+        widget: Some("ptcsgrid-5".into()),
+        data: Some("data:Acme.Orders.Manager.GetOrders".into()),
+        columns: vec!["note".into(), "id".into(), "Notes".into()],
+        ..Default::default()
+    };
+    let before = sidecar_content(&solution);
+    for (editor, expected) in [
+        (
+            "note=datepicker",
+            vec!["note", "STRING", "allowed editors: textfield, textarea"],
+        ),
+        (
+            "id=checkbox",
+            vec!["id", "NUMBER", "allowed editors: textfield, textarea"],
+        ),
+        (
+            "note=dropdown",
+            vec![
+                "note",
+                "dropdown columns need a source",
+                "not supported by this recipe",
+            ],
+        ),
+        (
+            "missing=textarea",
+            vec!["--column-editor missing", "not one of the --column fields"],
+        ),
+    ] {
+        let error = recipe(
+            &solution,
+            "columns",
+            RecipeArgs {
+                column_editors: vec![editor.into()],
+                ..args.clone()
+            },
+        )
+        .unwrap_err()
+        .to_string();
+        for text in expected {
+            assert!(error.contains(text), "{error}");
+        }
+        assert_eq!(sidecar_content(&solution), before);
+    }
+    let error = recipe(
+        &solution,
+        "columns",
+        RecipeArgs {
+            preserve_whitespace: vec!["missing".into()],
+            ..args.clone()
+        },
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(
+        error.contains("--preserve-whitespace missing is not one of the --column fields"),
+        "{error}"
+    );
+    let configured = RecipeArgs {
+        column_editors: vec!["Notes=textarea".into()],
+        preserve_whitespace: vec!["Notes".into()],
+        ..args.clone()
+    };
+    let plan = recipe(&solution, "columns", configured.clone()).unwrap();
+    assert!(plan
+        .notes
+        .iter()
+        .any(|n| n.contains("Notes") && n.contains("not editable")));
+    let grid_properties = || {
+        let document = mashup::edit::parse(&sidecar_content(&solution)).unwrap();
+        document.at(&document.find("ptcsgrid-5").unwrap().path)["Properties"].clone()
+    };
+    let grid = grid_properties();
+    assert_ne!(grid["IsEditable"], true);
+    let column = &grid["ColumnFormat"]["formatInfo"][2];
+    assert_eq!(column["cellEditor"], "textarea");
+    assert_eq!(column["preserveWhiteSpaces"], true);
+    assert_eq!(column["editable"], false);
+    let before = sidecar_content(&solution);
+    let repeated = recipe(&solution, "columns", configured).unwrap();
+    assert!(repeated.edit.unchanged());
+    assert_eq!(sidecar_content(&solution), before);
+    let plan = recipe(
+        &solution,
+        "columns",
+        RecipeArgs {
+            editable: vec!["note".into()],
+            preserve_whitespace: vec!["note".into()],
+            ..args.clone()
+        },
+    )
+    .unwrap();
+    assert!(plan
+        .notes
+        .iter()
+        .any(|n| n.contains("note")
+            && n.contains("newlines are kept when shown but not while editing")));
+    for (name, editor, warn) in [("note", "textarea", false), ("Notes", "textfield", true)] {
+        let plan = recipe(
+            &solution,
+            "columns",
+            RecipeArgs {
+                editable: vec![name.into()],
+                column_editors: vec![format!("{name}={editor}")],
+                preserve_whitespace: vec![name.into()],
+                ..args.clone()
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            plan.notes.iter().any(|n| n.contains("not while editing")),
+            warn
+        );
+        let grid = grid_properties();
+        let column = grid["ColumnFormat"]["formatInfo"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|column| column["FieldName"] == name)
+            .unwrap();
+        assert_eq!(column["cellEditor"], editor);
+        assert_eq!(column["preserveWhiteSpaces"], true);
+    }
 }

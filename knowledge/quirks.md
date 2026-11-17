@@ -3,6 +3,16 @@
 These are behaviours measured on live ThingWorx servers from 9.5 through 10.2. They are not a
 substitute for testing the target server. Examples use Acme.Orders names.
 
+## Validators can save a form on load (verified on 10.2 Runtime)
+
+A `validator2` with `AutoEvaluate=true` evaluates as soon as loaded values reach its inputs.
+If its `True` event runs a save, opening the form can save and close it without a click.
+For example, `Acme.Records.GetRecord` loading a title into a popup field can trigger
+`Acme.Records.Save` through the validator. Use `AutoEvaluate=false` (the catalogue default)
+and wire the Save button's `Clicked` event to `Evaluate` so validation runs only when asked.
+For a one-record form, `data:Acme.Records.GetRecord.title` reads the first row through All Data;
+`data:Acme.Records.GetRecord[SelectedRows].title` stays empty until a row is selected.
+
 ## Networks are declarative forests (verified on 10.1)
 
 Network XML stores Connection elements under Connections. An empty from is a root; a Thing has one
@@ -562,6 +572,26 @@ first loop value. A bound on every service loop is mandatory.
 omits the value instead of persisting NULL. A reusable ThingShape must call `me.AddOrUpdateDataTableEntry(...)`,
 not a fixed Thing. For InfoTables, conversion such as `String(...)` and `new Date(...)` inside
 `forEach` avoids Java-backed row views; an unconverted indexed copy can repeat the first row.
+
+## Expanded menu bars truncate labels and hide item icons
+
+Verified on ThingWorx 10.2 Runtime: a `ptcsmenubar` in `Acme.App.Main_MM` with
+`DisableResizing: false` stays narrow when expanded and truncates labels. Set
+`DisableResizing: true` so the expanded bar fits its labels. `PrimaryNavIcons`
+must be `true` for menu items' `imageURL` icons (such as `cds:icon_*`) to render.
+Both properties are needed; changing the parent container's responsive layout
+or flex-grow did not fix the truncation. `mashup new` sets both to `true` for
+template menu bars.
+
+## Progress tracker stored outputs blank the step container at load
+
+Verified on ThingWorx 10.2 Runtime: a `ptcsprogresstracker` must not store
+`CurrentStepMashup` or `CurrentStepNumber` in its properties. With `CurrentStepMashup`
+bound to a contained mashup's `Name` in `Acme.Steps_MU`, a stored value blanks the
+step container until a step is clicked. Even `"CurrentStepMashup": ""` alone causes
+this. Remove both stored properties so the tracker computes its initial step;
+step 1 then loads immediately and Next advances to step 2 with step 1 checked.
+`mashup recipe tracker` removes these stored values from an existing tracker.
 
 ## Additional mashup binding and widget observations
 

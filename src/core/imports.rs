@@ -414,6 +414,7 @@ pub(crate) fn diff(
     repository: &str,
     path: &str,
 ) -> Result<(usize, Vec<Differs>), ImportError> {
+    super::repo::refuse_windows_path(path).map_err(|e| ImportError::Invalid(e.to_string()))?;
     let reply = remote
         .source_control(
             "DiffSourceControlledEntities",
@@ -850,6 +851,17 @@ mod tests {
         fake.swallow = true;
         let error = import_file(&fake, "e.xml", XML, false, false, true).unwrap_err();
         assert!(error.to_string().contains("are not there"), "{error}");
+    }
+
+    #[test]
+    fn a_source_control_import_refuses_windows_paths_before_diffing() {
+        let fake = Fake::with(&[]);
+        for apply in [false, true] {
+            let error =
+                import_source_control(&fake, "R", r"c:\x", false, false, apply).unwrap_err();
+            assert!(matches!(error, ImportError::Invalid(_)));
+            assert!(error.to_string().contains("MSYS_NO_PATHCONV=1"));
+        }
     }
 
     #[test]

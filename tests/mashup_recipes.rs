@@ -508,6 +508,7 @@ fn recipe_retries_match_wiring_and_preserve_different_arguments() {
         }
         let entity = root.join("Mashups/Acme.Retry_MU.xml");
         let sidecar = root.join("src/Acme.Retry_MU/mashup/content.json");
+        let css = root.join("src/Acme.Retry_MU/mashup/custom.css");
         let bytes = || {
             (
                 std::fs::read(&entity).unwrap(),
@@ -541,10 +542,63 @@ fn recipe_retries_match_wiring_and_preserve_different_arguments() {
                 "param":parameter, "expression":expression, "inputs":[input], "dry_run":false});
             let applied = invoke(root, mcp, &cli, "mashup_recipe", arguments.clone());
             assert_eq!(applied["added"].as_array().unwrap().len(), 1);
+            assert_eq!(applied["unchanged"], false);
+            if mcp {
+                let content = std::fs::read(&sidecar).unwrap();
+                if !content.starts_with(b"\xEF\xBB\xBF") {
+                    let mut marked = b"\xEF\xBB\xBF".to_vec();
+                    marked.extend(content);
+                    std::fs::write(&sidecar, marked).unwrap();
+                }
+            }
+            let modified =
+                std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(123456);
+            for path in [&entity, &sidecar, &css] {
+                std::fs::File::options()
+                    .write(true)
+                    .open(path)
+                    .unwrap()
+                    .set_times(std::fs::FileTimes::new().set_modified(modified))
+                    .unwrap();
+            }
             let before = bytes();
+            let mut planned_arguments = arguments.clone();
+            planned_arguments["dry_run"] = json!(true);
+            let planned = invoke(
+                root,
+                mcp,
+                &cli[..cli.len() - 1],
+                "mashup_recipe",
+                planned_arguments,
+            );
+            assert_eq!(planned["unchanged"], true);
+            assert_eq!(planned["applied"], false);
             let repeated = invoke(root, mcp, &cli, "mashup_recipe", arguments);
+            assert_eq!(repeated["unchanged"], true);
+            assert_eq!(repeated["applied"], false);
             assert!(repeated["added"].as_array().unwrap().is_empty());
             assert_eq!(bytes(), before);
+            for path in [&entity, &sidecar, &css] {
+                assert_eq!(
+                    std::fs::metadata(path).unwrap().modified().unwrap(),
+                    modified
+                );
+            }
+            if !mcp {
+                for args in [&cli[..], &cli[..cli.len() - 1]] {
+                    let output = Command::new(env!("CARGO_BIN_EXE_twaco"))
+                        .current_dir(root)
+                        .env_clear()
+                        .args(args)
+                        .output()
+                        .unwrap();
+                    assert!(output.status.success(), "{output:?}");
+                    assert_eq!(
+                        String::from_utf8(output.stdout).unwrap().trim(),
+                        "recipe set-on-click already in Acme.Retry_MU; nothing to write"
+                    );
+                }
+            }
         }
         // Success and failure messages are matched separately, including named calls of the
         // same service and failure-only recipes.
@@ -654,6 +708,64 @@ fn recipe_retries_match_wiring_and_preserve_different_arguments() {
 }
 
 #[test]
+fn added_tracker_omits_current_mashup_and_refuses_setting_the_output() {
+    for mcp in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::write(root.join("twaco.toml"), "[[project]]\nname = 'Acme'\n").unwrap();
+        invoke(
+            root,
+            mcp,
+            &["mashup", "new", "Acme.Steps_MU", "--apply"],
+            "mashup_new",
+            json!({"name":"Acme.Steps_MU", "dry_run":false}),
+        );
+        let added = invoke(
+            root,
+            mcp,
+            &[
+                "mashup",
+                "add",
+                "Acme.Steps_MU",
+                "progress-tracker",
+                "--apply",
+            ],
+            "mashup_add",
+            json!({"mashup":"Acme.Steps_MU", "widget":"progress-tracker", "dry_run":false}),
+        );
+        let sidecar = root.join("src/Acme.Steps_MU/mashup/content.json");
+        let before = std::fs::read(&sidecar).unwrap();
+        let content: Value = serde_json::from_slice(&before).unwrap();
+        assert!(properties(&content["UI"], "ptcsprogresstracker")
+            .unwrap()
+            .get("CurrentStepMashup")
+            .is_none());
+        let entity = root.join("Mashups/Acme.Steps_MU.xml");
+        let entity_before = std::fs::read(&entity).unwrap();
+        let refused = Command::new(env!("CARGO_BIN_EXE_twaco"))
+            .current_dir(root)
+            .env_clear()
+            .args([
+                "mashup",
+                "set",
+                "Acme.Steps_MU",
+                added["id"].as_str().unwrap(),
+                "--prop",
+                "CurrentStepMashup=Acme.Step_MU",
+                "--apply",
+            ])
+            .output()
+            .unwrap();
+        assert!(!refused.status.success());
+        assert!(
+            String::from_utf8_lossy(&refused.stderr).contains("CurrentStepMashup is not editable")
+        );
+        assert_eq!(std::fs::read(&sidecar).unwrap(), before);
+        assert_eq!(std::fs::read(&entity).unwrap(), entity_before);
+    }
+}
+
+#[test]
 fn recipe_options_plan_and_apply_through_cli_and_mcp() {
     for mcp in [false, true] {
         let dir = tempfile::tempdir().unwrap();
@@ -662,7 +774,7 @@ fn recipe_options_plan_and_apply_through_cli_and_mcp() {
         std::fs::create_dir_all(root.join("Things")).unwrap();
         std::fs::create_dir_all(root.join("DataShapes")).unwrap();
         std::fs::write(root.join("Things/Acme.Manager.xml"), r#"<Entities><Things><Thing name="Acme.Manager" projectName="Acme"><ThingShape><ServiceDefinitions><ServiceDefinition name="GetSteps"><ResultType baseType="INFOTABLE" aspect.dataShape="Acme.Steps_DS"/></ServiceDefinition></ServiceDefinitions></ThingShape></Thing></Things></Entities>"#).unwrap();
-        std::fs::write(root.join("DataShapes/Acme.Steps_DS.xml"), r#"<Entities><DataShapes><DataShape name="Acme.Steps_DS" projectName="Acme"><FieldDefinitions><FieldDefinition name="number" baseType="INTEGER"/><FieldDefinition name="caption" baseType="STRING"/><FieldDefinition name="state" baseType="STRING"/><FieldDefinition name="interactive" baseType="BOOLEAN"/><FieldDefinition name="mashup" baseType="MASHUPNAME"/><FieldDefinition name="start" baseType="DATETIME"/><FieldDefinition name="description" baseType="STRING"/></FieldDefinitions></DataShape></DataShapes></Entities>"#).unwrap();
+        std::fs::write(root.join("DataShapes/Acme.Steps_DS.xml"), r#"<Entities><DataShapes><DataShape name="Acme.Steps_DS" projectName="Acme"><FieldDefinitions><FieldDefinition name="number" baseType="INTEGER"/><FieldDefinition name="caption" baseType="STRING"/><FieldDefinition name="state" baseType="STRING"/><FieldDefinition name="interactive" baseType="BOOLEAN"/><FieldDefinition name="mashup" baseType="MASHUPNAME"/><FieldDefinition name="start" baseType="DATETIME"/><FieldDefinition name="description" baseType="TEXT"/><FieldDefinition name="Notes" baseType="TEXT"/></FieldDefinitions></DataShape></DataShapes></Entities>"#).unwrap();
         invoke(
             root,
             mcp,
@@ -717,8 +829,16 @@ fn recipe_options_plan_and_apply_through_cli_and_mcp() {
                     "start:Started:180",
                     "--column",
                     "caption:Step",
+                    "--column",
+                    "Notes",
+                    "--editable-column",
+                    "Notes",
+                    "--column-editor",
+                    "Notes=textarea",
+                    "--preserve-whitespace",
+                    "Notes",
                 ],
-                json!({"data":"data:Acme.Manager.GetSteps", "columns":["start:Started:180", "caption:Step"]}),
+                json!({"data":"data:Acme.Manager.GetSteps", "columns":["start:Started:180", "caption:Step", "Notes"], "editable_columns":["Notes"], "column_editors":["Notes=textarea"], "preserve_whitespace":["Notes"]}),
             ),
             (
                 "tracker",
@@ -760,13 +880,23 @@ fn recipe_options_plan_and_apply_through_cli_and_mcp() {
             );
             let plan = invoke(root, mcp, &cli, "mashup_recipe", arguments.clone());
             assert_eq!(plan["applied"], false);
+            if name == "columns" {
+                let mut this_plan = plan.clone();
+                let mut other_plan = invoke(root, !mcp, &cli, "mashup_recipe", arguments.clone());
+                for result in [&mut this_plan, &mut other_plan] {
+                    for envelope in ["dry_run", "notices", "duration_ms"] {
+                        result.as_object_mut().unwrap().remove(envelope);
+                    }
+                }
+                assert_eq!(this_plan, other_plan);
+            }
             assert_eq!(std::fs::read(&entity).unwrap(), before.0);
             assert_eq!(std::fs::read(&sidecar).unwrap(), before.1);
             cli.push("--apply");
             arguments["dry_run"] = json!(false);
             let applied = invoke(root, mcp, &cli, "mashup_recipe", arguments.clone());
             assert_eq!(applied["applied"], true);
-            if name == "set-on-click" {
+            if matches!(name, "set-on-click" | "columns") {
                 let before = (
                     std::fs::read(&entity).unwrap(),
                     std::fs::read(&sidecar).unwrap(),
@@ -788,23 +918,87 @@ fn recipe_options_plan_and_apply_through_cli_and_mcp() {
                         ["formatInfo"]
                         .as_array()
                         .unwrap();
-                    assert_eq!(columns.len(), 7);
+                    assert_eq!(columns.len(), 8);
                     assert_eq!(columns[0]["FieldName"], "start");
                     assert_eq!(columns[0]["FormatOptions"]["renderer"], "DATETIME");
                     assert_eq!(
                         columns[0]["FormatOptions"]["FormatString"],
                         "[[dateTimeFormat_Default]]"
                     );
-                    assert!(columns[2..]
+                    assert_eq!(columns[2]["FieldName"], "Notes");
+                    assert_eq!(columns[2]["cellEditor"], "textarea");
+                    assert_eq!(columns[2]["preserveWhiteSpaces"], true);
+                    assert_eq!(columns[2]["editable"], true);
+                    let default_text = columns
+                        .iter()
+                        .find(|c| c["FieldName"] == "description")
+                        .unwrap();
+                    assert_eq!(default_text["cellEditor"], "textarea");
+                    assert_eq!(default_text["preserveWhiteSpaces"], false);
+                    assert!(columns[3..]
                         .iter()
                         .all(|column| column["inLayout"] == false && column["hidden"] == true));
                 }
                 "tracker" => {
                     let props = properties(&content["UI"], "ptcsprogresstracker").unwrap();
+                    assert!(props.get("CurrentStepMashup").is_none());
+                    assert!(props.get("CurrentStepNumber").is_none());
                     assert_eq!(props["IsInteractive"], true);
                     assert_eq!(props["StepSize"], "large");
                     assert_eq!(props["StepLabelField"], "caption");
                     assert_eq!(props["StepMashupNameField"], "mashup");
+                    let id = props["Id"].as_str().unwrap();
+                    let stored = std::fs::read_to_string(&sidecar).unwrap().replace(
+                        "\"Type\": \"ptcsprogresstracker\"",
+                        "\"CurrentStepMashup\": \"\", \"CurrentStepNumber\": 1, \"Type\": \"ptcsprogresstracker\"",
+                    );
+                    std::fs::write(&sidecar, &stored).unwrap();
+                    let synced = twaco::core::mashup::sync(
+                        &std::fs::read(&entity).unwrap(),
+                        &twaco::core::mashup::Assets {
+                            content: stored.clone(),
+                            css: std::fs::read_to_string(sidecar.with_file_name("custom.css"))
+                                .unwrap(),
+                        },
+                    )
+                    .unwrap()
+                    .0;
+                    std::fs::write(&entity, synced).unwrap();
+                    cli[4] = id;
+                    let mut repair_args = json!({"mashup":"Acme.Steps_MU", "recipe":"tracker", "widget":id,
+                        "data":"data:Acme.Manager.GetSteps", "field_maps":["StepLabelField=caption"]});
+                    let plan = invoke(
+                        root,
+                        mcp,
+                        &cli[..cli.len() - 1],
+                        "mashup_recipe",
+                        repair_args.clone(),
+                    );
+                    assert_eq!(plan["unchanged"], false);
+                    let text_plan = Command::new(env!("CARGO_BIN_EXE_twaco"))
+                        .current_dir(root)
+                        .env_clear()
+                        .args(&cli[..cli.len() - 1])
+                        .output()
+                        .unwrap();
+                    assert!(text_plan.status.success());
+                    assert!(String::from_utf8_lossy(&text_plan.stderr).contains(
+                        "removed stored CurrentStepMashup/CurrentStepNumber: a stored value blanks the step container at load"
+                    ));
+                    assert_eq!(std::fs::read_to_string(&sidecar).unwrap(), stored);
+                    repair_args["dry_run"] = json!(false);
+                    invoke(root, mcp, &cli, "mashup_recipe", repair_args.clone());
+                    let repaired = std::fs::read(&sidecar).unwrap();
+                    let repaired_content: Value = serde_json::from_slice(&repaired).unwrap();
+                    let repaired_props =
+                        properties(&repaired_content["UI"], "ptcsprogresstracker").unwrap();
+                    assert!(repaired_props.get("CurrentStepMashup").is_none());
+                    assert!(repaired_props.get("CurrentStepNumber").is_none());
+                    let entity_before = std::fs::read(&entity).unwrap();
+                    let repeated = invoke(root, mcp, &cli, "mashup_recipe", repair_args);
+                    assert_eq!(repeated["unchanged"], true);
+                    assert_eq!(std::fs::read(&sidecar).unwrap(), repaired);
+                    assert_eq!(std::fs::read(&entity).unwrap(), entity_before);
                 }
                 "set-on-click" => {
                     let props = properties(&content["UI"], "expression2").unwrap();

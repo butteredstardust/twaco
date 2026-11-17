@@ -85,6 +85,7 @@ pub enum RepoError {
 /// A repository path as the server takes it: `/`-rooted, slash-separated, with no empty, `.`
 /// or `..` segment. The server refuses a climbing path itself; refusing it here says so plainly.
 pub fn remote_path(text: &str) -> Result<String, RepoError> {
+    refuse_windows_path(text)?;
     let segments: Vec<&str> = text
         .split(['/', '\\'])
         .filter(|segment| !segment.is_empty())
@@ -98,6 +99,23 @@ pub fn remote_path(text: &str) -> Result<String, RepoError> {
         )));
     }
     Ok(format!("/{}", segments.join("/")))
+}
+
+/// Refuses a server path that starts with a drive: Git Bash turns `/a/b` into
+/// `C:/Program Files/Git/a/b` before twaco sees it. A `/`-rooted path such as `/C:/archive` is
+/// a folder named `C:` and stays allowed.
+pub(crate) fn refuse_windows_path(text: &str) -> Result<(), RepoError> {
+    let bytes = text.as_bytes();
+    if bytes.len() >= 2
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && matches!(bytes.get(2), None | Some(b'/' | b'\\'))
+    {
+        return Err(RepoError::Invalid(format!(
+            "{text:?} is a Windows path, not a repository path; Git Bash rewrites an argument that starts with /: set MSYS_NO_PATHCONV=1, or write //a/b.md"
+        )));
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1633,6 +1651,22 @@ pub(crate) mod tests {
         assert_eq!(remote_path("").unwrap(), "/");
         assert!(remote_path("/A/../../etc").is_err());
         assert!(remote_path("./x").is_err());
+    }
+
+    #[test]
+    fn windows_paths_are_refused_with_a_git_bash_hint() {
+        for path in ["C:/Program Files/Git/a/b", r"c:\x", "D:"] {
+            let error = remote_path(path).unwrap_err();
+            assert!(matches!(error, RepoError::Invalid(_)));
+            let message = error.to_string();
+            assert!(message.contains(&format!("{path:?}")), "{message}");
+            assert!(message.contains("MSYS_NO_PATHCONV=1"), "{message}");
+        }
+        assert_eq!(remote_path("//a/b.md").unwrap(), "/a/b.md");
+        // A folder named like a drive, rooted explicitly, as a server listing returns it.
+        assert_eq!(remote_path("/C:/archive").unwrap(), "/C:/archive");
+        assert_eq!(remote_path("//C:/archive").unwrap(), "/C:/archive");
+        assert_eq!(remote_path("Ca:/x").unwrap(), "/Ca:/x");
     }
 
     #[test]

@@ -338,6 +338,8 @@ mashup recipe <recipe> <mashup> [<widget>] [recipe flags] [--apply] [--json]
     columns <grid> --column field[:Title[:width]]... [--data <data call>] [--editable-column <field>]...
                             only these columns in order, with readable dates; --data or existing binding;
                             --editable-column makes a listed column (and so the grid) editable
+                            --column-editor <field=editor> chooses a typed cell editor (repeatable)
+                            --preserve-whitespace <field> keeps newlines and spaces when shown (repeatable)
     picker <dropdown|list> --data <data call> --x <display field> [--value <field>]
         [--selected <address>] [--no-none-row] [--auto-select-first]
                             fill a dropdown or list from a service result; without the "(None)" row,

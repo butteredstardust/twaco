@@ -7326,6 +7326,20 @@
             "type": "string"
           }
         },
+        "column_editors": {
+          "description": "Grid cell editors as `field=editor` (recipe columns); does not imply editability.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "preserve_whitespace": {
+          "description": "Grid columns that preserve whitespace when shown (recipe columns).",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "no_none_row": {
           "description": "A picker without the \"(None)\" row.",
           "type": "boolean"
@@ -7349,6 +7363,7 @@
     "outputSchema": {
       "required": [
         "applied",
+        "unchanged",
         "dry_run",
         "mashup",
         "recipe",
@@ -7358,6 +7373,9 @@
       ],
       "properties": {
         "applied": {
+          "type": "boolean"
+        },
+        "unchanged": {
           "type": "boolean"
         },
         "dry_run": {

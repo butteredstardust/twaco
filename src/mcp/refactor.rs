@@ -959,6 +959,8 @@ pub(crate) fn mashup_recipe_tool(
         columns: arguments.columns.items().to_vec(),
         selected: arguments.selected.as_ref().cloned(),
         editable: arguments.editable_columns.items().to_vec(),
+        column_editors: arguments.column_editors.items().to_vec(),
+        preserve_whitespace: arguments.preserve_whitespace.items().to_vec(),
         no_none_row: arguments.no_none_row.as_ref().copied().unwrap_or(false),
         auto_select_first: arguments
             .auto_select_first

@@ -163,7 +163,9 @@ fn builds(script: &str) -> Option<Found> {
         StringInput::new(script, BytePos(0), BytePos(end)),
         None,
     );
-    let ast = Parser::new_from(lexer).parse_script().ok()?;
+    let ast = super::script::guard_parse(|| Parser::new_from(lexer).parse_script())
+        .ok()?
+        .ok()?;
     let mut collector = Collector {
         found: Found::default(),
         depth: 0,
@@ -329,6 +331,11 @@ fn line_of(src: &str, at: u32) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_parser_panic_yields_no_result_shape() {
+        assert!(builds("( tableName , `t${x}` =>").is_none());
+    }
 
     fn definition(shape: &str) -> String {
         format!(

@@ -25,6 +25,18 @@ arg --version
 help:
 | usage: twaco <command>
 | 
+|   Set up: init, doctor, projects, mcp, update, completions
+|   Work on the repository: extract, sync, fmt, check, lint, types, catalog, contract, impact, trace,
+|     unused, docs, adopt, handoff, rename, move, copy, retemplate, reproject, widgets, mashup, new,
+|     thing, timer, scheduler, style, media, menu, mcp-namespace, agent, state
+|   Deploy and compare: block, network, entity, permissions, requirements, datatable, bundle, deploy,
+|     config-table, db
+|   Run and observe: call, model, access, logs, settings
+|   Server content: repo, localization, users, appkey, test, ext, search, export, import
+|   Release: package
+|   Knowledge: guide, help, javadoc
+| twaco <command> --help shows one command; the full listing follows.
+| 
 |   init [--write]              propose a twaco.toml from the repository's own entities; --write
 |                               also writes AGENTS.md and CLAUDE.md where absent, and adds the
 |                               lines twaco needs to .gitignore
@@ -346,6 +358,8 @@ help:
 |       columns <grid> --column field[:Title[:width]]... [--data <data call>] [--editable-column <field>]...
 |                               only these columns in order, with readable dates; --data or existing binding;
 |                               --editable-column makes a listed column (and so the grid) editable
+|                               --column-editor <field=editor> chooses a typed cell editor (repeatable)
+|                               --preserve-whitespace <field> keeps newlines and spaces when shown (repeatable)
 |       picker <dropdown|list> --data <data call> --x <display field> [--value <field>]
 |           [--selected <address>] [--no-none-row] [--auto-select-first]
 |                               fill a dropdown or list from a service result; without the "(None)" row,
@@ -7375,6 +7389,8 @@ help:
 |       columns <grid> --column field[:Title[:width]]... [--data <data call>] [--editable-column <field>]...
 |                               only these columns in order, with readable dates; --data or existing binding;
 |                               --editable-column makes a listed column (and so the grid) editable
+|                               --column-editor <field=editor> chooses a typed cell editor (repeatable)
+|                               --preserve-whitespace <field> keeps newlines and spaces when shown (repeatable)
 |       picker <dropdown|list> --data <data call> --x <display field> [--value <field>]
 |           [--selected <address>] [--no-none-row] [--auto-select-first]
 |                               fill a dropdown or list from a service result; without the "(None)" row,
@@ -9191,6 +9207,18 @@ arg --column
     other: -
     given twice: accepted
     given bare: InvalidValue
+arg --column-editor
+    action: Append
+    value_name: field=editor
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: accepted
+    given bare: InvalidValue
 arg --data
     action: Set
     value_name: address
@@ -9439,6 +9467,18 @@ arg --pass
     other: -
     given twice: accepted
     given bare: InvalidValue
+arg --preserve-whitespace
+    action: Append
+    value_name: field
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: accepted
+    given bare: InvalidValue
 arg --reload
     action: Set
     value_name: address
@@ -9583,6 +9623,8 @@ help:
 |       columns <grid> --column field[:Title[:width]]... [--data <data call>] [--editable-column <field>]...
 |                               only these columns in order, with readable dates; --data or existing binding;
 |                               --editable-column makes a listed column (and so the grid) editable
+|                               --column-editor <field=editor> chooses a typed cell editor (repeatable)
+|                               --preserve-whitespace <field> keeps newlines and spaces when shown (repeatable)
 |       picker <dropdown|list> --data <data call> --x <display field> [--value <field>]
 |           [--selected <address>] [--no-none-row] [--auto-select-first]
 |                               fill a dropdown or list from a service result; without the "(None)" row,
