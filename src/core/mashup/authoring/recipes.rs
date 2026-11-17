@@ -1344,6 +1344,7 @@ pub fn recipe_plan_json(solution: &Solution, plan: &RecipePlan, applied: bool) -
     }
     json!({
         "applied": applied,
+        "unchanged": plan.edit.unchanged(),
         "mashup": plan.edit.mashup,
         "recipe": plan.name,
         "added": plan.added,

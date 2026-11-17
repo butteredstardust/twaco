@@ -7349,6 +7349,7 @@
     "outputSchema": {
       "required": [
         "applied",
+        "unchanged",
         "dry_run",
         "mashup",
         "recipe",
@@ -7358,6 +7359,9 @@
       ],
       "properties": {
         "applied": {
+          "type": "boolean"
+        },
+        "unchanged": {
           "type": "boolean"
         },
         "dry_run": {

@@ -171,8 +171,8 @@ pub(crate) fn read_source(text: &str, typescript: bool) -> Result<Vec<Widget>, S
         StringInput::new(text, BytePos(0), BytePos(end)),
         None,
     );
-    let program = Parser::new_from(lexer)
-        .parse_program()
+    let program = super::script::guard_parse(|| Parser::new_from(lexer).parse_program())
+        .map_err(|error| error.to_string())?
         .map_err(|error| format!("cannot parse it: {}", error.kind().msg()))?;
     let mut collector = Collector::default();
     program.visit_with(&mut collector);
@@ -600,6 +600,11 @@ fn typescript_widget(class: &ClassDecl) -> Option<Widget> {
 mod tests {
     use super::read_source;
     use serde_json::json;
+
+    #[test]
+    fn a_parser_panic_is_a_source_error() {
+        assert!(read_source("( tableName , `t${x}` =>", false).is_err());
+    }
 
     #[test]
     fn a_javascript_ide_widget_gives_its_type_label_defaults_and_contract() {

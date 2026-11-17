@@ -1,5 +1,10 @@
 use super::*;
 
+#[test]
+fn a_parser_panic_yields_no_trace() {
+    assert!(parse("( tableName , `t${x}` =>").is_none());
+}
+
 /// A Thing with script services: (name, parameters XML, result XML, script).
 fn thing(name: &str, services: &[(&str, &str, &str, &str)]) -> String {
     let definitions: String = services

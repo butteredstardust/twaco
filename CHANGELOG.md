@@ -8,8 +8,14 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Fixed
 
+- Repeating an identical mashup recipe reports that there is nothing to write, in plan and apply mode; JSON and MCP include `unchanged`.
+- JavaScript parser panics are handled as parse errors so malformed scripts cannot take twaco down.
 - Repository paths rewritten by Git Bash are refused with guidance to use `MSYS_NO_PATHCONV=1` or a `//` prefix.
 - `twaco --help` starts with a compact command index so truncated output still shows every command family.
+
+### Notes
+
+- After upgrading to a release that changes the comparison hash version (v0.1.64 moved from v10 to v11), run `twaco entity status --all --record` to recover baselines invalidated by the version change. It records baselines only where the repository and server already agree. Entities listed as `no-baseline-differs` need investigation with `entity diff`, pull or adopt; `--record` does not resolve their differences.
 
 ## [0.1.64] - 2026-11-16
 

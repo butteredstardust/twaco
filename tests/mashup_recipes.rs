@@ -508,6 +508,7 @@ fn recipe_retries_match_wiring_and_preserve_different_arguments() {
         }
         let entity = root.join("Mashups/Acme.Retry_MU.xml");
         let sidecar = root.join("src/Acme.Retry_MU/mashup/content.json");
+        let css = root.join("src/Acme.Retry_MU/mashup/custom.css");
         let bytes = || {
             (
                 std::fs::read(&entity).unwrap(),
@@ -541,10 +542,63 @@ fn recipe_retries_match_wiring_and_preserve_different_arguments() {
                 "param":parameter, "expression":expression, "inputs":[input], "dry_run":false});
             let applied = invoke(root, mcp, &cli, "mashup_recipe", arguments.clone());
             assert_eq!(applied["added"].as_array().unwrap().len(), 1);
+            assert_eq!(applied["unchanged"], false);
+            if mcp {
+                let content = std::fs::read(&sidecar).unwrap();
+                if !content.starts_with(b"\xEF\xBB\xBF") {
+                    let mut marked = b"\xEF\xBB\xBF".to_vec();
+                    marked.extend(content);
+                    std::fs::write(&sidecar, marked).unwrap();
+                }
+            }
+            let modified =
+                std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(123456);
+            for path in [&entity, &sidecar, &css] {
+                std::fs::File::options()
+                    .write(true)
+                    .open(path)
+                    .unwrap()
+                    .set_times(std::fs::FileTimes::new().set_modified(modified))
+                    .unwrap();
+            }
             let before = bytes();
+            let mut planned_arguments = arguments.clone();
+            planned_arguments["dry_run"] = json!(true);
+            let planned = invoke(
+                root,
+                mcp,
+                &cli[..cli.len() - 1],
+                "mashup_recipe",
+                planned_arguments,
+            );
+            assert_eq!(planned["unchanged"], true);
+            assert_eq!(planned["applied"], false);
             let repeated = invoke(root, mcp, &cli, "mashup_recipe", arguments);
+            assert_eq!(repeated["unchanged"], true);
+            assert_eq!(repeated["applied"], false);
             assert!(repeated["added"].as_array().unwrap().is_empty());
             assert_eq!(bytes(), before);
+            for path in [&entity, &sidecar, &css] {
+                assert_eq!(
+                    std::fs::metadata(path).unwrap().modified().unwrap(),
+                    modified
+                );
+            }
+            if !mcp {
+                for args in [&cli[..], &cli[..cli.len() - 1]] {
+                    let output = Command::new(env!("CARGO_BIN_EXE_twaco"))
+                        .current_dir(root)
+                        .env_clear()
+                        .args(args)
+                        .output()
+                        .unwrap();
+                    assert!(output.status.success(), "{output:?}");
+                    assert_eq!(
+                        String::from_utf8(output.stdout).unwrap().trim(),
+                        "recipe set-on-click already in Acme.Retry_MU; nothing to write"
+                    );
+                }
+            }
         }
         // Success and failure messages are matched separately, including named calls of the
         // same service and failure-only recipes.

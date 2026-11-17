@@ -497,7 +497,9 @@ fn parse(script: &str) -> Option<swc_ecma_ast::Script> {
         StringInput::new(script, BytePos(0), BytePos(end)),
         None,
     );
-    Parser::new_from(lexer).parse_script().ok()
+    super::script::guard_parse(|| Parser::new_from(lexer).parse_script())
+        .ok()?
+        .ok()
 }
 
 struct Finder<'a> {

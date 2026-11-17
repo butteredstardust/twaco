@@ -398,7 +398,7 @@ pub fn parse(src: &[u8]) -> Result<Script, ParseError> {
         message: "the script is too large to parse".to_string(),
     })?;
     let comments = SingleThreadedComments::default();
-    let ast = {
+    let ast = guard_parse(|| {
         let lexer = Lexer::new(
             Syntax::Es(EsSyntax {
                 allow_return_outside_function: true,
@@ -413,8 +413,8 @@ pub fn parse(src: &[u8]) -> Result<Script, ParseError> {
         if let Some(error) = parser.take_errors().into_iter().next() {
             return Err(syntax_error(error));
         }
-        ast
-    };
+        Ok(ast)
+    })??;
     let mut object_collector = ObjectCollector::default();
     ast.visit_with(&mut object_collector);
     object_collector.objects.sort_by_key(|span| span.lo);
@@ -428,6 +428,14 @@ fn syntax_error(error: swc_ecma_parser::error::Error) -> ParseError {
         at: error.span().lo.0 as usize,
         message: error.kind().msg().into_owned(),
     }
+}
+
+/// A dependency parser failure must leave the script for review.
+pub(crate) fn guard_parse<T>(parse: impl FnOnce() -> T) -> Result<T, ParseError> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(parse)).map_err(|_| ParseError::Syntax {
+        at: 0,
+        message: "the JavaScript parser failed on this script".to_string(),
+    })
 }
 
 /// How a pattern introduces or uses the names in it.
@@ -1106,6 +1114,14 @@ mod tests {
             Err(ParseError::Syntax { .. })
         ));
         assert_eq!(parse(&[b'a', 0xff]).unwrap_err(), ParseError::NotUtf8);
+    }
+
+    #[test]
+    fn a_parser_panic_is_a_parse_error() {
+        assert!(matches!(
+            parse(b"( tableName , `t${x}` =>"),
+            Err(ParseError::Syntax { .. })
+        ));
     }
 
     #[test]

@@ -428,6 +428,12 @@ and the like. `entity status --record` records the current state as the baseline
 two sides already agree, for a repository adopting twaco. It reports how many baselines it
 recorded; counts, detail and the exit status reflect the updated baseline.
 
+After upgrading to a release that changes the comparison hash version (v0.1.64 moved from
+v10 to v11), older baselines count as missing: run `twaco entity status --all --record`.
+It records baselines only where the repository and server already agree. Entities listed as
+`no-baseline-differs` need investigation with `entity diff`, pull or adopt; `--record` does
+not resolve their differences.
+
 When only the server changed an entity, `twaco entity pull Acme.Thing --apply` takes that
 server version, preserving the repository file's layout and line endings, rewrites its sidecars,
 and records its baseline. `entity pull --all` takes every `server-changed` entity; a

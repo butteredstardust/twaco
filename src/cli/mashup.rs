@@ -831,6 +831,13 @@ pub(crate) fn mashup_recipe_cmd(solution: &Solution, args: &MashupRecipe) -> u8 
         );
         return OK;
     }
+    if outcome.unchanged {
+        println!(
+            "recipe {} already in {}; nothing to write",
+            outcome.plan.name, mashup
+        );
+        return OK;
+    }
     println!(
         "{} recipe {} in {}",
         if outcome.applied {
