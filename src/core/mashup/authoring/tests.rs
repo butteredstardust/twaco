@@ -9229,3 +9229,140 @@ fn managed_css_round_trip_still_refuses_real_content_differences() {
         false
     ));
 }
+
+#[test]
+fn columns_validate_typed_editors_and_whitespace_and_explain_editability() {
+    let (dir, solution) = recipe_fixture();
+    write(
+        dir.path(),
+        "acme/DataShapes/Acme.Orders.Order_DS.xml",
+        r#"<Entities><DataShapes><DataShape name="Acme.Orders.Order_DS" projectName="Acme"><FieldDefinitions><FieldDefinition name="id" baseType="NUMBER"/><FieldDefinition name="note" baseType="STRING"/><FieldDefinition name="Notes" baseType="TEXT"/></FieldDefinitions></DataShape></DataShapes></Entities>"#,
+    );
+    let args = RecipeArgs {
+        widget: Some("ptcsgrid-5".into()),
+        data: Some("data:Acme.Orders.Manager.GetOrders".into()),
+        columns: vec!["note".into(), "id".into(), "Notes".into()],
+        ..Default::default()
+    };
+    let before = sidecar_content(&solution);
+    for (editor, expected) in [
+        (
+            "note=datepicker",
+            vec![
+                "note",
+                "STRING",
+                "allowed editors: textfield, textarea, dropdown",
+            ],
+        ),
+        (
+            "id=checkbox",
+            vec!["id", "NUMBER", "allowed editors: textfield, textarea"],
+        ),
+        (
+            "note=dropdown",
+            vec![
+                "note",
+                "dropdown columns need a source",
+                "not supported by this recipe",
+            ],
+        ),
+        (
+            "missing=textarea",
+            vec!["--column-editor missing", "not one of the --column fields"],
+        ),
+    ] {
+        let error = recipe(
+            &solution,
+            "columns",
+            RecipeArgs {
+                column_editors: vec![editor.into()],
+                ..args.clone()
+            },
+        )
+        .unwrap_err()
+        .to_string();
+        for text in expected {
+            assert!(error.contains(text), "{error}");
+        }
+        assert_eq!(sidecar_content(&solution), before);
+    }
+    let error = recipe(
+        &solution,
+        "columns",
+        RecipeArgs {
+            preserve_whitespace: vec!["missing".into()],
+            ..args.clone()
+        },
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(
+        error.contains("--preserve-whitespace missing is not one of the --column fields"),
+        "{error}"
+    );
+    let configured = RecipeArgs {
+        column_editors: vec!["Notes=textarea".into()],
+        preserve_whitespace: vec!["Notes".into()],
+        ..args.clone()
+    };
+    let plan = recipe(&solution, "columns", configured.clone()).unwrap();
+    assert!(plan
+        .notes
+        .iter()
+        .any(|n| n.contains("Notes") && n.contains("not editable")));
+    let grid_properties = || {
+        let document = mashup::edit::parse(&sidecar_content(&solution)).unwrap();
+        document.at(&document.find("ptcsgrid-5").unwrap().path)["Properties"].clone()
+    };
+    let grid = grid_properties();
+    assert_ne!(grid["IsEditable"], true);
+    let column = &grid["ColumnFormat"]["formatInfo"][2];
+    assert_eq!(column["cellEditor"], "textarea");
+    assert_eq!(column["preserveWhiteSpaces"], true);
+    assert_eq!(column["editable"], false);
+    let before = sidecar_content(&solution);
+    let repeated = recipe(&solution, "columns", configured).unwrap();
+    assert!(repeated.edit.unchanged());
+    assert_eq!(sidecar_content(&solution), before);
+    let plan = recipe(
+        &solution,
+        "columns",
+        RecipeArgs {
+            editable: vec!["note".into()],
+            preserve_whitespace: vec!["note".into()],
+            ..args.clone()
+        },
+    )
+    .unwrap();
+    assert!(plan
+        .notes
+        .iter()
+        .any(|n| n.contains("note")
+            && n.contains("newlines are kept when shown but not while editing")));
+    for (name, editor, warn) in [("note", "textarea", false), ("Notes", "textfield", true)] {
+        let plan = recipe(
+            &solution,
+            "columns",
+            RecipeArgs {
+                editable: vec![name.into()],
+                column_editors: vec![format!("{name}={editor}")],
+                preserve_whitespace: vec![name.into()],
+                ..args.clone()
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            plan.notes.iter().any(|n| n.contains("not while editing")),
+            warn
+        );
+        let grid = grid_properties();
+        let column = grid["ColumnFormat"]["formatInfo"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|column| column["FieldName"] == name)
+            .unwrap();
+        assert_eq!(column["cellEditor"], editor);
+        assert_eq!(column["preserveWhiteSpaces"], true);
+    }
+}

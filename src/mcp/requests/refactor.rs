@@ -1054,6 +1054,12 @@ pub(crate) struct MashupRecipeRequest {
     /// Grid columns its users may edit, each one of `columns` (recipe columns).
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) editable_columns: Absent<Vec<String>>,
+    /// Grid cell editors as `field=editor` (recipe columns); does not imply editability.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) column_editors: Absent<Vec<String>>,
+    /// Grid columns that preserve whitespace when shown (recipe columns).
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) preserve_whitespace: Absent<Vec<String>>,
     /// A picker without the "(None)" row.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) no_none_row: Absent<bool>,

@@ -716,7 +716,7 @@ fn recipe_options_plan_and_apply_through_cli_and_mcp() {
         std::fs::create_dir_all(root.join("Things")).unwrap();
         std::fs::create_dir_all(root.join("DataShapes")).unwrap();
         std::fs::write(root.join("Things/Acme.Manager.xml"), r#"<Entities><Things><Thing name="Acme.Manager" projectName="Acme"><ThingShape><ServiceDefinitions><ServiceDefinition name="GetSteps"><ResultType baseType="INFOTABLE" aspect.dataShape="Acme.Steps_DS"/></ServiceDefinition></ServiceDefinitions></ThingShape></Thing></Things></Entities>"#).unwrap();
-        std::fs::write(root.join("DataShapes/Acme.Steps_DS.xml"), r#"<Entities><DataShapes><DataShape name="Acme.Steps_DS" projectName="Acme"><FieldDefinitions><FieldDefinition name="number" baseType="INTEGER"/><FieldDefinition name="caption" baseType="STRING"/><FieldDefinition name="state" baseType="STRING"/><FieldDefinition name="interactive" baseType="BOOLEAN"/><FieldDefinition name="mashup" baseType="MASHUPNAME"/><FieldDefinition name="start" baseType="DATETIME"/><FieldDefinition name="description" baseType="STRING"/></FieldDefinitions></DataShape></DataShapes></Entities>"#).unwrap();
+        std::fs::write(root.join("DataShapes/Acme.Steps_DS.xml"), r#"<Entities><DataShapes><DataShape name="Acme.Steps_DS" projectName="Acme"><FieldDefinitions><FieldDefinition name="number" baseType="INTEGER"/><FieldDefinition name="caption" baseType="STRING"/><FieldDefinition name="state" baseType="STRING"/><FieldDefinition name="interactive" baseType="BOOLEAN"/><FieldDefinition name="mashup" baseType="MASHUPNAME"/><FieldDefinition name="start" baseType="DATETIME"/><FieldDefinition name="description" baseType="TEXT"/><FieldDefinition name="Notes" baseType="TEXT"/></FieldDefinitions></DataShape></DataShapes></Entities>"#).unwrap();
         invoke(
             root,
             mcp,
@@ -771,8 +771,16 @@ fn recipe_options_plan_and_apply_through_cli_and_mcp() {
                     "start:Started:180",
                     "--column",
                     "caption:Step",
+                    "--column",
+                    "Notes",
+                    "--editable-column",
+                    "Notes",
+                    "--column-editor",
+                    "Notes=textarea",
+                    "--preserve-whitespace",
+                    "Notes",
                 ],
-                json!({"data":"data:Acme.Manager.GetSteps", "columns":["start:Started:180", "caption:Step"]}),
+                json!({"data":"data:Acme.Manager.GetSteps", "columns":["start:Started:180", "caption:Step", "Notes"], "editable_columns":["Notes"], "column_editors":["Notes=textarea"], "preserve_whitespace":["Notes"]}),
             ),
             (
                 "tracker",
@@ -814,13 +822,23 @@ fn recipe_options_plan_and_apply_through_cli_and_mcp() {
             );
             let plan = invoke(root, mcp, &cli, "mashup_recipe", arguments.clone());
             assert_eq!(plan["applied"], false);
+            if name == "columns" {
+                let mut this_plan = plan.clone();
+                let mut other_plan = invoke(root, !mcp, &cli, "mashup_recipe", arguments.clone());
+                for result in [&mut this_plan, &mut other_plan] {
+                    for envelope in ["dry_run", "notices", "duration_ms"] {
+                        result.as_object_mut().unwrap().remove(envelope);
+                    }
+                }
+                assert_eq!(this_plan, other_plan);
+            }
             assert_eq!(std::fs::read(&entity).unwrap(), before.0);
             assert_eq!(std::fs::read(&sidecar).unwrap(), before.1);
             cli.push("--apply");
             arguments["dry_run"] = json!(false);
             let applied = invoke(root, mcp, &cli, "mashup_recipe", arguments.clone());
             assert_eq!(applied["applied"], true);
-            if name == "set-on-click" {
+            if matches!(name, "set-on-click" | "columns") {
                 let before = (
                     std::fs::read(&entity).unwrap(),
                     std::fs::read(&sidecar).unwrap(),
@@ -842,14 +860,24 @@ fn recipe_options_plan_and_apply_through_cli_and_mcp() {
                         ["formatInfo"]
                         .as_array()
                         .unwrap();
-                    assert_eq!(columns.len(), 7);
+                    assert_eq!(columns.len(), 8);
                     assert_eq!(columns[0]["FieldName"], "start");
                     assert_eq!(columns[0]["FormatOptions"]["renderer"], "DATETIME");
                     assert_eq!(
                         columns[0]["FormatOptions"]["FormatString"],
                         "[[dateTimeFormat_Default]]"
                     );
-                    assert!(columns[2..]
+                    assert_eq!(columns[2]["FieldName"], "Notes");
+                    assert_eq!(columns[2]["cellEditor"], "textarea");
+                    assert_eq!(columns[2]["preserveWhiteSpaces"], true);
+                    assert_eq!(columns[2]["editable"], true);
+                    let default_text = columns
+                        .iter()
+                        .find(|c| c["FieldName"] == "description")
+                        .unwrap();
+                    assert_eq!(default_text["cellEditor"], "textarea");
+                    assert_eq!(default_text["preserveWhiteSpaces"], false);
+                    assert!(columns[3..]
                         .iter()
                         .all(|column| column["inLayout"] == false && column["hidden"] == true));
                 }

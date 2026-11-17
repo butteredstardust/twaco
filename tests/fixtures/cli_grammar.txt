@@ -358,6 +358,8 @@ help:
 |       columns <grid> --column field[:Title[:width]]... [--data <data call>] [--editable-column <field>]...
 |                               only these columns in order, with readable dates; --data or existing binding;
 |                               --editable-column makes a listed column (and so the grid) editable
+|                               --column-editor <field=editor> chooses a typed cell editor (repeatable)
+|                               --preserve-whitespace <field> keeps newlines and spaces when shown (repeatable)
 |       picker <dropdown|list> --data <data call> --x <display field> [--value <field>]
 |           [--selected <address>] [--no-none-row] [--auto-select-first]
 |                               fill a dropdown or list from a service result; without the "(None)" row,
@@ -7387,6 +7389,8 @@ help:
 |       columns <grid> --column field[:Title[:width]]... [--data <data call>] [--editable-column <field>]...
 |                               only these columns in order, with readable dates; --data or existing binding;
 |                               --editable-column makes a listed column (and so the grid) editable
+|                               --column-editor <field=editor> chooses a typed cell editor (repeatable)
+|                               --preserve-whitespace <field> keeps newlines and spaces when shown (repeatable)
 |       picker <dropdown|list> --data <data call> --x <display field> [--value <field>]
 |           [--selected <address>] [--no-none-row] [--auto-select-first]
 |                               fill a dropdown or list from a service result; without the "(None)" row,
@@ -9203,6 +9207,18 @@ arg --column
     other: -
     given twice: accepted
     given bare: InvalidValue
+arg --column-editor
+    action: Append
+    value_name: field=editor
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: accepted
+    given bare: InvalidValue
 arg --data
     action: Set
     value_name: address
@@ -9451,6 +9467,18 @@ arg --pass
     other: -
     given twice: accepted
     given bare: InvalidValue
+arg --preserve-whitespace
+    action: Append
+    value_name: field
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: accepted
+    given bare: InvalidValue
 arg --reload
     action: Set
     value_name: address
@@ -9595,6 +9623,8 @@ help:
 |       columns <grid> --column field[:Title[:width]]... [--data <data call>] [--editable-column <field>]...
 |                               only these columns in order, with readable dates; --data or existing binding;
 |                               --editable-column makes a listed column (and so the grid) editable
+|                               --column-editor <field=editor> chooses a typed cell editor (repeatable)
+|                               --preserve-whitespace <field> keeps newlines and spaces when shown (repeatable)
 |       picker <dropdown|list> --data <data call> --x <display field> [--value <field>]
 |           [--selected <address>] [--no-none-row] [--auto-select-first]
 |                               fill a dropdown or list from a service result; without the "(None)" row,

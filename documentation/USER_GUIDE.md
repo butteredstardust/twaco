@@ -1637,6 +1637,20 @@ twaco mashup recipe set-on-click Acme.App.Wizard_MU ptcsbutton-6 --param Current
 | tracker | a progress tracker (existing widget or `new` in `center`) bound to `--data`, with `IsInteractive=true`, `StepSize=large` and field maps inferred from its result DataShape (number and label required); `--field-map Property=field` overrides any map |
 | set-on-click | an expression of `--expr`, fed by `--input name=address`, evaluated by the button's click and bound into the existing `--param` mashup parameter, using that parameter's type; no evaluation on load or input changes |
 
+For `columns`, repeat `--editable-column <field>` to make listed columns and the grid editable.
+`--column-editor <field>=<editor>` chooses an editor allowed by that field's base type;
+STRING defaults to `textfield`, TEXT to `textarea`. Dropdown editors need a source and are
+not supported by this recipe. Repeat `--preserve-whitespace <field>` to keep newlines and spaces
+when shown (`preserveWhiteSpaces: true`; false by default). Both options require a listed
+`--column` field and neither makes it editable. Editable columns need `textarea` to keep newlines
+while editing; other editors produce a plan note. An editor on a noneditable column also produces
+a note. MCP uses lists `column_editors` (each `field=editor`) and `preserve_whitespace` (field names).
+For a TEXT `Notes` field:
+
+```sh
+twaco mashup recipe columns Acme.App.Orders_MU ptcsgrid-5 --data data:Acme.App.Orders.Manager.GetOrders --column Notes --editable-column Notes --column-editor Notes=textarea --preserve-whitespace Notes --apply
+```
+
 `tracker` matches field names ignoring case and separators: number/step/stepNumber for
 `StepNumberField`, name/title/label/description for `StepLabelField`, state/status for
 `StepStateField`, interactive/isInteractive/enabled for `StepInteractiveField`, and

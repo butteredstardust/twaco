@@ -512,6 +512,10 @@ pub(crate) struct MashupRecipe {
     pub(crate) selected: Option<String>,
     #[arg(long = "editable-column", value_name = "field")]
     pub(crate) editable: Vec<String>,
+    #[arg(long = "column-editor", value_name = "field=editor")]
+    pub(crate) column_editors: Vec<String>,
+    #[arg(long = "preserve-whitespace", value_name = "field")]
+    pub(crate) preserve_whitespace: Vec<String>,
     #[arg(long = "no-none-row")]
     pub(crate) no_none_row: bool,
     #[arg(long = "auto-select-first")]
@@ -791,6 +795,8 @@ pub(crate) fn mashup_recipe_cmd(solution: &Solution, args: &MashupRecipe) -> u8 
         columns: args.columns.clone(),
         selected: args.selected.clone(),
         editable: args.editable.clone(),
+        column_editors: args.column_editors.clone(),
+        preserve_whitespace: args.preserve_whitespace.clone(),
         no_none_row: args.no_none_row,
         auto_select_first: args.auto_select_first,
     };

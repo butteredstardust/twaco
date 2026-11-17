@@ -6,6 +6,10 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `mashup recipe columns` supports typed `--column-editor` and `--preserve-whitespace` options (also in MCP); TEXT columns default to textarea.
+
 ### Fixed
 
 - Repeating an identical mashup recipe reports that there is nothing to write, in plan and apply mode; JSON and MCP include `unchanged`.

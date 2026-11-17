@@ -101,6 +101,8 @@ pub enum Recipe {
         columns: Vec<String>,
         /// Listed columns made editable; the grid is made editable with them.
         editable: Vec<String>,
+        column_editors: Vec<(String, String)>,
+        preserve_whitespace: Vec<String>,
     },
     /// A dropdown or list filled from a service result, showing one field.
     Picker {
@@ -905,6 +907,8 @@ pub(crate) fn plan_recipe(
             data,
             columns,
             editable,
+            column_editors,
+            preserve_whitespace,
         } => {
             let target = widget_id(&work.document, widget)?;
             if target.type_id != "ptcsgrid" {
@@ -982,6 +986,51 @@ pub(crate) fn plan_recipe(
                     })?;
                 column["AllowEdit"] = json!(true);
                 column["editable"] = json!(true);
+            }
+            for (name, editor) in column_editors {
+                let column = format
+                    .iter_mut()
+                    .find(|column| column["FieldName"] == *name)
+                    .ok_or_else(|| {
+                        AuthoringError::Invalid(format!(
+                            "--column-editor {name} is not one of the --column fields"
+                        ))
+                    })?;
+                let base = work.field(&known, name)?;
+                let allowed = column_editors_for(&base);
+                if editor == "dropdown" {
+                    return Err(AuthoringError::Invalid(format!(
+                        "--column-editor {name}=dropdown: dropdown columns need a source and are not supported by this recipe"
+                    )));
+                }
+                if !allowed.contains(&editor.as_str()) {
+                    return Err(AuthoringError::Invalid(format!(
+                        "--column-editor {name}={editor}: field {name} has base type {base}; allowed editors: {}",
+                        allowed.join(", ")
+                    )));
+                }
+                column["cellEditor"] = json!(editor);
+                if !editable.contains(name) {
+                    work.notes.push(format!(
+                        "{name}: cell editor {editor} is configured but the column is not editable; use --editable-column {name}"
+                    ));
+                }
+            }
+            for name in preserve_whitespace {
+                let column = format
+                    .iter_mut()
+                    .find(|column| column["FieldName"] == *name)
+                    .ok_or_else(|| {
+                        AuthoringError::Invalid(format!(
+                            "--preserve-whitespace {name} is not one of the --column fields"
+                        ))
+                    })?;
+                column["preserveWhiteSpaces"] = json!(true);
+                if editable.contains(name) && column["cellEditor"] != "textarea" {
+                    work.notes.push(format!(
+                        "{name}: newlines are kept when shown but not while editing; use --column-editor {name}=textarea"
+                    ));
+                }
             }
             // Composer keeps all fields in the configuration, even those outside the layout.
             for (name, base) in fields.iter().flatten() {
@@ -1128,6 +1177,10 @@ pub struct RecipeArgs {
     pub selected: Option<String>,
     /// Columns a grid's users may edit, each one of `columns`.
     pub editable: Vec<String>,
+    /// `field=editor`, repeatable.
+    pub column_editors: Vec<String>,
+    /// Listed columns that keep whitespace when shown.
+    pub preserve_whitespace: Vec<String>,
     /// A picker without the "(None)" row.
     pub no_none_row: bool,
     /// A picker that selects its first row.
@@ -1186,6 +1239,16 @@ impl Recipe {
             (args.param.is_some(), "--param", "set-on-click"),
             (!args.field_maps.is_empty(), "--field-map", "tracker"),
             (!args.editable.is_empty(), "--editable-column", "columns"),
+            (
+                !args.column_editors.is_empty(),
+                "--column-editor",
+                "columns",
+            ),
+            (
+                !args.preserve_whitespace.is_empty(),
+                "--preserve-whitespace",
+                "columns",
+            ),
             (args.no_none_row, "--no-none-row", "picker"),
             (args.auto_select_first, "--auto-select-first", "picker"),
         ] {
@@ -1315,6 +1378,8 @@ impl Recipe {
                 data: args.data.clone(),
                 columns: args.columns.clone(),
                 editable: args.editable.clone(),
+                column_editors: pairs("--column-editor", &args.column_editors)?,
+                preserve_whitespace: args.preserve_whitespace.clone(),
             },
             "picker" => Recipe::Picker {
                 widget: widget("the dropdown or list")?,
@@ -1353,11 +1418,23 @@ pub fn recipe_plan_json(solution: &Solution, plan: &RecipePlan, applied: bool) -
     })
 }
 
+fn column_editors_for(base: &str) -> &'static [&'static str] {
+    match base {
+        "BOOLEAN" => &["checkbox", "textfield", "textarea"],
+        "DATETIME" => &["datepicker", "textfield"],
+        "HTML" | "HYPERLINK" | "IMAGE" | "JSON" | "TEXT" => &["textarea", "textfield"],
+        "STRING" => &["textfield", "textarea", "dropdown"],
+        "XML" => &["textarea"],
+        _ => &["textfield", "textarea"],
+    }
+}
+
 /// One grid column as Composer writes it: the renderer, its format and the cell editor follow the
 /// field's base type.
 fn column_format(name: &str, title: &str, width: Value, base: &str) -> Value {
     let (renderer, format, editor) = match base {
-        "STRING" | "TEXT" | "THINGNAME" | "USERNAME" | "GUID" => ("STRING", "full", "textfield"),
+        "STRING" | "THINGNAME" | "USERNAME" | "GUID" => ("STRING", "full", "textfield"),
+        "TEXT" => ("STRING", "full", "textarea"),
         "NUMBER" => ("NUMBER", "0.00", "textfield"),
         "INTEGER" | "LONG" => ("NUMBER", "0", "textfield"),
         "BOOLEAN" => ("BOOLEAN", "checkbox", "checkbox"),
@@ -1390,6 +1467,7 @@ fn column_format(name: &str, title: &str, width: Value, base: &str) -> Value {
         "hidden": false,
         "inLayout": true,
         "initialSort": "none",
+        "preserveWhiteSpaces": false,
         "required": false,
         "routeLinks": false,
         "sortable": true,
@@ -1630,6 +1708,64 @@ mod tests {
                 .unwrap_err()
                 .to_string()
                 .contains(flag));
+        }
+    }
+
+    #[test]
+    fn column_editor_choices_follow_composer_base_types() {
+        for (base, expected) in [
+            ("BOOLEAN", vec!["checkbox", "textfield", "textarea"]),
+            ("DATETIME", vec!["datepicker", "textfield"]),
+            ("HTML", vec!["textarea", "textfield"]),
+            ("HYPERLINK", vec!["textarea", "textfield"]),
+            ("IMAGE", vec!["textarea", "textfield"]),
+            ("JSON", vec!["textarea", "textfield"]),
+            ("TEXT", vec!["textarea", "textfield"]),
+            ("STRING", vec!["textfield", "textarea", "dropdown"]),
+            ("XML", vec!["textarea"]),
+        ] {
+            assert_eq!(column_editors_for(base), expected, "{base}");
+        }
+        for base in [
+            "IMAGELINK",
+            "INTEGER",
+            "LOCATION",
+            "LONG",
+            "NUMBER",
+            "PASSWORD",
+            "THINGCODE",
+            "THINGNAME",
+            "VEC2",
+            "VEC3",
+            "VEC4",
+            "UNKNOWN",
+            "",
+        ] {
+            assert_eq!(
+                column_editors_for(base),
+                ["textfield", "textarea"],
+                "{base}"
+            );
+        }
+        for (base, editor) in [("TEXT", "textarea"), ("STRING", "textfield")] {
+            let column = column_format("Notes", "Notes", json!("auto"), base);
+            assert_eq!(column["cellEditor"], editor);
+            assert_eq!(column["preserveWhiteSpaces"], false);
+        }
+        for args in [
+            RecipeArgs {
+                column_editors: vec!["Notes=textarea".into()],
+                ..Default::default()
+            },
+            RecipeArgs {
+                preserve_whitespace: vec!["Notes".into()],
+                ..Default::default()
+            },
+        ] {
+            assert!(Recipe::from_args("text", &args)
+                .unwrap_err()
+                .to_string()
+                .contains("is for recipe columns"));
         }
     }
 
