@@ -2268,3 +2268,72 @@ fn thing_service_override_and_revert_from_the_command_line() {
     ]);
     assert!(!root.join("src/Acme.Press/services/Read").exists());
 }
+
+#[test]
+fn mashup_add_reports_which_widgets_new_containers_hold() {
+    let root_guard = tempfile::tempdir().unwrap();
+    let root = root_guard.path();
+    std::fs::write(
+        root.join("twaco.toml"),
+        r#"[[project]]
+name = "Acme"
+"#,
+    )
+    .unwrap();
+    let ok = |args: &[&str]| {
+        let out = Command::new(env!("CARGO_BIN_EXE_twaco"))
+            .args(args)
+            .current_dir(root)
+            .env_clear()
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{args:?}: {out:?}");
+        String::from_utf8(out.stdout).unwrap()
+    };
+    ok(&["mashup", "new", "Acme.Holders_MU", "--apply"]);
+    ok(&["mashup", "add", "Acme.Holders_MU", "grid", "--apply"]);
+    for placement in [vec!["--above", "ptcsgrid-3"], vec!["--in", "center"]] {
+        let mut args = vec!["mashup", "add", "Acme.Holders_MU", "label"];
+        args.extend(placement);
+        let text = ok(&args);
+        args.push("--json");
+        let json: serde_json::Value = serde_json::from_str(&ok(&args)).unwrap();
+        let containers = json["containers"].as_array().unwrap();
+        let contents = json["container_contents"].as_array().unwrap();
+        assert_eq!(containers.len(), contents.len());
+        assert!(!contents.is_empty());
+        for (id, container) in containers.iter().zip(contents) {
+            assert_eq!(id, &container["id"]);
+            let holds = container["holds"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_str().unwrap())
+                .collect::<Vec<_>>();
+            assert!(
+                text.contains(&format!(
+                    "  new container {} (holds {})",
+                    id.as_str().unwrap(),
+                    holds.join(", ")
+                )),
+                "{text}"
+            );
+        }
+        assert!(contents
+            .iter()
+            .any(|c| c["holds"] == serde_json::json!([json["id"]])));
+        if args.contains(&"--above") {
+            assert_eq!(contents.len(), 2);
+            assert_eq!(contents[0]["holds"], serde_json::json!(["ptcsgrid-3"]));
+            assert_eq!(contents[1]["holds"], serde_json::json!([json["id"]]));
+            assert!(contents
+                .iter()
+                .any(|c| c["holds"] == serde_json::json!(["ptcsgrid-3"])));
+            args.pop();
+            args.push("--apply");
+            ok(&args);
+        } else {
+            assert_eq!(contents.len(), 1);
+        }
+    }
+}

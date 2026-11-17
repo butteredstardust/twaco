@@ -53,12 +53,18 @@ pub(crate) fn decide_all_with_progress(
             .map(|bytes| normalise::hash_with_parts(bytes, &entity.server_owned))
             .transpose()
             .map_err(|error| server_error(error.to_string()))?;
-        // An encrypted owned value cannot be carried, so the import clears it; the live copy
-        // carries the definitions that say which values are encrypted.
-        let cleared = match &fetched {
+        // The live copy supplies the definitions of encrypted fields.
+        let encrypted = match &fetched {
             Some(bytes) => super::super::server_owned::encrypted(bytes, &entity.server_owned)
                 .map_err(|error| server_error(error.to_string()))?,
             None => Vec::new(),
+        };
+        let (cleared, repository_values) = match &fetched {
+            Some(bytes) => {
+                super::super::server_owned::split_encrypted(&entity.bytes, bytes, &encrypted)
+                    .map_err(|error| server_error(error.to_string()))?
+            }
+            None => (Vec::new(), Vec::new()),
         };
         let decision = push::decide(
             &working,
@@ -71,12 +77,13 @@ pub(crate) fn decide_all_with_progress(
             server_owned: if server.is_some() {
                 super::super::server_owned::labels(&super::super::server_owned::carried(
                     &entity.server_owned,
-                    &cleared,
+                    &encrypted,
                 ))
             } else {
                 Vec::new()
             },
             cleared: super::super::server_owned::labels(&cleared),
+            repository_values: super::super::server_owned::labels(&repository_values),
             project: project.project.clone(),
             collection: entity.collection.clone(),
             name: entity.name.clone(),

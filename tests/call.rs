@@ -413,3 +413,73 @@ fn request_timeout_overrides_the_agent_default() {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+#[test]
+fn appkey_show_stdout_is_only_the_key_and_summary_is_on_stderr() {
+    for create in [false, true] {
+        for save in [false, true] {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let (_dir, root) = temp("appkey-show");
+            profile(&root, listener.local_addr().unwrap());
+            let server = std::thread::spawn(move || {
+                let (mut stream, _) = listener.accept().unwrap();
+                let request = receive(&mut stream);
+                assert!(String::from_utf8_lossy(&request)
+                    .starts_with("GET /Thingworx/ApplicationKeys/Acme.Key"));
+                answer(
+                    &mut stream,
+                    if create { "404 Not Found" } else { "200 OK" },
+                    "application/json",
+                    "{}",
+                );
+                let (mut stream, _) = listener.accept().unwrap();
+                let request = receive(&mut stream);
+                let request = String::from_utf8_lossy(&request);
+                if create {
+                    assert!(request.contains("/CreateApplicationKey"));
+                    answer(&mut stream, "200 OK", "application/json", "{}");
+                } else {
+                    assert!(request.contains("/GetExpirationDate"));
+                    answer(
+                        &mut stream,
+                        "200 OK",
+                        "application/json",
+                        r#"{"rows":[{"ExpirationDate":1796119200000}]}"#,
+                    );
+                }
+                let (mut stream, _) = listener.accept().unwrap();
+                assert!(String::from_utf8_lossy(&receive(&mut stream)).contains("/GetKeyID"));
+                answer(
+                    &mut stream,
+                    "200 OK",
+                    "application/json",
+                    r#"{"rows":[{"KeyID":"fake-application-key"}]}"#,
+                );
+            });
+            let mut args = vec![
+                "appkey",
+                if create { "create" } else { "show" },
+                "Acme.Key",
+                "--show",
+            ];
+            if create {
+                args.extend(["--user", "user", "--apply"]);
+            }
+            if save {
+                args.extend(["--save", "default"]);
+            }
+            let output = run(&root, &args);
+            assert!(output.status.success(), "{output:?}");
+            server.join().unwrap();
+            assert_eq!(output.stdout, b"fake-application-key\n");
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let verb = if create { "created" } else { "found" };
+            assert!(
+                stderr.contains(&format!("{verb} application key Acme.Key, expiring")),
+                "{stderr}"
+            );
+            assert_eq!(stderr.contains("saved as app_key in"), save, "{stderr}");
+            assert!(!stderr.contains("fake-application-key"));
+        }
+    }
+}

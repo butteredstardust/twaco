@@ -505,7 +505,7 @@ pub(crate) fn deploy_tool(
                 "network_connections": network_changes(&report.network_changes),
                 "agents_narrowed_first": report.agents_narrowed.iter().map(agent_narrowing).collect::<Vec<_>>(),
                 "building_blocks": report.blocks.iter().map(|step| json!({"project": step.project, "entry_point": step.entry_point, "state": step.state, "runs": step.runs, "configured": step.done})).collect::<Vec<_>>(),
-                "server_owned": report.plans.iter().filter(|p| !p.server_owned.is_empty() || !p.cleared.is_empty()).map(|p| json!({"entity": format!("{}/{}", p.collection, p.name), "parts": p.server_owned, "clears": p.cleared})).collect::<Vec<_>>(),
+                "server_owned": report.plans.iter().filter(|p| !p.server_owned.is_empty() || !p.cleared.is_empty() || !p.repository_values.is_empty()).map(|p| json!({"entity": format!("{}/{}", p.collection, p.name), "parts": p.server_owned, "clears": p.cleared, "repository_values": p.repository_values})).collect::<Vec<_>>(),
             });
             for (key, values) in crate::core::bundle::notes_by_kind(&notes) {
                 if !values.is_empty() {
@@ -540,7 +540,7 @@ pub(crate) fn deploy_tool(
                 value["plans"] = json!(report
                     .plans
                     .iter()
-                    .map(|p| json!({ "entity": format!("{}/{}", p.collection, p.name), "decision": format!("{:?}", p.decision), "server_owned": p.server_owned }))
+                    .map(|p| json!({ "entity": format!("{}/{}", p.collection, p.name), "decision": format!("{:?}", p.decision), "server_owned": p.server_owned, "cleared": p.cleared, "repository_values": p.repository_values }))
                     .collect::<Vec<_>>());
             }
             value
@@ -565,7 +565,7 @@ pub(crate) fn deploy_tool(
                         push::Decision::Refuse(reason) => (refusal_code(reason), reason.to_string()),
                         other => ("unexpected", format!("{other:?}")),
                     };
-                    let mut entry = json!({ "entity": format!("{}/{}", c.collection, c.name), "reason": code, "server_owned": c.server_owned });
+                    let mut entry = json!({ "entity": format!("{}/{}", c.collection, c.name), "reason": code, "server_owned": c.server_owned, "cleared": c.cleared, "repository_values": c.repository_values });
                     if detail {
                         entry["explanation"] = json!(full);
                     }

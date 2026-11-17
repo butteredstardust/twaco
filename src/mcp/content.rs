@@ -654,6 +654,7 @@ pub(crate) fn import_tool(
                     "entity": entry.entity.to_string(),
                     "parts": entry.parts,
                     "clears": entry.clears,
+                    "repository_values": entry.repository_values,
                 })).collect::<Vec<_>>(),
             });
             add_notices(&mut result, &notices);

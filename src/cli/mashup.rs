@@ -1294,8 +1294,12 @@ pub(crate) fn mashup_add_cmd(solution: &Solution, args: &MashupAdd) -> u8 {
     for note in &plan.notes {
         println!("  {note}");
     }
-    for container in &plan.placed.containers {
-        println!("  new container {container}");
+    for container in &plan.container_contents {
+        println!(
+            "  new container {} (holds {})",
+            container.id,
+            container.holds.join(", ")
+        );
     }
     if let Some(flipped) = &plan.placed.flipped {
         let direction = match placements.first() {

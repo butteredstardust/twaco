@@ -6,6 +6,12 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `appkey show` and `appkey create` with `--show` keep text summaries on stderr so stdout contains only the key.
+- `mashup add` identifies the direct children of new containers in text and `container_contents` in JSON and MCP.
+- Deploy and XML import distinguish encrypted server-owned fields cleared by an empty repository value from fields sent with a repository value.
+
 ## [0.1.65] - 2026-11-17
 
 ### Added

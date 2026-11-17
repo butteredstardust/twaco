@@ -793,6 +793,10 @@ fn tools_list_publishes_owned_parts_in_status_push_and_deploy_schemas() {
     let push = output_schema_of("push");
     assert_eq!(push["properties"]["server_owned"]["type"], "array");
     let deploy = output_schema_of("deploy");
+    assert_eq!(
+        deploy["properties"]["server_owned"]["items"]["properties"]["repository_values"]["type"],
+        "array"
+    );
     assert!(deploy["properties"]["server_owned"].is_object());
     assert_eq!(
         deploy["properties"]["server_owned"]["items"]["properties"]["parts"]["type"],
@@ -4433,4 +4437,39 @@ fn building_block_tool_requires_a_namespaced_name() {
         .as_str()
         .unwrap()
         .contains("namespaced name, e.g. Acme.Orders"));
+}
+
+#[test]
+fn mashup_add_reports_container_contents_without_changing_container_ids() {
+    let (_dir, root) = solution_dir();
+    let created = call(
+        &root,
+        "mashup_new",
+        json!({"name":"P.Holders_MU", "dry_run":false}),
+    );
+    assert_eq!(created["isError"], false, "{created}");
+    let grid = call(
+        &root,
+        "mashup_add",
+        json!({"mashup":"P.Holders_MU", "widget":"grid", "dry_run":false}),
+    );
+    assert_eq!(grid["isError"], false, "{grid}");
+    let anchor = &grid["structuredContent"]["id"];
+    let added = call(
+        &root,
+        "mashup_add",
+        json!({"mashup":"P.Holders_MU", "widget":"label", "above":anchor}),
+    );
+    assert_eq!(added["isError"], false, "{added}");
+    let report = &added["structuredContent"];
+    let ids = report["containers"].as_array().unwrap();
+    let contents = report["container_contents"].as_array().unwrap();
+    assert_eq!(ids.len(), 2);
+    assert_eq!(contents.len(), 2);
+    for (id, container) in ids.iter().zip(contents) {
+        assert!(id.is_string());
+        assert_eq!(id, &container["id"]);
+    }
+    assert_eq!(contents[0]["holds"], json!([anchor]));
+    assert_eq!(contents[1]["holds"], json!([report["id"]]));
 }

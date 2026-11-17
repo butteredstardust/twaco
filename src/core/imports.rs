@@ -208,6 +208,7 @@ pub struct ServerOwnedEntity {
     pub entity: EntityKey,
     pub parts: Vec<String>,
     pub clears: Vec<String>,
+    pub repository_values: Vec<String>,
 }
 
 /// The choices shared by one file import plan and its eventual send.
@@ -332,6 +333,7 @@ pub(crate) fn import_file_with_server_owned_progress(
                 entity: entry.key,
                 parts: entry.parts,
                 clears: entry.clears,
+                repository_values: entry.repository_values,
             })
             .collect();
         if !options.apply {
@@ -800,27 +802,52 @@ mod tests {
     }
 
     #[test]
-    fn encrypted_owned_value_is_reported_as_cleared() {
-        let fake = Fake::with(&["Things/T1"]);
+    fn encrypted_owned_values_report_empty_and_supplied_repository_values() {
         let value = |password: &str| {
             format!(
-            "<Entities><Things><Thing name=\"T1\"><ThingShape><PropertyDefinitions><PropertyDefinition name=\"password\" baseType=\"PASSWORD\"/></PropertyDefinitions></ThingShape><ThingProperties><password>{password}</password></ThingProperties></Thing></Things></Entities>"
-        ).into_bytes()
+                "<Entities><Things><Thing name=\"T1\"><ThingShape><PropertyDefinitions><PropertyDefinition name=\"password\" baseType=\"PASSWORD\"/></PropertyDefinitions></ThingShape><ThingProperties><password>{password}</password></ThingProperties></Thing></Things></Entities>"
+            ).into_bytes()
         };
-        fake.exports
-            .lock()
-            .unwrap()
-            .insert("Things/T1".to_string(), value("ciphertext"));
-        let plan = import_file_with_server_owned_progress(
-            &fake,
-            "x.xml",
-            &value("local"),
-            options(false, &rules("Things/T1", "property-values:password")),
-            &NONE,
-        )
-        .unwrap();
-        assert!(plan.server_owned[0].parts.is_empty());
-        assert_eq!(plan.server_owned[0].clears, ["property-values:password"]);
+        for password in ["", "local"] {
+            for apply in [false, true] {
+                let fake = Fake::with(&["Things/T1"]);
+                fake.exports
+                    .lock()
+                    .unwrap()
+                    .insert("Things/T1".to_string(), value("ciphertext"));
+                let plan = import_file_with_server_owned_progress(
+                    &fake,
+                    "x.xml",
+                    &value(password),
+                    options(apply, &rules("Things/T1", "property-values:password")),
+                    &NONE,
+                )
+                .unwrap();
+                let entry = &plan.server_owned[0];
+                assert!(entry.parts.is_empty());
+                assert_eq!(
+                    entry.clears,
+                    if password.is_empty() {
+                        vec!["property-values:password"]
+                    } else {
+                        vec![]
+                    }
+                );
+                assert_eq!(
+                    entry.repository_values,
+                    if password.is_empty() {
+                        vec![]
+                    } else {
+                        vec!["property-values:password"]
+                    }
+                );
+                if apply {
+                    assert_eq!(fake.sent.lock().unwrap()[0], value(password));
+                } else {
+                    assert!(fake.sent.lock().unwrap().is_empty());
+                }
+            }
+        }
     }
 
     #[test]

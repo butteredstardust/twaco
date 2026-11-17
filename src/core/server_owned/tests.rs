@@ -1026,3 +1026,29 @@ fn exact_entity_pattern_with_spaces_matches_only_its_entity() {
     .unwrap();
     assert!(glob.matches("Things", "Acme Stream2_thing"));
 }
+
+#[test]
+fn encrypted_selector_groups_split_by_actual_repository_values() {
+    let server = document("Thing", &format!(
+        "{}<ThingShape><PropertyDefinitions><PropertyDefinition name=\"secret\" baseType=\"PASSWORD\"/><PropertyDefinition name=\"other\" baseType=\"PASSWORD\"/></PropertyDefinitions></ThingShape>",
+        secret_table("<Row><password>ciphertext</password><host>host</host></Row>")
+    ));
+    for properties in ["property-values", "property-values:secret,other"] {
+        let repository = document("Thing", &format!(
+            "{}<ThingProperties><secret><Value><![CDATA[repository-secret]]></Value><Timestamp>123</Timestamp></secret><other><Value/><Timestamp>123</Timestamp><Quality>GOOD</Quality></other></ThingProperties>",
+            secret_table("<Row><password/><host>host</host></Row>")
+        ));
+        let mut parts = part(properties);
+        parts.extend(part("configuration-table:ConnectionInfo"));
+        let encrypted = encrypted(&server, &parts).unwrap();
+        let (cleared, supplied) = split_encrypted(&repository, &server, &encrypted).unwrap();
+        assert_eq!(
+            labels(&cleared),
+            [
+                "property-values:other",
+                "configuration-table:ConnectionInfo.password"
+            ]
+        );
+        assert_eq!(labels(&supplied), ["property-values:secret"]);
+    }
+}

@@ -2971,7 +2971,14 @@
                 }
               },
               "clears": {
-                "description": "Owned parts holding an encrypted value, which the import clears; a deploy hook sets them.",
+                "description": "Encrypted server-owned parts with no repository value; a deploy hook must set them.",
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "repository_values": {
+                "description": "Encrypted server-owned parts sent with a non-empty repository value.",
                 "type": "array",
                 "items": {
                   "type": "string"
@@ -2981,7 +2988,8 @@
             "required": [
               "entity",
               "parts",
-              "clears"
+              "clears",
+              "repository_values"
             ]
           }
         },
@@ -5448,6 +5456,30 @@
           "type": "array",
           "items": true
         },
+        "container_contents": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "holds": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "id",
+              "holds"
+            ]
+          }
+        },
         "flipped": true,
         "wrapped": {
           "type": "array",
@@ -5977,6 +6009,30 @@
         "containers": {
           "type": "array",
           "items": true
+        },
+        "container_contents": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "holds": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "id",
+              "holds"
+            ]
+          }
         },
         "flipped": true,
         "wrapped": {
@@ -10829,7 +10885,14 @@
                 }
               },
               "clears": {
-                "description": "Owned parts holding an encrypted value, which the import clears; a deploy hook sets them.",
+                "description": "Encrypted server-owned parts with no repository value; a deploy hook must set them.",
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "repository_values": {
+                "description": "Encrypted server-owned parts sent with a non-empty repository value.",
                 "type": "array",
                 "items": {
                   "type": "string"
@@ -10839,7 +10902,8 @@
             "required": [
               "entity",
               "parts",
-              "clears"
+              "clears",
+              "repository_values"
             ]
           }
         },

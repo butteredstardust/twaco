@@ -422,8 +422,10 @@ struct ServerOwnedEntity {
     entity: String,
     /// Owned parts the import carries from the server.
     parts: Vec<String>,
-    /// Owned parts holding an encrypted value, which the import clears; a deploy hook sets them.
+    /// Encrypted server-owned parts with no repository value; a deploy hook must set them.
     clears: Vec<String>,
+    /// Encrypted server-owned parts sent with a non-empty repository value.
+    repository_values: Vec<String>,
 }
 
 // ---- entities and permissions ---------------------------------------------------------------
@@ -1367,6 +1369,12 @@ pub(crate) struct MashupTemplatesResult {
     children: Option<Vec<Value>>,
 }
 
+#[derive(Serialize, JsonSchema)]
+struct ContainerContents {
+    id: String,
+    holds: Vec<String>,
+}
+
 /// What `mashup_add` and `mashup_add_contained` report: the widget placed and where.
 #[derive(Serialize, JsonSchema)]
 pub(crate) struct MashupAddResult {
@@ -1377,6 +1385,7 @@ pub(crate) struct MashupAddResult {
     widget: String,
     id: String,
     containers: Vec<Value>,
+    container_contents: Option<Vec<ContainerContents>>,
     flipped: Option<Value>,
     wrapped: Vec<Value>,
     /// A contained mashup: the child and its visible parameters.

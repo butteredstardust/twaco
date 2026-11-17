@@ -2157,7 +2157,7 @@ fn is_divider_row(widget: &Value) -> bool {
             && children(widget).iter().all(is_divider_row))
 }
 
-fn is_spacer(widget: &Value) -> bool {
+pub(crate) fn is_spacer(widget: &Value) -> bool {
     type_of(widget) == Some("flexcontainer")
         && children(widget).is_empty()
         && widget["Properties"]["DisplayName"]
