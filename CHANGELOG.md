@@ -8,6 +8,7 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Fixed
 
+- Contained mashup rows retain their measured minimum height through side-by-side placement and later layout edits, using the tallest card in a shared row.
 - `appkey show` and `appkey create` with `--show` keep text summaries on stderr so stdout contains only the key.
 - `mashup add` identifies the direct children of new containers in text and `container_contents` in JSON and MCP.
 - Deploy and XML import distinguish encrypted server-owned fields cleared by an empty repository value from fields sent with a repository value.

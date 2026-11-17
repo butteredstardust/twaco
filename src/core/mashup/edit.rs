@@ -1074,14 +1074,15 @@ impl MashupDocument {
                 .unwrap_or(""),
         );
         self.floor_row(row_path, height + margin);
-        // The columns this placement made around the row were floored with the generic drop
-        // height; measure them again from their rows.
+        // A horizontal placement can reuse the existing row around several contained mashups.
+        // Measure it again too, taking the tallest child's floor.
         let styles = self.value["UI"]["Properties"]["StyleProperties"]["data"].clone();
         let mut path = row_path.to_vec();
         while path.pop().is_some() && !path.is_empty() {
             let node = self.at(&path);
             if !is_generated_container(node)
-                || !made.iter().any(|made| made == widget_id(node))
+                || !(made.iter().any(|made| made == widget_id(node))
+                    || node["Properties"]["flex-shrink"] == 0)
                 || node["Properties"]["flex-size"] != "range"
             {
                 continue;
@@ -1763,12 +1764,28 @@ impl MashupDocument {
                 self.set_property(parent_path, "flex-direction", Value::from(side.axis()));
                 placed.flipped = Some(parent_id);
             }
-            let anchor_child = if anchor_is_container {
+            let mut anchor_child = if anchor_is_container {
                 anchor_value
             } else {
                 placed.wrapped.push(anchor.id.clone());
                 self.wrap(anchor_value, &mut placed)
             };
+            // The old single-filler row becomes the shared row; its measured floor belongs
+            // to the anchor's new wrapper as well, before reflow sees a generic drop height.
+            if !anchor_is_container && self.at(parent_path)["Properties"]["flex-size"] == "range" {
+                for key in [
+                    "flex-size",
+                    "flex-min-height",
+                    "flex-max-height",
+                    "iconClass",
+                ] {
+                    set_value_property(
+                        &mut anchor_child,
+                        key,
+                        self.at(parent_path)["Properties"][key].clone(),
+                    );
+                }
+            }
             let new_child = if new_is_container {
                 new
             } else {
