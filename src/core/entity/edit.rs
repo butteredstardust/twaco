@@ -731,7 +731,7 @@ fn splice_one(src: &[u8], span: Span, bytes: impl Into<Vec<u8>>) -> Result<Vec<u
 /// Splice `edits` into `src`, their text written with the file's own line ending: what twaco
 /// writes uses `\n`; compact files omit inserted layout, and CRLF files keep CRLF.
 fn splice_all(src: &[u8], edits: Vec<Edit>) -> Result<Vec<u8>, EditError> {
-    let compact = !src.contains(&b'\n') && !src.contains(&b'\r');
+    let compact = is_compact(src);
     let crlf = workspace::line_ending(&String::from_utf8_lossy(src)) == "\r\n";
     let edits: Vec<Edit> = edits
         .into_iter()
@@ -750,6 +750,15 @@ fn splice_all(src: &[u8], edits: Vec<Edit>) -> Result<Vec<u8>, EditError> {
         })
         .collect::<Result<_, _>>()?;
     splice::splice(src, &edits).map_err(invalid)
+}
+
+/// A file written on one line, perhaps ending in a line terminator, as Composer can export.
+fn is_compact(src: &[u8]) -> bool {
+    let end = src
+        .iter()
+        .rposition(|byte| !matches!(byte, b'\r' | b'\n'))
+        .map_or(0, |at| at + 1);
+    !src[..end].contains(&b'\n') && !src[..end].contains(&b'\r')
 }
 
 /// Remove inserted layout, keeping text and CDATA payloads intact.
@@ -3261,7 +3270,7 @@ fn with_rows(doc: &Doc, after: Vec<u8>) -> Result<Vec<u8>, EditError> {
         .first()
         .ok_or_else(|| invalid(format!("{} effectiveMenu has no root row", doc.label())))?;
     let rows_indent = doc.indent_of(rows);
-    let compact = !doc.src.contains(&b'\n') && !doc.src.contains(&b'\r');
+    let compact = is_compact(&doc.src);
     let old_rows = scan::child_tags(&doc.tokens, &doc.src, "Row", rows);
     let significant = |xml: &[u8]| -> Result<Vec<u8>, EditError> {
         Ok(scan::tokenize(xml)

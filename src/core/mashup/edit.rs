@@ -450,7 +450,7 @@ impl MashupDocument {
                 if is_spacer(node) {
                     return Err(EditError::Refused(format!("{anchor}: cannot place beside a spacer; choose a content widget and run gap again")));
                 }
-                if type_of(node) == Some("flexcontainer") || fills(node) {
+                if type_of(node) == Some("flexcontainer") || responsive(node) {
                     return Err(EditError::Refused(format!(
                         "--end: {} is a container or fills its row; --end goes beside a fixed widget, such as a label",
                         found.id
@@ -491,7 +491,7 @@ impl MashupDocument {
     pub(crate) fn fit_placed_width(&mut self, id: &str) {
         let Ok(found) = self.find(id) else { return };
         let leaf = self.at(&found.path);
-        if type_of(leaf) == Some("flexcontainer") || fills(leaf) {
+        if type_of(leaf) == Some("flexcontainer") || responsive(leaf) {
             return;
         }
         let Some(width) = leaf["Properties"]["Width"].as_f64() else {
@@ -1254,12 +1254,12 @@ impl MashupDocument {
             .iter()
             .any(|child| type_of(child) != Some("flexcontainer"));
         let target_empty = target_children.is_empty();
-        let wrap_column_for_filler = fills_alone(widget)
+        let wrap_column_for_filler = stretches_alone(widget)
             && self.at(&target.path)["Properties"]["flex-direction"] == "column"
             && !target_empty
             && !holds_containers
-            && !target_children.iter().any(fills);
-        if target_children.len() == 1 && fills(&target_children[0]) {
+            && !target_children.iter().any(responsive);
+        if target_children.len() == 1 && responsive(&target_children[0]) {
             let child_id = widget_id(&target_children[0]);
             return Err(EditError::Refused(format!(
                 "{child_id} fills {}; place the widget beside it (--right-of, --below, ...)",
@@ -1329,7 +1329,7 @@ impl MashupDocument {
                 target.id
             )));
         }
-        if widget.type_id == "flexcontainer" || fills_alone(widget) {
+        if widget.type_id == "flexcontainer" || stretches_alone(widget) {
             return Err(EditError::Refused(
                 "--bottom takes a control such as a button; a container or a filling widget goes --in the column".into(),
             ));
@@ -1551,14 +1551,14 @@ impl MashupDocument {
         // A widget that can fill gets a container of its own, where it fills, rather than a
         // fixed size among siblings. Next to a container in a run of the right direction it is
         // wrapped as a sibling row or cell, which gives it that container.
-        let filler = fills_alone(widget) && !new_is_container;
+        let filler = stretches_alone(widget) && !new_is_container;
         let axis_matches = direction.as_deref() == Some(side.axis());
         // A lone widget's container turns to the new direction, except a panel someone added:
         // it keeps stacking its content, and the pair gets a row of its own inside it.
         let may_turn = parent_children.len() == 1
             && !is_panel(parent)
             && !starts_page_form(&parent_path, &anchor.type_id, side);
-        let sibling_possible = !fills(self.at(&anchor.path))
+        let sibling_possible = !responsive(self.at(&anchor.path))
             && (!filler || (anchor_is_container && axis_matches))
             && (axis_matches || may_turn);
 
@@ -1717,8 +1717,8 @@ impl MashupDocument {
         if is_panel(self.at(parent_path))
             && !anchor_is_container
             && !new_is_container
-            && !fills(&anchor_value)
-            && !fills_alone(widget)
+            && !responsive(&anchor_value)
+            && !stretches_alone(widget)
         {
             let wrapper_number = self.allocate();
             let mut row = new_widget(
@@ -1877,7 +1877,7 @@ pub(crate) fn new_widget(widget: &Widget, number: u64, alone: bool) -> Value {
         // A tracker stretches across its row while retaining the height that sizes it.
         properties.insert(
             "ResponsiveLayout".into(),
-            Value::from((fills_alone(widget) || widget.type_id == "ptcsprogresstracker") && alone),
+            Value::from(stretches_alone(widget) && alone),
         );
         if fills_alone(widget) && alone {
             // Responsive widgets fill their row; Composer does not retain the drop dimensions.
@@ -2098,11 +2098,16 @@ fn starts_page_form(parent: &[usize], anchor_type: &str, side: Side) -> bool {
         )
 }
 
+/// A widget that stretches across its row; placement gives it a row of its own.
+fn responsive(widget: &Value) -> bool {
+    !matches!(type_of(widget), Some("flexcontainer" | "ptcsdivider"))
+        && widget["Properties"]["ResponsiveLayout"] == Value::Bool(true)
+}
+
+/// A widget whose row takes the column's spare height. A tracker stretches across its row but
+/// keeps its height.
 fn fills(widget: &Value) -> bool {
-    !matches!(
-        type_of(widget),
-        Some("flexcontainer" | "ptcsdivider" | "ptcsprogresstracker")
-    ) && widget["Properties"]["ResponsiveLayout"] == Value::Bool(true)
+    responsive(widget) && type_of(widget) != Some("ptcsprogresstracker")
 }
 
 /// How far a reflow may reshape: a placement owns what it made, an edit owns nothing.
@@ -2127,6 +2132,11 @@ fn fills_alone(widget: &Widget) -> bool {
             widget.type_id.as_str(),
             "shape" | "ptcsdivider" | "ptcsprogresstracker"
         )
+}
+
+/// [`fills_alone`] for placement: a tracker also gets a row of its own.
+fn stretches_alone(widget: &Widget) -> bool {
+    fills_alone(widget) || widget.type_id == "ptcsprogresstracker"
 }
 
 fn can_fill(widget: &Value) -> bool {
@@ -5234,6 +5244,35 @@ mod placement_walkthrough {
             assert_eq!(widget_id(&children(column)[0]), widget_id(row));
             assert_eq!(widget_id(&children(column)[1]), widget_id(grid_row));
         }
+    }
+
+    #[test]
+    fn a_widget_beside_a_progress_tracker_gets_its_own_wrapper() {
+        let catalog = widgets::catalog();
+        let mut document = parse(crate::core::mashup::templates::BLANK).unwrap();
+        let tracker = document
+            .place(
+                catalog.by_type("ptcsprogresstracker").unwrap(),
+                &Placement::In("center".into()),
+            )
+            .unwrap()
+            .id;
+        let button = document
+            .place(
+                catalog.by_type("ptcsbutton").unwrap(),
+                &Placement::Beside {
+                    anchor: tracker.clone(),
+                    side: Side::Right,
+                },
+            )
+            .unwrap()
+            .id;
+        assert_ne!(
+            widget_id(parent_of(&document, &tracker)),
+            widget_id(parent_of(&document, &button))
+        );
+        let props = &document.at(&document.find(&tracker).unwrap().path)["Properties"];
+        assert_eq!(props["ResponsiveLayout"], true);
     }
 
     #[test]

@@ -127,13 +127,17 @@ fn menu_before_an_item_sharing_a_line_keeps_the_document_valid() {
 
 #[test]
 fn one_line_menu_item_add_plans_and_applies_without_changing_other_bytes() {
-    for before_item in [None, Some("Home".to_string())] {
+    // A one-line export may still end in a line terminator.
+    let cases = [None, Some("Home".to_string())]
+        .into_iter()
+        .flat_map(|item| ["", "\n", "\r\n"].map(|ending| (item.clone(), ending)));
+    for (before_item, ending) in cases {
         let (_dir, solution) = fixture();
         new(&solution, Kind::Menu, "Acme.Main_MN", |request| {
             request.items = vec!["Home=Acme.Home_MU".into()];
         });
         let path = solution.root.join("app/Menus/Acme.Main_MN.xml");
-        let original = file(&solution, "Menus", "Acme.Main_MN").replace(['\r', '\n'], "");
+        let original = file(&solution, "Menus", "Acme.Main_MN").replace(['\r', '\n'], "") + ending;
         std::fs::write(&path, &original).unwrap();
         let action = Action::MenuItemAdd {
             title: "MCP".into(),
@@ -147,7 +151,8 @@ fn one_line_menu_item_add_plans_and_applies_without_changing_other_bytes() {
         run(&solution, "Acme.Main_MN", action);
         let after = file(&solution, "Menus", "Acme.Main_MN");
         assert_eq!(after.as_bytes(), planned.changes[0].after);
-        assert!(!after.contains(['\r', '\n']));
+        assert!(after.ends_with(ending));
+        assert!(!after[..after.len() - ending.len()].contains(['\r', '\n']));
         roxmltree::Document::parse(&after).unwrap();
         let tokens = scan::tokenize(after.as_bytes()).unwrap();
         let mut additions = Vec::new();

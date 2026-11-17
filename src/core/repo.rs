@@ -102,15 +102,14 @@ pub fn remote_path(text: &str) -> Result<String, RepoError> {
 }
 
 /// Refuses a server path that starts with a drive: Git Bash turns `/a/b` into
-/// `C:/Program Files/Git/a/b` before twaco sees it, and no repository path starts with a drive.
+/// `C:/Program Files/Git/a/b` before twaco sees it. A `/`-rooted path such as `/C:/archive` is
+/// a folder named `C:` and stays allowed.
 pub(crate) fn refuse_windows_path(text: &str) -> Result<(), RepoError> {
-    if text
-        .split(['/', '\\'])
-        .find(|segment| !segment.is_empty())
-        .is_some_and(|segment| {
-            let bytes = segment.as_bytes();
-            bytes.len() == 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':'
-        })
+    let bytes = text.as_bytes();
+    if bytes.len() >= 2
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && matches!(bytes.get(2), None | Some(b'/' | b'\\'))
     {
         return Err(RepoError::Invalid(format!(
             "{text:?} is a Windows path, not a repository path; Git Bash rewrites an argument that starts with /: set MSYS_NO_PATHCONV=1, or write //a/b.md"
@@ -1656,7 +1655,7 @@ pub(crate) mod tests {
 
     #[test]
     fn windows_paths_are_refused_with_a_git_bash_hint() {
-        for path in ["C:/Program Files/Git/a/b", r"c:\x", "/C:/x"] {
+        for path in ["C:/Program Files/Git/a/b", r"c:\x", "D:"] {
             let error = remote_path(path).unwrap_err();
             assert!(matches!(error, RepoError::Invalid(_)));
             let message = error.to_string();
@@ -1664,6 +1663,10 @@ pub(crate) mod tests {
             assert!(message.contains("MSYS_NO_PATHCONV=1"), "{message}");
         }
         assert_eq!(remote_path("//a/b.md").unwrap(), "/a/b.md");
+        // A folder named like a drive, rooted explicitly, as a server listing returns it.
+        assert_eq!(remote_path("/C:/archive").unwrap(), "/C:/archive");
+        assert_eq!(remote_path("//C:/archive").unwrap(), "/C:/archive");
+        assert_eq!(remote_path("Ca:/x").unwrap(), "/Ca:/x");
     }
 
     #[test]
