@@ -83,6 +83,140 @@ fn property(name: &str, base_type: &str) -> Property {
     }
 }
 
+#[test]
+fn compact_edits_keep_payload_line_breaks_and_no_op_bytes() {
+    let src = b"<Entities><Things><Thing name=\"Acme.Sensor_TH\"/></Things></Entities>";
+    assert_eq!(splice_all(src, Vec::new()).unwrap(), src);
+    let xml = b"\n    <Value>first\nsecond<![CDATA[\n  payload\n]]></Value>\n";
+    let after = splice_one(src, Span::new(0, 0), xml.to_vec()).unwrap();
+    assert_eq!(
+        after,
+        [
+            b"<Value>first\nsecond<![CDATA[\n  payload\n]]></Value>".as_slice(),
+            src
+        ]
+        .concat()
+    );
+}
+
+#[test]
+fn menu_before_an_item_sharing_a_line_keeps_the_document_valid() {
+    let (_dir, solution) = fixture();
+    new(&solution, Kind::Menu, "Acme.Main_MN", |request| {
+        request.items = vec!["Home=Acme.Home_MU".into()];
+    });
+    let path = solution.root.join("app/Menus/Acme.Main_MN.xml");
+    let original = file(&solution, "Menus", "Acme.Main_MN")
+        .replace(['\r', '\n'], "")
+        .replacen("?>", "?>\n", 1);
+    std::fs::write(&path, original).unwrap();
+    run(
+        &solution,
+        "Acme.Main_MN",
+        Action::MenuItemAdd {
+            title: "MCP".into(),
+            mashup: "Acme.MCP_MU".into(),
+            default: false,
+            before: Some("Home".into()),
+        },
+    );
+    let after = file(&solution, "Menus", "Acme.Main_MN");
+    roxmltree::Document::parse(&after).unwrap();
+    assert!(after.find("title=\"MCP\"").unwrap() < after.find("title=\"Home\"").unwrap());
+}
+
+#[test]
+fn one_line_menu_item_add_plans_and_applies_without_changing_other_bytes() {
+    for before_item in [None, Some("Home".to_string())] {
+        let (_dir, solution) = fixture();
+        new(&solution, Kind::Menu, "Acme.Main_MN", |request| {
+            request.items = vec!["Home=Acme.Home_MU".into()];
+        });
+        let path = solution.root.join("app/Menus/Acme.Main_MN.xml");
+        let original = file(&solution, "Menus", "Acme.Main_MN").replace(['\r', '\n'], "");
+        std::fs::write(&path, &original).unwrap();
+        let action = Action::MenuItemAdd {
+            title: "MCP".into(),
+            mashup: "Acme.MCP_MU".into(),
+            default: false,
+            before: before_item.clone(),
+        };
+        let planned = plan_of(&solution, "Acme.Main_MN", action.clone()).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), original.as_bytes());
+        assert_eq!(planned.changes.len(), 1);
+        run(&solution, "Acme.Main_MN", action);
+        let after = file(&solution, "Menus", "Acme.Main_MN");
+        assert_eq!(after.as_bytes(), planned.changes[0].after);
+        assert!(!after.contains(['\r', '\n']));
+        roxmltree::Document::parse(&after).unwrap();
+        let tokens = scan::tokenize(after.as_bytes()).unwrap();
+        let mut additions = Vec::new();
+        for (index, token) in tokens.iter().enumerate() {
+            if token.name.of(after.as_bytes()) == b"MenuItem"
+                && token.kind == TokenKind::Start
+                && scan::attribute(after.as_bytes(), token, "title")
+                    .unwrap()
+                    .unwrap()
+                    .of(after.as_bytes())
+                    == b"MCP"
+            {
+                additions.push(Edit::new(
+                    scan::element_span(&tokens, index).unwrap(),
+                    Vec::new(),
+                ));
+            }
+            if token.name.of(after.as_bytes()) == b"Row" && token.kind == TokenKind::Start {
+                let span = scan::element_span(&tokens, index).unwrap();
+                if String::from_utf8_lossy(span.of(after.as_bytes())).contains("<![CDATA[MCP]]>") {
+                    additions.push(Edit::new(span, Vec::new()));
+                }
+            }
+        }
+        assert_eq!(additions.len(), 2);
+        let restored = splice::splice(after.as_bytes(), &additions).unwrap();
+        if before_item.is_none() {
+            assert_eq!(restored, original.as_bytes());
+        }
+    }
+}
+
+#[test]
+fn one_line_thing_property_add_preserves_the_surrounding_document() {
+    let (_dir, solution) = fixture();
+    new(&solution, Kind::Thing, "Acme.Sensor_TH", |_| {});
+    let path = solution.root.join("app/Things/Acme.Sensor_TH.xml");
+    let original = file(&solution, "Things", "Acme.Sensor_TH").replace(['\r', '\n'], "");
+    std::fs::write(&path, &original).unwrap();
+    run(
+        &solution,
+        "Acme.Sensor_TH",
+        Action::PropertyAdd(property("Reading", "NUMBER")),
+    );
+    let after = file(&solution, "Things", "Acme.Sensor_TH");
+    assert!(!after.contains(['\r', '\n']));
+    roxmltree::Document::parse(&after).unwrap();
+    let tokens = scan::tokenize(after.as_bytes()).unwrap();
+    let element = tokens
+        .iter()
+        .position(|t| t.name.of(after.as_bytes()) == b"PropertyDefinition")
+        .unwrap();
+    let span = scan::element_span(&tokens, element).unwrap();
+    assert_eq!(
+        splice::splice(after.as_bytes(), &[Edit::new(span, Vec::new())]).unwrap(),
+        original.as_bytes()
+    );
+    let unchanged = plan_of(
+        &solution,
+        "Acme.Sensor_TH",
+        Action::PropertySet {
+            property: property("Reading", "NUMBER"),
+            force: false,
+        },
+    )
+    .unwrap();
+    assert!(unchanged.changes.is_empty());
+}
+
 fn service(name: &str, code: &str) -> Service {
     Service {
         name: name.into(),

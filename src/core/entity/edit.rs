@@ -701,7 +701,12 @@ impl Doc {
             .iter()
             .rposition(|byte| *byte == b'\n')
             .map_or(0, |at| at + 1);
-        String::from_utf8_lossy(&self.src[line..start]).into_owned()
+        let before = &self.src[line..start];
+        if before.iter().all(|byte| matches!(byte, b' ' | b'\t')) {
+            String::from_utf8_lossy(before).into_owned()
+        } else {
+            String::new()
+        }
     }
 
     fn change(&self, after: Vec<u8>) -> FileChange {
@@ -724,20 +729,53 @@ fn splice_one(src: &[u8], span: Span, bytes: impl Into<Vec<u8>>) -> Result<Vec<u
 }
 
 /// Splice `edits` into `src`, their text written with the file's own line ending: what twaco
-/// writes uses `\n`, and a CRLF file must not gain bare line feeds.
+/// writes uses `\n`; compact files omit inserted layout, and CRLF files keep CRLF.
 fn splice_all(src: &[u8], edits: Vec<Edit>) -> Result<Vec<u8>, EditError> {
+    let compact = !src.contains(&b'\n') && !src.contains(&b'\r');
     let crlf = workspace::line_ending(&String::from_utf8_lossy(src)) == "\r\n";
     let edits: Vec<Edit> = edits
         .into_iter()
-        .map(|edit| {
+        .map(|edit| -> Result<Edit, EditError> {
+            if compact {
+                return Ok(Edit::new(edit.span, compact_xml(&edit.replacement)?));
+            }
             if !crlf {
-                return edit;
+                return Ok(edit);
             }
             let text = String::from_utf8_lossy(&edit.replacement).replace("\r\n", "\n");
-            Edit::new(edit.span, text.replace('\n', "\r\n").into_bytes())
+            Ok(Edit::new(
+                edit.span,
+                text.replace('\n', "\r\n").into_bytes(),
+            ))
         })
-        .collect();
+        .collect::<Result<_, _>>()?;
     splice::splice(src, &edits).map_err(invalid)
+}
+
+/// Remove inserted layout, keeping text and CDATA payloads intact.
+fn compact_xml(xml: &[u8]) -> Result<Vec<u8>, EditError> {
+    if !xml.contains(&b'\n') && !xml.contains(&b'\r') {
+        return Ok(xml.to_vec());
+    }
+    let tokens = scan::tokenize(xml).map_err(invalid)?;
+    let mut out = Vec::new();
+    for token in tokens {
+        let bytes = token.span.of(xml);
+        match token.kind {
+            TokenKind::Text if bytes.iter().all(u8::is_ascii_whitespace) => {}
+            TokenKind::Start | TokenKind::Empty => {
+                out.extend(bytes.iter().map(|byte| {
+                    if matches!(byte, b'\r' | b'\n') {
+                        b' '
+                    } else {
+                        *byte
+                    }
+                }));
+            }
+            _ => out.extend_from_slice(bytes),
+        }
+    }
+    Ok(out)
 }
 
 /// Shift each line of `xml`, written for `from` leading spaces, to start with `to` instead.
@@ -3173,6 +3211,14 @@ fn menu_item_add(
                 .iter()
                 .rposition(|byte| *byte == b'\n')
                 .map_or(start, |at| at + 1);
+            let line = if doc.src[line..start]
+                .iter()
+                .all(|byte| matches!(byte, b' ' | b'\t'))
+            {
+                line
+            } else {
+                start
+            };
             Edit::new(
                 Span::new(line, line),
                 format!("{}\n", &xml[1..]).into_bytes(),
@@ -3215,6 +3261,19 @@ fn with_rows(doc: &Doc, after: Vec<u8>) -> Result<Vec<u8>, EditError> {
         .first()
         .ok_or_else(|| invalid(format!("{} effectiveMenu has no root row", doc.label())))?;
     let rows_indent = doc.indent_of(rows);
+    let compact = !doc.src.contains(&b'\n') && !doc.src.contains(&b'\r');
+    let old_rows = scan::child_tags(&doc.tokens, &doc.src, "Row", rows);
+    let significant = |xml: &[u8]| -> Result<Vec<u8>, EditError> {
+        Ok(scan::tokenize(xml)
+            .map_err(invalid)?
+            .iter()
+            .filter(|token| {
+                token.kind != TokenKind::Text
+                    || !token.span.of(xml).iter().all(u8::is_ascii_whitespace)
+            })
+            .flat_map(|token| token.span.of(xml).iter().copied())
+            .collect())
+    };
     let row_xml: String = entries
         .iter()
         .enumerate()
@@ -3227,15 +3286,38 @@ fn with_rows(doc: &Doc, after: Vec<u8>) -> Result<Vec<u8>, EditError> {
                 image_url: &entry.image_url,
                 link_target: &entry.link_target,
             };
-            entity::new::menu_row_xml(doc.name(), at, &row)
+            let xml = entity::new::menu_row_xml(doc.name(), at, &row);
+            if compact {
+                if let Some(&old) = old_rows.get(at + 1) {
+                    let span = doc.span(old)?;
+                    if significant(span.of(&doc.src))? == significant(xml.as_bytes())? {
+                        let previous = doc.span(old_rows[at])?.end;
+                        return Ok(
+                            String::from_utf8_lossy(&doc.src[previous..span.end]).into_owned()
+                        );
+                    }
+                }
+                return Ok(String::from_utf8_lossy(&compact_xml(xml.as_bytes())?).into_owned());
+            }
+            Ok(xml)
         })
-        .collect();
-    let row_xml = reindent_block(&row_xml, 20, &format!("{rows_indent}    "));
+        .collect::<Result<String, EditError>>()?;
+    let row_xml = if compact {
+        row_xml
+    } else {
+        reindent_block(&row_xml, 20, &format!("{rows_indent}    "))
+    };
     let root_end = doc.span(root)?.end;
     let rows_end = doc.inner(rows)?.end;
+    let tail = if compact {
+        let last = *old_rows.last().expect("root row exists");
+        String::from_utf8_lossy(&doc.src[doc.span(last)?.end..rows_end]).into_owned()
+    } else {
+        format!("\n{rows_indent}")
+    };
     let edit = Edit::new(
         Span::new(root_end, rows_end),
-        format!("{row_xml}\n{rows_indent}").into_bytes(),
+        format!("{row_xml}{tail}").into_bytes(),
     );
     let description = doc.only_child(root, "description")?;
     let text = doc.attr(doc.entity, "description").unwrap_or_default();
