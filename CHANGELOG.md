@@ -6,6 +6,8 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.1.65] - 2026-11-17
+
 ### Added
 
 - `mashup recipe columns` supports typed `--column-editor` and `--preserve-whitespace` options (also in MCP); TEXT columns default to textarea.
@@ -1953,6 +1955,7 @@ The first public release.
 - `mcp` serves 39 tools over stdio to MCP clients, with compact summaries, validated arguments
   and dry runs by default for tools that can write to a server.
 
+[0.1.65]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.65
 [0.1.64]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.64
 [0.1.63]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.63
 [0.1.62]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.62
