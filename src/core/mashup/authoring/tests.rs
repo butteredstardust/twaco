@@ -406,6 +406,73 @@ fn add_in_a_template_slot_places_the_widget_in_that_container() {
 }
 
 #[test]
+fn template_menubars_show_icons_and_fit_expanded_labels() {
+    let (dir, solution) = one_project();
+    write(
+        dir.path(),
+        "acme/Menus/Acme.Main_MN.xml",
+        r#"<Entities><Menus><Menu name="Acme.Main_MN" projectName="Acme"/></Menus></Entities>"#,
+    );
+    write(
+        dir.path(),
+        "acme/Things/Acme.Nav.Manager.xml",
+        r#"<Entities><Things><Thing name="Acme.Nav.Manager" projectName="Acme"><ThingShape><ServiceDefinitions><ServiceDefinition name="GetMenu"><ResultType baseType="INFOTABLE"/></ServiceDefinition></ServiceDefinitions><ServiceImplementations/></ThingShape></Thing></Things></Entities>"#,
+    );
+    for template in ["sidebar", "header-sidebar", "sidebar-header"] {
+        for master in [false, true] {
+            for entity_menu in [false, true] {
+                let plan = plan_new(
+                    &solution,
+                    &NewRequest {
+                        template: template.into(),
+                        master,
+                        primary_menu: (!entity_menu)
+                            .then(|| "data:Acme.Nav.Manager.GetMenu".into()),
+                        menu_entity: entity_menu.then(|| "Acme.Main_MN".into()),
+                        ..request("Acme.Nav_MU")
+                    },
+                )
+                .unwrap();
+                let document = mashup::edit::parse(&plan.assets.content).unwrap();
+                let bar = document
+                    .widgets()
+                    .into_iter()
+                    .find(|widget| widget.type_id == "ptcsmenubar")
+                    .unwrap();
+                let properties =
+                    &document.at(&document.find_exact(&bar.id).unwrap().path)["Properties"];
+                for property in ["PrimaryNavIcons", "DisableResizing"] {
+                    assert_eq!(
+                        properties[property], true,
+                        "{template}, master={master}, entity_menu={entity_menu}: {property}"
+                    );
+                }
+                assert_eq!(properties["SecondaryNavIcons"], false);
+            }
+        }
+    }
+}
+
+#[test]
+fn added_menubars_keep_catalogue_icon_and_resizing_defaults() {
+    let (_dir, solution) = one_project();
+    let name = "Acme.Nav_MU";
+    apply_new(
+        &solution,
+        &plan_new(&solution, &request(name)).unwrap(),
+        &lock(&solution),
+    )
+    .unwrap();
+    let plan = plan_add(&solution, &add_request(name, "ptcsmenubar")).unwrap();
+    let content = &plan.edit.sidecars.as_ref().unwrap().content_after;
+    let document = mashup::edit::parse(std::str::from_utf8(content).unwrap()).unwrap();
+    let properties =
+        &document.at(&document.find_exact(&plan.placed.id).unwrap().path)["Properties"];
+    assert_eq!(properties["PrimaryNavIcons"], false);
+    assert_eq!(properties["DisableResizing"], false);
+}
+
+#[test]
 fn sidebar_menus_are_service_calls_bound_and_loaded_like_bind_and_on() {
     let (dir, solution) = one_project();
     write(

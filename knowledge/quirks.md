@@ -563,6 +563,16 @@ omits the value instead of persisting NULL. A reusable ThingShape must call `me.
 not a fixed Thing. For InfoTables, conversion such as `String(...)` and `new Date(...)` inside
 `forEach` avoids Java-backed row views; an unconverted indexed copy can repeat the first row.
 
+## Expanded menu bars truncate labels and hide item icons
+
+Verified on ThingWorx 10.2 Runtime: a `ptcsmenubar` in `Acme.App.Main_MM` with
+`DisableResizing: false` stays narrow when expanded and truncates labels. Set
+`DisableResizing: true` so the expanded bar fits its labels. `PrimaryNavIcons`
+must be `true` for menu items' `imageURL` icons (such as `cds:icon_*`) to render.
+Both properties are needed; changing the parent container's responsive layout
+or flex-grow did not fix the truncation. `mashup new` sets both to `true` for
+template menu bars.
+
 ## Progress tracker stored outputs blank the step container at load
 
 Verified on ThingWorx 10.2 Runtime: a `ptcsprogresstracker` must not store

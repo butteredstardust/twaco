@@ -1103,6 +1103,8 @@ under the project's `Mashups` folder, and its `content.json` and `custom.css` si
 same sync as every other mashup, so a new mashup is already in sync. `--template` selects a named
 layout (and `--layout` remains a compatibility alias); `twaco mashup templates` lists the names,
 aliases and slots. Slots are responsive container names usable with `mashup add --in <slot>`.
+With `--primary-menu` or `--menu-entity`, the template's menu bar shows icons from the menu
+items' `imageURL` (e.g. `cds:icon_*`) and fits its labels when expanded.
 
 | Template | Slots | For |
 | --- | --- | --- |

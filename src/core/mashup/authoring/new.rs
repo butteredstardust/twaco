@@ -262,6 +262,14 @@ pub(crate) fn plan_new(
         }
         _ => {}
     }
+    if let Some(menu) = &menu {
+        let path = document
+            .find_exact(&menu.id)
+            .map_err(AuthoringError::Edit)?
+            .path;
+        document.set_property(&path, "PrimaryNavIcons", Value::Bool(true));
+        document.set_property(&path, "DisableResizing", Value::Bool(true));
+    }
     let tabs = build_tabs(solution, &request.name, &mut document, &request.tabs)?;
     let mut menus = Vec::new();
     if let Some(entity) = &request.menu_entity {

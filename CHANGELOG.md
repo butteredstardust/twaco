@@ -12,6 +12,7 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Fixed
 
+- Template menu bars show item icons and fit their labels when expanded for both service and Menu entity sources.
 - Entity edits accept one-line exports, preserving their compact layout and untouched bytes.
 - Progress tracker rows size to the tracker's height, leaving spare column height to the grid or contained mashup below.
 - Progress trackers omit the stored output that blanks the step container at load; the tracker recipe removes stored CurrentStepMashup/CurrentStepNumber from existing trackers.
