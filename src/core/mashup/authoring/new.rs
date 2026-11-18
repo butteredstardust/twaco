@@ -773,6 +773,9 @@ fn add_template_node(
         };
         document.set_property(&child.path, &format!("flex-min-{dimension}"), json!(fixed));
         document.set_property(&child.path, &format!("flex-max-{dimension}"), json!(fixed));
+        if !node.properties.contains_key("flex-grow") {
+            document.set_property(&child.path, "flex-grow", json!(0));
+        }
     }
     if let Some(type_id) = &node.widget {
         let widget = widgets::catalog().by_type(type_id).ok_or_else(|| {

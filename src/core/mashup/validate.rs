@@ -303,7 +303,10 @@ fn severity(rule: &str) -> Severity {
         | "unknown-cell-parameter"
         | "mixed-label-alignment"
         | "responsive-leaf-size"
-        | "wrapped-row-clipping" => Severity::Advisory,
+        | "wrapped-row-clipping"
+        | "wrapped-content-clipping"
+        | "remainder-not-last"
+        | "slider-button-alignment" => Severity::Advisory,
         _ => Severity::Error,
     }
 }
@@ -433,6 +436,9 @@ pub(crate) fn check_content(content: &str, problems: &mut Vec<Problem>) {
                     ));
                 }
             }
+        }
+        if widget.type_id == "flexcontainer" {
+            container_layout_problems(row, &widget.id, problems);
         }
         let alignment = &row["Properties"]["align-items"];
         if alignment.is_null() || alignment == "flex-start" {
@@ -663,6 +669,72 @@ pub(crate) fn check_content(content: &str, problems: &mut Vec<Problem>) {
             }
             _ => {}
         }
+    }
+}
+
+/// Advisories about how a container's own size and alignment treat its content.
+fn container_layout_problems(row: &Value, id: &str, problems: &mut Vec<Problem>) {
+    use mashup::edit::{children, is_remainder, is_spacer, type_of};
+    let props = &row["Properties"];
+    let kids = children(row);
+    if props["flex-direction"] == "column" {
+        let last_content = kids.iter().rposition(|kid| {
+            !is_remainder(kid) && !is_spacer(kid) && !crate::core::mashup::edit::is_footer(kid)
+        });
+        for (index, kid) in kids.iter().enumerate() {
+            if is_remainder(kid) && last_content.is_some_and(|last| last > index) {
+                problems.push(problem("remainder-not-last", format!(
+                    "{}: a growing empty container sits above more content in {id}, so it pushes that content to the bottom; move it last",
+                    kid["Properties"]["Id"].as_str().unwrap_or("a container")
+                )));
+            }
+        }
+    }
+    let direction = props["flex-direction"].as_str().unwrap_or("row");
+    if matches!(direction, "row" | "") && props["align-items"] == "center" {
+        let kinds: Vec<_> = kids
+            .iter()
+            .filter_map(|kid| {
+                let mut widget = kid;
+                while type_of(widget) == Some("flexcontainer") && children(widget).len() == 1 {
+                    widget = &children(widget)[0];
+                }
+                type_of(widget)
+            })
+            .collect();
+        if kinds.contains(&"ptcsslider") && kinds.contains(&"ptcsbutton") {
+            problems.push(problem("slider-button-alignment", format!(
+                "row {id} centres a button on a slider's whole box (label, value, MIN/MAX), so it sits above the track; use align-items=flex-end or offset the button's margin"
+            )));
+        }
+    }
+    let capped = props["flex-size"] == "fixed"
+        || props["flex-max-height"]
+            .as_str()
+            .is_some_and(|max| !max.is_empty());
+    if capped {
+        let authored = !props["DisplayName"]
+            .as_str()
+            .is_some_and(|name| name.starts_with("container-"));
+        if kids.iter().any(|kid| wraps_content(kid, authored)) {
+            problems.push(problem("wrapped-content-clipping", format!(
+                "{id}: a fixed or capped height clips wrapped text of a property display or multi-line label; use flex-size range with no max height"
+            )));
+        }
+    }
+}
+
+/// Whether the widget, or one inside it, shows text that can wrap onto more lines. A label
+/// counts only in an authored container: generated rows are measured for their text.
+fn wraps_content(widget: &Value, authored: bool) -> bool {
+    let properties = &widget["Properties"];
+    match properties["Type"].as_str() {
+        // Generated rows are measured for what they hold; only an authored cap clips.
+        Some("ptcspropertydisplay") => authored,
+        Some("ptcslabel") => authored && properties["MultiLine"] == true,
+        _ => mashup::edit::children(widget)
+            .iter()
+            .any(|kid| wraps_content(kid, authored)),
     }
 }
 
@@ -1100,6 +1172,134 @@ mod tests {
                 assert_eq!(warning.severity, Severity::Advisory);
                 assert_eq!(warning.message, "row-1: a wrapped second line is clipped; use flex-size range with no max height");
             }
+        }
+    }
+
+    fn layout_rules(root: Value) -> Vec<(String, String)> {
+        let value = json!({"UI": {"Properties": {"Type": "mashup", "Id": "mashup-root"}, "Widgets": [root]}});
+        let mut found = Vec::new();
+        check_content(&value.to_string(), &mut found);
+        found.into_iter().map(|p| (p.rule, p.message)).collect()
+    }
+
+    fn container_of(id: &str, name: &str, extra: Value, kids: Vec<Value>) -> Value {
+        let mut properties = json!({"Type": "flexcontainer", "Id": id, "DisplayName": name});
+        for (key, value) in extra.as_object().unwrap() {
+            properties[key] = value.clone();
+        }
+        json!({"Properties": properties, "Widgets": kids})
+    }
+
+    #[test]
+    fn a_growing_remainder_above_content_warns() {
+        for (remainder_first, warn) in [(true, true), (false, false)] {
+            let remainder = container_of("flexcontainer-3", "Remaining space", json!({}), vec![]);
+            let content = container_of(
+                "flexcontainer-4",
+                "status",
+                json!({}),
+                vec![widget("ptcslabel", "ptcslabel-5")],
+            );
+            let kids = if remainder_first {
+                vec![remainder, content]
+            } else {
+                vec![content, remainder]
+            };
+            let found = layout_rules(container_of(
+                "flexcontainer-2",
+                "page",
+                json!({"flex-direction": "column"}),
+                kids,
+            ));
+            let hit = found.iter().find(|(rule, _)| rule == "remainder-not-last");
+            assert_eq!(hit.is_some(), warn, "{found:?}");
+            if let Some((_, message)) = hit {
+                assert!(message.starts_with("flexcontainer-3:"), "{message}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_slider_and_a_button_centred_in_one_row_warn() {
+        for (alignment, warn) in [("center", true), ("flex-end", false)] {
+            let found = layout_rules(container_of(
+                "flexcontainer-2",
+                "controls",
+                json!({"flex-direction": "row", "align-items": alignment}),
+                vec![
+                    widget("ptcsslider", "ptcsslider-3"),
+                    widget("ptcsbutton", "ptcsbutton-4"),
+                ],
+            ));
+            assert_eq!(
+                found
+                    .iter()
+                    .any(|(rule, _)| rule == "slider-button-alignment"),
+                warn,
+                "{found:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_capped_container_holding_wrapping_text_warns() {
+        let label = |multi: bool| {
+            let mut label = widget("ptcslabel", "ptcslabel-4");
+            label["Properties"]["MultiLine"] = json!(multi);
+            label
+        };
+        for (name, extra, kid, warn) in [
+            (
+                "panel-2",
+                json!({"flex-size": "fixed"}),
+                widget("ptcspropertydisplay", "ptcspropertydisplay-4"),
+                true,
+            ),
+            (
+                "panel-2",
+                json!({"flex-max-height": "220px"}),
+                widget("ptcspropertydisplay", "ptcspropertydisplay-4"),
+                true,
+            ),
+            ("panel-2", json!({"flex-size": "fixed"}), label(true), true),
+            (
+                "panel-2",
+                json!({"flex-size": "fixed"}),
+                label(false),
+                false,
+            ),
+            (
+                "container-2",
+                json!({"flex-size": "fixed"}),
+                label(true),
+                false,
+            ),
+            (
+                "container-2",
+                json!({"flex-size": "fixed"}),
+                widget("ptcspropertydisplay", "ptcspropertydisplay-4"),
+                false,
+            ),
+            (
+                "panel-2",
+                json!({"flex-size": "range", "flex-max-height": ""}),
+                widget("ptcspropertydisplay", "ptcspropertydisplay-4"),
+                false,
+            ),
+        ] {
+            let found = layout_rules(container_of(
+                "flexcontainer-2",
+                name,
+                extra.clone(),
+                vec![kid],
+            ));
+            assert_eq!(
+                found
+                    .iter()
+                    .any(|(rule, _)| rule == "wrapped-content-clipping"),
+                warn,
+                "{extra} {found:?}"
+            );
         }
     }
 

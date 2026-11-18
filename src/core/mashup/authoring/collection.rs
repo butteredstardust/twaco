@@ -416,6 +416,17 @@ pub(crate) fn plan_collection_add(
         })
         .into_iter()
         .collect();
+    if request.preset == Some(CollectionPreset::Cards) {
+        let cell_root = serde_json::from_str::<Value>(&cell.assets.content)
+            .ok()
+            .map(|content| content["UI"]["Widgets"][0].clone());
+        if cell_root.is_some_and(|root| mashup::edit::has_own_look(&root)) {
+            notes.push(format!(
+                "{} draws its own frame (a Style or CustomClass on its root container) and the cards preset frames each cell too, so cards show a double outline; the catalogue has no collection property for the cell border: set border-width to 0 in the collection's cell part style, or drop the frame from {}",
+                request.cell, request.cell
+            ));
+        }
+    }
     if let Some((menu, events)) = &menu {
         if events.is_empty() {
             notes.push(format!(

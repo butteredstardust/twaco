@@ -870,3 +870,25 @@ Composer's CDS icon set holds 153 names (`TW.SVGImages.cds` in
 naming anything else renders a blank icon without an error: there is no `cds:icon_menu`
 (the menu button is `cds:icon_hamburger`) and no `cds:icon_debug`. `twaco widgets --icons`
 lists the names.
+
+## Responsive layout quirks (10.2.1)
+
+A bounded-width responsive container (width `min(100%,768px)`) with `align-self: flex-start`
+still centres: responsive bounding boxes get automatic horizontal margins, so reset
+`margin-left` and `margin-right` in CSS. A container whose children are all containers renders
+as `flex: 0 1 auto` (class `size-fixed`) even with `flex-size` range or default and
+`flex-grow` 1, so it does not fill its column and the parent spreads spare space around its
+rows; a CustomClass with `flex: 1 1 auto !important; min-height: 0` fixes it. Filled
+(responsive) widgets are absolutely positioned and ignore the parent's padding: inset a panel
+through the inner widget's margin plus `width` and `height` of `calc(100% - 2*inset)`, also
+for contained mashups in tabs. A ptcsslider is 118px tall (label, value bubble, MIN/MAX), so
+a button beside it with `align-items: center` sits about 24px above the track; use
+`flex-end` or offset the button's margin. Field-verified on 10.2.1.
+
+## Property display and text area styling (10.2.1)
+
+Clearing `::part(property-group-container)` on a ptcspropertydisplay leaves a white surface;
+clear `::part(property-group)` too. Values are capped by ValueMaxWidth (250px by default):
+raise it for long values. A fixed-height container clips a property display whose values
+wrap (a 220px panel did at 1280px width): use `flex-size` range with no max height. A
+ptcstextarea styles its text through `::part(text-value)`. Field-verified on 10.2.1.

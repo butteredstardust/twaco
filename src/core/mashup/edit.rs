@@ -479,6 +479,7 @@ impl MashupDocument {
         }
         self.style_filter_control(&placed);
         self.fit_placed_width(&placed.id);
+        self.keep_remainders_last(&placed);
         self.keep_footers_last();
         self.release_moved_rows(&placed);
         self.fix_rows(&placed);
@@ -615,6 +616,35 @@ impl MashupDocument {
         }
     }
 
+    /// A growing remainder (an empty container that takes the spare height) stays the last
+    /// row of its column, before any footer: whatever was placed below it moves above it.
+    fn keep_remainders_last(&mut self, placed: &Placed) {
+        let Ok(found) = self.find(&placed.id) else {
+            return;
+        };
+        // Deepest column first: a move never shifts the path of a shallower parent.
+        for depth in (1..=found.path.len()).rev() {
+            let parent = &found.path[..depth - 1];
+            if self.at(parent)["Properties"]["flex-direction"] != "column" {
+                continue;
+            }
+            let siblings = children_mut(self.at_mut(parent));
+            let mut index = 0;
+            while index < siblings.len() {
+                if is_remainder(&siblings[index])
+                    && siblings[index + 1..]
+                        .iter()
+                        .any(|sibling| !is_footer(sibling) && !is_remainder(sibling))
+                {
+                    let remainder = siblings.remove(index);
+                    siblings.push(remainder);
+                } else {
+                    index += 1;
+                }
+            }
+        }
+    }
+
     /// A footer is its column's last row whatever was placed beside it: a row put below it moves
     /// above it.
     fn keep_footers_last(&mut self) {
@@ -649,9 +679,13 @@ impl MashupDocument {
                 continue;
             }
             let painted = (0..found.path.len()).rev().any(|depth| {
-                let ancestor = widget_id(self.at(&found.path[..depth])).to_string();
-                self.style_background(&ancestor)
-                    .is_some_and(|background| background != "inherit")
+                let node = self.at(&found.path[..depth]);
+                let ancestor = widget_id(node).to_string();
+                // Below the page body, a class or a non-default style is assumed to paint.
+                (depth > 0 && has_own_look(node))
+                    || self
+                        .style_background(&ancestor)
+                        .is_some_and(|background| background != "inherit")
             });
             if !painted {
                 continue;
@@ -1229,6 +1263,7 @@ impl MashupDocument {
         self.set_property(path, "flex-min-height", Value::from(""));
         self.set_property(path, "flex-max-height", Value::from(""));
         self.set_property(path, "iconClass", Value::from("widgets-flexcontainer"));
+        self.set_flex_factor(path, "flex-grow", 1);
     }
 
     fn make_row_fill(&mut self, path: &[usize]) {
@@ -1279,12 +1314,17 @@ impl MashupDocument {
             if members.iter().any(action_column) {
                 self.set_property(path, "align-items", Value::from("stretch"));
             }
+            let actions = members.iter().any(action_column);
             for (index, member) in members.iter().enumerate() {
+                let mut child = path.to_vec();
+                child.push(index);
                 if action_column(member) {
-                    let mut child = path.to_vec();
-                    child.push(index);
                     self.set_property(&child, "flex-direction", Value::from("column"));
                     self.set_property(&child, "justify-content", Value::from("flex-end"));
+                    // The actions keep their natural width; the editor takes the rest.
+                    self.set_flex_factor(&child, "flex-grow", 0);
+                } else if actions {
+                    self.set_flex_factor(&child, "flex-grow", 1);
                 }
             }
         }
@@ -1333,6 +1373,8 @@ impl MashupDocument {
             "iconClass",
             Value::from("widgets-flexcontainer-fixed"),
         );
+        // A fixed row has no spare height to take.
+        self.set_flex_factor(path, "flex-grow", 0);
     }
 
     /// Whether a binding, an event or a data section names the widget `id`: such a container
@@ -2409,10 +2451,27 @@ pub(crate) fn is_spacer(widget: &Value) -> bool {
             })
 }
 
+/// An empty container named for the remaining space (`Remaining space`) that takes the
+/// column's spare height. Other empty containers (slots, panels) keep their place.
+pub(crate) fn is_remainder(widget: &Value) -> bool {
+    type_of(widget) == Some("flexcontainer")
+        && children(widget).is_empty()
+        && !is_spacer(widget)
+        && !is_footer(widget)
+        && widget["Properties"]["DisplayName"]
+            .as_str()
+            .is_some_and(|name| {
+                let name = name.to_lowercase();
+                name.contains("remaining") || name.contains("remainder")
+            })
+        && widget["Properties"]["flex-size"] != "fixed"
+        && widget["Properties"]["flex-grow"].as_f64().unwrap_or(1.0) > 0.0
+}
+
 /// A footer row `--bottom` made: it stays the last row of its column. The name is twaco's own
 /// (Composer numbers its containers), so a row someone called `footer-actions` is never taken
 /// for one; as a generated container it is tidied away when its last widget goes.
-fn is_footer(widget: &Value) -> bool {
+pub(crate) fn is_footer(widget: &Value) -> bool {
     type_of(widget) == Some("flexcontainer")
         && widget["Properties"]["DisplayName"]
             .as_str()
@@ -2809,6 +2868,17 @@ fn is_label_value_row(widget: &Value) -> bool {
                 && children(widget).iter().all(text_or_mark))
     }
     is_split_row(widget) && children(widget).iter().all(text_or_mark)
+}
+
+/// A container with a `CustomClass` or a style other than the default one: a panel of its own.
+pub(crate) fn has_own_look(widget: &Value) -> bool {
+    let properties = &widget["Properties"];
+    properties["CustomClass"]
+        .as_str()
+        .is_some_and(|class| !class.trim().is_empty())
+        || properties["Style"]
+            .as_str()
+            .is_some_and(|style| !style.is_empty() && style != "DefaultContainerStyle")
 }
 
 /// Containers twaco created have Composer's generated display name, unlike named template slots.
@@ -4051,11 +4121,104 @@ mod tests {
                     doc.at(&column[..column.len() - 1])["Properties"]["align-items"],
                     "stretch"
                 );
+                // The editor column takes the width; the action column keeps its own.
+                assert_eq!(doc.at(column)["Properties"]["flex-grow"], 0);
+                let row = &column[..column.len() - 1];
+                let editor = children(doc.at(row))
+                    .iter()
+                    .find(|member| holds_textarea(member))
+                    .unwrap();
+                assert_eq!(editor["Properties"]["flex-grow"], 1);
                 let once = doc.to_content();
                 doc.reflow_for(&button.id);
                 assert_eq!(once, doc.to_content());
             }
         }
+    }
+
+    #[test]
+    fn a_row_in_a_styled_panel_is_transparent_and_a_fixed_row_does_not_grow() {
+        let panel = container("flexcontainer-3", "panel-3", "column", "");
+        let mut doc = document(&container("flexcontainer-2", "center", "column", &panel), 3);
+        doc.set_property(&[0, 0], "CustomClass", Value::from("grey-panel"));
+        let one = doc
+            .place(
+                catalogue_widget("ptcslabel"),
+                &Placement::In("panel-3".into()),
+            )
+            .unwrap();
+        let first = doc
+            .place(
+                catalogue_widget("ptcslabel"),
+                &Placement::Beside {
+                    anchor: one.id,
+                    side: Side::Below,
+                },
+            )
+            .unwrap();
+        for id in &first.containers {
+            assert_eq!(doc.style_background(id).as_deref(), Some("inherit"), "{id}");
+            // A row of fixed height has no spare height to take.
+            let row = &doc.at(&doc.find(id).unwrap().path)["Properties"];
+            if row["flex-size"] == "fixed" {
+                assert_eq!(row["flex-grow"], 0, "{row}");
+            }
+        }
+        assert!(!first.containers.is_empty());
+        let mut plain = document(&container("flexcontainer-2", "center", "column", ""), 2);
+        let one = plain
+            .place(
+                catalogue_widget("ptcslabel"),
+                &Placement::In("center".into()),
+            )
+            .unwrap();
+        let placed = plain
+            .place(
+                catalogue_widget("ptcslabel"),
+                &Placement::Beside {
+                    anchor: one.id,
+                    side: Side::Below,
+                },
+            )
+            .unwrap();
+        assert!(!placed.containers.is_empty());
+        assert!(placed
+            .containers
+            .iter()
+            .all(|id| plain.style_background(id).is_none()));
+        let fixed = plain
+            .widgets()
+            .into_iter()
+            .filter(|widget| plain.at(&widget.path)["Properties"]["flex-size"] == "fixed")
+            .count();
+        assert!(fixed > 0, "{}", plain.to_content());
+        for widget in plain.widgets() {
+            let row = &plain.at(&widget.path)["Properties"];
+            if row["flex-size"] == "fixed" {
+                assert_eq!(row["flex-grow"], 0, "{}", widget.id);
+            }
+        }
+    }
+
+    #[test]
+    fn content_placed_below_a_remainder_goes_above_it() {
+        let kids = [
+            container("flexcontainer-3", "top", "row", ""),
+            container("flexcontainer-4", "Remaining space", "column", ""),
+        ]
+        .join(",");
+        let mut doc = document(&container("flexcontainer-2", "center", "column", &kids), 4);
+        doc.place(
+            catalogue_widget("ptcslabel"),
+            &Placement::Beside {
+                anchor: "top".into(),
+                side: Side::Below,
+            },
+        )
+        .unwrap();
+        let ids = child_ids(&doc, "center");
+        assert_eq!(ids.last().unwrap(), "flexcontainer-4", "{ids:?}");
+        assert_eq!(ids.len(), 3);
     }
 
     #[test]

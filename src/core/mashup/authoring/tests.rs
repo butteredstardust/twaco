@@ -3627,6 +3627,29 @@ fn template_containers_have_no_margin_and_their_widgets_keep_composers() {
     }
 }
 
+/// A fixed row has no spare size to take: template rows keep their sizes at flex-grow 0, except
+/// a slot the template itself says grows.
+#[test]
+fn fixed_template_rows_do_not_grow() {
+    for (name, slot, grow) in [
+        ("card", "header", 0),
+        ("card", "title", 1),
+        ("card", "actions", 0),
+        ("list-page", "title", 0),
+        ("list-page", "toolbar", 0),
+        ("list-page", "body", 1),
+    ] {
+        let template = mashup::templates::layout(name).unwrap().unwrap();
+        let document = new_document(&template, false, DEFAULT_THEME).unwrap();
+        let found = document.find(slot).unwrap();
+        assert_eq!(
+            document.at(&found.path)["Properties"]["flex-grow"],
+            grow,
+            "{name} {slot}"
+        );
+    }
+}
+
 /// A template's slot style lands in the root StyleProperties as `mashup set --style` writes it:
 /// the filter panel's grey column and white content, as the kits draw them.
 #[test]
@@ -9301,6 +9324,58 @@ fn collection_add_cards_preset_writes_the_kit_card_collection() {
         crate::core::mashup::validate::validate(&solution, Some("Acme.Orders_MU")).unwrap();
     assert!(report[0].problems.is_empty(), "{:?}", report[0].problems);
     drop(dir);
+}
+
+#[test]
+fn cards_preset_notes_a_double_outline_when_the_cell_draws_its_own_frame() {
+    let (dir, solution) = collection_fixture();
+    let mut request = collection_request(&[("id", "Id")]);
+    request.preset = Some(CollectionPreset::Cards);
+    let plain = plan_collection_add(&solution, &request).unwrap();
+    assert!(
+        !plain
+            .notes
+            .iter()
+            .any(|note| note.contains("double outline")),
+        "{:?}",
+        plain.notes
+    );
+    for (key, value) in [("CustomClass", "framed"), ("Style", "TileStyle")] {
+        let content_path = dir.path().join("src/Acme.OrderCell_MU/mashup/content.json");
+        let mut content: Value =
+            serde_json::from_str(&std::fs::read_to_string(&content_path).unwrap()).unwrap();
+        let root = &mut content["UI"]["Widgets"][0]["Properties"];
+        root["CustomClass"] = json!("");
+        root["Style"] = json!("DefaultContainerStyle");
+        root[key] = json!(value);
+        let text = mashup::to_sidecar(&content);
+        std::fs::write(&content_path, &text).unwrap();
+        let entity_path = dir.path().join("acme/Mashups/Acme.OrderCell_MU.xml");
+        let css =
+            std::fs::read_to_string(dir.path().join("src/Acme.OrderCell_MU/mashup/custom.css"))
+                .unwrap();
+        let (entity, _) = mashup::sync(
+            &std::fs::read(&entity_path).unwrap(),
+            &mashup::Assets { content: text, css },
+        )
+        .unwrap();
+        std::fs::write(&entity_path, entity).unwrap();
+        let plan = plan_collection_add(&solution, &request).unwrap();
+        let note = plan
+            .notes
+            .iter()
+            .find(|note| note.contains("double outline"))
+            .unwrap_or_else(|| panic!("{key}: {:?}", plan.notes));
+        assert!(note.contains("cell part style"), "{note}");
+        request.preset = Some(CollectionPreset::Cards);
+    }
+    // Without the preset the collection draws no frame of its own.
+    request.preset = None;
+    let plan = plan_collection_add(&solution, &request).unwrap();
+    assert!(!plan
+        .notes
+        .iter()
+        .any(|note| note.contains("double outline")));
 }
 
 #[test]

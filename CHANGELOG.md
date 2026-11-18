@@ -40,6 +40,11 @@ All notable changes to twaco are recorded here. The format follows
 - `appkey show` and `appkey create` with `--show` keep text summaries on stderr so stdout contains only the key.
 - `mashup add` identifies the direct children of new containers in text and `container_contents` in JSON and MCP.
 - Deploy and XML import distinguish encrypted server-owned fields cleared by an empty repository value from fields sent with a repository value.
+- Rows `mashup add` creates inside a container with a `CustomClass` or non-default `Style` inherit its background instead of painting the default white; fixed rows in templates and placements set `flex-grow` 0.
+- Content placed below a growing `Remaining space` container goes above it, so the remainder stays last; `mashup validate` warns when it sits above content.
+- A textarea column beside an action column grows while the action column keeps its natural width.
+- `mashup validate` advises on a button centred beside a slider, and on fixed or capped containers holding a property display or multi-line label.
+- `mashup collection add --preset cards` notes the double outline when the cell mashup draws its own frame.
 
 ## [0.1.65] - 2026-11-17
 
