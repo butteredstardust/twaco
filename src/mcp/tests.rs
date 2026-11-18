@@ -460,6 +460,17 @@ fn hand_written_tools() -> Vec<Value> {
             "A picker that selects its first row.",
             "boolean",
         ),
+        ("menu", "The root Menu of recipe nested-menu.", "string"),
+        (
+            "no_auto_collapse",
+            "nested-menu: leave several groups open at once.",
+            "boolean",
+        ),
+        (
+            "field",
+            "navigate-on-click: the selected row's field that names the mashup to open.",
+            "string",
+        ),
     ] {
         let mut property = json!({"description": description, "type": kind});
         if kind == "array" {
@@ -467,7 +478,8 @@ fn hand_written_tools() -> Vec<Value> {
         }
         recipe["inputSchema"]["properties"][name] = property;
     }
-    recipe["inputSchema"]["properties"]["recipe"]["description"] = json!("enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, picker, tracker, set-on-click or collapsible.");
+    recipe["inputSchema"]["properties"]["width"] = json!({"description": "nested-menu: the column's width in pixels (300 by default).", "type": "integer", "minimum": 0});
+    recipe["inputSchema"]["properties"]["recipe"]["description"] = json!("enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, picker, tracker, set-on-click, nested-menu, navigate-on-click or collapsible.");
     let edit = tools
         .iter_mut()
         .find(|tool| tool["name"] == "entity_edit")
@@ -475,10 +487,19 @@ fn hand_written_tools() -> Vec<Value> {
     let actions = edit["inputSchema"]["properties"]["action"]["enum"]
         .as_array_mut()
         .unwrap();
-    actions.splice(0..0, [json!("entity_set"), json!("menu_item_set")]);
+    actions.splice(
+        0..0,
+        [
+            json!("entity_set"),
+            json!("menu_item_set"),
+            json!("menu_nest"),
+        ],
+    );
     for name in ["new_title", "submenu", "icon"] {
         edit["inputSchema"]["properties"][name] = json!({"type": "string"});
     }
+    edit["inputSchema"]["properties"]["groups"] = json!({"description": "menu_nest: the groups, each `Label=<icon>:Title=Mashup,Title=Mashup` (icon a `cds:icon_<name>`, a MediaEntity or empty).", "type": "array", "items": {"type": "string"}});
+    edit["inputSchema"]["properties"]["project"] = json!({"description": "menu_nest: the project a new Menu goes in, when the solution has several.", "type": "string"});
     let new = tools
         .iter_mut()
         .find(|tool| tool["name"] == "entity_new")

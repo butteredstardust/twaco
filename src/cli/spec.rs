@@ -696,8 +696,10 @@ pub(crate) const USAGE: &[Usage] = &[
         path: "widgets",
         group: 1,
         text: r#"  widgets [<widget>] [--search <text>] [--json]
+  widgets --icons [<filter>] [--json]
                               the embedded ThingWorx 10.2 widget catalogue: types, Composer labels,
-                              aliases, containers and editable or bindable properties with defaults, events and services"#,
+                              aliases, containers and editable or bindable properties with defaults, events and services
+      --icons                 the 153 CDS icon names a cds: value may take; twaco refuses any other"#,
     },
     Usage {
         path: "mashup validate",
@@ -958,7 +960,13 @@ pub(crate) const USAGE: &[Usage] = &[
       tracker <widget|new> --data <data call> [--field-map Property=field]...
                               interactive large tracker; infer all five maps from the result DataShape
       set-on-click <button> --param <name> --expr <expression> [--input name=<address>]...
-                              set a mashup parameter on click; no automatic evaluation"#,
+                              set a mashup parameter on click; no automatic evaluation
+      nested-menu <menubar> --menu <Root> [--no-auto-collapse] [--width <px>]
+                              a menu bar as an accordion over a Root Menu of sub-Menus (menu nest builds
+                              them), in a column fixed at --width (300 by default)
+      navigate-on-click <collection|grid> --field <field> [--window replace|new|popup|modal-popup]
+                              a click opens the mashup the selected row's field names; plan warns when
+                              the widget selects its first row on load"#,
     },
     Usage {
         path: "mashup event",
@@ -1105,6 +1113,15 @@ pub(crate) const USAGE: &[Usage] = &[
         text: r#"  media set <MediaEntity> --file <path> [--apply] [--json]
                               replace a MediaEntity's image (PNG, JPEG, GIF or SVG, up to 10 MB);
                               plan unless --apply"#,
+    },
+    Usage {
+        path: "menu nest",
+        group: 1,
+        text: r#"  menu nest <Root> --group <Label>=<icon>:<Title>=<Mashup>,<Title>=<Mashup>... [--project <name>] [--apply] [--json]
+                              write a root Menu of sub-Menu links and one leaf Menu per group, in the
+                              given order; rerunning with the same groups changes nothing
+      --group <spec>          a group: its label, Menu-level icon (cds:icon_<name>, a MediaEntity, or
+                              empty) and its items; repeatable; the leaf is <Root minus _MN>_<Label>_MN"#,
     },
     Usage {
         path: "menu item",

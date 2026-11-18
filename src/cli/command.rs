@@ -163,7 +163,10 @@ impl Command {
             Command::Scheduler(_) => "scheduler set",
             Command::Style(_) => "style set",
             Command::Media(_) => "media set",
-            Command::Menu(_) => "menu item",
+            Command::Menu(menu) => match menu {
+                super::entity_edit::Menu::Item(_) => "menu item",
+                super::entity_edit::Menu::Nest(_) => "menu nest",
+            },
             Command::State(_) => "state set",
             Command::McpNamespace(namespace) => match namespace {
                 super::entity_edit::McpNamespace::Add(_) => "mcp-namespace add",

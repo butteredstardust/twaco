@@ -1,6 +1,7 @@
 use super::flags::Json;
 use super::style;
 use crate::{FAILED, OK};
+use twaco::core::cds_icons;
 use twaco::core::widgets_view::{self, WidgetDetail, WidgetSummary};
 
 /// `twaco widgets [<widget>] [--search <text>] [--json]`.
@@ -9,6 +10,8 @@ use twaco::core::widgets_view::{self, WidgetDetail, WidgetSummary};
 pub(crate) struct Widgets {
     #[arg(long = "search", value_name = "text")]
     pub(crate) search: Option<String>,
+    #[arg(long = "icons")]
+    pub(crate) icons: bool,
     #[command(flatten)]
     pub(crate) json: Json,
     #[arg(id = "operands", value_name = "operand")]
@@ -17,6 +20,9 @@ pub(crate) struct Widgets {
 
 /// `twaco widgets [<widget>] [--search <text>]`: read the embedded catalogue.
 pub(crate) fn widgets_cmd(args: &Widgets) -> u8 {
+    if args.icons {
+        return icons_cmd(args);
+    }
     if !args.operands.is_empty() && args.search.is_some() {
         eprintln!("{} give a widget or --search, not both", style::prefix());
         return FAILED;
@@ -45,6 +51,28 @@ pub(crate) fn widgets_cmd(args: &Widgets) -> u8 {
             FAILED
         }
     }
+}
+
+/// `twaco widgets --icons [<filter>]`: the CDS icon names a `cds:` value may take.
+fn icons_cmd(args: &Widgets) -> u8 {
+    if args.search.is_some() || args.operands.len() > 1 {
+        eprintln!("{} --icons takes at most one <filter>", style::prefix());
+        return FAILED;
+    }
+    let icons = cds_icons::list(args.operands.first().map(String::as_str));
+    if args.json.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&icons).expect("icon names serialise")
+        );
+    } else if icons.is_empty() {
+        println!("no CDS icon matches; twaco widgets --icons lists them all");
+    } else {
+        for icon in &icons {
+            println!("{icon}");
+        }
+    }
+    OK
 }
 
 fn list_cmd(args: &Widgets) -> u8 {

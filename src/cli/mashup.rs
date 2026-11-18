@@ -532,6 +532,14 @@ pub(crate) struct MashupRecipe {
     pub(crate) no_none_row: bool,
     #[arg(long = "auto-select-first")]
     pub(crate) auto_select_first: bool,
+    #[arg(long = "menu", value_name = "Menu")]
+    pub(crate) menu: Option<String>,
+    #[arg(long = "no-auto-collapse")]
+    pub(crate) no_auto_collapse: bool,
+    #[arg(long = "width", value_name = "px")]
+    pub(crate) width: Option<String>,
+    #[arg(long = "field", value_name = "field")]
+    pub(crate) field: Option<String>,
     #[command(flatten)]
     pub(crate) apply: Apply,
     #[command(flatten)]
@@ -779,6 +787,14 @@ pub(crate) fn mashup_recipe_cmd(solution: &Solution, args: &MashupRecipe) -> u8 
         eprintln!("{} give --param once", style::prefix());
         return FAILED;
     }
+    let width = match args.width.clone().map(|text| text.parse::<u32>()) {
+        None => None,
+        Some(Ok(pixels)) if pixels > 0 => Some(pixels),
+        Some(_) => {
+            eprintln!("{} --width takes a whole number of pixels", style::prefix());
+            return FAILED;
+        }
+    };
     let recipe_args = mashup::authoring::RecipeArgs {
         toggle: args.toggle.clone(),
         add_toggle: args.add_toggle,
@@ -819,6 +835,10 @@ pub(crate) fn mashup_recipe_cmd(solution: &Solution, args: &MashupRecipe) -> u8 
         preserve_whitespace: args.preserve_whitespace.clone(),
         no_none_row: args.no_none_row,
         auto_select_first: args.auto_select_first,
+        menu: args.menu.clone(),
+        no_auto_collapse: args.no_auto_collapse,
+        width,
+        field: args.field.clone(),
     };
     let recipe = match mashup::authoring::Recipe::from_args(name, &recipe_args) {
         Ok(recipe) => recipe,

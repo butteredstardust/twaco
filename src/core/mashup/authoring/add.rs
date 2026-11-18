@@ -656,6 +656,22 @@ pub(crate) fn property_value(
     name: &str,
     supplied: Value,
 ) -> Result<Value, AuthoringError> {
+    let value = checked_property_value(widget, name, supplied)?;
+    let imagelink = widget
+        .property(name)
+        .is_some_and(|contract| contract.base_type.as_deref() == Some("IMAGELINK"));
+    if let (true, Value::String(text)) = (imagelink, &value) {
+        crate::core::cds_icons::check(text)
+            .map_err(|error| AuthoringError::Invalid(format!("{name}: {error}")))?;
+    }
+    Ok(value)
+}
+
+fn checked_property_value(
+    widget: &widgets::Widget,
+    name: &str,
+    supplied: Value,
+) -> Result<Value, AuthoringError> {
     crate::core::repo::refuse_git_bash_value(&supplied)
         .map_err(|error| AuthoringError::Invalid(error.to_string()))?;
     let numbered = widget.numbered_default(name);

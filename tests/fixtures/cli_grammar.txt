@@ -210,8 +210,10 @@ help:
 |                               outside the deploy order, with the depends_on that allows it
 |       --to <project>          the project they move to
 |   widgets [<widget>] [--search <text>] [--json]
+|   widgets --icons [<filter>] [--json]
 |                               the embedded ThingWorx 10.2 widget catalogue: types, Composer labels,
 |                               aliases, containers and editable or bindable properties with defaults, events and services
+|       --icons                 the 153 CDS icon names a cds: value may take; twaco refuses any other
 |   mashup validate <mashup>|--all [--json]
 |                               what in a mashup ThingWorx would load but not honour, or the next edit would
 |                               trip over: structure, ids, bindings and events that name what is not there,
@@ -393,6 +395,12 @@ help:
 |                               interactive large tracker; infer all five maps from the result DataShape
 |       set-on-click <button> --param <name> --expr <expression> [--input name=<address>]...
 |                               set a mashup parameter on click; no automatic evaluation
+|       nested-menu <menubar> --menu <Root> [--no-auto-collapse] [--width <px>]
+|                               a menu bar as an accordion over a Root Menu of sub-Menus (menu nest builds
+|                               them), in a column fixed at --width (300 by default)
+|       navigate-on-click <collection|grid> --field <field> [--window replace|new|popup|modal-popup]
+|                               a click opens the mashup the selected row's field names; plan warns when
+|                               the widget selects its first row on load
 |   mashup event add <mashup> <name> --when <address> [--apply] [--json]
 |                               give a mashup an event its parents react to with mashup on --event
 |                               ui:<container>.<name>: a NUMBER parameter set to the time when the
@@ -483,6 +491,11 @@ help:
 |   media set <MediaEntity> --file <path> [--apply] [--json]
 |                               replace a MediaEntity's image (PNG, JPEG, GIF or SVG, up to 10 MB);
 |                               plan unless --apply
+|   menu nest <Root> --group <Label>=<icon>:<Title>=<Mashup>,<Title>=<Mashup>... [--project <name>] [--apply] [--json]
+|                               write a root Menu of sub-Menu links and one leaf Menu per group, in the
+|                               given order; rerunning with the same groups changes nothing
+|       --group <spec>          a group: its label, Menu-level icon (cds:icon_<name>, a MediaEntity, or
+|                               empty) and its items; repeatable; the leaf is <Root minus _MN>_<Label>_MN
 |   menu item add <Menu> <Title>=<Mashup> [--icon <image>] [--default] [--before <Title>] [--apply] [--json]
 |   menu item add <Menu> --submenu <name> [--icon <image>] [--before <Title>] [--apply] [--json]
 |   menu item remove <Menu> <Title> [--apply] [--json]
@@ -7760,6 +7773,12 @@ help:
 |                               interactive large tracker; infer all five maps from the result DataShape
 |       set-on-click <button> --param <name> --expr <expression> [--input name=<address>]...
 |                               set a mashup parameter on click; no automatic evaluation
+|       nested-menu <menubar> --menu <Root> [--no-auto-collapse] [--width <px>]
+|                               a menu bar as an accordion over a Root Menu of sub-Menus (menu nest builds
+|                               them), in a column fixed at --width (300 by default)
+|       navigate-on-click <collection|grid> --field <field> [--window replace|new|popup|modal-popup]
+|                               a click opens the mashup the selected row's field names; plan warns when
+|                               the widget selects its first row on load
 |   mashup event add <mashup> <name> --when <address> [--apply] [--json]
 |                               give a mashup an event its parents react to with mashup on --event
 |                               ui:<container>.<name>: a NUMBER parameter set to the time when the
@@ -9702,6 +9721,18 @@ arg --expr
     other: -
     given twice: ArgumentConflict
     given bare: InvalidValue
+arg --field
+    action: Set
+    value_name: field
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 arg --field-map
     action: Append
     value_name: Property=field
@@ -9843,6 +9874,29 @@ arg --mashup
     other: -
     given twice: ArgumentConflict
     given bare: InvalidValue
+arg --menu
+    action: Set
+    value_name: Menu
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --no-auto-collapse
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
 arg --no-none-row
     action: SetTrue
     value_name: -
@@ -10034,6 +10088,18 @@ arg --value
     other: -
     given twice: ArgumentConflict
     given bare: InvalidValue
+arg --width
+    action: Set
+    value_name: px
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 arg --window
     action: Set
     value_name: type
@@ -10107,6 +10173,12 @@ help:
 |                               interactive large tracker; infer all five maps from the result DataShape
 |       set-on-click <button> --param <name> --expr <expression> [--input name=<address>]...
 |                               set a mashup parameter on click; no automatic evaluation
+|       nested-menu <menubar> --menu <Root> [--no-auto-collapse] [--width <px>]
+|                               a menu bar as an accordion over a Root Menu of sub-Menus (menu nest builds
+|                               them), in a column fixed at --width (300 by default)
+|       navigate-on-click <collection|grid> --field <field> [--window replace|new|popup|modal-popup]
+|                               a click opens the mashup the selected row's field names; plan warns when
+|                               the widget selects its first row on load
 | 
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
@@ -11778,7 +11850,7 @@ help:
 == twaco menu
 usage: twaco menu <command>
 settings: disable-version-flag disable-help-subcommand subcommand-required arg-required-else-help
-subcommands: item
+subcommands: item nest
 arg --help
     action: Help
     value_name: -
@@ -11816,6 +11888,11 @@ arg --log-file
 help:
 | usage: twaco menu <command>
 | 
+|   menu nest <Root> --group <Label>=<icon>:<Title>=<Mashup>,<Title>=<Mashup>... [--project <name>] [--apply] [--json]
+|                               write a root Menu of sub-Menu links and one leaf Menu per group, in the
+|                               given order; rerunning with the same groups changes nothing
+|       --group <spec>          a group: its label, Menu-level icon (cds:icon_<name>, a MediaEntity, or
+|                               empty) and its items; repeatable; the leaf is <Root minus _MN>_<Label>_MN
 |   menu item add <Menu> <Title>=<Mashup> [--icon <image>] [--default] [--before <Title>] [--apply] [--json]
 |   menu item add <Menu> --submenu <name> [--icon <image>] [--before <Title>] [--apply] [--json]
 |   menu item remove <Menu> <Title> [--apply] [--json]
@@ -12002,6 +12079,111 @@ help:
 |       --mashup <name>         change the selected item's Mashup
 |       --description <text>    change the selected item's description
 | 
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
+== twaco menu nest
+usage: twaco menu nest <Root> --group <Label>=<icon>:<Title>=<Mashup>,<Title>=<Mashup>... [--project <name>] [--apply] [--json]
+settings: disable-version-flag disable-help-subcommand
+subcommands: 
+arg --apply
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --group
+    action: Append
+    value_name: spec
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: accepted
+    given bare: InvalidValue
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+arg --json
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --project
+    action: Set
+    value_name: name
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg <operands>
+    action: Append
+    value_name: operand
+    num_args: 0..
+    allow_hyphen_values: no
+    allow_negative_numbers: yes
+    required: no
+    default: -
+    index: 1
+    other: -
+help:
+|   menu nest <Root> --group <Label>=<icon>:<Title>=<Mashup>,<Title>=<Mashup>... [--project <name>] [--apply] [--json]
+|                               write a root Menu of sub-Menu links and one leaf Menu per group, in the
+|                               given order; rerunning with the same groups changes nothing
+|       --group <spec>          a group: its label, Menu-level icon (cds:icon_<name>, a MediaEntity, or
+|                               empty) and its items; repeatable; the leaf is <Root minus _MN>_<Label>_MN
+| 
+|   --project <name>            narrow to one project of the solution
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
 
@@ -21069,6 +21251,17 @@ arg --help
     default: -
     index: -
     other: -
+arg --icons
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
 arg --json
     action: SetTrue
     value_name: -
@@ -21128,8 +21321,10 @@ arg <operands>
     other: -
 help:
 |   widgets [<widget>] [--search <text>] [--json]
+|   widgets --icons [<filter>] [--json]
 |                               the embedded ThingWorx 10.2 widget catalogue: types, Composer labels,
 |                               aliases, containers and editable or bindable properties with defaults, events and services
+|       --icons                 the 153 CDS icon names a cds: value may take; twaco refuses any other
 | 
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)

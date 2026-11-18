@@ -4789,7 +4789,7 @@
   },
   {
     "name": "entity_edit",
-    "description": "Change an existing entity in the repository, as Composer would: add, change or remove a property of a Thing, ThingTemplate or ThingShape (a persistent one also writes the stored value of every Thing that has it), add or remove a local script service and its sidecars, or override or revert an inherited service with its script-only sidecar while keeping its run-time permissions; add or remove a script subscription, implement or stop implementing a ThingShape, change a timer's or scheduler's settings, given keys of a style, a MediaEntity's image, entity descriptions, Menu-level icons, a menu's items (including sub-Menus, titles, destinations, icons and defaults), or a StateDefinition's states. Removing or retyping a property, or removing a service, something still uses is refused unless force. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
+    "description": "Change an existing entity in the repository, as Composer would: add, change or remove a property of a Thing, ThingTemplate or ThingShape (a persistent one also writes the stored value of every Thing that has it), add or remove a local script service and its sidecars, or override or revert an inherited service with its script-only sidecar while keeping its run-time permissions; add or remove a script subscription, implement or stop implementing a ThingShape, change a timer's or scheduler's settings, given keys of a style, a MediaEntity's image, entity descriptions, Menu-level icons, a menu's items (including sub-Menus, titles, destinations, icons and defaults), menu_nest (a root Menu of sub-Menu links plus one leaf Menu per group, written together), or a StateDefinition's states. Removing or retyping a property, or removing a service, something still uses is refused unless force. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
     "inputSchema": {
       "required": [
         "action",
@@ -4804,6 +4804,7 @@
           "enum": [
             "entity_set",
             "menu_item_set",
+            "menu_nest",
             "property_add",
             "property_remove",
             "property_set",
@@ -5011,6 +5012,17 @@
         },
         "mashup": {
           "description": "menu_item_add: the mashup the item opens.",
+          "type": "string"
+        },
+        "groups": {
+          "description": "menu_nest: the groups, each `Label=<icon>:Title=Mashup,Title=Mashup` (icon a `cds:icon_<name>`, a MediaEntity or empty).",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "project": {
+          "description": "menu_nest: the project a new Menu goes in, when the solution has several.",
           "type": "string"
         },
         "before": {
@@ -7306,7 +7318,7 @@
           "type": "string"
         },
         "recipe": {
-          "description": "enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, picker, tracker, set-on-click or collapsible.",
+          "description": "enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, picker, tracker, set-on-click, nested-menu, navigate-on-click or collapsible.",
           "type": "string"
         },
         "mashup": {
@@ -7455,6 +7467,23 @@
         "auto_select_first": {
           "description": "A picker that selects its first row.",
           "type": "boolean"
+        },
+        "menu": {
+          "description": "The root Menu of recipe nested-menu.",
+          "type": "string"
+        },
+        "no_auto_collapse": {
+          "description": "nested-menu: leave several groups open at once.",
+          "type": "boolean"
+        },
+        "width": {
+          "description": "nested-menu: the column's width in pixels (300 by default).",
+          "type": "integer",
+          "minimum": 0
+        },
+        "field": {
+          "description": "navigate-on-click: the selected row's field that names the mashup to open.",
+          "type": "string"
         },
         "dry_run": {
           "type": "boolean",

@@ -848,3 +848,25 @@ the stored parent effectiveMenu need not match its runtime result. Field-verifie
 Composer's Hide Trailing Zeros setting is `ptcstextfield.DisplayTrailingZeros`, a BOOLEAN
 whose default is true. Setting it to false with DecimalPlaces 6 shows 0.6 rather than
 0.600000. Field-verified on 10.2.1.
+
+## Accordion menu bar over nested Menus (10.2.1)
+
+Deploying a root Menu and its sub-Menus in one bundle works; GetEffectiveMenu on the root
+returns ids such as `Acme.Main_MN.Acme.Basics_MN.Acme.Basics_MN_1`, with parentMenuId
+chaining through them. A ptcsmenubar shows it as an accordion with DataSource `menuentity`,
+PrimaryNavMenu the root, SubMenuType `nested`, AutoCollapseMenus true (one group open),
+StayOpenOnSelection true, AlwaysOpen true, DisableResizing true and PrimaryNavIcons true.
+PrimaryNavMaxItems does not apply in nested mode. A compact nested rail has no icons:
+SubMenuType `nested` with AlwaysOpen false renders an empty rail; an icon rail needs
+SubMenuType `flyout`. A 264px column truncated level-3 labels; a 300px column with the menu
+bar's Width and MaxWidth 300 fitted them, and the menu bar then measures 288.797px. A
+direct or bookmarked load opens every group collapsed with nothing selected, so CSS overlays
+with fixed per-item offsets cannot follow an accordion. Field-verified on 10.2.1.
+
+## CDS icon names (10.2)
+
+Composer's CDS icon set holds 153 names (`TW.SVGImages.cds` in
+`Composer/node_modules/tw-ui-resources/dist/lib/cds.js`, ThingWorx 10.2). A `cds:` value
+naming anything else renders a blank icon without an error: there is no `cds:icon_menu`
+(the menu button is `cds:icon_hamburger`) and no `cds:icon_debug`. `twaco widgets --icons`
+lists the names.

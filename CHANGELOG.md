@@ -17,6 +17,9 @@ All notable changes to twaco are recorded here. The format follows
 - `mashup validate` warns when a row aligns controls with field labels and shows the bottom-alignment fix.
 - Flexcontainer property bindings and checked edits, including tab-container lazy loading and flex sizing.
 - `call --param name=value` accepts repeated parameters, typed from known service signatures.
+- `menu nest <Root> --group "<Label>=<icon>:<Title>=<Mashup>,..."` writes a root Menu of sub-Menu links and one leaf Menu per group, byte-identical on a rerun (also MCP `entity_edit` action `menu_nest`).
+- `mashup recipe nested-menu` turns a menu bar into an accordion over a nested Menu in a fixed-width column; `mashup recipe navigate-on-click` opens the mashup a clicked collection cell or grid row names.
+- The ThingWorx 10.2 CDS icon names are embedded: every `cds:` value twaco writes (menu `--icon`, `mashup set`, recipes) is checked and an unknown name is refused with the closest names; `twaco widgets --icons [<filter>]` lists them.
 
 ### Fixed
 

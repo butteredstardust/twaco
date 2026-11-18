@@ -239,6 +239,16 @@ pub(crate) fn entity_edit_tool(
             description: text(&arguments.description),
             icon: text(&arguments.icon),
         },
+        EntityEditAction::MenuNest => Action::MenuNest {
+            project: text(&arguments.project),
+            groups: arguments
+                .groups
+                .items()
+                .iter()
+                .map(|group| crate::core::entity::edit::NestGroup::parse(group))
+                .collect::<Result<_, _>>()
+                .map_err(|error| ToolError::invalid(error.to_string()))?,
+        },
         EntityEditAction::MenuItemSet => Action::MenuItemSet {
             title: need(&arguments.title, "title")?,
             change: crate::core::entity::edit::MenuItemChange {
@@ -997,6 +1007,14 @@ pub(crate) fn mashup_recipe_tool(
             .as_ref()
             .copied()
             .unwrap_or(false),
+        menu: arguments.menu.as_ref().cloned(),
+        no_auto_collapse: arguments
+            .no_auto_collapse
+            .as_ref()
+            .copied()
+            .unwrap_or(false),
+        width: arguments.width.as_ref().copied(),
+        field: arguments.field.as_ref().cloned(),
     };
     let recipe = Recipe::from_args(nonempty(&arguments.recipe, "recipe")?, &recipe_args)
         .map_err(ToolError::coded)?;

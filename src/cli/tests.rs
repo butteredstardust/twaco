@@ -529,6 +529,18 @@ fn every_flag_means_the_same_in_every_command() {
                 assert_eq!(value_names, ["inside|outside|none"]);
                 continue;
             }
+            // The nested-menu recipe takes the root Menu; collection add takes a StateDefinition.
+            if command.path == "mashup recipe" && name == "--menu" {
+                assert_eq!(kind, "value");
+                assert_eq!(value_names, ["Menu"]);
+                continue;
+            }
+            // navigate-on-click names a result field; new data-shape declares fields.
+            if command.path == "mashup recipe" && name == "--field" {
+                assert_eq!(kind, "value");
+                assert_eq!(value_names, ["field"]);
+                continue;
+            }
             if command.path == "mashup new" && name == "--replace" {
                 assert_eq!(kind, "repeated");
                 assert_eq!(value_names, ["old=new"]);

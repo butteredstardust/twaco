@@ -249,6 +249,23 @@ pub(crate) struct MediaSet {
 #[derive(Debug, clap::Subcommand)]
 pub(crate) enum Menu {
     Item(MenuItem),
+    Nest(MenuNest),
+}
+
+/// `twaco menu nest <Root> --group <Label=icon:Title=Mashup,...>... [--project <name>]`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct MenuNest {
+    #[arg(long = "group", value_name = "spec")]
+    pub(crate) groups: Vec<String>,
+    #[arg(long = "project", value_name = "name")]
+    pub(crate) project: Option<String>,
+    #[command(flatten)]
+    pub(crate) apply: Apply,
+    #[command(flatten)]
+    pub(crate) json: Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
 }
 
 /// `twaco menu item add|remove <Menu> <Title=Mashup|Title>`.
@@ -500,8 +517,10 @@ impl Media {
 impl Menu {
     /// The edit the line asks for.
     pub(crate) fn edit(&self) -> Edit {
-        let Menu::Item(args) = self;
-        Edit::new(menu_item(args), &args.apply, &args.json)
+        match self {
+            Menu::Item(args) => Edit::new(menu_item(args), &args.apply, &args.json),
+            Menu::Nest(args) => Edit::new(menu_nest(args), &args.apply, &args.json),
+        }
     }
 }
 
@@ -700,6 +719,26 @@ fn shape(args: &ThingShape) -> Result<(String, Action), String> {
         other => return Err(format!("thing shape {other}: say add or remove")),
     };
     Ok((entity.clone(), action))
+}
+
+/// `menu nest <Root> --group ...`.
+fn menu_nest(args: &MenuNest) -> Result<(String, Action), String> {
+    let [root] = args.operands.as_slice() else {
+        return Err("menu nest needs one <Root> Menu and one or more --group".into());
+    };
+    let groups = args
+        .groups
+        .iter()
+        .map(|text| twaco::core::entity::edit::NestGroup::parse(text))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| error.to_string())?;
+    Ok((
+        root.clone(),
+        Action::MenuNest {
+            project: args.project.clone(),
+            groups,
+        },
+    ))
 }
 
 /// `menu item add|remove`.

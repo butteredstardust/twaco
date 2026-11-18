@@ -169,8 +169,10 @@ twaco <command> --help shows one command; the full listing follows.
                               outside the deploy order, with the depends_on that allows it
       --to <project>          the project they move to
   widgets [<widget>] [--search <text>] [--json]
+  widgets --icons [<filter>] [--json]
                               the embedded ThingWorx 10.2 widget catalogue: types, Composer labels,
                               aliases, containers and editable or bindable properties with defaults, events and services
+      --icons                 the 153 CDS icon names a cds: value may take; twaco refuses any other
   mashup validate <mashup>|--all [--json]
                               what in a mashup ThingWorx would load but not honour, or the next edit would
                               trip over: structure, ids, bindings and events that name what is not there,
@@ -352,6 +354,12 @@ twaco <command> --help shows one command; the full listing follows.
                               interactive large tracker; infer all five maps from the result DataShape
       set-on-click <button> --param <name> --expr <expression> [--input name=<address>]...
                               set a mashup parameter on click; no automatic evaluation
+      nested-menu <menubar> --menu <Root> [--no-auto-collapse] [--width <px>]
+                              a menu bar as an accordion over a Root Menu of sub-Menus (menu nest builds
+                              them), in a column fixed at --width (300 by default)
+      navigate-on-click <collection|grid> --field <field> [--window replace|new|popup|modal-popup]
+                              a click opens the mashup the selected row's field names; plan warns when
+                              the widget selects its first row on load
   mashup event add <mashup> <name> --when <address> [--apply] [--json]
                               give a mashup an event its parents react to with mashup on --event
                               ui:<container>.<name>: a NUMBER parameter set to the time when the
@@ -442,6 +450,11 @@ twaco <command> --help shows one command; the full listing follows.
   media set <MediaEntity> --file <path> [--apply] [--json]
                               replace a MediaEntity's image (PNG, JPEG, GIF or SVG, up to 10 MB);
                               plan unless --apply
+  menu nest <Root> --group <Label>=<icon>:<Title>=<Mashup>,<Title>=<Mashup>... [--project <name>] [--apply] [--json]
+                              write a root Menu of sub-Menu links and one leaf Menu per group, in the
+                              given order; rerunning with the same groups changes nothing
+      --group <spec>          a group: its label, Menu-level icon (cds:icon_<name>, a MediaEntity, or
+                              empty) and its items; repeatable; the leaf is <Root minus _MN>_<Label>_MN
   menu item add <Menu> <Title>=<Mashup> [--icon <image>] [--default] [--before <Title>] [--apply] [--json]
   menu item add <Menu> --submenu <name> [--icon <image>] [--before <Title>] [--apply] [--json]
   menu item remove <Menu> <Title> [--apply] [--json]

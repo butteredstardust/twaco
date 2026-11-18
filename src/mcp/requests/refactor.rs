@@ -565,6 +565,8 @@ pub(crate) enum EntityEditAction {
     EntitySet,
     #[serde(rename = "menu_item_set")]
     MenuItemSet,
+    #[serde(rename = "menu_nest")]
+    MenuNest,
     #[serde(rename = "property_add")]
     PropertyAdd,
     #[serde(rename = "property_remove")]
@@ -754,6 +756,12 @@ pub(crate) struct EntityEditRequest {
     /// menu_item_add: the mashup the item opens.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) mashup: Absent<String>,
+    /// menu_nest: the groups, each `Label=<icon>:Title=Mashup,Title=Mashup` (icon a `cds:icon_<name>`, a MediaEntity or empty).
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) groups: Absent<Vec<String>>,
+    /// menu_nest: the project a new Menu goes in, when the solution has several.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) project: Absent<String>,
     /// menu_item_add: put the item before this title; absent is last.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) before: Absent<String>,
@@ -1002,7 +1010,7 @@ pub(crate) struct MashupRecipeRequest {
     pub(crate) tab: Absent<String>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) start: Absent<String>,
-    /// enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, picker, tracker, set-on-click or collapsible.
+    /// enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, picker, tracker, set-on-click, nested-menu, navigate-on-click or collapsible.
     pub(crate) recipe: String,
     /// The mashup to write it in.
     pub(crate) mashup: String,
@@ -1093,6 +1101,18 @@ pub(crate) struct MashupRecipeRequest {
     /// A picker that selects its first row.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) auto_select_first: Absent<bool>,
+    /// The root Menu of recipe nested-menu.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) menu: Absent<String>,
+    /// nested-menu: leave several groups open at once.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) no_auto_collapse: Absent<bool>,
+    /// nested-menu: the column's width in pixels (300 by default).
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) width: Absent<u32>,
+    /// navigate-on-click: the selected row's field that names the mashup to open.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) field: Absent<String>,
     #[serde(default = "default_true")]
     pub(crate) dry_run: bool,
 }

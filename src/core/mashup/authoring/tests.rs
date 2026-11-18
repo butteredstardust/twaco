@@ -10673,3 +10673,475 @@ fn row_selector_hints_follow_the_resolved_service_boundary() {
         assert!(error.contains(expected), "{error}");
     }
 }
+
+/// A project with a header-sidebar mashup whose menu bar shows `Acme.Main_MN`, a Menu of two
+/// groups, and that menu bar's id.
+fn nested_menu_fixture() -> (tempfile::TempDir, Solution, String) {
+    use crate::core::commands::{self, Mode, Notices};
+    use crate::core::entity::edit::{Action, NestGroup, Request};
+    let (dir, solution) = one_project();
+    let nest = commands::entity_edit::EditRequest {
+        request: Request {
+            entity: "Acme.Main_MN".into(),
+            action: Action::MenuNest {
+                project: None,
+                groups: vec![
+                    NestGroup::parse("Basics=cds:icon_home:Intro=Acme.Intro_MU").unwrap(),
+                    NestGroup::parse("Advanced=cds:icon_settings:Tuning=Acme.Tuning_MU").unwrap(),
+                ],
+            },
+        },
+        mode: Mode::Apply,
+        lock_label: "test nest",
+    };
+    commands::entity_edit::execute(&solution, &nest, &mut Notices::default()).unwrap();
+    let mut new = request("Acme.Orders_MU");
+    new.template = "header-sidebar".into();
+    new.menu_entity = Some("Acme.Main_MN".into());
+    apply_new(
+        &solution,
+        &plan_new(&solution, &new).unwrap(),
+        &lock(&solution),
+    )
+    .unwrap();
+    let document = mashup::edit::parse(&content_of(&solution, &new.name).to_string()).unwrap();
+    let bar = document
+        .widgets()
+        .into_iter()
+        .find(|widget| widget.type_id == "ptcsmenubar")
+        .unwrap()
+        .id;
+    (dir, solution, bar)
+}
+
+fn menubar_and_column(solution: &Solution, bar: &str) -> (Value, Value) {
+    let document =
+        mashup::edit::parse(&content_of(solution, "Acme.Orders_MU").to_string()).unwrap();
+    let found = document.find_exact(bar).unwrap();
+    (
+        document.at(&found.path)["Properties"].clone(),
+        document.at(&found.path[..found.path.len() - 1])["Properties"].clone(),
+    )
+}
+
+#[test]
+fn nested_menu_recipe_sets_the_accordion_and_fixes_its_column() {
+    let (dir, solution, bar) = nested_menu_fixture();
+    let args = |width: Option<u32>, no_auto_collapse: bool| RecipeArgs {
+        widget: Some(bar.clone()),
+        menu: Some("Acme.Main_MN".into()),
+        width,
+        no_auto_collapse,
+        ..Default::default()
+    };
+    let before = tree_bytes(dir.path());
+    let planned = plan_recipe(
+        &solution,
+        &RecipeRequest {
+            mashup: "Acme.Orders_MU".into(),
+            recipe: Recipe::from_args("nested-menu", &args(None, false)).unwrap(),
+        },
+    )
+    .unwrap();
+    assert_eq!(before, tree_bytes(dir.path()));
+    apply_edit(&solution, &planned.edit, &lock(&solution)).unwrap();
+    let (properties, column) = menubar_and_column(&solution, &bar);
+    for (name, value) in [
+        ("DataSource", json!("menuentity")),
+        ("PrimaryNavMenu", json!("Acme.Main_MN")),
+        ("SubMenuType", json!("nested")),
+        ("AutoCollapseMenus", json!(true)),
+        ("StayOpenOnSelection", json!(true)),
+        ("AlwaysOpen", json!(true)),
+        ("DisableResizing", json!(true)),
+        ("PrimaryNavIcons", json!(true)),
+        ("Width", json!(300)),
+        ("MaxWidth", json!(300)),
+    ] {
+        assert_eq!(properties[name], value, "{name}");
+    }
+    assert_eq!(column["flex-size"], "fixed");
+    assert_eq!(column["flex-min-width"], "300px");
+    assert_eq!(column["flex-max-width"], "300px");
+    let once = tree_bytes(dir.path());
+    recipe(&solution, "nested-menu", args(None, false)).unwrap();
+    assert_eq!(once, tree_bytes(dir.path()));
+    recipe(&solution, "nested-menu", args(Some(280), true)).unwrap();
+    let (properties, column) = menubar_and_column(&solution, &bar);
+    assert_eq!(properties["AutoCollapseMenus"], false);
+    assert_eq!(properties["Width"], 280);
+    assert_eq!(column["flex-max-width"], "280px");
+}
+
+#[test]
+fn nested_menu_recipe_refuses_a_menu_without_sub_menus_and_a_widget_that_is_no_menu_bar() {
+    use crate::core::entity::new::{Kind, NewRequest as NewEntity};
+    let (_dir, solution, bar) = nested_menu_fixture();
+    let mut flat = NewEntity::blank(Kind::Menu, "Acme.Flat_MN");
+    flat.items = vec!["Home=Acme.Home_MU".into()];
+    let plan = crate::core::entity::new::plan(&solution, &flat).unwrap();
+    crate::core::entity::new::apply(&solution, &plan, &lock(&solution)).unwrap();
+    let error = recipe(
+        &solution,
+        "nested-menu",
+        RecipeArgs {
+            widget: Some(bar.clone()),
+            menu: Some("Acme.Flat_MN".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("menu nest"), "{error}");
+    let error = recipe(
+        &solution,
+        "nested-menu",
+        RecipeArgs {
+            widget: Some("sidebar".into()),
+            menu: Some("Acme.Main_MN".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("not a menu bar"), "{error}");
+    let error = Recipe::from_args(
+        "collapsible",
+        &RecipeArgs {
+            widget: Some("sidebar".into()),
+            width: Some(10),
+            ..Default::default()
+        },
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(
+        error.contains("--width is for recipe nested-menu"),
+        "{error}"
+    );
+}
+
+#[test]
+fn collapsing_the_column_of_a_nested_menu_keeps_the_menu_open() {
+    let (_dir, solution, bar) = nested_menu_fixture();
+    let nested = RecipeArgs {
+        widget: Some(bar.clone()),
+        menu: Some("Acme.Main_MN".into()),
+        ..Default::default()
+    };
+    recipe(&solution, "nested-menu", nested).unwrap();
+    let off = plan_set(
+        &solution,
+        &SetRequest {
+            mashup: "Acme.Orders_MU".into(),
+            widget: bar.clone(),
+            properties: vec![("AlwaysOpen".into(), json!(false))],
+            style_from: None,
+            styles: vec![],
+        },
+    )
+    .unwrap();
+    apply_edit(&solution, off.edit.as_ref().unwrap(), &lock(&solution)).unwrap();
+    assert_eq!(menubar_and_column(&solution, &bar).0["AlwaysOpen"], false);
+    let plan = recipe(
+        &solution,
+        "collapsible",
+        RecipeArgs {
+            widget: Some("sidebar".into()),
+            add_toggle: true,
+            in_container: Some("header".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert!(plan.notes.iter().any(|note| note.contains("AlwaysOpen")));
+    assert_eq!(menubar_and_column(&solution, &bar).0["AlwaysOpen"], true);
+}
+
+#[test]
+fn navigate_on_click_wires_a_collection_click_and_warns_about_auto_selection() {
+    let (_dir, solution) = recipe_fixture();
+    let placed = plan_add(&solution, &add_request("Acme.Orders_MU", "collection")).unwrap();
+    apply_edit(&solution, &placed.edit, &lock(&solution)).unwrap();
+    let collection = placed.placed.id.clone();
+    let linked = bind(
+        &solution,
+        "data:Acme.Orders.Manager.GetOrders",
+        &format!("ui:{collection}.Data"),
+    )
+    .unwrap();
+    apply_edit(&solution, &linked.edit, &lock(&solution)).unwrap();
+    let args = || RecipeArgs {
+        widget: Some(collection.clone()),
+        field: Some("note".into()),
+        ..Default::default()
+    };
+    let plan = recipe(&solution, "navigate-on-click", args()).unwrap();
+    let function = plan.added[0].clone();
+    let value = content_of(&solution, "Acme.Orders_MU");
+    assert!(has_event(
+        &value,
+        &collection,
+        "CellClicked",
+        &function,
+        "Navigate"
+    ));
+    assert!(value["DataBindings"].as_array().unwrap().iter().any(|b| {
+        b["TargetId"] == function.as_str()
+            && b["PropertyMaps"][0]["TargetProperty"] == "TargetMashup"
+            && b["PropertyMaps"][0]["SourceProperty"] == "note"
+    }));
+    let document = crate::core::mashup::edit::MashupDocument::new(value).unwrap();
+    let properties = &document.at(&document.find_exact(&function).unwrap().path)["Properties"];
+    assert_eq!(properties["TargetWindowType"], "replace");
+    let widget = &document.at(&document.find_exact(&collection).unwrap().path)["Properties"];
+    assert_eq!(widget["SelectionMode"], "single");
+    assert!(plan.notes.iter().any(|note| note.contains("SelectionMode")));
+    let once = content_of(&solution, "Acme.Orders_MU");
+    let again = recipe(&solution, "navigate-on-click", args()).unwrap();
+    assert!(again.added.is_empty());
+    assert_eq!(once, content_of(&solution, "Acme.Orders_MU"));
+    // A selection of the first row on load would navigate at once; the window follows the flag.
+    let off = plan_set(
+        &solution,
+        &SetRequest {
+            mashup: "Acme.Orders_MU".into(),
+            widget: collection.clone(),
+            properties: vec![("AutoSelectFirstRow".into(), json!(true))],
+            style_from: None,
+            styles: vec![],
+        },
+    )
+    .unwrap();
+    apply_edit(&solution, off.edit.as_ref().unwrap(), &lock(&solution)).unwrap();
+    let mut changed = args();
+    changed.window = Some("popup".into());
+    let again = recipe(&solution, "navigate-on-click", changed).unwrap();
+    assert!(
+        again
+            .notes
+            .iter()
+            .any(|note| note.contains("AutoSelectFirstRow=false")),
+        "{:?}",
+        again.notes
+    );
+    let document =
+        crate::core::mashup::edit::MashupDocument::new(content_of(&solution, "Acme.Orders_MU"))
+            .unwrap();
+    assert_eq!(
+        document.at(&document.find_exact(&function).unwrap().path)["Properties"]
+            ["TargetWindowType"],
+        "popup"
+    );
+}
+
+#[test]
+fn navigate_on_click_with_another_field_rebinds_the_one_function() {
+    let (dir, solution) = recipe_fixture();
+    std::fs::write(
+        dir.path().join("acme/DataShapes/Acme.Orders.Order_DS.xml"),
+        r#"<Entities><DataShapes><DataShape name="Acme.Orders.Order_DS" projectName="Acme"><FieldDefinitions><FieldDefinition name="id" baseType="LONG"/><FieldDefinition name="PageA" baseType="STRING"/><FieldDefinition name="PageB" baseType="STRING"/></FieldDefinitions></DataShape></DataShapes></Entities>"#,
+    )
+    .unwrap();
+    let placed = plan_add(&solution, &add_request("Acme.Orders_MU", "collection")).unwrap();
+    apply_edit(&solution, &placed.edit, &lock(&solution)).unwrap();
+    let collection = placed.placed.id.clone();
+    let linked = bind(
+        &solution,
+        "data:Acme.Orders.Manager.GetOrders",
+        &format!("ui:{collection}.Data"),
+    )
+    .unwrap();
+    apply_edit(&solution, &linked.edit, &lock(&solution)).unwrap();
+    let args = |field: &str| RecipeArgs {
+        widget: Some(collection.clone()),
+        field: Some(field.into()),
+        ..Default::default()
+    };
+    recipe(&solution, "navigate-on-click", args("PageA")).unwrap();
+    let plan = recipe(&solution, "navigate-on-click", args("PageB")).unwrap();
+    assert!(plan.added.is_empty());
+    assert!(plan.notes.iter().any(|note| note.contains("PageB")));
+    let value = content_of(&solution, "Acme.Orders_MU");
+    let functions: Vec<_> = value["UI"]["Widgets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|widget| {
+            let mut found = Vec::new();
+            fn walk<'a>(node: &'a Value, found: &mut Vec<&'a Value>) {
+                if node["Properties"]["Type"] == "navigationfunction" {
+                    found.push(node);
+                }
+                for child in node["Widgets"].as_array().into_iter().flatten() {
+                    walk(child, found);
+                }
+            }
+            walk(widget, &mut found);
+            found
+        })
+        .collect();
+    assert_eq!(functions.len(), 1);
+    let clicks = value["Events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|event| event["EventTriggerEvent"] == "CellClicked")
+        .count();
+    assert_eq!(clicks, 1);
+    let targets: Vec<_> = value["DataBindings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|binding| binding["PropertyMaps"].as_array().unwrap().iter())
+        .filter(|map| map["TargetProperty"] == "TargetMashup")
+        .map(|map| map["SourceProperty"].clone())
+        .collect();
+    assert_eq!(targets, vec![json!("PageB")]);
+    let once = content_of(&solution, "Acme.Orders_MU");
+    let again = recipe(&solution, "navigate-on-click", args("PageB")).unwrap();
+    assert!(again.added.is_empty());
+    assert_eq!(once, content_of(&solution, "Acme.Orders_MU"));
+}
+
+#[test]
+fn navigate_on_click_clicks_a_grid_row_and_refuses_what_it_cannot_wire() {
+    let (_dir, solution) = recipe_fixture();
+    let linked = bind(
+        &solution,
+        "data:Acme.Orders.Manager.GetOrders",
+        "ui:ptcsgrid-5.Data",
+    )
+    .unwrap();
+    apply_edit(&solution, &linked.edit, &lock(&solution)).unwrap();
+    let plan = recipe(
+        &solution,
+        "navigate-on-click",
+        RecipeArgs {
+            widget: Some("ptcsgrid-5".into()),
+            field: Some("note".into()),
+            window: Some("popup".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let function = plan.added[0].clone();
+    let value = content_of(&solution, "Acme.Orders_MU");
+    assert!(has_event(
+        &value,
+        "ptcsgrid-5",
+        "RowClicked",
+        &function,
+        "Navigate"
+    ));
+    for (widget, field, window, expected) in [
+        ("ptcsgrid-5", "missing", None, "no field missing"),
+        ("ptcsgrid-5", "note", Some("tab"), "the window is"),
+        ("ptcsbutton-6", "note", None, "needs a collection or a grid"),
+    ] {
+        let error = recipe(
+            &solution,
+            "navigate-on-click",
+            RecipeArgs {
+                widget: Some(widget.into()),
+                field: Some(field.into()),
+                window: window.map(String::from),
+                ..Default::default()
+            },
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains(expected), "{error}");
+    }
+}
+
+#[test]
+fn mashup_set_checks_cds_icons_and_leaves_other_images_alone() {
+    let (_dir, solution) = recipe_fixture();
+    let set = |icon: &str| {
+        plan_set(
+            &solution,
+            &SetRequest {
+                mashup: "Acme.Orders_MU".into(),
+                widget: "ptcsbutton-6".into(),
+                properties: vec![("Icon".into(), json!(icon))],
+                style_from: None,
+                styles: vec![],
+            },
+        )
+    };
+    for good in ["cds:icon_hamburger", "Acme.Media.Logo", "/Thingworx/x.svg"] {
+        assert!(set(good).is_ok(), "{good}");
+    }
+    let error = set("cds:icon_menu").unwrap_err().to_string();
+    assert!(error.contains("Icon"), "{error}");
+    assert!(error.contains("cds:icon_hamburger"), "{error}");
+    let error = set("cds:icon_chevron_rigth").unwrap_err().to_string();
+    assert!(error.contains("cds:icon_chevron_right"), "{error}");
+}
+
+#[test]
+fn only_image_properties_are_checked_for_cds_icons() {
+    let (_dir, solution) = recipe_fixture();
+    let placed = plan_add(&solution, &add_request("Acme.Orders_MU", "label")).unwrap();
+    apply_edit(&solution, &placed.edit, &lock(&solution)).unwrap();
+    let set = |widget: &str, property: &str, value: &str| {
+        plan_set(
+            &solution,
+            &SetRequest {
+                mashup: "Acme.Orders_MU".into(),
+                widget: widget.into(),
+                properties: vec![(property.into(), json!(value))],
+                style_from: None,
+                styles: vec![],
+            },
+        )
+    };
+    assert!(set(&placed.placed.id, "LabelText", "cds:icon_x is the id").is_ok());
+    let error = set("ptcsbutton-6", "Icon", "cds:icon_nope_x")
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("not a CDS icon"), "{error}");
+}
+
+#[test]
+fn a_nested_menu_refuses_a_zero_width() {
+    let error = Recipe::from_args(
+        "nested-menu",
+        &RecipeArgs {
+            widget: Some("bar".into()),
+            menu: Some("Acme.Main_MN".into()),
+            width: Some(0),
+            ..Default::default()
+        },
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("--width"), "{error}");
+}
+
+#[test]
+fn the_catalogue_has_the_events_and_properties_the_click_recipe_uses() {
+    let catalog = widgets::catalog();
+    for (widget, event) in [
+        ("ptcscollection", "CellClicked"),
+        ("ptcsgrid", "RowClicked"),
+    ] {
+        let found = catalog.by_type(widget).unwrap();
+        assert!(found
+            .events
+            .as_ref()
+            .unwrap()
+            .iter()
+            .any(|name| name == event));
+    }
+    let navigation = catalog.by_type("navigationfunction").unwrap();
+    assert!(navigation
+        .services
+        .as_ref()
+        .unwrap()
+        .iter()
+        .any(|name| name == "Navigate"));
+    assert!(navigation.property("TargetMashup").is_some());
+    assert!(navigation.property("TargetWindowType").is_some());
+}

@@ -3459,3 +3459,311 @@ fn submenu_gate_warns_for_partial_repositories_but_self_is_always_an_error() {
         assert_eq!(gate.warnings.len(), warnings);
     }
 }
+
+fn nest_groups(specs: &[&str]) -> Vec<NestGroup> {
+    specs
+        .iter()
+        .map(|spec| NestGroup::parse(spec).unwrap())
+        .collect()
+}
+
+fn nest(solution: &Solution, groups: &[&str]) -> Plan {
+    run(
+        solution,
+        "Acme.Orders.Main_MN",
+        Action::MenuNest {
+            project: None,
+            groups: nest_groups(groups),
+        },
+    )
+}
+
+const BASICS: &str = "Basics=cds:icon_home:Intro=Acme.Orders.Intro_MU,Setup=Acme.Orders.Setup_MU";
+const ADVANCED: &str = "Advanced Topics=cds:icon_settings:Tuning=Acme.Orders.Tuning_MU";
+
+#[test]
+fn nest_groups_parse_with_a_cds_media_or_empty_icon() {
+    let group = NestGroup::parse(BASICS).unwrap();
+    assert_eq!(group.label, "Basics");
+    assert_eq!(group.icon, "cds:icon_home");
+    assert_eq!(group.items.len(), 2);
+    assert_eq!(
+        group.items[1],
+        ("Setup".into(), "Acme.Orders.Setup_MU".into())
+    );
+    assert_eq!(
+        NestGroup::parse("Logo=Acme.Orders.Logo_MD:Home=Acme.Orders.Home_MU")
+            .unwrap()
+            .icon,
+        "Acme.Orders.Logo_MD"
+    );
+    assert_eq!(
+        NestGroup::parse("Plain=:Home=Acme.Orders.Home_MU")
+            .unwrap()
+            .icon,
+        ""
+    );
+    for bad in [
+        "",
+        "NoIcon",
+        "=cds:icon_home:A=B",
+        "L=cds:icon_home:",
+        "L=:A",
+    ] {
+        assert!(NestGroup::parse(bad).is_err(), "{bad:?}");
+    }
+}
+
+#[test]
+fn menu_nest_writes_the_root_and_one_leaf_per_group_and_reruns_identically() {
+    let (_dir, solution) = fixture();
+    let plan = nest(&solution, &[BASICS, ADVANCED]);
+    assert_eq!(plan.changes.len(), 3);
+    let leaf = file(&solution, "Menus", "Acme.Orders.Main_Basics_MN");
+    assert!(leaf.contains("menuLabel=\"Basics\""), "{leaf}");
+    assert!(leaf.contains("imageURL=\"cds:icon_home\""), "{leaf}");
+    assert!(leaf.contains("title=\"Intro\""), "{leaf}");
+    assert!(
+        leaf.contains("linkDestination=\"Acme.Orders.Setup_MU\""),
+        "{leaf}"
+    );
+    let second = file(&solution, "Menus", "Acme.Orders.Main_AdvancedTopics_MN");
+    assert!(second.contains("menuLabel=\"Advanced Topics\""), "{second}");
+    let root = file(&solution, "Menus", "Acme.Orders.Main_MN");
+    let basics = root
+        .find("linkTarget=\"Acme.Orders.Main_Basics_MN\"")
+        .unwrap();
+    let advanced = root
+        .find("linkTarget=\"Acme.Orders.Main_AdvancedTopics_MN\"")
+        .unwrap();
+    assert!(basics < advanced, "{root}");
+    assert_eq!(root.matches("linkType=\"Menu\"").count(), 2, "{root}");
+    assert!(
+        root.contains("<linkType><![CDATA[Menu]]></linkType>"),
+        "{root}"
+    );
+    let doc = Doc::read(
+        &workspace::resolve(&workspace::entities(&solution), "Acme.Orders.Main_MN")
+            .unwrap()
+            .clone(),
+    )
+    .unwrap();
+    let (_, entries) = menu_entries(&doc).unwrap();
+    assert!(entries
+        .iter()
+        .all(|entry| entry.title.is_empty() && entry.link_type == "Menu"));
+    let before: Vec<String> = ["Main_MN", "Main_Basics_MN", "Main_AdvancedTopics_MN"]
+        .iter()
+        .map(|name| file(&solution, "Menus", &format!("Acme.Orders.{name}")))
+        .collect();
+    let again = nest(&solution, &[BASICS, ADVANCED]);
+    assert!(again.changes.is_empty(), "{:?}", again.changes);
+    let after: Vec<String> = ["Main_MN", "Main_Basics_MN", "Main_AdvancedTopics_MN"]
+        .iter()
+        .map(|name| file(&solution, "Menus", &format!("Acme.Orders.{name}")))
+        .collect();
+    assert_eq!(before, after);
+}
+
+#[test]
+fn menu_nest_updates_only_the_group_that_changed() {
+    let (_dir, solution) = fixture();
+    nest(&solution, &[BASICS, ADVANCED]);
+    let root = file(&solution, "Menus", "Acme.Orders.Main_MN");
+    let basics = file(&solution, "Menus", "Acme.Orders.Main_Basics_MN");
+    let changed = "Advanced Topics=cds:icon_settings:Tuning=Acme.Orders.Tuning_MU,Limits=Acme.Orders.Limits_MU";
+    let plan = nest(&solution, &[BASICS, changed]);
+    assert_eq!(plan.changes.len(), 1);
+    assert!(plan.changes[0]
+        .path
+        .ends_with("Acme.Orders.Main_AdvancedTopics_MN.xml"));
+    assert_eq!(root, file(&solution, "Menus", "Acme.Orders.Main_MN"));
+    assert_eq!(
+        basics,
+        file(&solution, "Menus", "Acme.Orders.Main_Basics_MN")
+    );
+    assert!(
+        file(&solution, "Menus", "Acme.Orders.Main_AdvancedTopics_MN").contains("title=\"Limits\"")
+    );
+}
+
+#[test]
+fn menu_nest_keeps_an_items_image_and_refuses_what_it_would_destroy() {
+    let (_dir, solution) = fixture();
+    nest(&solution, &[BASICS]);
+    run(
+        &solution,
+        "Acme.Orders.Main_Basics_MN",
+        Action::MenuItemSet {
+            title: "Intro".into(),
+            change: MenuItemChange {
+                icon: Some("cds:icon_info".into()),
+                ..MenuItemChange::default()
+            },
+        },
+    );
+    let plan = nest(
+        &solution,
+        &["Basics=cds:icon_home:Intro=Acme.Orders.Intro_MU,Extra=Acme.Orders.Extra_MU"],
+    );
+    assert_eq!(plan.changes.len(), 1);
+    let leaf = file(&solution, "Menus", "Acme.Orders.Main_Basics_MN");
+    assert!(leaf.contains("imageURL=\"cds:icon_info\""), "{leaf}");
+    // A root holding a Mashup item is not silently emptied.
+    new(&solution, Kind::Menu, "Acme.Orders.Flat_MN", |request| {
+        request.items = vec!["Home=Acme.Orders.Home_MU".into()];
+    });
+    let error = plan_of(
+        &solution,
+        "Acme.Orders.Flat_MN",
+        Action::MenuNest {
+            project: None,
+            groups: nest_groups(&[BASICS]),
+        },
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("keeps only sub-Menu links"), "{error}");
+    for (groups, expected) in [
+        (vec![], "at least one --group"),
+        (vec![BASICS, BASICS], "twice"),
+        (
+            vec!["Basics=cds:icon_menu:Intro=Acme.Orders.Intro_MU"],
+            "cds:icon_hamburger",
+        ),
+        (
+            vec!["Basics=cds:icon_home:Intro=Acme.Orders.A_MU,Intro=Acme.Orders.B_MU"],
+            "lists the item Intro twice",
+        ),
+    ] {
+        let error = plan_of(
+            &solution,
+            "Acme.Orders.Other_MN",
+            Action::MenuNest {
+                project: None,
+                groups: nest_groups(&groups),
+            },
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains(expected), "{error}");
+    }
+}
+
+#[test]
+fn menu_nest_edits_an_existing_leaf_in_place() {
+    let (_dir, solution) = fixture();
+    let five = "Basics=cds:icon_home:Intro=Acme.Orders.Intro_MU,Setup=Acme.Orders.Setup_MU,A=Acme.Orders.A_MU,B=Acme.Orders.B_MU,C=Acme.Orders.C_MU";
+    nest(&solution, &[five]);
+    let path = solution
+        .root
+        .join("app/Menus/Acme.Orders.Main_Basics_MN.xml");
+    let text = std::fs::read_to_string(&path)
+        .unwrap()
+        .replacen("tags=\"\"", "tags=\"Acme:Keep\"", 1)
+        .replacen(
+            "<MenuItem description=\"\"",
+            "<MenuItem description=\"Tip\"",
+            1,
+        );
+    let (items, tail) = text.split_once("</MenuItems>").unwrap();
+    let text = format!(
+        "{items}</MenuItems>{}",
+        tail.replacen(
+            "<GroupReferences><Members></Members></GroupReferences>",
+            "<GroupReferences><Members><Member name=\"Acme.Group\"/></Members></GroupReferences>",
+            1,
+        )
+    );
+    std::fs::write(&path, text).unwrap();
+    let plan = nest(&solution, &[BASICS]);
+    let dropped: Vec<_> = plan
+        .warnings
+        .iter()
+        .filter(|warning| warning.contains("is dropped"))
+        .collect();
+    assert_eq!(dropped.len(), 3, "{:?}", plan.warnings);
+    assert!(dropped[0].contains("'A'"), "{dropped:?}");
+    let leaf = file(&solution, "Menus", "Acme.Orders.Main_Basics_MN");
+    for kept in [
+        "tags=\"Acme:Keep\"",
+        "<Member name=\"Acme.Group\"/>",
+        "description=\"Tip\"",
+    ] {
+        assert!(leaf.contains(kept), "{kept}\n{leaf}");
+    }
+    assert_eq!(leaf.matches("<MenuItem ").count(), 2, "{leaf}");
+    let again = nest(&solution, &[BASICS]);
+    assert!(again.changes.is_empty(), "{:?}", again.changes);
+    assert_eq!(leaf, file(&solution, "Menus", "Acme.Orders.Main_Basics_MN"));
+}
+
+#[test]
+fn menu_nest_refuses_a_label_that_names_no_menu() {
+    let (_dir, solution) = fixture();
+    let error = plan_of(
+        &solution,
+        "Acme.Orders.Main_MN",
+        Action::MenuNest {
+            project: None,
+            groups: nest_groups(&["!!!=:Home=Acme.Orders.Home_MU"]),
+        },
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("no ASCII letter or digit"), "{error}");
+}
+
+#[test]
+fn a_cds_icon_that_does_not_exist_is_refused_with_the_closest_names() {
+    let (_dir, solution) = fixture();
+    new(&solution, Kind::Menu, "Acme.Orders.Main_MN", |request| {
+        request.items = vec!["Home=Acme.Orders.Home_MU".into()];
+    });
+    let icon = |icon: &str| Action::MenuItemAdd {
+        submenu: None,
+        icon: Some(icon.into()),
+        title: "Other".into(),
+        mashup: "Acme.Orders.Other_MU".into(),
+        default: false,
+        before: None,
+    };
+    let error = plan_of(
+        &solution,
+        "Acme.Orders.Main_MN",
+        icon("cds:icon_chevron_rigth"),
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("not a CDS icon"), "{error}");
+    assert!(error.contains("cds:icon_chevron_right"), "{error}");
+    let error = plan_of(
+        &solution,
+        "Acme.Orders.Main_MN",
+        Action::EntitySet {
+            description: None,
+            icon: Some("cds:icon_menu".into()),
+        },
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("cds:icon_hamburger"), "{error}");
+    // A valid name, a media entity and a URL are not touched.
+    for good in [
+        "cds:icon_hamburger",
+        "Acme.Orders.Logo_MD",
+        "/images/menu.svg",
+    ] {
+        assert!(
+            plan_of(&solution, "Acme.Orders.Main_MN", icon(good)).is_ok(),
+            "{good}"
+        );
+    }
+    let mut request = NewRequest::blank(Kind::Menu, "Acme.Orders.Bad_MN");
+    request.items = vec!["Home=Acme.Orders.Home_MU".into()];
+    request.image = Some("cds:icon_menu".into());
+    let error = entity::new::plan(&solution, &request)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("not a CDS icon"), "{error}");
+}

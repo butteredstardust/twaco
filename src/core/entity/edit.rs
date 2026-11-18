@@ -36,7 +36,9 @@ pub enum OverrideSource {
 }
 
 mod ai;
+mod nest;
 pub use ai::AgentChange;
+pub use nest::NestGroup;
 
 /// A property as `property add` and `property set` give it.
 #[derive(Clone, Debug, Default)]
@@ -105,6 +107,11 @@ pub enum Action {
     MenuItemSet {
         title: String,
         change: MenuItemChange,
+    },
+    /// A root Menu of sub-Menu links, one leaf Menu per group; the entity may not exist yet.
+    MenuNest {
+        project: Option<String>,
+        groups: Vec<NestGroup>,
     },
     PropertyAdd(Property),
     PropertySet {
@@ -432,6 +439,9 @@ pub(crate) fn plan(solution: &Solution, request: &Request) -> Result<Plan, EditE
         solution,
         discovered: &discovered,
     };
+    if let Action::MenuNest { project, groups } = &request.action {
+        return nest::plan(&references, &request.entity, project.as_deref(), groups);
+    }
     let file = workspace::resolve(found, &request.entity)
         .map_err(|error| EditError::Unknown(error.to_string()))?
         .clone();
@@ -453,6 +463,7 @@ pub(crate) fn plan(solution: &Solution, request: &Request) -> Result<Plan, EditE
         Action::MenuItemSet { title, change } => {
             menu_item_set(&references, &doc, title, change, &mut plan)?
         }
+        Action::MenuNest { .. } => unreachable!("planned before the entity is read"),
         Action::PropertyAdd(property) => edit.property_add(property, &mut plan)?,
         Action::PropertySet { property, force } => {
             edit.property_set(property, *force, &mut plan)?
@@ -3364,6 +3375,7 @@ fn icon_reference(
     icon: &str,
     plan: &mut Plan,
 ) -> Result<(), EditError> {
+    crate::core::cds_icons::check(icon).map_err(invalid)?;
     if icon.is_empty() || icon.contains('/') || icon.contains(':') {
         return Ok(());
     }
@@ -3506,6 +3518,28 @@ fn menu_entries(doc: &Doc) -> Result<(usize, Vec<Entry>), EditError> {
     Ok((list, entries))
 }
 
+/// The items of Menu `name` in the solution as (link type, destination), or `None` when the
+/// solution has no such Menu.
+pub(crate) fn menu_links(
+    solution: &Solution,
+    name: &str,
+) -> Result<Option<Vec<(String, String)>>, EditError> {
+    let Some(file) = workspace::entities(solution)
+        .into_iter()
+        .find(|file| file.info.collection == "Menus" && file.info.name == name)
+    else {
+        return Ok(None);
+    };
+    let doc = Doc::read(&file)?;
+    let (_, entries) = menu_entries(&doc)?;
+    Ok(Some(
+        entries
+            .into_iter()
+            .map(|entry| (entry.link_type, entry.target))
+            .collect(),
+    ))
+}
+
 /// Add one item; every other item stays as it is written, but for `isDefault` when the new
 /// one becomes the default.
 fn menu_item_add(
@@ -3518,7 +3552,7 @@ fn menu_item_add(
     plan: &mut Plan,
 ) -> Result<(), EditError> {
     doc.require(&["Menus"], "menu item add changes a Menu")?;
-    let (title, mashup, default) = item;
+    let (title, mashup, _) = &item;
     if submenu.is_none() && (title.is_empty() || mashup.is_empty()) {
         return Err(invalid(
             "a menu item is <Title>=<Mashup>, and neither may be empty",
@@ -3531,12 +3565,25 @@ fn menu_item_add(
         } else {
             "Mashups"
         },
-        submenu.unwrap_or(&mashup),
+        submenu.unwrap_or(mashup),
         plan,
     )?;
     if let Some(icon) = icon {
         icon_reference(found, icon, plan)?;
     }
+    menu_item_insert(doc, item, before, submenu, icon, plan)
+}
+
+/// `menu_item_add` once the references are checked.
+fn menu_item_insert(
+    doc: &Doc,
+    item: (String, String, bool),
+    before: Option<&str>,
+    submenu: Option<&str>,
+    icon: Option<&str>,
+    plan: &mut Plan,
+) -> Result<(), EditError> {
+    let (title, mashup, default) = item;
     let (list, entries) = menu_entries(doc)?;
     if entries.iter().any(|entry| {
         entry.title == title
