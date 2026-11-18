@@ -6,6 +6,8 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.1.67] - 2026-11-18
+
 ### Added
 
 - `entity set --description` edits existing entity descriptions; Menu icons can be set with `new menu --icon` and `entity set --icon`.
@@ -2000,6 +2002,7 @@ The first public release.
 - `mcp` serves 39 tools over stdio to MCP clients, with compact summaries, validated arguments
   and dry runs by default for tools that can write to a server.
 
+[0.1.67]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.67
 [0.1.66]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.66
 [0.1.65]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.65
 [0.1.64]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.64
