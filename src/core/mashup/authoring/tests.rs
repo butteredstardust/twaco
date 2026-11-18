@@ -7275,6 +7275,62 @@ fn style_fixture() -> (tempfile::TempDir, Solution) {
     (dir, solution)
 }
 
+#[test]
+fn setting_field_label_realigns_generated_row_and_repeats_without_writes() {
+    use crate::core::mashup::edit::Side;
+    let (dir, solution) = one_project();
+    let name = "Acme.Form_MU";
+    let plan = plan_new(&solution, &request(name)).unwrap();
+    apply_new(&solution, &plan, &lock(&solution)).unwrap();
+    let field = add_one(
+        &solution,
+        name,
+        "ptcstextfield",
+        Placement::In("center".into()),
+        &[],
+    );
+    add_one(
+        &solution,
+        name,
+        "ptcsbutton",
+        Placement::Beside {
+            anchor: field.clone(),
+            side: Side::Right,
+        },
+        &[],
+    );
+    for (label, alignment) in [("Filter", "flex-end"), ("", "flex-end")] {
+        set_and_apply(
+            &solution,
+            name,
+            &field,
+            vec![("Label".into(), json!(label))],
+            None,
+        )
+        .unwrap();
+        let content = content_of(&solution, name);
+        let inner = parent_id(&content["UI"], &field).unwrap();
+        let row = parent_id(&content["UI"], &inner).unwrap();
+        assert_eq!(
+            find_widget(&content["UI"], &row).unwrap()["Properties"]["align-items"],
+            alignment,
+            "{}",
+            content
+        );
+        let before = tree_bytes(dir.path());
+        let repeat = set_and_apply(
+            &solution,
+            name,
+            &field,
+            vec![("Label".into(), json!(label))],
+            None,
+        )
+        .unwrap();
+        assert!(repeat.edit.is_none());
+        assert_eq!(tree_bytes(dir.path()), before);
+    }
+}
+
 fn set_and_apply(
     solution: &Solution,
     mashup: &str,

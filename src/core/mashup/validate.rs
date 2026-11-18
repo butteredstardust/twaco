@@ -299,7 +299,9 @@ fn problem(rule: &str, message: String) -> Problem {
 /// Rules that describe tolerated Composer state rather than a broken mashup.
 fn severity(rule: &str) -> Severity {
     match rule {
-        "chart-axis-type" | "unknown-cell-parameter" => Severity::Advisory,
+        "chart-axis-type" | "unknown-cell-parameter" | "mixed-label-alignment" => {
+            Severity::Advisory
+        }
         _ => Severity::Error,
     }
 }
@@ -392,6 +394,18 @@ pub(crate) fn check_content(content: &str, problems: &mut Vec<Problem>) {
     };
     for found in document.problems() {
         problems.push(problem("mixed-container", found.message));
+    }
+    for widget in document.widgets() {
+        let row = document.at(&widget.path);
+        let alignment = &row["Properties"]["align-items"];
+        if alignment.is_null() || alignment == "flex-start" {
+            if let Some((labelled, controls)) = mashup::edit::mixed_label_controls(row) {
+                problems.push(problem("mixed-label-alignment", format!(
+                    "row {} mixes labelled inputs {} with controls {}; align their input boxes with twaco mashup set <M> {} --prop align-items=flex-end",
+                    widget.id, labelled.join(", "), controls.join(", "), widget.id
+                )));
+            }
+        }
     }
     let value = document.value();
     // `parse` refuses duplicate ids; they surface as the structure rule. A stale id_index is
@@ -1023,6 +1037,42 @@ mod tests {
         let mut problems = Vec::new();
         check_content(text, &mut problems);
         problems.into_iter().map(|p| p.rule).collect()
+    }
+
+    #[test]
+    fn authored_mixed_rows_warn_until_bottom_aligned() {
+        for alignment in [None, Some("flex-start"), Some("flex-end"), Some("center")] {
+            let mut value = serde_json::json!({"UI": {"Properties": {"Type": "mashup", "Id": "mashup-root"}, "Widgets": [
+                {"Properties": {"Type": "flexcontainer", "Id": "flexcontainer-1", "DisplayName": "toolbar", "flex-direction": "row"}, "Widgets": [
+                    {"Properties": {"Type": "ptcstextfield", "Id": "ptcstextfield-2", "Label": "Filter"}},
+                    {"Properties": {"Type": "ptcsbutton", "Id": "ptcsbutton-3", "Label": "Apply"}}
+                ]}
+            ]}});
+            if let Some(alignment) = alignment {
+                value["UI"]["Widgets"][0]["Properties"]["align-items"] = Value::from(alignment);
+            }
+            let mut problems = Vec::new();
+            check_content(&mashup::to_sidecar(&value), &mut problems);
+            let warnings: Vec<_> = problems
+                .iter()
+                .filter(|p| p.rule == "mixed-label-alignment")
+                .collect();
+            assert_eq!(
+                warnings.len(),
+                usize::from(alignment.is_none() || alignment == Some("flex-start"))
+            );
+            if let Some(warning) = warnings.first() {
+                assert_eq!(warning.severity, Severity::Advisory);
+                for text in [
+                    "flexcontainer-1",
+                    "ptcstextfield-2",
+                    "ptcsbutton-3",
+                    "twaco mashup set <M> flexcontainer-1 --prop align-items=flex-end",
+                ] {
+                    assert!(warning.message.contains(text), "{}", warning.message);
+                }
+            }
+        }
     }
 
     #[test]

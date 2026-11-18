@@ -752,6 +752,12 @@ impl MashupDocument {
     /// Reflow the columns enclosing `path`.  A placement can touch several nested wrappers; each
     /// enclosing column owns its rows, while a row's own size remains guarded below.
     fn reflow_at(&mut self, path: &[usize], scope: &Reflow) {
+        for depth in 0..=path.len() {
+            let candidate = &path[..depth];
+            if is_generated_container(self.at(candidate)) {
+                self.align_control_row(candidate);
+            }
+        }
         let mut columns = Vec::new();
         for depth in 0..=path.len() {
             let candidate = &path[..depth];
@@ -1183,11 +1189,22 @@ impl MashupDocument {
         properties_mut(self.at_mut(path)).remove("Height");
     }
 
+    fn align_control_row(&mut self, path: &[usize]) {
+        // Only ever bottom-aligns: a row that stops being mixed keeps its alignment, which may be
+        // one someone chose.
+        if mixed_label_controls(self.at(path)).is_some() {
+            self.set_property(path, "align-items", Value::from("flex-end"));
+        }
+    }
+
     fn fix_row(&mut self, path: &[usize], tallest: f64, owned: bool) {
         let node = self.at(path).clone();
         // Natural text/rule sizing belongs to generated wrappers. A placement in an authored
         // row may still grow an existing fixed size, but never gives that row a new size mode.
         let owned = owned && (is_generated_container(&node) || row_allowance(&node) != 0.0);
+        if owned || is_generated_container(&node) {
+            self.align_control_row(path);
+        }
         let height = (tallest + row_allowance(&node)).ceil();
         let current = node["Properties"]["flex-min-height"]
             .as_str()
@@ -2044,10 +2061,67 @@ fn widget_id(widget: &Value) -> &str {
         .expect("checked: a widget has an Id")
 }
 
-/// How tall a fixed-size widget renders, with its vertical margins: its own `Height` when
-/// Composer saved one, or what the 10.2 widget is measured at in real mashups (an input is a
-/// 34px field, with a 22px label above it when it has one). `None` for a widget whose height is
-/// not known, so its row is left as it is.
+fn draws_field_label(widget: &Value) -> bool {
+    matches!(
+        type_of(widget),
+        Some(
+            "ptcstextfield"
+                | "ptcstextarea"
+                | "ptcsdropdown"
+                | "ptcsdatepicker"
+                | "ptcsdatetimepicker"
+                | "ptcslist"
+                | "ptcscombobox"
+                | "ptcsnumericentry"
+        )
+    )
+}
+
+fn has_field_label(widget: &Value) -> bool {
+    draws_field_label(widget)
+        && widget["Properties"]["Label"]
+            .as_str()
+            .is_some_and(|label| !label.is_empty())
+}
+
+/// Row controls, including single-widget wrappers, needing bottom alignment.
+pub(crate) fn mixed_label_controls(row: &Value) -> Option<(Vec<&str>, Vec<&str>)> {
+    // Composer's default direction is row.
+    let direction = row["Properties"]["flex-direction"]
+        .as_str()
+        .unwrap_or("row");
+    if type_of(row) != Some("flexcontainer") || !matches!(direction, "row" | "") {
+        return None;
+    }
+    let mut labelled = Vec::new();
+    let mut controls = Vec::new();
+    for member in children(row) {
+        let mut widget = member;
+        while type_of(widget) == Some("flexcontainer") && children(widget).len() == 1 {
+            widget = &children(widget)[0];
+        }
+        if has_field_label(widget) {
+            labelled.push(widget_id(widget));
+        } else if draws_field_label(widget)
+            || matches!(
+                type_of(widget),
+                Some(
+                    "ptcsbutton"
+                        | "ptcslink"
+                        | "ptcstogglebutton"
+                        | "ptcscheckbox"
+                        | "ptcsradio"
+                        | "ptcsicon"
+                )
+            )
+        {
+            controls.push(widget_id(widget));
+        }
+    }
+    (!labelled.is_empty() && !controls.is_empty()).then_some((labelled, controls))
+}
+
+/// Rendered height with margins, or `None` when the widget's height is unknown.
 fn content_height(widget: &Value, styles: &Value) -> Option<f64> {
     if type_of(widget) == Some("ptcslabel") {
         return natural_height(widget, styles);
@@ -2055,9 +2129,7 @@ fn content_height(widget: &Value, styles: &Value) -> Option<f64> {
     let properties = &widget["Properties"];
     let own = properties["Height"].as_f64();
     let measured = || -> Option<f64> {
-        let labelled = properties["Label"]
-            .as_str()
-            .is_some_and(|label| !label.is_empty());
+        let labelled = has_field_label(widget);
         Some(match type_of(widget)? {
             "ptcsprogresstracker" => widgets::catalog()
                 .by_type("ptcsprogresstracker")?
@@ -3714,6 +3786,143 @@ mod tests {
             true
         );
         assert!(document.problems().is_empty());
+    }
+
+    #[test]
+    fn placement_aligns_only_mixed_field_labels_and_controls() {
+        for (label, other, other_label, expected) in [
+            ("Filter", "ptcsbutton", "Apply", "flex-end"),
+            ("", "ptcsbutton", "Apply", "flex-start"),
+            ("Filter", "ptcstextfield", "Search", "flex-start"),
+        ] {
+            let mut doc = document(
+                &container(
+                    "flexcontainer-2",
+                    "center",
+                    "column",
+                    &container("flexcontainer-3", "container-3", "row", ""),
+                ),
+                3,
+            );
+            doc.set_property(&[0, 0], "align-items", Value::from("flex-start"));
+            let mut field = catalogue_widget("ptcstextfield").clone();
+            field.defaults.insert("Label".into(), Value::from(label));
+            let field = doc
+                .place(&field, &Placement::In("flexcontainer-3".into()))
+                .unwrap();
+            let mut control = catalogue_widget(other).clone();
+            control
+                .defaults
+                .insert("Label".into(), Value::from(other_label));
+            let placed = doc
+                .place(
+                    &control,
+                    &Placement::Beside {
+                        anchor: field.id.clone(),
+                        side: Side::Right,
+                    },
+                )
+                .unwrap();
+            assert_eq!(
+                {
+                    let path = doc.find(&field.id).unwrap().path;
+                    doc.at(&path[..path.len() - 1])["Properties"]["align-items"].clone()
+                },
+                expected,
+                "{}",
+                doc.to_content()
+            );
+            let once = doc.to_content();
+            doc.fix_rows(&placed);
+            doc.reflow_for(&field.id);
+            assert_eq!(doc.to_content(), once);
+        }
+    }
+
+    #[test]
+    fn a_row_without_a_direction_is_classed_as_a_row() {
+        let row: Value = serde_json::from_str(&container(
+            "flexcontainer-3",
+            "toolbar",
+            "row",
+            &[
+                widget("ptcstextfield", "ptcstextfield-4", "Field", ""),
+                widget("ptcsbutton", "ptcsbutton-5", "Apply", ""),
+            ]
+            .join(","),
+        ))
+        .unwrap();
+        let mut row = row;
+        row["Properties"]["Label"] = Value::Null;
+        row["Properties"]
+            .as_object_mut()
+            .unwrap()
+            .remove("flex-direction");
+        row["Widgets"][0]["Properties"]["Label"] = Value::from("Filter");
+        assert!(mixed_label_controls(&row).is_some());
+    }
+
+    #[test]
+    fn label_edits_and_removal_realign_only_generated_rows() {
+        for generated in [false, true] {
+            let name = if generated { "container-3" } else { "toolbar" };
+            let row = container(
+                "flexcontainer-3",
+                name,
+                "row",
+                &[
+                    widget("ptcstextfield", "ptcstextfield-4", "Field", ""),
+                    widget("ptcsbutton", "ptcsbutton-5", "Apply", ""),
+                ]
+                .join(","),
+            );
+            let mut doc = document(&container("flexcontainer-2", "center", "column", &row), 5);
+            doc.set_property(&[0, 0], "align-items", Value::from("flex-start"));
+            for label in ["Filter", "", "Filter"] {
+                doc.set_property(&[0, 0, 0], "Label", Value::from(label));
+                doc.reflow_for("ptcstextfield-4");
+                // Clearing the label later keeps the row bottom-aligned.
+                let expected = if generated { "flex-end" } else { "flex-start" };
+                assert_eq!(doc.at(&[0, 0])["Properties"]["align-items"], expected);
+                let once = doc.to_content();
+                doc.reflow_for("ptcstextfield-4");
+                assert_eq!(doc.to_content(), once);
+            }
+            if !generated {
+                doc.set_property(&[0, 0], "align-items", Value::from("flex-end"));
+                doc.set_property(&[0, 0, 0], "Label", Value::from(""));
+                doc.reflow_for("ptcstextfield-4");
+                assert_eq!(doc.at(&[0, 0])["Properties"]["align-items"], "flex-end");
+                doc.set_property(&[0, 0], "align-items", Value::from("flex-start"));
+            }
+            doc.remove_widget(&[0, 0, 1]).unwrap();
+            let kept = if generated { "flex-end" } else { "flex-start" };
+            assert_eq!(doc.at(&[0, 0])["Properties"]["align-items"], kept);
+        }
+    }
+
+    #[test]
+    fn field_label_classification_excludes_control_captions() {
+        for kind in [
+            "ptcstextfield",
+            "ptcstextarea",
+            "ptcsdropdown",
+            "ptcsdatepicker",
+            "ptcsdatetimepicker",
+            "ptcslist",
+            "ptcscombobox",
+            "ptcsnumericentry",
+        ] {
+            let row = serde_json::json!({"Properties": {"Type": "flexcontainer", "flex-direction": "row"}, "Widgets": [
+                {"Properties": {"Type": kind, "Id": "field", "Label": "Filter"}},
+                {"Properties": {"Type": "ptcsbutton", "Id": "button", "Label": "Apply"}}
+            ]});
+            assert_eq!(
+                mixed_label_controls(&row),
+                Some((vec!["field"], vec!["button"])),
+                "{kind}"
+            );
+        }
     }
 
     #[test]

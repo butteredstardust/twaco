@@ -8,11 +8,13 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- `mashup validate` warns when a row aligns controls with field labels and shows the bottom-alignment fix.
 - Flexcontainer property bindings and checked edits, including tab-container lazy loading and flex sizing.
 - `call --param name=value` accepts repeated parameters, typed from known service signatures.
 
 ### Fixed
 
+- Generated mashup rows bottom-align controls beside labelled inputs, including after Label edits and removals.
 - Widgets above or below a menubar keep their measured height and leave spare column height to the menu; menubar rows no longer inherit the 300px data-panel minimum.
 - Free-form property, service-call and configuration-table values rewritten by Git Bash are refused with `MSYS_NO_PATHCONV=1` guidance.
 - Subscription Events compare as a set and `fmt` orders them by alias, preventing false server-change conflicts. Comparison hashes are version 12; older baselines are invalidated. Run `twaco entity status --all --record` again to record entities that already agree; investigate `no-baseline-differs` with `entity diff`, pull or adopt.

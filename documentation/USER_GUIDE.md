@@ -1295,7 +1295,10 @@ column also stops at its measured content height, keeping fields together at the
 a taller column. Side-by-side fields on a blank page keep a vertical page wrapper, and default
 `--below <textarea>` places Save below the whole split form; use `--in-column` to keep a new
 control inside the textarea's column. The last ordinary
-control row can absorb spare height with its controls at the top; an explicit `--bottom` footer
+control row can absorb spare height with its controls at the top. Generated rows mixing labelled
+inputs with controls align their boxes at the bottom (`align-items=flex-end`). Label edits and
+removals recompute this alignment. `mashup validate` warns about mixed rows using top alignment,
+including authored rows. An explicit `--bottom` footer
 keeps its buttons at the bottom. A lone textarea still fills its panel. Charts, grids, other data
 fillers and unknown widgets keep the filling rules, even beside a title or buttons. Wrapping a filler
 with `--below` or `--right-of` gives the new inner containers their floors too; a nested column
