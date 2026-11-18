@@ -205,13 +205,20 @@ fn print(outcome: &AppKeyOutcome, args: &AppKey) {
                 return;
             }
             let verb = if *created { "created" } else { "found" };
-            println!(
+            let summary = |line: String| {
+                if args.show {
+                    eprintln!("{line}");
+                } else {
+                    println!("{line}");
+                }
+            };
+            summary(format!(
                 "{verb} application key {}{}",
                 key.name,
                 expires.map_or(String::new(), |when| format!(", expiring {when}"))
-            );
+            ));
             if let Some(path) = saved {
-                println!("  saved as app_key in {}", path.display());
+                summary(format!("  saved as app_key in {}", path.display()));
             }
             if args.show {
                 println!("{}", key.reveal());

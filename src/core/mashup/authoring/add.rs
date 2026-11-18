@@ -12,6 +12,12 @@ use crate::core::{extension_widgets, mashup, widgets};
 use serde_json::{json, Value};
 use std::path::Path;
 
+#[derive(Debug, serde::Serialize)]
+pub struct ContainerContents {
+    pub id: String,
+    pub holds: Vec<String>,
+}
+
 #[derive(Clone, Debug)]
 pub struct AddRequest {
     pub mashup: String,
@@ -27,6 +33,7 @@ pub struct AddRequest {
 pub struct AddPlan {
     pub edit: EditPlan,
     pub placed: mashup::edit::Placed,
+    pub container_contents: Vec<ContainerContents>,
     /// The widget's type, such as `ptcsgrid`.
     pub widget: String,
     /// Composer's label for it, such as `Grid`.
@@ -462,7 +469,26 @@ pub(crate) fn plan_add(
     }
     document.fit_placed_width(&placed.id);
     document.reflow_for(&placed.id);
+    let container_contents = placed
+        .containers
+        .iter()
+        .map(|id| {
+            let found = document.find_exact(id).expect("a new container exists");
+            let holds = document.at(&found.path)["Widgets"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter(|child| !mashup::edit::is_spacer(child))
+                .filter_map(|child| child["Properties"]["Id"].as_str().map(str::to_string))
+                .collect();
+            ContainerContents {
+                id: id.clone(),
+                holds,
+            }
+        })
+        .collect();
     Ok(AddPlan {
+        container_contents,
         edit: finish_edit(loaded, document, "mashup add")?,
         placed,
         widget: widget.type_id.clone(),
@@ -729,6 +755,7 @@ pub fn add_plan_json(solution: &Solution, plan: &AddPlan, applied: bool) -> Valu
         "widget": plan.widget,
         "id": plan.placed.id,
         "containers": plan.placed.containers,
+        "container_contents": plan.container_contents,
         "flipped": plan.placed.flipped,
         "wrapped": plan.placed.wrapped,
         "files": files,

@@ -1074,14 +1074,18 @@ impl MashupDocument {
                 .unwrap_or(""),
         );
         self.floor_row(row_path, height + margin);
-        // The columns this placement made around the row were floored with the generic drop
-        // height; measure them again from their rows.
+        // A horizontal placement can reuse the existing row around several contained mashups.
+        // Measure that shared row again too, taking the tallest child's floor, but only when its
+        // floor is one twaco measured (no maximum): an authored range keeps its limits.
         let styles = self.value["UI"]["Properties"]["StyleProperties"]["data"].clone();
         let mut path = row_path.to_vec();
         while path.pop().is_some() && !path.is_empty() {
             let node = self.at(&path);
+            let shared_measured_row = path.len() + 1 == row_path.len()
+                && node["Properties"]["flex-shrink"] == 0
+                && is_measured_floor(node);
             if !is_generated_container(node)
-                || !made.iter().any(|made| made == widget_id(node))
+                || !(made.iter().any(|made| made == widget_id(node)) || shared_measured_row)
                 || node["Properties"]["flex-size"] != "range"
             {
                 continue;
@@ -1763,12 +1767,32 @@ impl MashupDocument {
                 self.set_property(parent_path, "flex-direction", Value::from(side.axis()));
                 placed.flipped = Some(parent_id);
             }
-            let anchor_child = if anchor_is_container {
+            let mut anchor_child = if anchor_is_container {
                 anchor_value
             } else {
                 placed.wrapped.push(anchor.id.clone());
                 self.wrap(anchor_value, &mut placed)
             };
+            // The old single-card row becomes the shared row; the floor twaco measured for a
+            // contained mashup belongs to the anchor's new wrapper as well, before reflow sees a
+            // generic drop height. Authored limits, and any other widget's row, stay where they are.
+            if !anchor_is_container
+                && anchor.type_id == "mashupcontainer"
+                && is_measured_floor(self.at(parent_path))
+            {
+                for key in [
+                    "flex-size",
+                    "flex-min-height",
+                    "flex-max-height",
+                    "iconClass",
+                ] {
+                    set_value_property(
+                        &mut anchor_child,
+                        key,
+                        self.at(parent_path)["Properties"][key].clone(),
+                    );
+                }
+            }
             let new_child = if new_is_container {
                 new
             } else {
@@ -2098,6 +2122,17 @@ fn starts_page_form(parent: &[usize], anchor_type: &str, side: Side) -> bool {
         )
 }
 
+/// A floor twaco wrote ([`MashupDocument::floor_row`]): a range with a minimum and no maximum.
+/// A range with a maximum was authored and keeps its limits.
+fn is_measured_floor(container: &Value) -> bool {
+    let properties = &container["Properties"];
+    properties["flex-size"] == "range"
+        && css_px(&properties["flex-min-height"]).is_some()
+        && properties["flex-max-height"]
+            .as_str()
+            .is_none_or(str::is_empty)
+}
+
 /// A widget that stretches across its row; placement gives it a row of its own.
 fn responsive(widget: &Value) -> bool {
     !matches!(type_of(widget), Some("flexcontainer" | "ptcsdivider"))
@@ -2157,7 +2192,7 @@ fn is_divider_row(widget: &Value) -> bool {
             && children(widget).iter().all(is_divider_row))
 }
 
-fn is_spacer(widget: &Value) -> bool {
+pub(crate) fn is_spacer(widget: &Value) -> bool {
     type_of(widget) == Some("flexcontainer")
         && children(widget).is_empty()
         && widget["Properties"]["DisplayName"]
@@ -5244,6 +5279,52 @@ mod placement_walkthrough {
             assert_eq!(widget_id(&children(column)[0]), widget_id(row));
             assert_eq!(widget_id(&children(column)[1]), widget_id(grid_row));
         }
+    }
+
+    #[test]
+    fn only_a_floor_without_a_maximum_counts_as_measured() {
+        let row = |size: &str, min: &str, max: &str| {
+            serde_json::json!({"Properties": {"Type": "flexcontainer", "flex-size": size,
+                "flex-min-height": min, "flex-max-height": max}})
+        };
+        assert!(is_measured_floor(&row("range", "91px", "")));
+        assert!(!is_measured_floor(&row("range", "800px", "1000px")));
+        assert!(!is_measured_floor(&row("fixed", "40px", "40px")));
+        assert!(!is_measured_floor(&row("default", "", "")));
+    }
+
+    #[test]
+    fn a_widget_below_a_lone_chart_leaves_an_authored_row_range_on_the_row() {
+        let catalog = widgets::catalog();
+        let mut document = parse(crate::core::mashup::templates::BLANK).unwrap();
+        let chart = document
+            .place(
+                catalog.by_type("ptcschartline").unwrap(),
+                &Placement::In("center".into()),
+            )
+            .unwrap()
+            .id;
+        let row_path = document
+            .find(widget_id(parent_of(&document, &chart)))
+            .unwrap()
+            .path;
+        document.set_property(&row_path, "flex-size", Value::from("range"));
+        document.set_property(&row_path, "flex-min-height", Value::from("800px"));
+        document.set_property(&row_path, "flex-max-height", Value::from("1000px"));
+        document
+            .place(
+                catalog.by_type("ptcschartline").unwrap(),
+                &Placement::Beside {
+                    anchor: chart.clone(),
+                    side: Side::Below,
+                },
+            )
+            .unwrap();
+        let wrapper = parent_of(&document, &chart);
+        assert_ne!(
+            wrapper["Properties"]["flex-min-height"], "800px",
+            "{wrapper}"
+        );
     }
 
     #[test]

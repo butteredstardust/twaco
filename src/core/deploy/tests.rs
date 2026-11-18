@@ -1621,3 +1621,58 @@ fn a_new_block_runs_its_step_once_imported() {
     assert_eq!(planned.blocks[0].state, None);
     assert!(planned.blocks[0].runs);
 }
+
+#[test]
+fn encrypted_owned_fields_report_and_send_the_repository_value() {
+    let value = |cell: &str| {
+        format!(
+        r#"<Entities><Things><Thing name="Acme.Queue" projectName="P"><ConfigurationTables><ConfigurationTable name="ConnectionInformation"><DataShape><FieldDefinitions><FieldDefinition name="password" baseType="PASSWORD"/></FieldDefinitions></DataShape><Rows><Row>{cell}</Row></Rows></ConfigurationTable></ConfigurationTables></Thing></Things></Entities>"#
+    ).into_bytes()
+    };
+    let label = "configuration-table:ConnectionInformation.password";
+    for cell in [
+        "",
+        "<password/>",
+        "<password><![CDATA[  ]]></password>",
+        "<password>repository-secret</password>",
+    ] {
+        let supplied = cell.contains("repository-secret");
+        for apply in [false, true] {
+            let entity = Entity {
+                collection: "Things".into(),
+                name: "Acme.Queue".into(),
+                bytes: value(cell),
+                server_owned: vec![label.to_string().try_into().unwrap()],
+            };
+            let remote = Fake {
+                held: holding(&[Entity {
+                    bytes: String::from_utf8(value("<password>ciphertext</password>"))
+                        .unwrap()
+                        .replace(
+                            "projectName=\"P\"",
+                            "projectName=\"P\" description=\"server\"",
+                        )
+                        .into_bytes(),
+                    ..entity.clone()
+                }]),
+                ..Fake::default()
+            };
+            let mut bundle = project("P", vec![entity.clone()], vec![]);
+            bundle.bytes = entity.bytes.clone();
+            let report =
+                run_test(&remote, &MemoryBaseline::default(), &[bundle], apply, true).unwrap();
+            let plan = &report.plans[0];
+            assert!(plan.server_owned.is_empty());
+            assert_eq!(plan.cleared, if supplied { vec![] } else { vec![label] });
+            assert_eq!(
+                plan.repository_values,
+                if supplied { vec![label] } else { vec![] }
+            );
+            if apply {
+                assert_eq!(remote.sent.lock().unwrap()[0].1, entity.bytes);
+            } else {
+                assert!(remote.sent.lock().unwrap().is_empty());
+            }
+        }
+    }
+}

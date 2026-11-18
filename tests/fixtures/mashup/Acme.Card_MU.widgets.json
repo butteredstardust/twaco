@@ -1,0 +1,106 @@
+[
+  {
+    "Properties": {
+      "Id": "flexcontainer-2",
+      "Type": "flexcontainer",
+      "DisplayName": "center",
+      "Margin": "0",
+      "flex-direction": "column",
+      "flex-size": "default"
+    },
+    "Widgets": [
+      {
+        "Properties": {
+          "Id": "flexcontainer-3",
+          "Type": "flexcontainer",
+          "DisplayName": "container-3",
+          "Margin": "0",
+          "flex-direction": "row",
+          "flex-size": "default"
+        },
+        "Widgets": [
+          {
+            "Properties": {
+              "Id": "ptcslabel-4",
+              "Type": "ptcslabel",
+              "DisplayName": "ptcslabel-4",
+              "Margin": "0",
+              "LabelType": "large-header"
+            },
+            "Widgets": []
+          },
+          {
+            "Properties": {
+              "Id": "ptcslabel-5",
+              "Type": "ptcslabel",
+              "DisplayName": "ptcslabel-5",
+              "Margin": "0",
+              "LabelType": "large-header"
+            },
+            "Widgets": []
+          },
+          {
+            "Properties": {
+              "Id": "ptcsbutton-6",
+              "Type": "ptcsbutton",
+              "DisplayName": "ptcsbutton-6",
+              "Margin": "0"
+            },
+            "Widgets": []
+          },
+          {
+            "Properties": {
+              "Id": "ptcsbutton-7",
+              "Type": "ptcsbutton",
+              "DisplayName": "ptcsbutton-7",
+              "Margin": "0"
+            },
+            "Widgets": []
+          }
+        ]
+      },
+      {
+        "Properties": {
+          "Id": "flexcontainer-8",
+          "Type": "flexcontainer",
+          "DisplayName": "container-8",
+          "Margin": "0",
+          "flex-direction": "row",
+          "flex-size": "fixed",
+          "flex-min-height": "24px",
+          "flex-max-height": "24px"
+        },
+        "Widgets": [
+          {
+            "Properties": {
+              "Id": "shape-9",
+              "Type": "shape",
+              "DisplayName": "shape-9",
+              "Margin": "0",
+              "Height": 50
+            },
+            "Widgets": []
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "Properties": {
+      "Id": "expression2-10",
+      "Type": "expression2",
+      "DisplayName": "expression2-10",
+      "Margin": "0"
+    },
+    "Widgets": []
+  },
+  {
+    "Properties": {
+      "Id": "expression2-11",
+      "Type": "expression2",
+      "DisplayName": "expression2-11",
+      "Margin": "0"
+    },
+    "Widgets": []
+  }
+]

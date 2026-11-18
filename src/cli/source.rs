@@ -930,10 +930,10 @@ fn deploy_json(
             localization,
             ..
         }) => {
-            let plans: Vec<_> = report.plans.iter().map(|p| json!({"entity": format!("{}/{}", p.collection, p.name), "decision": format!("{:?}", p.decision), "server_owned": p.server_owned})).collect();
+            let plans: Vec<_> = report.plans.iter().map(|p| json!({"entity": format!("{}/{}", p.collection, p.name), "decision": format!("{:?}", p.decision), "server_owned": p.server_owned, "cleared": p.cleared, "repository_values": p.repository_values})).collect();
             (
                 json!({"ok": true, "dry_run": !apply, "projects": notes, "scripts_parsed": report.scripts_checked, "plans": plans,
-                "server_owned": report.plans.iter().filter(|p| !p.server_owned.is_empty()).map(|p| json!({"entity": format!("{}/{}", p.collection, p.name), "parts": p.server_owned})).collect::<Vec<_>>(),
+                "server_owned": report.plans.iter().filter(|p| !p.server_owned.is_empty() || !p.cleared.is_empty() || !p.repository_values.is_empty()).map(|p| json!({"entity": format!("{}/{}", p.collection, p.name), "parts": p.server_owned, "clears": p.cleared, "repository_values": p.repository_values})).collect::<Vec<_>>(),
                 "imported": report.imported, "unchanged_projects": report.unchanged, "kept": report.kept.len(), "backup": backup,
                 "calls": report.calls.iter().map(|c| json!({"project": c.project, "call": c.call.to_string(), "skipped": c.skipped})).collect::<Vec<_>>(),
                 "localization": localization.map(|l| l.tables.iter().map(|t| json!({"table": t.table, "create": t.create, "set": t.set.len(), "imported": l.applied})).collect::<Vec<_>>()),
@@ -951,7 +951,7 @@ fn deploy_json(
             let mut value = json!({"ok":false,"error":error.to_string(),"backup":error.backup()});
             let code = if let commands::deploy::DeployCommandError::Deploy { why, .. } = &error {
                 if let deploy::DeployError::Conflicts(plans) = why.as_ref() {
-                    value["refused"] = json!(deploy::refused(plans).map(|p| json!({"entity":format!("{}/{}",p.collection,p.name),"decision":format!("{:?}",p.decision),"server_owned":p.server_owned})).collect::<Vec<_>>());
+                    value["refused"] = json!(deploy::refused(plans).map(|p| json!({"entity":format!("{}/{}",p.collection,p.name),"decision":format!("{:?}",p.decision),"server_owned":p.server_owned,"cleared":p.cleared,"repository_values":p.repository_values})).collect::<Vec<_>>());
                     DRIFT
                 } else {
                     FAILED
@@ -1084,6 +1084,9 @@ fn print_deploy_report(report: &deploy::Report, apply: bool, force: bool) {
                  carried); a deploy hook must set it again",
                 plan.cleared.join(", ")
             );
+        }
+        if !plan.repository_values.is_empty() {
+            println!("  {label}: sends the repository's {} as written (the server's encrypted value cannot be carried); keep a plain value there, since an exported, already-encrypted value is encrypted again", plan.repository_values.join(", "));
         }
         // An apply reports what it sends; the import and read-back lines below say how it went.
         let would = if apply { "" } else { "would " };

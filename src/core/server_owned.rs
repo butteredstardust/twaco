@@ -239,6 +239,7 @@ pub(crate) struct PreservedEntity {
     pub(crate) key: EntityKey,
     pub(crate) parts: Vec<String>,
     pub(crate) clears: Vec<String>,
+    pub(crate) repository_values: Vec<String>,
 }
 
 /// A failed owned-part transfer, with the entity that made sending the document unsafe.
@@ -299,10 +300,29 @@ pub(crate) fn preserve_document<R: ExportRemote + ?Sized>(
                 why: error.to_string(),
                 disappeared: false,
             })?;
+        let recipient = super::adopt::raw_entity_bytes(
+            document,
+            &super::adopt::EntityRef {
+                collection: entity.key.collection().to_string(),
+                name: entity.key.name().to_string(),
+            },
+        )
+        .map_err(|error| PreserveError {
+            key: entity.key.clone(),
+            why: error.to_string(),
+            disappeared: false,
+        })?;
+        let (cleared, repository_values) = split_encrypted(&recipient, &donor, &encrypted)
+            .map_err(|error| PreserveError {
+                key: entity.key.clone(),
+                why: error.to_string(),
+                disappeared: false,
+            })?;
         report.push(PreservedEntity {
             key: entity.key.clone(),
             parts: labels(&carried),
-            clears: labels(&encrypted),
+            clears: labels(&cleared),
+            repository_values: labels(&repository_values),
         });
     }
     Ok((outgoing, report))
@@ -603,7 +623,7 @@ pub(crate) fn preserve_in_bundle(
 /// The owned parts whose value is encrypted on the server, which an import cannot carry: the
 /// Importer encrypts the Exporter's ciphertext a second time, and the Thing is left with a wrong
 /// password (observed on 10.1, 2026-10-20). Such a part is still left out of every comparison,
-/// but it is sent as the repository has it and has to be set again after the import.
+/// but it is sent as the repository has it. An empty repository value needs a deploy hook.
 ///
 /// A PASSWORD column of an owned table column, a whole owned table with a PASSWORD column, and
 /// owned PASSWORD properties the entity itself defines are encrypted.
@@ -653,6 +673,100 @@ pub(crate) fn encrypted(donor: &[u8], parts: &[Part]) -> Result<Vec<Part>, Norma
             _ => None,
         })
         .collect())
+}
+
+/// Classify encrypted fields by whether the repository supplies a non-empty value.
+pub(crate) fn split_encrypted(
+    repository: &[u8],
+    donor: &[u8],
+    encrypted: &[Part],
+) -> Result<(Vec<Part>, Vec<Part>), NormaliseError> {
+    if encrypted.is_empty() {
+        return Ok((Vec::new(), Vec::new()));
+    }
+    let entity = normalise::entity_of(repository)?;
+    let server = normalise::entity_of(donor)?;
+    fn has_value(element: &Element) -> bool {
+        element.children.iter().any(|node| match node {
+            Node::Text(bytes) | Node::Cdata(bytes) => !bytes.iter().all(u8::is_ascii_whitespace),
+            Node::Element(child) => has_value(child),
+            _ => false,
+        })
+    }
+    let mut cleared = Vec::new();
+    let mut supplied = Vec::new();
+    for part in encrypted {
+        let fields: Vec<Part> = match part {
+            Part::Properties(names) => {
+                let names = if names.is_empty() {
+                    children(&server)
+                        .filter(|e| e.name == b"ThingShape")
+                        .flat_map(children)
+                        .filter(|e| e.name == b"PropertyDefinitions")
+                        .flat_map(children)
+                        .filter(|e| attr(e, b"baseType") == Some(b"PASSWORD"))
+                        .filter_map(|e| attr(e, b"name"))
+                        .map(|name| String::from_utf8_lossy(name).into_owned())
+                        .collect()
+                } else {
+                    names.clone()
+                };
+                names
+                    .into_iter()
+                    .map(|name| Part::Properties([name].into()))
+                    .collect()
+            }
+            Part::Table(table, None) => children(&server)
+                .filter(|e| e.name == b"ConfigurationTables")
+                .flat_map(children)
+                .filter(|e| attr(e, b"name") == Some(table.as_bytes()))
+                .flat_map(children)
+                .filter(|e| e.name == b"DataShape")
+                .flat_map(children)
+                .filter(|e| e.name == b"FieldDefinitions")
+                .flat_map(children)
+                .filter(|e| attr(e, b"baseType") == Some(b"PASSWORD"))
+                .filter_map(|e| attr(e, b"name"))
+                .map(|name| {
+                    Part::Table(
+                        table.clone(),
+                        Some(String::from_utf8_lossy(name).into_owned()),
+                    )
+                })
+                .collect(),
+            _ => vec![part.clone()],
+        };
+        for field in fields {
+            let present = match &field {
+                Part::Properties(names) => children(&entity)
+                    .filter(|e| e.name == b"ThingProperties")
+                    .flat_map(children)
+                    .filter(|e| names.iter().any(|name| e.name == name.as_bytes()))
+                    .any(|e| {
+                        let value = children(e).find(|c| c.name == b"Value");
+                        value.map_or_else(|| has_value(e), has_value)
+                    }),
+                Part::Table(table, Some(column)) => children(&entity)
+                    .filter(|e| e.name == b"ConfigurationTables")
+                    .flat_map(children)
+                    .filter(|e| attr(e, b"name") == Some(table.as_bytes()))
+                    .flat_map(children)
+                    .filter(|e| e.name == b"Rows")
+                    .flat_map(children)
+                    .filter(|e| e.name == b"Row")
+                    .flat_map(children)
+                    .filter(|e| e.name == column.as_bytes())
+                    .any(has_value),
+                _ => false,
+            };
+            if present {
+                supplied.push(field);
+            } else {
+                cleared.push(field);
+            }
+        }
+    }
+    Ok((cleared, supplied))
 }
 
 /// `parts` without the encrypted ones, which are sent as the repository has them.

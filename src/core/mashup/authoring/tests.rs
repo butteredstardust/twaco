@@ -2807,6 +2807,147 @@ fn a_contained_mashup_row_is_floored_at_the_childs_measured_height() {
 }
 
 #[test]
+fn contained_card_pair_keeps_natural_floor_through_page_build() {
+    use crate::core::commands::{self, Mode, Notices};
+    use crate::core::mashup::edit::Side;
+
+    for (second_height, below_card) in [
+        (45.0_f64, false),
+        (45.0, true),
+        (65.5, false),
+        (35.0, false),
+    ] {
+        let (dir, solution) = contained_fixture();
+        rewrite_mashup(dir.path(), "Acme.Card_MU", |value| {
+            value["UI"]["Widgets"] = serde_json::from_str(include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fixtures/mashup/Acme.Card_MU.widgets.json"
+            )))
+            .unwrap();
+        });
+        let natural = mashup::edit::parse(&content_of(&solution, "Acme.Card_MU").to_string())
+            .unwrap()
+            .natural_page_height();
+        assert_eq!(natural, Some(81.0));
+        let title = add_one(
+            &solution,
+            "Acme.Board_MU",
+            "label",
+            Placement::In("center".into()),
+            &[],
+        );
+        let add_card = |placement| {
+            let plan = plan_add_contained(
+                &solution,
+                &AddContainedRequest {
+                    mashup: "Acme.Board_MU".into(),
+                    child: "Acme.Card_MU".into(),
+                    placement: Some(placement),
+                    settings: vec![],
+                },
+            )
+            .unwrap();
+            apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+            plan.placed.id
+        };
+        let first = add_card(Placement::Beside {
+            anchor: title,
+            side: Side::Below,
+        });
+        let check_card = |id: &str, floor: f64| {
+            let content = content_of(&solution, "Acme.Board_MU");
+            let parent = parent_id(&content["UI"], id).unwrap();
+            let properties = &find_widget(&content["UI"], &parent).unwrap()["Properties"];
+            assert_eq!(properties["flex-size"], "range", "{id}: {properties}");
+            assert_eq!(
+                properties["flex-min-height"],
+                format!("{}px", floor.ceil()),
+                "{id}: {properties}"
+            );
+        };
+        let check = |expected: f64| {
+            let content = content_of(&solution, "Acme.Board_MU");
+            let center = find_widget(&content["UI"], "flexcontainer-2").unwrap();
+            let row = center["Widgets"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|row| find_widget(row, &first).is_some())
+                .unwrap();
+            assert_eq!(row["Properties"]["flex-size"], "range", "{row}");
+            assert_eq!(
+                row["Properties"]["flex-min-height"],
+                format!("{}px", expected.ceil()),
+                "{row}"
+            );
+            row["Properties"]["Id"].as_str().unwrap().to_string()
+        };
+        check(91.0);
+        check_card(&first, 91.0);
+        rewrite_mashup(dir.path(), "Acme.Card_MU", |value| {
+            for index in [0, 1] {
+                value["UI"]["Widgets"][0]["Widgets"][0]["Widgets"][index]["Properties"]["Height"] =
+                    json!(second_height);
+            }
+        });
+        let second = add_card(Placement::Beside {
+            anchor: first.clone(),
+            side: Side::Right,
+        });
+        let second_floor = second_height.max(34.0).ceil() + 36.0 + 10.0;
+        let expected = 91.0_f64.max(second_floor);
+        let shared_row = check(expected);
+        check_card(&first, 91.0);
+        check_card(&second, second_floor);
+        let gap = commands::mashup::MashupGapRequest {
+            request: GapRequest {
+                mashup: "Acme.Board_MU".into(),
+                container: "center".into(),
+                px: 24,
+            },
+            mode: Mode::Apply,
+            lock_label: "test card gap",
+        };
+        commands::mashup::gap(&solution, &gap, &mut Notices::default()).unwrap();
+        check(expected);
+        add_one(
+            &solution,
+            "Acme.Board_MU",
+            "ptcschartline",
+            Placement::Beside {
+                anchor: if below_card {
+                    second.clone()
+                } else {
+                    shared_row
+                },
+                side: Side::Below,
+            },
+            &[],
+        );
+        check(expected);
+        check_card(&first, 91.0);
+        check_card(&second, second_floor);
+        commands::mashup::gap(&solution, &gap, &mut Notices::default()).unwrap();
+        let page_bytes = || {
+            [
+                "acme/Mashups/Acme.Board_MU.xml",
+                "src/Acme.Board_MU/mashup/content.json",
+                "src/Acme.Board_MU/mashup/custom.css",
+            ]
+            .map(|path| std::fs::read(dir.path().join(path)).unwrap())
+        };
+        let before = page_bytes();
+        let again = commands::mashup::gap(&solution, &gap, &mut Notices::default()).unwrap();
+        assert!(again.plan.edit.is_none());
+        assert!(
+            page_bytes() == before,
+            "repeating gap changed the page bytes"
+        );
+        check(expected);
+    }
+}
+
+#[test]
 fn add_contained_beside_a_label_uses_the_normal_placement_rules() {
     let (_dir, solution) = contained_fixture();
     let label = plan_add(&solution, &add_request("Acme.Board_MU", "label")).unwrap();

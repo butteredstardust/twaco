@@ -51,8 +51,10 @@ impl fmt::Display for ServiceCall {
 pub struct EntityPlan {
     /// Owned parts the import carries from the server.
     pub server_owned: Vec<String>,
-    /// Owned parts holding an encrypted value, which the import clears (a deploy hook sets it).
+    /// Encrypted server-owned parts with no repository value; a deploy hook must set them.
     pub cleared: Vec<String>,
+    /// Encrypted server-owned parts sent with a non-empty repository value.
+    pub repository_values: Vec<String>,
     pub(crate) project: String,
     pub collection: String,
     pub name: String,

@@ -461,6 +461,9 @@ pub(crate) fn import_cmd(solution: &Solution, args: &Import) -> u8 {
                         entry.clears.join(", ")
                     );
                 }
+                if !entry.repository_values.is_empty() {
+                    println!("  {}: sends the repository's {} as written (the server's encrypted value cannot be carried); keep a plain value there, since an exported, already-encrypted value is encrypted again", entry.entity, entry.repository_values.join(", "));
+                }
             }
             println!(
                 "{} {} new and {} replaced entities{}",
