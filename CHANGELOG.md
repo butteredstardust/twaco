@@ -20,6 +20,7 @@ All notable changes to twaco are recorded here. The format follows
 - `menu nest <Root> --group "<Label>=<icon>:<Title>=<Mashup>,..."` writes a root Menu of sub-Menu links and one leaf Menu per group, byte-identical on a rerun (also MCP `entity_edit` action `menu_nest`).
 - `mashup recipe nested-menu` turns a menu bar into an accordion over a nested Menu in a fixed-width column; `mashup recipe navigate-on-click` opens the mashup a clicked collection cell or grid row names.
 - The ThingWorx 10.2 CDS icon names are embedded: every `cds:` value twaco writes (menu `--icon`, `mashup set`, recipes) is checked and an unknown name is refused with the closest names; `twaco widgets --icons [<filter>]` lists them.
+- `mashup move <mashup> <widget>` (also MCP `mashup_move`) moves a widget with its subtree to a new place, keeping its id, properties, bindings and events; the old place is tidied as `mashup remove` does, the new one laid out as `mashup add` does, with the same placement flags, and a widget already in place is a no-op.
 
 ### Fixed
 

@@ -21,6 +21,7 @@ mod collection;
 mod end;
 mod event;
 mod gap;
+mod move_widget;
 mod new;
 mod on;
 mod parameter;
@@ -49,6 +50,8 @@ pub(crate) use event::plan_event;
 pub use event::EventRequest;
 pub(crate) use gap::plan_gap;
 pub use gap::{gap_plan_json, GapPlan, GapRequest};
+pub use move_widget::{describe_placement, move_plan_json, MoveRequest};
+pub(crate) use move_widget::{plan_move, MovePlan};
 pub(crate) use new::{apply_new, parse_visibility, plan_new, NewPlan};
 pub use new::{copy_summary_lines, new_plan_json, template_slots, NewRequest};
 #[cfg(test)]

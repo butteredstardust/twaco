@@ -1530,6 +1530,25 @@ pub(crate) struct MashupRemoveResult {
 }
 
 #[derive(Serialize, JsonSchema)]
+pub(crate) struct MashupMoveResult {
+    applied: bool,
+    dry_run: bool,
+    mashup: String,
+    id: String,
+    moved: Vec<String>,
+    from: String,
+    to: String,
+    changed: bool,
+    containers: Vec<String>,
+    container_contents: Vec<ContainerContents>,
+    flipped: Option<String>,
+    wrapped: Vec<String>,
+    removed: Vec<String>,
+    files: Vec<String>,
+    notices: Notices,
+}
+
+#[derive(Serialize, JsonSchema)]
 pub(crate) struct MashupUnbindResult {
     applied: bool,
     dry_run: bool,

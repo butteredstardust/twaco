@@ -140,6 +140,7 @@ const ADDITIVE: &[&str] = &[
 /// Writing tools that, called again with the same arguments, change nothing more.
 const IDEMPOTENT: &[&str] = &[
     "mashup_gap",
+    "mashup_move",
     "types",
     "fmt",
     "lint_fix_headers",
@@ -646,6 +647,13 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             refactor::mashup_remove_tool,
         )
         .with_output::<outputs::MashupRemoveResult>(),
+        solution_tool::<refactor_requests::MashupMoveRequest>(
+            "mashup_move",
+            "Move a widget and its subtree to another place in a mashup, keeping its id, properties, bindings and events. Placement arguments are those of mashup_add (in [with bottom], right_of [with end], left_of, above, below [with in_column]); the target must lie outside the moved subtree, and the root, the body container and function widgets cannot move. The old place is tidied as mashup_remove does and the new one laid out as mashup_add does; already there is a no-op (changed false). A dry run unless dry_run is false; apply writes the entity and managed content sidecar together.",
+            false,
+            refactor::mashup_move_tool,
+        )
+        .with_output::<outputs::MashupMoveResult>(),
         solution_tool::<refactor_requests::MashupUnbindRequest>(
             "mashup_unbind",
             "Remove exactly one existing data binding selected by its source and target addresses. A dry run unless dry_run is false; apply writes the entity and managed content sidecar together.",
@@ -1108,6 +1116,7 @@ pub(crate) const GROUPS: &[(&str, &[&str])] = &[
             "mashup_on",
             "mashup_gap",
             "mashup_remove",
+            "mashup_move",
             "mashup_unbind",
             "mashup_off",
             "widgets",

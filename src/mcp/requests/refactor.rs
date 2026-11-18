@@ -1247,6 +1247,37 @@ pub(crate) struct MashupRemoveRequest {
 
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct MashupMoveRequest {
+    /// The existing mashup's name.
+    pub(crate) mashup: String,
+    /// The widget to move, by id, display name, or unique catalogue name; its subtree moves with it.
+    pub(crate) widget: String,
+    /// Put the widget in this responsive container.
+    #[serde(default, rename = "in", skip_serializing_if = "Absent::is_absent")]
+    pub(crate) container: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) right_of: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) left_of: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) above: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) below: Absent<String>,
+    /// With right_of: the far end of the anchor's row, as mashup_add.
+    #[serde(default)]
+    pub(crate) end: bool,
+    /// With in: a footer row at the bottom of that column, as mashup_add.
+    #[serde(default)]
+    pub(crate) bottom: bool,
+    /// With below: stack within the anchor's column of a split row, as mashup_add.
+    #[serde(default)]
+    pub(crate) in_column: bool,
+    #[serde(default = "default_true")]
+    pub(crate) dry_run: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct MashupUnbindRequest {
     /// The existing mashup's name.
     pub(crate) mashup: String,

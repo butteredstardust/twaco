@@ -892,6 +892,17 @@ pub(crate) const USAGE: &[Usage] = &[
       --cascade                also remove proven bindings and event handlers; leave data calls for review"#,
     },
     Usage {
+        path: "mashup move",
+        group: 1,
+        text: r#"  mashup move <mashup> <widget> [--in <container> [--bottom] | --right-of <widget> [--end] | --left-of <widget> | --above <widget> | --below <widget>]
+      [--in-column] [--apply] [--json]
+                              move a widget and its subtree, keeping ids, properties, bindings and events;
+                              the old place is tidied as mashup remove does, the new one laid out as
+                              mashup add does; plan unless --apply; already there is a no-op
+      --in/--bottom/--right-of/--left-of/--above/--below/--end/--in-column
+                              as mashup add; the target must lie outside the moved subtree"#,
+    },
+    Usage {
         path: "mashup unbind",
         group: 1,
         text: r#"  mashup unbind <mashup> --from <address> --to <address> [--apply] [--json]

@@ -311,17 +311,161 @@ impl MashupDocument {
     /// Remove the widget at `path`, then the empty containers twaco made around it; returns the
     /// ids of those containers, so the caller can say they went too.
     pub(crate) fn remove_widget(&mut self, path: &[usize]) -> Result<Vec<String>, EditError> {
+        self.detach_widget(path).map(|(_, tidied)| tidied)
+    }
+
+    /// As [`Self::remove_widget`], returning the subtree that was taken out.
+    pub(crate) fn detach_widget(
+        &mut self,
+        path: &[usize],
+    ) -> Result<(Value, Vec<String>), EditError> {
         let Some((&index, parent)) = path.split_last() else {
             return Err(EditError::Refused(
                 "the mashup root cannot be removed".into(),
             ));
         };
-        children_mut(self.at_mut(parent)).remove(index);
+        let subtree = children_mut(self.at_mut(parent)).remove(index);
         let (parent, tidied) = self.remove_empty_generated_wrappers(parent.to_vec());
         self.drop_stray_spacers(&parent);
         let around = widget_id(self.at(&parent)).to_string();
         self.reflow_at(&parent, &Reflow::Edit { around: &around });
-        Ok(tidied)
+        Ok((subtree, tidied))
+    }
+
+    /// Whether the widget at `path` already sits where `placement` would put it: in the
+    /// container (directly or in a single-child wrapper twaco made), in its footer row, or next
+    /// to the anchor on the right axis.
+    pub(crate) fn is_placed_at(&self, path: &[usize], placement: &Placement) -> bool {
+        let Some((_, parent)) = path.split_last() else {
+            return false;
+        };
+        let wrapped_in = |target: &[usize]| {
+            parent.split_last().is_some_and(|(_, grand)| {
+                grand == target
+                    && is_generated_container(self.at(parent))
+                    && !is_footer(self.at(parent))
+                    && children(self.at(parent)).len() == 1
+            })
+        };
+        match placement {
+            Placement::In(target) => self
+                .find(target)
+                .is_ok_and(|target| parent == target.path.as_slice() || wrapped_in(&target.path)),
+            Placement::Bottom(target) => self.find(target).is_ok_and(|target| {
+                is_footer(self.at(parent))
+                    && parent
+                        .split_last()
+                        .is_some_and(|(_, grand)| grand == target.path)
+            }),
+            Placement::BelowInColumn(anchor) => self.next_to(path, anchor, Side::Below),
+            Placement::Beside {
+                anchor,
+                side: Side::End,
+            } => self.at_end_of(path, anchor),
+            Placement::Beside { anchor, side } => self.next_to(path, anchor, *side),
+        }
+    }
+
+    /// Whether the widget is the first of the end group of a split row whose start group ends
+    /// with the anchor: what `--end` leaves.
+    fn at_end_of(&self, path: &[usize], anchor: &str) -> bool {
+        let Ok(anchor) = self.find(anchor) else {
+            return false;
+        };
+        let Some((&at, group)) = path.split_last() else {
+            return false;
+        };
+        let Some((&group_at, row)) = group.split_last() else {
+            return false;
+        };
+        let (end, start) = (self.at(group), children(self.at(row)).first());
+        is_generated_container(end)
+            && end["Properties"]["justify-content"] == "flex-end"
+            && at == 0
+            && group_at == 1
+            && is_split_row(self.at(row))
+            && start.is_some_and(|start| {
+                anchor.path.len() == row.len() + 2
+                    && anchor.path.starts_with(row)
+                    && anchor.path[row.len()] == 0
+                    && anchor.path[row.len() + 1] + 1 == children(start).len()
+            })
+    }
+
+    /// Whether `anchor` is a wrapper twaco made around only the widget at `path`, which taking
+    /// the widget out would remove.
+    pub(crate) fn is_sole_wrapper_of(&self, path: &[usize], anchor: &[usize]) -> bool {
+        let mut wrapper = path.to_vec();
+        wrapper.pop();
+        while wrapper.len() > 1
+            && is_generated_container(self.at(&wrapper))
+            && !is_footer(self.at(&wrapper))
+            && children(self.at(&wrapper))
+                .iter()
+                .filter(|child| !is_spacer(child))
+                .count()
+                == 1
+        {
+            if wrapper == anchor {
+                return true;
+            }
+            wrapper.pop();
+        }
+        false
+    }
+
+    fn next_to(&self, path: &[usize], anchor: &str, side: Side) -> bool {
+        let Ok(anchor) = self.find(anchor) else {
+            return false;
+        };
+        let unit = |path: &[usize]| -> WidgetPath {
+            match path.split_last() {
+                Some((_, parent))
+                    if !parent.is_empty()
+                        && is_generated_container(self.at(parent))
+                        && children(self.at(parent))
+                            .iter()
+                            .filter(|child| !is_spacer(child))
+                            .count()
+                            == 1 =>
+                {
+                    parent.to_vec()
+                }
+                _ => path.to_vec(),
+            }
+        };
+        let widget = unit(path);
+        // Beside a widget that sits in a row or column twaco made means beside that row or
+        // column, as the placement promotes the anchor to it.
+        let mut candidate = unit(&anchor.path);
+        loop {
+            if self.adjacent(&widget, &candidate, side) {
+                return true;
+            }
+            candidate.pop();
+            if candidate.len() < 2 || !is_generated_container(self.at(&candidate)) {
+                return false;
+            }
+        }
+    }
+
+    fn adjacent(&self, widget: &[usize], anchor: &[usize], side: Side) -> bool {
+        let (Some((&at, parent)), Some((&anchor_at, anchor_parent))) =
+            (widget.split_last(), anchor.split_last())
+        else {
+            return false;
+        };
+        if parent != anchor_parent || self.at(parent)["Properties"]["flex-direction"] != side.axis()
+        {
+            return false;
+        }
+        let siblings = children(self.at(parent));
+        let neighbour = |range: Vec<usize>| range.into_iter().find(|i| !is_spacer(&siblings[*i]));
+        if side.before() {
+            neighbour((at + 1..siblings.len()).collect()) == Some(anchor_at)
+        } else {
+            neighbour((0..at).rev().collect()) == Some(anchor_at)
+        }
     }
 
     /// After a removal: no spacer at either end of `parent`, none beside another, none after a
@@ -379,8 +523,8 @@ impl MashupDocument {
         insert_sorted(self.root_mut(), key, value);
     }
 
-    /// The next free number for a new widget id, which the root's `id_index` then records.
-    pub(crate) fn allocate(&mut self) -> u64 {
+    /// The highest id number in use or recorded as `id_index`.
+    fn highest_id(&self) -> u64 {
         let used = self
             .widgets()
             .iter()
@@ -391,7 +535,19 @@ impl MashupDocument {
             .get("id_index")
             .and_then(Value::as_u64)
             .unwrap_or(0);
-        let next = used.max(index) + 1;
+        used.max(index)
+    }
+
+    /// Record every id in use in `id_index`, so ids allocated after part of the tree is taken
+    /// out never reuse one from it.
+    pub(crate) fn reserve_ids(&mut self) {
+        let highest = self.highest_id();
+        insert_sorted(self.root_properties_mut(), "id_index", Value::from(highest));
+    }
+
+    /// The next free number for a new widget id, which the root's `id_index` then records.
+    pub(crate) fn allocate(&mut self) -> u64 {
+        let next = self.highest_id() + 1;
         insert_sorted(self.root_properties_mut(), "id_index", Value::from(next));
         next
     }
@@ -431,7 +587,29 @@ impl MashupDocument {
         widget: &Widget,
         placement: &Placement,
     ) -> Result<Placed, EditError> {
-        let placed = match placement {
+        self.place_with(widget, placement, None)
+    }
+
+    /// Put an existing subtree (taken out with [`Self::detach_widget`]) where `place` would put
+    /// a new widget of its type. The layout code runs with a catalogue stand-in, which is then
+    /// swapped for the subtree; the subtree keeps its ids and properties, and only the layout
+    /// key twaco owns for its slot (`ResponsiveLayout`) follows the stand-in.
+    pub(crate) fn place_existing(
+        &mut self,
+        widget: &Widget,
+        subtree: Value,
+        placement: &Placement,
+    ) -> Result<Placed, EditError> {
+        self.place_with(widget, placement, Some(subtree))
+    }
+
+    fn place_with(
+        &mut self,
+        widget: &Widget,
+        placement: &Placement,
+        moved: Option<Value>,
+    ) -> Result<Placed, EditError> {
+        let mut placed = match placement {
             Placement::In(target) => self.place_in(widget, target),
             Placement::Bottom(target) => self.place_at_bottom(widget, target),
             Placement::BelowInColumn(anchor) => {
@@ -463,7 +641,14 @@ impl MashupDocument {
             }
             Placement::Beside { anchor, side } => self.place_beside(widget, anchor, *side),
         }?;
-        if widget.type_id == "flexcontainer" {
+        let keeps_own = moved.is_some();
+        let moved_container = moved
+            .as_ref()
+            .is_some_and(|subtree| type_of(subtree) == Some("flexcontainer"));
+        if let Some(subtree) = moved {
+            placed = self.swap_in(placed, subtree)?;
+        }
+        if widget.type_id == "flexcontainer" && !moved_container {
             // A container someone asked for is a panel or card of their own, not a wrapper
             // twaco made: it gets a name the wrapper rules never take for theirs, and stacks its
             // content, as the kits' cards and panels do.
@@ -477,13 +662,45 @@ impl MashupDocument {
                 self.set_property(&found.path, "flex-direction", Value::from("column"));
             }
         }
-        self.style_filter_control(&placed);
+        self.style_filter_control(&placed, keeps_own);
         self.fit_placed_width(&placed.id);
         self.keep_remainders_last(&placed);
         self.keep_footers_last();
         self.release_moved_rows(&placed);
         self.fix_rows(&placed);
         self.inherit_backgrounds(&placed);
+        Ok(placed)
+    }
+
+    /// Replace the stand-in `placed` names with `subtree`, which keeps its own id.
+    fn swap_in(&mut self, mut placed: Placed, mut subtree: Value) -> Result<Placed, EditError> {
+        let found = self.find(&placed.id)?;
+        let stand_in = self.at(&found.path).clone();
+        if type_of(&subtree) != Some("flexcontainer") {
+            let wanted = stand_in["Properties"]["ResponsiveLayout"].clone();
+            let properties = properties_mut(&mut subtree);
+            let current = properties.get("ResponsiveLayout").cloned();
+            if current.as_ref() != Some(&wanted) && (current.is_some() || wanted == true) {
+                insert_sorted(properties, "ResponsiveLayout", wanted.clone());
+                if wanted == false {
+                    for key in ["Width", "Height"] {
+                        if let (false, Some(size)) = (
+                            properties.contains_key(key),
+                            stand_in["Properties"].get(key),
+                        ) {
+                            insert_sorted(properties, key, size.clone());
+                        }
+                    }
+                }
+            }
+        }
+        let old = std::mem::replace(&mut placed.id, widget_id(&subtree).to_string());
+        placed.containers.retain(|id| *id != old);
+        let (&index, parent) = found
+            .path
+            .split_last()
+            .expect("a placed widget has a parent");
+        self.replace_child(parent, index, subtree);
         Ok(placed)
     }
 
@@ -535,7 +752,8 @@ impl MashupDocument {
 
     /// The filter-panel's named slot keeps the kit's per-control insets, including after
     /// footer placement has moved its bare controls into rows.
-    fn style_filter_control(&mut self, placed: &Placed) {
+    /// A moved widget keeps the width and margin it has.
+    fn style_filter_control(&mut self, placed: &Placed, keeps_own: bool) {
         let Ok(filters) = self.find("filters") else {
             return;
         };
@@ -556,8 +774,14 @@ impl MashupDocument {
         if let Some(depth) = footer {
             self.set_property(&found.path[..depth], "Margin", Value::from("0 5"));
             if found.type_id == "ptcsbutton" {
-                self.set_property(&found.path, "Width", Value::from(110));
-                self.set_property(&found.path, "Margin", Value::from("0"));
+                let own = self.at(&found.path)["Properties"].clone();
+                let has = |key: &str| keeps_own && own.get(key).is_some();
+                if !has("Width") {
+                    self.set_property(&found.path, "Width", Value::from(110));
+                }
+                if !has("Margin") {
+                    self.set_property(&found.path, "Margin", Value::from("0"));
+                }
             }
         } else if !can_fill(self.at(&found.path)) {
             let first = self
@@ -567,11 +791,13 @@ impl MashupDocument {
                     widget.path.starts_with(&filters.path) && widget.type_id != "flexcontainer"
                 })
                 .is_some_and(|widget| widget.id == placed.id);
-            self.set_property(
-                &found.path,
-                "Margin",
-                Value::from(if first { "5 0" } else { "13 0 5" }),
-            );
+            if !(keeps_own && self.at(&found.path)["Properties"].get("Margin").is_some()) {
+                self.set_property(
+                    &found.path,
+                    "Margin",
+                    Value::from(if first { "5 0" } else { "13 0 5" }),
+                );
+            }
         }
         for id in &placed.containers {
             if let Ok(row) = self.find(id) {
@@ -5111,6 +5337,38 @@ mod tests {
 #[cfg(test)]
 mod placement_walkthrough {
     use super::*;
+
+    #[test]
+    fn ids_reserved_before_a_detach_are_not_reused() {
+        let catalog = widgets::catalog();
+        for reserve in [false, true] {
+            let mut document = parse(crate::core::mashup::templates::BLANK).unwrap();
+            let panel = document
+                .place(
+                    catalog.resolve("container").unwrap(),
+                    &Placement::In("center".into()),
+                )
+                .unwrap()
+                .id;
+            document
+                .place(
+                    catalog.resolve("label").unwrap(),
+                    &Placement::In(panel.clone()),
+                )
+                .unwrap();
+            // An imported mashup: no id_index, so only the ids in the tree count.
+            document.root_properties_mut().remove("id_index");
+            let highest = document.highest_id();
+            if reserve {
+                document.reserve_ids();
+            }
+            let path = document.find(&panel).unwrap().path;
+            document.detach_widget(&path).unwrap();
+            let next = document.allocate();
+            // Without the reservation the detached subtree's numbers would be handed out again.
+            assert_eq!(next > highest, reserve, "next {next}, highest {highest}");
+        }
+    }
 
     /// The user's example on the real blank template: a chart in center, a grid to its right, a
     /// button below the grid. Prints the tree so a person can read the result.

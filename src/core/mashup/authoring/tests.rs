@@ -11220,3 +11220,485 @@ fn the_catalogue_has_the_events_and_properties_the_click_recipe_uses() {
     assert!(navigation.property("TargetMashup").is_some());
     assert!(navigation.property("TargetWindowType").is_some());
 }
+
+fn add_at(solution: &Solution, mashup: &str, widget: &str, placement: Placement) -> String {
+    let mut add = add_request(mashup, widget);
+    add.placement = Some(placement);
+    let plan = plan_add(solution, &add).unwrap();
+    apply_edit(solution, &plan.edit, &lock(solution)).unwrap();
+    plan.placed.id
+}
+
+fn beside_of(anchor: &str, side: mashup::edit::Side) -> Placement {
+    Placement::Beside {
+        anchor: anchor.into(),
+        side,
+    }
+}
+
+fn move_request(mashup: &str, widget: &str, placement: Placement) -> MoveRequest {
+    MoveRequest {
+        mashup: mashup.into(),
+        widget: widget.into(),
+        placement: Some(placement),
+    }
+}
+
+fn move_applied(solution: &Solution, request: &MoveRequest) -> MovePlan {
+    let plan = plan_move(solution, request).unwrap();
+    apply_edit(solution, plan.edit.as_ref().unwrap(), &lock(solution)).unwrap();
+    plan
+}
+
+fn move_fixture(name: &str) -> (tempfile::TempDir, Solution) {
+    let (dir, solution) = one_project();
+    apply_new(
+        &solution,
+        &plan_new(&solution, &request(name)).unwrap(),
+        &lock(&solution),
+    )
+    .unwrap();
+    (dir, solution)
+}
+
+fn ids_of(value: &Value) -> Vec<String> {
+    fn walk(widget: &Value, out: &mut Vec<String>) {
+        out.push(widget["Properties"]["Id"].as_str().unwrap().to_string());
+        for child in widget["Widgets"].as_array().into_iter().flatten() {
+            walk(child, out);
+        }
+    }
+    let mut out = Vec::new();
+    walk(&value["UI"], &mut out);
+    out
+}
+
+fn parent_of<'a>(widget: &'a Value, id: &str) -> Option<&'a Value> {
+    let children = widget["Widgets"].as_array()?;
+    if children.iter().any(|child| child["Properties"]["Id"] == id) {
+        return Some(widget);
+    }
+    children.iter().find_map(|child| parent_of(child, id))
+}
+
+#[test]
+fn moving_a_label_keeps_its_identity_and_tidies_the_row_it_left() {
+    let name = "Acme.Move_MU";
+    let (_dir, solution) = move_fixture(name);
+    let first = add_at(&solution, name, "label", Placement::In("center".into()));
+    let second = add_at(
+        &solution,
+        name,
+        "label",
+        beside_of(&first, mashup::edit::Side::Below),
+    );
+    let set = SetRequest {
+        mashup: name.into(),
+        widget: second.clone(),
+        properties: vec![
+            ("LabelText".into(), json!("Kept text")),
+            ("Margin".into(), json!("3 4")),
+        ],
+        style_from: None,
+        styles: vec![],
+    };
+    let plan = plan_set(&solution, &set).unwrap();
+    apply_edit(&solution, plan.edit.as_ref().unwrap(), &lock(&solution)).unwrap();
+    let before = content_of(&solution, name);
+    let before_widget = find_widget(&before["UI"], &second).unwrap().clone();
+
+    let plan = move_applied(
+        &solution,
+        &move_request(name, &second, beside_of(&first, mashup::edit::Side::Right)),
+    );
+    assert_eq!(plan.widget, second);
+    assert!(
+        !plan.removed.is_empty(),
+        "the row it left is empty and goes: {plan:?}"
+    );
+    let after = content_of(&solution, name);
+    let moved = find_widget(&after["UI"], &second).unwrap();
+    assert_eq!(
+        moved["Properties"]["DisplayName"],
+        before_widget["Properties"]["DisplayName"]
+    );
+    assert_eq!(moved["Properties"]["LabelText"], "Kept text");
+    assert_eq!(moved["Properties"]["Margin"], "3 4");
+    for removed in &plan.removed {
+        assert!(!ids_of(&after).contains(removed));
+    }
+    let row = parent_of(&after["UI"], &second).unwrap();
+    let siblings = row["Widgets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|child| child["Properties"]["Id"].as_str().unwrap().to_string())
+        .collect::<Vec<_>>();
+    assert_eq!(siblings, [first.clone(), second.clone()]);
+    assert_eq!(row["Properties"]["flex-direction"], "row");
+    let ids = ids_of(&after);
+    assert_eq!(
+        ids.len(),
+        ids.iter().collect::<std::collections::BTreeSet<_>>().len()
+    );
+}
+
+#[test]
+fn moving_where_the_widget_already_is_edits_nothing() {
+    let name = "Acme.Move_MU";
+    let (_dir, solution) = move_fixture(name);
+    let first = add_at(&solution, name, "label", Placement::In("center".into()));
+    let second = add_at(
+        &solution,
+        name,
+        "label",
+        beside_of(&first, mashup::edit::Side::Right),
+    );
+    let third = add_at(
+        &solution,
+        name,
+        "label",
+        beside_of(&first, mashup::edit::Side::Below),
+    );
+    for (widget, placement) in [
+        (&second, beside_of(&first, mashup::edit::Side::Right)),
+        (&third, beside_of(&first, mashup::edit::Side::Below)),
+        (&second, Placement::In("center".into())),
+    ] {
+        let plan = plan_move(&solution, &move_request(name, widget, placement)).unwrap();
+        assert!(plan.edit.is_none(), "{widget}: {plan:?}");
+    }
+    let left = move_request(name, &second, beside_of(&third, mashup::edit::Side::Left));
+    let moved = move_applied(&solution, &left);
+    let again = plan_move(&solution, &left).unwrap();
+    assert!(again.edit.is_none(), "{moved:?} then {again:?}");
+}
+
+#[test]
+fn moving_a_bound_grid_keeps_its_bindings() {
+    let (_dir, solution) = bind_fixture();
+    let name = "Acme.Orders_MU";
+    let button = add_at(&solution, name, "button", Placement::In("center".into()));
+    let grid_id = "ptcsgrid-5";
+    let bound = plan_bind(
+        &solution,
+        &BindRequest {
+            mashup: name.into(),
+            from: "data:Acme.Orders.Manager.GetOrders".into(),
+            to: format!("ui:{grid_id}.Data"),
+        },
+    )
+    .unwrap();
+    apply_edit(&solution, &bound.edit, &lock(&solution)).unwrap();
+    let handler = on(
+        &solution,
+        &format!("ui:{button}.Clicked"),
+        "data:Acme.Orders.Manager.GetOrders",
+    )
+    .unwrap();
+    apply_edit(&solution, &handler.edit, &lock(&solution)).unwrap();
+    let before = content_of(&solution, name);
+    assert!(find_widget(&before["UI"], grid_id).is_some());
+    let plan = move_applied(
+        &solution,
+        &move_request(name, grid_id, beside_of(&button, mashup::edit::Side::Below)),
+    );
+    assert_eq!(plan.widget, grid_id);
+    let after = content_of(&solution, name);
+    assert_eq!(after["DataBindings"], before["DataBindings"]);
+    assert_eq!(after["Events"], before["Events"]);
+    assert_eq!(after["Data"], before["Data"]);
+    assert_eq!(
+        find_widget(&after["UI"], grid_id).unwrap()["Properties"]["DisplayName"],
+        find_widget(&before["UI"], grid_id).unwrap()["Properties"]["DisplayName"]
+    );
+    assert!(ids_of(&after).contains(&button));
+}
+
+#[test]
+fn moving_a_container_takes_its_contents_along() {
+    let name = "Acme.Move_MU";
+    let (_dir, solution) = move_fixture(name);
+    let panel = add_at(&solution, name, "container", Placement::In("center".into()));
+    let inside = add_at(&solution, name, "label", Placement::In(panel.clone()));
+    let other = add_at(&solution, name, "label", Placement::In("center".into()));
+    let before = content_of(&solution, name);
+    let panel_before = find_widget(&before["UI"], &panel).unwrap().clone();
+    let plan = move_applied(
+        &solution,
+        &move_request(name, &panel, beside_of(&other, mashup::edit::Side::Right)),
+    );
+    assert!(plan.moved.contains(&inside) && plan.moved.contains(&panel));
+    let after = content_of(&solution, name);
+    let moved = find_widget(&after["UI"], &panel).unwrap();
+    assert_eq!(
+        moved["Properties"]["DisplayName"],
+        panel_before["Properties"]["DisplayName"]
+    );
+    assert_eq!(moved["Widgets"], panel_before["Widgets"]);
+    assert_eq!(
+        parent_of(&after["UI"], &inside).unwrap()["Properties"]["Id"],
+        panel
+    );
+}
+
+#[test]
+fn a_move_into_itself_or_with_an_anchor_in_the_subtree_is_refused() {
+    let name = "Acme.Move_MU";
+    let (_dir, solution) = move_fixture(name);
+    let panel = add_at(&solution, name, "container", Placement::In("center".into()));
+    let inside = add_at(&solution, name, "label", Placement::In(panel.clone()));
+    let other = add_at(&solution, name, "label", Placement::In("center".into()));
+    for placement in [
+        Placement::In(panel.clone()),
+        beside_of(&inside, mashup::edit::Side::Right),
+        beside_of(&panel, mashup::edit::Side::Below),
+    ] {
+        let error = plan_move(&solution, &move_request(name, &panel, placement)).unwrap_err();
+        assert!(matches!(error, AuthoringError::Refused(_)), "{error}");
+    }
+    for widget in [mashup::edit::ROOT_ID, "center"] {
+        let error = plan_move(
+            &solution,
+            &move_request(name, widget, beside_of(&other, mashup::edit::Side::Below)),
+        )
+        .unwrap_err();
+        assert!(
+            matches!(error, AuthoringError::Refused(_)),
+            "{widget}: {error}"
+        );
+    }
+    let error = plan_move(
+        &solution,
+        &MoveRequest {
+            mashup: name.into(),
+            widget: other.clone(),
+            placement: None,
+        },
+    )
+    .unwrap_err();
+    assert!(matches!(error, AuthoringError::Invalid(_)));
+    let error = plan_move(
+        &solution,
+        &move_request(name, &other, Placement::In(inside.clone())),
+    )
+    .unwrap_err();
+    assert!(
+        error.to_string().contains("not a responsive container"),
+        "{error}"
+    );
+}
+
+#[test]
+fn the_move_plan_reports_its_shape_as_json() {
+    let name = "Acme.Move_MU";
+    let (_dir, solution) = move_fixture(name);
+    let first = add_at(&solution, name, "label", Placement::In("center".into()));
+    let second = add_at(
+        &solution,
+        name,
+        "label",
+        beside_of(&first, mashup::edit::Side::Below),
+    );
+    let plan = plan_move(
+        &solution,
+        &move_request(name, &second, beside_of(&first, mashup::edit::Side::Right)),
+    )
+    .unwrap();
+    let report = move_plan_json(&solution, &plan, false);
+    assert_eq!(report["id"], second);
+    assert_eq!(report["mashup"], name);
+    assert_eq!(report["changed"], true);
+    assert_eq!(report["applied"], false);
+    assert_eq!(report["to"], format!("right of {first}"));
+    for key in [
+        "moved",
+        "from",
+        "containers",
+        "container_contents",
+        "flipped",
+        "wrapped",
+        "removed",
+        "files",
+    ] {
+        assert!(report.get(key).is_some(), "{key}");
+    }
+    let itself = plan_move(
+        &solution,
+        &move_request(name, &second, beside_of(&second, mashup::edit::Side::Right)),
+    );
+    assert!(matches!(itself, Err(AuthoringError::Refused(_))));
+}
+
+fn wrap_in_generated(widget: &mut Value, id: &str, wrapper: &str) -> bool {
+    let Some(kids) = widget["Widgets"].as_array_mut() else {
+        return false;
+    };
+    if let Some(at) = kids.iter().position(|kid| kid["Properties"]["Id"] == id) {
+        let inner = kids[at].take();
+        kids[at] = json!({
+            "Properties": {
+                "DisplayName": format!("container-{}", wrapper.rsplit('-').next().unwrap()),
+                "Id": wrapper,
+                "Type": "flexcontainer",
+                "flex-direction": "row"
+            },
+            "Widgets": [inner]
+        });
+        return true;
+    }
+    kids.iter_mut()
+        .any(|kid| wrap_in_generated(kid, id, wrapper))
+}
+
+#[test]
+fn a_move_never_reuses_an_id_from_the_subtree_it_took_out() {
+    let name = "Acme.Move_MU";
+    let (dir, solution) = move_fixture(name);
+    let anchor = add_at(&solution, name, "label", Placement::In("center".into()));
+    let panel = add_at(&solution, name, "container", Placement::In("center".into()));
+    let inside = add_at(&solution, name, "label", Placement::In(panel.clone()));
+    let top = ids_of(&content_of(&solution, name))
+        .iter()
+        .filter(|id| **id != panel && **id != inside)
+        .filter_map(|id| id.rsplit('-').next()?.parse::<u64>().ok())
+        .max()
+        .unwrap();
+    let (new_panel, new_inside) = (
+        format!("flexcontainer-{}", top + 1),
+        format!("ptcslabel-{}", top + 2),
+    );
+    rewrite_mashup(dir.path(), name, |value| {
+        value["UI"]["Properties"]
+            .as_object_mut()
+            .unwrap()
+            .remove("id_index");
+        let text = value.to_string().replace(&panel, &new_panel);
+        *value = serde_json::from_str(&text.replace(&inside, &new_inside)).unwrap();
+    });
+    move_applied(
+        &solution,
+        &move_request(
+            name,
+            &new_panel,
+            beside_of(&anchor, mashup::edit::Side::Right),
+        ),
+    );
+    let ids = ids_of(&content_of(&solution, name));
+    assert_eq!(
+        ids.len(),
+        ids.iter().collect::<std::collections::BTreeSet<_>>().len(),
+        "{ids:?}"
+    );
+    assert!(ids.contains(&new_panel) && ids.contains(&new_inside));
+}
+
+#[test]
+fn moving_to_the_end_of_a_row_is_a_no_op_only_when_the_row_is_already_split_there() {
+    let name = "Acme.Move_MU";
+    let (_dir, solution) = move_fixture(name);
+    let a = add_at(&solution, name, "label", Placement::In("center".into()));
+    let b = add_at(
+        &solution,
+        name,
+        "label",
+        beside_of(&a, mashup::edit::Side::Right),
+    );
+    let c = add_at(
+        &solution,
+        name,
+        "label",
+        beside_of(&b, mashup::edit::Side::Right),
+    );
+    let end = beside_of(&a, mashup::edit::Side::End);
+    let result = plan_move(&solution, &move_request(name, &b, end.clone()));
+    assert!(
+        !matches!(&result, Ok(plan) if plan.edit.is_none()),
+        "{result:?} on row [{a}, {b}, {c}]"
+    );
+    let (_dir, solution) = move_fixture(name);
+    let a = add_at(&solution, name, "shape", Placement::In("center".into()));
+    add_at(
+        &solution,
+        name,
+        "shape",
+        beside_of(&a, mashup::edit::Side::Below),
+    );
+    let b = add_at(
+        &solution,
+        name,
+        "label",
+        beside_of(&a, mashup::edit::Side::Right),
+    );
+    let v = add_at(
+        &solution,
+        name,
+        "label",
+        beside_of(&b, mashup::edit::Side::End),
+    );
+    let plan = plan_move(
+        &solution,
+        &move_request(name, &v, beside_of(&b, mashup::edit::Side::End)),
+    )
+    .unwrap();
+    assert!(plan.edit.is_none(), "{plan:?}");
+}
+
+#[test]
+fn a_moved_button_keeps_its_width_and_margin_in_a_filters_footer() {
+    use crate::core::mashup::edit::Placement;
+    let template = mashup::templates::layout("filter-panel").unwrap().unwrap();
+    let mut document = new_document(&template, false, DEFAULT_THEME).unwrap();
+    let catalog = widgets::catalog();
+    let button = document
+        .place(
+            catalog.resolve("button").unwrap(),
+            &Placement::In("content".into()),
+        )
+        .unwrap()
+        .id;
+    let path = document.find(&button).unwrap().path;
+    document.set_property(&path, "Width", json!(200));
+    document.set_property(&path, "Margin", json!("3"));
+    let (subtree, _) = document.detach_widget(&path).unwrap();
+    let placed = document
+        .place_existing(
+            catalog.resolve("button").unwrap(),
+            subtree,
+            &Placement::Bottom("filters".into()),
+        )
+        .unwrap();
+    let found = document.find(&placed.id).unwrap();
+    assert_eq!(found.id, button);
+    let properties = &document.at(&found.path)["Properties"];
+    assert_eq!(properties["Width"], 200);
+    assert_eq!(properties["Margin"], "3");
+}
+
+#[test]
+fn a_move_next_to_its_own_wrapper_is_refused_and_from_names_a_surviving_parent() {
+    let name = "Acme.Move_MU";
+    let (dir, solution) = move_fixture(name);
+    let a = add_at(&solution, name, "label", Placement::In("center".into()));
+    let b = add_at(&solution, name, "label", Placement::In("center".into()));
+    rewrite_mashup(dir.path(), name, |value| {
+        assert!(wrap_in_generated(&mut value["UI"], &b, "flexcontainer-90"));
+    });
+    let error = plan_move(
+        &solution,
+        &move_request(
+            name,
+            &b,
+            beside_of("flexcontainer-90", mashup::edit::Side::Right),
+        ),
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("own wrapper"), "{error}");
+    let plan = move_applied(
+        &solution,
+        &move_request(name, &b, beside_of(&a, mashup::edit::Side::Right)),
+    );
+    assert_eq!(plan.removed, ["flexcontainer-90"]);
+    assert_eq!(plan.from, "flexcontainer-2");
+}
