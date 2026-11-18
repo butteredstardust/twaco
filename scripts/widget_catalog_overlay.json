@@ -29,8 +29,41 @@
       "type_display_name": "Responsive Container",
       "display_name": "container",
       "container": true,
+      "overrides": {
+        "ExpandCollapseTabLocation": "outside"
+      },
       "contract": {
+        "services": {
+          "ToggleExpandCollapse": {},
+          "Expand": {},
+          "Collapse": {}
+        },
         "properties": {
+          "ExpandCollapseTabLocation": {
+            "baseType": "STRING",
+            "isBindingTarget": false,
+            "isBindingSource": false,
+            "selectOptions": [
+              {
+                "value": "inside",
+                "text": "inside"
+              },
+              {
+                "value": "outside",
+                "text": "outside"
+              }
+            ]
+          },
+          "CollapseTabIcon": {
+            "baseType": "IMAGELINK",
+            "isBindingTarget": false,
+            "isBindingSource": false
+          },
+          "ExpandTabIcon": {
+            "baseType": "IMAGELINK",
+            "isBindingTarget": false,
+            "isBindingSource": false
+          },
           "CustomClass": {
             "baseType": "STRING",
             "isBindingTarget": true,

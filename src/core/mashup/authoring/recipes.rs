@@ -19,6 +19,13 @@ const MAX_COMBO_SERIES: usize = 24;
 /// One recipe and what it needs. Addresses are those `mashup bind` and `mashup on` take.
 #[derive(Clone, Debug)]
 pub enum Recipe {
+    Collapsible {
+        container: String,
+        toggle: Option<String>,
+        add_toggle_in: Option<String>,
+        tab: String,
+        collapsed: bool,
+    },
     /// A widget enabled only while a condition holds (an expression into `Disabled`; 146 seen).
     EnableWhen {
         widget: String,
@@ -147,6 +154,7 @@ pub struct RecipePlan {
 impl Recipe {
     pub(crate) fn name(&self) -> &'static str {
         match self {
+            Self::Collapsible { .. } => "collapsible",
             Self::EnableWhen { .. } => "enable-when",
             Self::ShowWhen { .. } => "show-when",
             Self::Text { .. } => "text",
@@ -550,6 +558,131 @@ pub(crate) fn plan_recipe(
         notes: Vec::new(),
     };
     match &request.recipe {
+        Recipe::Collapsible {
+            container,
+            toggle,
+            add_toggle_in,
+            tab,
+            collapsed,
+        } => {
+            let target = work
+                .document
+                .find_exact(container)
+                .map_err(AuthoringError::Edit)?;
+            if target.type_id != "flexcontainer" {
+                return Err(AuthoringError::Refused(format!(
+                    "{container}: collapsible needs a flexcontainer"
+                )));
+            }
+            let Some((_, parent)) = target.path.split_last() else {
+                return Err(AuthoringError::Refused(format!(
+                    "{container}: the root cannot collapse; choose a container with a sibling"
+                )));
+            };
+            if !mashup::edit::children(work.document.at(parent))
+                .iter()
+                .enumerate()
+                .any(|(index, sibling)| {
+                    Some(&index) != target.path.last()
+                        && sibling["Properties"]["Type"] == "flexcontainer"
+                })
+            {
+                return Err(AuthoringError::Refused(format!("{container}: expand/collapse requires a sibling in its parent; add a sibling container first")));
+            }
+            let invoke = format!("ui:{}.ToggleExpandCollapse", target.id);
+            let mut button = toggle.clone();
+            if let Some(destination) = add_toggle_in {
+                let header = work
+                    .document
+                    .find_exact(destination)
+                    .map_err(AuthoringError::Edit)?;
+                if header.type_id != "flexcontainer" {
+                    return Err(AuthoringError::Refused(format!(
+                        "{destination}: --in needs a flexcontainer"
+                    )));
+                }
+                if header.path.starts_with(&target.path) {
+                    return Err(AuthoringError::Refused(format!("{destination}: the toggle must be outside {container}, or it vanishes when the container collapses")));
+                }
+                button = work
+                    .document
+                    .widgets()
+                    .iter()
+                    .find(|widget| {
+                        widget.type_id == "ptcsbutton"
+                            && widget.path.starts_with(&header.path)
+                            && work.has_handler(&format!("ui:{}.Clicked", widget.id), &invoke)
+                    })
+                    .map(|widget| widget.id.clone());
+                if button.is_none() {
+                    let contract = widgets::catalog()
+                        .by_type("ptcsbutton")
+                        .expect("button catalogue");
+                    let placed = work
+                        .document
+                        .place(contract, &mashup::edit::Placement::In(header.id))
+                        .map_err(AuthoringError::Edit)?;
+                    let found = work
+                        .document
+                        .find_exact(&placed.id)
+                        .map_err(AuthoringError::Edit)?;
+                    if contract.property("Icon").is_some() {
+                        work.document
+                            .set_property(&found.path, "Icon", json!("cds:icon_menu"));
+                        work.document.set_property(&found.path, "Label", json!(""));
+                    } else {
+                        work.document
+                            .set_property(&found.path, "Label", json!("Menu"));
+                    }
+                    work.added.push(placed.id.clone());
+                    button = Some(placed.id);
+                }
+            }
+            if let Some(button) = button {
+                let button = work
+                    .document
+                    .find_exact(&button)
+                    .map_err(AuthoringError::Edit)?;
+                if button.type_id != "ptcsbutton" {
+                    return Err(AuthoringError::Refused(format!(
+                        "{}: --toggle needs a ptcsbutton",
+                        button.id
+                    )));
+                }
+                let target_path = work
+                    .document
+                    .find_exact(&target.id)
+                    .map_err(AuthoringError::Edit)?
+                    .path;
+                if button.path.starts_with(&target_path) {
+                    return Err(AuthoringError::Refused(format!("{}: the toggle must be outside {container}, or it vanishes when the container collapses", button.id)));
+                }
+                let event = format!("ui:{}.Clicked", button.id);
+                if !work.has_handler(&event, &invoke) {
+                    work.on(&event, &invoke)?;
+                }
+            }
+            let target = work
+                .document
+                .find_exact(&target.id)
+                .map_err(AuthoringError::Edit)?;
+            for (name, value) in [
+                ("EnableExpandCollapse", json!(true)),
+                ("Expanded", json!(!collapsed)),
+                ("ShowExpandCollapseTab", json!(tab != "none")),
+            ] {
+                work.document.set_property(&target.path, name, value);
+            }
+            if tab != "none" {
+                for (name, value) in [
+                    ("ExpandCollapseTabLocation", tab.as_str()),
+                    ("ExpandTabIcon", "cds:icon_chevron_right"),
+                    ("CollapseTabIcon", "cds:icon_chevron_left"),
+                ] {
+                    work.document.set_property(&target.path, name, json!(value));
+                }
+            }
+        }
         Recipe::EnableWhen {
             widget,
             condition,
@@ -1164,6 +1297,11 @@ pub(crate) fn plan_recipe(
 /// What a recipe can be given, as the command line and MCP both pass it.
 #[derive(Clone, Debug, Default)]
 pub struct RecipeArgs {
+    pub toggle: Option<String>,
+    pub add_toggle: bool,
+    pub in_container: Option<String>,
+    pub tab: Option<String>,
+    pub start: Option<String>,
     /// The widget the recipe is about (enable-when, show-when, text) or its trigger (confirm, popup).
     pub widget: Option<String>,
     pub condition: Option<String>,
@@ -1217,6 +1355,7 @@ pub struct RecipeArgs {
 
 /// The recipe names, for help and errors.
 pub const RECIPES: &[&str] = &[
+    "collapsible",
     "enable-when",
     "show-when",
     "text",
@@ -1262,6 +1401,11 @@ impl Recipe {
             ));
         }
         for (given, flag, recipe) in [
+            (args.toggle.is_some(), "--toggle", "collapsible"),
+            (args.add_toggle, "--add-toggle", "collapsible"),
+            (args.in_container.is_some(), "--in", "collapsible"),
+            (args.tab.is_some(), "--tab", "collapsible"),
+            (args.start.is_some(), "--start", "collapsible"),
             (args.action_label.is_some(), "--action-label", "confirm"),
             (args.cancel_label.is_some(), "--cancel-label", "confirm"),
             (args.param.is_some(), "--param", "set-on-click"),
@@ -1289,6 +1433,44 @@ impl Recipe {
         let inputs = pairs("--input", &args.inputs)?;
         let widget = |what: &str| required(&args.widget, what, name);
         Ok(match name {
+            "collapsible" => {
+                if args.toggle.is_some() && args.add_toggle {
+                    return Err(AuthoringError::Invalid(
+                        "collapsible: choose --toggle or --add-toggle".into(),
+                    ));
+                }
+                if args.in_container.is_some() && !args.add_toggle {
+                    return Err(AuthoringError::Invalid(
+                        "collapsible: --in requires --add-toggle".into(),
+                    ));
+                }
+                let tab = args.tab.clone().unwrap_or_else(|| "outside".into());
+                if !["inside", "outside", "none"].contains(&tab.as_str()) {
+                    return Err(AuthoringError::Invalid(
+                        "collapsible: --tab must be inside, outside or none".into(),
+                    ));
+                }
+                if args
+                    .start
+                    .as_deref()
+                    .is_some_and(|value| value != "collapsed")
+                {
+                    return Err(AuthoringError::Invalid(
+                        "collapsible: --start must be collapsed".into(),
+                    ));
+                }
+                Recipe::Collapsible {
+                    container: widget("the container")?,
+                    toggle: args.toggle.clone(),
+                    add_toggle_in: if args.add_toggle {
+                        Some(required(&args.in_container, "--in <container>", name)?)
+                    } else {
+                        None
+                    },
+                    tab,
+                    collapsed: args.start.is_some(),
+                }
+            }
             "enable-when" | "show-when" => {
                 let widget = widget("the widget")?;
                 let condition = required(&args.condition, "--if <condition>", name)?;

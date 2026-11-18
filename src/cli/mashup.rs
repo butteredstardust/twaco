@@ -454,6 +454,16 @@ pub(crate) enum ParamVerb {
 #[derive(Debug, clap::Args)]
 #[group(skip)]
 pub(crate) struct MashupRecipe {
+    #[arg(long = "toggle", value_name = "button")]
+    pub(crate) toggle: Option<String>,
+    #[arg(long = "add-toggle")]
+    pub(crate) add_toggle: bool,
+    #[arg(long = "in", value_name = "widget")]
+    pub(crate) in_container: Option<String>,
+    #[arg(long = "tab", value_name = "inside|outside|none")]
+    pub(crate) tab: Option<String>,
+    #[arg(long = "start", value_name = "collapsed")]
+    pub(crate) start: Option<String>,
     #[arg(long = "if", value_name = "condition")]
     pub(crate) condition: Option<String>,
     #[arg(long = "expr", value_name = "expression")]
@@ -765,6 +775,11 @@ pub(crate) fn mashup_recipe_cmd(solution: &Solution, args: &MashupRecipe) -> u8 
         return FAILED;
     }
     let recipe_args = mashup::authoring::RecipeArgs {
+        toggle: args.toggle.clone(),
+        add_toggle: args.add_toggle,
+        in_container: args.in_container.clone(),
+        tab: args.tab.clone(),
+        start: args.start.clone(),
         widget,
         param: args.params.first().cloned(),
         field_maps: args.field_maps.clone(),

@@ -1190,10 +1190,46 @@ impl MashupDocument {
     }
 
     fn align_control_row(&mut self, path: &[usize]) {
-        // Only ever bottom-aligns: a row that stops being mixed keeps its alignment, which may be
-        // one someone chose.
+        // A row that stops being mixed keeps its prior alignment.
         if mixed_label_controls(self.at(path)).is_some() {
             self.set_property(path, "align-items", Value::from("flex-end"));
+            let members = children(self.at(path)).to_vec();
+            for (index, member) in members.iter().enumerate() {
+                let Some(widget) =
+                    type_of(member).and_then(|kind| widgets::catalog().by_type(kind))
+                else {
+                    continue;
+                };
+                let margin = &member["Properties"]["Margin"];
+                if margin.is_null() || widget.defaults.get("Margin") == Some(margin) {
+                    let mut child = path.to_vec();
+                    child.push(index);
+                    self.set_property(&child, "Margin", Value::from("0"));
+                }
+            }
+        }
+        self.align_textarea_columns(path);
+    }
+
+    fn align_textarea_columns(&mut self, path: &[usize]) {
+        let members = children(self.at(path)).to_vec();
+        if self.at(path)["Properties"]["flex-direction"] == "row"
+            && members
+                .iter()
+                .all(|member| type_of(member) == Some("flexcontainer"))
+            && members.iter().any(holds_textarea)
+        {
+            if members.iter().any(action_column) {
+                self.set_property(path, "align-items", Value::from("stretch"));
+            }
+            for (index, member) in members.iter().enumerate() {
+                if action_column(member) {
+                    let mut child = path.to_vec();
+                    child.push(index);
+                    self.set_property(&child, "flex-direction", Value::from("column"));
+                    self.set_property(&child, "justify-content", Value::from("flex-end"));
+                }
+            }
         }
     }
 
@@ -1491,7 +1527,14 @@ impl MashupDocument {
         anchor_word: &str,
         side: Side,
     ) -> Result<Placed, EditError> {
-        self.place_beside_in_column(widget, anchor_word, side, false)
+        let placed = self.place_beside_in_column(widget, anchor_word, side, false)?;
+        if side.axis() == "row" {
+            let found = self.find(&placed.id)?;
+            for depth in 1..found.path.len() {
+                self.align_textarea_columns(&found.path[..depth]);
+            }
+        }
+        Ok(placed)
     }
 
     fn place_beside_in_column(
@@ -2082,6 +2125,21 @@ fn has_field_label(widget: &Value) -> bool {
         && widget["Properties"]["Label"]
             .as_str()
             .is_some_and(|label| !label.is_empty())
+}
+
+fn action_column(widget: &Value) -> bool {
+    if type_of(widget) == Some("flexcontainer") {
+        return children(widget).len() == 1 && action_column(&children(widget)[0]);
+    }
+    // An action, not an input: an unlabelled field beside a textarea is a form column.
+    matches!(
+        type_of(widget),
+        Some("ptcsbutton" | "ptcslink" | "ptcstogglebutton" | "ptcsicon")
+    )
+}
+
+fn holds_textarea(widget: &Value) -> bool {
+    type_of(widget) == Some("ptcstextarea") || children(widget).iter().any(holds_textarea)
 }
 
 /// Row controls, including single-widget wrappers, needing bottom alignment.
@@ -3837,6 +3895,112 @@ mod tests {
             doc.reflow_for(&field.id);
             assert_eq!(doc.to_content(), once);
         }
+    }
+
+    #[test]
+    fn mixed_rows_zero_default_margins_but_keep_authored_insets() {
+        for margin in ["5", "13"] {
+            let mut doc = document(
+                &container(
+                    "flexcontainer-2",
+                    "center",
+                    "column",
+                    &container("flexcontainer-3", "container-3", "row", ""),
+                ),
+                3,
+            );
+            let mut field = catalogue_widget("ptcstextfield").clone();
+            field.defaults.insert("Label".into(), Value::from("Filter"));
+            let field = doc
+                .place(&field, &Placement::In("flexcontainer-3".into()))
+                .unwrap();
+            let path = doc.find(&field.id).unwrap().path;
+            doc.set_property(&path, "Margin", Value::from(margin));
+            let button = doc
+                .place(
+                    catalogue_widget("ptcsbutton"),
+                    &Placement::Beside {
+                        anchor: field.id.clone(),
+                        side: Side::Right,
+                    },
+                )
+                .unwrap();
+            assert_eq!(
+                doc.at(&doc.find(&field.id).unwrap().path)["Properties"]["Margin"],
+                if margin == "5" { "0" } else { margin }
+            );
+            assert_eq!(
+                doc.at(&doc.find(&button.id).unwrap().path)["Properties"]["Margin"],
+                "0"
+            );
+            let once = doc.to_content();
+            doc.reflow_for(&field.id);
+            assert_eq!(once, doc.to_content());
+        }
+    }
+
+    #[test]
+    fn textarea_and_action_columns_stretch_and_bottom_align() {
+        for side in [Side::Left, Side::Right] {
+            for label in ["", "Notes"] {
+                let mut doc = document(&container("flexcontainer-2", "center", "column", ""), 2);
+                let mut textarea = catalogue_widget("ptcstextarea").clone();
+                textarea.defaults.insert("Label".into(), Value::from(label));
+                let field = doc
+                    .place(&textarea, &Placement::In("center".into()))
+                    .unwrap();
+                let button = doc
+                    .place(
+                        catalogue_widget("ptcsbutton"),
+                        &Placement::Beside {
+                            anchor: field.id.clone(),
+                            side,
+                        },
+                    )
+                    .unwrap();
+                let path = doc.find(&button.id).unwrap().path;
+                let column = &path[..path.len() - 1];
+                assert_eq!(doc.at(column)["Properties"]["flex-direction"], "column");
+                assert_eq!(
+                    doc.at(column)["Properties"]["justify-content"],
+                    "flex-end",
+                    "{}",
+                    doc.to_content()
+                );
+                assert_eq!(
+                    doc.at(&column[..column.len() - 1])["Properties"]["align-items"],
+                    "stretch"
+                );
+                let once = doc.to_content();
+                doc.reflow_for(&button.id);
+                assert_eq!(once, doc.to_content());
+            }
+        }
+    }
+
+    #[test]
+    fn an_action_beside_a_named_textarea_column_stretches_the_shared_row() {
+        let column = container(
+            "flexcontainer-3",
+            "notes",
+            "column",
+            &filling_widget("ptcstextarea", "ptcstextarea-4", "Notes"),
+        );
+        let mut doc = document(&container("flexcontainer-2", "center", "row", &column), 4);
+        let placed = doc
+            .place(
+                catalogue_widget("ptcsbutton"),
+                &Placement::Beside {
+                    anchor: "notes".into(),
+                    side: Side::Right,
+                },
+            )
+            .unwrap();
+        let button = doc.find(&placed.id).unwrap();
+        let parent = &button.path[..button.path.len() - 1];
+        assert_eq!(doc.at(parent)["Properties"]["flex-direction"], "column");
+        assert_eq!(doc.at(parent)["Properties"]["justify-content"], "flex-end");
+        assert_eq!(doc.at(&[0])["Properties"]["align-items"], "stretch");
     }
 
     #[test]

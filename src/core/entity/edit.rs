@@ -487,7 +487,46 @@ pub(crate) fn plan(solution: &Solution, request: &Request) -> Result<Plan, EditE
             before,
         } => {
             let item = (title.clone(), mashup.clone(), *default);
-            menu_item_add(&found, &doc, item, before.as_deref(), &mut plan)?
+            menu_item_add(&found, &doc, item, before.as_deref(), &mut plan)?;
+            let count = menu_entries(&doc)?.1.len() + 1;
+            for entity in found
+                .iter()
+                .filter(|entity| entity.info.collection == "Mashups")
+            {
+                // An advisory scan: a mashup twaco cannot read is reported, never a refusal.
+                let read = || -> Result<_, String> {
+                    let bytes = std::fs::read(&entity.path).map_err(|error| error.to_string())?;
+                    let directory = workspace::mashup_dir(solution, entity);
+                    let assets = workspace::read_mashup(&directory)
+                        .map_err(|error| error.to_string())?
+                        .map(Ok)
+                        .unwrap_or_else(|| crate::core::mashup::extract(&bytes))
+                        .map_err(|error| error.to_string())?;
+                    crate::core::mashup::edit::parse(&assets.content)
+                        .map_err(|error| error.to_string())
+                };
+                let document = match read() {
+                    Ok(document) => document,
+                    Err(error) => {
+                        plan.warnings.push(format!(
+                            "Mashup {}: not checked for menubar limits: {error}",
+                            entity.info.name
+                        ));
+                        continue;
+                    }
+                };
+                for widget in document
+                    .widgets()
+                    .iter()
+                    .filter(|widget| widget.type_id == "ptcsmenubar")
+                {
+                    let properties = &document.at(&widget.path)["Properties"];
+                    let limit = properties["PrimaryNavMaxItems"].as_f64().unwrap_or(5.0);
+                    if properties["PrimaryNavMenu"] == doc.name() && count as f64 > limit {
+                        plan.warnings.push(format!("Mashup {}: {} shows only {limit} menu items; run twaco mashup set {} {} --prop PrimaryNavMaxItems={count} --apply", entity.info.name, widget.id, entity.info.name, widget.id));
+                    }
+                }
+            }
         }
         Action::MenuItemRemove { title } => menu_item_remove(&doc, title, &mut plan)?,
         Action::StateSet { state_type, states } => state_set(&doc, state_type, states, &mut plan)?,

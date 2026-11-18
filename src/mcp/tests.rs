@@ -409,6 +409,15 @@ fn hand_written_tools() -> Vec<Value> {
         .iter_mut()
         .find(|tool| tool["name"] == "mashup_recipe")
         .unwrap();
+    for (name, kind) in [
+        ("toggle", "string"),
+        ("add_toggle", "boolean"),
+        ("in_container", "string"),
+        ("tab", "string"),
+        ("start", "string"),
+    ] {
+        recipe["inputSchema"]["properties"][name] = json!({"type": kind});
+    }
     recipe["inputSchema"]["properties"]["on_failure"] = json!({
         "description": "Error status message on Data_Error for message; may be used without say/from.",
         "type": "string"
@@ -458,7 +467,7 @@ fn hand_written_tools() -> Vec<Value> {
         }
         recipe["inputSchema"]["properties"][name] = property;
     }
-    recipe["inputSchema"]["properties"]["recipe"]["description"] = json!("enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, picker, tracker or set-on-click.");
+    recipe["inputSchema"]["properties"]["recipe"]["description"] = json!("enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, picker, tracker, set-on-click or collapsible.");
     tools
 }
 
@@ -4473,4 +4482,26 @@ fn mashup_add_reports_container_contents_without_changing_container_ids() {
     }
     assert_eq!(contents[0]["holds"], json!([anchor]));
     assert_eq!(contents[1]["holds"], json!([report["id"]]));
+}
+
+#[test]
+fn collapsible_mcp_plans_then_applies_and_reuses_its_toggle() {
+    let (_dir, root) = solution_dir();
+    let (failed, body) = call_tool(
+        &root,
+        "mashup_new",
+        json!({"name":"Acme.Shell_MU", "template":"header-footer", "dry_run":false}),
+    );
+    assert!(!failed, "{body}");
+    let mut args = json!({"recipe":"collapsible", "mashup":"Acme.Shell_MU", "widget":"center", "add_toggle":true, "in_container":"header", "tab":"none"});
+    let (failed, planned) = call_tool(&root, "mashup_recipe", args.clone());
+    assert!(!failed, "{planned}");
+    assert_eq!(planned["dry_run"], true);
+    args["dry_run"] = json!(false);
+    let (failed, applied) = call_tool(&root, "mashup_recipe", args.clone());
+    assert!(!failed, "{applied}");
+    assert_eq!(applied["added"].as_array().unwrap().len(), 1);
+    let (failed, repeated) = call_tool(&root, "mashup_recipe", args);
+    assert!(!failed, "{repeated}");
+    assert!(repeated["added"].as_array().unwrap().is_empty());
 }

@@ -516,6 +516,12 @@ fn every_flag_means_the_same_in_every_command() {
                     continue;
                 }
             }
+            // The collapsible recipe selects a native-tab position; new declares labelled tabs.
+            if command.path == "mashup recipe" && name == "--tab" {
+                assert_eq!(kind, "value");
+                assert_eq!(value_names, ["inside|outside|none"]);
+                continue;
+            }
             // Calls assign values; the other --param flags declare or select parameters.
             if command.path == "call" && name == "--param" {
                 assert_eq!(kind, "repeated");

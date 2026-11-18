@@ -975,7 +975,17 @@ pub(crate) struct MashupParameterRequest {
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct MashupRecipeRequest {
-    /// enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, picker, tracker or set-on-click.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) toggle: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) add_toggle: Absent<bool>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) in_container: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) tab: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) start: Absent<String>,
+    /// enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, picker, tracker, set-on-click or collapsible.
     pub(crate) recipe: String,
     /// The mashup to write it in.
     pub(crate) mashup: String,

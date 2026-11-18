@@ -929,6 +929,11 @@ pub(crate) fn mashup_recipe_tool(
     use crate::core::mashup::authoring::{Recipe, RecipeArgs, RecipeRequest};
     let dry_run = arguments.dry_run;
     let recipe_args = RecipeArgs {
+        toggle: arguments.toggle.as_ref().cloned(),
+        add_toggle: arguments.add_toggle.as_ref().copied().unwrap_or(false),
+        in_container: arguments.in_container.as_ref().cloned(),
+        tab: arguments.tab.as_ref().cloned(),
+        start: arguments.start.as_ref().cloned(),
         widget: arguments.widget.as_ref().cloned(),
         param: arguments.param.as_ref().cloned(),
         field_maps: arguments.field_maps.items().to_vec(),

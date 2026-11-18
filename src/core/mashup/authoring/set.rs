@@ -63,6 +63,13 @@ pub(crate) fn plan_set(
         .map_err(AuthoringError::Edit)?;
     let mut properties = request.properties.clone();
     let mut notes = menubar_properties(&document, &found.type_id, &found.id, &mut properties)?;
+    notes.extend(menubar_limit(
+        solution,
+        &document,
+        &found.type_id,
+        &found.id,
+        &mut properties,
+    )?);
     let root = found.id == ROOT_ID;
     let widget = if root {
         None
@@ -727,6 +734,83 @@ pub(super) fn menubar_properties(
     Ok(vec![
         "DataSource set to menuentity because PrimaryNavMenu is set".into(),
     ])
+}
+
+pub(super) fn menubar_limit(
+    solution: &Solution,
+    document: &crate::core::mashup::edit::MashupDocument,
+    type_id: &str,
+    id: &str,
+    properties: &mut Vec<(String, Value)>,
+) -> Result<Vec<String>, AuthoringError> {
+    if type_id != "ptcsmenubar" {
+        return Ok(Vec::new());
+    }
+    let Some(menu) = properties
+        .iter()
+        .find(|(name, _)| name == "PrimaryNavMenu")
+        .and_then(|(_, value)| value.as_str())
+        .filter(|value| !value.is_empty())
+    else {
+        return Ok(Vec::new());
+    };
+    let Some(entity) = crate::core::workspace::entities(solution)
+        .into_iter()
+        .find(|entity| entity.info.collection == "Menus" && entity.info.name == menu)
+    else {
+        return Ok(Vec::new());
+    };
+    let bytes = std::fs::read(&entity.path)
+        .map_err(|error| AuthoringError::Unreadable(format!("Menu {menu}: {error}")))?;
+    let tokens = crate::core::scan::tokenize(&bytes)
+        .map_err(|error| AuthoringError::Unreadable(format!("Menu {menu}: {error}")))?;
+    // Only the Menu's own items: MenuItem elements directly under its MenuItems.
+    let mut stack: Vec<&[u8]> = Vec::new();
+    let mut count = 0;
+    for token in &tokens {
+        let name = token.name.of(&bytes);
+        match token.kind {
+            crate::core::scan::Kind::Start | crate::core::scan::Kind::Empty => {
+                if name == b"MenuItem" && stack.ends_with(&[b"Menu".as_slice(), b"MenuItems"]) {
+                    count += 1;
+                }
+                if matches!(token.kind, crate::core::scan::Kind::Start) {
+                    stack.push(name);
+                }
+            }
+            crate::core::scan::Kind::End => {
+                stack.pop();
+            }
+            _ => {}
+        }
+    }
+    let path = document.find_exact(id).map_err(AuthoringError::Edit)?.path;
+    let catalog = widgets::catalog()
+        .by_type(type_id)
+        .expect("menubar catalogue");
+    if let Some((_, value)) = properties
+        .iter()
+        .find(|(name, _)| name == "PrimaryNavMaxItems")
+    {
+        super::property_value(catalog, "PrimaryNavMaxItems", value.clone())?;
+    }
+    let number = |value: &Value| value.as_f64().or_else(|| value.as_str()?.parse().ok());
+    let limit = properties
+        .iter()
+        .find(|(name, _)| name == "PrimaryNavMaxItems")
+        .map(|(_, value)| value)
+        .or_else(|| document.at(&path)["Properties"].get("PrimaryNavMaxItems"))
+        .or_else(|| catalog.defaults.get("PrimaryNavMaxItems"))
+        .and_then(number)
+        .unwrap_or(5.0);
+    if count as f64 <= limit {
+        return Ok(Vec::new());
+    }
+    properties.retain(|(name, _)| name != "PrimaryNavMaxItems");
+    properties.push(("PrimaryNavMaxItems".into(), json!(count)));
+    Ok(vec![format!(
+        "PrimaryNavMaxItems set to {count} so all menu items show"
+    )])
 }
 
 fn validate_flex_property(name: &str, value: &Value) -> Result<(), AuthoringError> {

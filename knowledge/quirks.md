@@ -792,3 +792,29 @@ operation order, response status, read-back state, and the relevant log line whe
 manager is involved. Do not add credentials, request bodies, server URLs, or private entity names
 to that evidence. Neutral examples and small reproducible probes make it possible to verify a
 quirk on another server without copying production data.
+
+
+## Mixed control rows need equal margins and stretched textarea columns
+
+Field-verified on ThingWorx 10.2.1: `align-items: flex-end` aligns control boxes only when
+their widget margins agree. Set `Margin` to `0` and use the container gap for spacing.
+A button at margin 5 beside an input at 0 remains offset. For a textarea and action in
+separate columns, set the shared row to `align-items: stretch` and the action column to
+`justify-content: flex-end`. Otherwise the button floats at the top beside the textarea.
+
+## Collapsible containers need siblings and an external toggle
+
+Field-verified on ThingWorx 10.2.1: a sidebar containing a logo and `ptcsmenubar` collapses
+from 264px to 0 and expands back to 264px with `EnableExpandCollapse=true`, `Expanded=true`
+and a button's `Clicked` invoking `ToggleExpandCollapse`. `Expand` and `Collapse` are also
+container services. Keep that button outside the collapsing container or it vanishes too.
+The runtime requires sibling bounding boxes (`_hasSiblingFlexBoundingBoxes`) in the parent.
+Set `ShowExpandCollapseTab=false` for an external button alone, or show the native tab using
+`ExpandCollapseTabLocation=inside|outside`, `ExpandTabIcon=cds:icon_chevron_right` and
+`CollapseTabIcon=cds:icon_chevron_left`. `mashup recipe collapsible` configures this wiring.
+
+## Menu background continuations need fractional stops
+
+Field-verified on ThingWorx 10.2.1: `ptcsmenubar` in a 264px sidebar measures 246.797px
+(238.797px flyout plus an 8px expand part). CSS continuing its background with whole-pixel
+stops leaves a 1px seam. Fractional stops matching the measured menu width remove the seam.

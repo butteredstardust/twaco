@@ -315,6 +315,9 @@ mashup param <add|set|remove> <mashup> <name> [--type <BASETYPE>] [--direction <
     --force                  remove bindings when removing a parameter
 mashup recipe <recipe> <mashup> [<widget>] [recipe flags] [--apply] [--json]
                             write the wiring real mashups repeat, in one edit; plan unless --apply
+    collapsible <container> [--toggle <button> | --add-toggle --in <container>]
+        [--tab inside|outside|none] [--start collapsed]
+                            collapse a container with siblings; keep its toggle outside it
     enable-when|show-when <widget> --if <condition> [--input name=<address>]...
                             an expression into the widget's Disabled or Visible
     text <label> --expr <expression> [--input name=<address>]...

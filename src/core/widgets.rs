@@ -467,5 +467,20 @@ mod tests {
         assert!(container.property("Visible").unwrap().target);
         assert!(container.property("CustomClass").unwrap().source);
         assert!(!container.property("SourceURL").unwrap().target);
+        for service in ["ToggleExpandCollapse", "Expand", "Collapse"] {
+            assert!(container
+                .services
+                .as_ref()
+                .unwrap()
+                .iter()
+                .any(|name| name == service));
+        }
+        assert_eq!(
+            container
+                .property("ExpandCollapseTabLocation")
+                .unwrap()
+                .options,
+            vec![Value::from("inside"), Value::from("outside")]
+        );
     }
 }

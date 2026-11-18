@@ -8,12 +8,15 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- `mashup recipe collapsible` configures sidebar expand/collapse, native tabs and external toggle buttons; flexcontainer services work with `mashup on`.
 - `mashup validate` warns when a row aligns controls with field labels and shows the bottom-alignment fix.
 - Flexcontainer property bindings and checked edits, including tab-container lazy loading and flex sizing.
 - `call --param name=value` accepts repeated parameters, typed from known service signatures.
 
 ### Fixed
 
+- Mixed control rows clear default widget margins; textarea/action columns stretch together and bottom-align the action.
+- Menubars assigned a Menu with `mashup add` or `set` grow `PrimaryNavMaxItems` to show every item; adding a Menu item warns about bound mashups with smaller limits.
 - Generated mashup rows bottom-align controls beside labelled inputs, including after Label edits and removals.
 - Widgets above or below a menubar keep their measured height and leave spare column height to the menu; menubar rows no longer inherit the 300px data-panel minimum.
 - Free-form property, service-call and configuration-table values rewritten by Git Bash are refused with `MSYS_NO_PATHCONV=1` guidance.

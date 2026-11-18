@@ -178,7 +178,7 @@
         "DisableLegacyCustomClassStyles": false,
         "EnableContainerUnload": false,
         "EnableExpandCollapse": false,
-        "ExpandCollapseTabLocation": "inside",
+        "ExpandCollapseTabLocation": "outside",
         "Expanded": true,
         "ExpandTabIcon": "",
         "flex-basis": "auto",
@@ -207,68 +207,69 @@
         "Visible": true,
         "Z-index": 10
       },
+      "services": [
+        "ToggleExpandCollapse",
+        "Expand",
+        "Collapse"
+      ],
       "properties": {
+        "ExpandCollapseTabLocation": {
+          "base_type": "STRING",
+          "options": [
+            "inside",
+            "outside"
+          ]
+        },
+        "CollapseTabIcon": {
+          "base_type": "IMAGELINK"
+        },
+        "ExpandTabIcon": {
+          "base_type": "IMAGELINK"
+        },
         "CustomClass": {
           "base_type": "STRING",
-          "target": true,
-          "source": true
+          "source": true,
+          "target": true
         },
         "Margin": {
-          "base_type": "STRING",
-          "target": false,
-          "source": false
+          "base_type": "STRING"
         },
         "UseTheme": {
-          "base_type": "BOOLEAN",
-          "target": false,
-          "source": false
+          "base_type": "BOOLEAN"
         },
         "SourceURL": {
-          "base_type": "IMAGELINK",
-          "target": false,
-          "source": false
+          "base_type": "IMAGELINK"
         },
         "Style": {
-          "base_type": "STYLEDEFINITION",
-          "target": false,
-          "source": false
+          "base_type": "STYLEDEFINITION"
         },
         "EnableExpandCollapse": {
-          "base_type": "BOOLEAN",
-          "target": false,
-          "source": false
+          "base_type": "BOOLEAN"
         },
         "Expanded": {
           "base_type": "BOOLEAN",
-          "target": true,
-          "source": true
+          "source": true,
+          "target": true
         },
         "ShowExpandCollapseTab": {
           "base_type": "BOOLEAN",
-          "target": true,
-          "source": false
+          "target": true
         },
         "Overlay": {
-          "base_type": "BOOLEAN",
-          "target": false,
-          "source": false
+          "base_type": "BOOLEAN"
         },
         "LazyLoading": {
-          "base_type": "BOOLEAN",
-          "target": false,
-          "source": false
+          "base_type": "BOOLEAN"
         },
         "EnableContainerUnload": {
           "base_type": "BOOLEAN",
-          "target": true,
-          "source": false
+          "target": true
         },
         "OverrideChildrenAbsolute": {
-          "base_type": "BOOLEAN",
-          "target": false,
-          "source": false
+          "base_type": "BOOLEAN"
         }
-      }
+      },
+      "events": []
     },
     {
       "type": "mashupcontainer",

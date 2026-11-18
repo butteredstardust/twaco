@@ -7034,13 +7034,23 @@ fn collection_request(mappings: &[(&str, &str)]) -> CollectionAddRequest {
     }
 }
 
+/// The workspace lock is not content, and Windows may still list `lock.holder` for a moment
+/// after the lock is released.
+fn is_lock_file(path: &Path) -> bool {
+    path.parent().and_then(Path::file_name) == Some(std::ffi::OsStr::new(".twaco"))
+        && matches!(
+            path.file_name().and_then(|name| name.to_str()),
+            Some("lock" | "lock.holder")
+        )
+}
+
 fn tree_bytes(dir: &Path) -> std::collections::BTreeMap<PathBuf, Vec<u8>> {
     fn walk(dir: &Path, files: &mut std::collections::BTreeMap<PathBuf, Vec<u8>>) {
         for entry in std::fs::read_dir(dir).unwrap() {
             let path = entry.unwrap().path();
             if path.is_dir() {
                 walk(&path, files);
-            } else {
+            } else if !is_lock_file(&path) {
                 files.insert(path.clone(), std::fs::read(&path).unwrap());
             }
         }
@@ -9841,4 +9851,405 @@ fn mashup_set_refuses_git_bash_source_url() {
     .unwrap_err()
     .to_string();
     assert!(error.contains("MSYS_NO_PATHCONV=1"), "{error}");
+}
+
+#[test]
+fn collapsible_recipe_adds_an_external_toggle_and_repeats_identically() {
+    let (dir, solution) = one_project();
+    let mut new = request("Acme.Orders_MU");
+    new.template = "header-sidebar".into();
+    new.menu_entity = Some("Acme.Main_MN".into());
+    write(
+        dir.path(),
+        "acme/Menus/Acme.Main_MN.xml",
+        "<Entities><Menus><Menu name=\"Acme.Main_MN\" projectName=\"Acme\"/></Menus></Entities>",
+    );
+    let plan = plan_new(&solution, &new).unwrap();
+    apply_new(&solution, &plan, &lock(&solution)).unwrap();
+    let args = RecipeArgs {
+        widget: Some("sidebar".into()),
+        add_toggle: true,
+        in_container: Some("header".into()),
+        tab: Some("outside".into()),
+        start: Some("collapsed".into()),
+        ..Default::default()
+    };
+    let before = tree_bytes(dir.path());
+    let planned = plan_recipe(
+        &solution,
+        &RecipeRequest {
+            mashup: new.name.clone(),
+            recipe: Recipe::from_args("collapsible", &args).unwrap(),
+        },
+    )
+    .unwrap();
+    assert_eq!(before, tree_bytes(dir.path()));
+    apply_edit(&solution, &planned.edit, &lock(&solution)).unwrap();
+    assert_eq!(planned.added.len(), 1);
+    let content = content_of(&solution, &new.name);
+    let document = mashup::edit::parse(&content.to_string()).unwrap();
+    let sidebar = document.find("sidebar").unwrap();
+    let properties = &document.at(&sidebar.path)["Properties"];
+    assert_eq!(properties["Expanded"], false);
+    assert_eq!(properties["EnableExpandCollapse"], true);
+    assert_eq!(properties["ExpandCollapseTabLocation"], "outside");
+    assert_eq!(properties["ExpandTabIcon"], "cds:icon_chevron_right");
+    assert_eq!(properties["CollapseTabIcon"], "cds:icon_chevron_left");
+    let report = crate::core::mashup::validate::validate(&solution, Some(&new.name)).unwrap();
+    assert!(report[0].problems.is_empty(), "{:?}", report[0].problems);
+    let once = tree_bytes(dir.path());
+    recipe(&solution, "collapsible", args).unwrap();
+    assert_eq!(once, tree_bytes(dir.path()));
+    let toggle = planned.added[0].clone();
+    let configured = recipe(
+        &solution,
+        "collapsible",
+        RecipeArgs {
+            widget: Some("sidebar".into()),
+            toggle: Some(toggle),
+            tab: Some("none".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert!(configured.added.is_empty());
+    let content = content_of(&solution, &new.name);
+    let document = mashup::edit::parse(&content.to_string()).unwrap();
+    assert_eq!(
+        document.at(&document.find("sidebar").unwrap().path)["Properties"]["ShowExpandCollapseTab"],
+        false
+    );
+    assert_eq!(
+        document.at(&document.find("sidebar").unwrap().path)["Properties"]["Expanded"],
+        true
+    );
+}
+
+#[test]
+fn collapsible_refuses_internal_toggles_and_containers_without_siblings() {
+    let (dir, solution) = one_project();
+    let mut new = request("Acme.Orders_MU");
+    new.template = "sidebar-header".into();
+    new.menu_entity = Some("Acme.Main_MN".into());
+    write(
+        dir.path(),
+        "acme/Menus/Acme.Main_MN.xml",
+        "<Entities><Menus><Menu name=\"Acme.Main_MN\" projectName=\"Acme\"/></Menus></Entities>",
+    );
+    let plan = plan_new(&solution, &new).unwrap();
+    apply_new(&solution, &plan, &lock(&solution)).unwrap();
+    let button = add_one(
+        &solution,
+        &new.name,
+        "ptcsbutton",
+        Placement::In("header".into()),
+        &[],
+    );
+    let expression = plan_add(&solution, &add_request(&new.name, "expression2")).unwrap();
+    apply_edit(&solution, &expression.edit, &lock(&solution)).unwrap();
+    for args in [
+        RecipeArgs {
+            widget: Some("header".into()),
+            toggle: Some(button),
+            ..Default::default()
+        },
+        RecipeArgs {
+            widget: Some("header".into()),
+            add_toggle: true,
+            in_container: Some("header".into()),
+            ..Default::default()
+        },
+        RecipeArgs {
+            widget: Some("page".into()),
+            tab: Some("inside".into()),
+            ..Default::default()
+        },
+    ] {
+        let before = tree_bytes(dir.path());
+        let error = recipe(&solution, "collapsible", args)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("outside") || error.contains("sibling"),
+            "{error}"
+        );
+        assert_eq!(before, tree_bytes(dir.path()));
+    }
+}
+
+#[test]
+fn flexcontainer_collapse_services_use_the_normal_event_contract() {
+    let (_dir, solution) = one_project();
+    let plan = plan_new(&solution, &request("Acme.Orders_MU")).unwrap();
+    apply_new(&solution, &plan, &lock(&solution)).unwrap();
+    let button = add_one(
+        &solution,
+        "Acme.Orders_MU",
+        "ptcsbutton",
+        Placement::In("center".into()),
+        &[],
+    );
+    for service in ["ToggleExpandCollapse", "Expand", "Collapse"] {
+        let plan = on(
+            &solution,
+            &format!("ui:{button}.Clicked"),
+            &format!("ui:flexcontainer-2.{service}"),
+        )
+        .unwrap();
+        apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    }
+}
+
+#[test]
+fn menubar_add_and_set_raise_the_item_limit_and_preserve_larger_values() {
+    let (dir, solution) = one_project();
+    write(dir.path(), "acme/Menus/Acme.Main_MN.xml", &format!("<Entities><Menus><Menu name=\"Acme.Main_MN\" projectName=\"Acme\"><MenuItems>{}</MenuItems></Menu></Menus></Entities>", "<MenuItem title=\"Item\"/>".repeat(10)));
+    let plan = plan_new(&solution, &request("Acme.Orders_MU")).unwrap();
+    apply_new(&solution, &plan, &lock(&solution)).unwrap();
+    let mut previous = None;
+    for limit in [None, Some("7"), Some("14"), Some("14.5")] {
+        let mut add = add_request("Acme.Orders_MU", "ptcsmenubar");
+        add.placement = Some(previous.clone().map_or_else(
+            || Placement::In("center".into()),
+            |anchor| Placement::Beside {
+                anchor,
+                side: mashup::edit::Side::Below,
+            },
+        ));
+        add.properties
+            .push(("PrimaryNavMenu".into(), "Acme.Main_MN".into()));
+        if let Some(limit) = limit {
+            add.properties
+                .push(("PrimaryNavMaxItems".into(), limit.into()));
+        }
+        let plan = plan_add(&solution, &add).unwrap();
+        assert_eq!(
+            plan.notes
+                .iter()
+                .any(|note| note == "PrimaryNavMaxItems set to 10 so all menu items show"),
+            !matches!(limit, Some("14" | "14.5"))
+        );
+        apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+        previous = Some(plan.placed.id.clone());
+        assert_eq!(
+            collection_properties(&solution, &plan.placed.id)["PrimaryNavMaxItems"],
+            match limit {
+                Some("14") => json!(14),
+                Some("14.5") => json!(14.5),
+                _ => json!(10),
+            }
+        );
+    }
+    let button = add_one(
+        &solution,
+        "Acme.Orders_MU",
+        "ptcsmenubar",
+        Placement::Beside {
+            anchor: previous.unwrap(),
+            side: mashup::edit::Side::Below,
+        },
+        &[],
+    );
+    let plan = set_and_apply(
+        &solution,
+        "Acme.Orders_MU",
+        &button,
+        vec![("PrimaryNavMenu".into(), json!("Acme.Main_MN"))],
+        None,
+    )
+    .unwrap();
+    assert!(plan.notes.iter().any(|note| note.contains("set to 10")));
+    let before = tree_bytes(dir.path());
+    set_and_apply(
+        &solution,
+        "Acme.Orders_MU",
+        &button,
+        vec![("PrimaryNavMenu".into(), json!("Acme.Main_MN"))],
+        None,
+    )
+    .unwrap();
+    assert_eq!(before, tree_bytes(dir.path()));
+}
+
+#[test]
+fn adding_a_menu_item_warns_about_bound_menubar_limits_without_editing_mashups() {
+    use crate::core::entity::edit::{Action, Request as EntityRequest};
+    let (dir, solution) = one_project();
+    let plan = plan_new(&solution, &request("Acme.Orders_MU")).unwrap();
+    apply_new(&solution, &plan, &lock(&solution)).unwrap();
+    let items = (0..5).map(|index| format!("<MenuItem title=\"Item{index}\" linkDestination=\"Acme.Orders_MU\" linkType=\"Mashup\" isDefault=\"false\"/>" )).collect::<String>();
+    write(dir.path(), "acme/Menus/Acme.Main_MN.xml", &format!("<Entities><Menus><Menu name=\"Acme.Main_MN\" projectName=\"Acme\"><MenuItems>{items}</MenuItems><effectiveMenu><Rows><Row><description></description><menuId>Acme.Main_MN</menuId></Row></Rows></effectiveMenu></Menu></Menus></Entities>"));
+    let id = add_one(
+        &solution,
+        "Acme.Orders_MU",
+        "ptcsmenubar",
+        Placement::In("center".into()),
+        &[("PrimaryNavMenu", "Acme.Main_MN")],
+    );
+    let before = tree_bytes(dir.path());
+    let plan = crate::core::entity::edit::plan(
+        &solution,
+        &EntityRequest {
+            entity: "Acme.Main_MN".into(),
+            action: Action::MenuItemAdd {
+                title: "More".into(),
+                mashup: "Acme.Orders_MU".into(),
+                default: false,
+                before: None,
+            },
+        },
+    )
+    .unwrap();
+    assert_eq!(before, tree_bytes(dir.path()));
+    assert_eq!(plan.warnings, vec![format!("Mashup Acme.Orders_MU: {id} shows only 5 menu items; run twaco mashup set Acme.Orders_MU {id} --prop PrimaryNavMaxItems=6 --apply")]);
+    assert_eq!(plan.changes.len(), 1);
+    set_and_apply(
+        &solution,
+        "Acme.Orders_MU",
+        &id,
+        vec![("PrimaryNavMaxItems".into(), json!(12))],
+        None,
+    )
+    .unwrap();
+    let plan = crate::core::entity::edit::plan(
+        &solution,
+        &EntityRequest {
+            entity: "Acme.Main_MN".into(),
+            action: Action::MenuItemAdd {
+                title: "More".into(),
+                mashup: "Acme.Orders_MU".into(),
+                default: false,
+                before: None,
+            },
+        },
+    )
+    .unwrap();
+    assert!(plan.warnings.is_empty());
+}
+
+#[test]
+fn collapsible_arguments_refuse_conflicting_or_incomplete_options() {
+    for args in [
+        RecipeArgs {
+            toggle: Some("button".into()),
+            add_toggle: true,
+            ..Default::default()
+        },
+        RecipeArgs {
+            add_toggle: true,
+            ..Default::default()
+        },
+        RecipeArgs {
+            in_container: Some("header".into()),
+            ..Default::default()
+        },
+        RecipeArgs {
+            tab: Some("above".into()),
+            ..Default::default()
+        },
+        RecipeArgs {
+            start: Some("hidden".into()),
+            ..Default::default()
+        },
+    ] {
+        assert!(Recipe::from_args(
+            "collapsible",
+            &RecipeArgs {
+                widget: Some("sidebar".into()),
+                ..args
+            }
+        )
+        .is_err());
+    }
+    let args = RecipeArgs {
+        widget: Some("sidebar".into()),
+        tab: Some("inside".into()),
+        ..Default::default()
+    };
+    assert!(Recipe::from_args("collapsible", &args).is_ok());
+    assert!(Recipe::from_args("text", &args)
+        .unwrap_err()
+        .to_string()
+        .contains("--tab"));
+}
+
+#[test]
+fn placement_uses_explicit_labels_before_deciding_whether_controls_are_mixed() {
+    let (_dir, solution) = one_project();
+    let plan = plan_new(&solution, &request("Acme.Orders_MU")).unwrap();
+    apply_new(&solution, &plan, &lock(&solution)).unwrap();
+    let mut add = add_request("Acme.Orders_MU", "ptcstextfield");
+    add.label = Some("First".into());
+    add.placement = Some(Placement::In("center".into()));
+    let first = plan_add(&solution, &add).unwrap();
+    apply_edit(&solution, &first.edit, &lock(&solution)).unwrap();
+    add.label = Some("Second".into());
+    add.placement = Some(Placement::Beside {
+        anchor: first.placed.id.clone(),
+        side: mashup::edit::Side::Right,
+    });
+    let second = plan_add(&solution, &add).unwrap();
+    apply_edit(&solution, &second.edit, &lock(&solution)).unwrap();
+    for id in [first.placed.id, second.placed.id] {
+        assert_eq!(collection_properties(&solution, &id)["Margin"], "5");
+    }
+}
+
+#[test]
+fn the_item_limit_counts_only_the_menus_own_items_and_unreadable_mashups_only_warn() {
+    use crate::core::entity::edit::{Action, Request as EntityRequest};
+    let (dir, solution) = one_project();
+    let plan = plan_new(&solution, &request("Acme.Orders_MU")).unwrap();
+    apply_new(&solution, &plan, &lock(&solution)).unwrap();
+    let nested = "<MenuItem title=\"Sub\"/>".repeat(6);
+    let items = format!(
+        "{}<MenuItem title=\"Group\"><MenuItems>{nested}</MenuItems></MenuItem>",
+        "<MenuItem title=\"Item\"/>".repeat(3)
+    );
+    write(dir.path(), "acme/Menus/Acme.Main_MN.xml", &format!("<Entities><Menus><Menu name=\"Acme.Main_MN\" projectName=\"Acme\"><MenuItems>{items}</MenuItems></Menu></Menus></Entities>"));
+    let id = add_one(
+        &solution,
+        "Acme.Orders_MU",
+        "ptcsmenubar",
+        Placement::In("center".into()),
+        &[("PrimaryNavMenu", "Acme.Main_MN")],
+    );
+    // Four own items fit the default limit of 5; the six nested ones do not count.
+    assert!(collection_properties(&solution, &id)["PrimaryNavMaxItems"]
+        .as_f64()
+        .is_none_or(|limit| limit == 5.0));
+    let other = plan_new(&solution, &request("Acme.Broken_MU")).unwrap();
+    apply_new(&solution, &other, &lock(&solution)).unwrap();
+    std::fs::write(
+        solution
+            .src_root()
+            .join("Acme.Broken_MU/mashup/content.json"),
+        "{ not json",
+    )
+    .unwrap();
+    let plain = (0..3).map(|index| format!("<MenuItem title=\"Item{index}\" linkDestination=\"Acme.Orders_MU\" linkType=\"Mashup\" isDefault=\"false\"/>")).collect::<String>();
+    write(dir.path(), "acme/Menus/Acme.Main_MN.xml", &format!("<Entities><Menus><Menu name=\"Acme.Main_MN\" projectName=\"Acme\"><MenuItems>{plain}</MenuItems><effectiveMenu><Rows><Row><description></description><menuId>Acme.Main_MN</menuId></Row></Rows></effectiveMenu></Menu></Menus></Entities>"));
+    let plan = crate::core::entity::edit::plan(
+        &solution,
+        &EntityRequest {
+            entity: "Acme.Main_MN".into(),
+            action: Action::MenuItemAdd {
+                title: "More".into(),
+                mashup: "Acme.Orders_MU".into(),
+                default: false,
+                before: None,
+            },
+        },
+    );
+    let plan = match plan {
+        Ok(plan) => plan,
+        Err(error) => panic!("menu item add refused: {error}"),
+    };
+    assert!(
+        plan.warnings
+            .iter()
+            .any(|warning| warning.starts_with("Mashup Acme.Broken_MU: not checked")),
+        "{:?}",
+        plan.warnings
+    );
 }
