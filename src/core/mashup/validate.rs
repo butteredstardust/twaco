@@ -299,9 +299,11 @@ fn problem(rule: &str, message: String) -> Problem {
 /// Rules that describe tolerated Composer state rather than a broken mashup.
 fn severity(rule: &str) -> Severity {
     match rule {
-        "chart-axis-type" | "unknown-cell-parameter" | "mixed-label-alignment" => {
-            Severity::Advisory
-        }
+        "chart-axis-type"
+        | "unknown-cell-parameter"
+        | "mixed-label-alignment"
+        | "responsive-leaf-size"
+        | "wrapped-row-clipping" => Severity::Advisory,
         _ => Severity::Error,
     }
 }
@@ -397,6 +399,41 @@ pub(crate) fn check_content(content: &str, problems: &mut Vec<Problem>) {
     }
     for widget in document.widgets() {
         let row = document.at(&widget.path);
+        let props = &row["Properties"];
+        if widget.type_id == "flexcontainer"
+            && props["flex-wrap"] == "wrap"
+            && (props["flex-size"] == "fixed"
+                || (!props["flex-max-height"].is_null() && props["flex-max-height"] != ""))
+        {
+            problems.push(problem(
+                "wrapped-row-clipping",
+                format!(
+                    "{}: a wrapped second line is clipped; use flex-size range with no max height",
+                    widget.id
+                ),
+            ));
+        }
+        let leaf = crate::core::widgets::catalog()
+            .by_type(&widget.type_id)
+            .is_some_and(|widget| !widget.container);
+        if leaf
+            && props["FillContainer"] == false
+            && mashup::edit::has_leaf_size(props)
+            && props["ResponsiveLayout"] == true
+        {
+            if let Some((_, parent)) = widget.path.split_last() {
+                let parent = &document.at(parent)["Properties"];
+                if parent["Type"] == "flexcontainer" && parent["ResponsiveLayout"] != false {
+                    problems.push(problem(
+                        "responsive-leaf-size",
+                        format!(
+                            "{}: Width/Height are ignored at run time; set ResponsiveLayout=false",
+                            widget.id
+                        ),
+                    ));
+                }
+            }
+        }
         let alignment = &row["Properties"]["align-items"];
         if alignment.is_null() || alignment == "flex-start" {
             if let Some((labelled, controls)) = mashup::edit::mixed_label_controls(row) {
@@ -1037,6 +1074,67 @@ mod tests {
         let mut problems = Vec::new();
         check_content(text, &mut problems);
         problems.into_iter().map(|p| p.rule).collect()
+    }
+
+    #[test]
+    fn wrapped_rows_warn_only_when_height_is_capped() {
+        for (kind, wrap, size, max, warn) in [
+            ("flexcontainer", "wrap", "fixed", "", true),
+            ("flexcontainer", "wrap", "range", "80px", true),
+            ("flexcontainer", "wrap", "default", "80px", true),
+            ("flexcontainer", "wrap", "range", "", false),
+            ("flexcontainer", "nowrap", "fixed", "80px", false),
+            ("ptcsimage", "wrap", "fixed", "80px", false),
+        ] {
+            let value = json!({"UI": {"Properties": {"Type": "mashup", "Id": "mashup-root"}, "Widgets": [
+                {"Properties": {"Type": kind, "Id": "row-1", "flex-wrap": wrap, "flex-size": size, "flex-max-height": max}}
+            ]}});
+            let mut found = Vec::new();
+            check_content(&value.to_string(), &mut found);
+            let warnings: Vec<_> = found
+                .iter()
+                .filter(|p| p.rule == "wrapped-row-clipping")
+                .collect();
+            assert_eq!(warnings.len(), usize::from(warn), "{value}");
+            if let Some(warning) = warnings.first() {
+                assert_eq!(warning.severity, Severity::Advisory);
+                assert_eq!(warning.message, "row-1: a wrapped second line is clipped; use flex-size range with no max height");
+            }
+        }
+    }
+
+    #[test]
+    fn leaf_sizes_warn_only_when_ignored_in_a_responsive_container() {
+        for (kind, fill, width, height, responsive, parent, warn) in [
+            ("ptcsimage", false, 120, 60, true, true, true),
+            ("ptcsimage", false, 120, 0, true, true, true),
+            ("ptcsimage", false, 0, 60, true, true, true),
+            ("ptcsimage", false, 120, 60, false, true, false),
+            ("ptcsimage", true, 120, 60, true, true, false),
+            ("ptcsimage", false, 0, 0, true, true, false),
+            ("ptcsimage", false, 120, 60, true, false, false),
+            ("flexcontainer", false, 120, 60, true, true, false),
+        ] {
+            let value = json!({"UI": {"Properties": {"Type": "mashup", "Id": "mashup-root"}, "Widgets": [
+                {"Properties": {"Type": "flexcontainer", "Id": "row-1", "ResponsiveLayout": parent}, "Widgets": [
+                    {"Properties": {"Type": kind, "Id": "leaf-2", "FillContainer": fill, "Width": width, "Height": height, "ResponsiveLayout": responsive}}
+                ]}
+            ]}});
+            let mut found = Vec::new();
+            check_content(&value.to_string(), &mut found);
+            let warnings: Vec<_> = found
+                .iter()
+                .filter(|p| p.rule == "responsive-leaf-size")
+                .collect();
+            assert_eq!(warnings.len(), usize::from(warn), "{value}");
+            if let Some(warning) = warnings.first() {
+                assert_eq!(warning.severity, Severity::Advisory);
+                assert_eq!(
+                    warning.message,
+                    "leaf-2: Width/Height are ignored at run time; set ResponsiveLayout=false"
+                );
+            }
+        }
     }
 
     #[test]

@@ -53,6 +53,128 @@ fn lock(solution: &Solution) -> WorkspaceLock {
 }
 
 #[test]
+fn fixed_leaf_sizes_switch_responsive_layout_and_fit_owned_rows() {
+    let (_dir, solution) = one_project();
+    let name = "Acme.View";
+    let new = plan_new(&solution, &request(name)).unwrap();
+    apply_new(&solution, &new, &lock(&solution)).unwrap();
+    let image = plan_add(&solution, &add_request(name, "ptcsimage")).unwrap();
+    apply_edit(&solution, &image.edit, &lock(&solution)).unwrap();
+    let mut grid = add_request(name, "ptcsgrid");
+    grid.placement = Some(Placement::Beside {
+        anchor: image.placed.id.clone(),
+        side: mashup::edit::Side::Below,
+    });
+    let grid = plan_add(&solution, &grid).unwrap();
+    apply_edit(&solution, &grid.edit, &lock(&solution)).unwrap();
+    let mut set = SetRequest {
+        mashup: name.into(),
+        widget: image.placed.id.clone(),
+        properties: vec![],
+        style_from: None,
+        styles: vec![],
+    };
+    for (properties, expected, note, height) in [
+        (
+            vec![
+                ("FillContainer", json!(false)),
+                ("Width", json!(120)),
+                ("Height", json!(60)),
+                ("Margin", json!("5")),
+            ],
+            false,
+            true,
+            Some("82px"),
+        ),
+        (vec![("Height", json!(40))], false, true, Some("62px")),
+        (vec![("FillContainer", json!(true))], true, false, None),
+        (
+            vec![("FillContainer", json!(false))],
+            false,
+            true,
+            Some("62px"),
+        ),
+        (
+            vec![("Width", Value::Null), ("Height", json!(""))],
+            true,
+            false,
+            None,
+        ),
+        (
+            vec![("ResponsiveLayout", json!("false"))],
+            false,
+            false,
+            None,
+        ),
+        (vec![("ResponsiveLayout", json!("true"))], true, false, None),
+        (vec![("Width", json!(120))], false, true, None),
+        (
+            vec![("Width", json!(0)), ("Height", json!(60))],
+            false,
+            true,
+            Some("82px"),
+        ),
+        (
+            vec![("ResponsiveLayout", json!(true)), ("Height", json!(80))],
+            true,
+            false,
+            None,
+        ),
+    ] {
+        set.properties = properties
+            .into_iter()
+            .map(|(name, value)| (name.into(), value))
+            .collect();
+        let plan = plan_set(&solution, &set).unwrap();
+        assert_eq!(
+            plan.notes
+                .iter()
+                .any(|note| note == "ResponsiveLayout set to false so Width/Height apply"),
+            note
+        );
+        let missing_size = set.properties == vec![("ResponsiveLayout".into(), json!("false"))];
+        assert_eq!(
+            plan.notes
+                .iter()
+                .any(|note| note.contains("without Width/Height")),
+            missing_size
+        );
+        apply_edit(&solution, plan.edit.as_ref().unwrap(), &lock(&solution)).unwrap();
+        let assets = workspace::read_mashup(new.content_path.parent().unwrap())
+            .unwrap()
+            .unwrap();
+        let document = mashup::edit::parse(&assets.content).unwrap();
+        let found = document.find_exact(&image.placed.id).unwrap();
+        assert_eq!(
+            document.at(&found.path)["Properties"]["ResponsiveLayout"],
+            expected
+        );
+        if let Some(height) = height {
+            let (_, parent) = found.path.split_last().unwrap();
+            let row = &document.at(parent)["Properties"];
+            assert_eq!(row["flex-size"], "fixed");
+            assert_eq!(row["flex-min-height"], height);
+            assert_eq!(row["flex-max-height"], height);
+        }
+        assert!(plan_set(&solution, &set).unwrap().edit.is_none());
+    }
+    for value in [json!(false), json!(true)] {
+        set.widget = "center".into();
+        set.properties = vec![("ResponsiveLayout".into(), value)];
+        assert!(plan_set(&solution, &set)
+            .unwrap_err()
+            .to_string()
+            .contains("twaco sets ResponsiveLayout"));
+    }
+    set.widget = image.placed.id;
+    set.properties = vec![("ResponsiveLayout".into(), json!("yes"))];
+    assert!(plan_set(&solution, &set)
+        .unwrap_err()
+        .to_string()
+        .contains("must be true or false"));
+}
+
+#[test]
 fn a_blank_mashup_is_three_files_that_sync_agrees_with() {
     let (_dir, solution) = one_project();
     let plan = plan_new(&solution, &request("Acme.Orders_MU")).unwrap();
@@ -264,6 +386,14 @@ fn layouts_have_the_composer_tree_and_masters_put_pages_in_center() {
 fn every_embedded_template_validates_and_its_fixed_nodes_follow_the_parent_axis() {
     for template in mashup::templates::layouts().unwrap() {
         validate_template(&template).unwrap();
+        let document = new_document(&template, false, DEFAULT_THEME).unwrap();
+        let mut found = Vec::new();
+        mashup::validate::check_content(&mashup::to_sidecar(document.value()), &mut found);
+        assert!(
+            !found.iter().any(|p| p.rule == "wrapped-row-clipping"),
+            "{}: {found:?}",
+            template.name
+        );
     }
     for (name, expected) in [
         (
@@ -4553,6 +4683,12 @@ fn recipe(solution: &Solution, name: &str, args: RecipeArgs) -> Result<RecipePla
         },
     )?;
     apply_edit(solution, &plan.edit, &lock(solution))?;
+    assert!(
+        !problems(solution)
+            .iter()
+            .any(|rule| rule == "wrapped-row-clipping"),
+        "{name}"
+    );
     Ok(plan)
 }
 
@@ -10252,4 +10388,64 @@ fn the_item_limit_counts_only_the_menus_own_items_and_unreadable_mashups_only_wa
         "{:?}",
         plan.warnings
     );
+}
+
+#[test]
+fn leaf_sizing_keeps_deliberate_settings_and_releases_only_its_own_row() {
+    let (_dir, solution) = one_project();
+    let name = "Acme.View";
+    let new = plan_new(&solution, &request(name)).unwrap();
+    apply_new(&solution, &new, &lock(&solution)).unwrap();
+    let image = plan_add(&solution, &add_request(name, "ptcsimage")).unwrap();
+    apply_edit(&solution, &image.edit, &lock(&solution)).unwrap();
+    let mut grid = add_request(name, "ptcsgrid");
+    grid.placement = Some(Placement::Beside {
+        anchor: image.placed.id.clone(),
+        side: mashup::edit::Side::Below,
+    });
+    apply_edit(
+        &solution,
+        &plan_add(&solution, &grid).unwrap().edit,
+        &lock(&solution),
+    )
+    .unwrap();
+    let set = |properties: Vec<(&str, Value)>| {
+        let request = SetRequest {
+            mashup: name.into(),
+            widget: image.placed.id.clone(),
+            properties: properties
+                .into_iter()
+                .map(|(name, value)| (name.into(), value))
+                .collect(),
+            style_from: None,
+            styles: vec![],
+        };
+        if let Some(edit) = plan_set(&solution, &request).unwrap().edit {
+            apply_edit(&solution, &edit, &lock(&solution)).unwrap();
+        }
+        let assets = workspace::read_mashup(new.content_path.parent().unwrap())
+            .unwrap()
+            .unwrap();
+        let document = mashup::edit::parse(&assets.content).unwrap();
+        let found = document.find_exact(&image.placed.id).unwrap();
+        let (_, parent) = found.path.split_last().unwrap();
+        (
+            document.at(&found.path)["Properties"].clone(),
+            document.at(parent)["Properties"].clone(),
+        )
+    };
+    // Fixed, then back to filling: the row it fixed is released.
+    let (_, row) = set(vec![
+        ("FillContainer", json!(false)),
+        ("Width", json!(120)),
+        ("Height", json!(60)),
+    ]);
+    assert_eq!(row["flex-size"], "fixed");
+    let (leaf, row) = set(vec![("FillContainer", json!(true))]);
+    assert_eq!(leaf["ResponsiveLayout"], true);
+    assert_ne!(row["flex-size"], "fixed", "{row}");
+    // A deliberate ResponsiveLayout=false on a filling widget survives a Width edit.
+    set(vec![("ResponsiveLayout", json!(false))]);
+    let (leaf, _) = set(vec![("Width", json!(150))]);
+    assert_eq!(leaf["ResponsiveLayout"], false);
 }

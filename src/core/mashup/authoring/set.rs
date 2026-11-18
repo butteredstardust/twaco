@@ -90,6 +90,8 @@ pub(crate) fn plan_set(
         }
     }
     let mut changed = Vec::new();
+    let mut released = false;
+    let before_responsive = document.at(&found.path)["Properties"]["ResponsiveLayout"].as_bool();
     let mut css = None;
     // What the widget's style was before this call: --style reports its change against it.
     let original_styles = document.root_properties().get("StyleProperties").cloned();
@@ -256,18 +258,19 @@ pub(crate) fn plan_set(
             "DisplayName",
             "__TypeDisplayName",
             "LastContainer",
-            "ResponsiveLayout",
             "userCannotRemove",
             "positioning",
         ]
         .contains(&name.as_str())
+            || (name == "ResponsiveLayout" && widget.container)
         {
             return Err(AuthoringError::Refused(format!("twaco sets {name}")));
         }
         if ["_currentParameterDefs", "MashupParameters"].contains(&name.as_str()) {
             return Err(AuthoringError::Refused(format!("{name} is managed by mashup param / add-contained / the function-widget inputs; use those")));
         }
-        let known = widget.defaults.contains_key(name)
+        let known = name == "ResponsiveLayout"
+            || widget.defaults.contains_key(name)
             || widget.property(name).is_some()
             || widget.numbered_default(name).is_some()
             || is_state_parameters(widget, name);
@@ -282,7 +285,25 @@ pub(crate) fn plan_set(
         {
             return Err(AuthoringError::Refused(format!("{name} is not editable")));
         }
-        let value = property_value(widget, name, supplied.clone())?;
+        let value = if name == "ResponsiveLayout" {
+            match supplied {
+                Value::Bool(value) => Value::Bool(*value),
+                Value::String(value) if value == "true" || value == "false" => {
+                    Value::Bool(value == "true")
+                }
+                _ => {
+                    return Err(AuthoringError::Invalid(
+                        "ResponsiveLayout must be true or false".into(),
+                    ))
+                }
+            }
+        } else if matches!(name.as_str(), "Width" | "Height")
+            && (supplied.is_null() || supplied == "")
+        {
+            Value::Null
+        } else {
+            property_value(widget, name, supplied.clone())?
+        };
         if let Some(contract) = widget.property(name) {
             if !contract.options.is_empty() && !contract.options.contains(&value) {
                 return Err(AuthoringError::Invalid(format!(
@@ -301,6 +322,50 @@ pub(crate) fn plan_set(
             validate_flex_property(name, &value)?;
         }
         change_property(&mut document, &found.path, name, value, &mut changed);
+    }
+    if widget.is_some_and(|widget| !widget.container) {
+        let explicit = properties
+            .iter()
+            .any(|(name, _)| name == "ResponsiveLayout");
+        let sizing = properties
+            .iter()
+            .any(|(name, _)| matches!(name.as_str(), "FillContainer" | "Width" | "Height"));
+        let props = &document.at(&found.path)["Properties"];
+        let sized = crate::core::mashup::edit::has_leaf_size(props);
+        let was_fixed = before_responsive == Some(false);
+        let fill_on = properties.iter().any(|(name, value)| {
+            name == "FillContainer" && (value == &Value::Bool(true) || value == "true")
+        });
+        if !explicit && sizing {
+            // Fixed size switches responsive layout off; only turning FillContainer on or removing
+            // the last size switches it back, so a deliberate setting survives a Width edit.
+            let responsive = if props["FillContainer"] == false && sized {
+                Some(false)
+            } else if fill_on || !sized {
+                Some(true)
+            } else {
+                None
+            };
+            if let Some(responsive) = responsive {
+                change_property(
+                    &mut document,
+                    &found.path,
+                    "ResponsiveLayout",
+                    Value::Bool(responsive),
+                    &mut changed,
+                );
+                if !responsive {
+                    notes.push("ResponsiveLayout set to false so Width/Height apply".into());
+                }
+                released = responsive && was_fixed;
+            }
+        }
+        if document.at(&found.path)["Properties"]["ResponsiveLayout"] == false && !sized {
+            notes.push(format!(
+                "{}: ResponsiveLayout=false without Width/Height; set Width and/or Height",
+                found.id
+            ));
+        }
     }
     if found.type_id == "ptcstabset" {
         let count = super::new::tab_count(&document.at(&found.path)["Properties"]["NumberOfTabs"]);
@@ -350,6 +415,9 @@ pub(crate) fn plan_set(
     }
     if !changed.is_empty() {
         document.reflow_for(&found.id);
+        if widget.is_some_and(|widget| !widget.container) {
+            document.fit_leaf_row(&found.id, released);
+        }
     }
     let edit = if changed.is_empty() {
         None
@@ -642,8 +710,15 @@ fn change_property(
     changed: &mut Vec<Change>,
 ) {
     let before = document.at(path)["Properties"].get(name).cloned();
-    if before.as_ref() != Some(&after) {
-        document.set_property(path, name, after.clone());
+    if before.as_ref() != Some(&after) && !(before.is_none() && after.is_null()) {
+        if after.is_null() && matches!(name, "Width" | "Height") {
+            document.at_mut(path)["Properties"]
+                .as_object_mut()
+                .expect("checked properties")
+                .remove(name);
+        } else {
+            document.set_property(path, name, after.clone());
+        }
         changed.push(Change {
             property: name.into(),
             before,

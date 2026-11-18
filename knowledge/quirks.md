@@ -818,3 +818,17 @@ Set `ShowExpandCollapseTab=false` for an external button alone, or show the nati
 Field-verified on ThingWorx 10.2.1: `ptcsmenubar` in a 264px sidebar measures 246.797px
 (238.797px flyout plus an 8px expand part). CSS continuing its background with whole-pixel
 stops leaves a 1px seam. Fractional stops matching the measured menu width remove the seam.
+
+## Fixed leaf sizes need nonresponsive bounding boxes
+
+Field-verified on ThingWorx 10.2, 2026-11-18: a `ptcsimage` with `FillContainer=false`,
+`Width=120` and `Height=60` inside a responsive row ignored those sizes and filled the page.
+With `ResponsiveLayout=false`, Runtime drew a 120x60 relative bounding box with margin 5.
+`mashup set` selects this mode for sized leaves and returns to responsive mode when filling
+or clearing their sizes. Explicit `ResponsiveLayout` settings override that choice.
+
+## Wrapped input rows need room to grow
+
+Field-verified on ThingWorx 10.2, 2026-11-18: allow input rows to wrap and grow when their
+controls do not fit; a fixed maximum height clips the second line. Use `flex-wrap=wrap`
+with `flex-size=range` and no `flex-max-height`.

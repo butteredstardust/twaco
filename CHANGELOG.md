@@ -15,6 +15,8 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Fixed
 
+- Fixed-size leaf widgets set `ResponsiveLayout=false` so Width/Height apply, fit twaco-owned rows, and support explicit layout overrides; validation warns about ignored sizes.
+- `mashup validate` warns when wrapping containers have fixed or maximum heights that clip the second line.
 - Mixed control rows clear default widget margins; textarea/action columns stretch together and bottom-align the action.
 - Menubars assigned a Menu with `mashup add` or `set` grow `PrimaryNavMaxItems` to show every item; adding a Menu item warns about bound mashups with smaller limits.
 - Generated mashup rows bottom-align controls beside labelled inputs, including after Label edits and removals.

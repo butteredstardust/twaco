@@ -703,6 +703,63 @@ impl MashupDocument {
         }
     }
 
+    /// `released`: this edit switched the widget back to responsive layout.
+    pub(crate) fn fit_leaf_row(&mut self, id: &str, released: bool) {
+        let Ok(widget) = self.find(id) else { return };
+        let Some((_, parent)) = widget.path.split_last() else {
+            return;
+        };
+        let leaf = self.at(&widget.path);
+        let row = self.at(parent);
+        let sole = children(row)
+            .iter()
+            .filter(|child| !is_spacer(child))
+            .count()
+            == 1;
+        // Composer names its own containers container-N too, so a row is only refitted when the
+        // widget is its sole content and it has no authored range (a range with a maximum).
+        let size = &row["Properties"]["flex-size"];
+        if !is_generated_container(row)
+            || !sole
+            || row["Properties"]["flex-wrap"] == "wrap"
+            || !(size.is_null()
+                || size == "default"
+                || size == "fixed"
+                || (size == "range"
+                    && row["Properties"]["flex-max-height"]
+                        .as_str()
+                        .unwrap_or("")
+                        .is_empty()))
+        {
+            return;
+        }
+        if leaf["Properties"]["ResponsiveLayout"] != false || !has_leaf_size(&leaf["Properties"]) {
+            // Back to responsive: release the height this row was fixed at for the widget.
+            if released && size == "fixed" {
+                self.set_property(parent, "flex-size", Value::from("default"));
+                self.set_property(parent, "flex-min-height", Value::from(""));
+                self.set_property(parent, "flex-max-height", Value::from(""));
+                self.set_property(parent, "iconClass", Value::from("widgets-flexcontainer"));
+            }
+            return;
+        }
+        let styles = &self.value["UI"]["Properties"]["StyleProperties"]["data"];
+        if let Some(height) = fixed_row_height(self.at(parent), false, styles) {
+            let size = Value::from(format!(
+                "{}px",
+                (height + row_allowance(self.at(parent))).ceil()
+            ));
+            self.set_property(parent, "flex-size", Value::from("fixed"));
+            self.set_property(parent, "flex-min-height", size.clone());
+            self.set_property(parent, "flex-max-height", size);
+            self.set_property(
+                parent,
+                "iconClass",
+                Value::from("widgets-flexcontainer-fixed"),
+            );
+        }
+    }
+
     /// Give the rows this placement made or added to the height of their widgets, as real
     /// mashups do (a header or a filter bar is a fixed row; what fills grows): a container in a
     /// column that holds only fixed-size widgets becomes a fixed row of the tallest one's height
@@ -2220,6 +2277,12 @@ fn content_height(widget: &Value, styles: &Value) -> Option<f64> {
     Some(height + vertical_margin(properties["Margin"].as_str().unwrap_or("")))
 }
 
+pub(crate) fn has_leaf_size(properties: &Value) -> bool {
+    ["Width", "Height"]
+        .iter()
+        .any(|name| properties[name].as_f64().is_some_and(|size| size > 0.0))
+}
+
 /// The top plus bottom of a CSS margin shorthand in pixels: `5`, `0 10`, `0 10 15` or
 /// `0 10 15 10`.
 fn vertical_margin(margin: &str) -> f64 {
@@ -2789,6 +2852,23 @@ mod tests {
     use serde_json::json;
 
     const BLANK: &str = include_str!("templates/blank.content.json");
+
+    #[test]
+    fn fitting_a_sized_leaf_preserves_authored_and_wrapping_rows() {
+        for (name, wrap) in [("toolbar", "nowrap"), ("container-1", "wrap")] {
+            let mut document = MashupDocument::new(json!({"UI": {
+                "Properties": {"Type": "mashup", "Id": "mashup-root"}, "Widgets": [{
+                    "Properties": {"Type": "flexcontainer", "Id": "flexcontainer-1", "DisplayName": name,
+                        "flex-wrap": wrap, "flex-size": "range", "flex-min-height": "200px", "flex-max-height": ""},
+                    "Widgets": [{"Properties": {"Type": "ptcsimage", "Id": "ptcsimage-2",
+                        "ResponsiveLayout": false, "FillContainer": false, "Width": 120, "Height": 60}}]
+                }]
+            }})).unwrap();
+            let before = document.value().clone();
+            document.fit_leaf_row("ptcsimage-2", false);
+            assert_eq!(document.value(), &before);
+        }
+    }
 
     fn document(widgets: &str, id_index: u64) -> MashupDocument {
         parse(&format!(
