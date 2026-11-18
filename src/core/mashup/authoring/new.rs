@@ -1,9 +1,9 @@
 //! `mashup new`: a mashup built from a layout template, with its entity file and sidecars.
 
 use super::{
-    bind_in, cache_entry, contained_parameters, content_round_trips, load_existing, menu_service,
-    on_in, parse_loaded, parse_new_parameter, set_content_parameter, splice_parameter_definition,
-    AuthoringContext, AuthoringError, ParameterDefinition,
+    bind_in, cache_entry, contained_parameters, load_existing, menu_service, on_in, parse_loaded,
+    parse_new_parameter, set_content_parameter, splice_parameter_definition, AuthoringContext,
+    AuthoringError, ParameterDefinition,
 };
 use crate::core::config::Solution;
 use crate::core::entity::key::EntityKey;
@@ -43,6 +43,7 @@ pub struct NewRequest {
     pub tabs: Vec<String>,
     /// An existing repository mashup whose design is copied verbatim.
     pub from: Option<String>,
+    pub replacements: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -77,6 +78,7 @@ pub struct CopySummary {
     pub bindings: usize,
     pub events: usize,
     pub parameters: usize,
+    pub replacements: Vec<String>,
 }
 
 /// `Organization/<name>` or `OrganizationalUnit/<organization>:<unit>`.
@@ -108,6 +110,9 @@ pub(crate) fn plan_new(
     solution: &Solution,
     request: &NewRequest,
 ) -> Result<NewPlan, AuthoringError> {
+    if request.from.is_none() && !request.replacements.is_empty() {
+        return Err(AuthoringError::Invalid("--replace needs --from".into()));
+    }
     if request.from.is_some() {
         return plan_copy(solution, request);
     }
@@ -440,13 +445,12 @@ fn plan_copy(solution: &Solution, request: &NewRequest) -> Result<NewPlan, Autho
         .map(|text| parse_visibility(text))
         .collect::<Result<Vec<_>, _>>()?;
     let loaded = load_existing(solution, from)?;
-    let entity = copied_entity(
+    let mut entity = copied_entity(
         &loaded.entity_before,
         &request.name,
         &project.name,
         &visibility,
     )?;
-    let document = parse_loaded(&loaded)?;
     let entity_path = solution
         .project_root(project)
         .join("Mashups")
@@ -465,17 +469,55 @@ fn plan_copy(solution: &Solution, request: &NewRequest) -> Result<NewPlan, Autho
     // The source has already been checked by load_existing. Re-extracting proves the spliced
     // XML still represents exactly the sidecars we will create.
     let extracted = mashup::extract(&entity).map_err(AuthoringError::Mashup)?;
-    if extracted.css != loaded.assets.css
-        || !content_round_trips(
+    let difference = if !mashup::same_css(&extracted.css, &loaded.assets.css) {
+        Some(css_difference(&loaded.assets.css, &extracted.css))
+    } else {
+        super::content_difference(
             &loaded.assets.content,
             &extracted.content,
             loaded.sidecars.is_some(),
         )
-    {
+    };
+    if let Some((path, before, after)) = difference {
+        tracing::debug!(path = %path, "mashup copy round-trip differs");
         return Err(AuthoringError::Refused(format!(
-            "{from}: copying its identity changed mashup content; twaco will not re-serialise it"
+            "{from}: copying its identity changed {path}: {} -> {}; twaco will not re-serialise it",
+            short(&before),
+            short(&after)
         )));
     }
+    let mut assets = loaded.assets;
+    let mut value: Value = serde_json::from_str(&assets.content).expect("checked content");
+    let mut replacements = Vec::new();
+    for replacement in &request.replacements {
+        let (old, new) = replacement
+            .split_once('=')
+            .filter(|(old, _)| !old.is_empty())
+            .ok_or_else(|| {
+                AuthoringError::Invalid(
+                    "--replace needs <old>=<new> with a nonempty old token".into(),
+                )
+            })?;
+        let count = replace_content_tokens(&mut value, old, new);
+        if count == 0 {
+            let structural = contains_token(&value, old);
+            let reason = if structural {
+                "old token occurs only in structural references; replace content values instead"
+            } else {
+                "old token occurs nowhere in copied content"
+            };
+            return Err(AuthoringError::Invalid(format!(
+                "--replace {replacement}: {reason}"
+            )));
+        }
+        replacements.push(format!("{replacement}: {count} replacements"));
+    }
+    assets.content = mashup::to_sidecar(&value);
+    remove_content_css(&mut assets);
+    entity = mashup::sync(&entity, &assets)
+        .map_err(AuthoringError::Mashup)?
+        .0;
+    let document = mashup::edit::parse(&assets.content).map_err(AuthoringError::Edit)?;
     let content = document.value();
     let copy_summary = CopySummary {
         widgets: document.widgets().len().saturating_sub(1),
@@ -487,6 +529,7 @@ fn plan_copy(solution: &Solution, request: &NewRequest) -> Result<NewPlan, Autho
             .sum(),
         bindings: content["DataBindings"].as_array().map_or(0, Vec::len),
         events: content["Events"].as_array().map_or(0, Vec::len),
+        replacements,
         parameters: crate::core::mashup::describe::mashup_parameters(&entity)
             .map_err(AuthoringError::Unreadable)?
             .len(),
@@ -506,11 +549,7 @@ fn plan_copy(solution: &Solution, request: &NewRequest) -> Result<NewPlan, Autho
         content_path,
         css_path,
         entity,
-        assets: {
-            let mut assets = loaded.assets;
-            remove_content_css(&mut assets);
-            assets
-        },
+        assets,
         widgets: document.widgets(),
         menus: Vec::new(),
         tabs: Vec::new(),
@@ -906,6 +945,7 @@ pub fn new_plan_json(solution: &Solution, plan: &NewPlan, applied: bool) -> Valu
             "type": w.type_id,
             "display_name": w.display_name,
         })).collect::<Vec<_>>(),
+        "replacements": plan.copy_summary.as_ref().map(|summary| &summary.replacements),
         "menus": plan.menus.iter().map(|(service, property)| json!({
             "service": service,
             "property": property,
@@ -932,6 +972,12 @@ pub fn copy_summary_lines(solution: &Solution, plan: &NewPlan, applied: bool) ->
         "  widgets: {}; data calls: {}; bindings: {}; events: {}; parameters: {}",
         summary.widgets, summary.data_calls, summary.bindings, summary.events, summary.parameters
     ));
+    lines.extend(
+        summary
+            .replacements
+            .iter()
+            .map(|replacement| format!("  {replacement}")),
+    );
     lines.extend(
         [&plan.entity_path, &plan.content_path, &plan.css_path]
             .into_iter()
@@ -1183,4 +1229,111 @@ fn remove_content_css(assets: &mut mashup::Assets) {
         .expect("mashup content is an object")
         .remove("CustomMashupCss");
     assets.content = mashup::to_sidecar(&content);
+}
+
+fn short(text: &str) -> String {
+    let prefix: String = text.chars().take(80).collect();
+    if text.chars().count() > 80 {
+        format!("{prefix}\u{2026}")
+    } else {
+        prefix
+    }
+}
+
+fn css_difference(before: &str, after: &str) -> (String, String, String) {
+    let left: Vec<_> = before.lines().collect();
+    let right: Vec<_> = after.lines().collect();
+    let at = (0..left.len().max(right.len()))
+        .find(|&at| left.get(at) != right.get(at))
+        .unwrap_or(0);
+    (
+        format!("custom.css line {}", at + 1),
+        left.get(at).unwrap_or(&"<absent>").to_string(),
+        right.get(at).unwrap_or(&"<absent>").to_string(),
+    )
+}
+
+fn contains_token(value: &Value, old: &str) -> bool {
+    match value {
+        Value::String(_) => replace_tokens(&mut value.clone(), old, "") > 0,
+        Value::Array(items) => items.iter().any(|item| contains_token(item, old)),
+        Value::Object(map) => map.iter().any(|(key, value)| {
+            contains_token(&Value::String(key.clone()), old) || contains_token(value, old)
+        }),
+        _ => false,
+    }
+}
+
+// Only the payloads Composer treats as values are eligible. Identities and wiring remain intact.
+fn replace_content_tokens(value: &mut Value, old: &str, new: &str) -> usize {
+    fn widget(value: &mut Value, old: &str, new: &str) -> usize {
+        let kind = value["Properties"]["Type"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string();
+        let contract = crate::core::widgets::catalog().by_type(&kind);
+        let mut count = 0;
+        if let Some(properties) = value.get_mut("Properties").and_then(Value::as_object_mut) {
+            for (key, value) in properties {
+                let reference = matches!(
+                    key.as_str(),
+                    "Id" | "Type" | "Name" | "EntityName" | "DataName"
+                ) || contract
+                    .and_then(|widget| widget.property(key))
+                    .and_then(|property| property.base_type.as_deref())
+                    .is_some_and(|base| base.ends_with("NAME"));
+                if !reference {
+                    count += replace_tokens(value, old, new);
+                }
+            }
+        }
+        if let Some(children) = value.get_mut("Widgets").and_then(Value::as_array_mut) {
+            for child in children {
+                count += widget(child, old, new);
+            }
+        }
+        count
+    }
+    let mut count = widget(&mut value["UI"], old, new);
+    if let Some(sections) = value.get_mut("Data").and_then(Value::as_object_mut) {
+        for section in sections.values_mut() {
+            if let Some(services) = section.get_mut("Services").and_then(Value::as_array_mut) {
+                for service in services {
+                    if let Some(parameters) = service.get_mut("Parameters") {
+                        count += replace_tokens(parameters, old, new);
+                    }
+                }
+            }
+        }
+    }
+    count
+}
+
+fn replace_tokens(value: &mut Value, old: &str, new: &str) -> usize {
+    match value {
+        Value::String(text) => {
+            let token = |ch: char| ch.is_alphanumeric() || matches!(ch, '_' | '-');
+            let mut count = 0;
+            let mut out = String::new();
+            let mut end = 0;
+            for (at, _) in text.match_indices(old) {
+                let next = at + old.len();
+                if text[..at].chars().next_back().is_some_and(token)
+                    || text[next..].chars().next().is_some_and(token)
+                {
+                    continue;
+                }
+                out.push_str(&text[end..at]);
+                out.push_str(new);
+                end = next;
+                count += 1;
+            }
+            out.push_str(&text[end..]);
+            *text = out;
+            count
+        }
+        Value::Array(items) => items.iter_mut().map(|v| replace_tokens(v, old, new)).sum(),
+        Value::Object(map) => map.values_mut().map(|v| replace_tokens(v, old, new)).sum(),
+        _ => 0,
+    }
 }

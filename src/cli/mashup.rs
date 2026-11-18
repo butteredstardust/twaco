@@ -241,6 +241,8 @@ pub(crate) struct MashupValidate {
 #[group(skip)]
 pub(crate) struct MashupDescribe {
     #[command(flatten)]
+    pub(crate) detail: super::flags::Detail,
+    #[command(flatten)]
     pub(crate) json: Json,
     #[arg(id = "operands", value_name = "operand")]
     pub(crate) operands: Vec<String>,
@@ -572,6 +574,8 @@ pub(crate) struct MashupNew {
     pub(crate) template: Option<String>,
     #[arg(long = "from", value_name = "address")]
     pub(crate) from: Option<String>,
+    #[arg(long = "replace", value_name = "old=new")]
+    pub(crate) replacements: Vec<String>,
     #[arg(long = "layout", value_name = "layout")]
     pub(crate) layout: Option<String>,
     #[arg(long = "primary-menu", value_name = "address")]
@@ -647,6 +651,7 @@ pub(crate) fn mashup_new_cmd(solution: &Solution, args: &MashupNew) -> u8 {
             params: args.params.clone(),
             tabs: args.tabs.clone(),
             from: args.from.clone(),
+            replacements: args.replacements.clone(),
         },
         mode: if apply { Mode::Apply } else { Mode::Plan },
         lock_label: "mashup new",
@@ -2480,7 +2485,7 @@ pub(crate) fn mashup_describe_cmd(solution: &Solution, args: &MashupDescribe) ->
         eprintln!("{} mashup describe needs one <mashup>", style::prefix());
         return FAILED;
     };
-    match twaco::core::mashup::describe::describe(solution, name) {
+    match twaco::core::mashup::describe::describe_detail(solution, name, args.detail.detail) {
         Ok(description) => {
             if args.json.json {
                 println!(

@@ -167,6 +167,19 @@ pub struct Discovery {
     pub unreadable: Vec<String>,
 }
 
+/// Whether a collection's absent entities may be outside this repository's readable scope.
+pub(crate) fn collection_is_partial(
+    solution: &Solution,
+    discovered: &Discovery,
+    collection: &str,
+) -> bool {
+    !discovered.unreadable.is_empty()
+        || solution.projects.iter().any(|project| {
+            !project.collections.is_empty()
+                && !project.collections.iter().any(|name| name == collection)
+        })
+}
+
 /// Every entity file in a solution, in a stable order.
 pub fn discover(solution: &Solution) -> Discovery {
     let mut found = Discovery::default();

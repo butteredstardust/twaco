@@ -16,6 +16,7 @@ exit: 0
   ok      localization tokens  0 examined
   ok      result shapes        7 examined
   ok      networks             1 examined
+  ok      menus                0 examined
   skip    requirements         requirements.toml is absent; run twaco requirements init to draft it
   ok      ai references        0 examined
   skip    structure            no XSD source configured

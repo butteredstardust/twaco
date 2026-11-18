@@ -832,3 +832,19 @@ or clearing their sizes. Explicit `ResponsiveLayout` settings override that choi
 Field-verified on ThingWorx 10.2, 2026-11-18: allow input rows to wrap and grow when their
 controls do not fit; a fixed maximum height clips the second line. Use `flex-wrap=wrap`
 with `flex-size=range` and no `flex-max-height`.
+
+## Menu sub-Menu targets and icons (10.2.1)
+
+A MenuItem with `linkType="Menu"` names its sub-Menu in `linkTarget`, as Composer's Target
+field does. Set both `linkTarget` and `linkDestination` to the sub-Menu name, such as
+`Acme.Sub_MN`, and leave `title` empty. `linkTarget="Self"` makes the server look for a Menu
+named Self: GetEffectiveMenu returns only the root row and ptcsmenubar renders empty, even
+when deploy read-back passes. The parent shows the sub-Menu's menuLabel and Menu-level imageURL.
+An item's imageURL is separate from the Menu's imageURL. The server recomputes effectiveMenu;
+the stored parent effectiveMenu need not match its runtime result. Field-verified on 10.2.1.
+
+## Text Field trailing zeros (10.2.1)
+
+Composer's Hide Trailing Zeros setting is `ptcstextfield.DisplayTrailingZeros`, a BOOLEAN
+whose default is true. Setting it to false with DecimalPlaces 6 shows 0.6 rather than
+0.600000. Field-verified on 10.2.1.

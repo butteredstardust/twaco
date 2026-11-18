@@ -328,6 +328,7 @@ pub(crate) const BUILT_IN_GATES: &[&str] = &[
     "localization tokens",
     "result shapes",
     "networks",
+    "menus",
     "requirements",
     "ai references",
     "structure",
@@ -363,6 +364,7 @@ pub fn run(solution: &Solution) -> CheckReport {
         localization_tokens(solution, &discovery),
         result_shapes(solution, &model),
         networks(solution, &discovery),
+        menus(solution, &discovery),
         requirements(solution, &discovery),
         ai_references(solution, &discovery, &model),
         structure_gate(solution, &discovery),
@@ -1642,6 +1644,79 @@ fn requirements_gate_in(
         Err(error) => gate.broken = Some(error.to_string()),
     }
     gate
+}
+
+fn menus(solution: &Solution, discovered: &workspace::Discovery) -> GateResult {
+    use crate::core::scan;
+    let entries: Vec<_> = discovered
+        .entities
+        .iter()
+        .filter(|entry| entry.info.collection == "Menus")
+        .collect();
+    let mut result = GateResult::passed("menus", entries.len());
+    let partial = workspace::collection_is_partial(solution, discovered, "Menus");
+    for entry in &entries {
+        let checked = (|| -> Result<Vec<(bool, usize, String)>, String> {
+            let bytes = std::fs::read(&entry.path).map_err(|error| error.to_string())?;
+            let tokens = scan::tokenize(&bytes).map_err(|error| error.to_string())?;
+            let mut problems = Vec::new();
+            for token in tokens.iter().filter(|token| {
+                matches!(token.kind, scan::Kind::Start | scan::Kind::Empty)
+                    && token.name.of(&bytes) == b"MenuItem"
+            }) {
+                let get = |name| {
+                    scan::attribute(&bytes, token, name)
+                        .ok()
+                        .flatten()
+                        .map(|span| {
+                            scan::decode_entities(&String::from_utf8_lossy(span.of(&bytes)))
+                        })
+                        .unwrap_or_default()
+                };
+                if get("linkType") != "Menu" {
+                    continue;
+                }
+                let target = get("linkTarget");
+                if target == "Self" || !entries.iter().any(|entry| entry.info.name == target) {
+                    let line = bytes[..token.span.start]
+                        .iter()
+                        .filter(|&&byte| byte == b'\n')
+                        .count()
+                        + 1;
+                    let title = get("title");
+                    let selector = if title.is_empty() { &target } else { &title };
+                    problems.push((partial && target != "Self", line, format!("Menu {} submenu linkTarget={target:?} is not resolved to a Menu in the solution; set linkTarget and linkDestination to the sub-Menu name with `twaco menu item set {} {selector:?} --submenu <Menu> --apply`", entry.info.name, entry.info.name)));
+                }
+            }
+            Ok(problems)
+        })();
+        match checked {
+            Ok(problems) => {
+                for (warning, line, message) in problems {
+                    let findings = if warning {
+                        &mut result.warnings
+                    } else {
+                        &mut result.findings
+                    };
+                    findings.push(Finding {
+                        gate: "menus".into(),
+                        file: solution.relative(&entry.path),
+                        line,
+                        rule: "submenu-target".into(),
+                        message,
+                    });
+                }
+            }
+            Err(message) => result.findings.push(Finding {
+                gate: "menus".into(),
+                file: solution.relative(&entry.path),
+                line: 0,
+                rule: "unreadable".into(),
+                message,
+            }),
+        }
+    }
+    result
 }
 
 /// Networks are forests on the server: the same Thing may have only one parent.

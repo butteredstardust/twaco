@@ -450,7 +450,30 @@ pub(super) fn resolve_service<'a>(
         [] => Err(AuthoringError::Unknown(format!(
             "no entity and service in the solution match data:{raw}"
         ))),
-        [only] => Ok((only.0, only.1.clone())),
+        [only] => {
+            let head = format!("{}.{}", only.0.name, only.1);
+            let tail = raw.strip_prefix(&head).expect("resolved prefix");
+            for selector in ["SelectedRows", "AllData"] {
+                for wrong in [format!(".{selector}."), format!(".[{selector}].")] {
+                    if let Some(field) = tail.strip_prefix(&wrong) {
+                        let right = if selector == "AllData" {
+                            "."
+                        } else {
+                            "[SelectedRows]."
+                        };
+                        let selected = if selector == "AllData" {
+                            format!(" for AllData, or data:{head}[SelectedRows].{field} for selected rows")
+                        } else {
+                            String::new()
+                        };
+                        return Err(AuthoringError::Invalid(format!(
+                            "invalid mashup address `data:{raw}`; use data:{head}{right}{field}{selected}"
+                        )));
+                    }
+                }
+            }
+            Ok((only.0, only.1.clone()))
+        }
         _ => Err(AuthoringError::Ambiguous(format!(
             "data:{raw} is ambiguous; name an entity and service that resolve once"
         ))),

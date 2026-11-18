@@ -262,6 +262,8 @@ pub(crate) struct NewState {
 #[derive(Debug, clap::Args)]
 #[group(skip)]
 pub(crate) struct NewMenu {
+    #[arg(long = "icon", value_name = "image")]
+    pub(crate) icon: Option<String>,
     #[command(flatten)]
     pub(crate) base: Base,
     #[arg(long = "item", value_name = "Title=Mashup")]
@@ -457,6 +459,7 @@ impl NewEntity {
                 request.states.clone_from(&new.states);
             }
             NewEntity::Menu(new) => {
+                request.image.clone_from(&new.icon);
                 request.items.clone_from(&new.items);
                 request.default = new.default.is_some();
                 request.label.clone_from(&new.label);

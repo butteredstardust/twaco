@@ -5,50 +5,160 @@ exit: 0
 ptcsgrid (Grid)
 aliases: grid, table
 properties:
-  AddRowFormTitle STRING in
+  AddButtonText setting (default "[[add]]")
+  AddRowButtonText setting (default "[[add]]")
+  AddRowFormTitle STRING in (default "[[AddRecord]]")
+  AllowDisabledNodes BOOLEAN setting (default false)
+  AlwaysExpanded BOOLEAN setting (default false)
+  ApplyButtonText setting (default "[[apply]]")
+  AutoScroll BOOLEAN setting (default false)
+  BindDataText STRING setting (default "[[bindData]]")
+  CacheRuntimeChanges BOOLEAN setting (default true)
+  CancelButtonText setting (default "[[cancel]]")
+  CancelEditButtonText setting (default "[[cancel]]")
+  CancelLabel STRING setting (default "[[cancel]]")
   ChildData INFOTABLE in
-  ClickedLinkColumn STRING out
+  ChildDataServiceEvent BOOLEAN setting (default false)
+  ClearFilteredSelection BOOLEAN setting (default false)
+  ClickedLinkColumn STRING out (default "")
   ClickedLinkData INFOTABLE out
+  CollapseAllText STRING setting (default "[[collapseAll]]")
   ColumnDelayedData INFOTABLE in
+  ColumnFormat STRING setting (default "")
+  ColumnLazyLoadingBlockSize INTEGER setting (default 10)
+  ColumnLazyLoadingBuffer INTEGER setting (default 10)
+  ColumnLazyLoadingIndicator STRING setting (default "pulse")
+  ColumnsMenuOptions STRING setting (default "none")
+  ColumnsMenuVisibleItems NUMBER setting (default 6)
   Configuration JSON in
-  CustomClass STRING out
+  CurrentToolbarActions STRING setting (default "")
+  CustomClass STRING out (default "")
   Data INFOTABLE in
-  DefaultSelectedRows STRING in
+  DateLabel STRING setting (default "[[date]]")
+  DefaultSelectedRows STRING in (default "")
+  DelayedErrorTooltip STRING setting (default "[[loadingError]]")
+  DelayedLoadingTooltip STRING setting (default "[[loadingData]]")
+  DeleteRowButtonText setting (default "[[delete]]")
   DeletedData INFOTABLE out
+  DisableChildNodes BOOLEAN setting (default false)
+  DisableLegacyValidation BOOLEAN setting
+  DisableSelectionEventInEditMode BOOLEAN setting (default false)
+  DisabledStateField FIELDNAME setting
+  DisplayButtonText setting (default "[[display]]")
+  EditButton BOOLEAN setting (default false)
+  EditButtonText setting (default "[[edit]]")
+  EditControlIcon IMAGELINK setting
+  EditControlLabel STRING setting (default "[[edit]]")
+  EditControlType STRING setting (default "link")
+  EditControlVisibility STRING setting (default "hover")
+  EditLevel STRING setting (default "cell")
   EditedData INFOTABLE out
   EditedRow INFOTABLE in/out
-  ExpandLoadedRows BOOLEAN in
+  EnableSorting BOOLEAN setting (default false)
+  ExpandAllText STRING setting (default "[[expandAll]]")
+  ExpandCollapseAll BOOLEAN setting (default false)
+  ExpandCollapseIcon STRING setting (default "singlecaret")
+  ExpandLoadedRows BOOLEAN in (default false)
   ExpandableRows INFOTABLE in
-  FilterLabel STRING in
-  FilterString STRING in/out
+  FilterHintText STRING setting (default "[[filter]]")
+  FilterLabel STRING in (default "")
+  FilterString STRING in/out (default "")
+  FilterWidth NUMBER setting (default 273)
+  FocusNavigationMode STRING setting (default "row-first")
   FooterData INFOTABLE in
-  HideHeaderRow BOOLEAN in
-  IsEditable BOOLEAN in/out
-  Label STRING in
+  HasChildrenFieldName STRING setting (default "hasChildren")
+  HeaderVerticalAlignment STRING setting (default "top")
+  Height NUMBER setting (default 368)
+  HideHeaderRow BOOLEAN in (default false)
+  HideSelectedRowsCount BOOLEAN setting (default false)
+  HighlightDraftState BOOLEAN setting (default false)
+  HighlightNewRows BOOLEAN setting (default false)
+  HoursLabel STRING setting (default "[[Hours]]")
+  IDFieldName STRING setting (default "id")
+  IDPathSeparator STRING setting (default ":;")
+  IncludeRowExpansionParents BOOLEAN setting (default false)
+  InlineEditing BOOLEAN setting (default false)
+  IsEditable BOOLEAN in/out (default false)
+  Label STRING in (default "[[Grid]]")
+  LabelAlignment STRING setting (default "left")
+  LabelType STRING setting (default "sub-header")
   LastClickedRow INFOTABLE out
-  LegacyConfiguration STRING in
+  LegacyConfiguration STRING in (default "")
+  MaxExpandedRows NUMBER setting
   MaxHeaderHeight NUMBER in
   MaxRowHeight NUMBER in
-  MinRowHeight NUMBER in
-  NoDataSourceLabel STRING in
-  NoMatchesFoundLabel STRING in
-  NoResultsLabel STRING in
-  ParentIDFieldName STRING in
+  MaxRowsMessage STRING setting (default "[[Widgets.TreeGrid.MaxRowsMessage]]")
+  MaxRowsMessageTitle STRING setting (default "[[Widgets.TreeGrid.MaxRowsMessageTitle]]")
+  MeridiemLabel STRING setting (default "[[ampm]]")
+  MinRowHeight NUMBER in (default 48)
+  MinutesLabel STRING setting (default "[[Minutes]]")
+  MonthLabel STRING setting (default "[[Month]]")
+  MoreRowsLabel STRING setting (default "[[GridMoreRowsLabel]]")
+  MoreRowsTooltip STRING setting (default "[[GridMoreRowsTooltip]]")
+  NoDataSourceLabel STRING in (default "[[noDataToDisplay]]")
+  NoMatchesFoundLabel STRING in (default "[[noMatches]]")
+  NoResultsLabel STRING in (default "[[noResults]]")
+  ParentIDFieldName STRING in (default "parentId")
+  PreserveRowExpansion BOOLEAN setting (default false)
+  PreventRowWrapInNav BOOLEAN setting (default false)
+  PrimaryColumnFixedSize BOOLEAN setting (default false)
   PurgeSavedSelectionData INFOTABLE in
   QueryFilter QUERY in/out
-  ResetScrollOnDataChange BOOLEAN in
+  ReorderColumns BOOLEAN setting (default false)
+  ResetButtonText setting (default "[[reset]]")
+  ResetScrollOnDataChange BOOLEAN in (default false)
+  ResizeColumns BOOLEAN setting (default true)
+  RowAddButton BOOLEAN setting (default false)
   RowDelayedData INFOTABLE in
-  RowEditFormTitle STRING in
+  RowDeleteButton BOOLEAN setting (default false)
+  RowEditFormTitle STRING in (default "[[EditRecord]]")
+  RowFormat STATEFORMATTING setting
+  RowLazyLoading STRING setting (default "disabled")
   RowSelected BOOLEAN out
-  RowSelection STRING in
+  RowSelection STRING in (default "none")
   RowTotalNumber INTEGER in
+  RowsInfoLabelPosition STRING setting (default "top")
+  RowsInfoLabelType STRING setting (default "label")
+  RowsVerticalAlignment STRING setting (default "top")
+  RuntimeErrorMessage STRING setting (default "[[GridRuntimeError]]")
+  SaveEditButtonText setting (default "[[save]]")
+  SecondsLabel STRING setting (default "[[Seconds]]")
+  SelectFocusedItem BOOLEAN setting (default false)
+  SelectLabel STRING setting (default "[[select]]")
+  SelectParentOnly BOOLEAN setting (default false)
+  SelectTextDropdown STRING setting (default "[[ThemePreview.select]]")
+  SelectedItemText STRING setting (default "[[rowSelected]]")
+  SelectedItemsText STRING setting (default "[[rowsSelected]]")
   SelectedRows INFOTABLE in/out
+  SelectedRowsChangedCallback BOOLEAN setting (default true)
   SelectedRowsIDs INFOTABLE in/out
-  ShowFilter BOOLEAN in
-  SingleLineHeader BOOLEAN in
-  SingleLineRows BOOLEAN in
+  ShiftKeySelection BOOLEAN setting (default false)
+  ShowColumnFeature BOOLEAN setting
+  ShowFilter BOOLEAN in (default false)
+  ShowFooter BOOLEAN setting (default false)
+  ShowHeaderRowInFooter BOOLEAN setting (default false)
+  ShowResetButton BOOLEAN setting (default false)
+  ShowRowNumbers BOOLEAN setting (default false)
+  ShowRowTotalNumber BOOLEAN setting (default false)
+  ShowValidationCriteria BOOLEAN setting (default false)
+  ShowValidationFailure BOOLEAN setting (default false)
+  ShowValidationSuccess BOOLEAN setting (default false)
+  ShowValidatorFeature BOOLEAN setting
+  SingleLineHeader BOOLEAN in (default false)
+  SingleLineRows BOOLEAN in (default false)
+  SortSelectionColumn BOOLEAN setting (default false)
+  TabSequence NUMBER setting (default 0)
   ToolbarActionsData INFOTABLE in
-  Visible BOOLEAN in
+  ToolbarActionsPosition STRING setting (default "after")
+  TriggerEventOnConfigChange BOOLEAN setting (default true)
+  UpdateButtonText setting (default "[[update]]")
+  ValidationCriteriaIcon IMAGELINK setting
+  ValidationFailureIcon IMAGELINK setting
+  ValidationSuccessIcon IMAGELINK setting
+  Visible BOOLEAN in (default true)
+  Width NUMBER setting (default 464)
+  YearLabel STRING setting (default "[[Year]]")
+  toolbarRightoverflowText setting (default "[[HyperlinkName]]")
 events: Filter, RowClicked, SelectedRowsChanged, LinkClicked, EditCellStarted, EditCellCompleted, EditCellCancelled, EditRowStarted, EditRowCompleted, EditRowCancelled, EditStarted, EditCompleted, EditCanceled, DeleteRowClicked, ResetButtonClicked, DoubleClicked
 services: Cancel, ConfirmDelete, Reset, Save
 --- stderr

@@ -548,14 +548,14 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         ).with_output::<outputs::NetworkWriteResult>(),
         solution_tool::<refactor_requests::EntityEditRequest>(
             "entity_edit",
-            "Change an existing entity in the repository, as Composer would: add, change or remove a property of a Thing, ThingTemplate or ThingShape (a persistent one also writes the stored value of every Thing that has it), add or remove a local script service and its sidecars, or override or revert an inherited service with its script-only sidecar while keeping its run-time permissions; add or remove a script subscription, implement or stop implementing a ThingShape, change a timer's or scheduler's settings, given keys of a style, a MediaEntity's image, a menu's items, or a StateDefinition's states. Removing or retyping a property, or removing a service, something still uses is refused unless force. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
+            "Change an existing entity in the repository, as Composer would: add, change or remove a property of a Thing, ThingTemplate or ThingShape (a persistent one also writes the stored value of every Thing that has it), add or remove a local script service and its sidecars, or override or revert an inherited service with its script-only sidecar while keeping its run-time permissions; add or remove a script subscription, implement or stop implementing a ThingShape, change a timer's or scheduler's settings, given keys of a style, a MediaEntity's image, entity descriptions, Menu-level icons, a menu's items (including sub-Menus, titles, destinations, icons and defaults), or a StateDefinition's states. Removing or retyping a property, or removing a service, something still uses is refused unless force. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
             false,
             refactor::entity_edit_tool,
         )
         .with_output::<outputs::EntityEditResult>(),
         solution_tool::<refactor_requests::MashupNewRequest>(
             "mashup_new",
-            "Create a ThingWorx 10.2 responsive mashup from an embedded layout template, with its entity file and managed content.json and custom.css sidecars. template is a name or alias (blank by default); mashup_templates lists the slots where mashup_add can place widgets. Menu templates require primary_menu (a service result) or menu_entity (a Menu in the solution); secondary_menu goes with primary_menu. master puts its page container in the template's master slot. A dry run unless dry_run is false; an apply takes the workspace lock and writes every file or none.",
+            "Create a ThingWorx 10.2 responsive mashup from an embedded layout template, with its entity file and managed content.json and custom.css sidecars. from copies a repository mashup; replacements are repeatable old=new whole-token substitutions in copied content strings. template is a name or alias (blank by default); mashup_templates lists the slots where mashup_add can place widgets. Menu templates require primary_menu (a service result) or menu_entity (a Menu in the solution); secondary_menu goes with primary_menu. master puts its page container in the template's master slot. A dry run unless dry_run is false; an apply takes the workspace lock and writes every file or none.",
             false,
             refactor::mashup_new_tool,
         )
@@ -662,7 +662,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         .with_output::<outputs::MashupOffResult>(),
         bare_tool::<refactor_requests::WidgetsRequest>(
             "widgets",
-            "List or search the embedded ThingWorx 10.2 widget catalogue (type, Composer label, aliases, container, whether bindable), or with widget, one widget's bindable properties with base type and direction (in, out, in/out), its events and services. Read-only; no server.",
+            "List or search the embedded ThingWorx 10.2 widget catalogue (type, Composer label, aliases, container, whether bindable), or with widget, one widget's editable and bindable properties with base type and direction (in, out, in/out), its events and services. Read-only; no server.",
             true,
             refactor::widgets_tool,
         )

@@ -8,12 +8,19 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- `entity set --description` edits existing entity descriptions; Menu icons can be set with `new menu --icon` and `entity set --icon`.
+- `menu item set` changes titles, destinations, icons, descriptions and defaults; add/set support sub-Menus, and check validates their targets.
+- `mashup describe --detail` shows non-default widget properties and bindings, with full property values in JSON.
+- Mashup copies accept repeatable `--replace old=new`, report round-trip differences, accept empty CSS and keep their sidecars synchronized.
+- Global `--log` works before and after commands; binding address errors suggest selected-row syntax, and Text Field trailing-zero behaviour has catalogue coverage.
 - `mashup recipe collapsible` configures sidebar expand/collapse, native tabs and external toggle buttons; flexcontainer services work with `mashup on`.
 - `mashup validate` warns when a row aligns controls with field labels and shows the bottom-alignment fix.
 - Flexcontainer property bindings and checked edits, including tab-container lazy loading and flex sizing.
 - `call --param name=value` accepts repeated parameters, typed from known service signatures.
 
 ### Fixed
+
+- Mashup copy replacements preserve structural references; selector hints respect dotted entity names, submenu edits accept partial repositories, and widget settings without a catalogue type print without a blank column.
 
 - Fixed-size leaf widgets set `ResponsiveLayout=false` so Width/Height apply, fit twaco-owned rows, and support explicit layout overrides; validation warns about ignored sizes.
 - `mashup validate` warns when wrapping containers have fixed or maximum heights that clip the second line.

@@ -329,6 +329,7 @@ fn dispatch(command: Command) -> u8 {
         Command::Retemplate(retemplate) => run(|solution| retemplate_cmd(solution, &retemplate)),
         Command::Reproject(reproject) => run(|solution| reproject_cmd(solution, &reproject)),
         Command::Entity(entity) => run(|solution| match &entity {
+            Entity::Set(set) => entity_edit_cmd(solution, set.edit()),
             Entity::Get(get) => entity_get(solution, get),
             Entity::Diff(diff) => entity_diff(solution, diff),
             Entity::Status(status) => entity_status(solution, status),

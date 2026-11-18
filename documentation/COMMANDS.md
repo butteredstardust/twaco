@@ -171,16 +171,17 @@ reproject <entity>... --to <project> [--apply] [--json]
     --to <project>          the project they move to
 widgets [<widget>] [--search <text>] [--json]
                             the embedded ThingWorx 10.2 widget catalogue: types, Composer labels,
-                            aliases, containers and bindable properties, events and services
+                            aliases, containers and editable or bindable properties with defaults, events and services
 mashup validate <mashup>|--all [--json]
                             what in a mashup ThingWorx would load but not honour, or the next edit would
                             trip over: structure, ids, bindings and events that name what is not there,
                             catalogue contracts, several property maps, contained-mashup drift;
                             exit 1 when it finds any
-mashup describe <mashup> [--json]
+mashup describe <mashup> [--detail] [--json]
                             what a mashup holds and how it is wired, without its XML: the widget tree,
                             each service it calls with what sets each parameter (or that nothing does),
                             each binding and each event, in the addresses mashup bind and on take
+    --detail                show non-default widget properties and widget bindings
 mashup diff <a> <b> [--tier <tier>] [--json]
                             compare two repository mashups by executable wiring, responsive layout and visual
                             content; ignores Composer-generated identifiers; exits 1 when the selected tier differs
@@ -285,6 +286,7 @@ mashup bind <mashup> --from <address> --to <address> [--apply] [--json]
                             add one data binding to a mashup; plan unless --apply
     --from <address>        source address from mashup describe
     --to <address>          target address from mashup describe
+                            selected row example: data:Acme.Manager.Load[SelectedRows].name
 mashup on <mashup> --event <address> --invoke <address> [--apply] [--json]
                             run a service or widget service when a mashup event fires; plan unless --apply
     --event <address>       widget/mashup event or data call event (Data_Error on failure)
@@ -375,6 +377,7 @@ mashup new <name> [--project <name>] [--from <address> | --template <name>]
     --visibility            Organization/<name> or OrganizationalUnit/<organization>:<unit>, repeatable;
                             none unless given
     --tab                   with --template tabs: a tab's label and the mashup it shows, repeatable
+    --replace <old=new>     replace whole tokens in copied content string values; repeatable, needs --from
 new building-block <name> [--type standard|abstract|implementation] [--display-name <text>] [--description <text>]
     [--parent <block>] [--model-logic] [--no-management-shape] [--root <dir>] [--base-extension PTC.Base:<version>]
     [--apply] [--json]
@@ -440,10 +443,18 @@ style set <StyleDefinition> [--background <color>] [--foreground <color>]
 media set <MediaEntity> --file <path> [--apply] [--json]
                             replace a MediaEntity's image (PNG, JPEG, GIF or SVG, up to 10 MB);
                             plan unless --apply
-menu item add <Menu> <Title>=<Mashup> [--default] [--before <Title>] [--apply] [--json]
+menu item add <Menu> <Title>=<Mashup> [--icon <image>] [--default] [--before <Title>] [--apply] [--json]
+menu item add <Menu> --submenu <name> [--icon <image>] [--before <Title>] [--apply] [--json]
 menu item remove <Menu> <Title> [--apply] [--json]
-                            add or remove a mashup item, keeping the effective menu in step;
+menu item set <Menu> <Title> [--title <text>] [--mashup <name>] [--submenu <name>]
+    [--icon <image>] [--default] [--description <text>] [--apply] [--json]
+                            edit menu items in order, keeping the effective menu in step;
                             plan unless --apply
+    --submenu <name>        link to a sub-Menu; the server shows its label and Menu-level icon
+    --icon <image>          an item image URL or MediaEntity
+    --title <text>          rename the selected item
+    --mashup <name>         change the selected item's Mashup
+    --description <text>    change the selected item's description
 mcp-namespace add <Namespace> tool|service-resource|file-resource|prompt <spec> [--description <text>]
     [--apply] [--json]
                             add a tool, resource or prompt, written as new mcp-namespace writes it;
@@ -507,7 +518,7 @@ new state <name> --type numeric|string --state <spec>... [--project <name>] [--d
                             background, foreground, secondary-background, line-color,
                             line-style, line-thickness, bold, italic, underline, text-size,
                             image, e.g. "<=10=Low;background:#00ff00"
-new menu <name> --item <Title=Mashup>... [--project <name>] [--description <text>] [--default]
+new menu <name> --item <Title=Mashup>... [--project <name>] [--description <text>] [--default] [--icon <image>]
     [--label <text>] [--apply] [--json]
                             create a Menu; plan unless --apply
 new theme <name> [--project <name>] [--description <text>] [--from <StyleTheme>]
@@ -533,6 +544,9 @@ new ai-agent <name> --namespace <Namespace[=item,...]>... [--skill Repository:/p
     --namespace             everything the namespace defines, or the tools, resources and prompts
                             named; AgentUtilities, the platform's, gives its standard tools
     --agent-description     what the assistant routes questions to the agent by
+entity set <entity> [--description <text>] [--icon <image>] [--apply] [--json]
+                            set entity metadata; empty description clears it; plan unless --apply
+    --icon <image>          a Menu-level MediaEntity or image URL
 ```
 
 ## Deploy and compare

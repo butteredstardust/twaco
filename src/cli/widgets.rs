@@ -97,8 +97,19 @@ fn print_detail(detail: &WidgetDetail) {
     println!("properties:");
     for property in &detail.properties {
         println!(
-            "  {} {} {}",
-            property.name, property.base_type, property.direction
+            "  {} {}{}{}",
+            property.name,
+            if property.base_type.is_empty() {
+                String::new()
+            } else {
+                format!("{} ", property.base_type)
+            },
+            property.direction,
+            property
+                .default
+                .as_ref()
+                .map(|value| format!(" (default {value})"))
+                .unwrap_or_default()
         );
     }
     println!("events: {}", detail.events.join(", "));

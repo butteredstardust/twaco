@@ -135,7 +135,7 @@ impl crate::core::codes::Coded for DiffError {
 // Composer editor state: the version that last saved the widget, the designer's lock and label,
 // the icon its palette shows, which container it last split, its migration flag, and the base
 // type it copies from a picker's bound display field, and the alignment it remembers.
-const IGNORED_PROPERTIES: &[&str] = &[
+pub(super) const IGNORED_PROPERTIES: &[&str] = &[
     "UpdatedAfterRefactor",
     "prev-align",
     "DisplayFieldBaseType",

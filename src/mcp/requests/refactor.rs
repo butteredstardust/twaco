@@ -265,6 +265,8 @@ pub(crate) struct ReprojectRequest {
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct MashupDescribeRequest {
+    #[serde(default)]
+    pub(crate) detail: bool,
     /// The mashup's name.
     pub(crate) mashup: String,
 }
@@ -325,6 +327,8 @@ pub(crate) struct MashupNewRequest {
     /// A repository mashup to copy. It is exclusive with template, layout, menus, theme, master, params and tabs.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) from: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) replacements: Absent<Vec<String>>,
     /// Compatibility alias for template.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) layout: Absent<String>,
@@ -489,6 +493,9 @@ pub(crate) struct EntityNewRequest {
     pub(crate) text_size: Absent<String>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) image: Absent<String>,
+    /// Menu-level image URL or MediaEntity.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) icon: Absent<String>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) display_string: Absent<String>,
     #[serde(default, rename = "type", skip_serializing_if = "Absent::is_absent")]
@@ -554,6 +561,10 @@ pub(crate) struct EntityNewRequest {
 /// plan and apply all Composer-style changes through one dry-run-by-default tool.
 #[derive(Clone, Copy, Debug, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
 pub(crate) enum EntityEditAction {
+    #[serde(rename = "entity_set")]
+    EntitySet,
+    #[serde(rename = "menu_item_set")]
+    MenuItemSet,
     #[serde(rename = "property_add")]
     PropertyAdd,
     #[serde(rename = "property_remove")]
@@ -734,6 +745,12 @@ pub(crate) struct EntityEditRequest {
     /// menu_item_add / menu_item_remove: the item title.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) title: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) new_title: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) submenu: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) icon: Absent<String>,
     /// menu_item_add: the mashup the item opens.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) mashup: Absent<String>,

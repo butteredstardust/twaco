@@ -110,6 +110,8 @@ pub(crate) struct WidgetNode {
     /// What it shows: its label, text or title, as written (a `[[token]]` stays one).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) properties: Option<serde_json::Map<String, Value>>,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -169,15 +171,24 @@ impl Coded for DescribeError {
 
 /// Describe the mashup `name` as the repository has it: its sidecar content when it has one.
 pub fn describe(solution: &Solution, name: &str) -> Result<Description, DescribeError> {
+    describe_detail(solution, name, false)
+}
+
+pub fn describe_detail(
+    solution: &Solution,
+    name: &str,
+    detail: bool,
+) -> Result<Description, DescribeError> {
     let discovered = workspace::discover(solution);
     let (model, _) = types::load_model(solution);
     let platform = types::cached_platform(solution);
-    describe_in(
+    describe_in_detail(
         solution,
         name,
         &discovered.entities,
         &model,
         platform.as_ref(),
+        detail,
     )
 }
 
@@ -189,6 +200,17 @@ pub(crate) fn describe_in(
     files: &[workspace::EntityFile],
     model: &types::Model,
     platform: Option<&types::Platform>,
+) -> Result<Description, DescribeError> {
+    describe_in_detail(solution, name, files, model, platform, false)
+}
+
+fn describe_in_detail(
+    solution: &Solution,
+    name: &str,
+    files: &[workspace::EntityFile],
+    model: &types::Model,
+    platform: Option<&types::Platform>,
+    detail: bool,
 ) -> Result<Description, DescribeError> {
     let entity = files
         .iter()
@@ -228,6 +250,9 @@ pub(crate) fn describe_in(
                 .collect()
         })
     });
+    if detail {
+        add_details(&mut description, &value["UI"]);
+    }
     description.parameters = parameters
         .into_iter()
         .map(|mut parameter| {
@@ -786,10 +811,48 @@ fn tree(widget: &Value, depth: usize, out: &mut Vec<WidgetNode>) {
         // The root's ResponsiveLayout says the page is responsive, not that it fills anything.
         fills: depth > 0 && type_id != "flexcontainer" && properties["ResponsiveLayout"] == true,
         text: shown,
+        properties: None,
         type_id,
     });
     for child in array(widget, "Widgets") {
         tree(child, depth + 1, out);
+    }
+}
+
+fn add_details(description: &mut Description, widget: &Value) {
+    let properties = &widget["Properties"];
+    if let Some(node) = description
+        .widgets
+        .iter_mut()
+        .find(|node| properties["Id"] == node.id)
+    {
+        let catalog = crate::core::widgets::catalog().by_type(&node.type_id);
+        let changed = properties
+            .as_object()
+            .into_iter()
+            .flatten()
+            .filter(|(key, value)| {
+                !super::diff::IGNORED_PROPERTIES.contains(&key.as_str())
+                    && key.as_str() != "Type"
+                    && !(properties["ResponsiveLayout"] == true
+                        && ["Top", "Left", "Width", "Height", "Z-index"].contains(&key.as_str()))
+                    && catalog.and_then(|widget| widget.defaults.get(*key)) != Some(*value)
+            })
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect();
+        node.properties = Some(changed);
+    }
+    for child in array(widget, "Widgets") {
+        add_details(description, child);
+    }
+}
+
+fn abbreviated(value: &Value) -> String {
+    let text = value.to_string();
+    if text.chars().count() > 80 {
+        format!("{}\u{2026}", text.chars().take(79).collect::<String>())
+    } else {
+        text
     }
 }
 
@@ -858,7 +921,11 @@ pub fn render(description: &Description) -> String {
             notes.push(format!("\"{}\"", widget.display_name));
         }
         if let Some(text) = &widget.text {
-            notes.push(format!("text {text:?}"));
+            notes.push(if widget.properties.is_some() {
+                format!("text {}", abbreviated(&Value::String(text.clone())))
+            } else {
+                format!("text {text:?}")
+            });
         }
         out.push_str(&format!(
             "  {}{} {}{}\n",
@@ -871,6 +938,19 @@ pub fn render(description: &Description) -> String {
                 format!("  ({})", notes.join(", "))
             }
         ));
+        if let Some(properties) = &widget.properties {
+            let indent = "  ".repeat(widget.depth + 2);
+            for (key, value) in properties {
+                out.push_str(&format!("{indent}{key} = {}\n", abbreviated(value)));
+            }
+            for binding in &description.bindings {
+                if binding.from.starts_with(&format!("ui:{}.", widget.id))
+                    || binding.to.starts_with(&format!("ui:{}.", widget.id))
+                {
+                    out.push_str(&format!("{indent}{} -> {}\n", binding.from, binding.to));
+                }
+            }
+        }
     }
     if !description.containers.is_empty() {
         out.push_str("\ncontainers\n");
@@ -1279,5 +1359,40 @@ mod repository_tests {
             describe(&solution, "Acme.Nope_MU"),
             Err(DescribeError::Unknown(_))
         ));
+    }
+}
+
+#[cfg(test)]
+mod detail_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn detail_keeps_full_properties_in_json_and_abbreviates_text() {
+        let columns = "column-configuration ".repeat(20);
+        let value = json!({"UI": {"Properties": {"Id": "root", "Type": "mashup"}, "Widgets": [
+            {"Properties": {"Id": "label", "Type": "ptcslabel", "Text": "Status", "CustomClass": "status-label", "Visible": true, "LastContainer": true}},
+            {"Properties": {"Id": "grid", "Type": "ptcsgrid", "ColumnFormat": columns, "ResponsiveLayout": true, "Top": 100, "Left": 12, "Z-index": 1}}
+        ]}});
+        let mut description = of_content("Acme.View", "Mashups/view.xml", &value, &|_, _| None);
+        assert!(serde_json::to_value(&description).unwrap()["widgets"][1]
+            .get("properties")
+            .is_none());
+        add_details(&mut description, &value["UI"]);
+        let json = serde_json::to_value(&description).unwrap();
+        assert_eq!(json["widgets"][1]["properties"]["Text"], "Status");
+        assert_eq!(
+            json["widgets"][1]["properties"]["CustomClass"],
+            "status-label"
+        );
+        assert!(json["widgets"][1]["properties"]
+            .get("LastContainer")
+            .is_none());
+        assert_eq!(json["widgets"][2]["properties"]["ColumnFormat"], columns);
+        assert!(json["widgets"][2]["properties"].get("Top").is_none());
+        let text = render(&description);
+        assert!(text.contains("Text = \"Status\""));
+        assert!(text.contains('\u{2026}'));
+        assert!(!text.contains(&columns));
     }
 }

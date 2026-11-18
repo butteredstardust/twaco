@@ -45,6 +45,7 @@ fn request(name: &str) -> NewRequest {
         params: Vec::new(),
         tabs: Vec::new(),
         from: None,
+        replacements: Vec::new(),
     }
 }
 
@@ -10228,6 +10229,8 @@ fn adding_a_menu_item_warns_about_bound_menubar_limits_without_editing_mashups()
         &EntityRequest {
             entity: "Acme.Main_MN".into(),
             action: Action::MenuItemAdd {
+                submenu: None,
+                icon: None,
                 title: "More".into(),
                 mashup: "Acme.Orders_MU".into(),
                 default: false,
@@ -10252,6 +10255,8 @@ fn adding_a_menu_item_warns_about_bound_menubar_limits_without_editing_mashups()
         &EntityRequest {
             entity: "Acme.Main_MN".into(),
             action: Action::MenuItemAdd {
+                submenu: None,
+                icon: None,
                 title: "More".into(),
                 mashup: "Acme.Orders_MU".into(),
                 default: false,
@@ -10370,6 +10375,8 @@ fn the_item_limit_counts_only_the_menus_own_items_and_unreadable_mashups_only_wa
         &EntityRequest {
             entity: "Acme.Main_MN".into(),
             action: Action::MenuItemAdd {
+                submenu: None,
+                icon: None,
                 title: "More".into(),
                 mashup: "Acme.Orders_MU".into(),
                 default: false,
@@ -10448,4 +10455,221 @@ fn leaf_sizing_keeps_deliberate_settings_and_releases_only_its_own_row() {
     set(vec![("ResponsiveLayout", json!(false))]);
     let (leaf, _) = set(vec![("Width", json!(150))]);
     assert_eq!(leaf["ResponsiveLayout"], false);
+}
+
+#[test]
+fn copied_pages_with_empty_or_custom_css_are_immediately_editable() {
+    for css in [
+        "",
+        "\n",
+        ".page {\r\n color: red;\r\n}\r\n",
+        ".page { color: red; }",
+    ] {
+        let (_dir, solution) = one_project();
+        let source = plan_new(&solution, &request("Acme.Source_MU")).unwrap();
+        apply_new(&solution, &source, &lock(&solution)).unwrap();
+        let mut value: Value = serde_json::from_str(&source.assets.content).unwrap();
+        value["CustomMashupCss"] = json!("");
+        value["UI"]["Widgets"][0]["Properties"]["CustomClass"] =
+            json!("demo-page Acme.Source_MU demo-current");
+        value["UI"]["Widgets"][0]["Widgets"] = json!([
+            {"Properties": {"Id": "ptcslabel-3", "Type": "ptcslabel", "Text": "\u{00e9} &nbsp; &amp; &lt; ]]>"}},
+            {"Properties": {"Id": "ptcslink-4", "Type": "ptcslink", "Label": "Open", "URL": "/page"}},
+            {"Properties": {"Id": "ptcsrte-5", "Type": "ptcsrte", "Text": "<p>\u{00e9} &nbsp; &amp; &lt; ]]></p>"}}
+        ]);
+        value["Data"] = json!({"Things_Acme.Manager": {"Services": [{"Id": "Load", "Name": "Load", "Parameters": {"page": "current"}}]}});
+        let assets = mashup::Assets {
+            content: mashup::to_sidecar(&value),
+            css: css.into(),
+        };
+        let entity = mashup::sync(&source.entity, &assets).unwrap().0;
+        std::fs::write(&source.entity_path, entity).unwrap();
+        std::fs::write(&source.content_path, &assets.content).unwrap();
+        std::fs::write(&source.css_path, css).unwrap();
+        let mut copy = request("Acme.Copy_MU");
+        copy.from = Some("Acme.Source_MU".into());
+        let plan =
+            plan_new(&solution, &copy).unwrap_or_else(|error| panic!("css={css:?}: {error}"));
+        apply_new(&solution, &plan, &lock(&solution)).unwrap();
+        let loaded = load_existing(&solution, "Acme.Copy_MU").unwrap();
+        assert!(content_round_trips(
+            &assets.content,
+            &loaded.assets.content,
+            true
+        ));
+        assert_eq!(std::fs::read(&source.css_path).unwrap(), css.as_bytes());
+        let mut copy = request("Acme.Replaced_MU");
+        copy.from = Some("Acme.Source_MU".into());
+        copy.replacements = vec!["demo-current=demo-nested".into(), "current=nested".into()];
+        let plan = plan_new(&solution, &copy).unwrap();
+        let content: Value = serde_json::from_str(&plan.assets.content).unwrap();
+        assert_eq!(
+            content["UI"]["Widgets"][0]["Properties"]["CustomClass"],
+            "demo-page Acme.Source_MU demo-nested"
+        );
+        assert_eq!(
+            content["Data"]["Things_Acme.Manager"]["Services"][0]["Parameters"]["page"],
+            "nested"
+        );
+        assert_eq!(
+            content["UI"]["Widgets"][0]["Widgets"][2]["Properties"]["Text"],
+            "<p>\u{00e9} &nbsp; &amp; &lt; ]]></p>"
+        );
+        assert_eq!(plan.copy_summary.as_ref().unwrap().replacements.len(), 2);
+        apply_new(&solution, &plan, &lock(&solution)).unwrap();
+        load_existing(&solution, "Acme.Replaced_MU").unwrap();
+        copy.name = "Acme.Missing_MU".into();
+        copy.replacements = vec!["absent=new".into()];
+        assert!(plan_new(&solution, &copy)
+            .unwrap_err()
+            .to_string()
+            .contains("occurs nowhere"));
+    }
+}
+
+#[test]
+fn entity_description_on_a_mashup_keeps_sidecars_in_step() {
+    let (_dir, solution) = one_project();
+    let source = plan_new(&solution, &request("Acme.View_MU")).unwrap();
+    apply_new(&solution, &source, &lock(&solution)).unwrap();
+    let action = crate::core::entity::edit::Action::EntitySet {
+        description: Some("R&D <page>".into()),
+        icon: None,
+    };
+    let command = crate::core::commands::entity_edit::EditRequest {
+        request: crate::core::entity::edit::Request {
+            entity: "Mashups/Acme.View_MU".into(),
+            action,
+        },
+        mode: crate::core::commands::Mode::Apply,
+        lock_label: "test",
+    };
+    crate::core::commands::entity_edit::execute(&solution, &command, &mut Default::default())
+        .unwrap();
+    let rerun =
+        crate::core::commands::entity_edit::execute(&solution, &command, &mut Default::default())
+            .unwrap();
+    assert!(rerun.plan.changes.is_empty());
+    load_existing(&solution, "Acme.View_MU").unwrap();
+    let entity = std::fs::read_to_string(&source.entity_path).unwrap();
+    assert!(entity.contains("description=\"R&amp;D &lt;page&gt;\""));
+}
+
+#[test]
+fn round_trip_diagnostics_name_the_first_changed_value() {
+    let diff = content_difference(
+        r#"{"UI":{"Text":"before"}}"#,
+        r#"{"UI":{"Text":"after"}}"#,
+        true,
+    )
+    .unwrap();
+    assert_eq!(
+        diff,
+        (
+            "content.json:$.UI.Text".into(),
+            "\"before\"".into(),
+            "\"after\"".into()
+        )
+    );
+    assert_eq!(
+        content_difference(r#"{"items":[1]}"#, r#"{"items":[1,2]}"#, true).unwrap(),
+        (
+            "content.json:$.items[1]".into(),
+            "<absent>".into(),
+            "2".into()
+        )
+    );
+    assert!(content_round_trips(
+        r#"{"a":1,"b":2}"#,
+        r#"{"b":2,"a":1}"#,
+        false
+    ));
+    assert!(!content_round_trips(r#"{"UI":[]}"#, r#"{"UI":{}}"#, true));
+}
+
+#[test]
+fn copied_replacements_preserve_data_sections_and_all_binding_addresses() {
+    let (_dir, solution) = one_project();
+    let source = plan_new(&solution, &request("Acme.Source_MU")).unwrap();
+    apply_new(&solution, &source, &lock(&solution)).unwrap();
+    let mut value: Value = serde_json::from_str(&source.assets.content).unwrap();
+    value["Data"] = json!({"Things_Acme.mcp": {
+        "DataName": "Things_Acme.mcp", "EntityName": "Acme.mcp",
+        "Services": [{"Id": "mcp", "Name": "mcp", "Parameters": {"text": "mcp"}}]
+    }});
+    value["DataBindings"] = json!([{
+        "SourceSection": "Things_Acme.mcp", "SourceId": "mcp",
+        "TargetSection": "mcp", "TargetId": "mcp", "SourceDetails": "mcp",
+        "PropertyMaps": [{"SourceProperty": "mcp", "TargetProperty": "mcp"}]
+    }]);
+    let structural_data = value["Data"].clone();
+    let structural_bindings = value["DataBindings"].clone();
+    value["UI"]["Widgets"][0]["Widgets"] = json!([
+        {"Properties": {"Id": "mcp", "Type": "ptcslabel", "Text": "mcp", "CustomClass": "page mcp"}},
+        {"Properties": {"Id": "expression-4", "Type": "expression", "Expression": "'mcp'"}},
+        {"Properties": {"Id": "navigation-5", "Type": "navigationfunction", "TargetMashup": "Acme.mcp"}}
+    ]);
+    let assets = mashup::Assets {
+        content: mashup::to_sidecar(&value),
+        css: source.assets.css.clone(),
+    };
+    std::fs::write(
+        &source.entity_path,
+        mashup::sync(&source.entity, &assets).unwrap().0,
+    )
+    .unwrap();
+    std::fs::write(&source.content_path, &assets.content).unwrap();
+    let mut copy = request("Acme.Copy_MU");
+    copy.from = Some("Acme.Source_MU".into());
+    copy.replacements = vec!["mcp=nested".into()];
+    let plan = plan_new(&solution, &copy).unwrap();
+    let content: Value = serde_json::from_str(&plan.assets.content).unwrap();
+    let mut expected_data = structural_data;
+    expected_data["Things_Acme.mcp"]["Services"][0]["Parameters"]["text"] = json!("nested");
+    assert_eq!(content["Data"], expected_data);
+    assert_eq!(content["DataBindings"], structural_bindings);
+    let widgets = &content["UI"]["Widgets"][0]["Widgets"];
+    assert_eq!(widgets[0]["Properties"]["Id"], "mcp");
+    assert_eq!(widgets[0]["Properties"]["Text"], "nested");
+    assert_eq!(widgets[0]["Properties"]["CustomClass"], "page nested");
+    assert_eq!(widgets[1]["Properties"]["Expression"], "'nested'");
+    assert_eq!(widgets[2]["Properties"]["TargetMashup"], "Acme.mcp");
+    copy.replacements = vec!["Things_Acme.mcp=nested".into()];
+    assert!(plan_new(&solution, &copy)
+        .unwrap_err()
+        .to_string()
+        .contains("only in structural"));
+}
+
+#[test]
+fn row_selector_hints_follow_the_resolved_service_boundary() {
+    let (dir, solution) = bind_fixture();
+    write(
+        dir.path(),
+        "acme/Things/Acme.SelectedRows.Manager.xml",
+        r#"<Entities><Things><Thing name="Acme.SelectedRows.Manager" projectName="Acme"><ThingShape><ServiceDefinitions><ServiceDefinition name="Load"><ResultType baseType="INFOTABLE" aspect.dataShape="Acme.Names"/></ServiceDefinition></ServiceDefinitions></ThingShape></Thing></Things></Entities>"#,
+    );
+    write(
+        dir.path(),
+        "acme/DataShapes/Acme.Names.xml",
+        r#"<Entities><DataShapes><DataShape name="Acme.Names" projectName="Acme"><FieldDefinitions><FieldDefinition name="name" baseType="STRING"/></FieldDefinitions></DataShape></DataShapes></Entities>"#,
+    );
+    bind(
+        &solution,
+        "data:Acme.SelectedRows.Manager.Load.name",
+        "ui:ptcslabel-4.LabelText",
+    )
+    .unwrap();
+    for selector in ["SelectedRows", "[SelectedRows]", "AllData", "[AllData]"] {
+        let raw = format!("data:Acme.SelectedRows.Manager.Load.{selector}.name");
+        let error = bind(&solution, &raw, "ui:ptcslabel-4.LabelText")
+            .unwrap_err()
+            .to_string();
+        let expected = if selector.contains("SelectedRows") {
+            "use data:Acme.SelectedRows.Manager.Load[SelectedRows].name"
+        } else {
+            "use data:Acme.SelectedRows.Manager.Load.name"
+        };
+        assert!(error.contains(expected), "{error}");
+    }
 }

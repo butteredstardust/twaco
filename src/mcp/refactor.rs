@@ -140,7 +140,11 @@ pub(crate) fn entity_new_tool(
         italic: arguments.italic,
         underline: arguments.underline,
         text_size: arguments.text_size.as_ref().cloned(),
-        image: arguments.image.as_ref().cloned(),
+        image: arguments
+            .icon
+            .as_ref()
+            .or_else(|| arguments.image.as_ref())
+            .cloned(),
         display_string: arguments.display_string.as_ref().cloned(),
         state_type: arguments.state_type.as_ref().cloned(),
         states: arguments.state.items().to_vec(),
@@ -231,6 +235,21 @@ pub(crate) fn entity_edit_tool(
         ));
     }
     let action = match arguments.action {
+        EntityEditAction::EntitySet => Action::EntitySet {
+            description: text(&arguments.description),
+            icon: text(&arguments.icon),
+        },
+        EntityEditAction::MenuItemSet => Action::MenuItemSet {
+            title: need(&arguments.title, "title")?,
+            change: crate::core::entity::edit::MenuItemChange {
+                title: text(&arguments.new_title),
+                mashup: text(&arguments.mashup),
+                submenu: text(&arguments.submenu),
+                icon: text(&arguments.icon),
+                description: text(&arguments.description),
+                default: arguments.is_default,
+            },
+        },
         EntityEditAction::PropertyAdd => {
             need(&arguments.base_type, "type")?;
             Action::PropertyAdd(property()?)
@@ -331,8 +350,10 @@ pub(crate) fn entity_edit_tool(
             file: need(&arguments.file, "file")?.into(),
         },
         EntityEditAction::MenuItemAdd => Action::MenuItemAdd {
-            title: need(&arguments.title, "title")?,
-            mashup: need(&arguments.mashup, "mashup")?,
+            submenu: text(&arguments.submenu),
+            icon: text(&arguments.icon),
+            title: text(&arguments.title).unwrap_or_default(),
+            mashup: text(&arguments.mashup).unwrap_or_default(),
             default: arguments.is_default,
             before: text(&arguments.before),
         },
@@ -452,9 +473,12 @@ pub(crate) fn mashup_describe_tool(
     solution: &Solution,
     arguments: MashupDescribeRequest,
 ) -> Result<Value, ToolError> {
-    let description =
-        crate::core::mashup::describe::describe(solution, nonempty(&arguments.mashup, "mashup")?)
-            .map_err(ToolError::coded)?;
+    let description = crate::core::mashup::describe::describe_detail(
+        solution,
+        nonempty(&arguments.mashup, "mashup")?,
+        arguments.detail,
+    )
+    .map_err(ToolError::coded)?;
     Ok(serde_json::to_value(description).expect("a description serialises"))
 }
 
@@ -542,6 +566,7 @@ pub(crate) fn mashup_new_tool(
             params: arguments.params.items().to_vec(),
             tabs: arguments.tabs.items().to_vec(),
             from: arguments.from.as_ref().cloned(),
+            replacements: arguments.replacements.items().to_vec(),
         },
         mode: if dry_run { Mode::Plan } else { Mode::Apply },
         lock_label: "mcp mashup_new",

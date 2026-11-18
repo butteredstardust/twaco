@@ -394,7 +394,10 @@
         "textfield",
         "input"
       ],
-      "type_display_name": "Text Field"
+      "type_display_name": "Text Field",
+      "overrides": {
+        "DisplayTrailingZeros": true
+      }
     },
     "ptcstimer": {
       "aliases": [

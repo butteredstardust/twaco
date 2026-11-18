@@ -110,7 +110,7 @@ impl EditPlan {
         self.entity_before == self.entity_after
             && self.sidecars.as_ref().is_none_or(|sidecars| {
                 same_sidecar(&sidecars.content_before, &sidecars.content_after)
-                    && same_sidecar(&sidecars.css_before, &sidecars.css_after)
+                    && mashup::same_css_bytes(&sidecars.css_before, &sidecars.css_after)
             })
     }
 }
@@ -276,18 +276,72 @@ fn finish_edit_with_css(
 
 // custom.css owns the generated top-level stylesheet, including legacy stale content keys.
 fn content_round_trips(content: &str, extracted: &str, managed_css: bool) -> bool {
-    if !managed_css {
-        return content == extracted;
+    content_difference(content, extracted, managed_css).is_none()
+}
+
+fn content_difference(
+    content: &str,
+    extracted: &str,
+    managed_css: bool,
+) -> Option<(String, String, String)> {
+    fn first(a: &Value, b: &Value, path: String) -> Option<(String, String, String)> {
+        if a == b {
+            return None;
+        }
+        match (a, b) {
+            (Value::Object(a), Value::Object(b)) => {
+                for key in a.keys().chain(b.keys()) {
+                    let next = format!("{path}.{key}");
+                    match (a.get(key), b.get(key)) {
+                        (Some(a), Some(b)) => {
+                            if let Some(diff) = first(a, b, next) {
+                                return Some(diff);
+                            }
+                        }
+                        (a, b) => {
+                            return Some((
+                                next,
+                                a.map_or("<absent>".into(), Value::to_string),
+                                b.map_or("<absent>".into(), Value::to_string),
+                            ))
+                        }
+                    }
+                }
+            }
+            (Value::Array(a), Value::Array(b)) => {
+                for at in 0..a.len().max(b.len()) {
+                    let next = format!("{path}[{at}]");
+                    match (a.get(at), b.get(at)) {
+                        (Some(a), Some(b)) => {
+                            if let Some(diff) = first(a, b, next) {
+                                return Some(diff);
+                            }
+                        }
+                        (a, b) => {
+                            return Some((
+                                next,
+                                a.map_or("<absent>".into(), Value::to_string),
+                                b.map_or("<absent>".into(), Value::to_string),
+                            ))
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+        Some((path, a.to_string(), b.to_string()))
     }
-    let without_css = |text: &str| {
-        let mut value: Value = serde_json::from_str(text).expect("mashup content is JSON");
+    let clean = |text: &str| {
+        let mut value: Value = serde_json::from_str(text).expect("checked JSON");
+        if managed_css {
+            value
+                .as_object_mut()
+                .expect("checked object")
+                .remove("CustomMashupCss");
+        }
         value
-            .as_object_mut()
-            .expect("mashup content is an object")
-            .remove("CustomMashupCss");
-        mashup::to_sidecar(&value)
     };
-    without_css(content) == without_css(extracted)
+    first(&clean(content), &clean(extracted), "content.json:$".into())
 }
 
 struct AuthoringContext<'a> {
@@ -325,7 +379,7 @@ pub(crate) fn apply_edit(
                 )
                 .map_err(AuthoringError::Write)?;
         }
-        if sidecars.css_before != sidecars.css_after {
+        if !mashup::same_css_bytes(&sidecars.css_before, &sidecars.css_after) {
             transaction
                 .replace_file(
                     &sidecars.css_path,

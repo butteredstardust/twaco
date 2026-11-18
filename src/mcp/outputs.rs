@@ -1342,6 +1342,7 @@ struct MashupValidateProblem {
 
 #[derive(Serialize, JsonSchema)]
 pub(crate) struct MashupNewResult {
+    replacements: Option<Vec<String>>,
     applied: bool,
     dry_run: bool,
     mashup: String,

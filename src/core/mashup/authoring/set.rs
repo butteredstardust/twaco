@@ -7,7 +7,7 @@ use super::{
 };
 use crate::core::config::Solution;
 use crate::core::mashup::edit::{insert_sorted, ROOT_ID};
-use crate::core::widgets;
+use crate::core::{mashup, widgets};
 use serde_json::{json, Map, Value};
 
 #[derive(Clone, Debug)]
@@ -748,7 +748,7 @@ pub fn set_plan_json(solution: &Solution, plan: &SetPlan, applied: bool) -> Valu
             if sidecars.content_before != sidecars.content_after {
                 files.push(solution.relative(&sidecars.content_path));
             }
-            if sidecars.css_before != sidecars.css_after {
+            if !mashup::same_css_bytes(&sidecars.css_before, &sidecars.css_after) {
                 files.push(solution.relative(&sidecars.css_path));
             }
         }

@@ -255,6 +255,16 @@ pub(crate) enum Menu {
 #[derive(Debug, clap::Args)]
 #[group(skip)]
 pub(crate) struct MenuItem {
+    #[arg(long = "title", value_name = "text")]
+    pub(crate) title: Option<String>,
+    #[arg(long = "mashup", value_name = "name")]
+    pub(crate) mashup: Option<String>,
+    #[arg(long = "submenu", value_name = "name")]
+    pub(crate) submenu: Option<String>,
+    #[arg(long = "icon", value_name = "image")]
+    pub(crate) icon: Option<String>,
+    #[arg(long = "description", value_name = "text")]
+    pub(crate) description: Option<String>,
     /// A switch here: it is empty when given bare, and the command refuses a value.
     #[arg(long = "default", value_name = "value", num_args = 0..=1)]
     pub(crate) default: Option<String>,
@@ -299,7 +309,7 @@ pub(crate) struct Edit {
 }
 
 impl Edit {
-    fn new(found: Result<(String, Action), String>, apply: &Apply, json: &Json) -> Edit {
+    pub(crate) fn new(found: Result<(String, Action), String>, apply: &Apply, json: &Json) -> Edit {
         Edit {
             found,
             apply: apply.apply,
@@ -694,28 +704,65 @@ fn shape(args: &ThingShape) -> Result<(String, Action), String> {
 
 /// `menu item add|remove`.
 fn menu_item(args: &MenuItem) -> Result<(String, Action), String> {
-    let [action, entity, item] = args.operands.as_slice() else {
-        return Err("menu item needs <add|remove> <Menu> <Title=Mashup|Title>".into());
+    let (action, entity, item) = match args.operands.as_slice() {
+        [action, entity, item] => (action.as_str(), entity, item.as_str()),
+        [action, entity] if action == "add" && args.submenu.is_some() => {
+            (action.as_str(), entity, "")
+        }
+        _ => return Err("menu item needs <add|remove|set> <Menu> [<Title=Mashup|Title>]".into()),
     };
-    let action = match action.as_str() {
+    if args.default.as_ref().is_some_and(|value| !value.is_empty()) {
+        return Err("--default takes no value here".into());
+    }
+    if action != "set"
+        && (args.title.is_some() || args.mashup.is_some() || args.description.is_some())
+    {
+        return Err("--title, --mashup and --description belong to menu item set".into());
+    }
+    if action == "remove"
+        && (args.submenu.is_some()
+            || args.icon.is_some()
+            || args.default.is_some()
+            || args.before.is_some())
+    {
+        return Err("menu item remove takes only the Menu, item title, --apply and --json".into());
+    }
+    if action == "set" && args.before.is_some() {
+        return Err("--before belongs to menu item add".into());
+    }
+    let action = match action {
         "add" => {
-            let (title, mashup) = item
-                .split_once('=')
-                .ok_or("menu item add needs <Title>=<Mashup>")?;
-            if args.default.as_ref().is_some_and(|value| !value.is_empty()) {
-                return Err("--default takes no value here".into());
+            if args.submenu.is_some() && !item.is_empty() {
+                return Err("give Title=Mashup or --submenu, not both".into());
             }
+            let (title, mashup) = if args.submenu.is_some() {
+                ("", "")
+            } else {
+                item.split_once('=')
+                    .ok_or("menu item add needs <Title>=<Mashup> or --submenu")?
+            };
             Action::MenuItemAdd {
-                title: title.to_string(),
-                mashup: mashup.to_string(),
+                submenu: args.submenu.clone(),
+                icon: args.icon.clone(),
+                title: title.into(),
+                mashup: mashup.into(),
                 default: args.default.is_some(),
                 before: args.before.clone(),
             }
         }
-        "remove" => Action::MenuItemRemove {
-            title: item.clone(),
+        "set" => Action::MenuItemSet {
+            title: item.into(),
+            change: twaco::core::entity::edit::MenuItemChange {
+                title: args.title.clone(),
+                mashup: args.mashup.clone(),
+                submenu: args.submenu.clone(),
+                icon: args.icon.clone(),
+                description: args.description.clone(),
+                default: args.default.is_some(),
+            },
         },
-        other => return Err(format!("menu item {other}: say add or remove")),
+        "remove" => Action::MenuItemRemove { title: item.into() },
+        other => return Err(format!("menu item {other}: say add, remove or set")),
     };
     Ok((entity.clone(), action))
 }

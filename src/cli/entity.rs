@@ -11,6 +11,7 @@ use twaco::core::{backup, entity, profile, push, server, status, workspace};
 /// `twaco entity <command>`.
 #[derive(Debug, clap::Subcommand)]
 pub(crate) enum Entity {
+    Set(EntitySet),
     Status(EntityStatus),
     Get(EntityGet),
     Diff(EntityDiff),
@@ -26,6 +27,7 @@ impl Entity {
     /// The command's [`USAGE`](super::spec::USAGE) path.
     pub(crate) fn path(&self) -> &'static str {
         match self {
+            Entity::Set(_) => "entity set",
             Entity::Status(_) => "entity status",
             Entity::Get(_) => "entity get",
             Entity::Diff(_) => "entity diff",
@@ -1679,4 +1681,35 @@ pub(crate) fn permissions_init_cmd(solution: &Solution, args: &PermissionsInit) 
         println!("dry run: nothing was written; pass --apply to write the drafts");
     }
     OK
+}
+
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct EntitySet {
+    #[arg(long = "description", value_name = "text")]
+    pub(crate) description: Option<String>,
+    #[arg(long = "icon", value_name = "image")]
+    pub(crate) icon: Option<String>,
+    #[command(flatten)]
+    pub(crate) apply: Apply,
+    #[command(flatten)]
+    pub(crate) json: Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
+impl EntitySet {
+    pub(crate) fn edit(&self) -> super::entity_edit::Edit {
+        let found = match self.operands.as_slice() {
+            [entity] => Ok((
+                entity.clone(),
+                entity::edit::Action::EntitySet {
+                    description: self.description.clone(),
+                    icon: self.icon.clone(),
+                },
+            )),
+            _ => Err("entity set needs one <entity>".into()),
+        };
+        super::entity_edit::Edit::new(found, &self.apply, &self.json)
+    }
 }

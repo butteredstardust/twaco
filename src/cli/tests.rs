@@ -457,13 +457,20 @@ fn kind(arg: &clap::Arg) -> &'static str {
 /// the same name (clap's errors quote it). Operands are `operands`.
 #[test]
 fn every_flag_means_the_same_in_every_command() {
-    let tree = spec::tree();
+    let mut tree = spec::tree();
+    tree.build();
     let mut seen: std::collections::BTreeMap<String, (&str, Vec<String>, &str)> =
         std::collections::BTreeMap::new();
     for command in USAGE {
         let node = node(&tree, command.path);
         let mut own = std::collections::BTreeSet::new();
         for arg in node.get_arguments() {
+            if matches!(
+                arg.get_action(),
+                clap::ArgAction::Help | clap::ArgAction::Version
+            ) {
+                continue;
+            }
             let value_names: Vec<String> = arg
                 .get_value_names()
                 .unwrap_or_default()
@@ -520,6 +527,11 @@ fn every_flag_means_the_same_in_every_command() {
             if command.path == "mashup recipe" && name == "--tab" {
                 assert_eq!(kind, "value");
                 assert_eq!(value_names, ["inside|outside|none"]);
+                continue;
+            }
+            if command.path == "mashup new" && name == "--replace" {
+                assert_eq!(kind, "repeated");
+                assert_eq!(value_names, ["old=new"]);
                 continue;
             }
             // Calls assign values; the other --param flags declare or select parameters.
@@ -835,7 +847,8 @@ fn entity_delete_force_deprecation_text_is_stable() {
 /// text, in the help text's words, and offer a sub-action's words.
 #[test]
 fn completions_describe_commands_and_flags_from_the_help_text() {
-    let tree = spec::tree();
+    let mut tree = spec::tree();
+    tree.build();
     let help = |path: &str, flag: &str| {
         node(&tree, path)
             .get_arguments()
@@ -1309,4 +1322,36 @@ fn building_block_help_requires_a_namespaced_name() {
         .render_help()
         .to_string();
     assert!(help.contains("namespaced name, e.g. Acme.Orders"), "{help}");
+}
+
+#[test]
+fn diagnostic_filter_is_global_before_and_after_nested_commands() {
+    for words in [
+        vec![
+            "twaco",
+            "--log",
+            "debug",
+            "mashup",
+            "new",
+            "Acme.Copy",
+            "--from",
+            "Acme.Source",
+        ],
+        vec![
+            "twaco",
+            "menu",
+            "item",
+            "set",
+            "Acme.Main",
+            "Home",
+            "--title",
+            "Start",
+            "--log",
+            "debug",
+        ],
+    ] {
+        let matches = spec::tree().try_get_matches_from(words).unwrap();
+        assert_eq!(spec::log_options(&matches).0.as_deref(), Some("debug"));
+        Command::from_arg_matches(&matches).unwrap();
+    }
 }

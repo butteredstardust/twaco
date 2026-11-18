@@ -12,6 +12,26 @@ arg --help
     default: -
     index: -
     other: -
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
 arg --version
     action: Version
     value_name: -
@@ -28,7 +48,7 @@ help:
 |   Set up: init, doctor, projects, mcp, update, completions
 |   Work on the repository: extract, sync, fmt, check, lint, types, catalog, contract, impact, trace,
 |     unused, docs, adopt, handoff, rename, move, copy, retemplate, reproject, widgets, mashup, new,
-|     thing, timer, scheduler, style, media, menu, mcp-namespace, agent, state
+|     thing, timer, scheduler, style, media, menu, mcp-namespace, agent, state, entity
 |   Deploy and compare: block, network, entity, permissions, requirements, datatable, bundle, deploy,
 |     config-table, db
 |   Run and observe: call, model, access, logs, settings
@@ -191,16 +211,17 @@ help:
 |       --to <project>          the project they move to
 |   widgets [<widget>] [--search <text>] [--json]
 |                               the embedded ThingWorx 10.2 widget catalogue: types, Composer labels,
-|                               aliases, containers and bindable properties, events and services
+|                               aliases, containers and editable or bindable properties with defaults, events and services
 |   mashup validate <mashup>|--all [--json]
 |                               what in a mashup ThingWorx would load but not honour, or the next edit would
 |                               trip over: structure, ids, bindings and events that name what is not there,
 |                               catalogue contracts, several property maps, contained-mashup drift;
 |                               exit 1 when it finds any
-|   mashup describe <mashup> [--json]
+|   mashup describe <mashup> [--detail] [--json]
 |                               what a mashup holds and how it is wired, without its XML: the widget tree,
 |                               each service it calls with what sets each parameter (or that nothing does),
 |                               each binding and each event, in the addresses mashup bind and on take
+|       --detail                show non-default widget properties and widget bindings
 |   mashup diff <a> <b> [--tier <tier>] [--json]
 |                               compare two repository mashups by executable wiring, responsive layout and visual
 |                               content; ignores Composer-generated identifiers; exits 1 when the selected tier differs
@@ -305,6 +326,7 @@ help:
 |                               add one data binding to a mashup; plan unless --apply
 |       --from <address>        source address from mashup describe
 |       --to <address>          target address from mashup describe
+|                               selected row example: data:Acme.Manager.Load[SelectedRows].name
 |   mashup on <mashup> --event <address> --invoke <address> [--apply] [--json]
 |                               run a service or widget service when a mashup event fires; plan unless --apply
 |       --event <address>       widget/mashup event or data call event (Data_Error on failure)
@@ -395,6 +417,7 @@ help:
 |       --visibility            Organization/<name> or OrganizationalUnit/<organization>:<unit>, repeatable;
 |                               none unless given
 |       --tab                   with --template tabs: a tab's label and the mashup it shows, repeatable
+|       --replace <old=new>     replace whole tokens in copied content string values; repeatable, needs --from
 |   new building-block <name> [--type standard|abstract|implementation] [--display-name <text>] [--description <text>]
 |       [--parent <block>] [--model-logic] [--no-management-shape] [--root <dir>] [--base-extension PTC.Base:<version>]
 |       [--apply] [--json]
@@ -460,10 +483,18 @@ help:
 |   media set <MediaEntity> --file <path> [--apply] [--json]
 |                               replace a MediaEntity's image (PNG, JPEG, GIF or SVG, up to 10 MB);
 |                               plan unless --apply
-|   menu item add <Menu> <Title>=<Mashup> [--default] [--before <Title>] [--apply] [--json]
+|   menu item add <Menu> <Title>=<Mashup> [--icon <image>] [--default] [--before <Title>] [--apply] [--json]
+|   menu item add <Menu> --submenu <name> [--icon <image>] [--before <Title>] [--apply] [--json]
 |   menu item remove <Menu> <Title> [--apply] [--json]
-|                               add or remove a mashup item, keeping the effective menu in step;
+|   menu item set <Menu> <Title> [--title <text>] [--mashup <name>] [--submenu <name>]
+|       [--icon <image>] [--default] [--description <text>] [--apply] [--json]
+|                               edit menu items in order, keeping the effective menu in step;
 |                               plan unless --apply
+|       --submenu <name>        link to a sub-Menu; the server shows its label and Menu-level icon
+|       --icon <image>          an item image URL or MediaEntity
+|       --title <text>          rename the selected item
+|       --mashup <name>         change the selected item's Mashup
+|       --description <text>    change the selected item's description
 |   mcp-namespace add <Namespace> tool|service-resource|file-resource|prompt <spec> [--description <text>]
 |       [--apply] [--json]
 |                               add a tool, resource or prompt, written as new mcp-namespace writes it;
@@ -527,7 +558,7 @@ help:
 |                               background, foreground, secondary-background, line-color,
 |                               line-style, line-thickness, bold, italic, underline, text-size,
 |                               image, e.g. "<=10=Low;background:#00ff00"
-|   new menu <name> --item <Title=Mashup>... [--project <name>] [--description <text>] [--default]
+|   new menu <name> --item <Title=Mashup>... [--project <name>] [--description <text>] [--default] [--icon <image>]
 |       [--label <text>] [--apply] [--json]
 |                               create a Menu; plan unless --apply
 |   new theme <name> [--project <name>] [--description <text>] [--from <StyleTheme>]
@@ -553,6 +584,9 @@ help:
 |       --namespace             everything the namespace defines, or the tools, resources and prompts
 |                               named; AgentUtilities, the platform's, gives its standard tools
 |       --agent-description     what the assistant routes questions to the agent by
+|   entity set <entity> [--description <text>] [--icon <image>] [--apply] [--json]
+|                               set entity metadata; empty description clears it; plan unless --apply
+|       --icon <image>          a Menu-level MediaEntity or image URL
 |   block list [--server] [--profile <name>] [--json]
 |                               the solution's Solution Framework building blocks: type, version, name;
 |                               --server: the framework's version, state and deploy order beside each
@@ -887,6 +921,30 @@ arg --help
     default: -
     index: -
     other: -
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 help:
 | usage: twaco access <command>
 | 
@@ -934,7 +992,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -946,7 +1004,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --profile
@@ -1072,7 +1130,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -1084,7 +1142,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --only
@@ -1155,6 +1213,30 @@ arg --help
     default: -
     index: -
     other: -
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 help:
 | usage: twaco agent <command>
 | 
@@ -1222,7 +1304,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -1234,7 +1316,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg <operands>
@@ -1299,7 +1381,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -1311,7 +1393,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg <operands>
@@ -1424,7 +1506,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -1436,7 +1518,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --resolver
@@ -1515,7 +1597,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -1527,7 +1609,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg <operands>
@@ -1592,7 +1674,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -1604,7 +1686,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg <operands>
@@ -1694,7 +1776,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -1706,7 +1788,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --profile
@@ -1877,7 +1959,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -1889,7 +1971,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --profile
@@ -2043,7 +2125,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -2055,7 +2137,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --out
@@ -2165,7 +2247,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -2177,7 +2259,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --param
@@ -2300,7 +2382,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -2312,7 +2394,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --project
@@ -2404,7 +2486,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -2416,7 +2498,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --profile
@@ -2462,7 +2544,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -2474,7 +2556,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg <shell>
@@ -2574,7 +2656,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -2586,7 +2668,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --profile
@@ -2650,6 +2732,30 @@ arg --help
     default: -
     index: -
     other: -
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 help:
 | usage: twaco contract <command>
 | 
@@ -2722,7 +2828,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -2734,7 +2840,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --project
@@ -2775,6 +2881,30 @@ arg --help
     default: -
     index: -
     other: -
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 help:
 | usage: twaco copy <command>
 | 
@@ -2855,7 +2985,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -2867,7 +2997,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg <operands>
@@ -2954,7 +3084,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -2966,7 +3096,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg <operands>
@@ -3000,6 +3130,30 @@ arg --help
     default: -
     index: -
     other: -
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 help:
 | usage: twaco datatable <command>
 | 
@@ -3081,7 +3235,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -3093,7 +3247,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --map
@@ -3167,6 +3321,30 @@ arg --help
     default: -
     index: -
     other: -
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 help:
 | usage: twaco db <command>
 | 
@@ -3227,7 +3405,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -3239,7 +3417,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --profile
@@ -3306,7 +3484,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -3318,7 +3496,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --max-rows
@@ -3445,7 +3623,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -3457,7 +3635,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --no-transaction
@@ -3616,7 +3794,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -3628,7 +3806,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --no-backup
@@ -3785,7 +3963,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -3797,7 +3975,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --out
@@ -3858,7 +4036,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -3870,7 +4048,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --profile
@@ -3896,7 +4074,7 @@ help:
 == twaco entity
 usage: twaco entity <command>
 settings: disable-version-flag disable-help-subcommand subcommand-required arg-required-else-help
-subcommands: carry delete diff get inspect pull push restore status
+subcommands: carry delete diff get inspect pull push restore set status
 arg --help
     action: Help
     value_name: -
@@ -3907,6 +4085,30 @@ arg --help
     default: -
     index: -
     other: -
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 help:
 | usage: twaco entity <command>
 | 
@@ -3922,6 +4124,9 @@ help:
 |       --all                    also lists declared-project entities found only on the server
 |   entity pull <entity>...|--all [--profile <name>] [--apply] [--json]
 |                               take server-changed entities, extract sidecars and record baselines
+|   entity set <entity> [--description <text>] [--icon <image>] [--apply] [--json]
+|                               set entity metadata; empty description clears it; plan unless --apply
+|       --icon <image>          a Menu-level MediaEntity or image URL
 |   entity get <entity>         fetch importable Exporter XML to stdout or --out <path>
 |                               Collection/Name: any server entity; a bare name: the repository's
 |       [--profile <name>]      server profile (default: default)
@@ -4020,7 +4225,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -4032,7 +4237,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --profile
@@ -4169,7 +4374,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -4181,7 +4386,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --no-backup
@@ -4277,7 +4482,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -4289,7 +4494,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --profile
@@ -4347,7 +4552,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -4359,7 +4564,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --out
@@ -4451,7 +4656,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -4463,7 +4668,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --member
@@ -4578,7 +4783,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -4590,7 +4795,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --profile
@@ -4679,7 +4884,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -4691,7 +4896,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --no-backup
@@ -4783,7 +4988,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -4795,7 +5000,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --profile
@@ -4826,6 +5031,108 @@ help:
 |       --json                  {sets|plan|applied, ...}
 | 
 |   --profile <name>            the server profile (default: default)
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
+== twaco entity set
+usage: twaco entity set <entity> [--description <text>] [--icon <image>] [--apply] [--json]
+settings: disable-version-flag disable-help-subcommand
+subcommands: 
+arg --apply
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --description
+    action: Set
+    value_name: text
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+arg --icon
+    action: Set
+    value_name: image
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --json
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg <operands>
+    action: Append
+    value_name: operand
+    num_args: 0..
+    allow_hyphen_values: no
+    allow_negative_numbers: yes
+    required: no
+    default: -
+    index: 1
+    other: -
+help:
+|   entity set <entity> [--description <text>] [--icon <image>] [--apply] [--json]
+|                               set entity metadata; empty description clears it; plan unless --apply
+|       --icon <image>          a Menu-level MediaEntity or image URL
+| 
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
 
@@ -4909,7 +5216,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -4921,7 +5228,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --profile
@@ -5043,7 +5350,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -5055,7 +5362,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --out
@@ -5269,7 +5576,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -5281,7 +5588,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --min-thingworx
@@ -5457,7 +5764,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -5469,7 +5776,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --project
@@ -5559,7 +5866,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -5571,7 +5878,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 help:
@@ -5630,7 +5937,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -5642,7 +5949,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --search
@@ -5723,7 +6030,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -5735,7 +6042,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --name
@@ -5813,7 +6120,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -5825,7 +6132,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --profile
@@ -5973,7 +6280,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -5985,7 +6292,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --member
@@ -6103,7 +6410,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -6115,7 +6422,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --overwrite-properties
@@ -6267,7 +6574,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -6279,7 +6586,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --missing
@@ -6379,7 +6686,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -6391,7 +6698,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --member
@@ -6531,7 +6838,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -6543,7 +6850,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --print-config
@@ -6651,7 +6958,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -6663,7 +6970,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --service
@@ -6794,7 +7101,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -6806,7 +7113,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --profile
@@ -6992,7 +7299,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -7004,7 +7311,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --oldest-first
@@ -7161,7 +7468,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -7173,7 +7480,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --profile
@@ -7245,6 +7552,30 @@ arg --help
     default: -
     index: -
     other: -
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 help:
 | usage: twaco mashup <command>
 | 
@@ -7253,10 +7584,11 @@ help:
 |                               trip over: structure, ids, bindings and events that name what is not there,
 |                               catalogue contracts, several property maps, contained-mashup drift;
 |                               exit 1 when it finds any
-|   mashup describe <mashup> [--json]
+|   mashup describe <mashup> [--detail] [--json]
 |                               what a mashup holds and how it is wired, without its XML: the widget tree,
 |                               each service it calls with what sets each parameter (or that nothing does),
 |                               each binding and each event, in the addresses mashup bind and on take
+|       --detail                show non-default widget properties and widget bindings
 |   mashup diff <a> <b> [--tier <tier>] [--json]
 |                               compare two repository mashups by executable wiring, responsive layout and visual
 |                               content; ignores Composer-generated identifiers; exits 1 when the selected tier differs
@@ -7361,6 +7693,7 @@ help:
 |                               add one data binding to a mashup; plan unless --apply
 |       --from <address>        source address from mashup describe
 |       --to <address>          target address from mashup describe
+|                               selected row example: data:Acme.Manager.Load[SelectedRows].name
 |   mashup on <mashup> --event <address> --invoke <address> [--apply] [--json]
 |                               run a service or widget service when a mashup event fires; plan unless --apply
 |       --event <address>       widget/mashup event or data call event (Data_Error on failure)
@@ -7451,6 +7784,7 @@ help:
 |       --visibility            Organization/<name> or OrganizationalUnit/<organization>:<unit>, repeatable;
 |                               none unless given
 |       --tab                   with --template tabs: a tab's label and the mashup it shows, repeatable
+|       --replace <old=new>     replace whole tokens in copied content string values; repeatable, needs --from
 | 
 |   --project <name>            narrow to one project of the solution
 |   --profile <name>            the server profile (default: default)
@@ -7607,7 +7941,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -7619,7 +7953,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --prop
@@ -7774,7 +8108,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -7786,7 +8120,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --right-of
@@ -7892,7 +8226,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -7904,7 +8238,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --to
@@ -7934,6 +8268,7 @@ help:
 |                               add one data binding to a mashup; plan unless --apply
 |       --from <address>        source address from mashup describe
 |       --to <address>          target address from mashup describe
+|                               selected row example: data:Acme.Manager.Load[SelectedRows].name
 | 
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
@@ -7952,6 +8287,30 @@ arg --help
     default: -
     index: -
     other: -
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 help:
 | usage: twaco mashup collection <command>
 | 
@@ -8102,7 +8461,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -8114,7 +8473,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --map
@@ -8226,9 +8585,20 @@ help:
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
 
 == twaco mashup describe
-usage: twaco mashup describe <mashup> [--json]
+usage: twaco mashup describe <mashup> [--detail] [--json]
 settings: disable-version-flag disable-help-subcommand
 subcommands: 
+arg --detail
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
 arg --help
     action: Help
     value_name: -
@@ -8259,7 +8629,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -8271,7 +8641,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg <operands>
@@ -8285,10 +8655,11 @@ arg <operands>
     index: 1
     other: -
 help:
-|   mashup describe <mashup> [--json]
+|   mashup describe <mashup> [--detail] [--json]
 |                               what a mashup holds and how it is wired, without its XML: the widget tree,
 |                               each service it calls with what sets each parameter (or that nothing does),
 |                               each binding and each event, in the addresses mashup bind and on take
+|       --detail                show non-default widget properties and widget bindings
 | 
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
@@ -8327,7 +8698,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -8339,7 +8710,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --tier
@@ -8418,7 +8789,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -8430,7 +8801,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --when
@@ -8510,7 +8881,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -8522,7 +8893,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg <operands>
@@ -8612,7 +8983,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -8624,7 +8995,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --master
@@ -8685,6 +9056,18 @@ arg --project
     index: -
     other: -
     given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --replace
+    action: Append
+    value_name: old=new
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: accepted
     given bare: InvalidValue
 arg --secondary-menu
     action: Set
@@ -8774,6 +9157,7 @@ help:
 |       --visibility            Organization/<name> or OrganizationalUnit/<organization>:<unit>, repeatable;
 |                               none unless given
 |       --tab                   with --template tabs: a tab's label and the mashup it shows, repeatable
+|       --replace <old=new>     replace whole tokens in copied content string values; repeatable, needs --from
 | 
 |   --project <name>            narrow to one project of the solution
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
@@ -8848,7 +9232,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -8860,7 +9244,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg <operands>
@@ -8951,7 +9335,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -8963,7 +9347,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg <operands>
@@ -9089,7 +9473,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -9101,7 +9485,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --no-default
@@ -9432,7 +9816,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -9444,7 +9828,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --mashup
@@ -9783,7 +10167,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -9795,7 +10179,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg <operands>
@@ -9862,7 +10246,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -9874,7 +10258,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --prop
@@ -9953,6 +10337,30 @@ arg --help
     default: -
     index: -
     other: -
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 help:
 | usage: twaco mashup source <command>
 | 
@@ -10089,7 +10497,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -10101,7 +10509,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --max-result-sets
@@ -10207,7 +10615,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -10219,7 +10627,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg <operands>
@@ -10295,7 +10703,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -10307,7 +10715,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg <operands>
@@ -10385,7 +10793,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -10397,7 +10805,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --to
@@ -10446,6 +10854,30 @@ arg --help
     default: -
     index: -
     other: -
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 help:
 | usage: twaco mashup state-format <command>
 | 
@@ -10535,7 +10967,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -10547,7 +10979,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --property
@@ -10631,7 +11063,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -10643,7 +11075,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg <operands>
@@ -10720,7 +11152,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -10732,7 +11164,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --to
@@ -10811,7 +11243,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -10823,7 +11255,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg <operands>
@@ -10903,7 +11335,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -10915,7 +11347,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --replace
@@ -10994,6 +11426,30 @@ arg --help
     default: -
     index: -
     other: -
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 help:
 | usage: twaco mcp-namespace <command>
 | 
@@ -11067,7 +11523,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -11079,7 +11535,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg <operands>
@@ -11146,7 +11602,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -11158,7 +11614,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg <operands>
@@ -11193,6 +11649,30 @@ arg --help
     default: -
     index: -
     other: -
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 help:
 | usage: twaco media <command>
 | 
@@ -11262,7 +11742,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -11274,7 +11754,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg <operands>
@@ -11309,13 +11789,45 @@ arg --help
     default: -
     index: -
     other: -
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 help:
 | usage: twaco menu <command>
 | 
-|   menu item add <Menu> <Title>=<Mashup> [--default] [--before <Title>] [--apply] [--json]
+|   menu item add <Menu> <Title>=<Mashup> [--icon <image>] [--default] [--before <Title>] [--apply] [--json]
+|   menu item add <Menu> --submenu <name> [--icon <image>] [--before <Title>] [--apply] [--json]
 |   menu item remove <Menu> <Title> [--apply] [--json]
-|                               add or remove a mashup item, keeping the effective menu in step;
+|   menu item set <Menu> <Title> [--title <text>] [--mashup <name>] [--submenu <name>]
+|       [--icon <image>] [--default] [--description <text>] [--apply] [--json]
+|                               edit menu items in order, keeping the effective menu in step;
 |                               plan unless --apply
+|       --submenu <name>        link to a sub-Menu; the server shows its label and Menu-level icon
+|       --icon <image>          an item image URL or MediaEntity
+|       --title <text>          rename the selected item
+|       --mashup <name>         change the selected item's Mashup
+|       --description <text>    change the selected item's description
 | 
 |   --project <name>            narrow to one project of the solution
 |   --profile <name>            the server profile (default: default)
@@ -11323,7 +11835,7 @@ help:
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
 
 == twaco menu item
-usage: twaco menu item add <Menu> <Title>=<Mashup> [--default] [--before <Title>] [--apply] [--json]
+usage: twaco menu item add <Menu> <Title>=<Mashup> [--icon <image>] [--default] [--before <Title>] [--apply] [--json]
 settings: disable-version-flag disable-help-subcommand
 subcommands: 
 arg --apply
@@ -11361,6 +11873,18 @@ arg --default
     other: -
     given twice: ArgumentConflict
     given bare: holds ""
+arg --description
+    action: Set
+    value_name: text
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 arg --help
     action: Help
     value_name: -
@@ -11371,6 +11895,18 @@ arg --help
     default: -
     index: -
     other: -
+arg --icon
+    action: Set
+    value_name: image
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 arg --json
     action: SetTrue
     value_name: -
@@ -11391,12 +11927,48 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
     action: Set
     value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --mashup
+    action: Set
+    value_name: name
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --submenu
+    action: Set
+    value_name: name
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --title
+    action: Set
+    value_name: text
     num_args: 1
     allow_hyphen_values: yes
     allow_negative_numbers: no
@@ -11417,10 +11989,18 @@ arg <operands>
     index: 1
     other: -
 help:
-|   menu item add <Menu> <Title>=<Mashup> [--default] [--before <Title>] [--apply] [--json]
+|   menu item add <Menu> <Title>=<Mashup> [--icon <image>] [--default] [--before <Title>] [--apply] [--json]
+|   menu item add <Menu> --submenu <name> [--icon <image>] [--before <Title>] [--apply] [--json]
 |   menu item remove <Menu> <Title> [--apply] [--json]
-|                               add or remove a mashup item, keeping the effective menu in step;
+|   menu item set <Menu> <Title> [--title <text>] [--mashup <name>] [--submenu <name>]
+|       [--icon <image>] [--default] [--description <text>] [--apply] [--json]
+|                               edit menu items in order, keeping the effective menu in step;
 |                               plan unless --apply
+|       --submenu <name>        link to a sub-Menu; the server shows its label and Menu-level icon
+|       --icon <image>          an item image URL or MediaEntity
+|       --title <text>          rename the selected item
+|       --mashup <name>         change the selected item's Mashup
+|       --description <text>    change the selected item's description
 | 
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
@@ -11439,6 +12019,30 @@ arg --help
     default: -
     index: -
     other: -
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 help:
 | usage: twaco model <command>
 | 
@@ -11497,7 +12101,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -11509,7 +12113,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --profile
@@ -11557,6 +12161,30 @@ arg --help
     default: -
     index: -
     other: -
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 help:
 | usage: twaco move <command>
 | 
@@ -11640,7 +12268,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -11652,7 +12280,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg <operands>
@@ -11751,7 +12379,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -11763,7 +12391,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg <operands>
@@ -11799,6 +12427,30 @@ arg --help
     default: -
     index: -
     other: -
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 help:
 | usage: twaco network <command>
 | 
@@ -11882,7 +12534,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -11894,7 +12546,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --outside
@@ -11985,7 +12637,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -11997,7 +12649,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --profile
@@ -12098,7 +12750,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -12110,7 +12762,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --move
@@ -12186,7 +12838,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -12198,7 +12850,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 help:
@@ -12263,7 +12915,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -12275,7 +12927,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --type
@@ -12364,7 +13016,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -12376,7 +13028,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --profile
@@ -12454,7 +13106,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -12466,7 +13118,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --subtree
@@ -12543,7 +13195,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -12555,7 +13207,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --profile
@@ -12614,6 +13266,30 @@ arg --help
     default: -
     index: -
     other: -
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 help:
 | usage: twaco new <command>
 | 
@@ -12672,7 +13348,7 @@ help:
 |                               background, foreground, secondary-background, line-color,
 |                               line-style, line-thickness, bold, italic, underline, text-size,
 |                               image, e.g. "<=10=Low;background:#00ff00"
-|   new menu <name> --item <Title=Mashup>... [--project <name>] [--description <text>] [--default]
+|   new menu <name> --item <Title=Mashup>... [--project <name>] [--description <text>] [--default] [--icon <image>]
 |       [--label <text>] [--apply] [--json]
 |                               create a Menu; plan unless --apply
 |   new theme <name> [--project <name>] [--description <text>] [--from <StyleTheme>]
@@ -12809,7 +13485,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -12821,7 +13497,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --namespace
@@ -12989,7 +13665,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -13001,7 +13677,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --model-logic
@@ -13169,7 +13845,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -13181,7 +13857,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --project
@@ -13309,7 +13985,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -13321,7 +13997,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --project
@@ -13412,7 +14088,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -13424,7 +14100,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --project
@@ -13538,7 +14214,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -13550,7 +14226,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --project
@@ -13696,7 +14372,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -13708,7 +14384,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --project
@@ -13742,7 +14418,7 @@ help:
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
 
 == twaco new menu
-usage: twaco new menu <name> --item <Title=Mashup>... [--project <name>] [--description <text>] [--default]
+usage: twaco new menu <name> --item <Title=Mashup>... [--project <name>] [--description <text>] [--default] [--icon <image>]
 settings: disable-version-flag disable-help-subcommand
 subcommands: 
 arg --apply
@@ -13790,6 +14466,18 @@ arg --help
     default: -
     index: -
     other: -
+arg --icon
+    action: Set
+    value_name: image
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 arg --item
     action: Append
     value_name: Title=Mashup
@@ -13834,7 +14522,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -13846,7 +14534,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --project
@@ -13872,7 +14560,7 @@ arg <operands>
     index: 1
     other: -
 help:
-|   new menu <name> --item <Title=Mashup>... [--project <name>] [--description <text>] [--default]
+|   new menu <name> --item <Title=Mashup>... [--project <name>] [--description <text>] [--default] [--icon <image>]
 |       [--label <text>] [--apply] [--json]
 |                               create a Menu; plan unless --apply
 | 
@@ -13937,7 +14625,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -13949,7 +14637,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --project
@@ -14051,7 +14739,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -14063,7 +14751,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg <operands>
@@ -14163,7 +14851,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -14175,7 +14863,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --project
@@ -14314,7 +15002,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -14326,7 +15014,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --project
@@ -14458,7 +15146,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -14470,7 +15158,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --project
@@ -14666,7 +15354,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -14678,7 +15366,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --project
@@ -14818,7 +15506,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -14830,7 +15518,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --project
@@ -14933,7 +15621,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -14945,7 +15633,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --project
@@ -15084,7 +15772,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -15096,7 +15784,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --project
@@ -15210,7 +15898,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -15222,7 +15910,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --project
@@ -15360,7 +16048,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -15372,7 +16060,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --project
@@ -15511,7 +16199,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -15523,7 +16211,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --project
@@ -15623,7 +16311,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -15635,7 +16323,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --out
@@ -15698,6 +16386,30 @@ arg --help
     default: -
     index: -
     other: -
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 help:
 | usage: twaco permissions <command>
 | 
@@ -15797,7 +16509,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -15809,7 +16521,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --project
@@ -15882,7 +16594,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -15894,7 +16606,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --profile
@@ -15992,7 +16704,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -16004,7 +16716,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --profile
@@ -16110,7 +16822,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -16122,7 +16834,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --project
@@ -16206,7 +16918,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -16218,7 +16930,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --platform
@@ -16313,7 +17025,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -16325,7 +17037,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 help:
@@ -16349,6 +17061,30 @@ arg --help
     default: -
     index: -
     other: -
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 help:
 | usage: twaco rename <command>
 | 
@@ -16440,7 +17176,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -16452,7 +17188,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --no-sql
@@ -16586,7 +17322,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -16598,7 +17334,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --no-sql
@@ -16735,7 +17471,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -16747,7 +17483,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --skip-checks
@@ -16846,7 +17582,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -16858,7 +17594,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --no-sql
@@ -16991,7 +17727,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -17003,7 +17739,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --skip-checks
@@ -17102,7 +17838,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -17114,7 +17850,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --skip-checks
@@ -17213,7 +17949,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -17225,7 +17961,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --skip-checks
@@ -17324,7 +18060,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -17336,7 +18072,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --out
@@ -17459,7 +18195,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -17471,7 +18207,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --to
@@ -17520,6 +18256,30 @@ arg --help
     default: -
     index: -
     other: -
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 help:
 | usage: twaco requirements <command>
 | 
@@ -17581,7 +18341,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -17593,7 +18353,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --profile
@@ -17674,7 +18434,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -17686,7 +18446,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 help:
@@ -17776,7 +18536,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -17788,7 +18548,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --remove-shapes
@@ -17851,6 +18611,30 @@ arg --help
     default: -
     index: -
     other: -
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 help:
 | usage: twaco scheduler <command>
 | 
@@ -17942,7 +18726,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -17954,7 +18738,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --run-as
@@ -18033,7 +18817,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -18045,7 +18829,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --modified-since
@@ -18165,7 +18949,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -18177,7 +18961,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --profile
@@ -18238,6 +19022,30 @@ arg --help
     default: -
     index: -
     other: -
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 help:
 | usage: twaco state <command>
 | 
@@ -18295,7 +19103,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -18307,7 +19115,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --state
@@ -18366,6 +19174,30 @@ arg --help
     default: -
     index: -
     other: -
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 help:
 | usage: twaco style <command>
 | 
@@ -18532,7 +19364,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -18544,7 +19376,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --no-bold
@@ -18703,7 +19535,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -18715,7 +19547,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --project
@@ -18818,7 +19650,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -18830,7 +19662,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --profile
@@ -18881,6 +19713,30 @@ arg --help
     default: -
     index: -
     other: -
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 help:
 | usage: twaco thing <command>
 | 
@@ -19029,7 +19885,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -19041,7 +19897,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --logged
@@ -19249,7 +20105,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -19261,7 +20117,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --param
@@ -19421,7 +20277,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -19433,7 +20289,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg <operands>
@@ -19512,7 +20368,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -19524,7 +20380,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --script
@@ -19609,6 +20465,30 @@ arg --help
     default: -
     index: -
     other: -
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 help:
 | usage: twaco timer <command>
 | 
@@ -19700,7 +20580,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -19712,7 +20592,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --run-as
@@ -19779,7 +20659,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -19791,7 +20671,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --param
@@ -19871,7 +20751,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -19883,7 +20763,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --platform
@@ -19989,7 +20869,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -20001,7 +20881,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --min-confidence
@@ -20060,7 +20940,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -20072,7 +20952,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 help:
@@ -20127,7 +21007,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -20139,7 +21019,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --profile
@@ -20209,7 +21089,7 @@ arg --log
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --log-file
@@ -20221,7 +21101,7 @@ arg --log-file
     required: no
     default: -
     index: -
-    other: -
+    other: global
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --search
@@ -20249,7 +21129,7 @@ arg <operands>
 help:
 |   widgets [<widget>] [--search <text>] [--json]
 |                               the embedded ThingWorx 10.2 widget catalogue: types, Composer labels,
-|                               aliases, containers and bindable properties, events and services
+|                               aliases, containers and editable or bindable properties with defaults, events and services
 | 
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)

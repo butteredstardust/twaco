@@ -54,6 +54,7 @@ fn log_arguments() -> impl Iterator<Item = clap::Arg> {
         clap::Arg::new(id(name))
             .long(id(name))
             .value_name(*value)
+            .help(described(LOGGING, name).expect("diagnostic flag is documented"))
             .action(clap::ArgAction::Set)
     })
 }
@@ -99,6 +100,7 @@ fn decorate_node(node: clap::Command, path: &str) -> clap::Command {
             .disable_help_subcommand(true)
             .subcommand_required(true)
             .arg_required_else_help(true)
+            .args(log_arguments().map(|arg| behaviour(arg).global(true)))
             .mut_subcommands(|sub| {
                 let path = sub.get_name().to_string();
                 decorate_node(sub, &path)
@@ -147,7 +149,6 @@ fn leaf(node: clap::Command, command: &'static Usage) -> clap::Command {
     node.override_usage(synopsis(command))
         .override_help(help)
         .disable_version_flag(true)
-        .args(log_arguments())
         .mut_args(|arg| {
             let name = arg
                 .get_long()
@@ -696,7 +697,7 @@ pub(crate) const USAGE: &[Usage] = &[
         group: 1,
         text: r#"  widgets [<widget>] [--search <text>] [--json]
                               the embedded ThingWorx 10.2 widget catalogue: types, Composer labels,
-                              aliases, containers and bindable properties, events and services"#,
+                              aliases, containers and editable or bindable properties with defaults, events and services"#,
     },
     Usage {
         path: "mashup validate",
@@ -710,10 +711,11 @@ pub(crate) const USAGE: &[Usage] = &[
     Usage {
         path: "mashup describe",
         group: 1,
-        text: r#"  mashup describe <mashup> [--json]
+        text: r#"  mashup describe <mashup> [--detail] [--json]
                               what a mashup holds and how it is wired, without its XML: the widget tree,
                               each service it calls with what sets each parameter (or that nothing does),
-                              each binding and each event, in the addresses mashup bind and on take"#,
+                              each binding and each event, in the addresses mashup bind and on take
+      --detail                show non-default widget properties and widget bindings"#,
     },
     Usage {
         path: "mashup diff",
@@ -861,7 +863,8 @@ pub(crate) const USAGE: &[Usage] = &[
         text: r#"  mashup bind <mashup> --from <address> --to <address> [--apply] [--json]
                               add one data binding to a mashup; plan unless --apply
       --from <address>        source address from mashup describe
-      --to <address>          target address from mashup describe"#,
+      --to <address>          target address from mashup describe
+                              selected row example: data:Acme.Manager.Load[SelectedRows].name"#,
     },
     Usage {
         path: "mashup on",
@@ -991,7 +994,8 @@ pub(crate) const USAGE: &[Usage] = &[
       --master                a master mashup, with a page container filling the center
       --visibility            Organization/<name> or OrganizationalUnit/<organization>:<unit>, repeatable;
                               none unless given
-      --tab                   with --template tabs: a tab's label and the mashup it shows, repeatable"#,
+      --tab                   with --template tabs: a tab's label and the mashup it shows, repeatable
+      --replace <old=new>     replace whole tokens in copied content string values; repeatable, needs --from"#,
     },
     Usage {
         path: "new building-block",
@@ -1105,10 +1109,18 @@ pub(crate) const USAGE: &[Usage] = &[
     Usage {
         path: "menu item",
         group: 1,
-        text: r#"  menu item add <Menu> <Title>=<Mashup> [--default] [--before <Title>] [--apply] [--json]
+        text: r#"  menu item add <Menu> <Title>=<Mashup> [--icon <image>] [--default] [--before <Title>] [--apply] [--json]
+  menu item add <Menu> --submenu <name> [--icon <image>] [--before <Title>] [--apply] [--json]
   menu item remove <Menu> <Title> [--apply] [--json]
-                              add or remove a mashup item, keeping the effective menu in step;
-                              plan unless --apply"#,
+  menu item set <Menu> <Title> [--title <text>] [--mashup <name>] [--submenu <name>]
+      [--icon <image>] [--default] [--description <text>] [--apply] [--json]
+                              edit menu items in order, keeping the effective menu in step;
+                              plan unless --apply
+      --submenu <name>        link to a sub-Menu; the server shows its label and Menu-level icon
+      --icon <image>          an item image URL or MediaEntity
+      --title <text>          rename the selected item
+      --mashup <name>         change the selected item's Mashup
+      --description <text>    change the selected item's description"#,
     },
     Usage {
         path: "mcp-namespace add",
@@ -1256,7 +1268,7 @@ pub(crate) const USAGE: &[Usage] = &[
     Usage {
         path: "new menu",
         group: 1,
-        text: r#"  new menu <name> --item <Title=Mashup>... [--project <name>] [--description <text>] [--default]
+        text: r#"  new menu <name> --item <Title=Mashup>... [--project <name>] [--description <text>] [--default] [--icon <image>]
       [--label <text>] [--apply] [--json]
                               create a Menu; plan unless --apply"#,
     },
@@ -1381,6 +1393,13 @@ pub(crate) const USAGE: &[Usage] = &[
         group: 2,
         text: r#"  entity pull <entity>...|--all [--profile <name>] [--apply] [--json]
                               take server-changed entities, extract sidecars and record baselines"#,
+    },
+    Usage {
+        path: "entity set",
+        group: 1,
+        text: r#"  entity set <entity> [--description <text>] [--icon <image>] [--apply] [--json]
+                              set entity metadata; empty description clears it; plan unless --apply
+      --icon <image>          a Menu-level MediaEntity or image URL"#,
     },
     Usage {
         path: "entity get",

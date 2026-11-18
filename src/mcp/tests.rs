@@ -468,6 +468,34 @@ fn hand_written_tools() -> Vec<Value> {
         recipe["inputSchema"]["properties"][name] = property;
     }
     recipe["inputSchema"]["properties"]["recipe"]["description"] = json!("enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, picker, tracker, set-on-click or collapsible.");
+    let edit = tools
+        .iter_mut()
+        .find(|tool| tool["name"] == "entity_edit")
+        .unwrap();
+    let actions = edit["inputSchema"]["properties"]["action"]["enum"]
+        .as_array_mut()
+        .unwrap();
+    actions.splice(0..0, [json!("entity_set"), json!("menu_item_set")]);
+    for name in ["new_title", "submenu", "icon"] {
+        edit["inputSchema"]["properties"][name] = json!({"type": "string"});
+    }
+    let new = tools
+        .iter_mut()
+        .find(|tool| tool["name"] == "entity_new")
+        .unwrap();
+    new["inputSchema"]["properties"]["icon"] =
+        json!({"description": "Menu-level image URL or MediaEntity.", "type": "string"});
+    let new = tools
+        .iter_mut()
+        .find(|tool| tool["name"] == "mashup_new")
+        .unwrap();
+    new["inputSchema"]["properties"]["replacements"] =
+        json!({"type": "array", "items": {"type": "string"}});
+    let describe = tools
+        .iter_mut()
+        .find(|tool| tool["name"] == "mashup_describe")
+        .unwrap();
+    describe["inputSchema"]["properties"]["detail"] = json!({"type": "boolean", "default": false});
     tools
 }
 
@@ -633,7 +661,14 @@ fn generated_schemas_mean_what_the_hand_written_ones_did() {
             if key == "description"
                 && matches!(
                     name,
-                    "fmt" | "mashup_bind" | "mashup_on" | "mashup_recipe" | "rename"
+                    "fmt"
+                        | "mashup_bind"
+                        | "mashup_on"
+                        | "mashup_recipe"
+                        | "rename"
+                        | "entity_edit"
+                        | "mashup_new"
+                        | "widgets"
                 )
             {
                 continue;
@@ -4504,4 +4539,36 @@ fn collapsible_mcp_plans_then_applies_and_reuses_its_toggle() {
     let (failed, repeated) = call_tool(&root, "mashup_recipe", args);
     assert!(!failed, "{repeated}");
     assert!(repeated["added"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn metadata_and_menu_item_tools_plan_then_apply() {
+    let (_dir, root) = solution_dir();
+    let args = json!({"entity": "P.T", "action": "entity_set", "description": "R&D <page>"});
+    let (failed, plan) = call_tool(&root, "entity_edit", args.clone());
+    assert!(!failed, "{plan}");
+    assert_eq!(plan["applied"], false);
+    let mut args = args;
+    args["dry_run"] = json!(false);
+    let (failed, applied) = call_tool(&root, "entity_edit", args);
+    assert!(!failed, "{applied}");
+    let (failed, new) = call_tool(
+        &root,
+        "entity_new",
+        json!({"kind": "menu", "name": "Acme.Main_MN", "item": ["Home=Acme.Home_MU"], "icon": "/images/menu.svg", "dry_run": false}),
+    );
+    assert!(!failed, "{new}");
+    let (failed, plan) = call_tool(
+        &root,
+        "entity_edit",
+        json!({"entity": "Acme.Main_MN", "action": "menu_item_set", "title": "Home", "new_title": "Start", "icon": "/images/item.svg"}),
+    );
+    assert!(!failed, "{plan}");
+    assert_eq!(plan["applied"], false);
+    let (failed, applied) = call_tool(
+        &root,
+        "entity_edit",
+        json!({"entity": "Acme.Main_MN", "action": "menu_item_set", "title": "Home", "new_title": "Start", "icon": "/images/item.svg", "dry_run": false}),
+    );
+    assert!(!failed, "{applied}");
 }

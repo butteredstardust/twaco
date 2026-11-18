@@ -114,6 +114,8 @@ fn menu_before_an_item_sharing_a_line_keeps_the_document_valid() {
         &solution,
         "Acme.Main_MN",
         Action::MenuItemAdd {
+            submenu: None,
+            icon: None,
             title: "MCP".into(),
             mashup: "Acme.MCP_MU".into(),
             default: false,
@@ -140,6 +142,8 @@ fn one_line_menu_item_add_plans_and_applies_without_changing_other_bytes() {
         let original = file(&solution, "Menus", "Acme.Main_MN").replace(['\r', '\n'], "") + ending;
         std::fs::write(&path, &original).unwrap();
         let action = Action::MenuItemAdd {
+            submenu: None,
+            icon: None,
             title: "MCP".into(),
             mashup: "Acme.MCP_MU".into(),
             default: false,
@@ -2044,6 +2048,8 @@ fn style_media_menu_and_state_edits_match_what_new_writes() {
         &solution,
         "Acme.Orders.Main_MN",
         Action::MenuItemAdd {
+            submenu: None,
+            icon: None,
             title: "Orders".into(),
             mashup: "Acme.Orders.Orders_MU".into(),
             default: false,
@@ -2070,6 +2076,8 @@ fn style_media_menu_and_state_edits_match_what_new_writes() {
     );
     assert_eq!(file(&solution, "Menus", "Acme.Orders.Main_MN"), single);
     let duplicate = Action::MenuItemAdd {
+        submenu: None,
+        icon: None,
         title: "Home".into(),
         mashup: "Acme.Orders.Home_MU".into(),
         default: false,
@@ -2080,6 +2088,8 @@ fn style_media_menu_and_state_edits_match_what_new_writes() {
         ErrorCode::AlreadyExists
     );
     let missing_anchor = Action::MenuItemAdd {
+        submenu: None,
+        icon: None,
         title: "New".into(),
         mashup: "Acme.Orders.Home_MU".into(),
         default: false,
@@ -2210,6 +2220,8 @@ fn a_menu_item_edit_keeps_every_other_item_as_it_is() {
         &solution,
         "Acme.Orders.Main_MN",
         Action::MenuItemAdd {
+            submenu: None,
+            icon: None,
             title: "Orders".into(),
             mashup: "Acme.Orders.Orders_MU".into(),
             default: true,
@@ -2400,6 +2412,8 @@ fn a_crlf_menu_keeps_its_line_endings_and_a_terminator_in_an_item_is_split() {
     let lf = std::fs::read_to_string(&path).unwrap();
     std::fs::write(&path, lf.replace('\n', "\r\n")).unwrap();
     let add = Action::MenuItemAdd {
+        submenu: None,
+        icon: None,
         title: "Orders".into(),
         mashup: "Acme.Orders.Orders_MU".into(),
         default: false,
@@ -2423,6 +2437,8 @@ fn a_crlf_menu_keeps_its_line_endings_and_a_terminator_in_an_item_is_split() {
     )
     .unwrap();
     let again = Action::MenuItemAdd {
+        submenu: None,
+        icon: None,
         title: "More".into(),
         mashup: "Acme.Orders.Orders_MU".into(),
         default: false,
@@ -3032,6 +3048,8 @@ fn menu_item_add_repairs_legacy_root_description_from_menu_attribute() {
         &solution,
         "Acme.Main",
         Action::MenuItemAdd {
+            submenu: None,
+            icon: None,
             title: "Home".into(),
             mashup: "Acme.Home".into(),
             default: false,
@@ -3071,4 +3089,373 @@ fn property_defaults_refuse_git_bash_rewrites() {
     .unwrap_err()
     .to_string()
     .contains("MSYS_NO_PATHCONV=1"));
+}
+
+#[test]
+fn entity_metadata_matches_new_and_reruns_without_changes() {
+    for kind in [Kind::Thing, Kind::Menu, Kind::Media] {
+        let (_dir, solution) = fixture();
+        let (_other, fresh) = fixture();
+        let png = solution.root.join("image.png");
+        std::fs::write(&png, b"\x89PNG\r\n\x1a\nrest").unwrap();
+        let setup = |request: &mut NewRequest| {
+            if kind == Kind::Menu {
+                request.items = vec!["Home=Acme.Home_MU".into()];
+            }
+            if kind == Kind::Media {
+                request.file = Some(png.clone());
+            }
+        };
+        new(&solution, kind, "Acme.Item", setup);
+        let action = Action::EntitySet {
+            description: Some("R&D <test> \"quoted\"".into()),
+            icon: None,
+        };
+        run(&solution, "Acme.Item", action.clone());
+        new(&fresh, kind, "Acme.Item", |request| {
+            setup(request);
+            request.description = "R&D <test> \"quoted\"".into();
+        });
+        assert_eq!(
+            file(&solution, kind.collection(), "Acme.Item"),
+            file(&fresh, kind.collection(), "Acme.Item")
+        );
+        assert!(plan_of(&solution, "Acme.Item", action)
+            .unwrap()
+            .changes
+            .is_empty());
+        run(
+            &solution,
+            "Acme.Item",
+            Action::EntitySet {
+                description: Some(String::new()),
+                icon: None,
+            },
+        );
+        assert!(!file(&solution, kind.collection(), "Acme.Item").contains("R&amp;D"));
+    }
+}
+
+#[test]
+fn menu_set_and_submenus_preserve_layout_and_unedited_items() {
+    for compact in [false, true] {
+        let (_dir, solution) = fixture();
+        for name in ["Acme.Main_MN", "Acme.Sub_MN"] {
+            new(&solution, Kind::Menu, name, |request| {
+                request.items = vec!["Home=Acme.Home_MU".into(), "Other=Acme.Other_MU".into()];
+                request.default = true;
+            });
+        }
+        let path = solution.root.join("app/Menus/Acme.Main_MN.xml");
+        if compact {
+            let src = std::fs::read(&path).unwrap();
+            std::fs::write(&path, compact_xml(&src).unwrap()).unwrap();
+        }
+        run(
+            &solution,
+            "Acme.Main_MN",
+            Action::MenuItemAdd {
+                submenu: Some("Acme.Sub_MN".into()),
+                icon: Some("/images/item.svg".into()),
+                title: String::new(),
+                mashup: String::new(),
+                default: false,
+                before: Some("Other".into()),
+            },
+        );
+        let before = std::fs::read(&path).unwrap();
+        let doc = Doc::read(
+            &workspace::resolve(&workspace::entities(&solution), "Acme.Main_MN")
+                .unwrap()
+                .clone(),
+        )
+        .unwrap();
+        let (_, entries) = menu_entries(&doc).unwrap();
+        let sub = entries
+            .iter()
+            .find(|entry| entry.link_type == "Menu")
+            .unwrap();
+        assert_eq!(sub.title, "");
+        assert_eq!(sub.link_target, "Acme.Sub_MN");
+        assert_eq!(sub.target, "Acme.Sub_MN");
+        let sub_bytes = doc.span(sub.element).unwrap().of(&before).to_vec();
+        let change = MenuItemChange {
+            title: Some("Renamed & ready".into()),
+            icon: Some("/images/new.svg".into()),
+            mashup: Some("Acme.New_MU".into()),
+            description: Some("Tooltip <text>".into()),
+            default: true,
+            ..Default::default()
+        };
+        let action = Action::MenuItemSet {
+            title: "Other".into(),
+            change,
+        };
+        run(&solution, "Acme.Main_MN", action);
+        let after = std::fs::read(&path).unwrap();
+        assert!(after
+            .windows(sub_bytes.len())
+            .any(|window| window == sub_bytes));
+        let xml = std::str::from_utf8(&after).unwrap();
+        roxmltree::Document::parse(xml).unwrap();
+        if compact {
+            assert!(!xml.contains('\n'));
+        }
+        let doc = Doc::parse(doc.file, after).unwrap();
+        let (_, entries) = menu_entries(&doc).unwrap();
+        assert!(!entries[0].is_default);
+        assert_eq!(entries[2].title, "Renamed & ready");
+        assert_eq!(entries[2].target, "Acme.New_MU");
+        assert_eq!(entries[2].image_url, "/images/new.svg");
+        assert!(entries[2].is_default);
+        run(
+            &solution,
+            "Acme.Main_MN",
+            Action::MenuItemAdd {
+                submenu: None,
+                icon: None,
+                title: "Last".into(),
+                mashup: "Acme.Last_MU".into(),
+                default: false,
+                before: None,
+            },
+        );
+        run(
+            &solution,
+            "Acme.Main_MN",
+            Action::MenuItemRemove {
+                title: "Last".into(),
+            },
+        );
+        run(
+            &solution,
+            "Acme.Main_MN",
+            Action::MenuItemSet {
+                title: "Home".into(),
+                change: MenuItemChange {
+                    submenu: Some("Acme.Sub_MN".into()),
+                    ..Default::default()
+                },
+            },
+        );
+        let report = crate::core::check::run(&solution);
+        assert!(report
+            .gates
+            .iter()
+            .find(|gate| gate.name == "menus")
+            .unwrap()
+            .findings
+            .is_empty());
+        let xml = file(&solution, "Menus", "Acme.Main_MN").replacen(
+            "linkTarget=\"Acme.Sub_MN\"",
+            "linkTarget=\"Self\"",
+            1,
+        );
+        std::fs::write(&path, xml).unwrap();
+        let report = crate::core::check::run(&solution);
+        assert!(report
+            .gates
+            .iter()
+            .find(|gate| gate.name == "menus")
+            .unwrap()
+            .findings[0]
+            .message
+            .contains("--submenu"));
+    }
+}
+
+#[test]
+fn menu_set_refuses_unknown_duplicate_and_empty_changes() {
+    let (_dir, solution) = fixture();
+    new(&solution, Kind::Menu, "Acme.Main_MN", |request| {
+        request.items = vec!["Home=Acme.Home_MU".into(), "Other=Acme.Other_MU".into()];
+    });
+    for (title, change) in [
+        (
+            "Missing",
+            MenuItemChange {
+                icon: Some("/icon.svg".into()),
+                ..Default::default()
+            },
+        ),
+        (
+            "Home",
+            MenuItemChange {
+                title: Some("Other".into()),
+                ..Default::default()
+            },
+        ),
+        ("Home", MenuItemChange::default()),
+    ] {
+        assert!(plan_of(
+            &solution,
+            "Acme.Main_MN",
+            Action::MenuItemSet {
+                title: title.into(),
+                change
+            }
+        )
+        .is_err());
+    }
+}
+
+#[test]
+fn menu_level_icon_matches_new() {
+    let (_dir, solution) = fixture();
+    let (_other, fresh) = fixture();
+    new(&solution, Kind::Menu, "Acme.Main_MN", |request| {
+        request.items = vec!["Home=Acme.Home_MU".into()];
+    });
+    new(&fresh, Kind::Menu, "Acme.Main_MN", |request| {
+        request.items = vec!["Home=Acme.Home_MU".into()];
+        request.image = Some("/images/menu.svg".into());
+    });
+    let action = Action::EntitySet {
+        description: None,
+        icon: Some("/images/menu.svg".into()),
+    };
+    run(&solution, "Acme.Main_MN", action.clone());
+    assert_eq!(
+        file(&solution, "Menus", "Acme.Main_MN"),
+        file(&fresh, "Menus", "Acme.Main_MN")
+    );
+    assert!(plan_of(&solution, "Acme.Main_MN", action)
+        .unwrap()
+        .changes
+        .is_empty());
+}
+
+#[test]
+fn menu_set_checks_repository_mashups_and_media() {
+    let (_dir, solution) = fixture();
+    new(&solution, Kind::Menu, "Acme.Main_MN", |request| {
+        request.items = vec!["Home=Acme.Home_MU".into()];
+    });
+    let mashups = solution.root.join("app/Mashups");
+    std::fs::create_dir_all(&mashups).unwrap();
+    std::fs::write(mashups.join("Acme.Home_MU.xml"), "<Entities><Mashups><Mashup name=\"Acme.Home_MU\" projectName=\"Acme.Orders\"/></Mashups></Entities>").unwrap();
+    let png = solution.root.join("image.png");
+    std::fs::write(&png, b"\x89PNG\r\n\x1a\nrest").unwrap();
+    new(&solution, Kind::Media, "Acme.Icon", |request| {
+        request.file = Some(png);
+    });
+    for change in [
+        MenuItemChange {
+            mashup: Some("Acme.Missing_MU".into()),
+            ..Default::default()
+        },
+        MenuItemChange {
+            icon: Some("Acme.MissingIcon".into()),
+            ..Default::default()
+        },
+    ] {
+        assert!(matches!(
+            plan_of(
+                &solution,
+                "Acme.Main_MN",
+                Action::MenuItemSet {
+                    title: "Home".into(),
+                    change
+                }
+            ),
+            Err(EditError::Unknown(_))
+        ));
+    }
+    let action = Action::MenuItemSet {
+        title: "Home".into(),
+        change: MenuItemChange {
+            icon: Some("Acme.Icon".into()),
+            ..Default::default()
+        },
+    };
+    run(&solution, "Acme.Main_MN", action.clone());
+    assert!(plan_of(&solution, "Acme.Main_MN", action)
+        .unwrap()
+        .changes
+        .is_empty());
+}
+
+#[test]
+fn metadata_preserves_single_quoted_attributes() {
+    let (_dir, solution) = fixture();
+    new(&solution, Kind::Thing, "Acme.Item", |_| {});
+    let path = solution.root.join("app/Things/Acme.Item.xml");
+    let xml =
+        file(&solution, "Things", "Acme.Item").replacen("description=\"\"", "description=''", 1);
+    std::fs::write(&path, xml).unwrap();
+    run(
+        &solution,
+        "Acme.Item",
+        Action::EntitySet {
+            description: Some("It's <ready> & \"safe\"".into()),
+            icon: None,
+        },
+    );
+    let xml = file(&solution, "Things", "Acme.Item");
+    roxmltree::Document::parse(&xml).unwrap();
+    assert!(xml.contains("description='It&apos;s &lt;ready&gt; &amp; &quot;safe&quot;'"));
+}
+
+#[test]
+fn submenu_gate_warns_for_partial_repositories_but_self_is_always_an_error() {
+    let (_dir, solution) = fixture();
+    new(&solution, Kind::Menu, "Acme.Main_MN", |request| {
+        request.items = vec!["Home=Acme.Home_MU".into()];
+    });
+    let config = solution.root.join("twaco.toml");
+    let text = std::fs::read_to_string(&config).unwrap() + "\n[[project]]\nname = \"Acme.Backend\"\nroot = \"backend\"\ncollections = [\"Things\"]\n";
+    std::fs::write(&config, text).unwrap();
+    let solution = Solution::load(&config).unwrap();
+    let original = file(&solution, "Menus", "Acme.Main_MN");
+    let added = run(
+        &solution,
+        "Acme.Main_MN",
+        Action::MenuItemAdd {
+            title: "".into(),
+            mashup: "".into(),
+            default: false,
+            before: None,
+            submenu: Some("Acme.External_MN".into()),
+            icon: None,
+        },
+    );
+    assert_eq!(added.warnings.len(), 1);
+    assert!(file(&solution, "Menus", "Acme.Main_MN").contains("linkTarget=\"Acme.External_MN\""));
+    let changed = run(
+        &solution,
+        "Acme.Main_MN",
+        Action::MenuItemSet {
+            title: "Home".into(),
+            change: MenuItemChange {
+                submenu: Some("Acme.Other_MN".into()),
+                ..Default::default()
+            },
+        },
+    );
+    assert_eq!(changed.warnings.len(), 1);
+    let report = crate::core::check::run(&solution);
+    let gate = report
+        .gates
+        .iter()
+        .find(|gate| gate.name == "menus")
+        .unwrap();
+    assert!(gate.findings.is_empty());
+    assert_eq!(gate.warnings.len(), 2);
+    let path = solution.root.join("app/Menus/Acme.Main_MN.xml");
+    for (target, errors, warnings) in [("Acme.External_MN", 0, 1), ("Self", 1, 0)] {
+        let xml = original.replacen(
+            "linkTarget=\"Self\" linkType=\"Mashup\"",
+            &format!("linkTarget=\"{target}\" linkType=\"Menu\""),
+            1,
+        );
+        std::fs::write(&path, xml).unwrap();
+        let report = crate::core::check::run(&solution);
+        let gate = report
+            .gates
+            .iter()
+            .find(|gate| gate.name == "menus")
+            .unwrap();
+        assert_eq!(gate.findings.len(), errors);
+        assert_eq!(gate.warnings.len(), warnings);
+    }
 }

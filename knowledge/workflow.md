@@ -158,3 +158,23 @@ does not roll back their unexported changes.
 - **The ThingWorx Platform help:** `twaco help search` and `twaco help page`.
 - **The ThingWorx Platform Java API:** `twaco javadoc search`, `twaco javadoc class` and
   `twaco javadoc service`.
+
+## Updating entity metadata and menus
+
+`twaco entity set Things/Acme.Manager --description "Loads the page"` plans an existing
+entity's root description. Empty text clears it. Use `--apply` to write, or `--json` for the plan.
+Menu icons use `twaco new menu Acme.Main_MN --item Home=Acme.Home_MU --icon Acme.HomeIcon`
+or `twaco entity set Acme.Main_MN --icon Acme.HomeIcon`.
+
+`twaco menu item set Acme.Main_MN Home --title Start --icon Acme.HomeIcon` changes only the
+given fields and keeps item order. `--mashup Acme.Start_MU`, `--description "Open the start page"`
+and `--default` change the destination, tooltip and default item. Add a sub-Menu with
+`twaco menu item add Acme.Main_MN --submenu Acme.Sub_MN`; set an existing item with `--submenu`.
+Sub-Menu items have an empty title; select them by their target Menu name on set/remove.
+Menu item commands plan unless `--apply`.
+
+`twaco mashup describe Acme.Home_MU --detail` includes properties differing from catalogue
+defaults. Text values are abbreviated; `--json --detail` retains full values.
+`twaco mashup new Acme.Copy_MU --from Acme.Home_MU --replace page-current=page-nested`
+changes whole tokens in copied content string values; repeat `--replace` for other tokens.
+The copy reports every replacement and refuses an old token that occurs nowhere.
