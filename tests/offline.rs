@@ -2340,3 +2340,58 @@ name = "Acme"
         }
     }
 }
+
+#[test]
+fn guide_search_joins_extra_words() {
+    let dir = tempfile::tempdir().unwrap();
+    let run = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_twaco"))
+            .current_dir(dir.path())
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    let quoted = run(&["guide", "--search", "menu title", "--json"]);
+    let words = run(&["guide", "--search", "menu", "title", "--json"]);
+    assert!(
+        quoted.status.success(),
+        "{}",
+        String::from_utf8_lossy(&quoted.stderr)
+    );
+    assert!(
+        words.status.success(),
+        "{}",
+        String::from_utf8_lossy(&words.stderr)
+    );
+    assert!(!quoted.stdout.is_empty());
+    assert_eq!(quoted.stdout, words.stdout);
+}
+
+#[test]
+fn fmt_checks_and_orders_subscription_events_without_script_sidecars() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("twaco.toml"), "[[project]]\nname='Acme'\n").unwrap();
+    std::fs::create_dir(dir.path().join("Things")).unwrap();
+    let path = dir.path().join("Things/Acme.T.xml");
+    std::fs::write(&path, r#"<Entities><Things><Thing name="Acme.T" projectName="Acme"><Subscriptions><Subscription version="2"><Events><Event alias="Temperature"/><Event alias="Pressure"/></Events></Subscription></Subscriptions></Thing></Things></Entities>"#).unwrap();
+    let run = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_twaco"))
+            .current_dir(dir.path())
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    let checked = run(&["fmt", "--check"]);
+    assert_eq!(
+        checked.status.code(),
+        Some(1),
+        "{}",
+        String::from_utf8_lossy(&checked.stderr)
+    );
+    assert!(String::from_utf8_lossy(&checked.stdout).contains("1 file(s) need formatting"));
+    assert!(run(&["fmt"]).status.success());
+    let once = std::fs::read(&path).unwrap();
+    assert!(run(&["fmt", "--check"]).status.success());
+    assert!(run(&["fmt"]).status.success());
+    assert_eq!(std::fs::read(path).unwrap(), once);
+}

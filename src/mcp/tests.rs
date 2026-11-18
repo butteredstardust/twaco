@@ -619,12 +619,12 @@ fn generated_schemas_mean_what_the_hand_written_ones_did() {
             "{name}"
         );
         for key in ["description", "annotations"] {
-            // These descriptions evolved with rename selectors, form warnings and failure handling.
+            // These descriptions evolved with selectors, formatting, form warnings and failure handling.
             // Their current wording is checked by the golden file and tools/list tests.
             if key == "description"
                 && matches!(
                     name,
-                    "mashup_bind" | "mashup_on" | "mashup_recipe" | "rename"
+                    "fmt" | "mashup_bind" | "mashup_on" | "mashup_recipe" | "rename"
                 )
             {
                 continue;
@@ -2852,7 +2852,7 @@ fn status_record_returns_matching_entities_in_sync_and_keeps_differing_verdicts(
     )
     .unwrap();
     std::fs::create_dir_all(root.join(".twaco/baselines")).unwrap();
-    std::fs::write(root.join(".twaco/baselines/default.json"),r#"{"entities":{"Things":{"Acme.Same":{"local":"v11:old","server":"v11:old"},"Acme.Different":{"local":"v11:old","server":"v11:old"}}}}"#).unwrap();
+    std::fs::write(root.join(".twaco/baselines/default.json"),r#"{"entities":{"Things":{"Acme.Same":{"local":"v12:old","server":"v12:old"},"Acme.Different":{"local":"v12:old","server":"v12:old"}}}}"#).unwrap();
     let before = call(root, "status", json!({"all":true,"detail":true}));
     assert_eq!(body(&before)["counts"]["converged"], 1);
     assert_eq!(body(&before)["counts"]["both-changed"], 1);

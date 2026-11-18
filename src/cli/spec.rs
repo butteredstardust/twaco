@@ -476,8 +476,8 @@ pub(crate) const USAGE: &[Usage] = &[
         path: "fmt",
         group: 1,
         text: r#"  fmt [--check] [--entity <name>] [--changed-since <git-rev>]
-                              format service scripts
-      --check                 report which scripts would change, write nothing
+                              format service scripts and order subscription Events by alias
+      --check                 report which files would change, write nothing
       --entity <name>         an entity name or Collection/Name glob to format (repeatable)
       --changed-since <git-rev>  format entity files and sidecars changed since this revision"#,
     },
@@ -1788,7 +1788,8 @@ pub(crate) const USAGE: &[Usage] = &[
         text: r#"  guide                       the knowledge topics: twaco's workflow, the platform's verified quirks,
                               the service-code reference, and the solution's own markdown
   guide <topic> [--section <heading>]  read one (a long one gives its outline)
-  guide --search <words>      the sections that best match; --limit <n>; --json"#,
+  guide --search <words>      the sections that best match; extra operands extend the search
+                              --limit <n>; --json"#,
     },
     Usage {
         path: "help",

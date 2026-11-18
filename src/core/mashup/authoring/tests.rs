@@ -9765,3 +9765,24 @@ fn flexcontainer_properties_bind_and_set_on_tab_containers() {
     )
     .is_err());
 }
+
+#[test]
+fn mashup_set_refuses_git_bash_source_url() {
+    let (_dir, solution) = one_project();
+    let error = plan_set(
+        &solution,
+        &SetRequest {
+            mashup: "Acme.Image_MU".into(),
+            widget: "ptcsimage-16".into(),
+            properties: vec![(
+                "SourceURL".into(),
+                json!("C:/Program Files/Git/Thingworx/MediaEntities/X"),
+            )],
+            style_from: None,
+            styles: Vec::new(),
+        },
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("MSYS_NO_PATHCONV=1"), "{error}");
+}

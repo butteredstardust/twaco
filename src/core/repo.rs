@@ -118,6 +118,61 @@ pub(crate) fn refuse_windows_path(text: &str) -> Result<(), RepoError> {
     Ok(())
 }
 
+/// Refuses drive paths through a Git installation, including strings nested in JSON values.
+pub(crate) fn refuse_git_bash_value(value: &Value) -> Result<(), RepoError> {
+    match value {
+        Value::String(text) => {
+            let bytes = text.as_bytes();
+            if bytes.len() >= 3
+                && bytes[0].is_ascii_alphabetic()
+                && bytes[1] == b':'
+                && matches!(bytes[2], b'/' | b'\\')
+                && runs_through_git_install(&text[3..])
+            {
+                return Err(RepoError::Invalid(format!(
+                    "{text} looks rewritten by Git Bash (it turns /a/b into <Git>/a/b); set MSYS_NO_PATHCONV=1 and run again"
+                )));
+            }
+            if let Ok(parsed) = serde_json::from_str::<Value>(text) {
+                refuse_git_bash_value(&parsed)?;
+            }
+        }
+        Value::Array(values) => {
+            for value in values {
+                refuse_git_bash_value(value)?;
+            }
+        }
+        Value::Object(values) => {
+            for value in values.values() {
+                refuse_git_bash_value(value)?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+/// A `Git` folder is a Git for Windows install when it sits where installers put it (Program
+/// Files, a per-user Programs folder, scoop) or holds the install's own `usr`/`mingw64` tree; a
+/// folder that is merely named Git (`D:/data/Git/archive.csv`) is not one.
+fn runs_through_git_install(path: &str) -> bool {
+    let parts: Vec<&str> = path.split(['/', '\\']).filter(|p| !p.is_empty()).collect();
+    parts.iter().enumerate().any(|(i, part)| {
+        if !part.eq_ignore_ascii_case("git") {
+            return false;
+        }
+        let before = i.checked_sub(1).map(|j| parts[j].to_ascii_lowercase());
+        let after = parts.get(i + 1).map(|p| p.to_ascii_lowercase());
+        matches!(
+            before.as_deref(),
+            Some("program files" | "program files (x86)" | "programs" | "apps")
+        ) || matches!(
+            after.as_deref(),
+            Some("usr" | "mingw64" | "mingw32" | "current")
+        )
+    })
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct File {
     /// From the repository root, `/`-rooted.
@@ -1144,6 +1199,29 @@ pub(crate) mod tests {
 
         fn repositories(&self) -> Result<Vec<String>, ServerError> {
             Ok(Vec::new())
+        }
+    }
+
+    #[test]
+    fn git_bash_values_are_refused_without_rejecting_other_windows_paths() {
+        for path in [
+            "C:/Program Files/Git/Thingworx/MediaEntities/X",
+            r"c:\Tools\gIt\usr\share",
+            "Z:/Tools/GIT/mingw64/share",
+            "C:/Users/me/AppData/Local/Programs/Git/Thingworx/X",
+        ] {
+            let error = refuse_git_bash_value(&json!({"rows":[{"value":path}]})).unwrap_err();
+            assert!(error.to_string().contains("MSYS_NO_PATHCONV=1"));
+        }
+        for path in [
+            "D:/data/file.csv",
+            "D:/data/Git/archive.csv",
+            "C:/git/project/data.csv",
+            "/Thingworx/MediaEntities/X",
+            "C:/GitHub/file",
+            "/Git/file",
+        ] {
+            refuse_git_bash_value(&json!(path)).unwrap();
         }
     }
 

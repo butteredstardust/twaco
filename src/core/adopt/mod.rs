@@ -330,6 +330,21 @@ mod tests {
 
     use std::path::Path;
     #[test]
+    fn subscription_event_order_does_not_change_adopt() {
+        let left = element(
+            r#"<Thing><Subscriptions><Subscription version="2"><Events><Event alias="Temperature" sourceProperty="Temperature"/><Event alias="Pressure" sourceProperty="Pressure"/></Events></Subscription></Subscriptions></Thing>"#,
+        );
+        let right = element(
+            r#"<Thing><Subscriptions><Subscription version="2"><Events><Event alias="Pressure" sourceProperty="Pressure"/><Event alias="Temperature" sourceProperty="Temperature"/></Events></Subscription></Subscriptions></Thing>"#,
+        );
+        assert!(differing(
+            &flatten(&normalise::comparison_element(left, true)),
+            &flatten(&normalise::comparison_element(right, true)),
+        )
+        .is_empty());
+    }
+
+    #[test]
     fn a_base_type_changed_on_both_sides_is_a_type_change() {
         let change = |path: &str, export: Option<&str>, repo: Option<&str>| Difference {
             path: path.into(),
@@ -775,7 +790,7 @@ mod tests {
             crate::core::normalise::hash(&std::fs::read(root.join("Mashups/P.A.xml")).unwrap())
                 .unwrap();
         let mut baseline = crate::core::baseline::Baseline::default();
-        baseline.set("Mashups", "P.A", ours, "v11:server".into());
+        baseline.set("Mashups", "P.A", ours, "v12:server".into());
         baseline.write(&root, "default").unwrap();
         let notes = notes(&solution);
         assert!(

@@ -52,6 +52,10 @@ pub(crate) fn plan_set(
     solution: &Solution,
     request: &SetRequest,
 ) -> Result<SetPlan, AuthoringError> {
+    for (_, value) in &request.properties {
+        crate::core::repo::refuse_git_bash_value(value)
+            .map_err(|error| AuthoringError::Invalid(error.to_string()))?;
+    }
     let loaded = load_existing(solution, &request.mashup)?;
     let mut document = parse_loaded(&loaded)?;
     let found = document

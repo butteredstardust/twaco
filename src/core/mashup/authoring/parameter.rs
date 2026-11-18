@@ -180,6 +180,8 @@ pub(super) fn validate_parameter(
 }
 
 pub(super) fn default_value(base_type: &str, value: &str) -> Result<Value, AuthoringError> {
+    crate::core::repo::refuse_git_bash_value(&Value::String(value.into()))
+        .map_err(|error| AuthoringError::Invalid(error.to_string()))?;
     match base_type {
         "INFOTABLE" => Err(AuthoringError::Invalid(
             "an INFOTABLE parameter's default is a table; set it in Composer".into(),

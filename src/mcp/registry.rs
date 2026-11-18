@@ -356,7 +356,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         .with_output::<outputs::ExtractResult>(),
         solution_tool::<source_requests::FmtRequest>(
             "fmt",
-            "Format selected service script sidecars with the built-in formatter. Without a selector, formats every script. check: true reports which would change and writes nothing.",
+            "Format selected service script sidecars with the built-in formatter and order subscription Events by alias. Without a selector, formats every entity and script. check: true reports which files would change and writes nothing.",
             false,
             source::fmt_tool,
         )

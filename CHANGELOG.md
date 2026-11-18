@@ -13,6 +13,9 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Fixed
 
+- Free-form property, service-call and configuration-table values rewritten by Git Bash are refused with `MSYS_NO_PATHCONV=1` guidance.
+- Subscription Events compare as a set and `fmt` orders them by alias, preventing false server-change conflicts. Comparison hashes are version 12; older baselines are invalidated. Run `twaco entity status --all --record` again to record entities that already agree; investigate `no-baseline-differs` with `entity diff`, pull or adopt.
+- `guide --search menu title` searches the same words as `guide --search "menu title"`; extra operands extend the search.
 - Gate-blocked deploys explicitly report that nothing was sent, include `deployed: false` in JSON and MCP, and exit 2.
 - Deploy conflicts proven to differ only in property values show the entity-specific `server_owned` configuration.
 - Contained mashup rows retain their measured minimum height through side-by-side placement and later layout edits, using the tallest card in a shared row.

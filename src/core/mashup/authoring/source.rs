@@ -409,6 +409,8 @@ fn fixed_parameters(
                 parameter.1
             ))
         };
+        crate::core::repo::refuse_git_bash_value(&Value::String(raw.into()))
+            .map_err(|error| AuthoringError::Invalid(error.to_string()))?;
         let value = match parameter.1 {
             "BOOLEAN" => match raw {
                 "true" => Value::Bool(true),

@@ -56,8 +56,8 @@ twaco <command> --help shows one command; the full listing follows.
       --relayout              rewrite scripts in the configured CDATA layout
       --json                  print the report as JSON
   fmt [--check] [--entity <name>] [--changed-since <git-rev>]
-                              format service scripts
-      --check                 report which scripts would change, write nothing
+                              format service scripts and order subscription Events by alias
+      --check                 report which files would change, write nothing
       --entity <name>         an entity name or Collection/Name glob to format (repeatable)
       --changed-since <git-rev>  format entity files and sidecars changed since this revision
   check [--detail]            every gate, one exit code
@@ -828,7 +828,8 @@ twaco <command> --help shows one command; the full listing follows.
   guide                       the knowledge topics: twaco's workflow, the platform's verified quirks,
                               the service-code reference, and the solution's own markdown
   guide <topic> [--section <heading>]  read one (a long one gives its outline)
-  guide --search <words>      the sections that best match; --limit <n>; --json
+  guide --search <words>      the sections that best match; extra operands extend the search
+                              --limit <n>; --json
   help search <words>         search the ThingWorx Platform help (the server's version)
   help page <page>            read a help page as Markdown; --section <heading>
       --version <10.1>        another release; --limit <n>; --refresh; --json

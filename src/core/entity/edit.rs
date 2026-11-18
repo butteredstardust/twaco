@@ -1790,6 +1790,11 @@ impl Edit2<'_> {
             name: property.name.clone(),
             ordinal: ordinal.to_string(),
         };
+        // Only a newly supplied default is checked: an existing one may be edited around.
+        if let Some(default) = &property.default {
+            crate::core::repo::refuse_git_bash_value(&Value::String(default.clone()))
+                .map_err(|error| invalid(error.to_string()))?;
+        }
         definition.merge(property);
         plan.warnings.extend(definition.validate(self.found)?);
         let stored = definition.stored_value(self.found)?;
@@ -1820,6 +1825,11 @@ impl Edit2<'_> {
             })?;
         let old = Definition::read(doc, element);
         let mut definition = old.clone();
+        // Only a newly supplied default is checked: an existing one may be edited around.
+        if let Some(default) = &property.default {
+            crate::core::repo::refuse_git_bash_value(&Value::String(default.clone()))
+                .map_err(|error| invalid(error.to_string()))?;
+        }
         definition.merge(property);
         plan.warnings.extend(definition.validate(self.found)?);
         let retyped = definition.base_type != old.base_type;

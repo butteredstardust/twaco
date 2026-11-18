@@ -353,6 +353,8 @@ fn check_arguments(
     service: &str,
     parameters: &Value,
 ) -> Result<(), CallCommandError> {
+    crate::core::repo::refuse_git_bash_value(parameters)
+        .map_err(|error| CallCommandError::Arguments(error.to_string()))?;
     let empty = serde_json::Map::new();
     let given = match parameters {
         Value::Null => &empty,
@@ -592,6 +594,37 @@ fn as_test_user(
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    #[test]
+    fn call_refuses_rewritten_pairs_and_nested_json() {
+        let (_dir, _root, solution) = solution();
+        let error = parameter_pairs(
+            &solution,
+            "Acme.T",
+            "Run",
+            &["path=C:/Program Files/Git/Thingworx/MediaEntities/X".into()],
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("MSYS_NO_PATHCONV=1"), "{error}");
+        let target = ServiceTarget::Thing("Acme.T".into());
+        let nested =
+            serde_json::json!({"input":{"rows":[{"path":"C:/Program Files/Git/usr/file"}]}});
+        assert!(check_arguments(&solution, &target, "Run", &nested)
+            .unwrap_err()
+            .to_string()
+            .contains("MSYS_NO_PATHCONV=1"));
+        assert_eq!(
+            parameter_pairs(
+                &solution,
+                "Acme.T",
+                "Run",
+                &["path=D:/data/file.csv".into()]
+            )
+            .unwrap(),
+            serde_json::json!({"path":"D:/data/file.csv"})
+        );
+    }
 
     #[test]
     fn an_argument_in_the_service_place_is_refused_before_any_request() {

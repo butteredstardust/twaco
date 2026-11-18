@@ -321,6 +321,8 @@ without it, each gate gives a summary.
 
 ### Focused script lint
 
+`twaco fmt` also orders Events directly under a Subscription by alias, preserving their XML bytes and surrounding layout.
+
 `twaco lint` runs the formatting, script-trap, code-order and enabled comment rules, reporting each
 finding at the configured rule severity. Narrow it with `--entity <Collection/Name-glob>` or
 `--service <glob>`, select a rule or a group (`format`, `traps`, `order`, `comments`) with `--rule`,
@@ -428,8 +430,8 @@ and the like. `entity status --record` records the current state as the baseline
 two sides already agree, for a repository adopting twaco. It reports how many baselines it
 recorded; counts, detail and the exit status reflect the updated baseline.
 
-After upgrading to a release that changes the comparison hash version (v0.1.64 moved from
-v10 to v11), older baselines count as missing: run `twaco entity status --all --record`.
+After upgrading to a release that changes the comparison hash version (this release moves from
+v11 to v12), older baselines count as missing: run `twaco entity status --all --record`.
 It records baselines only where the repository and server already agree. Entities listed as
 `no-baseline-differs` need investigation with `entity diff`, pull or adopt; `--record` does
 not resolve their differences.

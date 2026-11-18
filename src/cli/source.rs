@@ -289,7 +289,7 @@ pub(crate) fn fmt(solution: &Solution, args: &Fmt) -> u8 {
             return FAILED;
         }
     };
-    if outcome.files == 0 {
+    if outcome.files == 0 && outcome.changed.is_empty() && outcome.failed == 0 {
         println!("no service scripts under {}", solution.src_root().display());
         return OK;
     }
@@ -306,12 +306,28 @@ pub(crate) fn fmt(solution: &Solution, args: &Fmt) -> u8 {
         );
     }
     if outcome.failed > 0 {
-        eprintln!("{} {} script(s) failed", style::prefix(), outcome.failed);
+        eprintln!("{} {} file(s) failed", style::prefix(), outcome.failed);
         return FAILED;
     }
     if outcome.changed.is_empty() {
         println!("{} service script(s) are formatted", outcome.files);
         return OK;
+    }
+    if outcome
+        .changed
+        .iter()
+        .any(|path| path.extension().is_some_and(|ext| ext == "xml"))
+    {
+        println!(
+            "{} file(s) {}",
+            outcome.changed.len(),
+            if check {
+                "need formatting"
+            } else {
+                "reformatted"
+            }
+        );
+        return if check { DRIFT } else { OK };
     }
     println!(
         "{} of {} service script(s) {}",

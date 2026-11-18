@@ -1303,7 +1303,7 @@
   },
   {
     "name": "fmt",
-    "description": "Format selected service script sidecars with the built-in formatter. Without a selector, formats every script. check: true reports which would change and writes nothing.",
+    "description": "Format selected service script sidecars with the built-in formatter and order subscription Events by alias. Without a selector, formats every entity and script. check: true reports which files would change and writes nothing.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {

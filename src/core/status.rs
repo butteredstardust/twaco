@@ -326,28 +326,28 @@ mod tests {
         }
 
         let mut statuses = [
-            status("Acme.Same", "v11:same", Some("v11:same")),
-            status("Acme.Different", "v11:working", Some("v11:server")),
-            status("Acme.Missing", "v11:working", None),
+            status("Acme.Same", "v12:same", Some("v12:same")),
+            status("Acme.Different", "v12:working", Some("v12:server")),
+            status("Acme.Missing", "v12:working", None),
         ];
         let mut baseline = Baseline::default();
         statuses[0].verdict = Verdict::BothChanged;
         assert_eq!(record_matching(&mut baseline, &mut statuses), 1);
         assert_eq!(statuses[0].verdict, Verdict::InSync);
-        assert_eq!(statuses[0].local_baseline.as_deref(), Some("v11:same"));
-        assert_eq!(statuses[0].server_baseline.as_deref(), Some("v11:same"));
+        assert_eq!(statuses[0].local_baseline.as_deref(), Some("v12:same"));
+        assert_eq!(statuses[0].server_baseline.as_deref(), Some("v12:same"));
         assert_eq!(statuses[1].verdict, Verdict::NoBaselineDiffers);
         assert_eq!(
             baseline
                 .get("Things", "Acme.Same")
                 .map(|entry| entry.local.as_str()),
-            Some("v11:same")
+            Some("v12:same")
         );
         assert_eq!(
             baseline
                 .get("Things", "Acme.Same")
                 .map(|entry| entry.server.as_str()),
-            Some("v11:same")
+            Some("v12:same")
         );
         assert_eq!(baseline.get("Things", "Acme.Different"), None);
         assert_eq!(baseline.get("Things", "Acme.Missing"), None);

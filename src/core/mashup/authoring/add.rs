@@ -229,6 +229,10 @@ pub(crate) fn plan_add(
     solution: &Solution,
     request: &AddRequest,
 ) -> Result<AddPlan, AuthoringError> {
+    for (_, value) in &request.properties {
+        crate::core::repo::refuse_git_bash_value(&Value::String(value.clone()))
+            .map_err(|error| AuthoringError::Invalid(error.to_string()))?;
+    }
     let loaded = load_existing(solution, &request.mashup)?;
     let mut document = parse_loaded(&loaded)?;
     // A platform widget first, then one of the solution's own extension projects defines.
@@ -621,6 +625,8 @@ pub(crate) fn property_value(
     name: &str,
     supplied: Value,
 ) -> Result<Value, AuthoringError> {
+    crate::core::repo::refuse_git_bash_value(&supplied)
+        .map_err(|error| AuthoringError::Invalid(error.to_string()))?;
     let numbered = widget.numbered_default(name);
     let default = widget.defaults.get(name).or(numbered.as_ref());
     let contract = widget.property(name);

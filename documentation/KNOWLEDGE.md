@@ -40,6 +40,8 @@ are, with a word in a heading counting extra. Common words are dropped, a word's
 not matter (`replaced` finds `replaces`), and words spelled apart match code that joins them
 (`add member` finds `AddMember`). A long topic read without `--section` gives its outline.
 
+With `--search`, additional operands extend the query: `twaco guide --search menu title` is the same as `twaco guide --search "menu title"`.
+
 `guide` works outside a solution too; then it has only the built-in topics.
 
 ## `twaco catalog`

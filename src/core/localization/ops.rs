@@ -911,6 +911,8 @@ pub(crate) fn set(
     apply: Option<&WorkspaceLock>,
 ) -> Result<Edited, LocalizationError> {
     check_prefixes(solution)?;
+    crate::core::repo::refuse_git_bash_value(&serde_json::Value::String(value.into()))
+        .map_err(|error| LocalizationError::Arguments(error.to_string()))?;
     if value != value.trim() {
         return Err(LocalizationError::Arguments(
             "a localization value cannot start or end with whitespace; the server trims it"

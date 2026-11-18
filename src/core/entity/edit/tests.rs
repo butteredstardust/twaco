@@ -3044,3 +3044,31 @@ fn menu_item_add_repairs_legacy_root_description_from_menu_attribute() {
         "{after}"
     );
 }
+
+#[test]
+fn property_defaults_refuse_git_bash_rewrites() {
+    let (_dir, solution) = fixture();
+    new(&solution, Kind::Thing, "Acme.Values", |_| {});
+    let mut value = property("File", "STRING");
+    value.default = Some("C:/Program Files/Git/Thingworx/MediaEntities/X".into());
+    assert!(
+        plan_of(&solution, "Acme.Values", Action::PropertyAdd(value.clone()))
+            .unwrap_err()
+            .to_string()
+            .contains("MSYS_NO_PATHCONV=1")
+    );
+    value.default = Some("D:/data/file.csv".into());
+    run(&solution, "Acme.Values", Action::PropertyAdd(value.clone()));
+    value.default = Some("C:/Program Files/Git/usr/file".into());
+    assert!(plan_of(
+        &solution,
+        "Acme.Values",
+        Action::PropertySet {
+            property: value,
+            force: false
+        }
+    )
+    .unwrap_err()
+    .to_string()
+    .contains("MSYS_NO_PATHCONV=1"));
+}
