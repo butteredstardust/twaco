@@ -25,7 +25,6 @@ All notable changes to twaco are recorded here. The format follows
 ### Fixed
 
 - Mashup copy replacements preserve structural references; selector hints respect dotted entity names, submenu edits accept partial repositories, and widget settings without a catalogue type print without a blank column.
-
 - Fixed-size leaf widgets set `ResponsiveLayout=false` so Width/Height apply, fit twaco-owned rows, and support explicit layout overrides; validation warns about ignored sizes.
 - `mashup validate` warns when wrapping containers have fixed or maximum heights that clip the second line.
 - Mixed control rows clear default widget margins; textarea/action columns stretch together and bottom-align the action.
@@ -37,15 +36,20 @@ All notable changes to twaco are recorded here. The format follows
 - `guide --search menu title` searches the same words as `guide --search "menu title"`; extra operands extend the search.
 - Gate-blocked deploys explicitly report that nothing was sent, include `deployed: false` in JSON and MCP, and exit 2.
 - Deploy conflicts proven to differ only in property values show the entity-specific `server_owned` configuration.
-- Contained mashup rows retain their measured minimum height through side-by-side placement and later layout edits, using the tallest card in a shared row.
-- `appkey show` and `appkey create` with `--show` keep text summaries on stderr so stdout contains only the key.
-- `mashup add` identifies the direct children of new containers in text and `container_contents` in JSON and MCP.
-- Deploy and XML import distinguish encrypted server-owned fields cleared by an empty repository value from fields sent with a repository value.
 - Rows `mashup add` creates inside a container with a `CustomClass` or non-default `Style` inherit its background instead of painting the default white; fixed rows in templates and placements set `flex-grow` 0.
 - Content placed below a growing `Remaining space` container goes above it, so the remainder stays last; `mashup validate` warns when it sits above content.
 - A textarea column beside an action column grows while the action column keeps its natural width.
 - `mashup validate` advises on a button centred beside a slider, and on fixed or capped containers holding a property display or multi-line label.
 - `mashup collection add --preset cards` notes the double outline when the cell mashup draws its own frame.
+
+## [0.1.66] - 2026-11-18
+
+### Fixed
+
+- Contained mashup rows retain their measured minimum height through side-by-side placement and later layout edits, using the tallest card in a shared row.
+- `appkey show` and `appkey create` with `--show` keep text summaries on stderr so stdout contains only the key.
+- `mashup add` identifies the direct children of new containers in text and `container_contents` in JSON and MCP.
+- Deploy and XML import distinguish encrypted server-owned fields cleared by an empty repository value from fields sent with a repository value.
 
 ## [0.1.65] - 2026-11-17
 
@@ -1996,6 +2000,7 @@ The first public release.
 - `mcp` serves 39 tools over stdio to MCP clients, with compact summaries, validated arguments
   and dry runs by default for tools that can write to a server.
 
+[0.1.66]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.66
 [0.1.65]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.65
 [0.1.64]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.64
 [0.1.63]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.63
