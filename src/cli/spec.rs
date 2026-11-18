@@ -1537,7 +1537,8 @@ pub(crate) const USAGE: &[Usage] = &[
         path: "deploy",
         group: 2,
         text: r#"  deploy [--apply] [--force] [--json]
-                              check, bundle, live-parse, conflict-check, import
+                              check, bundle, live-parse, conflict-check, import; a blocking gate
+                              stops it before anything is sent (exit 2)
       --backend-only          exclude configured UI collections
       --only <entity>         include only this entity (repeatable)
       --changed-since <git-rev>  include entities changed since this revision
@@ -1581,8 +1582,11 @@ pub(crate) const USAGE: &[Usage] = &[
         path: "call",
         group: 3,
         text: r#"  call <target> <service> [<json>] [--timeout <seconds>] [--detail] [--as <test user>] [--json]
-      [--lang <code>]         target: Collection/Name, full name, or last dotted segment;
+      [--lang <code>] [--param <name=value>]...
+                              target: Collection/Name, full name, or last dotted segment;
                               <target>.<service> [<json>] works too, split at the last dot
+      --param <name=value>    one parameter (repeatable), typed by the known signature, else
+                              text; not with <json>
       --with-logs             then what it wrote to ScriptLog and ApplicationLog (waits up to 3 s)
       --json                  one complete service reply as JSON (logs and notices go to stderr)
       --as <test user>        call as a [[test.user]] with the profile's test_password (the profile

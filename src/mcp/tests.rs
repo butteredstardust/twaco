@@ -2567,6 +2567,7 @@ fn a_deploy_the_gates_stop_answers_in_the_published_shape_and_says_why() {
     let result = call(&root, "deploy", json!({}));
     let content = &result["structuredContent"];
     assert_eq!(content["stage"], "gates", "{result}");
+    assert_eq!(content["deployed"], false);
     assert!(
         content["blocking_gates"]
             .as_array()

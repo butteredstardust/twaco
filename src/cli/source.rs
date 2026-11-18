@@ -809,6 +809,9 @@ pub(crate) fn deploy_cmd(solution: &Solution, args: &Deploy) -> u8 {
                                     style::prefix()
                                 );
                             }
+                            if let Some(hint) = &conflict.hint {
+                                eprintln!("{hint}");
+                            }
                         }
                         eprintln!(
                             "{} nothing was imported; pass --force to overwrite these changes",
@@ -881,11 +884,8 @@ pub(crate) fn deploy_cmd(solution: &Solution, args: &Deploy) -> u8 {
             print_gate_lines(&report);
             print_blocking(&report);
             eprintln!("{} gates block deploy", style::prefix());
-            if report.broken() > 0 {
-                FAILED
-            } else {
-                DRIFT
-            }
+            println!("deploy stopped: gates failed; nothing was sent");
+            FAILED
         }
         commands::deploy::DeployOutcome::Complete {
             report,
@@ -944,14 +944,14 @@ fn deploy_json(
             )
         }
         Ok(commands::deploy::DeployOutcome::GatesBlocked { report, .. }) => (
-            json!({"ok":false,"stage":"gates","findings":report.findings(),"broken":report.broken(),"blocking_gates":report.blocking(8)}),
-            if report.broken() > 0 { FAILED } else { DRIFT },
+            json!({"ok":false,"deployed":false,"stage":"gates","findings":report.findings(),"broken":report.broken(),"blocking_gates":report.blocking(8)}),
+            FAILED,
         ),
         Err(error) => {
             let mut value = json!({"ok":false,"error":error.to_string(),"backup":error.backup()});
             let code = if let commands::deploy::DeployCommandError::Deploy { why, .. } = &error {
                 if let deploy::DeployError::Conflicts(plans) = why.as_ref() {
-                    value["refused"] = json!(deploy::refused(plans).map(|p| json!({"entity":format!("{}/{}",p.collection,p.name),"decision":format!("{:?}",p.decision),"server_owned":p.server_owned,"cleared":p.cleared,"repository_values":p.repository_values})).collect::<Vec<_>>());
+                    value["refused"] = json!(deploy::refused(plans).map(|p| json!({"entity":format!("{}/{}",p.collection,p.name),"decision":format!("{:?}",p.decision),"hint":p.hint,"server_owned":p.server_owned,"cleared":p.cleared,"repository_values":p.repository_values})).collect::<Vec<_>>());
                     DRIFT
                 } else {
                     FAILED

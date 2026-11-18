@@ -516,6 +516,12 @@ fn every_flag_means_the_same_in_every_command() {
                     continue;
                 }
             }
+            // Calls assign values; the other --param flags declare or select parameters.
+            if command.path == "call" && name == "--param" {
+                assert_eq!(kind, "repeated");
+                assert_eq!(value_names, ["name=value"]);
+                continue;
+            }
             // Offline entity status compares an export, while contract diff takes a revision.
             if command.path == "entity status" && name == "--against" {
                 assert_eq!(kind, "value");

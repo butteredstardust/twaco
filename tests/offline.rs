@@ -1924,9 +1924,10 @@ fn a_deploy_the_gates_stop_says_what_each_blocking_gate_found() {
             .unwrap()
     };
     let text = run(&["deploy"]);
-    assert_eq!(text.status.code(), Some(1));
+    assert_eq!(text.status.code(), Some(2));
     let stdout = String::from_utf8_lossy(&text.stdout);
     assert!(stdout.starts_with("gates:"), "{stdout}");
+    assert!(stdout.contains("deploy stopped: gates failed; nothing was sent"));
     // Each blocking gate's finding, its file whole (not cut at a Windows drive letter).
     assert!(
         stdout.contains("Broken.xml [sidecars/unreadable]"),
@@ -1940,6 +1941,8 @@ fn a_deploy_the_gates_stop_says_what_each_blocking_gate_found() {
     let json = run(&["deploy", "--json"]);
     let value: serde_json::Value = serde_json::from_slice(&json.stdout).unwrap();
     assert_eq!(value["stage"], "gates");
+    assert_eq!(value["deployed"], false);
+    assert_eq!(json.status.code(), Some(2));
     assert!(value["blocking_gates"]
         .as_array()
         .unwrap()

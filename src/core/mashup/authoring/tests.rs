@@ -9664,3 +9664,104 @@ fn columns_validate_typed_editors_and_whitespace_and_explain_editability() {
         assert_eq!(column["preserveWhiteSpaces"], true);
     }
 }
+
+#[test]
+fn flexcontainer_properties_bind_and_set_on_tab_containers() {
+    let (_dir, solution) = one_project();
+    let name = "Acme.Orders_MU";
+    apply_new(
+        &solution,
+        &plan_new(&solution, &request(name)).unwrap(),
+        &lock(&solution),
+    )
+    .unwrap();
+    let added = plan_add(&solution, &add_request(name, "ptcstabset")).unwrap();
+    apply_edit(&solution, &added.edit, &lock(&solution)).unwrap();
+    let document = mashup::edit::parse(&sidecar_content(&solution)).unwrap();
+    let tabs = document.at(&document.find_exact(&added.placed.id).unwrap().path);
+    let id = tabs["Widgets"][0]["Properties"]["Id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let mut request = SetRequest {
+        mashup: name.into(),
+        widget: id.clone(),
+        properties: vec![
+            ("CustomClass".into(), json!("orders")),
+            ("LazyLoading".into(), json!("true")),
+            ("EnableContainerUnload".into(), json!(true)),
+            ("flex-min-height".into(), json!("120px")),
+            ("UseTheme".into(), json!(true)),
+        ],
+        style_from: None,
+        styles: vec![],
+    };
+    let set = plan_set(&solution, &request).unwrap();
+    apply_edit(&solution, set.edit.as_ref().unwrap(), &lock(&solution)).unwrap();
+    let before = sidecar_content(&solution);
+    let document = mashup::edit::parse(&before).unwrap();
+    let props = &document.at(&document.find_exact(&id).unwrap().path)["Properties"];
+    assert_eq!(props["CustomClass"], "orders");
+    assert_eq!(props["LazyLoading"], true);
+    assert_eq!(props["EnableContainerUnload"], true);
+    assert_eq!(props["flex-min-height"], "120px");
+    assert!(plan_set(&solution, &request).unwrap().edit.is_none());
+    assert_eq!(before, sidecar_content(&solution));
+    // Percent sizes and the expand/collapse icons stay settable.
+    let extra = SetRequest {
+        properties: vec![
+            ("flex-max-width".into(), json!("50%")),
+            ("ExpandTabIcon".into(), json!("Acme.Expand")),
+        ],
+        ..request.clone()
+    };
+    assert!(plan_set(&solution, &extra).unwrap().edit.is_some());
+    for (key, value) in [
+        ("LazyLoading", json!("yes")),
+        ("CustomClass", json!(7)),
+        ("EnableContainerUnload", json!(1)),
+        ("flex-min-height", json!("120")),
+        ("flex-grow", json!("big")),
+        ("flex-direction", json!("diagonal")),
+        ("flex-wrap", json!("yes")),
+        ("align-items", json!("left")),
+        ("justify-content", json!("right")),
+        ("UnknownProperty", json!(true)),
+    ] {
+        request.properties = vec![(key.into(), value)];
+        assert!(plan_set(&solution, &request).is_err(), "{key}");
+    }
+    for (from, to) in [
+        (
+            format!("ui:{id}.Expanded"),
+            "ui:flexcontainer-2.Visible".into(),
+        ),
+        (
+            format!("ui:{id}.CustomClass"),
+            "ui:flexcontainer-2.CustomClass".into(),
+        ),
+        (
+            "ui:flexcontainer-2.Expanded".into(),
+            format!("ui:{id}.EnableContainerUnload"),
+        ),
+    ] {
+        plan_bind(
+            &solution,
+            &BindRequest {
+                mashup: name.into(),
+                from,
+                to,
+            },
+        )
+        .unwrap();
+    }
+    assert!(plan_bind(
+        &solution,
+        &BindRequest {
+            mashup: name.into(),
+            from: format!("ui:{id}.LazyLoading"),
+            to: "ui:flexcontainer-2.Visible".into()
+        }
+    )
+    .is_err());
+}

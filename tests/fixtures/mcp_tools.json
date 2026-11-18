@@ -2951,6 +2951,13 @@
         "ok"
       ],
       "properties": {
+        "deployed": {
+          "description": "False when gates stopped the deploy before sending anything.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "server_owned": {
           "description": "Each existing entity whose import preserves server-owned parts, with its part labels.",
           "type": [

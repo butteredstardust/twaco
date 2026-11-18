@@ -6,8 +6,15 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Flexcontainer property bindings and checked edits, including tab-container lazy loading and flex sizing.
+- `call --param name=value` accepts repeated parameters, typed from known service signatures.
+
 ### Fixed
 
+- Gate-blocked deploys explicitly report that nothing was sent, include `deployed: false` in JSON and MCP, and exit 2.
+- Deploy conflicts proven to differ only in property values show the entity-specific `server_owned` configuration.
 - Contained mashup rows retain their measured minimum height through side-by-side placement and later layout edits, using the tallest card in a shared row.
 - `appkey show` and `appkey create` with `--show` keep text summaries on stderr so stdout contains only the key.
 - `mashup add` identifies the direct children of new containers in text and `container_contents` in JSON and MCP.

@@ -160,11 +160,15 @@ mod tests {
             .iter()
             .any(|property| property.name == "Visible"));
         let container = detail("container").unwrap();
-        assert_eq!(
-            container.note.as_deref(),
-            Some("no binding contract in the catalogue: it can be placed but not bound")
-        );
-        assert!(container.properties.is_empty());
+        assert!(container.note.is_none());
+        assert!(container
+            .properties
+            .iter()
+            .any(|property| property.name == "CustomClass" && property.direction == "in/out"));
+        assert!(container
+            .properties
+            .iter()
+            .any(|property| property.name == "Visible" && property.direction == "in"));
         assert_eq!(
             detail("gizmo").unwrap_err().code(),
             ErrorCode::InvalidArguments

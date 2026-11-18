@@ -506,6 +506,8 @@ name. Without `--apply` it plans and stops. With it, it:
 With `--only`, the project's deploy service still runs, but its `post_import` calls are
 skipped: they are written for a whole project's import.
 
+A deploy stopped by any blocking gate exits 2 and sends nothing. JSON and MCP report `deployed: false`.
+
 With `--only-projects`, what is wrong in the other projects does not stop the deploy. A gate's
 finding in a file of a project the deploy leaves out (its entity file, or its sidecar folder
 under `src/`) is shown as a warning. A finding twaco cannot place in one project, such as one in

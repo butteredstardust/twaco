@@ -206,6 +206,68 @@
         "userCannotRemove": false,
         "Visible": true,
         "Z-index": 10
+      },
+      "properties": {
+        "CustomClass": {
+          "base_type": "STRING",
+          "target": true,
+          "source": true
+        },
+        "Margin": {
+          "base_type": "STRING",
+          "target": false,
+          "source": false
+        },
+        "UseTheme": {
+          "base_type": "BOOLEAN",
+          "target": false,
+          "source": false
+        },
+        "SourceURL": {
+          "base_type": "IMAGELINK",
+          "target": false,
+          "source": false
+        },
+        "Style": {
+          "base_type": "STYLEDEFINITION",
+          "target": false,
+          "source": false
+        },
+        "EnableExpandCollapse": {
+          "base_type": "BOOLEAN",
+          "target": false,
+          "source": false
+        },
+        "Expanded": {
+          "base_type": "BOOLEAN",
+          "target": true,
+          "source": true
+        },
+        "ShowExpandCollapseTab": {
+          "base_type": "BOOLEAN",
+          "target": true,
+          "source": false
+        },
+        "Overlay": {
+          "base_type": "BOOLEAN",
+          "target": false,
+          "source": false
+        },
+        "LazyLoading": {
+          "base_type": "BOOLEAN",
+          "target": false,
+          "source": false
+        },
+        "EnableContainerUnload": {
+          "base_type": "BOOLEAN",
+          "target": true,
+          "source": false
+        },
+        "OverrideChildrenAbsolute": {
+          "base_type": "BOOLEAN",
+          "target": false,
+          "source": false
+        }
       }
     },
     {

@@ -49,6 +49,7 @@ impl fmt::Display for ServiceCall {
 
 #[derive(Clone, Debug)]
 pub struct EntityPlan {
+    pub hint: Option<String>,
     /// Owned parts the import carries from the server.
     pub server_owned: Vec<String>,
     /// Encrypted server-owned parts with no repository value; a deploy hook must set them.

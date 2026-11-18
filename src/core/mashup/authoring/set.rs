@@ -71,7 +71,7 @@ pub(crate) fn plan_set(
         })?)
     };
     if let Some(widget) = widget {
-        if !widget.has_contract() && widget.type_id != "flexcontainer" {
+        if !widget.has_contract() {
             return Err(AuthoringError::Refused(format!(
                 "{} is not in the catalogue; twaco cannot check its properties",
                 widget.type_id
@@ -246,6 +246,8 @@ pub(crate) fn plan_set(
             "__TypeDisplayName",
             "LastContainer",
             "ResponsiveLayout",
+            "userCannotRemove",
+            "positioning",
         ]
         .contains(&name.as_str())
         {
@@ -283,6 +285,9 @@ pub(crate) fn plan_set(
                         .join(", ")
                 )));
             }
+        }
+        if widget.type_id == "flexcontainer" {
+            validate_flex_property(name, &value)?;
         }
         change_property(&mut document, &found.path, name, value, &mut changed);
     }
@@ -718,4 +723,54 @@ pub(super) fn menubar_properties(
     Ok(vec![
         "DataSource set to menuentity because PrimaryNavMenu is set".into(),
     ])
+}
+
+fn validate_flex_property(name: &str, value: &Value) -> Result<(), AuthoringError> {
+    let options: &[&str] = match name {
+        "flex-size" => &["default", "fixed", "range"],
+        "flex-direction" => &["row", "column", "row-reverse", "column-reverse"],
+        "flex-wrap" => &["nowrap", "wrap", "wrap-reverse"],
+        "align-items" => &["flex-start", "flex-end", "center", "baseline", "stretch"],
+        "align-content" => &[
+            "flex-start",
+            "flex-end",
+            "center",
+            "space-between",
+            "space-around",
+            "stretch",
+        ],
+        "justify-content" => &[
+            "flex-start",
+            "flex-end",
+            "center",
+            "space-between",
+            "space-around",
+            "space-evenly",
+        ],
+        _ => &[],
+    };
+    if !options.is_empty() && !value.as_str().is_some_and(|v| options.contains(&v)) {
+        return Err(AuthoringError::Invalid(format!(
+            "{name} must be one of {}",
+            options.join(", ")
+        )));
+    }
+    if matches!(
+        name,
+        "flex-min-height" | "flex-max-height" | "flex-min-width" | "flex-max-width"
+    ) {
+        let valid = value.as_str().is_some_and(|v| {
+            v.is_empty()
+                || v.strip_suffix("px")
+                    .or_else(|| v.strip_suffix('%'))
+                    .and_then(|n| n.parse::<f64>().ok())
+                    .is_some_and(|n| n.is_finite() && n >= 0.0)
+        });
+        if !valid {
+            return Err(AuthoringError::Invalid(format!(
+                "{name} must be empty or a non-negative px or % value, such as 120px"
+            )));
+        }
+    }
+    Ok(())
 }

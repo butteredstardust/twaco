@@ -164,7 +164,7 @@ for (const [type, extra] of Object.entries(overlay.widgets)) {
   // A function widget, or an older layout widget the overlay marks `builder` (the shape), has its
   // contract in the builder file rather than in the shared one.
   const fromBuilder = extra.function === true || extra.builder === true;
-  const contract = contracts[type] ?? (fromBuilder ? extra.contract ?? builderContract(type) : undefined);
+  const contract = extra.contract ?? contracts[type] ?? (fromBuilder ? builderContract(type) : undefined);
   if (contract) {
     const properties = {};
     for (const [name, definition] of Object.entries(contract.properties ?? {})) {

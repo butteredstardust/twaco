@@ -718,7 +718,10 @@ pub(crate) struct ServiceLookup {
     pub(crate) complete: bool,
 }
 
-fn platform_service(name: &str, service: &super::types::platform::PlatformService) -> Service {
+pub(crate) fn platform_service(
+    name: &str,
+    service: &super::types::platform::PlatformService,
+) -> Service {
     Service {
         name: name.to_string(),
         description: service.description.clone(),
