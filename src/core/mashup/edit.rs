@@ -983,7 +983,8 @@ impl MashupDocument {
     /// grid, a contained mashup) takes the spare height and, when it holds only that widget,
     /// keeps a floor (a `range` row) so it cannot shrink to nothing; beside such a row the
     /// other rows take no spare height (`flex-grow: 0`). Textareas in control stacks keep their
-    /// floor without growing, including their enclosing generated rows. Only rows the placement
+    /// floor without growing, including their enclosing generated rows. Menubar rows take
+    /// priority over other fillers in their column. Only rows the placement
     /// made (`made`), or compact rows already marked with twaco's `flex-shrink: 0`, change:
     /// fixed rows, named template slots, a container that was there before (Composer names its
     /// own `container-N` too) and flex factors someone set to another value are left alone.
@@ -991,7 +992,17 @@ impl MashupDocument {
         let rows = children(self.at(column_path)).to_vec();
         let styles = self.value["UI"]["Properties"]["StyleProperties"]["data"].clone();
         let control_stack = is_control_stack(self.at(column_path), &styles);
-        let grows = |row: &Value| holds_growing_filler(row, control_stack, &styles);
+        // A menubar row that may grow takes the spare height; a fixed header holding one does not.
+        let navigation_row =
+            |row: &Value| holds_menubar(row) && row["Properties"]["flex-size"] != "fixed";
+        let navigation = rows.iter().any(navigation_row);
+        let grows = |row: &Value| {
+            if navigation {
+                navigation_row(row)
+            } else {
+                holds_growing_filler(row, control_stack, &styles)
+            }
+        };
         let column_fills = rows.iter().any(|row| !is_spacer(row) && grows(row));
         for (index, row) in rows.iter().enumerate() {
             let fills = holds_filler(row);
@@ -999,7 +1010,7 @@ impl MashupDocument {
             if is_spacer(row)
                 || !(is_generated_container(row) || is_panel(row))
                 || !(made.iter().any(|id| id == widget_id(row))
-                    || (compact && row["Properties"]["flex-shrink"] == 0))
+                    || ((compact || navigation) && row["Properties"]["flex-shrink"] == 0))
             {
                 continue;
             }
@@ -2220,6 +2231,19 @@ fn holds_filler(widget: &Value) -> bool {
     fills(widget) || children(widget).iter().any(holds_filler)
 }
 
+/// A menubar, or wrappers whose only content is one: a header row that also holds a logo or a
+/// title is not navigation-only and keeps today's sizing.
+fn holds_menubar(widget: &Value) -> bool {
+    if type_of(widget) == Some("ptcsmenubar") {
+        return true;
+    }
+    let content = children(widget)
+        .iter()
+        .filter(|child| !is_spacer(child))
+        .collect::<Vec<_>>();
+    matches!(content[..], [only] if holds_menubar(only))
+}
+
 /// A stack of known controls can include a resizable textarea without becoming a data panel.
 /// Unknown widgets and other catalogue fillers keep the existing filling behaviour, even when
 /// they have an explicit height. A single textarea still fills a panel of its own.
@@ -2260,7 +2284,8 @@ fn holds_growing_filler(widget: &Value, control_stack: bool, styles: &Value) -> 
 /// seven rows.
 const FILLER_FLOOR: f64 = 300.0;
 
-/// A filler keeps Composer's drop height, capped at [`FILLER_FLOOR`]. The catalogue omits
+/// A data filler keeps Composer's drop height, capped at [`FILLER_FLOOR`]; a taller menu has no
+/// minimum. The catalogue omits
 /// heights for some resizable widgets (including textarea); those keep a modest 100px floor.
 /// Nested wrappers sum a column's children or take a row's tallest child, so an
 /// absolutely positioned filler counts even before its inner wrapper has been reflowed.
@@ -2293,6 +2318,10 @@ fn wrapper_floor_from(widget: &Value, styles: &Value, own_minimum: bool) -> Opti
             .get("Height")
             .and_then(Value::as_f64)
             .unwrap_or(100.0);
+        // The tall navigation drop preview is not a minimum for a growing menu.
+        if type_of(widget) == Some("ptcsmenubar") && drop >= FILLER_FLOOR {
+            return Some(0.0);
+        }
         return Some(drop.min(FILLER_FLOOR));
     }
     if type_of(widget) != Some("flexcontainer") {
@@ -5420,7 +5449,7 @@ mod placement_walkthrough {
     }
 
     #[test]
-    fn every_catalogue_filler_gets_a_positive_wrapper_floor() {
+    fn every_catalogue_filler_gets_a_wrapper_floor() {
         for widget in widgets::catalog()
             .widgets
             .iter()
@@ -5430,11 +5459,15 @@ mod placement_walkthrough {
             let row = serde_json::json!({"Properties": {"Id": "flexcontainer-3", "Type": "flexcontainer", "DisplayName": "container-3"}, "Widgets": [leaf]});
             let floor = filler_floor(&row, &Value::Null)
                 .unwrap_or_else(|| panic!("{} has no floor", widget.type_id));
-            assert!(
-                floor > 0.0 && floor <= FILLER_FLOOR,
-                "{}: {floor}",
-                widget.type_id
-            );
+            if widget.type_id == "ptcsmenubar" {
+                assert_eq!(floor, 0.0);
+            } else {
+                assert!(
+                    floor > 0.0 && floor <= FILLER_FLOOR,
+                    "{}: {floor}",
+                    widget.type_id
+                );
+            }
         }
         let mut textarea = new_widget(widgets::catalog().resolve("textarea").unwrap(), 4, true);
         set_value_property(&mut textarea, "Height", Value::from(420));
@@ -5794,6 +5827,215 @@ mod placement_walkthrough {
         let after = theirs.at(&theirs.find(&existing).unwrap().path);
         assert_eq!(after["Properties"], before["Properties"]);
         assert_ne!(row_of(&theirs, &chart)["OverrideChildrenAbsolute"], true);
+    }
+
+    #[test]
+    fn a_header_row_with_a_menubar_leaves_the_data_row_growing() {
+        let catalog = widgets::catalog();
+        let mut document = parse(crate::core::mashup::templates::BLANK).unwrap();
+        let grid = document
+            .place(
+                catalog.resolve("ptcsgrid").unwrap(),
+                &Placement::In("center".into()),
+            )
+            .unwrap();
+        let title = document
+            .place(
+                catalog.resolve("ptcslabel").unwrap(),
+                &Placement::Beside {
+                    anchor: grid.id.clone(),
+                    side: Side::Above,
+                },
+            )
+            .unwrap();
+        document
+            .place(
+                catalog.resolve("ptcsmenubar").unwrap(),
+                &Placement::Beside {
+                    anchor: title.id.clone(),
+                    side: Side::Right,
+                },
+            )
+            .unwrap();
+        let path = document.find(&grid.id).unwrap().path;
+        let row = &document.at(&path[..path.len() - 1])["Properties"];
+        assert_eq!(row["flex-grow"], 1, "{row}");
+    }
+
+    #[test]
+    fn a_fixed_menubar_header_leaves_the_data_row_growing() {
+        let catalog = widgets::catalog();
+        let mut document = parse(crate::core::mashup::templates::BLANK).unwrap();
+        let menu = document
+            .place(
+                catalog.resolve("ptcsmenubar").unwrap(),
+                &Placement::In("center".into()),
+            )
+            .unwrap();
+        let title = document
+            .place(
+                catalog.resolve("ptcslabel").unwrap(),
+                &Placement::Beside {
+                    anchor: menu.id.clone(),
+                    side: Side::Below,
+                },
+            )
+            .unwrap();
+        let path = document.find(&menu.id).unwrap().path;
+        let header = path[..path.len() - 1].to_vec();
+        for (key, value) in [
+            ("flex-size", "fixed"),
+            ("flex-min-height", "48px"),
+            ("flex-max-height", "48px"),
+        ] {
+            document.set_property(&header, key, Value::from(value));
+        }
+        let grid = document
+            .place(
+                catalog.resolve("ptcsgrid").unwrap(),
+                &Placement::Beside {
+                    anchor: title.id.clone(),
+                    side: Side::Below,
+                },
+            )
+            .unwrap();
+        let path = document.find(&grid.id).unwrap().path;
+        let row = &document.at(&path[..path.len() - 1])["Properties"];
+        assert_eq!(row["flex-grow"], 1, "{row}");
+    }
+
+    #[test]
+    fn menubar_rows_take_spare_column_height_before_other_fillers() {
+        let catalog = widgets::catalog();
+        for menu_entity in [false, true] {
+            for side in [Side::Above, Side::Below] {
+                for menu_first in [false, true] {
+                    for sibling in ["ptcsrte", "ptcstextarea", "ptcslabel", "ptcsmenubar"] {
+                        let mut document = parse(crate::core::mashup::templates::BLANK).unwrap();
+                        let (first, second) = if menu_first {
+                            ("ptcsmenubar", sibling)
+                        } else {
+                            (sibling, "ptcsmenubar")
+                        };
+                        let anchor = document
+                            .place(
+                                catalog.resolve(first).unwrap(),
+                                &Placement::In("center".into()),
+                            )
+                            .unwrap();
+                        if menu_entity && menu_first {
+                            let path = document.find(&anchor.id).unwrap().path;
+                            document.set_property(
+                                &path,
+                                "PrimaryNavMenu",
+                                Value::from("Acme.Navigation"),
+                            );
+                            document.set_property(&path, "DataSource", Value::from("menuentity"));
+                        }
+                        let placed = document
+                            .place(
+                                catalog.resolve(second).unwrap(),
+                                &Placement::Beside {
+                                    anchor: anchor.id.clone(),
+                                    side,
+                                },
+                            )
+                            .unwrap();
+                        let (menu, other) = if menu_first {
+                            (&anchor.id, &placed.id)
+                        } else {
+                            (&placed.id, &anchor.id)
+                        };
+                        if menu_entity && !menu_first {
+                            let path = document.find(menu).unwrap().path;
+                            document.set_property(
+                                &path,
+                                "PrimaryNavMenu",
+                                Value::from("Acme.Navigation"),
+                            );
+                            document.set_property(&path, "DataSource", Value::from("menuentity"));
+                            document.reflow_for(menu);
+                        }
+                        let row_of = |id: &str| {
+                            let path = document.find(id).unwrap().path;
+                            document.at(&path[..path.len() - 1])["Properties"].clone()
+                        };
+                        let menu_row = row_of(menu);
+                        assert_eq!(menu_row["flex-grow"], 1);
+                        assert_eq!(menu_row["flex-min-height"], "0px");
+                        let other_row = row_of(other);
+                        match sibling {
+                            "ptcslabel" => assert_eq!(other_row["flex-size"], "fixed"),
+                            "ptcsmenubar" => assert_eq!(other_row["flex-grow"], 1),
+                            _ => {
+                                assert_eq!(other_row["flex-size"], "range");
+                                assert_eq!(other_row["flex-grow"], 0);
+                                assert_eq!(
+                                    other_row["flex-min-height"],
+                                    if sibling == "ptcsrte" {
+                                        "280px"
+                                    } else {
+                                        "100px"
+                                    }
+                                );
+                            }
+                        }
+                        let before = document.to_content();
+                        document.fix_rows(&placed);
+                        document.reflow_for(menu);
+                        document.reflow_for(other);
+                        assert_eq!(document.to_content(), before);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn data_panels_still_share_column_growth_and_menus_keep_horizontal_sizing() {
+        let catalog = widgets::catalog();
+        for (first, side) in [
+            ("ptcsgrid", Side::Below),
+            ("ptcsmenubar", Side::Left),
+            ("ptcsmenubar", Side::Right),
+        ] {
+            let mut document = parse(crate::core::mashup::templates::BLANK).unwrap();
+            let anchor = document
+                .place(
+                    catalog.resolve(first).unwrap(),
+                    &Placement::In("center".into()),
+                )
+                .unwrap();
+            let placed = document
+                .place(
+                    catalog.resolve("ptcsrte").unwrap(),
+                    &Placement::Beside {
+                        anchor: anchor.id.clone(),
+                        side,
+                    },
+                )
+                .unwrap();
+            for id in [&anchor.id, &placed.id] {
+                let path = document.find(id).unwrap().path;
+                let row = &document.at(&path[..path.len() - 1])["Properties"];
+                assert_eq!(row["flex-grow"], 1);
+                if first == "ptcsgrid" {
+                    assert_eq!(row["flex-size"], "range");
+                    assert_eq!(
+                        row["flex-min-height"],
+                        if id == &anchor.id { "300px" } else { "280px" }
+                    );
+                }
+            }
+            let before = document.to_content();
+            document.fix_rows(&placed);
+            document.reflow_for(&placed.id);
+            assert_eq!(document.to_content(), before);
+        }
+        let mut menu = new_widget(catalog.resolve("ptcsmenubar").unwrap(), 3, true);
+        assert_eq!(wrapper_floor(&menu, &Value::Null), Some(0.0));
+        set_value_property(&mut menu, "Height", Value::from(120));
+        assert_eq!(wrapper_floor(&menu, &Value::Null), Some(120.0));
     }
 
     /// A spacer between a card's rows counts at its size, so the card row's minimum still fits.
