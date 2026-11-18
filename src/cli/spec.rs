@@ -54,6 +54,7 @@ fn log_arguments() -> impl Iterator<Item = clap::Arg> {
         clap::Arg::new(id(name))
             .long(id(name))
             .value_name(*value)
+            .help(described(LOGGING, name).expect("diagnostic flag is documented"))
             .action(clap::ArgAction::Set)
     })
 }
@@ -99,6 +100,7 @@ fn decorate_node(node: clap::Command, path: &str) -> clap::Command {
             .disable_help_subcommand(true)
             .subcommand_required(true)
             .arg_required_else_help(true)
+            .args(log_arguments().map(|arg| behaviour(arg).global(true)))
             .mut_subcommands(|sub| {
                 let path = sub.get_name().to_string();
                 decorate_node(sub, &path)
@@ -147,7 +149,6 @@ fn leaf(node: clap::Command, command: &'static Usage) -> clap::Command {
     node.override_usage(synopsis(command))
         .override_help(help)
         .disable_version_flag(true)
-        .args(log_arguments())
         .mut_args(|arg| {
             let name = arg
                 .get_long()
@@ -476,8 +477,8 @@ pub(crate) const USAGE: &[Usage] = &[
         path: "fmt",
         group: 1,
         text: r#"  fmt [--check] [--entity <name>] [--changed-since <git-rev>]
-                              format service scripts
-      --check                 report which scripts would change, write nothing
+                              format service scripts and order subscription Events by alias
+      --check                 report which files would change, write nothing
       --entity <name>         an entity name or Collection/Name glob to format (repeatable)
       --changed-since <git-rev>  format entity files and sidecars changed since this revision"#,
     },
@@ -695,8 +696,10 @@ pub(crate) const USAGE: &[Usage] = &[
         path: "widgets",
         group: 1,
         text: r#"  widgets [<widget>] [--search <text>] [--json]
+  widgets --icons [<filter>] [--json]
                               the embedded ThingWorx 10.2 widget catalogue: types, Composer labels,
-                              aliases, containers and bindable properties, events and services"#,
+                              aliases, containers and editable or bindable properties with defaults, events and services
+      --icons                 the 153 CDS icon names a cds: value may take; twaco refuses any other"#,
     },
     Usage {
         path: "mashup validate",
@@ -710,10 +713,11 @@ pub(crate) const USAGE: &[Usage] = &[
     Usage {
         path: "mashup describe",
         group: 1,
-        text: r#"  mashup describe <mashup> [--json]
+        text: r#"  mashup describe <mashup> [--detail] [--json]
                               what a mashup holds and how it is wired, without its XML: the widget tree,
                               each service it calls with what sets each parameter (or that nothing does),
-                              each binding and each event, in the addresses mashup bind and on take"#,
+                              each binding and each event, in the addresses mashup bind and on take
+      --detail                show non-default widget properties and widget bindings"#,
     },
     Usage {
         path: "mashup diff",
@@ -861,7 +865,8 @@ pub(crate) const USAGE: &[Usage] = &[
         text: r#"  mashup bind <mashup> --from <address> --to <address> [--apply] [--json]
                               add one data binding to a mashup; plan unless --apply
       --from <address>        source address from mashup describe
-      --to <address>          target address from mashup describe"#,
+      --to <address>          target address from mashup describe
+                              selected row example: data:Acme.Manager.Load[SelectedRows].name"#,
     },
     Usage {
         path: "mashup on",
@@ -885,6 +890,17 @@ pub(crate) const USAGE: &[Usage] = &[
                               remove a widget or subtree; refuses wiring and unknown references unless --cascade;
                               plan unless --apply
       --cascade                also remove proven bindings and event handlers; leave data calls for review"#,
+    },
+    Usage {
+        path: "mashup move",
+        group: 1,
+        text: r#"  mashup move <mashup> <widget> [--in <container> [--bottom] | --right-of <widget> [--end] | --left-of <widget> | --above <widget> | --below <widget>]
+      [--in-column] [--apply] [--json]
+                              move a widget and its subtree, keeping ids, properties, bindings and events;
+                              the old place is tidied as mashup remove does, the new one laid out as
+                              mashup add does; plan unless --apply; already there is a no-op
+      --in/--bottom/--right-of/--left-of/--above/--below/--end/--in-column
+                              as mashup add; the target must lie outside the moved subtree"#,
     },
     Usage {
         path: "mashup unbind",
@@ -920,6 +936,9 @@ pub(crate) const USAGE: &[Usage] = &[
         group: 1,
         text: r#"  mashup recipe <recipe> <mashup> [<widget>] [recipe flags] [--apply] [--json]
                               write the wiring real mashups repeat, in one edit; plan unless --apply
+      collapsible <container> [--toggle <button> | --add-toggle --in <container>]
+          [--tab inside|outside|none] [--start collapsed]
+                              collapse a container with siblings; keep its toggle outside it
       enable-when|show-when <widget> --if <condition> [--input name=<address>]...
                               an expression into the widget's Disabled or Visible
       text <label> --expr <expression> [--input name=<address>]...
@@ -952,7 +971,13 @@ pub(crate) const USAGE: &[Usage] = &[
       tracker <widget|new> --data <data call> [--field-map Property=field]...
                               interactive large tracker; infer all five maps from the result DataShape
       set-on-click <button> --param <name> --expr <expression> [--input name=<address>]...
-                              set a mashup parameter on click; no automatic evaluation"#,
+                              set a mashup parameter on click; no automatic evaluation
+      nested-menu <menubar> --menu <Root> [--no-auto-collapse] [--width <px>]
+                              a menu bar as an accordion over a Root Menu of sub-Menus (menu nest builds
+                              them), in a column fixed at --width (300 by default)
+      navigate-on-click <collection|grid> --field <field> [--window replace|new|popup|modal-popup]
+                              a click opens the mashup the selected row's field names; plan warns when
+                              the widget selects its first row on load"#,
     },
     Usage {
         path: "mashup event",
@@ -988,7 +1013,8 @@ pub(crate) const USAGE: &[Usage] = &[
       --master                a master mashup, with a page container filling the center
       --visibility            Organization/<name> or OrganizationalUnit/<organization>:<unit>, repeatable;
                               none unless given
-      --tab                   with --template tabs: a tab's label and the mashup it shows, repeatable"#,
+      --tab                   with --template tabs: a tab's label and the mashup it shows, repeatable
+      --replace <old=new>     replace whole tokens in copied content string values; repeatable, needs --from"#,
     },
     Usage {
         path: "new building-block",
@@ -1100,12 +1126,29 @@ pub(crate) const USAGE: &[Usage] = &[
                               plan unless --apply"#,
     },
     Usage {
+        path: "menu nest",
+        group: 1,
+        text: r#"  menu nest <Root> --group <Label>=<icon>:<Title>=<Mashup>,<Title>=<Mashup>... [--project <name>] [--apply] [--json]
+                              write a root Menu of sub-Menu links and one leaf Menu per group, in the
+                              given order; rerunning with the same groups changes nothing
+      --group <spec>          a group: its label, Menu-level icon (cds:icon_<name>, a MediaEntity, or
+                              empty) and its items; repeatable; the leaf is <Root minus _MN>_<Label>_MN"#,
+    },
+    Usage {
         path: "menu item",
         group: 1,
-        text: r#"  menu item add <Menu> <Title>=<Mashup> [--default] [--before <Title>] [--apply] [--json]
+        text: r#"  menu item add <Menu> <Title>=<Mashup> [--icon <image>] [--default] [--before <Title>] [--apply] [--json]
+  menu item add <Menu> --submenu <name> [--icon <image>] [--before <Title>] [--apply] [--json]
   menu item remove <Menu> <Title> [--apply] [--json]
-                              add or remove a mashup item, keeping the effective menu in step;
-                              plan unless --apply"#,
+  menu item set <Menu> <Title> [--title <text>] [--mashup <name>] [--submenu <name>]
+      [--icon <image>] [--default] [--description <text>] [--apply] [--json]
+                              edit menu items in order, keeping the effective menu in step;
+                              plan unless --apply
+      --submenu <name>        link to a sub-Menu; the server shows its label and Menu-level icon
+      --icon <image>          an item image URL or MediaEntity
+      --title <text>          rename the selected item
+      --mashup <name>         change the selected item's Mashup
+      --description <text>    change the selected item's description"#,
     },
     Usage {
         path: "mcp-namespace add",
@@ -1253,7 +1296,7 @@ pub(crate) const USAGE: &[Usage] = &[
     Usage {
         path: "new menu",
         group: 1,
-        text: r#"  new menu <name> --item <Title=Mashup>... [--project <name>] [--description <text>] [--default]
+        text: r#"  new menu <name> --item <Title=Mashup>... [--project <name>] [--description <text>] [--default] [--icon <image>]
       [--label <text>] [--apply] [--json]
                               create a Menu; plan unless --apply"#,
     },
@@ -1378,6 +1421,13 @@ pub(crate) const USAGE: &[Usage] = &[
         group: 2,
         text: r#"  entity pull <entity>...|--all [--profile <name>] [--apply] [--json]
                               take server-changed entities, extract sidecars and record baselines"#,
+    },
+    Usage {
+        path: "entity set",
+        group: 1,
+        text: r#"  entity set <entity> [--description <text>] [--icon <image>] [--apply] [--json]
+                              set entity metadata; empty description clears it; plan unless --apply
+      --icon <image>          a Menu-level MediaEntity or image URL"#,
     },
     Usage {
         path: "entity get",
@@ -1537,7 +1587,8 @@ pub(crate) const USAGE: &[Usage] = &[
         path: "deploy",
         group: 2,
         text: r#"  deploy [--apply] [--force] [--json]
-                              check, bundle, live-parse, conflict-check, import
+                              check, bundle, live-parse, conflict-check, import; a blocking gate
+                              stops it before anything is sent (exit 2)
       --backend-only          exclude configured UI collections
       --only <entity>         include only this entity (repeatable)
       --changed-since <git-rev>  include entities changed since this revision
@@ -1581,8 +1632,11 @@ pub(crate) const USAGE: &[Usage] = &[
         path: "call",
         group: 3,
         text: r#"  call <target> <service> [<json>] [--timeout <seconds>] [--detail] [--as <test user>] [--json]
-      [--lang <code>]         target: Collection/Name, full name, or last dotted segment;
+      [--lang <code>] [--param <name=value>]...
+                              target: Collection/Name, full name, or last dotted segment;
                               <target>.<service> [<json>] works too, split at the last dot
+      --param <name=value>    one parameter (repeatable), typed by the known signature, else
+                              text; not with <json>
       --with-logs             then what it wrote to ScriptLog and ApplicationLog (waits up to 3 s)
       --json                  one complete service reply as JSON (logs and notices go to stderr)
       --as <test user>        call as a [[test.user]] with the profile's test_password (the profile
@@ -1784,7 +1838,8 @@ pub(crate) const USAGE: &[Usage] = &[
         text: r#"  guide                       the knowledge topics: twaco's workflow, the platform's verified quirks,
                               the service-code reference, and the solution's own markdown
   guide <topic> [--section <heading>]  read one (a long one gives its outline)
-  guide --search <words>      the sections that best match; --limit <n>; --json"#,
+  guide --search <words>      the sections that best match; extra operands extend the search
+                              --limit <n>; --json"#,
     },
     Usage {
         path: "help",

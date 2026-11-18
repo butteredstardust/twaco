@@ -167,9 +167,10 @@ pub(crate) fn guide_cmd(parsed: &Guide) -> u8 {
     }
     let result: Result<(), String> = (|| {
         if let Some(query) = parsed.search.as_ref() {
-            if !parsed.operands.is_empty() {
-                return Err("--search searches every topic; pass no topic with it".to_string());
-            }
+            let query = std::iter::once(query.as_str())
+                .chain(parsed.operands.iter().map(String::as_str))
+                .collect::<Vec<_>>()
+                .join(" ");
             let limit = match parsed.limit.as_ref() {
                 Some(n) => n
                     .parse::<usize>()
@@ -178,7 +179,7 @@ pub(crate) fn guide_cmd(parsed: &Guide) -> u8 {
                     .ok_or("--limit takes a positive number")?,
                 None => 10,
             };
-            let hits = guide::search(&topics, query, limit);
+            let hits = guide::search(&topics, &query, limit);
             for hit in &hits {
                 if parsed.json.json {
                     println!(

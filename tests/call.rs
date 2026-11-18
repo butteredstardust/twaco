@@ -84,7 +84,7 @@ fn status_record_prints_post_record_verdicts_and_returns_their_exit_code() {
         let xml = "<Entities><Things><Thing name=\"Acme.Manager\" projectName=\"Acme.App\"><value>current</value></Thing></Things></Entities>";
         std::fs::write(root.join("Things/Acme.Manager.xml"), xml).unwrap();
         let baseline =
-            r#"{"entities":{"Things":{"Acme.Manager":{"local":"v11:old","server":"v11:old"}}}}"#;
+            r#"{"entities":{"Things":{"Acme.Manager":{"local":"v12:old","server":"v12:old"}}}}"#;
         std::fs::create_dir_all(root.join(".twaco/baselines")).unwrap();
         std::fs::write(root.join(".twaco/baselines/default.json"), baseline).unwrap();
         let response = if matches {
@@ -135,7 +135,7 @@ fn status_record_prints_post_record_verdicts_and_returns_their_exit_code() {
             .unwrap();
             assert_eq!(
                 saved["entities"]["Things"]["Acme.Manager"]["local"],
-                "v11:old"
+                "v12:old"
             );
         }
         server.join().unwrap();
@@ -482,4 +482,37 @@ fn appkey_show_stdout_is_only_the_key_and_summary_is_on_stderr() {
             assert!(!stderr.contains("fake-application-key"));
         }
     }
+}
+
+#[test]
+fn repeated_params_send_strings_without_a_signature_and_refuse_json_mixing() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let (_dir, root) = temp("params");
+    profile(&root, listener.local_addr().unwrap());
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let request = receive(&mut stream);
+        stream
+            .write_all(
+                b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nContent-Type: application/json\r\n\r\n{}",
+            )
+            .unwrap();
+        request
+    });
+    let output = run(
+        &root,
+        &["call", "T.S", "--param", "a=1", "--param", "b=x=y"],
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let request = server.join().unwrap();
+    let at = request.windows(4).position(|w| w == b"\r\n\r\n").unwrap() + 4;
+    let parameters: serde_json::Value = serde_json::from_slice(&request[at..]).unwrap();
+    assert_eq!(parameters, serde_json::json!({"a":"1", "b":"x=y"}));
+    let output = run(&root, &["call", "T.S", "{}", "--param", "a=1"]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("cannot be mixed"));
 }

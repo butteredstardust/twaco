@@ -203,6 +203,61 @@ impl<'a> Document<'a> {
     }
 }
 
+/// Orders subscription Events without changing any other bytes.
+pub(crate) fn subscription_events(src: &[u8]) -> Result<Vec<u8>, LayoutError> {
+    let doc = Document::new(src)?;
+    let tree = normalise::comparison_tree(src, true).map_err(|e| LayoutError(e.to_string()))?;
+    fn collect(
+        element: &normalise::Element,
+        doc: &Document<'_>,
+        edits: &mut Vec<Edit>,
+    ) -> Result<(), LayoutError> {
+        if element.name == b"Subscription" {
+            for child in &element.children {
+                let normalise::Node::Element(events) = child else {
+                    continue;
+                };
+                if events.name != b"Events" {
+                    continue;
+                }
+                let ordered: Vec<_> = events
+                    .children
+                    .iter()
+                    .filter_map(|node| match node {
+                        normalise::Node::Element(event) => Some(event.source_start),
+                        _ => None,
+                    })
+                    .collect();
+                let mut slots = ordered.clone();
+                slots.sort_unstable();
+                for (slot, source) in slots.into_iter().zip(ordered) {
+                    if slot == source {
+                        continue;
+                    }
+                    let span = |start| -> Result<Span, LayoutError> {
+                        let at = doc
+                            .tokens
+                            .iter()
+                            .position(|t| t.span.start == start)
+                            .ok_or_else(|| LayoutError("missing Event span".into()))?;
+                        Ok(Span::new(start, doc.tokens[doc.end(at)?].span.end))
+                    };
+                    edits.push(Edit::new(span(slot)?, span(source)?.of(doc.src).to_vec()));
+                }
+            }
+        }
+        for child in &element.children {
+            if let normalise::Node::Element(child) = child {
+                collect(child, doc, edits)?;
+            }
+        }
+        Ok(())
+    }
+    let mut edits = Vec::new();
+    collect(&tree, &doc, &mut edits)?;
+    splice::splice(src, &edits).map_err(|e| LayoutError(e.to_string()))
+}
+
 /// Lay out one entity element, using its destination (or a collection peer) as a whitespace
 /// guide. The envelope belongs to the caller and is never rebuilt. Refuses malformed markup.
 pub fn entity(

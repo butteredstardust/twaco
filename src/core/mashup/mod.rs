@@ -137,10 +137,14 @@ pub fn sync(src: &[u8], assets: &Assets) -> Result<(Vec<u8>, Vec<String>), Mashu
         .get("CustomMashupCss")
         .and_then(|v| v.as_str())
         .unwrap_or("");
-    if current_css != css {
+    if current_css.replace("\r\n", "\n") != css {
         changes.push("custom.css".to_string());
     }
-    if current != wanted {
+    let mut comparable = current.clone();
+    if let Some(serde_json::Value::String(text)) = comparable.get_mut("CustomMashupCss") {
+        *text = text.replace("\r\n", "\n");
+    }
+    if comparable != wanted {
         changes.push("content.json".to_string());
     }
     if changes.is_empty() {
@@ -200,7 +204,19 @@ fn without_terminator(css: &str) -> String {
     css.strip_suffix("\r\n")
         .or_else(|| css.strip_suffix('\n'))
         .unwrap_or(css)
-        .to_string()
+        .replace("\r\n", "\n")
+}
+
+pub(crate) fn same_css(left: &str, right: &str) -> bool {
+    without_terminator(left.trim_start_matches('\u{feff}'))
+        == without_terminator(right.trim_start_matches('\u{feff}'))
+}
+
+pub(crate) fn same_css_bytes(left: &[u8], right: &[u8]) -> bool {
+    match (std::str::from_utf8(left), std::str::from_utf8(right)) {
+        (Ok(left), Ok(right)) => same_css(left, right),
+        _ => left == right,
+    }
 }
 
 /// The text between the CDATA markers of a region that may hold several sections.
@@ -368,5 +384,26 @@ mod tests {
             pretty(&value),
             "{\n  \"a\": [\n    1,\n    2\n  ],\n  \"b\": {},\n  \"c\": [],\n  \"d\": \"x\"\n}"
         );
+    }
+}
+
+#[cfg(test)]
+mod css_comparison_tests {
+    use super::*;
+    #[test]
+    fn css_line_endings_and_empty_file_do_not_create_drift() {
+        for css in ["", "\n", ".a {\r\n color: red;\r\n}", ".a {}"] {
+            let content = serde_json::json!({"UI": {}, "CustomMashupCss": css});
+            let src = format!("<Entities><Mashups><Mashup name=\"Acme.View\"><mashupContent><![CDATA[{content}]]></mashupContent></Mashup></Mashups></Entities>").into_bytes();
+            let mut assets = extract(&src).unwrap();
+            assets.css = assets.css.replace("\r\n", "\n");
+            let (out, changes) = sync(&src, &assets).unwrap();
+            assert!(changes.is_empty(), "{css:?}: {changes:?}");
+            assert_eq!(src, out);
+        }
+        assert!(same_css("", "\n"));
+        assert!(same_css(".a {}", ".a {}\n"));
+        assert!(!same_css("", "\n\n"));
+        assert!(!same_css(".a {}\n", ".a {}\n\n"));
     }
 }

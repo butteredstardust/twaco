@@ -269,6 +269,8 @@ pub(crate) fn config_table(solution: &Solution, args: &ConfigTable) -> u8 {
 #[derive(Debug, clap::Args)]
 #[group(skip)]
 pub(crate) struct Call {
+    #[arg(long = "param", value_name = "name=value")]
+    pub(crate) params: Vec<String>,
     #[command(flatten)]
     pub(crate) timeout: Timeout,
     #[command(flatten)]
@@ -329,22 +331,39 @@ pub(crate) fn call(solution: &Solution, args: &Call) -> u8 {
         );
         return FAILED;
     };
-    let parameters = match operands.2 {
-        Some(text) => match serde_json::from_str::<serde_json::Value>(text) {
-            Ok(value) if value.is_object() => value,
-            Ok(_) => {
-                eprintln!("{} call parameters must be a JSON object", style::prefix());
-                return FAILED;
-            }
+    if operands.2.is_some() && !args.params.is_empty() {
+        eprintln!(
+            "{} --param cannot be mixed with the JSON positional",
+            style::prefix()
+        );
+        return FAILED;
+    }
+    let parameters = if !args.params.is_empty() {
+        match commands::call::parameter_pairs(solution, &operands.0, &operands.1, &args.params) {
+            Ok(value) => value,
             Err(error) => {
-                eprintln!(
-                    "{} call parameters are not valid JSON: {error}",
-                    style::prefix()
-                );
+                eprintln!("{} {error}", style::prefix());
                 return FAILED;
             }
-        },
-        None => serde_json::json!({}),
+        }
+    } else {
+        match operands.2 {
+            Some(text) => match serde_json::from_str::<serde_json::Value>(text) {
+                Ok(value) if value.is_object() => value,
+                Ok(_) => {
+                    eprintln!("{} call parameters must be a JSON object", style::prefix());
+                    return FAILED;
+                }
+                Err(error) => {
+                    eprintln!(
+                        "{} call parameters are not valid JSON: {error}",
+                        style::prefix()
+                    );
+                    return FAILED;
+                }
+            },
+            None => serde_json::json!({}),
+        }
     };
     let request = commands::call::CallRequest {
         target: operands.0,

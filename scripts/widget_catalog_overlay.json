@@ -28,7 +28,104 @@
       ],
       "type_display_name": "Responsive Container",
       "display_name": "container",
-      "container": true
+      "container": true,
+      "overrides": {
+        "ExpandCollapseTabLocation": "outside"
+      },
+      "contract": {
+        "services": {
+          "ToggleExpandCollapse": {},
+          "Expand": {},
+          "Collapse": {}
+        },
+        "properties": {
+          "ExpandCollapseTabLocation": {
+            "baseType": "STRING",
+            "isBindingTarget": false,
+            "isBindingSource": false,
+            "selectOptions": [
+              {
+                "value": "inside",
+                "text": "inside"
+              },
+              {
+                "value": "outside",
+                "text": "outside"
+              }
+            ]
+          },
+          "CollapseTabIcon": {
+            "baseType": "IMAGELINK",
+            "isBindingTarget": false,
+            "isBindingSource": false
+          },
+          "ExpandTabIcon": {
+            "baseType": "IMAGELINK",
+            "isBindingTarget": false,
+            "isBindingSource": false
+          },
+          "CustomClass": {
+            "baseType": "STRING",
+            "isBindingTarget": true,
+            "isBindingSource": true
+          },
+          "Margin": {
+            "baseType": "STRING",
+            "isBindingTarget": false,
+            "isBindingSource": false
+          },
+          "UseTheme": {
+            "baseType": "BOOLEAN",
+            "isBindingTarget": false,
+            "isBindingSource": false
+          },
+          "SourceURL": {
+            "baseType": "IMAGELINK",
+            "isBindingTarget": false,
+            "isBindingSource": false
+          },
+          "Style": {
+            "baseType": "STYLEDEFINITION",
+            "isBindingTarget": false,
+            "isBindingSource": false
+          },
+          "EnableExpandCollapse": {
+            "baseType": "BOOLEAN",
+            "isBindingTarget": false,
+            "isBindingSource": false
+          },
+          "Expanded": {
+            "baseType": "BOOLEAN",
+            "isBindingTarget": true,
+            "isBindingSource": true
+          },
+          "ShowExpandCollapseTab": {
+            "baseType": "BOOLEAN",
+            "isBindingTarget": true,
+            "isBindingSource": false
+          },
+          "Overlay": {
+            "baseType": "BOOLEAN",
+            "isBindingTarget": false,
+            "isBindingSource": false
+          },
+          "LazyLoading": {
+            "baseType": "BOOLEAN",
+            "isBindingTarget": false,
+            "isBindingSource": false
+          },
+          "EnableContainerUnload": {
+            "baseType": "BOOLEAN",
+            "isBindingTarget": true,
+            "isBindingSource": false
+          },
+          "OverrideChildrenAbsolute": {
+            "baseType": "BOOLEAN",
+            "isBindingTarget": false,
+            "isBindingSource": false
+          }
+        }
+      }
     },
     "mashupcontainer": {
       "aliases": [
@@ -297,7 +394,10 @@
         "textfield",
         "input"
       ],
-      "type_display_name": "Text Field"
+      "type_display_name": "Text Field",
+      "overrides": {
+        "DisplayTrailingZeros": true
+      }
     },
     "ptcstimer": {
       "aliases": [

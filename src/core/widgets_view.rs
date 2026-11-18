@@ -20,6 +20,7 @@ pub struct PropertyRow {
     pub name: String,
     pub base_type: String,
     pub direction: String,
+    pub default: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
@@ -91,11 +92,12 @@ fn properties(widget: &Widget) -> Vec<PropertyRow> {
         all.entry(name).or_insert(contract);
     }
     all.into_iter()
-        .filter(|(_, contract)| contract.source || contract.target)
+        .filter(|(_, contract)| contract.source || contract.target || contract.editable)
         .map(|(name, contract)| PropertyRow {
             name: name.to_string(),
             base_type: contract.base_type.clone().unwrap_or_default(),
             direction: direction(contract),
+            default: widget.defaults.get(name).cloned(),
         })
         .collect()
 }
@@ -105,7 +107,7 @@ fn direction(contract: &PropertyContract) -> String {
         (true, true) => "in/out",
         (true, false) => "out",
         (false, true) => "in",
-        (false, false) => "",
+        (false, false) => "setting",
     }
     .to_string()
 }
@@ -160,14 +162,44 @@ mod tests {
             .iter()
             .any(|property| property.name == "Visible"));
         let container = detail("container").unwrap();
-        assert_eq!(
-            container.note.as_deref(),
-            Some("no binding contract in the catalogue: it can be placed but not bound")
-        );
-        assert!(container.properties.is_empty());
+        assert!(container.note.is_none());
+        assert!(container
+            .properties
+            .iter()
+            .any(|property| property.name == "CustomClass" && property.direction == "in/out"));
+        assert!(container
+            .properties
+            .iter()
+            .any(|property| property.name == "Visible" && property.direction == "in"));
         assert_eq!(
             detail("gizmo").unwrap_err().code(),
             ErrorCode::InvalidArguments
+        );
+    }
+}
+
+#[cfg(test)]
+mod settings_tests {
+    use super::*;
+    #[test]
+    fn text_field_lists_trailing_zero_setting_and_default() {
+        let detail = detail("ptcstextfield").unwrap();
+        let property = detail
+            .properties
+            .iter()
+            .find(|property| property.name == "DisplayTrailingZeros")
+            .unwrap();
+        assert_eq!(property.base_type, "BOOLEAN");
+        assert_eq!(property.default, Some(serde_json::Value::Bool(true)));
+        assert_eq!(
+            catalog()
+                .by_type("ptcstextfield")
+                .unwrap()
+                .property("DisplayTrailingZeros")
+                .unwrap()
+                .base_type
+                .as_deref(),
+            Some("BOOLEAN")
         );
     }
 }

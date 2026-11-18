@@ -265,6 +265,8 @@ pub(crate) struct ReprojectRequest {
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct MashupDescribeRequest {
+    #[serde(default)]
+    pub(crate) detail: bool,
     /// The mashup's name.
     pub(crate) mashup: String,
 }
@@ -325,6 +327,8 @@ pub(crate) struct MashupNewRequest {
     /// A repository mashup to copy. It is exclusive with template, layout, menus, theme, master, params and tabs.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) from: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) replacements: Absent<Vec<String>>,
     /// Compatibility alias for template.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) layout: Absent<String>,
@@ -489,6 +493,9 @@ pub(crate) struct EntityNewRequest {
     pub(crate) text_size: Absent<String>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) image: Absent<String>,
+    /// Menu-level image URL or MediaEntity.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) icon: Absent<String>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) display_string: Absent<String>,
     #[serde(default, rename = "type", skip_serializing_if = "Absent::is_absent")]
@@ -554,6 +561,12 @@ pub(crate) struct EntityNewRequest {
 /// plan and apply all Composer-style changes through one dry-run-by-default tool.
 #[derive(Clone, Copy, Debug, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
 pub(crate) enum EntityEditAction {
+    #[serde(rename = "entity_set")]
+    EntitySet,
+    #[serde(rename = "menu_item_set")]
+    MenuItemSet,
+    #[serde(rename = "menu_nest")]
+    MenuNest,
     #[serde(rename = "property_add")]
     PropertyAdd,
     #[serde(rename = "property_remove")]
@@ -734,9 +747,21 @@ pub(crate) struct EntityEditRequest {
     /// menu_item_add / menu_item_remove: the item title.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) title: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) new_title: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) submenu: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) icon: Absent<String>,
     /// menu_item_add: the mashup the item opens.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) mashup: Absent<String>,
+    /// menu_nest: the groups, each `Label=<icon>:Title=Mashup,Title=Mashup` (icon a `cds:icon_<name>`, a MediaEntity or empty).
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) groups: Absent<Vec<String>>,
+    /// menu_nest: the project a new Menu goes in, when the solution has several.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) project: Absent<String>,
     /// menu_item_add: put the item before this title; absent is last.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) before: Absent<String>,
@@ -975,7 +1000,17 @@ pub(crate) struct MashupParameterRequest {
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct MashupRecipeRequest {
-    /// enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, picker, tracker or set-on-click.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) toggle: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) add_toggle: Absent<bool>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) in_container: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) tab: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) start: Absent<String>,
+    /// enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, picker, tracker, set-on-click, nested-menu, navigate-on-click or collapsible.
     pub(crate) recipe: String,
     /// The mashup to write it in.
     pub(crate) mashup: String,
@@ -1066,6 +1101,18 @@ pub(crate) struct MashupRecipeRequest {
     /// A picker that selects its first row.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) auto_select_first: Absent<bool>,
+    /// The root Menu of recipe nested-menu.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) menu: Absent<String>,
+    /// nested-menu: leave several groups open at once.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) no_auto_collapse: Absent<bool>,
+    /// nested-menu: the column's width in pixels (300 by default).
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) width: Absent<u32>,
+    /// navigate-on-click: the selected row's field that names the mashup to open.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) field: Absent<String>,
     #[serde(default = "default_true")]
     pub(crate) dry_run: bool,
 }
@@ -1194,6 +1241,37 @@ pub(crate) struct MashupRemoveRequest {
     /// Also remove bindings and event handlers proven to name the widget subtree.
     #[serde(default)]
     pub(crate) cascade: bool,
+    #[serde(default = "default_true")]
+    pub(crate) dry_run: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MashupMoveRequest {
+    /// The existing mashup's name.
+    pub(crate) mashup: String,
+    /// The widget to move, by id, display name, or unique catalogue name; its subtree moves with it.
+    pub(crate) widget: String,
+    /// Put the widget in this responsive container.
+    #[serde(default, rename = "in", skip_serializing_if = "Absent::is_absent")]
+    pub(crate) container: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) right_of: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) left_of: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) above: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) below: Absent<String>,
+    /// With right_of: the far end of the anchor's row, as mashup_add.
+    #[serde(default)]
+    pub(crate) end: bool,
+    /// With in: a footer row at the bottom of that column, as mashup_add.
+    #[serde(default)]
+    pub(crate) bottom: bool,
+    /// With below: stack within the anchor's column of a split row, as mashup_add.
+    #[serde(default)]
+    pub(crate) in_column: bool,
     #[serde(default = "default_true")]
     pub(crate) dry_run: bool,
 }

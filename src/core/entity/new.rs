@@ -286,7 +286,7 @@ impl Coded for NewError {
     }
 }
 
-fn project<'a>(
+pub(crate) fn project<'a>(
     solution: &'a Solution,
     requested: &Option<String>,
     kind: Kind,
@@ -981,49 +981,120 @@ pub(crate) fn menu_row_xml(menu: &str, index: usize, row: &MenuRow<'_>) -> Strin
     format!("\n                    <Row>\n                        <description>{description}</description>\n                        <imageURL>{image}</imageURL>\n                        <isDefault>{is_default}</isDefault>\n                        <linkDestination>{target}</linkDestination>\n                        <linkTarget>{link_target}</linkTarget>\n                        <linkType><![CDATA[Mashup]]></linkType>\n                        <menuId><![CDATA[{menu}_{index}]]></menuId>\n                        <parentMenuId><![CDATA[{menu}]]></parentMenuId>\n                        <title>{title}</title>\n                    </Row>")
 }
 
+/// One item of a Menu as it is written: a Mashup it opens, or a sub-Menu it links to.
+pub(crate) struct MenuEntry {
+    pub(crate) title: String,
+    pub(crate) target: String,
+    pub(crate) sub_menu: bool,
+    pub(crate) image: String,
+    pub(crate) is_default: bool,
+}
+
+/// The Menu a `new menu` request describes.
 fn menu_xml(request: &NewRequest, project: &str) -> Result<String, IllegalXmlChar> {
-    let label = request.label.as_deref().unwrap_or("");
-    let root_description = if request.description.is_empty() {
+    let entries: Vec<MenuEntry> = request
+        .items
+        .iter()
+        .enumerate()
+        .map(|(index, item)| {
+            let (title, target) = item.split_once('=').expect("validated menu item");
+            MenuEntry {
+                title: title.into(),
+                target: target.into(),
+                sub_menu: false,
+                image: String::new(),
+                is_default: request.default && index == 0,
+            }
+        })
+        .collect();
+    menu_entity_xml(
+        &request.name,
+        project,
+        &request.description,
+        request.label.as_deref().unwrap_or(""),
+        request.image.as_deref().unwrap_or(""),
+        &entries,
+    )
+}
+
+/// A whole Menu entity file for `entries`, in the shape the server exports.
+pub(crate) fn menu_entity_xml(
+    name: &str,
+    project: &str,
+    description: &str,
+    label: &str,
+    image: &str,
+    entries: &[MenuEntry],
+) -> Result<String, IllegalXmlChar> {
+    let root_image = if image.is_empty() {
         String::new()
     } else {
-        cdata(&request.description)
+        cdata(image)
+    };
+    let image = escape(image)?;
+    let root_description = if description.is_empty() {
+        String::new()
+    } else {
+        cdata(description)
     };
     let root_title = if label.is_empty() {
         String::new()
     } else {
         cdata(label)
     };
-    let items: String = request
-        .items
+    let items: String = entries
         .iter()
-        .enumerate()
-        .map(|(index, item)| {
-            let (title, target) = item.split_once('=').expect("validated menu item");
-            menu_item_xml(title, target, request.default && index == 0)
+        .map(|entry| {
+            let mut xml = menu_item_xml(&entry.title, &entry.target, entry.is_default)?;
+            if entry.sub_menu {
+                xml = xml
+                    .replace("linkType=\"Mashup\"", "linkType=\"Menu\"")
+                    .replace(
+                        "linkTarget=\"Self\"",
+                        &format!("linkTarget=\"{}\"", escape(&entry.target)?),
+                    );
+            }
+            if !entry.image.is_empty() {
+                xml = xml.replace(
+                    "imageURL=\"\"",
+                    &format!("imageURL=\"{}\"", escape(&entry.image)?),
+                );
+            }
+            Ok(xml)
         })
-        .collect::<Result<_, _>>()?;
-    let rows: String = request
-        .items
+        .collect::<Result<_, IllegalXmlChar>>()?;
+    let rows: String = entries
         .iter()
         .enumerate()
-        .map(|(index, item)| {
-            let (title, target) = item.split_once('=').expect("validated menu item");
+        .map(|(index, entry)| {
             let row = MenuRow {
-                title,
-                target,
-                is_default: request.default && index == 0,
+                title: &entry.title,
+                target: &entry.target,
+                is_default: entry.is_default,
                 description: "",
-                image_url: "",
-                link_target: "Self",
+                image_url: &entry.image,
+                link_target: if entry.sub_menu {
+                    &entry.target
+                } else {
+                    "Self"
+                },
             };
-            menu_row_xml(&request.name, index, &row)
+            let xml = menu_row_xml(name, index, &row);
+            if entry.sub_menu {
+                xml.replace(
+                    "<linkType><![CDATA[Mashup]]></linkType>",
+                    "<linkType><![CDATA[Menu]]></linkType>",
+                )
+            } else {
+                xml
+            }
         })
         .collect();
-    Ok(format!("{}        <Menu\n         description=\"{}\"\n         documentationContent=\"\"\n         homeMashup=\"\"\n         imageURL=\"\"\n         menuLabel=\"{}\"\n         name=\"{}\"\n         projectName=\"{project}\"\n         tags=\"\">\n{}\n            <MenuItems>{items}\n            </MenuItems>\n            <GroupReferences><Members></Members></GroupReferences>\n            <effectiveMenu>\n                <DataShape>\n                    <FieldDefinitions>\n                        <FieldDefinition baseType=\"STRING\" description=\"Description for tooltip\" name=\"description\" ordinal=\"0\"></FieldDefinition>\n                        <FieldDefinition baseType=\"IMAGELINK\" description=\"Optional image URL\" name=\"imageURL\" ordinal=\"0\"></FieldDefinition>\n                        <FieldDefinition aspect.defaultValue=\"false\" baseType=\"BOOLEAN\" description=\"Is a default menu item\" name=\"isDefault\" ordinal=\"0\"></FieldDefinition>
+    Ok(format!("{}        <Menu\n         description=\"{}\"\n         documentationContent=\"\"\n         homeMashup=\"\"\n         imageURL=\"{image}\"\n         menuLabel=\"{}\"\n         name=\"{}\"\n         projectName=\"{project}\"\n         tags=\"\">\n{}\n            <MenuItems>{items}\n            </MenuItems>\n            <GroupReferences><Members></Members></GroupReferences>\n            <effectiveMenu>\n                <DataShape>\n                    <FieldDefinitions>\n                        <FieldDefinition baseType=\"STRING\" description=\"Description for tooltip\" name=\"description\" ordinal=\"0\"></FieldDefinition>\n                        <FieldDefinition baseType=\"IMAGELINK\" description=\"Optional image URL\" name=\"imageURL\" ordinal=\"0\"></FieldDefinition>\n                        <FieldDefinition aspect.defaultValue=\"false\" baseType=\"BOOLEAN\" description=\"Is a default menu item\" name=\"isDefault\" ordinal=\"0\"></FieldDefinition>
                         <FieldDefinition aspect.defaultValue=\"false\" baseType=\"BOOLEAN\" description=\"Is disabled\" name=\"isDisabled\" ordinal=\"0\"></FieldDefinition>
                         <FieldDefinition aspect.defaultValue=\"false\" baseType=\"BOOLEAN\" description=\"Is hidden\" name=\"isHidden\" ordinal=\"0\"></FieldDefinition>\n                        <FieldDefinition aspect.isPrimaryKey=\"true\" baseType=\"STRING\" description=\"Link destination\" name=\"linkDestination\" ordinal=\"0\"></FieldDefinition>\n                        <FieldDefinition baseType=\"STRING\" description=\"Link target (Popup, Mashup, New)\" name=\"linkTarget\" ordinal=\"0\"></FieldDefinition>\n                        <FieldDefinition aspect.isPrimaryKey=\"true\" baseType=\"STRING\" description=\"Link type (Mashup, Hyperlink, Logout, or Menu)\" name=\"linkType\" ordinal=\"0\"></FieldDefinition>\n                        <FieldDefinition baseType=\"STRING\" description=\"Menu entry id\" name=\"menuId\" ordinal=\"0\"></FieldDefinition>\n                        <FieldDefinition baseType=\"STRING\" description=\"Menu entry parent id\" name=\"parentMenuId\" ordinal=\"0\"></FieldDefinition>\n                        <FieldDefinition baseType=\"STRING\" description=\"Menu entry title\" name=\"title\" ordinal=\"0\"></FieldDefinition>
                         <FieldDefinition baseType=\"STRING\" description=\"An optional field that specifies the tooltip text for the menu item\" name=\"tooltip\" ordinal=\"0\"></FieldDefinition>
-                        <FieldDefinition baseType=\"IMAGELINK\" description=\"An optional field that specifies the tooltip icon for the menu item\" name=\"tooltipIcon\" ordinal=\"0\"></FieldDefinition>\n                    </FieldDefinitions>\n                </DataShape>\n                <Rows>\n                    <Row>\n                        <description>{root_description}</description>\n                        <imageURL></imageURL>\n                        <linkPriority>0.0</linkPriority>\n                        <linkType><![CDATA[Menu]]></linkType>\n                        <menuId><![CDATA[{}]]></menuId>\n                        <parentMenuId></parentMenuId>\n                        <title>{}</title>\n                    </Row>{rows}\n                </Rows>\n            </effectiveMenu>\n        </Menu>\n{}", header("Menus"), escape(&request.description)?, escape(label)?, escape(&request.name)?, common_tail(&[])?, request.name, root_title, footer("Menus")))
+                        <FieldDefinition baseType=\"IMAGELINK\" description=\"An optional field that specifies the tooltip icon for the menu item\" name=\"tooltipIcon\" ordinal=\"0\"></FieldDefinition>\n                    </FieldDefinitions>\n                </DataShape>\n                <Rows>\n                    <Row>\n                        <description>{root_description}</description>\n                        <imageURL>{root_image}</imageURL>\n                        <linkPriority>0.0</linkPriority>\n                        <linkType><![CDATA[Menu]]></linkType>\n                        <menuId><![CDATA[{}]]></menuId>\n                        <parentMenuId></parentMenuId>\n                        <title>{}</title>\n                    </Row>{rows}\n                </Rows>\n            </effectiveMenu>\n        </Menu>\n{}", header("Menus"), escape(description)?, escape(label)?, escape(name)?, common_tail(&[])?, name, root_title, footer("Menus")))
 }
 
 fn theme_content(request: &NewRequest) -> String {
@@ -1286,6 +1357,11 @@ pub(crate) fn plan(solution: &Solution, request: &NewRequest) -> Result<Plan, Ne
     }
     if request.kind == Kind::State {
         validate_state_request(request)?;
+    }
+    if request.kind == Kind::Menu {
+        if let Some(image) = &request.image {
+            crate::core::cds_icons::check(image).map_err(NewError::Invalid)?;
+        }
     }
     if request.kind == Kind::Menu && request.items.is_empty() {
         return Err(NewError::Invalid(

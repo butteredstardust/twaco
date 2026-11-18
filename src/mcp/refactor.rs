@@ -1,13 +1,15 @@
+use super::requests::common::Absent;
 use super::requests::refactor::{
     AdoptApplyRequest, AdoptKind, AdoptReportRequest, AdoptTakeSide, EntityEditAction,
     EntityEditRequest, EntityNewRequest, HandoffAction, HandoffRequest, MashupAddContainedRequest,
     MashupAddRequest, MashupBindRequest, MashupCollectionAddRequest, MashupDescribeRequest,
-    MashupDiffRequest, MashupEventRequest, MashupGapRequest, MashupNewRequest, MashupOffRequest,
-    MashupOnRequest, MashupParameterAction, MashupParameterRequest, MashupRecipeRequest,
-    MashupRemoveRequest, MashupSetRequest, MashupSourceAddRequest, MashupSourceListRequest,
-    MashupSourceRemoveRequest, MashupSourceRetargetRequest, MashupTemplatesRequest,
-    MashupUnbindRequest, MashupValidateRequest, MoveMemberAction, MoveMemberRequest,
-    NewBuildingBlockRequest, RenameRequest, ReprojectRequest, RetemplateRequest, WidgetsRequest,
+    MashupDiffRequest, MashupEventRequest, MashupGapRequest, MashupMoveRequest, MashupNewRequest,
+    MashupOffRequest, MashupOnRequest, MashupParameterAction, MashupParameterRequest,
+    MashupRecipeRequest, MashupRemoveRequest, MashupSetRequest, MashupSourceAddRequest,
+    MashupSourceListRequest, MashupSourceRemoveRequest, MashupSourceRetargetRequest,
+    MashupTemplatesRequest, MashupUnbindRequest, MashupValidateRequest, MoveMemberAction,
+    MoveMemberRequest, NewBuildingBlockRequest, RenameRequest, ReprojectRequest, RetemplateRequest,
+    WidgetsRequest,
 };
 use super::source::add_types_refresh;
 use super::{
@@ -140,7 +142,11 @@ pub(crate) fn entity_new_tool(
         italic: arguments.italic,
         underline: arguments.underline,
         text_size: arguments.text_size.as_ref().cloned(),
-        image: arguments.image.as_ref().cloned(),
+        image: arguments
+            .icon
+            .as_ref()
+            .or_else(|| arguments.image.as_ref())
+            .cloned(),
         display_string: arguments.display_string.as_ref().cloned(),
         state_type: arguments.state_type.as_ref().cloned(),
         states: arguments.state.items().to_vec(),
@@ -231,6 +237,31 @@ pub(crate) fn entity_edit_tool(
         ));
     }
     let action = match arguments.action {
+        EntityEditAction::EntitySet => Action::EntitySet {
+            description: text(&arguments.description),
+            icon: text(&arguments.icon),
+        },
+        EntityEditAction::MenuNest => Action::MenuNest {
+            project: text(&arguments.project),
+            groups: arguments
+                .groups
+                .items()
+                .iter()
+                .map(|group| crate::core::entity::edit::NestGroup::parse(group))
+                .collect::<Result<_, _>>()
+                .map_err(|error| ToolError::invalid(error.to_string()))?,
+        },
+        EntityEditAction::MenuItemSet => Action::MenuItemSet {
+            title: need(&arguments.title, "title")?,
+            change: crate::core::entity::edit::MenuItemChange {
+                title: text(&arguments.new_title),
+                mashup: text(&arguments.mashup),
+                submenu: text(&arguments.submenu),
+                icon: text(&arguments.icon),
+                description: text(&arguments.description),
+                default: arguments.is_default,
+            },
+        },
         EntityEditAction::PropertyAdd => {
             need(&arguments.base_type, "type")?;
             Action::PropertyAdd(property()?)
@@ -331,8 +362,10 @@ pub(crate) fn entity_edit_tool(
             file: need(&arguments.file, "file")?.into(),
         },
         EntityEditAction::MenuItemAdd => Action::MenuItemAdd {
-            title: need(&arguments.title, "title")?,
-            mashup: need(&arguments.mashup, "mashup")?,
+            submenu: text(&arguments.submenu),
+            icon: text(&arguments.icon),
+            title: text(&arguments.title).unwrap_or_default(),
+            mashup: text(&arguments.mashup).unwrap_or_default(),
             default: arguments.is_default,
             before: text(&arguments.before),
         },
@@ -452,9 +485,12 @@ pub(crate) fn mashup_describe_tool(
     solution: &Solution,
     arguments: MashupDescribeRequest,
 ) -> Result<Value, ToolError> {
-    let description =
-        crate::core::mashup::describe::describe(solution, nonempty(&arguments.mashup, "mashup")?)
-            .map_err(ToolError::coded)?;
+    let description = crate::core::mashup::describe::describe_detail(
+        solution,
+        nonempty(&arguments.mashup, "mashup")?,
+        arguments.detail,
+    )
+    .map_err(ToolError::coded)?;
     Ok(serde_json::to_value(description).expect("a description serialises"))
 }
 
@@ -542,6 +578,7 @@ pub(crate) fn mashup_new_tool(
             params: arguments.params.items().to_vec(),
             tabs: arguments.tabs.items().to_vec(),
             from: arguments.from.as_ref().cloned(),
+            replacements: arguments.replacements.items().to_vec(),
         },
         mode: if dry_run { Mode::Plan } else { Mode::Apply },
         lock_label: "mcp mashup_new",
@@ -568,34 +605,33 @@ pub(crate) fn mashup_templates_tool(arguments: MashupTemplatesRequest) -> Result
     }
 }
 
-pub(crate) fn mashup_add_tool(
-    solution: &Solution,
-    arguments: MashupAddRequest,
-) -> Result<Value, ToolError> {
-    let dry_run = arguments.dry_run;
+/// The placement arguments of `mashup_add` and `mashup_move` as one placement.
+fn placement_from_arguments(
+    container: &Absent<String>,
+    right_of: &Absent<String>,
+    left_of: &Absent<String>,
+    above: &Absent<String>,
+    below: &Absent<String>,
+    (end, bottom, in_column): (bool, bool, bool),
+) -> Result<Option<crate::core::mashup::edit::Placement>, ToolError> {
     let placements = [
-        arguments
-            .container
+        container
             .as_ref()
             .cloned()
             .map(crate::core::mashup::edit::Placement::In),
-        arguments
-            .right_of
+        right_of
             .as_ref()
             .cloned()
             .map(|anchor| beside(anchor, crate::core::mashup::edit::Side::Right)),
-        arguments
-            .left_of
+        left_of
             .as_ref()
             .cloned()
             .map(|anchor| beside(anchor, crate::core::mashup::edit::Side::Left)),
-        arguments
-            .above
+        above
             .as_ref()
             .cloned()
             .map(|anchor| beside(anchor, crate::core::mashup::edit::Side::Above)),
-        arguments
-            .below
+        below
             .as_ref()
             .cloned()
             .map(|anchor| beside(anchor, crate::core::mashup::edit::Side::Below)),
@@ -606,14 +642,14 @@ pub(crate) fn mashup_add_tool(
             "give one of in, right_of, left_of, above, below",
         ));
     }
-    if arguments.end {
+    if end {
         use crate::core::mashup::edit::{Placement, Side};
         match supplied.first_mut() {
             Some(Placement::Beside { side, .. }) if *side == Side::Right => *side = Side::End,
             _ => return Err(ToolError::invalid("end goes with right_of")),
         }
     }
-    if arguments.bottom {
+    if bottom {
         use crate::core::mashup::edit::Placement;
         match supplied.first_mut() {
             Some(placement @ Placement::In(_)) => {
@@ -624,7 +660,7 @@ pub(crate) fn mashup_add_tool(
             _ => return Err(ToolError::invalid("bottom goes with in")),
         }
     }
-    if arguments.in_column {
+    if in_column {
         use crate::core::mashup::edit::{Placement, Side};
         match supplied.first_mut() {
             Some(placement) => {
@@ -641,12 +677,28 @@ pub(crate) fn mashup_add_tool(
             None => return Err(ToolError::invalid("in_column goes with below")),
         }
     }
+    Ok(supplied.into_iter().next())
+}
+
+pub(crate) fn mashup_add_tool(
+    solution: &Solution,
+    arguments: MashupAddRequest,
+) -> Result<Value, ToolError> {
+    let dry_run = arguments.dry_run;
+    let placement = placement_from_arguments(
+        &arguments.container,
+        &arguments.right_of,
+        &arguments.left_of,
+        &arguments.above,
+        &arguments.below,
+        (arguments.end, arguments.bottom, arguments.in_column),
+    )?;
     let request = commands::mashup::MashupAddRequest {
         request: crate::core::mashup::authoring::AddRequest {
             mashup: nonempty(&arguments.mashup, "mashup")?.to_string(),
             widget: nonempty(&arguments.widget, "widget")?.to_string(),
             inputs: arguments.inputs.items().to_vec(),
-            placement: supplied.into_iter().next(),
+            placement,
             label: arguments.label.as_ref().cloned(),
             properties: arguments
                 .properties
@@ -929,6 +981,11 @@ pub(crate) fn mashup_recipe_tool(
     use crate::core::mashup::authoring::{Recipe, RecipeArgs, RecipeRequest};
     let dry_run = arguments.dry_run;
     let recipe_args = RecipeArgs {
+        toggle: arguments.toggle.as_ref().cloned(),
+        add_toggle: arguments.add_toggle.as_ref().copied().unwrap_or(false),
+        in_container: arguments.in_container.as_ref().cloned(),
+        tab: arguments.tab.as_ref().cloned(),
+        start: arguments.start.as_ref().cloned(),
         widget: arguments.widget.as_ref().cloned(),
         param: arguments.param.as_ref().cloned(),
         field_maps: arguments.field_maps.items().to_vec(),
@@ -967,6 +1024,14 @@ pub(crate) fn mashup_recipe_tool(
             .as_ref()
             .copied()
             .unwrap_or(false),
+        menu: arguments.menu.as_ref().cloned(),
+        no_auto_collapse: arguments
+            .no_auto_collapse
+            .as_ref()
+            .copied()
+            .unwrap_or(false),
+        width: arguments.width.as_ref().copied(),
+        field: arguments.field.as_ref().cloned(),
     };
     let recipe = Recipe::from_args(nonempty(&arguments.recipe, "recipe")?, &recipe_args)
         .map_err(ToolError::coded)?;
@@ -1188,6 +1253,38 @@ pub(crate) fn mashup_remove_tool(
         .as_ref()
         .map_or_else(Vec::new, |edit| files(solution, edit));
     let mut result = json!({ "applied": outcome.applied, "dry_run": dry_run, "mashup": arguments.mashup, "widget": outcome.plan.widget, "removed": outcome.plan.removed, "bindings_removed": outcome.plan.bindings_removed, "events_removed": outcome.plan.events_removed, "orphaned_data_calls": outcome.plan.orphaned_data_calls, "files": files });
+    add_notices(&mut result, &notices);
+    Ok(result)
+}
+
+pub(crate) fn mashup_move_tool(
+    solution: &Solution,
+    arguments: MashupMoveRequest,
+) -> Result<Value, ToolError> {
+    let dry_run = arguments.dry_run;
+    let placement = placement_from_arguments(
+        &arguments.container,
+        &arguments.right_of,
+        &arguments.left_of,
+        &arguments.above,
+        &arguments.below,
+        (arguments.end, arguments.bottom, arguments.in_column),
+    )?;
+    let request = commands::mashup::MashupMoveRequest {
+        request: crate::core::mashup::authoring::MoveRequest {
+            mashup: nonempty(&arguments.mashup, "mashup")?.into(),
+            widget: nonempty(&arguments.widget, "widget")?.into(),
+            placement,
+        },
+        mode: if dry_run { Mode::Plan } else { Mode::Apply },
+        lock_label: "mcp mashup_move",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome = commands::mashup::move_widget(solution, &request, &mut notices)
+        .map_err(ToolError::coded)?;
+    let mut result =
+        crate::core::mashup::authoring::move_plan_json(solution, &outcome.plan, outcome.applied);
+    result["dry_run"] = json!(dry_run);
     add_notices(&mut result, &notices);
     Ok(result)
 }

@@ -45,11 +45,134 @@ fn request(name: &str) -> NewRequest {
         params: Vec::new(),
         tabs: Vec::new(),
         from: None,
+        replacements: Vec::new(),
     }
 }
 
 fn lock(solution: &Solution) -> WorkspaceLock {
     crate::core::lock::acquire_for(solution, "test").unwrap()
+}
+
+#[test]
+fn fixed_leaf_sizes_switch_responsive_layout_and_fit_owned_rows() {
+    let (_dir, solution) = one_project();
+    let name = "Acme.View";
+    let new = plan_new(&solution, &request(name)).unwrap();
+    apply_new(&solution, &new, &lock(&solution)).unwrap();
+    let image = plan_add(&solution, &add_request(name, "ptcsimage")).unwrap();
+    apply_edit(&solution, &image.edit, &lock(&solution)).unwrap();
+    let mut grid = add_request(name, "ptcsgrid");
+    grid.placement = Some(Placement::Beside {
+        anchor: image.placed.id.clone(),
+        side: mashup::edit::Side::Below,
+    });
+    let grid = plan_add(&solution, &grid).unwrap();
+    apply_edit(&solution, &grid.edit, &lock(&solution)).unwrap();
+    let mut set = SetRequest {
+        mashup: name.into(),
+        widget: image.placed.id.clone(),
+        properties: vec![],
+        style_from: None,
+        styles: vec![],
+    };
+    for (properties, expected, note, height) in [
+        (
+            vec![
+                ("FillContainer", json!(false)),
+                ("Width", json!(120)),
+                ("Height", json!(60)),
+                ("Margin", json!("5")),
+            ],
+            false,
+            true,
+            Some("82px"),
+        ),
+        (vec![("Height", json!(40))], false, true, Some("62px")),
+        (vec![("FillContainer", json!(true))], true, false, None),
+        (
+            vec![("FillContainer", json!(false))],
+            false,
+            true,
+            Some("62px"),
+        ),
+        (
+            vec![("Width", Value::Null), ("Height", json!(""))],
+            true,
+            false,
+            None,
+        ),
+        (
+            vec![("ResponsiveLayout", json!("false"))],
+            false,
+            false,
+            None,
+        ),
+        (vec![("ResponsiveLayout", json!("true"))], true, false, None),
+        (vec![("Width", json!(120))], false, true, None),
+        (
+            vec![("Width", json!(0)), ("Height", json!(60))],
+            false,
+            true,
+            Some("82px"),
+        ),
+        (
+            vec![("ResponsiveLayout", json!(true)), ("Height", json!(80))],
+            true,
+            false,
+            None,
+        ),
+    ] {
+        set.properties = properties
+            .into_iter()
+            .map(|(name, value)| (name.into(), value))
+            .collect();
+        let plan = plan_set(&solution, &set).unwrap();
+        assert_eq!(
+            plan.notes
+                .iter()
+                .any(|note| note == "ResponsiveLayout set to false so Width/Height apply"),
+            note
+        );
+        let missing_size = set.properties == vec![("ResponsiveLayout".into(), json!("false"))];
+        assert_eq!(
+            plan.notes
+                .iter()
+                .any(|note| note.contains("without Width/Height")),
+            missing_size
+        );
+        apply_edit(&solution, plan.edit.as_ref().unwrap(), &lock(&solution)).unwrap();
+        let assets = workspace::read_mashup(new.content_path.parent().unwrap())
+            .unwrap()
+            .unwrap();
+        let document = mashup::edit::parse(&assets.content).unwrap();
+        let found = document.find_exact(&image.placed.id).unwrap();
+        assert_eq!(
+            document.at(&found.path)["Properties"]["ResponsiveLayout"],
+            expected
+        );
+        if let Some(height) = height {
+            let (_, parent) = found.path.split_last().unwrap();
+            let row = &document.at(parent)["Properties"];
+            assert_eq!(row["flex-size"], "fixed");
+            assert_eq!(row["flex-min-height"], height);
+            assert_eq!(row["flex-max-height"], height);
+        }
+        assert!(plan_set(&solution, &set).unwrap().edit.is_none());
+    }
+    for value in [json!(false), json!(true)] {
+        set.widget = "center".into();
+        set.properties = vec![("ResponsiveLayout".into(), value)];
+        assert!(plan_set(&solution, &set)
+            .unwrap_err()
+            .to_string()
+            .contains("twaco sets ResponsiveLayout"));
+    }
+    set.widget = image.placed.id;
+    set.properties = vec![("ResponsiveLayout".into(), json!("yes"))];
+    assert!(plan_set(&solution, &set)
+        .unwrap_err()
+        .to_string()
+        .contains("must be true or false"));
 }
 
 #[test]
@@ -264,6 +387,14 @@ fn layouts_have_the_composer_tree_and_masters_put_pages_in_center() {
 fn every_embedded_template_validates_and_its_fixed_nodes_follow_the_parent_axis() {
     for template in mashup::templates::layouts().unwrap() {
         validate_template(&template).unwrap();
+        let document = new_document(&template, false, DEFAULT_THEME).unwrap();
+        let mut found = Vec::new();
+        mashup::validate::check_content(&mashup::to_sidecar(document.value()), &mut found);
+        assert!(
+            !found.iter().any(|p| p.rule == "wrapped-row-clipping"),
+            "{}: {found:?}",
+            template.name
+        );
     }
     for (name, expected) in [
         (
@@ -3496,6 +3627,29 @@ fn template_containers_have_no_margin_and_their_widgets_keep_composers() {
     }
 }
 
+/// A fixed row has no spare size to take: template rows keep their sizes at flex-grow 0, except
+/// a slot the template itself says grows.
+#[test]
+fn fixed_template_rows_do_not_grow() {
+    for (name, slot, grow) in [
+        ("card", "header", 0),
+        ("card", "title", 1),
+        ("card", "actions", 0),
+        ("list-page", "title", 0),
+        ("list-page", "toolbar", 0),
+        ("list-page", "body", 1),
+    ] {
+        let template = mashup::templates::layout(name).unwrap().unwrap();
+        let document = new_document(&template, false, DEFAULT_THEME).unwrap();
+        let found = document.find(slot).unwrap();
+        assert_eq!(
+            document.at(&found.path)["Properties"]["flex-grow"],
+            grow,
+            "{name} {slot}"
+        );
+    }
+}
+
 /// A template's slot style lands in the root StyleProperties as `mashup set --style` writes it:
 /// the filter panel's grey column and white content, as the kits draw them.
 #[test]
@@ -4553,6 +4707,12 @@ fn recipe(solution: &Solution, name: &str, args: RecipeArgs) -> Result<RecipePla
         },
     )?;
     apply_edit(solution, &plan.edit, &lock(solution))?;
+    assert!(
+        !problems(solution)
+            .iter()
+            .any(|rule| rule == "wrapped-row-clipping"),
+        "{name}"
+    );
     Ok(plan)
 }
 
@@ -7034,13 +7194,23 @@ fn collection_request(mappings: &[(&str, &str)]) -> CollectionAddRequest {
     }
 }
 
+/// The workspace lock is not content, and Windows may still list `lock.holder` for a moment
+/// after the lock is released.
+fn is_lock_file(path: &Path) -> bool {
+    path.parent().and_then(Path::file_name) == Some(std::ffi::OsStr::new(".twaco"))
+        && matches!(
+            path.file_name().and_then(|name| name.to_str()),
+            Some("lock" | "lock.holder")
+        )
+}
+
 fn tree_bytes(dir: &Path) -> std::collections::BTreeMap<PathBuf, Vec<u8>> {
     fn walk(dir: &Path, files: &mut std::collections::BTreeMap<PathBuf, Vec<u8>>) {
         for entry in std::fs::read_dir(dir).unwrap() {
             let path = entry.unwrap().path();
             if path.is_dir() {
                 walk(&path, files);
-            } else {
+            } else if !is_lock_file(&path) {
                 files.insert(path.clone(), std::fs::read(&path).unwrap());
             }
         }
@@ -7273,6 +7443,62 @@ fn style_fixture() -> (tempfile::TempDir, Solution) {
     )
     .unwrap();
     (dir, solution)
+}
+
+#[test]
+fn setting_field_label_realigns_generated_row_and_repeats_without_writes() {
+    use crate::core::mashup::edit::Side;
+    let (dir, solution) = one_project();
+    let name = "Acme.Form_MU";
+    let plan = plan_new(&solution, &request(name)).unwrap();
+    apply_new(&solution, &plan, &lock(&solution)).unwrap();
+    let field = add_one(
+        &solution,
+        name,
+        "ptcstextfield",
+        Placement::In("center".into()),
+        &[],
+    );
+    add_one(
+        &solution,
+        name,
+        "ptcsbutton",
+        Placement::Beside {
+            anchor: field.clone(),
+            side: Side::Right,
+        },
+        &[],
+    );
+    for (label, alignment) in [("Filter", "flex-end"), ("", "flex-end")] {
+        set_and_apply(
+            &solution,
+            name,
+            &field,
+            vec![("Label".into(), json!(label))],
+            None,
+        )
+        .unwrap();
+        let content = content_of(&solution, name);
+        let inner = parent_id(&content["UI"], &field).unwrap();
+        let row = parent_id(&content["UI"], &inner).unwrap();
+        assert_eq!(
+            find_widget(&content["UI"], &row).unwrap()["Properties"]["align-items"],
+            alignment,
+            "{}",
+            content
+        );
+        let before = tree_bytes(dir.path());
+        let repeat = set_and_apply(
+            &solution,
+            name,
+            &field,
+            vec![("Label".into(), json!(label))],
+            None,
+        )
+        .unwrap();
+        assert!(repeat.edit.is_none());
+        assert_eq!(tree_bytes(dir.path()), before);
+    }
 }
 
 fn set_and_apply(
@@ -9101,6 +9327,58 @@ fn collection_add_cards_preset_writes_the_kit_card_collection() {
 }
 
 #[test]
+fn cards_preset_notes_a_double_outline_when_the_cell_draws_its_own_frame() {
+    let (dir, solution) = collection_fixture();
+    let mut request = collection_request(&[("id", "Id")]);
+    request.preset = Some(CollectionPreset::Cards);
+    let plain = plan_collection_add(&solution, &request).unwrap();
+    assert!(
+        !plain
+            .notes
+            .iter()
+            .any(|note| note.contains("double outline")),
+        "{:?}",
+        plain.notes
+    );
+    for (key, value) in [("CustomClass", "framed"), ("Style", "TileStyle")] {
+        let content_path = dir.path().join("src/Acme.OrderCell_MU/mashup/content.json");
+        let mut content: Value =
+            serde_json::from_str(&std::fs::read_to_string(&content_path).unwrap()).unwrap();
+        let root = &mut content["UI"]["Widgets"][0]["Properties"];
+        root["CustomClass"] = json!("");
+        root["Style"] = json!("DefaultContainerStyle");
+        root[key] = json!(value);
+        let text = mashup::to_sidecar(&content);
+        std::fs::write(&content_path, &text).unwrap();
+        let entity_path = dir.path().join("acme/Mashups/Acme.OrderCell_MU.xml");
+        let css =
+            std::fs::read_to_string(dir.path().join("src/Acme.OrderCell_MU/mashup/custom.css"))
+                .unwrap();
+        let (entity, _) = mashup::sync(
+            &std::fs::read(&entity_path).unwrap(),
+            &mashup::Assets { content: text, css },
+        )
+        .unwrap();
+        std::fs::write(&entity_path, entity).unwrap();
+        let plan = plan_collection_add(&solution, &request).unwrap();
+        let note = plan
+            .notes
+            .iter()
+            .find(|note| note.contains("double outline"))
+            .unwrap_or_else(|| panic!("{key}: {:?}", plan.notes));
+        assert!(note.contains("cell part style"), "{note}");
+        request.preset = Some(CollectionPreset::Cards);
+    }
+    // Without the preset the collection draws no frame of its own.
+    request.preset = None;
+    let plan = plan_collection_add(&solution, &request).unwrap();
+    assert!(!plan
+        .notes
+        .iter()
+        .any(|note| note.contains("double outline")));
+}
+
+#[test]
 fn collection_add_keeps_explicit_sizes_and_catalogue_spacing() {
     let (_dir, solution) = collection_fixture();
     // A preset with an explicit width: the kit card's height.
@@ -9663,4 +9941,1764 @@ fn columns_validate_typed_editors_and_whitespace_and_explain_editability() {
         assert_eq!(column["cellEditor"], editor);
         assert_eq!(column["preserveWhiteSpaces"], true);
     }
+}
+
+#[test]
+fn flexcontainer_properties_bind_and_set_on_tab_containers() {
+    let (_dir, solution) = one_project();
+    let name = "Acme.Orders_MU";
+    apply_new(
+        &solution,
+        &plan_new(&solution, &request(name)).unwrap(),
+        &lock(&solution),
+    )
+    .unwrap();
+    let added = plan_add(&solution, &add_request(name, "ptcstabset")).unwrap();
+    apply_edit(&solution, &added.edit, &lock(&solution)).unwrap();
+    let document = mashup::edit::parse(&sidecar_content(&solution)).unwrap();
+    let tabs = document.at(&document.find_exact(&added.placed.id).unwrap().path);
+    let id = tabs["Widgets"][0]["Properties"]["Id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let mut request = SetRequest {
+        mashup: name.into(),
+        widget: id.clone(),
+        properties: vec![
+            ("CustomClass".into(), json!("orders")),
+            ("LazyLoading".into(), json!("true")),
+            ("EnableContainerUnload".into(), json!(true)),
+            ("flex-min-height".into(), json!("120px")),
+            ("UseTheme".into(), json!(true)),
+        ],
+        style_from: None,
+        styles: vec![],
+    };
+    let set = plan_set(&solution, &request).unwrap();
+    apply_edit(&solution, set.edit.as_ref().unwrap(), &lock(&solution)).unwrap();
+    let before = sidecar_content(&solution);
+    let document = mashup::edit::parse(&before).unwrap();
+    let props = &document.at(&document.find_exact(&id).unwrap().path)["Properties"];
+    assert_eq!(props["CustomClass"], "orders");
+    assert_eq!(props["LazyLoading"], true);
+    assert_eq!(props["EnableContainerUnload"], true);
+    assert_eq!(props["flex-min-height"], "120px");
+    assert!(plan_set(&solution, &request).unwrap().edit.is_none());
+    assert_eq!(before, sidecar_content(&solution));
+    // Percent sizes and the expand/collapse icons stay settable.
+    let extra = SetRequest {
+        properties: vec![
+            ("flex-max-width".into(), json!("50%")),
+            ("ExpandTabIcon".into(), json!("Acme.Expand")),
+        ],
+        ..request.clone()
+    };
+    assert!(plan_set(&solution, &extra).unwrap().edit.is_some());
+    for (key, value) in [
+        ("LazyLoading", json!("yes")),
+        ("CustomClass", json!(7)),
+        ("EnableContainerUnload", json!(1)),
+        ("flex-min-height", json!("120")),
+        ("flex-grow", json!("big")),
+        ("flex-direction", json!("diagonal")),
+        ("flex-wrap", json!("yes")),
+        ("align-items", json!("left")),
+        ("justify-content", json!("right")),
+        ("UnknownProperty", json!(true)),
+    ] {
+        request.properties = vec![(key.into(), value)];
+        assert!(plan_set(&solution, &request).is_err(), "{key}");
+    }
+    for (from, to) in [
+        (
+            format!("ui:{id}.Expanded"),
+            "ui:flexcontainer-2.Visible".into(),
+        ),
+        (
+            format!("ui:{id}.CustomClass"),
+            "ui:flexcontainer-2.CustomClass".into(),
+        ),
+        (
+            "ui:flexcontainer-2.Expanded".into(),
+            format!("ui:{id}.EnableContainerUnload"),
+        ),
+    ] {
+        plan_bind(
+            &solution,
+            &BindRequest {
+                mashup: name.into(),
+                from,
+                to,
+            },
+        )
+        .unwrap();
+    }
+    assert!(plan_bind(
+        &solution,
+        &BindRequest {
+            mashup: name.into(),
+            from: format!("ui:{id}.LazyLoading"),
+            to: "ui:flexcontainer-2.Visible".into()
+        }
+    )
+    .is_err());
+}
+
+#[test]
+fn mashup_set_refuses_git_bash_source_url() {
+    let (_dir, solution) = one_project();
+    let error = plan_set(
+        &solution,
+        &SetRequest {
+            mashup: "Acme.Image_MU".into(),
+            widget: "ptcsimage-16".into(),
+            properties: vec![(
+                "SourceURL".into(),
+                json!("C:/Program Files/Git/Thingworx/MediaEntities/X"),
+            )],
+            style_from: None,
+            styles: Vec::new(),
+        },
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("MSYS_NO_PATHCONV=1"), "{error}");
+}
+
+#[test]
+fn collapsible_recipe_adds_an_external_toggle_and_repeats_identically() {
+    let (dir, solution) = one_project();
+    let mut new = request("Acme.Orders_MU");
+    new.template = "header-sidebar".into();
+    new.menu_entity = Some("Acme.Main_MN".into());
+    write(
+        dir.path(),
+        "acme/Menus/Acme.Main_MN.xml",
+        "<Entities><Menus><Menu name=\"Acme.Main_MN\" projectName=\"Acme\"/></Menus></Entities>",
+    );
+    let plan = plan_new(&solution, &new).unwrap();
+    apply_new(&solution, &plan, &lock(&solution)).unwrap();
+    let args = RecipeArgs {
+        widget: Some("sidebar".into()),
+        add_toggle: true,
+        in_container: Some("header".into()),
+        tab: Some("outside".into()),
+        start: Some("collapsed".into()),
+        ..Default::default()
+    };
+    let before = tree_bytes(dir.path());
+    let planned = plan_recipe(
+        &solution,
+        &RecipeRequest {
+            mashup: new.name.clone(),
+            recipe: Recipe::from_args("collapsible", &args).unwrap(),
+        },
+    )
+    .unwrap();
+    assert_eq!(before, tree_bytes(dir.path()));
+    apply_edit(&solution, &planned.edit, &lock(&solution)).unwrap();
+    assert_eq!(planned.added.len(), 1);
+    let content = content_of(&solution, &new.name);
+    let document = mashup::edit::parse(&content.to_string()).unwrap();
+    let sidebar = document.find("sidebar").unwrap();
+    let properties = &document.at(&sidebar.path)["Properties"];
+    assert_eq!(properties["Expanded"], false);
+    assert_eq!(properties["EnableExpandCollapse"], true);
+    assert_eq!(properties["ExpandCollapseTabLocation"], "outside");
+    assert_eq!(properties["ExpandTabIcon"], "cds:icon_chevron_right");
+    assert_eq!(properties["CollapseTabIcon"], "cds:icon_chevron_left");
+    let report = crate::core::mashup::validate::validate(&solution, Some(&new.name)).unwrap();
+    assert!(report[0].problems.is_empty(), "{:?}", report[0].problems);
+    let once = tree_bytes(dir.path());
+    recipe(&solution, "collapsible", args).unwrap();
+    assert_eq!(once, tree_bytes(dir.path()));
+    let toggle = planned.added[0].clone();
+    let configured = recipe(
+        &solution,
+        "collapsible",
+        RecipeArgs {
+            widget: Some("sidebar".into()),
+            toggle: Some(toggle),
+            tab: Some("none".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert!(configured.added.is_empty());
+    let content = content_of(&solution, &new.name);
+    let document = mashup::edit::parse(&content.to_string()).unwrap();
+    assert_eq!(
+        document.at(&document.find("sidebar").unwrap().path)["Properties"]["ShowExpandCollapseTab"],
+        false
+    );
+    assert_eq!(
+        document.at(&document.find("sidebar").unwrap().path)["Properties"]["Expanded"],
+        true
+    );
+}
+
+#[test]
+fn collapsible_refuses_internal_toggles_and_containers_without_siblings() {
+    let (dir, solution) = one_project();
+    let mut new = request("Acme.Orders_MU");
+    new.template = "sidebar-header".into();
+    new.menu_entity = Some("Acme.Main_MN".into());
+    write(
+        dir.path(),
+        "acme/Menus/Acme.Main_MN.xml",
+        "<Entities><Menus><Menu name=\"Acme.Main_MN\" projectName=\"Acme\"/></Menus></Entities>",
+    );
+    let plan = plan_new(&solution, &new).unwrap();
+    apply_new(&solution, &plan, &lock(&solution)).unwrap();
+    let button = add_one(
+        &solution,
+        &new.name,
+        "ptcsbutton",
+        Placement::In("header".into()),
+        &[],
+    );
+    let expression = plan_add(&solution, &add_request(&new.name, "expression2")).unwrap();
+    apply_edit(&solution, &expression.edit, &lock(&solution)).unwrap();
+    for args in [
+        RecipeArgs {
+            widget: Some("header".into()),
+            toggle: Some(button),
+            ..Default::default()
+        },
+        RecipeArgs {
+            widget: Some("header".into()),
+            add_toggle: true,
+            in_container: Some("header".into()),
+            ..Default::default()
+        },
+        RecipeArgs {
+            widget: Some("page".into()),
+            tab: Some("inside".into()),
+            ..Default::default()
+        },
+    ] {
+        let before = tree_bytes(dir.path());
+        let error = recipe(&solution, "collapsible", args)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("outside") || error.contains("sibling"),
+            "{error}"
+        );
+        assert_eq!(before, tree_bytes(dir.path()));
+    }
+}
+
+#[test]
+fn flexcontainer_collapse_services_use_the_normal_event_contract() {
+    let (_dir, solution) = one_project();
+    let plan = plan_new(&solution, &request("Acme.Orders_MU")).unwrap();
+    apply_new(&solution, &plan, &lock(&solution)).unwrap();
+    let button = add_one(
+        &solution,
+        "Acme.Orders_MU",
+        "ptcsbutton",
+        Placement::In("center".into()),
+        &[],
+    );
+    for service in ["ToggleExpandCollapse", "Expand", "Collapse"] {
+        let plan = on(
+            &solution,
+            &format!("ui:{button}.Clicked"),
+            &format!("ui:flexcontainer-2.{service}"),
+        )
+        .unwrap();
+        apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    }
+}
+
+#[test]
+fn menubar_add_and_set_raise_the_item_limit_and_preserve_larger_values() {
+    let (dir, solution) = one_project();
+    write(dir.path(), "acme/Menus/Acme.Main_MN.xml", &format!("<Entities><Menus><Menu name=\"Acme.Main_MN\" projectName=\"Acme\"><MenuItems>{}</MenuItems></Menu></Menus></Entities>", "<MenuItem title=\"Item\"/>".repeat(10)));
+    let plan = plan_new(&solution, &request("Acme.Orders_MU")).unwrap();
+    apply_new(&solution, &plan, &lock(&solution)).unwrap();
+    let mut previous = None;
+    for limit in [None, Some("7"), Some("14"), Some("14.5")] {
+        let mut add = add_request("Acme.Orders_MU", "ptcsmenubar");
+        add.placement = Some(previous.clone().map_or_else(
+            || Placement::In("center".into()),
+            |anchor| Placement::Beside {
+                anchor,
+                side: mashup::edit::Side::Below,
+            },
+        ));
+        add.properties
+            .push(("PrimaryNavMenu".into(), "Acme.Main_MN".into()));
+        if let Some(limit) = limit {
+            add.properties
+                .push(("PrimaryNavMaxItems".into(), limit.into()));
+        }
+        let plan = plan_add(&solution, &add).unwrap();
+        assert_eq!(
+            plan.notes
+                .iter()
+                .any(|note| note == "PrimaryNavMaxItems set to 10 so all menu items show"),
+            !matches!(limit, Some("14" | "14.5"))
+        );
+        apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+        previous = Some(plan.placed.id.clone());
+        assert_eq!(
+            collection_properties(&solution, &plan.placed.id)["PrimaryNavMaxItems"],
+            match limit {
+                Some("14") => json!(14),
+                Some("14.5") => json!(14.5),
+                _ => json!(10),
+            }
+        );
+    }
+    let button = add_one(
+        &solution,
+        "Acme.Orders_MU",
+        "ptcsmenubar",
+        Placement::Beside {
+            anchor: previous.unwrap(),
+            side: mashup::edit::Side::Below,
+        },
+        &[],
+    );
+    let plan = set_and_apply(
+        &solution,
+        "Acme.Orders_MU",
+        &button,
+        vec![("PrimaryNavMenu".into(), json!("Acme.Main_MN"))],
+        None,
+    )
+    .unwrap();
+    assert!(plan.notes.iter().any(|note| note.contains("set to 10")));
+    let before = tree_bytes(dir.path());
+    set_and_apply(
+        &solution,
+        "Acme.Orders_MU",
+        &button,
+        vec![("PrimaryNavMenu".into(), json!("Acme.Main_MN"))],
+        None,
+    )
+    .unwrap();
+    assert_eq!(before, tree_bytes(dir.path()));
+}
+
+#[test]
+fn adding_a_menu_item_warns_about_bound_menubar_limits_without_editing_mashups() {
+    use crate::core::entity::edit::{Action, Request as EntityRequest};
+    let (dir, solution) = one_project();
+    let plan = plan_new(&solution, &request("Acme.Orders_MU")).unwrap();
+    apply_new(&solution, &plan, &lock(&solution)).unwrap();
+    let items = (0..5).map(|index| format!("<MenuItem title=\"Item{index}\" linkDestination=\"Acme.Orders_MU\" linkType=\"Mashup\" isDefault=\"false\"/>" )).collect::<String>();
+    write(dir.path(), "acme/Menus/Acme.Main_MN.xml", &format!("<Entities><Menus><Menu name=\"Acme.Main_MN\" projectName=\"Acme\"><MenuItems>{items}</MenuItems><effectiveMenu><Rows><Row><description></description><menuId>Acme.Main_MN</menuId></Row></Rows></effectiveMenu></Menu></Menus></Entities>"));
+    let id = add_one(
+        &solution,
+        "Acme.Orders_MU",
+        "ptcsmenubar",
+        Placement::In("center".into()),
+        &[("PrimaryNavMenu", "Acme.Main_MN")],
+    );
+    let before = tree_bytes(dir.path());
+    let plan = crate::core::entity::edit::plan(
+        &solution,
+        &EntityRequest {
+            entity: "Acme.Main_MN".into(),
+            action: Action::MenuItemAdd {
+                submenu: None,
+                icon: None,
+                title: "More".into(),
+                mashup: "Acme.Orders_MU".into(),
+                default: false,
+                before: None,
+            },
+        },
+    )
+    .unwrap();
+    assert_eq!(before, tree_bytes(dir.path()));
+    assert_eq!(plan.warnings, vec![format!("Mashup Acme.Orders_MU: {id} shows only 5 menu items; run twaco mashup set Acme.Orders_MU {id} --prop PrimaryNavMaxItems=6 --apply")]);
+    assert_eq!(plan.changes.len(), 1);
+    set_and_apply(
+        &solution,
+        "Acme.Orders_MU",
+        &id,
+        vec![("PrimaryNavMaxItems".into(), json!(12))],
+        None,
+    )
+    .unwrap();
+    let plan = crate::core::entity::edit::plan(
+        &solution,
+        &EntityRequest {
+            entity: "Acme.Main_MN".into(),
+            action: Action::MenuItemAdd {
+                submenu: None,
+                icon: None,
+                title: "More".into(),
+                mashup: "Acme.Orders_MU".into(),
+                default: false,
+                before: None,
+            },
+        },
+    )
+    .unwrap();
+    assert!(plan.warnings.is_empty());
+}
+
+#[test]
+fn collapsible_arguments_refuse_conflicting_or_incomplete_options() {
+    for args in [
+        RecipeArgs {
+            toggle: Some("button".into()),
+            add_toggle: true,
+            ..Default::default()
+        },
+        RecipeArgs {
+            add_toggle: true,
+            ..Default::default()
+        },
+        RecipeArgs {
+            in_container: Some("header".into()),
+            ..Default::default()
+        },
+        RecipeArgs {
+            tab: Some("above".into()),
+            ..Default::default()
+        },
+        RecipeArgs {
+            start: Some("hidden".into()),
+            ..Default::default()
+        },
+    ] {
+        assert!(Recipe::from_args(
+            "collapsible",
+            &RecipeArgs {
+                widget: Some("sidebar".into()),
+                ..args
+            }
+        )
+        .is_err());
+    }
+    let args = RecipeArgs {
+        widget: Some("sidebar".into()),
+        tab: Some("inside".into()),
+        ..Default::default()
+    };
+    assert!(Recipe::from_args("collapsible", &args).is_ok());
+    assert!(Recipe::from_args("text", &args)
+        .unwrap_err()
+        .to_string()
+        .contains("--tab"));
+}
+
+#[test]
+fn placement_uses_explicit_labels_before_deciding_whether_controls_are_mixed() {
+    let (_dir, solution) = one_project();
+    let plan = plan_new(&solution, &request("Acme.Orders_MU")).unwrap();
+    apply_new(&solution, &plan, &lock(&solution)).unwrap();
+    let mut add = add_request("Acme.Orders_MU", "ptcstextfield");
+    add.label = Some("First".into());
+    add.placement = Some(Placement::In("center".into()));
+    let first = plan_add(&solution, &add).unwrap();
+    apply_edit(&solution, &first.edit, &lock(&solution)).unwrap();
+    add.label = Some("Second".into());
+    add.placement = Some(Placement::Beside {
+        anchor: first.placed.id.clone(),
+        side: mashup::edit::Side::Right,
+    });
+    let second = plan_add(&solution, &add).unwrap();
+    apply_edit(&solution, &second.edit, &lock(&solution)).unwrap();
+    for id in [first.placed.id, second.placed.id] {
+        assert_eq!(collection_properties(&solution, &id)["Margin"], "5");
+    }
+}
+
+#[test]
+fn the_item_limit_counts_only_the_menus_own_items_and_unreadable_mashups_only_warn() {
+    use crate::core::entity::edit::{Action, Request as EntityRequest};
+    let (dir, solution) = one_project();
+    let plan = plan_new(&solution, &request("Acme.Orders_MU")).unwrap();
+    apply_new(&solution, &plan, &lock(&solution)).unwrap();
+    let nested = "<MenuItem title=\"Sub\"/>".repeat(6);
+    let items = format!(
+        "{}<MenuItem title=\"Group\"><MenuItems>{nested}</MenuItems></MenuItem>",
+        "<MenuItem title=\"Item\"/>".repeat(3)
+    );
+    write(dir.path(), "acme/Menus/Acme.Main_MN.xml", &format!("<Entities><Menus><Menu name=\"Acme.Main_MN\" projectName=\"Acme\"><MenuItems>{items}</MenuItems></Menu></Menus></Entities>"));
+    let id = add_one(
+        &solution,
+        "Acme.Orders_MU",
+        "ptcsmenubar",
+        Placement::In("center".into()),
+        &[("PrimaryNavMenu", "Acme.Main_MN")],
+    );
+    // Four own items fit the default limit of 5; the six nested ones do not count.
+    assert!(collection_properties(&solution, &id)["PrimaryNavMaxItems"]
+        .as_f64()
+        .is_none_or(|limit| limit == 5.0));
+    let other = plan_new(&solution, &request("Acme.Broken_MU")).unwrap();
+    apply_new(&solution, &other, &lock(&solution)).unwrap();
+    std::fs::write(
+        solution
+            .src_root()
+            .join("Acme.Broken_MU/mashup/content.json"),
+        "{ not json",
+    )
+    .unwrap();
+    let plain = (0..3).map(|index| format!("<MenuItem title=\"Item{index}\" linkDestination=\"Acme.Orders_MU\" linkType=\"Mashup\" isDefault=\"false\"/>")).collect::<String>();
+    write(dir.path(), "acme/Menus/Acme.Main_MN.xml", &format!("<Entities><Menus><Menu name=\"Acme.Main_MN\" projectName=\"Acme\"><MenuItems>{plain}</MenuItems><effectiveMenu><Rows><Row><description></description><menuId>Acme.Main_MN</menuId></Row></Rows></effectiveMenu></Menu></Menus></Entities>"));
+    let plan = crate::core::entity::edit::plan(
+        &solution,
+        &EntityRequest {
+            entity: "Acme.Main_MN".into(),
+            action: Action::MenuItemAdd {
+                submenu: None,
+                icon: None,
+                title: "More".into(),
+                mashup: "Acme.Orders_MU".into(),
+                default: false,
+                before: None,
+            },
+        },
+    );
+    let plan = match plan {
+        Ok(plan) => plan,
+        Err(error) => panic!("menu item add refused: {error}"),
+    };
+    assert!(
+        plan.warnings
+            .iter()
+            .any(|warning| warning.starts_with("Mashup Acme.Broken_MU: not checked")),
+        "{:?}",
+        plan.warnings
+    );
+}
+
+#[test]
+fn leaf_sizing_keeps_deliberate_settings_and_releases_only_its_own_row() {
+    let (_dir, solution) = one_project();
+    let name = "Acme.View";
+    let new = plan_new(&solution, &request(name)).unwrap();
+    apply_new(&solution, &new, &lock(&solution)).unwrap();
+    let image = plan_add(&solution, &add_request(name, "ptcsimage")).unwrap();
+    apply_edit(&solution, &image.edit, &lock(&solution)).unwrap();
+    let mut grid = add_request(name, "ptcsgrid");
+    grid.placement = Some(Placement::Beside {
+        anchor: image.placed.id.clone(),
+        side: mashup::edit::Side::Below,
+    });
+    apply_edit(
+        &solution,
+        &plan_add(&solution, &grid).unwrap().edit,
+        &lock(&solution),
+    )
+    .unwrap();
+    let set = |properties: Vec<(&str, Value)>| {
+        let request = SetRequest {
+            mashup: name.into(),
+            widget: image.placed.id.clone(),
+            properties: properties
+                .into_iter()
+                .map(|(name, value)| (name.into(), value))
+                .collect(),
+            style_from: None,
+            styles: vec![],
+        };
+        if let Some(edit) = plan_set(&solution, &request).unwrap().edit {
+            apply_edit(&solution, &edit, &lock(&solution)).unwrap();
+        }
+        let assets = workspace::read_mashup(new.content_path.parent().unwrap())
+            .unwrap()
+            .unwrap();
+        let document = mashup::edit::parse(&assets.content).unwrap();
+        let found = document.find_exact(&image.placed.id).unwrap();
+        let (_, parent) = found.path.split_last().unwrap();
+        (
+            document.at(&found.path)["Properties"].clone(),
+            document.at(parent)["Properties"].clone(),
+        )
+    };
+    // Fixed, then back to filling: the row it fixed is released.
+    let (_, row) = set(vec![
+        ("FillContainer", json!(false)),
+        ("Width", json!(120)),
+        ("Height", json!(60)),
+    ]);
+    assert_eq!(row["flex-size"], "fixed");
+    let (leaf, row) = set(vec![("FillContainer", json!(true))]);
+    assert_eq!(leaf["ResponsiveLayout"], true);
+    assert_ne!(row["flex-size"], "fixed", "{row}");
+    // A deliberate ResponsiveLayout=false on a filling widget survives a Width edit.
+    set(vec![("ResponsiveLayout", json!(false))]);
+    let (leaf, _) = set(vec![("Width", json!(150))]);
+    assert_eq!(leaf["ResponsiveLayout"], false);
+}
+
+#[test]
+fn copied_pages_with_empty_or_custom_css_are_immediately_editable() {
+    for css in [
+        "",
+        "\n",
+        ".page {\r\n color: red;\r\n}\r\n",
+        ".page { color: red; }",
+    ] {
+        let (_dir, solution) = one_project();
+        let source = plan_new(&solution, &request("Acme.Source_MU")).unwrap();
+        apply_new(&solution, &source, &lock(&solution)).unwrap();
+        let mut value: Value = serde_json::from_str(&source.assets.content).unwrap();
+        value["CustomMashupCss"] = json!("");
+        value["UI"]["Widgets"][0]["Properties"]["CustomClass"] =
+            json!("demo-page Acme.Source_MU demo-current");
+        value["UI"]["Widgets"][0]["Widgets"] = json!([
+            {"Properties": {"Id": "ptcslabel-3", "Type": "ptcslabel", "Text": "\u{00e9} &nbsp; &amp; &lt; ]]>"}},
+            {"Properties": {"Id": "ptcslink-4", "Type": "ptcslink", "Label": "Open", "URL": "/page"}},
+            {"Properties": {"Id": "ptcsrte-5", "Type": "ptcsrte", "Text": "<p>\u{00e9} &nbsp; &amp; &lt; ]]></p>"}}
+        ]);
+        value["Data"] = json!({"Things_Acme.Manager": {"Services": [{"Id": "Load", "Name": "Load", "Parameters": {"page": "current"}}]}});
+        let assets = mashup::Assets {
+            content: mashup::to_sidecar(&value),
+            css: css.into(),
+        };
+        let entity = mashup::sync(&source.entity, &assets).unwrap().0;
+        std::fs::write(&source.entity_path, entity).unwrap();
+        std::fs::write(&source.content_path, &assets.content).unwrap();
+        std::fs::write(&source.css_path, css).unwrap();
+        let mut copy = request("Acme.Copy_MU");
+        copy.from = Some("Acme.Source_MU".into());
+        let plan =
+            plan_new(&solution, &copy).unwrap_or_else(|error| panic!("css={css:?}: {error}"));
+        apply_new(&solution, &plan, &lock(&solution)).unwrap();
+        let loaded = load_existing(&solution, "Acme.Copy_MU").unwrap();
+        assert!(content_round_trips(
+            &assets.content,
+            &loaded.assets.content,
+            true
+        ));
+        assert_eq!(std::fs::read(&source.css_path).unwrap(), css.as_bytes());
+        let mut copy = request("Acme.Replaced_MU");
+        copy.from = Some("Acme.Source_MU".into());
+        copy.replacements = vec!["demo-current=demo-nested".into(), "current=nested".into()];
+        let plan = plan_new(&solution, &copy).unwrap();
+        let content: Value = serde_json::from_str(&plan.assets.content).unwrap();
+        assert_eq!(
+            content["UI"]["Widgets"][0]["Properties"]["CustomClass"],
+            "demo-page Acme.Source_MU demo-nested"
+        );
+        assert_eq!(
+            content["Data"]["Things_Acme.Manager"]["Services"][0]["Parameters"]["page"],
+            "nested"
+        );
+        assert_eq!(
+            content["UI"]["Widgets"][0]["Widgets"][2]["Properties"]["Text"],
+            "<p>\u{00e9} &nbsp; &amp; &lt; ]]></p>"
+        );
+        assert_eq!(plan.copy_summary.as_ref().unwrap().replacements.len(), 2);
+        apply_new(&solution, &plan, &lock(&solution)).unwrap();
+        load_existing(&solution, "Acme.Replaced_MU").unwrap();
+        copy.name = "Acme.Missing_MU".into();
+        copy.replacements = vec!["absent=new".into()];
+        assert!(plan_new(&solution, &copy)
+            .unwrap_err()
+            .to_string()
+            .contains("occurs nowhere"));
+    }
+}
+
+#[test]
+fn entity_description_on_a_mashup_keeps_sidecars_in_step() {
+    let (_dir, solution) = one_project();
+    let source = plan_new(&solution, &request("Acme.View_MU")).unwrap();
+    apply_new(&solution, &source, &lock(&solution)).unwrap();
+    let action = crate::core::entity::edit::Action::EntitySet {
+        description: Some("R&D <page>".into()),
+        icon: None,
+    };
+    let command = crate::core::commands::entity_edit::EditRequest {
+        request: crate::core::entity::edit::Request {
+            entity: "Mashups/Acme.View_MU".into(),
+            action,
+        },
+        mode: crate::core::commands::Mode::Apply,
+        lock_label: "test",
+    };
+    crate::core::commands::entity_edit::execute(&solution, &command, &mut Default::default())
+        .unwrap();
+    let rerun =
+        crate::core::commands::entity_edit::execute(&solution, &command, &mut Default::default())
+            .unwrap();
+    assert!(rerun.plan.changes.is_empty());
+    load_existing(&solution, "Acme.View_MU").unwrap();
+    let entity = std::fs::read_to_string(&source.entity_path).unwrap();
+    assert!(entity.contains("description=\"R&amp;D &lt;page&gt;\""));
+}
+
+#[test]
+fn round_trip_diagnostics_name_the_first_changed_value() {
+    let diff = content_difference(
+        r#"{"UI":{"Text":"before"}}"#,
+        r#"{"UI":{"Text":"after"}}"#,
+        true,
+    )
+    .unwrap();
+    assert_eq!(
+        diff,
+        (
+            "content.json:$.UI.Text".into(),
+            "\"before\"".into(),
+            "\"after\"".into()
+        )
+    );
+    assert_eq!(
+        content_difference(r#"{"items":[1]}"#, r#"{"items":[1,2]}"#, true).unwrap(),
+        (
+            "content.json:$.items[1]".into(),
+            "<absent>".into(),
+            "2".into()
+        )
+    );
+    assert!(content_round_trips(
+        r#"{"a":1,"b":2}"#,
+        r#"{"b":2,"a":1}"#,
+        false
+    ));
+    assert!(!content_round_trips(r#"{"UI":[]}"#, r#"{"UI":{}}"#, true));
+}
+
+#[test]
+fn copied_replacements_preserve_data_sections_and_all_binding_addresses() {
+    let (_dir, solution) = one_project();
+    let source = plan_new(&solution, &request("Acme.Source_MU")).unwrap();
+    apply_new(&solution, &source, &lock(&solution)).unwrap();
+    let mut value: Value = serde_json::from_str(&source.assets.content).unwrap();
+    value["Data"] = json!({"Things_Acme.mcp": {
+        "DataName": "Things_Acme.mcp", "EntityName": "Acme.mcp",
+        "Services": [{"Id": "mcp", "Name": "mcp", "Parameters": {"text": "mcp"}}]
+    }});
+    value["DataBindings"] = json!([{
+        "SourceSection": "Things_Acme.mcp", "SourceId": "mcp",
+        "TargetSection": "mcp", "TargetId": "mcp", "SourceDetails": "mcp",
+        "PropertyMaps": [{"SourceProperty": "mcp", "TargetProperty": "mcp"}]
+    }]);
+    let structural_data = value["Data"].clone();
+    let structural_bindings = value["DataBindings"].clone();
+    value["UI"]["Widgets"][0]["Widgets"] = json!([
+        {"Properties": {"Id": "mcp", "Type": "ptcslabel", "Text": "mcp", "CustomClass": "page mcp"}},
+        {"Properties": {"Id": "expression-4", "Type": "expression", "Expression": "'mcp'"}},
+        {"Properties": {"Id": "navigation-5", "Type": "navigationfunction", "TargetMashup": "Acme.mcp"}}
+    ]);
+    let assets = mashup::Assets {
+        content: mashup::to_sidecar(&value),
+        css: source.assets.css.clone(),
+    };
+    std::fs::write(
+        &source.entity_path,
+        mashup::sync(&source.entity, &assets).unwrap().0,
+    )
+    .unwrap();
+    std::fs::write(&source.content_path, &assets.content).unwrap();
+    let mut copy = request("Acme.Copy_MU");
+    copy.from = Some("Acme.Source_MU".into());
+    copy.replacements = vec!["mcp=nested".into()];
+    let plan = plan_new(&solution, &copy).unwrap();
+    let content: Value = serde_json::from_str(&plan.assets.content).unwrap();
+    let mut expected_data = structural_data;
+    expected_data["Things_Acme.mcp"]["Services"][0]["Parameters"]["text"] = json!("nested");
+    assert_eq!(content["Data"], expected_data);
+    assert_eq!(content["DataBindings"], structural_bindings);
+    let widgets = &content["UI"]["Widgets"][0]["Widgets"];
+    assert_eq!(widgets[0]["Properties"]["Id"], "mcp");
+    assert_eq!(widgets[0]["Properties"]["Text"], "nested");
+    assert_eq!(widgets[0]["Properties"]["CustomClass"], "page nested");
+    assert_eq!(widgets[1]["Properties"]["Expression"], "'nested'");
+    assert_eq!(widgets[2]["Properties"]["TargetMashup"], "Acme.mcp");
+    copy.replacements = vec!["Things_Acme.mcp=nested".into()];
+    assert!(plan_new(&solution, &copy)
+        .unwrap_err()
+        .to_string()
+        .contains("only in structural"));
+}
+
+#[test]
+fn row_selector_hints_follow_the_resolved_service_boundary() {
+    let (dir, solution) = bind_fixture();
+    write(
+        dir.path(),
+        "acme/Things/Acme.SelectedRows.Manager.xml",
+        r#"<Entities><Things><Thing name="Acme.SelectedRows.Manager" projectName="Acme"><ThingShape><ServiceDefinitions><ServiceDefinition name="Load"><ResultType baseType="INFOTABLE" aspect.dataShape="Acme.Names"/></ServiceDefinition></ServiceDefinitions></ThingShape></Thing></Things></Entities>"#,
+    );
+    write(
+        dir.path(),
+        "acme/DataShapes/Acme.Names.xml",
+        r#"<Entities><DataShapes><DataShape name="Acme.Names" projectName="Acme"><FieldDefinitions><FieldDefinition name="name" baseType="STRING"/></FieldDefinitions></DataShape></DataShapes></Entities>"#,
+    );
+    bind(
+        &solution,
+        "data:Acme.SelectedRows.Manager.Load.name",
+        "ui:ptcslabel-4.LabelText",
+    )
+    .unwrap();
+    for selector in ["SelectedRows", "[SelectedRows]", "AllData", "[AllData]"] {
+        let raw = format!("data:Acme.SelectedRows.Manager.Load.{selector}.name");
+        let error = bind(&solution, &raw, "ui:ptcslabel-4.LabelText")
+            .unwrap_err()
+            .to_string();
+        let expected = if selector.contains("SelectedRows") {
+            "use data:Acme.SelectedRows.Manager.Load[SelectedRows].name"
+        } else {
+            "use data:Acme.SelectedRows.Manager.Load.name"
+        };
+        assert!(error.contains(expected), "{error}");
+    }
+}
+
+/// A project with a header-sidebar mashup whose menu bar shows `Acme.Main_MN`, a Menu of two
+/// groups, and that menu bar's id.
+fn nested_menu_fixture() -> (tempfile::TempDir, Solution, String) {
+    use crate::core::commands::{self, Mode, Notices};
+    use crate::core::entity::edit::{Action, NestGroup, Request};
+    let (dir, solution) = one_project();
+    let nest = commands::entity_edit::EditRequest {
+        request: Request {
+            entity: "Acme.Main_MN".into(),
+            action: Action::MenuNest {
+                project: None,
+                groups: vec![
+                    NestGroup::parse("Basics=cds:icon_home:Intro=Acme.Intro_MU").unwrap(),
+                    NestGroup::parse("Advanced=cds:icon_settings:Tuning=Acme.Tuning_MU").unwrap(),
+                ],
+            },
+        },
+        mode: Mode::Apply,
+        lock_label: "test nest",
+    };
+    commands::entity_edit::execute(&solution, &nest, &mut Notices::default()).unwrap();
+    let mut new = request("Acme.Orders_MU");
+    new.template = "header-sidebar".into();
+    new.menu_entity = Some("Acme.Main_MN".into());
+    apply_new(
+        &solution,
+        &plan_new(&solution, &new).unwrap(),
+        &lock(&solution),
+    )
+    .unwrap();
+    let document = mashup::edit::parse(&content_of(&solution, &new.name).to_string()).unwrap();
+    let bar = document
+        .widgets()
+        .into_iter()
+        .find(|widget| widget.type_id == "ptcsmenubar")
+        .unwrap()
+        .id;
+    (dir, solution, bar)
+}
+
+fn menubar_and_column(solution: &Solution, bar: &str) -> (Value, Value) {
+    let document =
+        mashup::edit::parse(&content_of(solution, "Acme.Orders_MU").to_string()).unwrap();
+    let found = document.find_exact(bar).unwrap();
+    (
+        document.at(&found.path)["Properties"].clone(),
+        document.at(&found.path[..found.path.len() - 1])["Properties"].clone(),
+    )
+}
+
+#[test]
+fn nested_menu_recipe_sets_the_accordion_and_fixes_its_column() {
+    let (dir, solution, bar) = nested_menu_fixture();
+    let args = |width: Option<u32>, no_auto_collapse: bool| RecipeArgs {
+        widget: Some(bar.clone()),
+        menu: Some("Acme.Main_MN".into()),
+        width,
+        no_auto_collapse,
+        ..Default::default()
+    };
+    let before = tree_bytes(dir.path());
+    let planned = plan_recipe(
+        &solution,
+        &RecipeRequest {
+            mashup: "Acme.Orders_MU".into(),
+            recipe: Recipe::from_args("nested-menu", &args(None, false)).unwrap(),
+        },
+    )
+    .unwrap();
+    assert_eq!(before, tree_bytes(dir.path()));
+    apply_edit(&solution, &planned.edit, &lock(&solution)).unwrap();
+    let (properties, column) = menubar_and_column(&solution, &bar);
+    for (name, value) in [
+        ("DataSource", json!("menuentity")),
+        ("PrimaryNavMenu", json!("Acme.Main_MN")),
+        ("SubMenuType", json!("nested")),
+        ("AutoCollapseMenus", json!(true)),
+        ("StayOpenOnSelection", json!(true)),
+        ("AlwaysOpen", json!(true)),
+        ("DisableResizing", json!(true)),
+        ("PrimaryNavIcons", json!(true)),
+        ("Width", json!(300)),
+        ("MaxWidth", json!(300)),
+    ] {
+        assert_eq!(properties[name], value, "{name}");
+    }
+    assert_eq!(column["flex-size"], "fixed");
+    assert_eq!(column["flex-min-width"], "300px");
+    assert_eq!(column["flex-max-width"], "300px");
+    let once = tree_bytes(dir.path());
+    recipe(&solution, "nested-menu", args(None, false)).unwrap();
+    assert_eq!(once, tree_bytes(dir.path()));
+    recipe(&solution, "nested-menu", args(Some(280), true)).unwrap();
+    let (properties, column) = menubar_and_column(&solution, &bar);
+    assert_eq!(properties["AutoCollapseMenus"], false);
+    assert_eq!(properties["Width"], 280);
+    assert_eq!(column["flex-max-width"], "280px");
+}
+
+#[test]
+fn nested_menu_recipe_refuses_a_menu_without_sub_menus_and_a_widget_that_is_no_menu_bar() {
+    use crate::core::entity::new::{Kind, NewRequest as NewEntity};
+    let (_dir, solution, bar) = nested_menu_fixture();
+    let mut flat = NewEntity::blank(Kind::Menu, "Acme.Flat_MN");
+    flat.items = vec!["Home=Acme.Home_MU".into()];
+    let plan = crate::core::entity::new::plan(&solution, &flat).unwrap();
+    crate::core::entity::new::apply(&solution, &plan, &lock(&solution)).unwrap();
+    let error = recipe(
+        &solution,
+        "nested-menu",
+        RecipeArgs {
+            widget: Some(bar.clone()),
+            menu: Some("Acme.Flat_MN".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("menu nest"), "{error}");
+    let error = recipe(
+        &solution,
+        "nested-menu",
+        RecipeArgs {
+            widget: Some("sidebar".into()),
+            menu: Some("Acme.Main_MN".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("not a menu bar"), "{error}");
+    let error = Recipe::from_args(
+        "collapsible",
+        &RecipeArgs {
+            widget: Some("sidebar".into()),
+            width: Some(10),
+            ..Default::default()
+        },
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(
+        error.contains("--width is for recipe nested-menu"),
+        "{error}"
+    );
+}
+
+#[test]
+fn collapsing_the_column_of_a_nested_menu_keeps_the_menu_open() {
+    let (_dir, solution, bar) = nested_menu_fixture();
+    let nested = RecipeArgs {
+        widget: Some(bar.clone()),
+        menu: Some("Acme.Main_MN".into()),
+        ..Default::default()
+    };
+    recipe(&solution, "nested-menu", nested).unwrap();
+    let off = plan_set(
+        &solution,
+        &SetRequest {
+            mashup: "Acme.Orders_MU".into(),
+            widget: bar.clone(),
+            properties: vec![("AlwaysOpen".into(), json!(false))],
+            style_from: None,
+            styles: vec![],
+        },
+    )
+    .unwrap();
+    apply_edit(&solution, off.edit.as_ref().unwrap(), &lock(&solution)).unwrap();
+    assert_eq!(menubar_and_column(&solution, &bar).0["AlwaysOpen"], false);
+    let plan = recipe(
+        &solution,
+        "collapsible",
+        RecipeArgs {
+            widget: Some("sidebar".into()),
+            add_toggle: true,
+            in_container: Some("header".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert!(plan.notes.iter().any(|note| note.contains("AlwaysOpen")));
+    assert_eq!(menubar_and_column(&solution, &bar).0["AlwaysOpen"], true);
+}
+
+#[test]
+fn navigate_on_click_wires_a_collection_click_and_warns_about_auto_selection() {
+    let (_dir, solution) = recipe_fixture();
+    let placed = plan_add(&solution, &add_request("Acme.Orders_MU", "collection")).unwrap();
+    apply_edit(&solution, &placed.edit, &lock(&solution)).unwrap();
+    let collection = placed.placed.id.clone();
+    let linked = bind(
+        &solution,
+        "data:Acme.Orders.Manager.GetOrders",
+        &format!("ui:{collection}.Data"),
+    )
+    .unwrap();
+    apply_edit(&solution, &linked.edit, &lock(&solution)).unwrap();
+    let args = || RecipeArgs {
+        widget: Some(collection.clone()),
+        field: Some("note".into()),
+        ..Default::default()
+    };
+    let plan = recipe(&solution, "navigate-on-click", args()).unwrap();
+    let function = plan.added[0].clone();
+    let value = content_of(&solution, "Acme.Orders_MU");
+    assert!(has_event(
+        &value,
+        &collection,
+        "CellClicked",
+        &function,
+        "Navigate"
+    ));
+    assert!(value["DataBindings"].as_array().unwrap().iter().any(|b| {
+        b["TargetId"] == function.as_str()
+            && b["PropertyMaps"][0]["TargetProperty"] == "TargetMashup"
+            && b["PropertyMaps"][0]["SourceProperty"] == "note"
+    }));
+    let document = crate::core::mashup::edit::MashupDocument::new(value).unwrap();
+    let properties = &document.at(&document.find_exact(&function).unwrap().path)["Properties"];
+    assert_eq!(properties["TargetWindowType"], "replace");
+    let widget = &document.at(&document.find_exact(&collection).unwrap().path)["Properties"];
+    assert_eq!(widget["SelectionMode"], "single");
+    assert!(plan.notes.iter().any(|note| note.contains("SelectionMode")));
+    let once = content_of(&solution, "Acme.Orders_MU");
+    let again = recipe(&solution, "navigate-on-click", args()).unwrap();
+    assert!(again.added.is_empty());
+    assert_eq!(once, content_of(&solution, "Acme.Orders_MU"));
+    // A selection of the first row on load would navigate at once; the window follows the flag.
+    let off = plan_set(
+        &solution,
+        &SetRequest {
+            mashup: "Acme.Orders_MU".into(),
+            widget: collection.clone(),
+            properties: vec![("AutoSelectFirstRow".into(), json!(true))],
+            style_from: None,
+            styles: vec![],
+        },
+    )
+    .unwrap();
+    apply_edit(&solution, off.edit.as_ref().unwrap(), &lock(&solution)).unwrap();
+    let mut changed = args();
+    changed.window = Some("popup".into());
+    let again = recipe(&solution, "navigate-on-click", changed).unwrap();
+    assert!(
+        again
+            .notes
+            .iter()
+            .any(|note| note.contains("AutoSelectFirstRow=false")),
+        "{:?}",
+        again.notes
+    );
+    let document =
+        crate::core::mashup::edit::MashupDocument::new(content_of(&solution, "Acme.Orders_MU"))
+            .unwrap();
+    assert_eq!(
+        document.at(&document.find_exact(&function).unwrap().path)["Properties"]
+            ["TargetWindowType"],
+        "popup"
+    );
+}
+
+#[test]
+fn navigate_on_click_with_another_field_rebinds_the_one_function() {
+    let (dir, solution) = recipe_fixture();
+    std::fs::write(
+        dir.path().join("acme/DataShapes/Acme.Orders.Order_DS.xml"),
+        r#"<Entities><DataShapes><DataShape name="Acme.Orders.Order_DS" projectName="Acme"><FieldDefinitions><FieldDefinition name="id" baseType="LONG"/><FieldDefinition name="PageA" baseType="STRING"/><FieldDefinition name="PageB" baseType="STRING"/></FieldDefinitions></DataShape></DataShapes></Entities>"#,
+    )
+    .unwrap();
+    let placed = plan_add(&solution, &add_request("Acme.Orders_MU", "collection")).unwrap();
+    apply_edit(&solution, &placed.edit, &lock(&solution)).unwrap();
+    let collection = placed.placed.id.clone();
+    let linked = bind(
+        &solution,
+        "data:Acme.Orders.Manager.GetOrders",
+        &format!("ui:{collection}.Data"),
+    )
+    .unwrap();
+    apply_edit(&solution, &linked.edit, &lock(&solution)).unwrap();
+    let args = |field: &str| RecipeArgs {
+        widget: Some(collection.clone()),
+        field: Some(field.into()),
+        ..Default::default()
+    };
+    recipe(&solution, "navigate-on-click", args("PageA")).unwrap();
+    let plan = recipe(&solution, "navigate-on-click", args("PageB")).unwrap();
+    assert!(plan.added.is_empty());
+    assert!(plan.notes.iter().any(|note| note.contains("PageB")));
+    let value = content_of(&solution, "Acme.Orders_MU");
+    let functions: Vec<_> = value["UI"]["Widgets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|widget| {
+            let mut found = Vec::new();
+            fn walk<'a>(node: &'a Value, found: &mut Vec<&'a Value>) {
+                if node["Properties"]["Type"] == "navigationfunction" {
+                    found.push(node);
+                }
+                for child in node["Widgets"].as_array().into_iter().flatten() {
+                    walk(child, found);
+                }
+            }
+            walk(widget, &mut found);
+            found
+        })
+        .collect();
+    assert_eq!(functions.len(), 1);
+    let clicks = value["Events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|event| event["EventTriggerEvent"] == "CellClicked")
+        .count();
+    assert_eq!(clicks, 1);
+    let targets: Vec<_> = value["DataBindings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|binding| binding["PropertyMaps"].as_array().unwrap().iter())
+        .filter(|map| map["TargetProperty"] == "TargetMashup")
+        .map(|map| map["SourceProperty"].clone())
+        .collect();
+    assert_eq!(targets, vec![json!("PageB")]);
+    let once = content_of(&solution, "Acme.Orders_MU");
+    let again = recipe(&solution, "navigate-on-click", args("PageB")).unwrap();
+    assert!(again.added.is_empty());
+    assert_eq!(once, content_of(&solution, "Acme.Orders_MU"));
+}
+
+#[test]
+fn navigate_on_click_clicks_a_grid_row_and_refuses_what_it_cannot_wire() {
+    let (_dir, solution) = recipe_fixture();
+    let linked = bind(
+        &solution,
+        "data:Acme.Orders.Manager.GetOrders",
+        "ui:ptcsgrid-5.Data",
+    )
+    .unwrap();
+    apply_edit(&solution, &linked.edit, &lock(&solution)).unwrap();
+    let plan = recipe(
+        &solution,
+        "navigate-on-click",
+        RecipeArgs {
+            widget: Some("ptcsgrid-5".into()),
+            field: Some("note".into()),
+            window: Some("popup".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let function = plan.added[0].clone();
+    let value = content_of(&solution, "Acme.Orders_MU");
+    assert!(has_event(
+        &value,
+        "ptcsgrid-5",
+        "RowClicked",
+        &function,
+        "Navigate"
+    ));
+    for (widget, field, window, expected) in [
+        ("ptcsgrid-5", "missing", None, "no field missing"),
+        ("ptcsgrid-5", "note", Some("tab"), "the window is"),
+        ("ptcsbutton-6", "note", None, "needs a collection or a grid"),
+    ] {
+        let error = recipe(
+            &solution,
+            "navigate-on-click",
+            RecipeArgs {
+                widget: Some(widget.into()),
+                field: Some(field.into()),
+                window: window.map(String::from),
+                ..Default::default()
+            },
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains(expected), "{error}");
+    }
+}
+
+#[test]
+fn mashup_set_checks_cds_icons_and_leaves_other_images_alone() {
+    let (_dir, solution) = recipe_fixture();
+    let set = |icon: &str| {
+        plan_set(
+            &solution,
+            &SetRequest {
+                mashup: "Acme.Orders_MU".into(),
+                widget: "ptcsbutton-6".into(),
+                properties: vec![("Icon".into(), json!(icon))],
+                style_from: None,
+                styles: vec![],
+            },
+        )
+    };
+    for good in ["cds:icon_hamburger", "Acme.Media.Logo", "/Thingworx/x.svg"] {
+        assert!(set(good).is_ok(), "{good}");
+    }
+    let error = set("cds:icon_menu").unwrap_err().to_string();
+    assert!(error.contains("Icon"), "{error}");
+    assert!(error.contains("cds:icon_hamburger"), "{error}");
+    let error = set("cds:icon_chevron_rigth").unwrap_err().to_string();
+    assert!(error.contains("cds:icon_chevron_right"), "{error}");
+}
+
+#[test]
+fn only_image_properties_are_checked_for_cds_icons() {
+    let (_dir, solution) = recipe_fixture();
+    let placed = plan_add(&solution, &add_request("Acme.Orders_MU", "label")).unwrap();
+    apply_edit(&solution, &placed.edit, &lock(&solution)).unwrap();
+    let set = |widget: &str, property: &str, value: &str| {
+        plan_set(
+            &solution,
+            &SetRequest {
+                mashup: "Acme.Orders_MU".into(),
+                widget: widget.into(),
+                properties: vec![(property.into(), json!(value))],
+                style_from: None,
+                styles: vec![],
+            },
+        )
+    };
+    assert!(set(&placed.placed.id, "LabelText", "cds:icon_x is the id").is_ok());
+    let error = set("ptcsbutton-6", "Icon", "cds:icon_nope_x")
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("not a CDS icon"), "{error}");
+}
+
+#[test]
+fn a_nested_menu_refuses_a_zero_width() {
+    let error = Recipe::from_args(
+        "nested-menu",
+        &RecipeArgs {
+            widget: Some("bar".into()),
+            menu: Some("Acme.Main_MN".into()),
+            width: Some(0),
+            ..Default::default()
+        },
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("--width"), "{error}");
+}
+
+#[test]
+fn the_catalogue_has_the_events_and_properties_the_click_recipe_uses() {
+    let catalog = widgets::catalog();
+    for (widget, event) in [
+        ("ptcscollection", "CellClicked"),
+        ("ptcsgrid", "RowClicked"),
+    ] {
+        let found = catalog.by_type(widget).unwrap();
+        assert!(found
+            .events
+            .as_ref()
+            .unwrap()
+            .iter()
+            .any(|name| name == event));
+    }
+    let navigation = catalog.by_type("navigationfunction").unwrap();
+    assert!(navigation
+        .services
+        .as_ref()
+        .unwrap()
+        .iter()
+        .any(|name| name == "Navigate"));
+    assert!(navigation.property("TargetMashup").is_some());
+    assert!(navigation.property("TargetWindowType").is_some());
+}
+
+fn add_at(solution: &Solution, mashup: &str, widget: &str, placement: Placement) -> String {
+    let mut add = add_request(mashup, widget);
+    add.placement = Some(placement);
+    let plan = plan_add(solution, &add).unwrap();
+    apply_edit(solution, &plan.edit, &lock(solution)).unwrap();
+    plan.placed.id
+}
+
+fn beside_of(anchor: &str, side: mashup::edit::Side) -> Placement {
+    Placement::Beside {
+        anchor: anchor.into(),
+        side,
+    }
+}
+
+fn move_request(mashup: &str, widget: &str, placement: Placement) -> MoveRequest {
+    MoveRequest {
+        mashup: mashup.into(),
+        widget: widget.into(),
+        placement: Some(placement),
+    }
+}
+
+fn move_applied(solution: &Solution, request: &MoveRequest) -> MovePlan {
+    let plan = plan_move(solution, request).unwrap();
+    apply_edit(solution, plan.edit.as_ref().unwrap(), &lock(solution)).unwrap();
+    plan
+}
+
+fn move_fixture(name: &str) -> (tempfile::TempDir, Solution) {
+    let (dir, solution) = one_project();
+    apply_new(
+        &solution,
+        &plan_new(&solution, &request(name)).unwrap(),
+        &lock(&solution),
+    )
+    .unwrap();
+    (dir, solution)
+}
+
+fn ids_of(value: &Value) -> Vec<String> {
+    fn walk(widget: &Value, out: &mut Vec<String>) {
+        out.push(widget["Properties"]["Id"].as_str().unwrap().to_string());
+        for child in widget["Widgets"].as_array().into_iter().flatten() {
+            walk(child, out);
+        }
+    }
+    let mut out = Vec::new();
+    walk(&value["UI"], &mut out);
+    out
+}
+
+fn parent_of<'a>(widget: &'a Value, id: &str) -> Option<&'a Value> {
+    let children = widget["Widgets"].as_array()?;
+    if children.iter().any(|child| child["Properties"]["Id"] == id) {
+        return Some(widget);
+    }
+    children.iter().find_map(|child| parent_of(child, id))
+}
+
+#[test]
+fn moving_a_label_keeps_its_identity_and_tidies_the_row_it_left() {
+    let name = "Acme.Move_MU";
+    let (_dir, solution) = move_fixture(name);
+    let first = add_at(&solution, name, "label", Placement::In("center".into()));
+    let second = add_at(
+        &solution,
+        name,
+        "label",
+        beside_of(&first, mashup::edit::Side::Below),
+    );
+    let set = SetRequest {
+        mashup: name.into(),
+        widget: second.clone(),
+        properties: vec![
+            ("LabelText".into(), json!("Kept text")),
+            ("Margin".into(), json!("3 4")),
+        ],
+        style_from: None,
+        styles: vec![],
+    };
+    let plan = plan_set(&solution, &set).unwrap();
+    apply_edit(&solution, plan.edit.as_ref().unwrap(), &lock(&solution)).unwrap();
+    let before = content_of(&solution, name);
+    let before_widget = find_widget(&before["UI"], &second).unwrap().clone();
+
+    let plan = move_applied(
+        &solution,
+        &move_request(name, &second, beside_of(&first, mashup::edit::Side::Right)),
+    );
+    assert_eq!(plan.widget, second);
+    assert!(
+        !plan.removed.is_empty(),
+        "the row it left is empty and goes: {plan:?}"
+    );
+    let after = content_of(&solution, name);
+    let moved = find_widget(&after["UI"], &second).unwrap();
+    assert_eq!(
+        moved["Properties"]["DisplayName"],
+        before_widget["Properties"]["DisplayName"]
+    );
+    assert_eq!(moved["Properties"]["LabelText"], "Kept text");
+    assert_eq!(moved["Properties"]["Margin"], "3 4");
+    for removed in &plan.removed {
+        assert!(!ids_of(&after).contains(removed));
+    }
+    let row = parent_of(&after["UI"], &second).unwrap();
+    let siblings = row["Widgets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|child| child["Properties"]["Id"].as_str().unwrap().to_string())
+        .collect::<Vec<_>>();
+    assert_eq!(siblings, [first.clone(), second.clone()]);
+    assert_eq!(row["Properties"]["flex-direction"], "row");
+    let ids = ids_of(&after);
+    assert_eq!(
+        ids.len(),
+        ids.iter().collect::<std::collections::BTreeSet<_>>().len()
+    );
+}
+
+#[test]
+fn moving_where_the_widget_already_is_edits_nothing() {
+    let name = "Acme.Move_MU";
+    let (_dir, solution) = move_fixture(name);
+    let first = add_at(&solution, name, "label", Placement::In("center".into()));
+    let second = add_at(
+        &solution,
+        name,
+        "label",
+        beside_of(&first, mashup::edit::Side::Right),
+    );
+    let third = add_at(
+        &solution,
+        name,
+        "label",
+        beside_of(&first, mashup::edit::Side::Below),
+    );
+    for (widget, placement) in [
+        (&second, beside_of(&first, mashup::edit::Side::Right)),
+        (&third, beside_of(&first, mashup::edit::Side::Below)),
+        (&second, Placement::In("center".into())),
+    ] {
+        let plan = plan_move(&solution, &move_request(name, widget, placement)).unwrap();
+        assert!(plan.edit.is_none(), "{widget}: {plan:?}");
+    }
+    let left = move_request(name, &second, beside_of(&third, mashup::edit::Side::Left));
+    let moved = move_applied(&solution, &left);
+    let again = plan_move(&solution, &left).unwrap();
+    assert!(again.edit.is_none(), "{moved:?} then {again:?}");
+}
+
+#[test]
+fn moving_a_bound_grid_keeps_its_bindings() {
+    let (_dir, solution) = bind_fixture();
+    let name = "Acme.Orders_MU";
+    let button = add_at(&solution, name, "button", Placement::In("center".into()));
+    let grid_id = "ptcsgrid-5";
+    let bound = plan_bind(
+        &solution,
+        &BindRequest {
+            mashup: name.into(),
+            from: "data:Acme.Orders.Manager.GetOrders".into(),
+            to: format!("ui:{grid_id}.Data"),
+        },
+    )
+    .unwrap();
+    apply_edit(&solution, &bound.edit, &lock(&solution)).unwrap();
+    let handler = on(
+        &solution,
+        &format!("ui:{button}.Clicked"),
+        "data:Acme.Orders.Manager.GetOrders",
+    )
+    .unwrap();
+    apply_edit(&solution, &handler.edit, &lock(&solution)).unwrap();
+    let before = content_of(&solution, name);
+    assert!(find_widget(&before["UI"], grid_id).is_some());
+    let plan = move_applied(
+        &solution,
+        &move_request(name, grid_id, beside_of(&button, mashup::edit::Side::Below)),
+    );
+    assert_eq!(plan.widget, grid_id);
+    let after = content_of(&solution, name);
+    assert_eq!(after["DataBindings"], before["DataBindings"]);
+    assert_eq!(after["Events"], before["Events"]);
+    assert_eq!(after["Data"], before["Data"]);
+    assert_eq!(
+        find_widget(&after["UI"], grid_id).unwrap()["Properties"]["DisplayName"],
+        find_widget(&before["UI"], grid_id).unwrap()["Properties"]["DisplayName"]
+    );
+    assert!(ids_of(&after).contains(&button));
+}
+
+#[test]
+fn moving_a_container_takes_its_contents_along() {
+    let name = "Acme.Move_MU";
+    let (_dir, solution) = move_fixture(name);
+    let panel = add_at(&solution, name, "container", Placement::In("center".into()));
+    let inside = add_at(&solution, name, "label", Placement::In(panel.clone()));
+    let other = add_at(&solution, name, "label", Placement::In("center".into()));
+    let before = content_of(&solution, name);
+    let panel_before = find_widget(&before["UI"], &panel).unwrap().clone();
+    let plan = move_applied(
+        &solution,
+        &move_request(name, &panel, beside_of(&other, mashup::edit::Side::Right)),
+    );
+    assert!(plan.moved.contains(&inside) && plan.moved.contains(&panel));
+    let after = content_of(&solution, name);
+    let moved = find_widget(&after["UI"], &panel).unwrap();
+    assert_eq!(
+        moved["Properties"]["DisplayName"],
+        panel_before["Properties"]["DisplayName"]
+    );
+    assert_eq!(moved["Widgets"], panel_before["Widgets"]);
+    assert_eq!(
+        parent_of(&after["UI"], &inside).unwrap()["Properties"]["Id"],
+        panel
+    );
+}
+
+#[test]
+fn a_move_into_itself_or_with_an_anchor_in_the_subtree_is_refused() {
+    let name = "Acme.Move_MU";
+    let (_dir, solution) = move_fixture(name);
+    let panel = add_at(&solution, name, "container", Placement::In("center".into()));
+    let inside = add_at(&solution, name, "label", Placement::In(panel.clone()));
+    let other = add_at(&solution, name, "label", Placement::In("center".into()));
+    for placement in [
+        Placement::In(panel.clone()),
+        beside_of(&inside, mashup::edit::Side::Right),
+        beside_of(&panel, mashup::edit::Side::Below),
+    ] {
+        let error = plan_move(&solution, &move_request(name, &panel, placement)).unwrap_err();
+        assert!(matches!(error, AuthoringError::Refused(_)), "{error}");
+    }
+    for widget in [mashup::edit::ROOT_ID, "center"] {
+        let error = plan_move(
+            &solution,
+            &move_request(name, widget, beside_of(&other, mashup::edit::Side::Below)),
+        )
+        .unwrap_err();
+        assert!(
+            matches!(error, AuthoringError::Refused(_)),
+            "{widget}: {error}"
+        );
+    }
+    let error = plan_move(
+        &solution,
+        &MoveRequest {
+            mashup: name.into(),
+            widget: other.clone(),
+            placement: None,
+        },
+    )
+    .unwrap_err();
+    assert!(matches!(error, AuthoringError::Invalid(_)));
+    let error = plan_move(
+        &solution,
+        &move_request(name, &other, Placement::In(inside.clone())),
+    )
+    .unwrap_err();
+    assert!(
+        error.to_string().contains("not a responsive container"),
+        "{error}"
+    );
+}
+
+#[test]
+fn the_move_plan_reports_its_shape_as_json() {
+    let name = "Acme.Move_MU";
+    let (_dir, solution) = move_fixture(name);
+    let first = add_at(&solution, name, "label", Placement::In("center".into()));
+    let second = add_at(
+        &solution,
+        name,
+        "label",
+        beside_of(&first, mashup::edit::Side::Below),
+    );
+    let plan = plan_move(
+        &solution,
+        &move_request(name, &second, beside_of(&first, mashup::edit::Side::Right)),
+    )
+    .unwrap();
+    let report = move_plan_json(&solution, &plan, false);
+    assert_eq!(report["id"], second);
+    assert_eq!(report["mashup"], name);
+    assert_eq!(report["changed"], true);
+    assert_eq!(report["applied"], false);
+    assert_eq!(report["to"], format!("right of {first}"));
+    for key in [
+        "moved",
+        "from",
+        "containers",
+        "container_contents",
+        "flipped",
+        "wrapped",
+        "removed",
+        "files",
+    ] {
+        assert!(report.get(key).is_some(), "{key}");
+    }
+    let itself = plan_move(
+        &solution,
+        &move_request(name, &second, beside_of(&second, mashup::edit::Side::Right)),
+    );
+    assert!(matches!(itself, Err(AuthoringError::Refused(_))));
+}
+
+fn wrap_in_generated(widget: &mut Value, id: &str, wrapper: &str) -> bool {
+    let Some(kids) = widget["Widgets"].as_array_mut() else {
+        return false;
+    };
+    if let Some(at) = kids.iter().position(|kid| kid["Properties"]["Id"] == id) {
+        let inner = kids[at].take();
+        kids[at] = json!({
+            "Properties": {
+                "DisplayName": format!("container-{}", wrapper.rsplit('-').next().unwrap()),
+                "Id": wrapper,
+                "Type": "flexcontainer",
+                "flex-direction": "row"
+            },
+            "Widgets": [inner]
+        });
+        return true;
+    }
+    kids.iter_mut()
+        .any(|kid| wrap_in_generated(kid, id, wrapper))
+}
+
+#[test]
+fn a_move_never_reuses_an_id_from_the_subtree_it_took_out() {
+    let name = "Acme.Move_MU";
+    let (dir, solution) = move_fixture(name);
+    let anchor = add_at(&solution, name, "label", Placement::In("center".into()));
+    let panel = add_at(&solution, name, "container", Placement::In("center".into()));
+    let inside = add_at(&solution, name, "label", Placement::In(panel.clone()));
+    let top = ids_of(&content_of(&solution, name))
+        .iter()
+        .filter(|id| **id != panel && **id != inside)
+        .filter_map(|id| id.rsplit('-').next()?.parse::<u64>().ok())
+        .max()
+        .unwrap();
+    let (new_panel, new_inside) = (
+        format!("flexcontainer-{}", top + 1),
+        format!("ptcslabel-{}", top + 2),
+    );
+    rewrite_mashup(dir.path(), name, |value| {
+        value["UI"]["Properties"]
+            .as_object_mut()
+            .unwrap()
+            .remove("id_index");
+        let text = value.to_string().replace(&panel, &new_panel);
+        *value = serde_json::from_str(&text.replace(&inside, &new_inside)).unwrap();
+    });
+    move_applied(
+        &solution,
+        &move_request(
+            name,
+            &new_panel,
+            beside_of(&anchor, mashup::edit::Side::Right),
+        ),
+    );
+    let ids = ids_of(&content_of(&solution, name));
+    assert_eq!(
+        ids.len(),
+        ids.iter().collect::<std::collections::BTreeSet<_>>().len(),
+        "{ids:?}"
+    );
+    assert!(ids.contains(&new_panel) && ids.contains(&new_inside));
+}
+
+#[test]
+fn moving_to_the_end_of_a_row_is_a_no_op_only_when_the_row_is_already_split_there() {
+    let name = "Acme.Move_MU";
+    let (_dir, solution) = move_fixture(name);
+    let a = add_at(&solution, name, "label", Placement::In("center".into()));
+    let b = add_at(
+        &solution,
+        name,
+        "label",
+        beside_of(&a, mashup::edit::Side::Right),
+    );
+    let c = add_at(
+        &solution,
+        name,
+        "label",
+        beside_of(&b, mashup::edit::Side::Right),
+    );
+    let end = beside_of(&a, mashup::edit::Side::End);
+    let result = plan_move(&solution, &move_request(name, &b, end.clone()));
+    assert!(
+        !matches!(&result, Ok(plan) if plan.edit.is_none()),
+        "{result:?} on row [{a}, {b}, {c}]"
+    );
+    let (_dir, solution) = move_fixture(name);
+    let a = add_at(&solution, name, "shape", Placement::In("center".into()));
+    add_at(
+        &solution,
+        name,
+        "shape",
+        beside_of(&a, mashup::edit::Side::Below),
+    );
+    let b = add_at(
+        &solution,
+        name,
+        "label",
+        beside_of(&a, mashup::edit::Side::Right),
+    );
+    let v = add_at(
+        &solution,
+        name,
+        "label",
+        beside_of(&b, mashup::edit::Side::End),
+    );
+    let plan = plan_move(
+        &solution,
+        &move_request(name, &v, beside_of(&b, mashup::edit::Side::End)),
+    )
+    .unwrap();
+    assert!(plan.edit.is_none(), "{plan:?}");
+}
+
+#[test]
+fn a_moved_button_keeps_its_width_and_margin_in_a_filters_footer() {
+    use crate::core::mashup::edit::Placement;
+    let template = mashup::templates::layout("filter-panel").unwrap().unwrap();
+    let mut document = new_document(&template, false, DEFAULT_THEME).unwrap();
+    let catalog = widgets::catalog();
+    let button = document
+        .place(
+            catalog.resolve("button").unwrap(),
+            &Placement::In("content".into()),
+        )
+        .unwrap()
+        .id;
+    let path = document.find(&button).unwrap().path;
+    document.set_property(&path, "Width", json!(200));
+    document.set_property(&path, "Margin", json!("3"));
+    let (subtree, _) = document.detach_widget(&path).unwrap();
+    let placed = document
+        .place_existing(
+            catalog.resolve("button").unwrap(),
+            subtree,
+            &Placement::Bottom("filters".into()),
+        )
+        .unwrap();
+    let found = document.find(&placed.id).unwrap();
+    assert_eq!(found.id, button);
+    let properties = &document.at(&found.path)["Properties"];
+    assert_eq!(properties["Width"], 200);
+    assert_eq!(properties["Margin"], "3");
+}
+
+#[test]
+fn a_move_next_to_its_own_wrapper_is_refused_and_from_names_a_surviving_parent() {
+    let name = "Acme.Move_MU";
+    let (dir, solution) = move_fixture(name);
+    let a = add_at(&solution, name, "label", Placement::In("center".into()));
+    let b = add_at(&solution, name, "label", Placement::In("center".into()));
+    rewrite_mashup(dir.path(), name, |value| {
+        assert!(wrap_in_generated(&mut value["UI"], &b, "flexcontainer-90"));
+    });
+    let error = plan_move(
+        &solution,
+        &move_request(
+            name,
+            &b,
+            beside_of("flexcontainer-90", mashup::edit::Side::Right),
+        ),
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("own wrapper"), "{error}");
+    let plan = move_applied(
+        &solution,
+        &move_request(name, &b, beside_of(&a, mashup::edit::Side::Right)),
+    );
+    assert_eq!(plan.removed, ["flexcontainer-90"]);
+    assert_eq!(plan.from, "flexcontainer-2");
 }

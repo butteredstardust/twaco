@@ -29,6 +29,8 @@
 //!   `ParameterDefinitions`, `ServiceDefinitions`, `ServiceImplementations`, `ConfigurationTables`,
 //!   `ConfigurationTableDefinitions`, and `PropertyDefinitions`; some live exports reorder these
 //!   named sections (PropertyDefinitions observed 2026-10-29; version 8);
+//! - sort direct Subscription/Events children by alias, eventName, source, sourceProperty,
+//!   then canonical bytes (10.2.1 field report; version 12);
 //! - sort the entries of a direct-child `ThingProperties` by element name, and drop each entry's
 //!   `Timestamp` and `Quality`: a 10.1 export orders a Thing's stored values by where each property
 //!   comes from and by hash, not as imported, and an import re-stamps a value whose definition
@@ -70,8 +72,8 @@
 //! No generated id, default attribute, or other exception is included without a live/committed
 //! observation. Apart from the rules above, CDATA bytes are never decoded, re-indented, or joined.
 //!
-//! Without server ownership, hashes remain `v11:<sha256>` byte for byte. With ownership they are
-//! `v11:so1:<policy-sha256>:<content-sha256>`: the policy digest covers the sorted, deduplicated
+//! Without server ownership, hashes remain `v12:<sha256>` byte for byte. With ownership they are
+//! `v12:so1:<policy-sha256>:<content-sha256>`: the policy digest covers the sorted, deduplicated
 //! union of applicable part labels (newline-delimited). `so1` versions selector semantics.
 //! Content uses the same comparison tree with owned nodes omitted. Baselines must compare the
 //! entire prefix before the final colon; adding, removing or changing ownership invalidates
@@ -81,7 +83,7 @@ use super::scan::{self, Kind, ScanError, Token};
 use sha2::{Digest, Sha256};
 
 /// The normalisation version every hash carries; a baseline from another one says nothing.
-pub(crate) const HASH_VERSION: &str = "v11";
+pub(crate) const HASH_VERSION: &str = "v12";
 pub(crate) const LIVE_ONLY_ELEMENTS: [&[u8]; 9] = [
     b"effectiveShape",
     b"Owner",
@@ -1334,6 +1336,28 @@ fn sort_name_keyed_containers(element: &mut Element) {
             sort_name_keyed_containers(child);
         }
     }
+    if element.name == b"Subscription" {
+        for child in &mut element.children {
+            if let Node::Element(events) = child {
+                if events.name == b"Events" {
+                    events.unordered = true;
+                    events.children.sort_by_cached_key(|node| match node {
+                        Node::Element(event) => (
+                            [
+                                b"alias".as_slice(),
+                                b"eventName",
+                                b"source",
+                                b"sourceProperty",
+                            ]
+                            .map(|name| attribute_value(event, name).unwrap_or_default().to_vec()),
+                            canonical_element_bytes(event),
+                        ),
+                        _ => (Default::default(), Vec::new()),
+                    });
+                }
+            }
+        }
+    }
     if !NAME_KEYED_CONTAINERS.contains(&element.name.as_slice()) {
         return;
     }
@@ -1588,6 +1612,49 @@ fn sha256(input: &[u8]) -> [u8; 32] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn subscription_event_order_is_a_set_only_under_subscription() {
+        let temperature = r#"<Event alias="Me_DataChange_Temperature" eventName="DataChange" source="" sourceProperty="Temperature" sourceType="Thing"/>"#;
+        let pressure = temperature.replace("Temperature", "Pressure");
+        let wrap = |events: String| {
+            format!("<Thing><Subscriptions><Subscription name=\"OnChange\" version=\"2\"><Events>{events}</Events></Subscription></Subscriptions></Thing>")
+        };
+        let repo = wrap(format!("{temperature}{pressure}"));
+        let server = wrap(format!("{pressure}{temperature}"));
+        assert_eq!(
+            hash(repo.as_bytes()).unwrap(),
+            hash(server.as_bytes()).unwrap()
+        );
+        assert_ne!(
+            hash(repo.as_bytes()).unwrap(),
+            hash(
+                server
+                    .replace("sourceProperty=\"Pressure\"", "sourceProperty=\"Flow\"")
+                    .as_bytes()
+            )
+            .unwrap()
+        );
+        assert_ne!(
+            hash(format!("<Thing><Events>{temperature}{pressure}</Events></Thing>").as_bytes())
+                .unwrap(),
+            hash(format!("<Thing><Events>{pressure}{temperature}</Events></Thing>").as_bytes())
+                .unwrap()
+        );
+        let formatted = crate::core::layout::subscription_events(repo.as_bytes()).unwrap();
+        assert_eq!(formatted, server.as_bytes());
+        assert_eq!(
+            crate::core::layout::subscription_events(&formatted).unwrap(),
+            formatted
+        );
+        assert!(all_differences(repo.as_bytes(), server.as_bytes(), &[], &READ_BACK).is_empty());
+        let left = comparison_tree(repo.as_bytes(), true).unwrap();
+        let right = comparison_tree(server.as_bytes(), true).unwrap();
+        assert_eq!(
+            canonical_element_bytes(&left),
+            canonical_element_bytes(&right)
+        );
+    }
 
     /// A Project sent with an empty `dependsOn`, and the 10.2 server's export of it after an
     /// import whose Thing implements another project's ThingShape.
@@ -1938,7 +2005,7 @@ mod tests {
 
     #[test]
     fn hash_version_eleven_keeps_version_nine_framing() {
-        assert!(hash(b"<Thing/>").unwrap().starts_with("v11:"));
+        assert!(hash(b"<Thing/>").unwrap().starts_with("v12:"));
         assert!(normalise(b"<Thing/>")
             .unwrap()
             .starts_with(b"twaco-entity-normalise-v9\0"));

@@ -277,6 +277,73 @@ where
     }
 }
 
+/// CLI name=value inputs, typed only when a cached or repository signature is known.
+pub fn parameter_pairs(
+    solution: &Solution,
+    target: &str,
+    service: &str,
+    pairs: &[String],
+) -> Result<Value, CallCommandError> {
+    let target = workspace::call_target(&workspace::discover(solution).entities, target)
+        .map_err(CallCommandError::Target)?;
+    let (model, _) = crate::core::types::load_model(solution);
+    let entity = model.entities.iter().find(|e| match &target {
+        ServiceTarget::Thing(name) => e.collection == "Things" && &e.name == name,
+        ServiceTarget::Entity(key) => e.collection == key.collection() && e.name == key.name(),
+    });
+    let platform = crate::core::types::platform::cached(solution);
+    let signature = match entity {
+        Some(entity) => {
+            crate::core::catalog::lookup_service(
+                entity,
+                &model.entities,
+                platform.as_ref(),
+                service,
+            )
+            .service
+        }
+        // A Resource the repository does not hold is typed from the platform cache.
+        None => match &target {
+            ServiceTarget::Entity(key) if key.collection() == "Resources" => platform
+                .as_ref()
+                .and_then(|p| p.resources.get(key.name()))
+                .and_then(|meta| meta.services.get(service))
+                .map(|found| crate::core::catalog::platform_service(service, found)),
+            _ => None,
+        },
+    };
+    let mut result = serde_json::Map::new();
+    for pair in pairs {
+        let (name, raw) = pair
+            .split_once('=')
+            .filter(|(name, _)| !name.is_empty())
+            .ok_or_else(|| CallCommandError::Arguments("--param must be name=value".into()))?;
+        let base = signature
+            .as_ref()
+            .and_then(|s| s.parameters.iter().find(|p| p.name == name))
+            .map(|p| p.value.base_type.as_str());
+        let value = match base {
+            Some("BOOLEAN" | "NUMBER" | "INTEGER" | "LONG" | "JSON" | "INFOTABLE") => {
+                serde_json::from_str(raw).map_err(|_| {
+                    CallCommandError::Arguments(format!(
+                        "--param {name} must be a valid {} value",
+                        base.unwrap()
+                    ))
+                })?
+            }
+            _ => Value::String(raw.into()),
+        };
+        if result.insert(name.into(), value).is_some() {
+            return Err(CallCommandError::Arguments(format!(
+                "--param gives {name} twice"
+            )));
+        }
+    }
+    let value = Value::Object(result);
+    check_arguments(solution, &target, service, &value)?;
+    Ok(value)
+}
+
 /// Refuse arguments the repository's own signature of the service rules out: a name it does not
 /// declare, or a JSON value that cannot be its base type. A service the repository cannot resolve
 /// is the server's to judge.
@@ -286,6 +353,8 @@ fn check_arguments(
     service: &str,
     parameters: &Value,
 ) -> Result<(), CallCommandError> {
+    crate::core::repo::refuse_git_bash_value(parameters)
+        .map_err(|error| CallCommandError::Arguments(error.to_string()))?;
     let empty = serde_json::Map::new();
     let given = match parameters {
         Value::Null => &empty,
@@ -527,6 +596,37 @@ mod tests {
     use std::path::PathBuf;
 
     #[test]
+    fn call_refuses_rewritten_pairs_and_nested_json() {
+        let (_dir, _root, solution) = solution();
+        let error = parameter_pairs(
+            &solution,
+            "Acme.T",
+            "Run",
+            &["path=C:/Program Files/Git/Thingworx/MediaEntities/X".into()],
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("MSYS_NO_PATHCONV=1"), "{error}");
+        let target = ServiceTarget::Thing("Acme.T".into());
+        let nested =
+            serde_json::json!({"input":{"rows":[{"path":"C:/Program Files/Git/usr/file"}]}});
+        assert!(check_arguments(&solution, &target, "Run", &nested)
+            .unwrap_err()
+            .to_string()
+            .contains("MSYS_NO_PATHCONV=1"));
+        assert_eq!(
+            parameter_pairs(
+                &solution,
+                "Acme.T",
+                "Run",
+                &["path=D:/data/file.csv".into()]
+            )
+            .unwrap(),
+            serde_json::json!({"path":"D:/data/file.csv"})
+        );
+    }
+
+    #[test]
     fn an_argument_in_the_service_place_is_refused_before_any_request() {
         assert!(valid_service_name("Acme.T", "GetOrders_2").is_ok());
         let slip = valid_service_name("Acme.T.GetOrders", "limit=3").unwrap_err();
@@ -564,6 +664,46 @@ mod tests {
             "<Entities><Things><Thing name=\"P.T\" projectName=\"P\" thingTemplate=\"GenericThing\"><ThingShape><ServiceDefinitions><ServiceDefinition name=\"Twice\"><ParameterDefinitions><FieldDefinition baseType=\"NUMBER\" name=\"x\"/><FieldDefinition aspect.isRequired=\"true\" baseType=\"STRING\" name=\"why\"/></ParameterDefinitions></ServiceDefinition></ServiceDefinitions></ThingShape></Thing></Things></Entities>",
         )
         .unwrap();
+        assert_eq!(
+            parameter_pairs(
+                &solution,
+                "P.T",
+                "Twice",
+                &["x=2".into(), "why=test".into()]
+            )
+            .unwrap(),
+            serde_json::json!({"x":2,"why":"test"})
+        );
+        assert!(parameter_pairs(
+            &solution,
+            "P.T",
+            "Twice",
+            &["x=bad".into(), "why=test".into()]
+        )
+        .is_err());
+        assert_eq!(
+            parameter_pairs(&solution, "P.T", "Other", &["y=1".into()]).unwrap(),
+            serde_json::json!({"y":"1"})
+        );
+        assert!(parameter_pairs(&solution, "P.T", "Other", &["y=1".into(), "y=2".into()]).is_err());
+        assert!(parameter_pairs(&solution, "P.T", "Other", &["bad".into()]).is_err());
+        // A Resource outside the repository is typed from the platform cache.
+        std::fs::create_dir_all(solution.root.join(".twaco")).unwrap();
+        std::fs::write(
+            solution.root.join(".twaco/platform.json"),
+            r#"{"resources":{"InfoTableFunctions":{"services":{"Query":{"inputs":{"t":{"baseType":"INFOTABLE"}},"result":{"baseType":"INFOTABLE"}}}}}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            parameter_pairs(
+                &solution,
+                "Resources/InfoTableFunctions",
+                "Query",
+                &[r#"t={"rows":[]}"#.into()]
+            )
+            .unwrap(),
+            serde_json::json!({"t":{"rows":[]}})
+        );
         let target = ServiceTarget::Thing("P.T".into());
         let check = |parameters: Value| check_arguments(&solution, &target, "Twice", &parameters);
         check(serde_json::json!({"x": 2, "why": "test"})).unwrap();

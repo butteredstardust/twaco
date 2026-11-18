@@ -73,7 +73,9 @@ pub(crate) fn decide_all_with_progress(
                 .get_for(&entity.collection, &entity.name, &working)
                 .map(|entry| (entry.local.as_str(), entry.server.as_str())),
         );
+        let hint = property_values_hint(entity, &working, fetched.as_deref(), baseline, &decision);
         Ok(EntityPlan {
+            hint,
             server_owned: if server.is_some() {
                 super::super::server_owned::labels(&super::super::server_owned::carried(
                     &entity.server_owned,
@@ -342,4 +344,34 @@ pub(crate) fn toml_parameters(table: Option<&toml::Table>) -> serde_json::Value 
     table
         .map(|table| serde_json::to_value(table).expect("TOML tables serialize as JSON"))
         .unwrap_or_else(|| serde_json::json!({}))
+}
+
+fn property_values_hint(
+    entity: &Entity,
+    working: &str,
+    fetched: Option<&[u8]>,
+    baseline: &Baseline,
+    decision: &push::Decision,
+) -> Option<String> {
+    if !matches!(
+        decision,
+        push::Decision::Refuse(push::Refusal::Conflict { .. })
+    ) {
+        return None;
+    }
+    let ancestor = baseline.get_for(&entity.collection, &entity.name, working)?;
+    // Hash-only baselines can prove this only while the repository still is the common ancestor.
+    if working != ancestor.local || ancestor.local != ancestor.server {
+        return None;
+    }
+    let mut parts = entity.server_owned.clone();
+    parts.push(super::super::server_owned::Part::Properties(
+        Default::default(),
+    ));
+    let local = normalise::hash_with_parts(&entity.bytes, &parts).ok()?;
+    let server = normalise::hash_with_parts(fetched?, &parts).ok()?;
+    (local == server).then(|| {
+        let name = serde_json::to_string(&format!("{}/{}", entity.collection, entity.name)).expect("entity name");
+        format!("only property values differ; declare their server ownership in twaco.toml:\n[[server_owned]]\nentities = [{name}]\nparts = [\"property-values\"]")
+    })
 }

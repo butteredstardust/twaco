@@ -43,12 +43,12 @@ use cli::lint::lint;
 use cli::localization::localization_cmd;
 use cli::mashup::{
     mashup_add_cmd, mashup_add_contained_cmd, mashup_bind_cmd, mashup_collection_add_cmd,
-    mashup_describe_cmd, mashup_diff_cmd, mashup_event_cmd, mashup_gap_cmd, mashup_new_cmd,
-    mashup_off_cmd, mashup_on_cmd, mashup_param_cmd, mashup_recipe_cmd, mashup_remove_cmd,
-    mashup_set_cmd, mashup_source_add_cmd, mashup_source_list_cmd, mashup_source_remove_cmd,
-    mashup_source_retarget_cmd, mashup_state_format_set_cmd, mashup_templates_cmd,
-    mashup_unbind_cmd, mashup_validate_cmd, Mashup, MashupCollectionCommand, MashupSourceCommand,
-    MashupStateFormatCommand,
+    mashup_describe_cmd, mashup_diff_cmd, mashup_event_cmd, mashup_gap_cmd, mashup_move_cmd,
+    mashup_new_cmd, mashup_off_cmd, mashup_on_cmd, mashup_param_cmd, mashup_recipe_cmd,
+    mashup_remove_cmd, mashup_set_cmd, mashup_source_add_cmd, mashup_source_list_cmd,
+    mashup_source_remove_cmd, mashup_source_retarget_cmd, mashup_state_format_set_cmd,
+    mashup_templates_cmd, mashup_unbind_cmd, mashup_validate_cmd, Mashup, MashupCollectionCommand,
+    MashupSourceCommand, MashupStateFormatCommand,
 };
 use cli::network::network_cmd;
 use cli::refactor::{
@@ -296,6 +296,7 @@ fn dispatch(command: Command) -> u8 {
             Mashup::Bind(bind) => mashup_bind_cmd(solution, bind),
             Mashup::On(on) => mashup_on_cmd(solution, on),
             Mashup::Remove(remove) => mashup_remove_cmd(solution, remove),
+            Mashup::Move(moved) => mashup_move_cmd(solution, moved),
             Mashup::Unbind(unbind) => mashup_unbind_cmd(solution, unbind),
             Mashup::Off(off) => mashup_off_cmd(solution, off),
             Mashup::Param(param) => mashup_param_cmd(solution, param),
@@ -329,6 +330,7 @@ fn dispatch(command: Command) -> u8 {
         Command::Retemplate(retemplate) => run(|solution| retemplate_cmd(solution, &retemplate)),
         Command::Reproject(reproject) => run(|solution| reproject_cmd(solution, &reproject)),
         Command::Entity(entity) => run(|solution| match &entity {
+            Entity::Set(set) => entity_edit_cmd(solution, set.edit()),
             Entity::Get(get) => entity_get(solution, get),
             Entity::Diff(diff) => entity_diff(solution, diff),
             Entity::Status(status) => entity_status(solution, status),

@@ -7,7 +7,7 @@ use super::{
 };
 use crate::core::config::Solution;
 use crate::core::mashup::edit::{insert_sorted, ROOT_ID};
-use crate::core::widgets;
+use crate::core::{mashup, widgets};
 use serde_json::{json, Map, Value};
 
 #[derive(Clone, Debug)]
@@ -52,6 +52,10 @@ pub(crate) fn plan_set(
     solution: &Solution,
     request: &SetRequest,
 ) -> Result<SetPlan, AuthoringError> {
+    for (_, value) in &request.properties {
+        crate::core::repo::refuse_git_bash_value(value)
+            .map_err(|error| AuthoringError::Invalid(error.to_string()))?;
+    }
     let loaded = load_existing(solution, &request.mashup)?;
     let mut document = parse_loaded(&loaded)?;
     let found = document
@@ -59,6 +63,13 @@ pub(crate) fn plan_set(
         .map_err(AuthoringError::Edit)?;
     let mut properties = request.properties.clone();
     let mut notes = menubar_properties(&document, &found.type_id, &found.id, &mut properties)?;
+    notes.extend(menubar_limit(
+        solution,
+        &document,
+        &found.type_id,
+        &found.id,
+        &mut properties,
+    )?);
     let root = found.id == ROOT_ID;
     let widget = if root {
         None
@@ -71,7 +82,7 @@ pub(crate) fn plan_set(
         })?)
     };
     if let Some(widget) = widget {
-        if !widget.has_contract() && widget.type_id != "flexcontainer" {
+        if !widget.has_contract() {
             return Err(AuthoringError::Refused(format!(
                 "{} is not in the catalogue; twaco cannot check its properties",
                 widget.type_id
@@ -79,6 +90,8 @@ pub(crate) fn plan_set(
         }
     }
     let mut changed = Vec::new();
+    let mut released = false;
+    let before_responsive = document.at(&found.path)["Properties"]["ResponsiveLayout"].as_bool();
     let mut css = None;
     // What the widget's style was before this call: --style reports its change against it.
     let original_styles = document.root_properties().get("StyleProperties").cloned();
@@ -245,16 +258,19 @@ pub(crate) fn plan_set(
             "DisplayName",
             "__TypeDisplayName",
             "LastContainer",
-            "ResponsiveLayout",
+            "userCannotRemove",
+            "positioning",
         ]
         .contains(&name.as_str())
+            || (name == "ResponsiveLayout" && widget.container)
         {
             return Err(AuthoringError::Refused(format!("twaco sets {name}")));
         }
         if ["_currentParameterDefs", "MashupParameters"].contains(&name.as_str()) {
             return Err(AuthoringError::Refused(format!("{name} is managed by mashup param / add-contained / the function-widget inputs; use those")));
         }
-        let known = widget.defaults.contains_key(name)
+        let known = name == "ResponsiveLayout"
+            || widget.defaults.contains_key(name)
             || widget.property(name).is_some()
             || widget.numbered_default(name).is_some()
             || is_state_parameters(widget, name);
@@ -269,7 +285,25 @@ pub(crate) fn plan_set(
         {
             return Err(AuthoringError::Refused(format!("{name} is not editable")));
         }
-        let value = property_value(widget, name, supplied.clone())?;
+        let value = if name == "ResponsiveLayout" {
+            match supplied {
+                Value::Bool(value) => Value::Bool(*value),
+                Value::String(value) if value == "true" || value == "false" => {
+                    Value::Bool(value == "true")
+                }
+                _ => {
+                    return Err(AuthoringError::Invalid(
+                        "ResponsiveLayout must be true or false".into(),
+                    ))
+                }
+            }
+        } else if matches!(name.as_str(), "Width" | "Height")
+            && (supplied.is_null() || supplied == "")
+        {
+            Value::Null
+        } else {
+            property_value(widget, name, supplied.clone())?
+        };
         if let Some(contract) = widget.property(name) {
             if !contract.options.is_empty() && !contract.options.contains(&value) {
                 return Err(AuthoringError::Invalid(format!(
@@ -284,7 +318,54 @@ pub(crate) fn plan_set(
                 )));
             }
         }
+        if widget.type_id == "flexcontainer" {
+            validate_flex_property(name, &value)?;
+        }
         change_property(&mut document, &found.path, name, value, &mut changed);
+    }
+    if widget.is_some_and(|widget| !widget.container) {
+        let explicit = properties
+            .iter()
+            .any(|(name, _)| name == "ResponsiveLayout");
+        let sizing = properties
+            .iter()
+            .any(|(name, _)| matches!(name.as_str(), "FillContainer" | "Width" | "Height"));
+        let props = &document.at(&found.path)["Properties"];
+        let sized = crate::core::mashup::edit::has_leaf_size(props);
+        let was_fixed = before_responsive == Some(false);
+        let fill_on = properties.iter().any(|(name, value)| {
+            name == "FillContainer" && (value == &Value::Bool(true) || value == "true")
+        });
+        if !explicit && sizing {
+            // Fixed size switches responsive layout off; only turning FillContainer on or removing
+            // the last size switches it back, so a deliberate setting survives a Width edit.
+            let responsive = if props["FillContainer"] == false && sized {
+                Some(false)
+            } else if fill_on || !sized {
+                Some(true)
+            } else {
+                None
+            };
+            if let Some(responsive) = responsive {
+                change_property(
+                    &mut document,
+                    &found.path,
+                    "ResponsiveLayout",
+                    Value::Bool(responsive),
+                    &mut changed,
+                );
+                if !responsive {
+                    notes.push("ResponsiveLayout set to false so Width/Height apply".into());
+                }
+                released = responsive && was_fixed;
+            }
+        }
+        if document.at(&found.path)["Properties"]["ResponsiveLayout"] == false && !sized {
+            notes.push(format!(
+                "{}: ResponsiveLayout=false without Width/Height; set Width and/or Height",
+                found.id
+            ));
+        }
     }
     if found.type_id == "ptcstabset" {
         let count = super::new::tab_count(&document.at(&found.path)["Properties"]["NumberOfTabs"]);
@@ -334,6 +415,9 @@ pub(crate) fn plan_set(
     }
     if !changed.is_empty() {
         document.reflow_for(&found.id);
+        if widget.is_some_and(|widget| !widget.container) {
+            document.fit_leaf_row(&found.id, released);
+        }
     }
     let edit = if changed.is_empty() {
         None
@@ -626,8 +710,15 @@ fn change_property(
     changed: &mut Vec<Change>,
 ) {
     let before = document.at(path)["Properties"].get(name).cloned();
-    if before.as_ref() != Some(&after) {
-        document.set_property(path, name, after.clone());
+    if before.as_ref() != Some(&after) && !(before.is_none() && after.is_null()) {
+        if after.is_null() && matches!(name, "Width" | "Height") {
+            document.at_mut(path)["Properties"]
+                .as_object_mut()
+                .expect("checked properties")
+                .remove(name);
+        } else {
+            document.set_property(path, name, after.clone());
+        }
         changed.push(Change {
             property: name.into(),
             before,
@@ -657,7 +748,7 @@ pub fn set_plan_json(solution: &Solution, plan: &SetPlan, applied: bool) -> Valu
             if sidecars.content_before != sidecars.content_after {
                 files.push(solution.relative(&sidecars.content_path));
             }
-            if sidecars.css_before != sidecars.css_after {
+            if !mashup::same_css_bytes(&sidecars.css_before, &sidecars.css_after) {
                 files.push(solution.relative(&sidecars.css_path));
             }
         }
@@ -718,4 +809,131 @@ pub(super) fn menubar_properties(
     Ok(vec![
         "DataSource set to menuentity because PrimaryNavMenu is set".into(),
     ])
+}
+
+pub(super) fn menubar_limit(
+    solution: &Solution,
+    document: &crate::core::mashup::edit::MashupDocument,
+    type_id: &str,
+    id: &str,
+    properties: &mut Vec<(String, Value)>,
+) -> Result<Vec<String>, AuthoringError> {
+    if type_id != "ptcsmenubar" {
+        return Ok(Vec::new());
+    }
+    let Some(menu) = properties
+        .iter()
+        .find(|(name, _)| name == "PrimaryNavMenu")
+        .and_then(|(_, value)| value.as_str())
+        .filter(|value| !value.is_empty())
+    else {
+        return Ok(Vec::new());
+    };
+    let Some(entity) = crate::core::workspace::entities(solution)
+        .into_iter()
+        .find(|entity| entity.info.collection == "Menus" && entity.info.name == menu)
+    else {
+        return Ok(Vec::new());
+    };
+    let bytes = std::fs::read(&entity.path)
+        .map_err(|error| AuthoringError::Unreadable(format!("Menu {menu}: {error}")))?;
+    let tokens = crate::core::scan::tokenize(&bytes)
+        .map_err(|error| AuthoringError::Unreadable(format!("Menu {menu}: {error}")))?;
+    // Only the Menu's own items: MenuItem elements directly under its MenuItems.
+    let mut stack: Vec<&[u8]> = Vec::new();
+    let mut count = 0;
+    for token in &tokens {
+        let name = token.name.of(&bytes);
+        match token.kind {
+            crate::core::scan::Kind::Start | crate::core::scan::Kind::Empty => {
+                if name == b"MenuItem" && stack.ends_with(&[b"Menu".as_slice(), b"MenuItems"]) {
+                    count += 1;
+                }
+                if matches!(token.kind, crate::core::scan::Kind::Start) {
+                    stack.push(name);
+                }
+            }
+            crate::core::scan::Kind::End => {
+                stack.pop();
+            }
+            _ => {}
+        }
+    }
+    let path = document.find_exact(id).map_err(AuthoringError::Edit)?.path;
+    let catalog = widgets::catalog()
+        .by_type(type_id)
+        .expect("menubar catalogue");
+    if let Some((_, value)) = properties
+        .iter()
+        .find(|(name, _)| name == "PrimaryNavMaxItems")
+    {
+        super::property_value(catalog, "PrimaryNavMaxItems", value.clone())?;
+    }
+    let number = |value: &Value| value.as_f64().or_else(|| value.as_str()?.parse().ok());
+    let limit = properties
+        .iter()
+        .find(|(name, _)| name == "PrimaryNavMaxItems")
+        .map(|(_, value)| value)
+        .or_else(|| document.at(&path)["Properties"].get("PrimaryNavMaxItems"))
+        .or_else(|| catalog.defaults.get("PrimaryNavMaxItems"))
+        .and_then(number)
+        .unwrap_or(5.0);
+    if count as f64 <= limit {
+        return Ok(Vec::new());
+    }
+    properties.retain(|(name, _)| name != "PrimaryNavMaxItems");
+    properties.push(("PrimaryNavMaxItems".into(), json!(count)));
+    Ok(vec![format!(
+        "PrimaryNavMaxItems set to {count} so all menu items show"
+    )])
+}
+
+fn validate_flex_property(name: &str, value: &Value) -> Result<(), AuthoringError> {
+    let options: &[&str] = match name {
+        "flex-size" => &["default", "fixed", "range"],
+        "flex-direction" => &["row", "column", "row-reverse", "column-reverse"],
+        "flex-wrap" => &["nowrap", "wrap", "wrap-reverse"],
+        "align-items" => &["flex-start", "flex-end", "center", "baseline", "stretch"],
+        "align-content" => &[
+            "flex-start",
+            "flex-end",
+            "center",
+            "space-between",
+            "space-around",
+            "stretch",
+        ],
+        "justify-content" => &[
+            "flex-start",
+            "flex-end",
+            "center",
+            "space-between",
+            "space-around",
+            "space-evenly",
+        ],
+        _ => &[],
+    };
+    if !options.is_empty() && !value.as_str().is_some_and(|v| options.contains(&v)) {
+        return Err(AuthoringError::Invalid(format!(
+            "{name} must be one of {}",
+            options.join(", ")
+        )));
+    }
+    if matches!(
+        name,
+        "flex-min-height" | "flex-max-height" | "flex-min-width" | "flex-max-width"
+    ) {
+        let valid = value.as_str().is_some_and(|v| {
+            v.is_empty()
+                || v.strip_suffix("px")
+                    .or_else(|| v.strip_suffix('%'))
+                    .and_then(|n| n.parse::<f64>().ok())
+                    .is_some_and(|n| n.is_finite() && n >= 0.0)
+        });
+        if !valid {
+            return Err(AuthoringError::Invalid(format!(
+                "{name} must be empty or a non-negative px or % value, such as 120px"
+            )));
+        }
+    }
+    Ok(())
 }

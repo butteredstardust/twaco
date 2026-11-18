@@ -1676,3 +1676,48 @@ fn encrypted_owned_fields_report_and_send_the_repository_value() {
         }
     }
 }
+
+#[test]
+fn property_values_conflict_hint_requires_a_proven_common_ancestor() {
+    let mut working = target("A", "ok();");
+    working.bytes = String::from_utf8(working.bytes)
+        .unwrap()
+        .replace(
+            "</Thing>",
+            "<ThingProperties><Count>1</Count></ThingProperties></Thing>",
+        )
+        .into_bytes();
+    let hash = normalise::hash(&working.bytes).unwrap();
+    let mut baseline = Baseline::default();
+    baseline.set("Things", "A", hash.clone(), hash);
+    let remote = Fake::default();
+    let server = String::from_utf8(working.bytes.clone())
+        .unwrap()
+        .replace("<Count>1", "<Count>2")
+        .into_bytes();
+    remote
+        .held
+        .lock()
+        .unwrap()
+        .insert(("Things".into(), "A".into()), server.clone());
+    let projects = [project("P", vec![working.clone()], vec![])];
+    let plans = plan::decide_all(&remote, &baseline, &projects).unwrap();
+    assert_eq!(plans[0].hint.as_deref(), Some("only property values differ; declare their server ownership in twaco.toml:\n[[server_owned]]\nentities = [\"Things/A\"]\nparts = [\"property-values\"]"));
+    let changed = String::from_utf8(server)
+        .unwrap()
+        .replace("ok();", "different();")
+        .into_bytes();
+    remote
+        .held
+        .lock()
+        .unwrap()
+        .insert(("Things".into(), "A".into()), changed);
+    assert!(plan::decide_all(&remote, &baseline, &projects).unwrap()[0]
+        .hint
+        .is_none());
+    assert!(
+        plan::decide_all(&remote, &Baseline::default(), &projects).unwrap()[0]
+            .hint
+            .is_none()
+    );
+}

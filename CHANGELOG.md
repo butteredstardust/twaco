@@ -6,6 +6,42 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `entity set --description` edits existing entity descriptions; Menu icons can be set with `new menu --icon` and `entity set --icon`.
+- `menu item set` changes titles, destinations, icons, descriptions and defaults; add/set support sub-Menus, and check validates their targets.
+- `mashup describe --detail` shows non-default widget properties and bindings, with full property values in JSON.
+- Mashup copies accept repeatable `--replace old=new`, report round-trip differences, accept empty CSS and keep their sidecars synchronized.
+- Global `--log` works before and after commands; binding address errors suggest selected-row syntax, and Text Field trailing-zero behaviour has catalogue coverage.
+- `mashup recipe collapsible` configures sidebar expand/collapse, native tabs and external toggle buttons; flexcontainer services work with `mashup on`.
+- `mashup validate` warns when a row aligns controls with field labels and shows the bottom-alignment fix.
+- Flexcontainer property bindings and checked edits, including tab-container lazy loading and flex sizing.
+- `call --param name=value` accepts repeated parameters, typed from known service signatures.
+- `menu nest <Root> --group "<Label>=<icon>:<Title>=<Mashup>,..."` writes a root Menu of sub-Menu links and one leaf Menu per group, byte-identical on a rerun (also MCP `entity_edit` action `menu_nest`).
+- `mashup recipe nested-menu` turns a menu bar into an accordion over a nested Menu in a fixed-width column; `mashup recipe navigate-on-click` opens the mashup a clicked collection cell or grid row names.
+- The ThingWorx 10.2 CDS icon names are embedded: every `cds:` value twaco writes (menu `--icon`, `mashup set`, recipes) is checked and an unknown name is refused with the closest names; `twaco widgets --icons [<filter>]` lists them.
+- `mashup move <mashup> <widget>` (also MCP `mashup_move`) moves a widget with its subtree to a new place, keeping its id, properties, bindings and events; the old place is tidied as `mashup remove` does, the new one laid out as `mashup add` does, with the same placement flags, and a widget already in place is a no-op.
+
+### Fixed
+
+- Mashup copy replacements preserve structural references; selector hints respect dotted entity names, submenu edits accept partial repositories, and widget settings without a catalogue type print without a blank column.
+- Fixed-size leaf widgets set `ResponsiveLayout=false` so Width/Height apply, fit twaco-owned rows, and support explicit layout overrides; validation warns about ignored sizes.
+- `mashup validate` warns when wrapping containers have fixed or maximum heights that clip the second line.
+- Mixed control rows clear default widget margins; textarea/action columns stretch together and bottom-align the action.
+- Menubars assigned a Menu with `mashup add` or `set` grow `PrimaryNavMaxItems` to show every item; adding a Menu item warns about bound mashups with smaller limits.
+- Generated mashup rows bottom-align controls beside labelled inputs, including after Label edits and removals.
+- Widgets above or below a menubar keep their measured height and leave spare column height to the menu; menubar rows no longer inherit the 300px data-panel minimum.
+- Free-form property, service-call and configuration-table values rewritten by Git Bash are refused with `MSYS_NO_PATHCONV=1` guidance.
+- Subscription Events compare as a set and `fmt` orders them by alias, preventing false server-change conflicts. Comparison hashes are version 12; older baselines are invalidated. Run `twaco entity status --all --record` again to record entities that already agree; investigate `no-baseline-differs` with `entity diff`, pull or adopt.
+- `guide --search menu title` searches the same words as `guide --search "menu title"`; extra operands extend the search.
+- Gate-blocked deploys explicitly report that nothing was sent, include `deployed: false` in JSON and MCP, and exit 2.
+- Deploy conflicts proven to differ only in property values show the entity-specific `server_owned` configuration.
+- Rows `mashup add` creates inside a container with a `CustomClass` or non-default `Style` inherit its background instead of painting the default white; fixed rows in templates and placements set `flex-grow` 0.
+- Content placed below a growing `Remaining space` container goes above it, so the remainder stays last; `mashup validate` warns when it sits above content.
+- A textarea column beside an action column grows while the action column keeps its natural width.
+- `mashup validate` advises on a button centred beside a slider, and on fixed or capped containers holding a property display or multi-line label.
+- `mashup collection add --preset cards` notes the double outline when the cell mashup draws its own frame.
+
 ## [0.1.66] - 2026-11-18
 
 ### Fixed

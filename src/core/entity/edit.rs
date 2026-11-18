@@ -36,7 +36,9 @@ pub enum OverrideSource {
 }
 
 mod ai;
+mod nest;
 pub use ai::AgentChange;
+pub use nest::NestGroup;
 
 /// A property as `property add` and `property set` give it.
 #[derive(Clone, Debug, Default)]
@@ -86,8 +88,31 @@ pub struct StyleChange {
     pub display_string: Option<String>,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct MenuItemChange {
+    pub title: Option<String>,
+    pub mashup: Option<String>,
+    pub submenu: Option<String>,
+    pub icon: Option<String>,
+    pub description: Option<String>,
+    pub default: bool,
+}
+
 #[derive(Clone, Debug)]
 pub enum Action {
+    EntitySet {
+        description: Option<String>,
+        icon: Option<String>,
+    },
+    MenuItemSet {
+        title: String,
+        change: MenuItemChange,
+    },
+    /// A root Menu of sub-Menu links, one leaf Menu per group; the entity may not exist yet.
+    MenuNest {
+        project: Option<String>,
+        groups: Vec<NestGroup>,
+    },
     PropertyAdd(Property),
     PropertySet {
         property: Property,
@@ -143,6 +168,8 @@ pub enum Action {
         file: PathBuf,
     },
     MenuItemAdd {
+        submenu: Option<String>,
+        icon: Option<String>,
         title: String,
         mashup: String,
         default: bool,
@@ -406,18 +433,37 @@ pub(crate) fn agent_without_allowances(
 }
 
 pub(crate) fn plan(solution: &Solution, request: &Request) -> Result<Plan, EditError> {
-    let found = workspace::entities(solution);
-    let file = workspace::resolve(&found, &request.entity)
+    let discovered = workspace::discover(solution);
+    let found = &discovered.entities;
+    let references = MenuReferences {
+        solution,
+        discovered: &discovered,
+    };
+    if let Action::MenuNest { project, groups } = &request.action {
+        return nest::plan(&references, &request.entity, project.as_deref(), groups);
+    }
+    let file = workspace::resolve(found, &request.entity)
         .map_err(|error| EditError::Unknown(error.to_string()))?
         .clone();
     let doc = Doc::read(&file)?;
     let mut plan = Plan::new(doc.label());
     let edit = Edit2 {
         solution,
-        found: &found,
+        found,
         doc: &doc,
     };
     match &request.action {
+        Action::EntitySet { description, icon } => entity_set(
+            &references,
+            &doc,
+            description.as_deref(),
+            icon.as_deref(),
+            &mut plan,
+        )?,
+        Action::MenuItemSet { title, change } => {
+            menu_item_set(&references, &doc, title, change, &mut plan)?
+        }
+        Action::MenuNest { .. } => unreachable!("planned before the entity is read"),
         Action::PropertyAdd(property) => edit.property_add(property, &mut plan)?,
         Action::PropertySet { property, force } => {
             edit.property_set(property, *force, &mut plan)?
@@ -481,13 +527,62 @@ pub(crate) fn plan(solution: &Solution, request: &Request) -> Result<Plan, EditE
         Action::StyleSet(change) => style_set(solution, &doc, change, &mut plan)?,
         Action::MediaSet { file } => media_set(&doc, file, &mut plan)?,
         Action::MenuItemAdd {
+            submenu,
+            icon,
             title,
             mashup,
             default,
             before,
         } => {
             let item = (title.clone(), mashup.clone(), *default);
-            menu_item_add(&found, &doc, item, before.as_deref(), &mut plan)?
+            menu_item_add(
+                &references,
+                &doc,
+                item,
+                before.as_deref(),
+                submenu.as_deref(),
+                icon.as_deref(),
+                &mut plan,
+            )?;
+            let count = menu_entries(&doc)?.1.len() + 1;
+            for entity in found
+                .iter()
+                .filter(|entity| entity.info.collection == "Mashups")
+            {
+                // An advisory scan: a mashup twaco cannot read is reported, never a refusal.
+                let read = || -> Result<_, String> {
+                    let bytes = std::fs::read(&entity.path).map_err(|error| error.to_string())?;
+                    let directory = workspace::mashup_dir(solution, entity);
+                    let assets = workspace::read_mashup(&directory)
+                        .map_err(|error| error.to_string())?
+                        .map(Ok)
+                        .unwrap_or_else(|| crate::core::mashup::extract(&bytes))
+                        .map_err(|error| error.to_string())?;
+                    crate::core::mashup::edit::parse(&assets.content)
+                        .map_err(|error| error.to_string())
+                };
+                let document = match read() {
+                    Ok(document) => document,
+                    Err(error) => {
+                        plan.warnings.push(format!(
+                            "Mashup {}: not checked for menubar limits: {error}",
+                            entity.info.name
+                        ));
+                        continue;
+                    }
+                };
+                for widget in document
+                    .widgets()
+                    .iter()
+                    .filter(|widget| widget.type_id == "ptcsmenubar")
+                {
+                    let properties = &document.at(&widget.path)["Properties"];
+                    let limit = properties["PrimaryNavMaxItems"].as_f64().unwrap_or(5.0);
+                    if properties["PrimaryNavMenu"] == doc.name() && count as f64 > limit {
+                        plan.warnings.push(format!("Mashup {}: {} shows only {limit} menu items; run twaco mashup set {} {} --prop PrimaryNavMaxItems={count} --apply", entity.info.name, widget.id, entity.info.name, widget.id));
+                    }
+                }
+            }
         }
         Action::MenuItemRemove { title } => menu_item_remove(&doc, title, &mut plan)?,
         Action::StateSet { state_type, states } => state_set(&doc, state_type, states, &mut plan)?,
@@ -496,7 +591,7 @@ pub(crate) fn plan(solution: &Solution, request: &Request) -> Result<Plan, EditE
             spec,
             describe,
         } => ai::mcp_add(solution, &doc, kind, spec, describe.as_deref(), &mut plan)?,
-        Action::McpRemove { name } => ai::mcp_remove(&found, &doc, name, &mut plan)?,
+        Action::McpRemove { name } => ai::mcp_remove(found, &doc, name, &mut plan)?,
         Action::AgentAllow { spec } => ai::agent_allow(solution, &doc, spec, &mut plan)?,
         Action::AgentDisallow { spec } => ai::agent_disallow(&doc, spec, &mut plan)?,
         Action::AgentTaxonomyAdd { spec } => ai::taxonomy_add(solution, &doc, spec, &mut plan)?,
@@ -1790,6 +1885,11 @@ impl Edit2<'_> {
             name: property.name.clone(),
             ordinal: ordinal.to_string(),
         };
+        // Only a newly supplied default is checked: an existing one may be edited around.
+        if let Some(default) = &property.default {
+            crate::core::repo::refuse_git_bash_value(&Value::String(default.clone()))
+                .map_err(|error| invalid(error.to_string()))?;
+        }
         definition.merge(property);
         plan.warnings.extend(definition.validate(self.found)?);
         let stored = definition.stored_value(self.found)?;
@@ -1820,6 +1920,11 @@ impl Edit2<'_> {
             })?;
         let old = Definition::read(doc, element);
         let mut definition = old.clone();
+        // Only a newly supplied default is checked: an existing one may be edited around.
+        if let Some(default) = &property.default {
+            crate::core::repo::refuse_git_bash_value(&Value::String(default.clone()))
+                .map_err(|error| invalid(error.to_string()))?;
+        }
         definition.merge(property);
         plan.warnings.extend(definition.validate(self.found)?);
         let retyped = definition.base_type != old.base_type;
@@ -3118,6 +3223,268 @@ fn state_set(
 // ---------------------------------------------------------------------------------------------
 // Menus
 
+fn set_attribute(
+    doc: &Doc,
+    element: usize,
+    name: &str,
+    value: &str,
+    edits: &mut Vec<Edit>,
+) -> Result<(), EditError> {
+    if doc.attr(element, name).as_deref() == Some(value) {
+        return Ok(());
+    }
+    let escaped = scan::escape_attribute(value)?;
+    let edit = match scan::attribute(&doc.src, &doc.tokens[element], name).map_err(invalid)? {
+        Some(span) => {
+            let escaped = if doc.src.get(span.start.wrapping_sub(1)) == Some(&b'\'') {
+                escaped.replace('\'', "&apos;")
+            } else {
+                escaped
+            };
+            Edit::new(span, escaped.into_bytes())
+        }
+        None => {
+            let at = doc.tokens[element].name.end;
+            let attribute = format!(" {name}=\"{escaped}\"").into_bytes();
+            if let Some(existing) = edits.iter_mut().find(|edit| edit.span == Span::new(at, at)) {
+                existing.replacement.extend(attribute);
+                return Ok(());
+            }
+            Edit::new(Span::new(at, at), attribute)
+        }
+    };
+    edits.push(edit);
+    Ok(())
+}
+
+struct MenuReferences<'a> {
+    solution: &'a Solution,
+    discovered: &'a workspace::Discovery,
+}
+
+fn entity_set(
+    found: &MenuReferences<'_>,
+    doc: &Doc,
+    description: Option<&str>,
+    icon: Option<&str>,
+    plan: &mut Plan,
+) -> Result<(), EditError> {
+    doc.require(
+        &[
+            "Projects",
+            "Groups",
+            "Things",
+            "ThingTemplates",
+            "ThingShapes",
+            "DataShapes",
+            "MediaEntities",
+            "StyleDefinitions",
+            "StateDefinitions",
+            "Menus",
+            "StyleThemes",
+            "Networks",
+            "MCPNamespaces",
+            "AIAgents",
+            "Mashups",
+        ],
+        "entity set cannot safely edit this collection",
+    )?;
+    if description.is_none() && icon.is_none() {
+        return Err(invalid("entity set needs --description or --icon"));
+    }
+    let mut edits = Vec::new();
+    if let Some(text) = description {
+        set_attribute(doc, doc.entity, "description", text, &mut edits)?;
+    }
+    if let Some(icon) = icon {
+        doc.require(&["Menus"], "--icon changes a Menu")?;
+        icon_reference(found, icon, plan)?;
+        set_attribute(doc, doc.entity, "imageURL", icon, &mut edits)?;
+    }
+    let mut after = splice::splice(&doc.src, &edits).map_err(invalid)?;
+    if doc.collection() == "Menus" {
+        let current = Doc::parse(doc.file.clone(), after)?;
+        let effective = current.only_child(current.entity, "effectiveMenu")?;
+        let rows = current.only_child(effective, "Rows")?;
+        let root = *scan::child_tags(&current.tokens, &current.src, "Row", rows)
+            .first()
+            .ok_or_else(|| invalid(format!("{} effectiveMenu has no root row", doc.label())))?;
+        let mut edits = Vec::new();
+        for (name, value) in [("description", description), ("imageURL", icon)] {
+            if let Some(value) = value {
+                let element = current.only_child(root, name)?;
+                let text = if value.is_empty() {
+                    String::new()
+                } else {
+                    entity::new::cdata(value)
+                };
+                if current.inner(element)?.of(&current.src) != text.as_bytes() {
+                    edits.push(current.inner_edit(element, text)?);
+                }
+            }
+        }
+        after = splice_all(&current.src, edits)?;
+    }
+    plan.summary = "set entity metadata".into();
+    if after != doc.src {
+        plan.changes.push(doc.change(after));
+    }
+    Ok(())
+}
+
+fn menu_reference(
+    found: &MenuReferences<'_>,
+    collection: &str,
+    name: &str,
+    plan: &mut Plan,
+) -> Result<(), EditError> {
+    if name.is_empty() || (collection == "Menus" && name == "Self") {
+        return Err(invalid(format!(
+            "{collection}/{name}: name a {collection} entity in the solution"
+        )));
+    }
+    if found
+        .discovered
+        .entities
+        .iter()
+        .any(|file| file.info.collection == collection && file.info.name == name)
+    {
+        return Ok(());
+    }
+    if if collection == "Menus" {
+        !workspace::collection_is_partial(found.solution, found.discovered, collection)
+    } else {
+        found
+            .discovered
+            .entities
+            .iter()
+            .any(|file| file.info.collection == collection)
+    } {
+        return Err(EditError::Unknown(format!(
+            "{collection}/{name} is not in the solution"
+        )));
+    }
+    plan.warnings.push(format!(
+        "{collection}/{name} is not in the solution; it must exist on the server"
+    ));
+    Ok(())
+}
+
+fn icon_reference(
+    found: &MenuReferences<'_>,
+    icon: &str,
+    plan: &mut Plan,
+) -> Result<(), EditError> {
+    crate::core::cds_icons::check(icon).map_err(invalid)?;
+    if icon.is_empty() || icon.contains('/') || icon.contains(':') {
+        return Ok(());
+    }
+    menu_reference(found, "MediaEntities", icon, plan)
+}
+
+fn menu_item_set(
+    found: &MenuReferences<'_>,
+    doc: &Doc,
+    title: &str,
+    change: &MenuItemChange,
+    plan: &mut Plan,
+) -> Result<(), EditError> {
+    doc.require(&["Menus"], "menu item set changes a Menu")?;
+    if change.title.is_none()
+        && change.mashup.is_none()
+        && change.submenu.is_none()
+        && change.icon.is_none()
+        && change.description.is_none()
+        && !change.default
+    {
+        return Err(invalid("menu item set needs at least one field"));
+    }
+    if change.mashup.is_some() && change.submenu.is_some() {
+        return Err(invalid("give --mashup or --submenu, not both"));
+    }
+    let (_, entries) = menu_entries(doc)?;
+    let entry = entries
+        .iter()
+        .find(|entry| {
+            entry.title == title || (entry.link_type == "Menu" && entry.link_target == title)
+        })
+        .ok_or_else(|| EditError::Unknown(format!("{} has no item {title}", doc.label())))?;
+    if let Some(new) = &change.title {
+        if entries
+            .iter()
+            .any(|other| other.element != entry.element && other.title == *new)
+        {
+            return Err(EditError::Exists(format!(
+                "{} already has an item {new}",
+                doc.label()
+            )));
+        }
+    }
+    let mut edits = Vec::new();
+    for (name, value) in [
+        ("title", change.title.as_deref()),
+        ("description", change.description.as_deref()),
+        ("imageURL", change.icon.as_deref()),
+    ] {
+        if let Some(value) = value {
+            set_attribute(doc, entry.element, name, value, &mut edits)?;
+        }
+    }
+    if let Some(icon) = &change.icon {
+        icon_reference(found, icon, plan)?;
+    }
+    if let Some((target, kind, collection)) = change
+        .mashup
+        .as_deref()
+        .map(|value| (value, "Mashup", "Mashups"))
+        .or_else(|| {
+            change
+                .submenu
+                .as_deref()
+                .map(|value| (value, "Menu", "Menus"))
+        })
+    {
+        menu_reference(found, collection, target, plan)?;
+        for (name, value) in [
+            ("linkType", kind),
+            ("linkDestination", target),
+            ("linkTarget", if kind == "Menu" { target } else { "Self" }),
+        ] {
+            set_attribute(doc, entry.element, name, value, &mut edits)?;
+        }
+        if kind == "Menu" && change.title.is_none() {
+            set_attribute(doc, entry.element, "title", "", &mut edits)?;
+        }
+    }
+    if change.default {
+        for other in &entries {
+            if other.element == entry.element || other.is_default {
+                set_attribute(
+                    doc,
+                    other.element,
+                    "isDefault",
+                    if other.element == entry.element {
+                        "true"
+                    } else {
+                        "false"
+                    },
+                    &mut edits,
+                )?;
+            }
+        }
+    }
+    let after = if edits.is_empty() {
+        doc.src.clone()
+    } else {
+        with_rows(doc, splice::splice(&doc.src, &edits).map_err(invalid)?)?
+    };
+    plan.summary = format!("set menu item {title}");
+    if after != doc.src {
+        plan.changes.push(doc.change(after));
+    }
+    Ok(())
+}
+
 /// A menu item as its attributes say, and where it is.
 struct Entry {
     element: usize,
@@ -3127,22 +3494,16 @@ struct Entry {
     description: String,
     image_url: String,
     link_target: String,
+    link_type: String,
 }
 
-/// The `<MenuItems>` element and its items. Only mashup items: a submenu or hyperlink item has
-/// rows of its own shape.
+/// The `<MenuItems>` element and its items.
 fn menu_entries(doc: &Doc) -> Result<(usize, Vec<Entry>), EditError> {
     let list = doc.only_child(doc.entity, "MenuItems")?;
     let mut entries = Vec::new();
     for element in scan::child_tags(&doc.tokens, &doc.src, "MenuItem", list) {
         let get = |name: &str| doc.attr(element, name).unwrap_or_default();
         let kind = get("linkType");
-        if kind != "Mashup" {
-            return Err(invalid(format!(
-                "{} has a {kind} item; twaco edits menus of mashup items only",
-                doc.label()
-            )));
-        }
         entries.push(Entry {
             element,
             title: get("title"),
@@ -3151,37 +3512,83 @@ fn menu_entries(doc: &Doc) -> Result<(usize, Vec<Entry>), EditError> {
             description: get("description"),
             image_url: get("imageURL"),
             link_target: get("linkTarget"),
+            link_type: kind,
         });
     }
     Ok((list, entries))
 }
 
+/// The items of Menu `name` in the solution as (link type, destination), or `None` when the
+/// solution has no such Menu.
+pub(crate) fn menu_links(
+    solution: &Solution,
+    name: &str,
+) -> Result<Option<Vec<(String, String)>>, EditError> {
+    let Some(file) = workspace::entities(solution)
+        .into_iter()
+        .find(|file| file.info.collection == "Menus" && file.info.name == name)
+    else {
+        return Ok(None);
+    };
+    let doc = Doc::read(&file)?;
+    let (_, entries) = menu_entries(&doc)?;
+    Ok(Some(
+        entries
+            .into_iter()
+            .map(|entry| (entry.link_type, entry.target))
+            .collect(),
+    ))
+}
+
 /// Add one item; every other item stays as it is written, but for `isDefault` when the new
 /// one becomes the default.
 fn menu_item_add(
-    found: &[EntityFile],
+    found: &MenuReferences<'_>,
     doc: &Doc,
     item: (String, String, bool),
     before: Option<&str>,
+    submenu: Option<&str>,
+    icon: Option<&str>,
     plan: &mut Plan,
 ) -> Result<(), EditError> {
     doc.require(&["Menus"], "menu item add changes a Menu")?;
-    let (title, mashup, default) = item;
-    if title.is_empty() || mashup.is_empty() {
+    let (title, mashup, _) = &item;
+    if submenu.is_none() && (title.is_empty() || mashup.is_empty()) {
         return Err(invalid(
             "a menu item is <Title>=<Mashup>, and neither may be empty",
         ));
     }
-    let known = found
-        .iter()
-        .any(|file| file.info.collection == "Mashups" && file.info.name == mashup);
-    if !known {
-        plan.warnings.push(format!(
-            "mashup {mashup} is not in the solution; it must exist on the server"
-        ));
+    menu_reference(
+        found,
+        if submenu.is_some() {
+            "Menus"
+        } else {
+            "Mashups"
+        },
+        submenu.unwrap_or(mashup),
+        plan,
+    )?;
+    if let Some(icon) = icon {
+        icon_reference(found, icon, plan)?;
     }
+    menu_item_insert(doc, item, before, submenu, icon, plan)
+}
+
+/// `menu_item_add` once the references are checked.
+fn menu_item_insert(
+    doc: &Doc,
+    item: (String, String, bool),
+    before: Option<&str>,
+    submenu: Option<&str>,
+    icon: Option<&str>,
+    plan: &mut Plan,
+) -> Result<(), EditError> {
+    let (title, mashup, default) = item;
     let (list, entries) = menu_entries(doc)?;
-    if entries.iter().any(|entry| entry.title == title) {
+    if entries.iter().any(|entry| {
+        entry.title == title
+            && (submenu.is_none() || entry.link_target == submenu.unwrap_or_default())
+    }) {
         return Err(EditError::Exists(format!(
             "{} already has an item {title}",
             doc.label()
@@ -3208,11 +3615,22 @@ fn menu_item_add(
         }
     }
     let indent = format!("{}    ", doc.indent_of(list));
-    let xml = reindent_block(
-        &entity::new::menu_item_xml(&title, &mashup, default)?,
-        16,
-        &indent,
-    );
+    let mut item_xml = entity::new::menu_item_xml(&title, submenu.unwrap_or(&mashup), default)?;
+    if let Some(submenu) = submenu {
+        item_xml = item_xml
+            .replace("linkType=\"Mashup\"", "linkType=\"Menu\"")
+            .replace(
+                "linkTarget=\"Self\"",
+                &format!("linkTarget=\"{}\"", scan::escape_attribute(submenu)?),
+            );
+    }
+    if let Some(icon) = icon {
+        item_xml = item_xml.replace(
+            "imageURL=\"\"",
+            &format!("imageURL=\"{}\"", scan::escape_attribute(icon)?),
+        );
+    }
+    let xml = reindent_block(&item_xml, 16, &indent);
     let insert = match (anchor, entries.last()) {
         (Some(anchor), _) => {
             let start = doc.tokens[anchor.element].span.start;
@@ -3251,7 +3669,9 @@ fn menu_item_remove(doc: &Doc, title: &str, plan: &mut Plan) -> Result<(), EditE
     let (list, entries) = menu_entries(doc)?;
     let entry = entries
         .iter()
-        .find(|entry| entry.title == title)
+        .find(|entry| {
+            entry.title == title || (entry.link_type == "Menu" && entry.link_target == title)
+        })
         .ok_or_else(|| EditError::Unknown(format!("{} has no item {title}", doc.label())))?;
     let after = remove_child(doc, list, entry.element)?;
     plan.summary = format!("remove menu item {title}");
@@ -3295,7 +3715,13 @@ fn with_rows(doc: &Doc, after: Vec<u8>) -> Result<Vec<u8>, EditError> {
                 image_url: &entry.image_url,
                 link_target: &entry.link_target,
             };
-            let xml = entity::new::menu_row_xml(doc.name(), at, &row);
+            let xml = entity::new::menu_row_xml(doc.name(), at, &row).replace(
+                "<linkType><![CDATA[Mashup]]></linkType>",
+                &format!(
+                    "<linkType>{}</linkType>",
+                    entity::new::cdata(&entry.link_type)
+                ),
+            );
             if compact {
                 if let Some(&old) = old_rows.get(at + 1) {
                     let span = doc.span(old)?;

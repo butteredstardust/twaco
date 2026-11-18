@@ -22,6 +22,7 @@ pub(crate) enum Mashup {
     Bind(MashupBind),
     On(MashupOn),
     Remove(MashupRemove),
+    Move(MashupMove),
     Unbind(MashupUnbind),
     Off(MashupOff),
     Param(MashupParam),
@@ -48,6 +49,7 @@ impl Mashup {
             Mashup::Bind(_) => "mashup bind",
             Mashup::On(_) => "mashup on",
             Mashup::Remove(_) => "mashup remove",
+            Mashup::Move(_) => "mashup move",
             Mashup::Unbind(_) => "mashup unbind",
             Mashup::Off(_) => "mashup off",
             Mashup::Param(_) => "mashup param",
@@ -241,6 +243,8 @@ pub(crate) struct MashupValidate {
 #[group(skip)]
 pub(crate) struct MashupDescribe {
     #[command(flatten)]
+    pub(crate) detail: super::flags::Detail,
+    #[command(flatten)]
     pub(crate) json: Json,
     #[arg(id = "operands", value_name = "operand")]
     pub(crate) operands: Vec<String>,
@@ -380,6 +384,26 @@ pub(crate) struct MashupRemove {
     pub(crate) operands: Vec<String>,
 }
 
+/// `twaco mashup move <mashup> <widget> --in <container> | --right-of <widget> | ...`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct MashupMove {
+    #[command(flatten)]
+    pub(crate) place: Place,
+    #[arg(long = "end")]
+    pub(crate) end: bool,
+    #[arg(long = "bottom")]
+    pub(crate) bottom: bool,
+    #[arg(long = "in-column")]
+    pub(crate) in_column: bool,
+    #[command(flatten)]
+    pub(crate) apply: Apply,
+    #[command(flatten)]
+    pub(crate) json: Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
 /// `twaco mashup unbind <mashup> --from <address> --to <address>`.
 #[derive(Debug, clap::Args)]
 #[group(skip)]
@@ -454,6 +478,16 @@ pub(crate) enum ParamVerb {
 #[derive(Debug, clap::Args)]
 #[group(skip)]
 pub(crate) struct MashupRecipe {
+    #[arg(long = "toggle", value_name = "button")]
+    pub(crate) toggle: Option<String>,
+    #[arg(long = "add-toggle")]
+    pub(crate) add_toggle: bool,
+    #[arg(long = "in", value_name = "widget")]
+    pub(crate) in_container: Option<String>,
+    #[arg(long = "tab", value_name = "inside|outside|none")]
+    pub(crate) tab: Option<String>,
+    #[arg(long = "start", value_name = "collapsed")]
+    pub(crate) start: Option<String>,
     #[arg(long = "if", value_name = "condition")]
     pub(crate) condition: Option<String>,
     #[arg(long = "expr", value_name = "expression")]
@@ -520,6 +554,14 @@ pub(crate) struct MashupRecipe {
     pub(crate) no_none_row: bool,
     #[arg(long = "auto-select-first")]
     pub(crate) auto_select_first: bool,
+    #[arg(long = "menu", value_name = "Menu")]
+    pub(crate) menu: Option<String>,
+    #[arg(long = "no-auto-collapse")]
+    pub(crate) no_auto_collapse: bool,
+    #[arg(long = "width", value_name = "px")]
+    pub(crate) width: Option<String>,
+    #[arg(long = "field", value_name = "field")]
+    pub(crate) field: Option<String>,
     #[command(flatten)]
     pub(crate) apply: Apply,
     #[command(flatten)]
@@ -562,6 +604,8 @@ pub(crate) struct MashupNew {
     pub(crate) template: Option<String>,
     #[arg(long = "from", value_name = "address")]
     pub(crate) from: Option<String>,
+    #[arg(long = "replace", value_name = "old=new")]
+    pub(crate) replacements: Vec<String>,
     #[arg(long = "layout", value_name = "layout")]
     pub(crate) layout: Option<String>,
     #[arg(long = "primary-menu", value_name = "address")]
@@ -637,6 +681,7 @@ pub(crate) fn mashup_new_cmd(solution: &Solution, args: &MashupNew) -> u8 {
             params: args.params.clone(),
             tabs: args.tabs.clone(),
             from: args.from.clone(),
+            replacements: args.replacements.clone(),
         },
         mode: if apply { Mode::Apply } else { Mode::Plan },
         lock_label: "mashup new",
@@ -764,7 +809,20 @@ pub(crate) fn mashup_recipe_cmd(solution: &Solution, args: &MashupRecipe) -> u8 
         eprintln!("{} give --param once", style::prefix());
         return FAILED;
     }
+    let width = match args.width.clone().map(|text| text.parse::<u32>()) {
+        None => None,
+        Some(Ok(pixels)) if pixels > 0 => Some(pixels),
+        Some(_) => {
+            eprintln!("{} --width takes a whole number of pixels", style::prefix());
+            return FAILED;
+        }
+    };
     let recipe_args = mashup::authoring::RecipeArgs {
+        toggle: args.toggle.clone(),
+        add_toggle: args.add_toggle,
+        in_container: args.in_container.clone(),
+        tab: args.tab.clone(),
+        start: args.start.clone(),
         widget,
         param: args.params.first().cloned(),
         field_maps: args.field_maps.clone(),
@@ -799,6 +857,10 @@ pub(crate) fn mashup_recipe_cmd(solution: &Solution, args: &MashupRecipe) -> u8 
         preserve_whitespace: args.preserve_whitespace.clone(),
         no_none_row: args.no_none_row,
         auto_select_first: args.auto_select_first,
+        menu: args.menu.clone(),
+        no_auto_collapse: args.no_auto_collapse,
+        width,
+        field: args.field.clone(),
     };
     let recipe = match mashup::authoring::Recipe::from_args(name, &recipe_args) {
         Ok(recipe) => recipe,
@@ -1146,18 +1208,19 @@ pub(crate) fn mashup_templates_cmd(args: &MashupTemplates) -> u8 {
     }
 }
 
-/// `twaco mashup add <mashup> <widget>`: plan a catalogue widget insertion, or apply it.
-pub(crate) fn mashup_add_cmd(solution: &Solution, args: &MashupAdd) -> u8 {
-    let [mashup, widget] = args.operands.as_slice() else {
-        eprintln!("{} mashup add needs <mashup> and <widget>", style::prefix());
-        return FAILED;
-    };
+/// The placement flags as one [`Placement`]; prints why and fails when they do not fit.
+fn placement_from_flags(
+    place: &Place,
+    end: bool,
+    bottom: bool,
+    in_column: bool,
+) -> Result<Option<Placement>, ()> {
     let placements: Vec<(&str, &String)> = [
-        ("--in", args.place.inside.as_ref()),
-        ("--right-of", args.place.right_of.as_ref()),
-        ("--left-of", args.place.left_of.as_ref()),
-        ("--above", args.place.above.as_ref()),
-        ("--below", args.place.below.as_ref()),
+        ("--in", place.inside.as_ref()),
+        ("--right-of", place.right_of.as_ref()),
+        ("--left-of", place.left_of.as_ref()),
+        ("--above", place.above.as_ref()),
+        ("--below", place.below.as_ref()),
     ]
     .into_iter()
     .filter_map(|(flag, value)| value.map(|value| (flag, value)))
@@ -1167,7 +1230,7 @@ pub(crate) fn mashup_add_cmd(solution: &Solution, args: &MashupAdd) -> u8 {
             "{} give one of --in, --right-of, --left-of, --above, --below",
             style::prefix()
         );
-        return FAILED;
+        return Err(());
     }
     let placement = placements.first().map(|(flag, value)| match *flag {
         "--in" => Placement::In((*value).clone()),
@@ -1177,7 +1240,7 @@ pub(crate) fn mashup_add_cmd(solution: &Solution, args: &MashupAdd) -> u8 {
         "--below" => beside(value, Side::Below),
         _ => unreachable!("only placement flags are collected"),
     });
-    let placement = match (args.end, placement) {
+    let placement = match (end, placement) {
         (false, placement) => placement,
         (
             true,
@@ -1191,18 +1254,18 @@ pub(crate) fn mashup_add_cmd(solution: &Solution, args: &MashupAdd) -> u8 {
         }),
         (true, _) => {
             eprintln!("{} --end goes with --right-of <widget>", style::prefix());
-            return FAILED;
+            return Err(());
         }
     };
-    let placement = match (args.bottom, placement) {
+    let placement = match (bottom, placement) {
         (false, placement) => placement,
         (true, Some(Placement::In(column))) => Some(Placement::Bottom(column)),
         (true, _) => {
             eprintln!("{} --bottom goes with --in <column>", style::prefix());
-            return FAILED;
+            return Err(());
         }
     };
-    let placement = match (args.in_column, placement) {
+    let placement = match (in_column, placement) {
         (false, placement) => placement,
         (
             true,
@@ -1213,9 +1276,37 @@ pub(crate) fn mashup_add_cmd(solution: &Solution, args: &MashupAdd) -> u8 {
         ) => Some(Placement::BelowInColumn(anchor)),
         (true, _) => {
             eprintln!("{} --in-column goes with --below <widget>", style::prefix());
-            return FAILED;
+            return Err(());
         }
     };
+    Ok(placement)
+}
+
+/// The placement flags given, in order.
+fn placement_flags(place: &Place) -> Vec<(&'static str, &String)> {
+    [
+        ("--in", place.inside.as_ref()),
+        ("--right-of", place.right_of.as_ref()),
+        ("--left-of", place.left_of.as_ref()),
+        ("--above", place.above.as_ref()),
+        ("--below", place.below.as_ref()),
+    ]
+    .into_iter()
+    .filter_map(|(flag, value)| value.map(|value| (flag, value)))
+    .collect()
+}
+
+/// `twaco mashup add <mashup> <widget>`: plan a catalogue widget insertion, or apply it.
+pub(crate) fn mashup_add_cmd(solution: &Solution, args: &MashupAdd) -> u8 {
+    let [mashup, widget] = args.operands.as_slice() else {
+        eprintln!("{} mashup add needs <mashup> and <widget>", style::prefix());
+        return FAILED;
+    };
+    let Ok(placement) = placement_from_flags(&args.place, args.end, args.bottom, args.in_column)
+    else {
+        return FAILED;
+    };
+    let placements = placement_flags(&args.place);
     let properties = match args
         .props
         .iter()
@@ -2306,6 +2397,98 @@ pub(crate) fn mashup_remove_cmd(solution: &Solution, args: &MashupRemove) -> u8 
     OK
 }
 
+/// `twaco mashup move <mashup> <widget>`: take a widget and its subtree to another place.
+pub(crate) fn mashup_move_cmd(solution: &Solution, args: &MashupMove) -> u8 {
+    let [mashup, widget] = args.operands.as_slice() else {
+        eprintln!(
+            "{} mashup move needs <mashup> and <widget>",
+            style::prefix()
+        );
+        return FAILED;
+    };
+    let Ok(placement) = placement_from_flags(&args.place, args.end, args.bottom, args.in_column)
+    else {
+        return FAILED;
+    };
+    let request = commands::mashup::MashupMoveRequest {
+        request: mashup::authoring::MoveRequest {
+            mashup: mashup.clone(),
+            widget: widget.clone(),
+            placement,
+        },
+        mode: if args.apply.apply {
+            Mode::Apply
+        } else {
+            Mode::Plan
+        },
+        lock_label: "mashup move",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome = match commands::mashup::move_widget(solution, &request, &mut notices) {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            print_notices(&notices);
+            eprintln!("{} {error}", style::prefix());
+            return FAILED;
+        }
+    };
+    print_notices(&notices);
+    let plan = &outcome.plan;
+    let report = mashup::authoring::move_plan_json(solution, plan, outcome.applied);
+    if args.json.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report).expect("a move plan serialises")
+        );
+        return OK;
+    }
+    if plan.edit.is_none() {
+        println!("{} is already {} in {mashup}", plan.widget, plan.to);
+        return OK;
+    }
+    println!(
+        "{} {} from {} {} in {mashup}",
+        if outcome.applied {
+            "moved"
+        } else {
+            "would move"
+        },
+        plan.widget,
+        plan.from,
+        plan.to,
+    );
+    if plan.moved.len() > 1 {
+        println!("  with {}", plan.moved[1..].join(", "));
+    }
+    for container in &plan.container_contents {
+        println!(
+            "  new container {} (holds {})",
+            container.id,
+            container.holds.join(", ")
+        );
+    }
+    if let Some(flipped) = &plan.placed.flipped {
+        println!("  {flipped} now lays out the other way");
+    }
+    for wrapped in &plan.placed.wrapped {
+        println!("  moved {wrapped} into its own container");
+    }
+    if !plan.removed.is_empty() {
+        println!("  removed empty container {}", plan.removed.join(", "));
+    }
+    let files = report["files"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|file| file.as_str())
+        .collect::<Vec<_>>();
+    println!("  files: {}", files.join(", "));
+    if !outcome.applied {
+        println!("run again with --apply to write it");
+    }
+    OK
+}
+
 /// `twaco mashup unbind <mashup> --from <address> --to <address>`: remove one binding.
 pub(crate) fn mashup_unbind_cmd(solution: &Solution, args: &MashupUnbind) -> u8 {
     let [mashup] = args.operands.as_slice() else {
@@ -2465,7 +2648,7 @@ pub(crate) fn mashup_describe_cmd(solution: &Solution, args: &MashupDescribe) ->
         eprintln!("{} mashup describe needs one <mashup>", style::prefix());
         return FAILED;
     };
-    match twaco::core::mashup::describe::describe(solution, name) {
+    match twaco::core::mashup::describe::describe_detail(solution, name, args.detail.detail) {
         Ok(description) => {
             if args.json.json {
                 println!(

@@ -13,6 +13,7 @@ pub(crate) mod bindings;
 pub mod block;
 pub mod bundle;
 pub mod catalog;
+pub mod cds_icons;
 pub mod check;
 pub(crate) mod child;
 pub(crate) mod codes;

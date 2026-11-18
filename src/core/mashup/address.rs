@@ -62,7 +62,8 @@ pub(crate) fn parse_address(text: &str) -> Result<Address, AddressError> {
 
 fn data(rest: &str) -> Option<Address> {
     // `head[as alias][SelectedRows].member` and `entity[as alias][EntityName]`.
-    let (head, mut tail) = match rest.find('[') {
+    // A dotted selector is left for service resolution, which knows where entity names end.
+    let (head, mut tail) = match rest.find('[').filter(|&at| !rest[..at].ends_with('.')) {
         Some(at) => (&rest[..at], &rest[at..]),
         None => (rest, ""),
     };

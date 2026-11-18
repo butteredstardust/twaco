@@ -385,6 +385,8 @@ pub(crate) struct PushResult {
 /// differently; `ok` and the stage it reached tell them apart.
 #[derive(Serialize, JsonSchema)]
 pub(crate) struct DeployResult {
+    /// False when gates stopped the deploy before sending anything.
+    deployed: Option<bool>,
     /// Each existing entity whose import preserves server-owned parts, with its part labels.
     server_owned: Option<Vec<ServerOwnedEntity>>,
     ok: bool,
@@ -1340,6 +1342,7 @@ struct MashupValidateProblem {
 
 #[derive(Serialize, JsonSchema)]
 pub(crate) struct MashupNewResult {
+    replacements: Option<Vec<String>>,
     applied: bool,
     dry_run: bool,
     mashup: String,
@@ -1522,6 +1525,25 @@ pub(crate) struct MashupRemoveResult {
     bindings_removed: usize,
     events_removed: usize,
     orphaned_data_calls: Vec<String>,
+    files: Vec<String>,
+    notices: Notices,
+}
+
+#[derive(Serialize, JsonSchema)]
+pub(crate) struct MashupMoveResult {
+    applied: bool,
+    dry_run: bool,
+    mashup: String,
+    id: String,
+    moved: Vec<String>,
+    from: String,
+    to: String,
+    changed: bool,
+    containers: Vec<String>,
+    container_contents: Vec<ContainerContents>,
+    flipped: Option<String>,
+    wrapped: Vec<String>,
+    removed: Vec<String>,
     files: Vec<String>,
     notices: Notices,
 }

@@ -158,3 +158,46 @@ does not roll back their unexported changes.
 - **The ThingWorx Platform help:** `twaco help search` and `twaco help page`.
 - **The ThingWorx Platform Java API:** `twaco javadoc search`, `twaco javadoc class` and
   `twaco javadoc service`.
+
+## Updating entity metadata and menus
+
+`twaco entity set Things/Acme.Manager --description "Loads the page"` plans an existing
+entity's root description. Empty text clears it. Use `--apply` to write, or `--json` for the plan.
+Menu icons use `twaco new menu Acme.Main_MN --item Home=Acme.Home_MU --icon Acme.HomeIcon`
+or `twaco entity set Acme.Main_MN --icon Acme.HomeIcon`.
+
+`twaco menu item set Acme.Main_MN Home --title Start --icon Acme.HomeIcon` changes only the
+given fields and keeps item order. `--mashup Acme.Start_MU`, `--description "Open the start page"`
+and `--default` change the destination, tooltip and default item. Add a sub-Menu with
+`twaco menu item add Acme.Main_MN --submenu Acme.Sub_MN`; set an existing item with `--submenu`.
+Sub-Menu items have an empty title; select them by their target Menu name on set/remove.
+Menu item commands plan unless `--apply`.
+
+`twaco mashup describe Acme.Home_MU --detail` includes properties differing from catalogue
+defaults. Text values are abbreviated; `--json --detail` retains full values.
+`twaco mashup new Acme.Copy_MU --from Acme.Home_MU --replace page-current=page-nested`
+changes whole tokens in copied content string values; repeat `--replace` for other tokens.
+The copy reports every replacement and refuses an old token that occurs nowhere.
+
+## Nested menus as an accordion
+
+`twaco menu nest Acme.Main_MN --group "Basics=cds:icon_home:Intro=Acme.Intro_MU,Setup=Acme.Setup_MU"
+--group "Advanced=cds:icon_settings:Tuning=Acme.Tuning_MU"` writes one leaf Menu per group
+(`Acme.Main_Basics_MN`: its menuLabel is the label, its Menu-level icon the icon, one item per
+Mashup) and the root `Acme.Main_MN`, whose items link to the leaves in the given order.
+The icon is a `cds:` name, a MediaEntity or empty. Rerunning with the same groups writes
+nothing; a changed group rewrites only its own Menu (an item keeps its image and default
+under the same title, and every Menu keeps its description). The root keeps only sub-Menu
+links, so it refuses a root that holds Mashup items. Go deeper with `menu item add --submenu`.
+
+`twaco mashup recipe nested-menu Acme.Page_MU <menubar> --menu Acme.Main_MN [--width 300]
+[--no-auto-collapse]` sets the accordion properties on the menu bar, gives it Width and
+MaxWidth, and fixes its column at that width when the menu bar is alone in it. It refuses a
+Menu without sub-Menu items. Applied with `recipe collapsible` on the same column, the menu
+keeps AlwaysOpen true so it keeps its labels.
+
+`twaco mashup recipe navigate-on-click Acme.Page_MU <collection|grid> --field PageName
+[--window replace|new|popup|modal-popup]` adds a navigation function, binds its TargetMashup
+from the selected row's field of the widget's own data call, and runs its Navigate on the
+collection's CellClicked or the grid's RowClicked. A widget that cannot select rows gets
+single selection; the plan warns when AutoSelectFirstRow is on, which would navigate on load.

@@ -54,7 +54,7 @@ impl Coded for FmtCommandError {
     }
 }
 
-/// Format scripts. A check is a plan and does not take the workspace lock.
+/// Format scripts and subscription Events. A check is a plan and does not take the workspace lock.
 pub fn execute(
     solution: &Solution,
     request: &FmtRequest,

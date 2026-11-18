@@ -6,7 +6,8 @@
 // `widgetWrapper.config(...)` literal, evaluated in isolation), plus widget_catalog_overlay.json.
 // Function widgets (expressions, validators, navigation...) are older Composer widgets: their
 // properties, events and services come from Common/mashup-common-widgets-builder.js, or from the
-// overlay's `contract` for one whose definition is built at run time (the events router).
+// overlay's `contract` for one whose definition is built at run time (the events router and
+// flexcontainer, including its expand/collapse services).
 // An older layout widget the overlay marks `builder` (the shape) also takes its contract from
 // the builder file.
 
@@ -164,7 +165,7 @@ for (const [type, extra] of Object.entries(overlay.widgets)) {
   // A function widget, or an older layout widget the overlay marks `builder` (the shape), has its
   // contract in the builder file rather than in the shared one.
   const fromBuilder = extra.function === true || extra.builder === true;
-  const contract = contracts[type] ?? (fromBuilder ? extra.contract ?? builderContract(type) : undefined);
+  const contract = extra.contract ?? contracts[type] ?? (fromBuilder ? builderContract(type) : undefined);
   if (contract) {
     const properties = {};
     for (const [name, definition] of Object.entries(contract.properties ?? {})) {

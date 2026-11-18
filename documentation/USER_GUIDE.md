@@ -321,6 +321,8 @@ without it, each gate gives a summary.
 
 ### Focused script lint
 
+`twaco fmt` also orders Events directly under a Subscription by alias, preserving their XML bytes and surrounding layout.
+
 `twaco lint` runs the formatting, script-trap, code-order and enabled comment rules, reporting each
 finding at the configured rule severity. Narrow it with `--entity <Collection/Name-glob>` or
 `--service <glob>`, select a rule or a group (`format`, `traps`, `order`, `comments`) with `--rule`,
@@ -428,8 +430,8 @@ and the like. `entity status --record` records the current state as the baseline
 two sides already agree, for a repository adopting twaco. It reports how many baselines it
 recorded; counts, detail and the exit status reflect the updated baseline.
 
-After upgrading to a release that changes the comparison hash version (v0.1.64 moved from
-v10 to v11), older baselines count as missing: run `twaco entity status --all --record`.
+After upgrading to a release that changes the comparison hash version (this release moves from
+v11 to v12), older baselines count as missing: run `twaco entity status --all --record`.
 It records baselines only where the repository and server already agree. Entities listed as
 `no-baseline-differs` need investigation with `entity diff`, pull or adopt; `--record` does
 not resolve their differences.
@@ -505,6 +507,8 @@ name. Without `--apply` it plans and stops. With it, it:
 
 With `--only`, the project's deploy service still runs, but its `post_import` calls are
 skipped: they are written for a whole project's import.
+
+A deploy stopped by any blocking gate exits 2 and sends nothing. JSON and MCP report `deployed: false`.
 
 With `--only-projects`, what is wrong in the other projects does not stop the deploy. A gate's
 finding in a file of a project the deploy leaves out (its entity file, or its sidecar folder
@@ -1291,7 +1295,14 @@ column also stops at its measured content height, keeping fields together at the
 a taller column. Side-by-side fields on a blank page keep a vertical page wrapper, and default
 `--below <textarea>` places Save below the whole split form; use `--in-column` to keep a new
 control inside the textarea's column. The last ordinary
-control row can absorb spare height with its controls at the top; an explicit `--bottom` footer
+control row can absorb spare height with its controls at the top. Generated rows mixing labelled
+inputs with controls align their boxes at the bottom (`align-items=flex-end`). Their direct
+widgets get `Margin=0` when the margin is still the catalogue default; custom margins are
+preserved. Use the container gap for spacing. A label-less action placed beside a textarea
+(or its column) gets its own bottom-aligned column; the shared row uses `align-items=stretch`
+so both columns have the same height. Label edits and
+removals recompute this alignment. `mashup validate` warns about mixed rows using top alignment,
+including authored rows. An explicit `--bottom` footer
 keeps its buttons at the bottom. A lone textarea still fills its panel. Charts, grids, other data
 fillers and unknown widgets keep the filling rules, even beside a title or buttons. Wrapping a filler
 with `--below` or `--right-of` gives the new inner containers their floors too; a nested column
@@ -1678,6 +1689,27 @@ their own wiring, so Next and Back expressions or distinct error messages remain
 MCP uses the same `mashup_recipe` tool: `action_label`/`cancel_label`, `field_maps` (an array of
 `Property=field` strings), and `param`/`expression`/`inputs` correspond to these CLI options.
 `dry_run` defaults to true; use `dry_run: false` to apply.
+
+### Collapsible sidebars
+
+```sh
+twaco mashup recipe collapsible Acme.App.Main_MM sidebar --add-toggle --in header --tab none --apply
+twaco mashup recipe collapsible Acme.App.Main_MM sidebar --toggle ptcsbutton-19 --tab outside --start collapsed --apply
+```
+
+The container must have a sibling in its parent. Keep the toggle outside the collapsing
+container so it remains available to reopen it. The recipe enables expand/collapse, starts
+expanded unless `--start collapsed` is given, and wires `Clicked` to `ToggleExpandCollapse`.
+`--add-toggle --in <container>` adds an icon button and reuses it on an identical rerun.
+`--tab inside|outside` shows the native tab with chevrons (default: outside); `--tab none`
+hides it. The container services `Expand` and `Collapse` also work with `mashup on --invoke`.
+Plans are read-only until `--apply`. MCP uses `mashup_recipe` with recipe `collapsible`,
+`widget` for the container, and `toggle`, `add_toggle`, `in_container`, `tab`, `start`.
+
+When `mashup add` or `mashup set` assigns `PrimaryNavMenu`, twaco counts that repository Menu's
+items and raises `PrimaryNavMaxItems` if needed (catalogue default: 5). A larger explicit
+limit stays intact. `menu item add` warns with the affected mashup and a fix command if its
+menubar limit is too small; it edits only the Menu.
 
 ### Validating mashups
 

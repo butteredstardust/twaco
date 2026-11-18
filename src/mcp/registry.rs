@@ -140,6 +140,7 @@ const ADDITIVE: &[&str] = &[
 /// Writing tools that, called again with the same arguments, change nothing more.
 const IDEMPOTENT: &[&str] = &[
     "mashup_gap",
+    "mashup_move",
     "types",
     "fmt",
     "lint_fix_headers",
@@ -356,7 +357,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         .with_output::<outputs::ExtractResult>(),
         solution_tool::<source_requests::FmtRequest>(
             "fmt",
-            "Format selected service script sidecars with the built-in formatter. Without a selector, formats every script. check: true reports which would change and writes nothing.",
+            "Format selected service script sidecars with the built-in formatter and order subscription Events by alias. Without a selector, formats every entity and script. check: true reports which files would change and writes nothing.",
             false,
             source::fmt_tool,
         )
@@ -548,14 +549,14 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         ).with_output::<outputs::NetworkWriteResult>(),
         solution_tool::<refactor_requests::EntityEditRequest>(
             "entity_edit",
-            "Change an existing entity in the repository, as Composer would: add, change or remove a property of a Thing, ThingTemplate or ThingShape (a persistent one also writes the stored value of every Thing that has it), add or remove a local script service and its sidecars, or override or revert an inherited service with its script-only sidecar while keeping its run-time permissions; add or remove a script subscription, implement or stop implementing a ThingShape, change a timer's or scheduler's settings, given keys of a style, a MediaEntity's image, a menu's items, or a StateDefinition's states. Removing or retyping a property, or removing a service, something still uses is refused unless force. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
+            "Change an existing entity in the repository, as Composer would: add, change or remove a property of a Thing, ThingTemplate or ThingShape (a persistent one also writes the stored value of every Thing that has it), add or remove a local script service and its sidecars, or override or revert an inherited service with its script-only sidecar while keeping its run-time permissions; add or remove a script subscription, implement or stop implementing a ThingShape, change a timer's or scheduler's settings, given keys of a style, a MediaEntity's image, entity descriptions, Menu-level icons, a menu's items (including sub-Menus, titles, destinations, icons and defaults), menu_nest (a root Menu of sub-Menu links plus one leaf Menu per group, written together), or a StateDefinition's states. Removing or retyping a property, or removing a service, something still uses is refused unless force. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
             false,
             refactor::entity_edit_tool,
         )
         .with_output::<outputs::EntityEditResult>(),
         solution_tool::<refactor_requests::MashupNewRequest>(
             "mashup_new",
-            "Create a ThingWorx 10.2 responsive mashup from an embedded layout template, with its entity file and managed content.json and custom.css sidecars. template is a name or alias (blank by default); mashup_templates lists the slots where mashup_add can place widgets. Menu templates require primary_menu (a service result) or menu_entity (a Menu in the solution); secondary_menu goes with primary_menu. master puts its page container in the template's master slot. A dry run unless dry_run is false; an apply takes the workspace lock and writes every file or none.",
+            "Create a ThingWorx 10.2 responsive mashup from an embedded layout template, with its entity file and managed content.json and custom.css sidecars. from copies a repository mashup; replacements are repeatable old=new whole-token substitutions in copied content strings. template is a name or alias (blank by default); mashup_templates lists the slots where mashup_add can place widgets. Menu templates require primary_menu (a service result) or menu_entity (a Menu in the solution); secondary_menu goes with primary_menu. master puts its page container in the template's master slot. A dry run unless dry_run is false; an apply takes the workspace lock and writes every file or none.",
             false,
             refactor::mashup_new_tool,
         )
@@ -646,6 +647,13 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             refactor::mashup_remove_tool,
         )
         .with_output::<outputs::MashupRemoveResult>(),
+        solution_tool::<refactor_requests::MashupMoveRequest>(
+            "mashup_move",
+            "Move a widget and its subtree to another place in a mashup, keeping its id, properties, bindings and events. Placement arguments are those of mashup_add (in [with bottom], right_of [with end], left_of, above, below [with in_column]); the target must lie outside the moved subtree, and the root, the body container and function widgets cannot move. The old place is tidied as mashup_remove does and the new one laid out as mashup_add does; already there is a no-op (changed false). A dry run unless dry_run is false; apply writes the entity and managed content sidecar together.",
+            false,
+            refactor::mashup_move_tool,
+        )
+        .with_output::<outputs::MashupMoveResult>(),
         solution_tool::<refactor_requests::MashupUnbindRequest>(
             "mashup_unbind",
             "Remove exactly one existing data binding selected by its source and target addresses. A dry run unless dry_run is false; apply writes the entity and managed content sidecar together.",
@@ -662,7 +670,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         .with_output::<outputs::MashupOffResult>(),
         bare_tool::<refactor_requests::WidgetsRequest>(
             "widgets",
-            "List or search the embedded ThingWorx 10.2 widget catalogue (type, Composer label, aliases, container, whether bindable), or with widget, one widget's bindable properties with base type and direction (in, out, in/out), its events and services. Read-only; no server.",
+            "List or search the embedded ThingWorx 10.2 widget catalogue (type, Composer label, aliases, container, whether bindable), or with widget, one widget's editable and bindable properties with base type and direction (in, out, in/out), its events and services. Read-only; no server.",
             true,
             refactor::widgets_tool,
         )
@@ -676,7 +684,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         .with_output::<outputs::MashupParameterResult>(),
         solution_tool::<refactor_requests::MashupRecipeRequest>(
             "mashup_recipe",
-            "Write one recipe: the wiring real mashups repeat, in one edit. enable-when/show-when (widget, condition, inputs name=address: an expression into Disabled/Visible), text (widget, expression, inputs: a label's computed text), message (after a data call: success say or from, kind info|warning|error; on_failure text shows a separate error on Data_Error and may be used alone), confirm (widget, then, title, say, action_label, cancel_label), popup (widget or on, target mashup, window modal-popup|popup|replace|new, size WxH, title, pass name=address, reload handler on close), close-after (after a data call succeeds the popup closes itself; failure leaves it open), auto-refresh (then data call, every seconds or interval address), validate (widget or on, condition, inputs, then, else_say), chart (widget, data, x, value for a pie, kind), columns (widget, columns field[:Title[:width]], data or existing binding; only listed fields visible, readable DATETIME), picker (widget, data, x display field, value, selected), tracker (widget or new, data; interactive large tracker with five DataShape field maps inferred, field_maps Property=field overrides required for missing or ambiguous maps), set-on-click (widget, param, expression, inputs; evaluate only on click and write the mashup parameter). A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
+            "Write one recipe: the wiring real mashups repeat, in one edit. enable-when/show-when (widget, condition, inputs name=address: an expression into Disabled/Visible), text (widget, expression, inputs: a label's computed text), message (after a data call: success say or from, kind info|warning|error; on_failure text shows a separate error on Data_Error and may be used alone), confirm (widget, then, title, say, action_label, cancel_label), popup (widget or on, target mashup, window modal-popup|popup|replace|new, size WxH, title, pass name=address, reload handler on close), close-after (after a data call succeeds the popup closes itself; failure leaves it open), auto-refresh (then data call, every seconds or interval address), validate (widget or on, condition, inputs, then, else_say), chart (widget, data, x, value for a pie, kind), columns (widget, columns field[:Title[:width]], data or existing binding; only listed fields visible, readable DATETIME), picker (widget, data, x display field, value, selected), tracker (widget or new, data; interactive large tracker with five DataShape field maps inferred, field_maps Property=field overrides required for missing or ambiguous maps), set-on-click (widget, param, expression, inputs; evaluate only on click and write the mashup parameter). collapsible (widget container with siblings; toggle existing button or add_toggle with in_container outside it; tab inside|outside|none, start collapsed). A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
             false,
             refactor::mashup_recipe_tool,
         )
@@ -1108,6 +1116,7 @@ pub(crate) const GROUPS: &[(&str, &[&str])] = &[
             "mashup_on",
             "mashup_gap",
             "mashup_remove",
+            "mashup_move",
             "mashup_unbind",
             "mashup_off",
             "widgets",

@@ -792,3 +792,103 @@ operation order, response status, read-back state, and the relevant log line whe
 manager is involved. Do not add credentials, request bodies, server URLs, or private entity names
 to that evidence. Neutral examples and small reproducible probes make it possible to verify a
 quirk on another server without copying production data.
+
+
+## Mixed control rows need equal margins and stretched textarea columns
+
+Field-verified on ThingWorx 10.2.1: `align-items: flex-end` aligns control boxes only when
+their widget margins agree. Set `Margin` to `0` and use the container gap for spacing.
+A button at margin 5 beside an input at 0 remains offset. For a textarea and action in
+separate columns, set the shared row to `align-items: stretch` and the action column to
+`justify-content: flex-end`. Otherwise the button floats at the top beside the textarea.
+
+## Collapsible containers need siblings and an external toggle
+
+Field-verified on ThingWorx 10.2.1: a sidebar containing a logo and `ptcsmenubar` collapses
+from 264px to 0 and expands back to 264px with `EnableExpandCollapse=true`, `Expanded=true`
+and a button's `Clicked` invoking `ToggleExpandCollapse`. `Expand` and `Collapse` are also
+container services. Keep that button outside the collapsing container or it vanishes too.
+The runtime requires sibling bounding boxes (`_hasSiblingFlexBoundingBoxes`) in the parent.
+Set `ShowExpandCollapseTab=false` for an external button alone, or show the native tab using
+`ExpandCollapseTabLocation=inside|outside`, `ExpandTabIcon=cds:icon_chevron_right` and
+`CollapseTabIcon=cds:icon_chevron_left`. `mashup recipe collapsible` configures this wiring.
+
+## Menu background continuations need fractional stops
+
+Field-verified on ThingWorx 10.2.1: `ptcsmenubar` in a 264px sidebar measures 246.797px
+(238.797px flyout plus an 8px expand part). CSS continuing its background with whole-pixel
+stops leaves a 1px seam. Fractional stops matching the measured menu width remove the seam.
+
+## Fixed leaf sizes need nonresponsive bounding boxes
+
+Field-verified on ThingWorx 10.2, 2026-11-18: a `ptcsimage` with `FillContainer=false`,
+`Width=120` and `Height=60` inside a responsive row ignored those sizes and filled the page.
+With `ResponsiveLayout=false`, Runtime drew a 120x60 relative bounding box with margin 5.
+`mashup set` selects this mode for sized leaves and returns to responsive mode when filling
+or clearing their sizes. Explicit `ResponsiveLayout` settings override that choice.
+
+## Wrapped input rows need room to grow
+
+Field-verified on ThingWorx 10.2, 2026-11-18: allow input rows to wrap and grow when their
+controls do not fit; a fixed maximum height clips the second line. Use `flex-wrap=wrap`
+with `flex-size=range` and no `flex-max-height`.
+
+## Menu sub-Menu targets and icons (10.2.1)
+
+A MenuItem with `linkType="Menu"` names its sub-Menu in `linkTarget`, as Composer's Target
+field does. Set both `linkTarget` and `linkDestination` to the sub-Menu name, such as
+`Acme.Sub_MN`, and leave `title` empty. `linkTarget="Self"` makes the server look for a Menu
+named Self: GetEffectiveMenu returns only the root row and ptcsmenubar renders empty, even
+when deploy read-back passes. The parent shows the sub-Menu's menuLabel and Menu-level imageURL.
+An item's imageURL is separate from the Menu's imageURL. The server recomputes effectiveMenu;
+the stored parent effectiveMenu need not match its runtime result. Field-verified on 10.2.1.
+
+## Text Field trailing zeros (10.2.1)
+
+Composer's Hide Trailing Zeros setting is `ptcstextfield.DisplayTrailingZeros`, a BOOLEAN
+whose default is true. Setting it to false with DecimalPlaces 6 shows 0.6 rather than
+0.600000. Field-verified on 10.2.1.
+
+## Accordion menu bar over nested Menus (10.2.1)
+
+Deploying a root Menu and its sub-Menus in one bundle works; GetEffectiveMenu on the root
+returns ids such as `Acme.Main_MN.Acme.Basics_MN.Acme.Basics_MN_1`, with parentMenuId
+chaining through them. A ptcsmenubar shows it as an accordion with DataSource `menuentity`,
+PrimaryNavMenu the root, SubMenuType `nested`, AutoCollapseMenus true (one group open),
+StayOpenOnSelection true, AlwaysOpen true, DisableResizing true and PrimaryNavIcons true.
+PrimaryNavMaxItems does not apply in nested mode. A compact nested rail has no icons:
+SubMenuType `nested` with AlwaysOpen false renders an empty rail; an icon rail needs
+SubMenuType `flyout`. A 264px column truncated level-3 labels; a 300px column with the menu
+bar's Width and MaxWidth 300 fitted them, and the menu bar then measures 288.797px. A
+direct or bookmarked load opens every group collapsed with nothing selected, so CSS overlays
+with fixed per-item offsets cannot follow an accordion. Field-verified on 10.2.1.
+
+## CDS icon names (10.2)
+
+Composer's CDS icon set holds 153 names (`TW.SVGImages.cds` in
+`Composer/node_modules/tw-ui-resources/dist/lib/cds.js`, ThingWorx 10.2). A `cds:` value
+naming anything else renders a blank icon without an error: there is no `cds:icon_menu`
+(the menu button is `cds:icon_hamburger`) and no `cds:icon_debug`. `twaco widgets --icons`
+lists the names.
+
+## Responsive layout quirks (10.2.1)
+
+A bounded-width responsive container (width `min(100%,768px)`) with `align-self: flex-start`
+still centres: responsive bounding boxes get automatic horizontal margins, so reset
+`margin-left` and `margin-right` in CSS. A container whose children are all containers renders
+as `flex: 0 1 auto` (class `size-fixed`) even with `flex-size` range or default and
+`flex-grow` 1, so it does not fill its column and the parent spreads spare space around its
+rows; a CustomClass with `flex: 1 1 auto !important; min-height: 0` fixes it. Filled
+(responsive) widgets are absolutely positioned and ignore the parent's padding: inset a panel
+through the inner widget's margin plus `width` and `height` of `calc(100% - 2*inset)`, also
+for contained mashups in tabs. A ptcsslider is 118px tall (label, value bubble, MIN/MAX), so
+a button beside it with `align-items: center` sits about 24px above the track; use
+`flex-end` or offset the button's margin. Field-verified on 10.2.1.
+
+## Property display and text area styling (10.2.1)
+
+Clearing `::part(property-group-container)` on a ptcspropertydisplay leaves a white surface;
+clear `::part(property-group)` too. Values are capped by ValueMaxWidth (250px by default):
+raise it for long values. A fixed-height container clips a property display whose values
+wrap (a 220px panel did at 1280px width): use `flex-size` range with no max height. A
+ptcstextarea styles its text through `::part(text-value)`. Field-verified on 10.2.1.

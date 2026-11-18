@@ -1303,7 +1303,7 @@
   },
   {
     "name": "fmt",
-    "description": "Format selected service script sidecars with the built-in formatter. Without a selector, formats every script. check: true reports which would change and writes nothing.",
+    "description": "Format selected service script sidecars with the built-in formatter and order subscription Events by alias. Without a selector, formats every entity and script. check: true reports which files would change and writes nothing.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -2951,6 +2951,13 @@
         "ok"
       ],
       "properties": {
+        "deployed": {
+          "description": "False when gates stopped the deploy before sending anything.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "server_owned": {
           "description": "Each existing entity whose import preserves server-owned parts, with its part labels.",
           "type": [
@@ -4068,6 +4075,10 @@
         "image": {
           "type": "string"
         },
+        "icon": {
+          "description": "Menu-level image URL or MediaEntity.",
+          "type": "string"
+        },
         "display_string": {
           "type": "string"
         },
@@ -4778,7 +4789,7 @@
   },
   {
     "name": "entity_edit",
-    "description": "Change an existing entity in the repository, as Composer would: add, change or remove a property of a Thing, ThingTemplate or ThingShape (a persistent one also writes the stored value of every Thing that has it), add or remove a local script service and its sidecars, or override or revert an inherited service with its script-only sidecar while keeping its run-time permissions; add or remove a script subscription, implement or stop implementing a ThingShape, change a timer's or scheduler's settings, given keys of a style, a MediaEntity's image, a menu's items, or a StateDefinition's states. Removing or retyping a property, or removing a service, something still uses is refused unless force. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
+    "description": "Change an existing entity in the repository, as Composer would: add, change or remove a property of a Thing, ThingTemplate or ThingShape (a persistent one also writes the stored value of every Thing that has it), add or remove a local script service and its sidecars, or override or revert an inherited service with its script-only sidecar while keeping its run-time permissions; add or remove a script subscription, implement or stop implementing a ThingShape, change a timer's or scheduler's settings, given keys of a style, a MediaEntity's image, entity descriptions, Menu-level icons, a menu's items (including sub-Menus, titles, destinations, icons and defaults), menu_nest (a root Menu of sub-Menu links plus one leaf Menu per group, written together), or a StateDefinition's states. Removing or retyping a property, or removing a service, something still uses is refused unless force. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
     "inputSchema": {
       "required": [
         "action",
@@ -4791,6 +4802,9 @@
           "description": "What to change.",
           "type": "string",
           "enum": [
+            "entity_set",
+            "menu_item_set",
+            "menu_nest",
             "property_add",
             "property_remove",
             "property_set",
@@ -4987,8 +5001,28 @@
           "description": "menu_item_add / menu_item_remove: the item title.",
           "type": "string"
         },
+        "new_title": {
+          "type": "string"
+        },
+        "submenu": {
+          "type": "string"
+        },
+        "icon": {
+          "type": "string"
+        },
         "mashup": {
           "description": "menu_item_add: the mashup the item opens.",
+          "type": "string"
+        },
+        "groups": {
+          "description": "menu_nest: the groups, each `Label=<icon>:Title=Mashup,Title=Mashup` (icon a `cds:icon_<name>`, a MediaEntity or empty).",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "project": {
+          "description": "menu_nest: the project a new Menu goes in, when the solution has several.",
           "type": "string"
         },
         "before": {
@@ -5100,7 +5134,7 @@
   },
   {
     "name": "mashup_new",
-    "description": "Create a ThingWorx 10.2 responsive mashup from an embedded layout template, with its entity file and managed content.json and custom.css sidecars. template is a name or alias (blank by default); mashup_templates lists the slots where mashup_add can place widgets. Menu templates require primary_menu (a service result) or menu_entity (a Menu in the solution); secondary_menu goes with primary_menu. master puts its page container in the template's master slot. A dry run unless dry_run is false; an apply takes the workspace lock and writes every file or none.",
+    "description": "Create a ThingWorx 10.2 responsive mashup from an embedded layout template, with its entity file and managed content.json and custom.css sidecars. from copies a repository mashup; replacements are repeatable old=new whole-token substitutions in copied content strings. template is a name or alias (blank by default); mashup_templates lists the slots where mashup_add can place widgets. Menu templates require primary_menu (a service result) or menu_entity (a Menu in the solution); secondary_menu goes with primary_menu. master puts its page container in the template's master slot. A dry run unless dry_run is false; an apply takes the workspace lock and writes every file or none.",
     "inputSchema": {
       "required": [
         "name"
@@ -5123,6 +5157,12 @@
         "from": {
           "description": "A repository mashup to copy. It is exclusive with template, layout, menus, theme, master, params and tabs.",
           "type": "string"
+        },
+        "replacements": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         },
         "layout": {
           "description": "Compatibility alias for template.",
@@ -5198,6 +5238,15 @@
         "menus"
       ],
       "properties": {
+        "replacements": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
         "applied": {
           "type": "boolean"
         },
@@ -6838,6 +6887,176 @@
     }
   },
   {
+    "name": "mashup_move",
+    "description": "Move a widget and its subtree to another place in a mashup, keeping its id, properties, bindings and events. Placement arguments are those of mashup_add (in [with bottom], right_of [with end], left_of, above, below [with in_column]); the target must lie outside the moved subtree, and the root, the body container and function widgets cannot move. The old place is tidied as mashup_remove does and the new one laid out as mashup_add does; already there is a no-op (changed false). A dry run unless dry_run is false; apply writes the entity and managed content sidecar together.",
+    "inputSchema": {
+      "required": [
+        "mashup",
+        "widget"
+      ],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "mashup": {
+          "description": "The existing mashup's name.",
+          "type": "string"
+        },
+        "widget": {
+          "description": "The widget to move, by id, display name, or unique catalogue name; its subtree moves with it.",
+          "type": "string"
+        },
+        "in": {
+          "description": "Put the widget in this responsive container.",
+          "type": "string"
+        },
+        "right_of": {
+          "type": "string"
+        },
+        "left_of": {
+          "type": "string"
+        },
+        "above": {
+          "type": "string"
+        },
+        "below": {
+          "type": "string"
+        },
+        "end": {
+          "description": "With right_of: the far end of the anchor's row, as mashup_add.",
+          "type": "boolean",
+          "default": false
+        },
+        "bottom": {
+          "description": "With in: a footer row at the bottom of that column, as mashup_add.",
+          "type": "boolean",
+          "default": false
+        },
+        "in_column": {
+          "description": "With below: stack within the anchor's column of a split row, as mashup_add.",
+          "type": "boolean",
+          "default": false
+        },
+        "dry_run": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "openWorldHint": false,
+      "destructiveHint": true,
+      "idempotentHint": true
+    },
+    "outputSchema": {
+      "required": [
+        "applied",
+        "dry_run",
+        "mashup",
+        "id",
+        "moved",
+        "from",
+        "to",
+        "changed",
+        "containers",
+        "container_contents",
+        "wrapped",
+        "removed",
+        "files"
+      ],
+      "properties": {
+        "applied": {
+          "type": "boolean"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "mashup": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "moved": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "from": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        },
+        "changed": {
+          "type": "boolean"
+        },
+        "containers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "container_contents": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "holds": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "id",
+              "holds"
+            ]
+          }
+        },
+        "flipped": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "wrapped": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "removed": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
     "name": "mashup_unbind",
     "description": "Remove exactly one existing data binding selected by its source and target addresses. A dry run unless dry_run is false; apply writes the entity and managed content sidecar together.",
     "inputSchema": {
@@ -6999,7 +7218,7 @@
   },
   {
     "name": "widgets",
-    "description": "List or search the embedded ThingWorx 10.2 widget catalogue (type, Composer label, aliases, container, whether bindable), or with widget, one widget's bindable properties with base type and direction (in, out, in/out), its events and services. Read-only; no server.",
+    "description": "List or search the embedded ThingWorx 10.2 widget catalogue (type, Composer label, aliases, container, whether bindable), or with widget, one widget's editable and bindable properties with base type and direction (in, out, in/out), its events and services. Read-only; no server.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -7244,7 +7463,7 @@
   },
   {
     "name": "mashup_recipe",
-    "description": "Write one recipe: the wiring real mashups repeat, in one edit. enable-when/show-when (widget, condition, inputs name=address: an expression into Disabled/Visible), text (widget, expression, inputs: a label's computed text), message (after a data call: success say or from, kind info|warning|error; on_failure text shows a separate error on Data_Error and may be used alone), confirm (widget, then, title, say, action_label, cancel_label), popup (widget or on, target mashup, window modal-popup|popup|replace|new, size WxH, title, pass name=address, reload handler on close), close-after (after a data call succeeds the popup closes itself; failure leaves it open), auto-refresh (then data call, every seconds or interval address), validate (widget or on, condition, inputs, then, else_say), chart (widget, data, x, value for a pie, kind), columns (widget, columns field[:Title[:width]], data or existing binding; only listed fields visible, readable DATETIME), picker (widget, data, x display field, value, selected), tracker (widget or new, data; interactive large tracker with five DataShape field maps inferred, field_maps Property=field overrides required for missing or ambiguous maps), set-on-click (widget, param, expression, inputs; evaluate only on click and write the mashup parameter). A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
+    "description": "Write one recipe: the wiring real mashups repeat, in one edit. enable-when/show-when (widget, condition, inputs name=address: an expression into Disabled/Visible), text (widget, expression, inputs: a label's computed text), message (after a data call: success say or from, kind info|warning|error; on_failure text shows a separate error on Data_Error and may be used alone), confirm (widget, then, title, say, action_label, cancel_label), popup (widget or on, target mashup, window modal-popup|popup|replace|new, size WxH, title, pass name=address, reload handler on close), close-after (after a data call succeeds the popup closes itself; failure leaves it open), auto-refresh (then data call, every seconds or interval address), validate (widget or on, condition, inputs, then, else_say), chart (widget, data, x, value for a pie, kind), columns (widget, columns field[:Title[:width]], data or existing binding; only listed fields visible, readable DATETIME), picker (widget, data, x display field, value, selected), tracker (widget or new, data; interactive large tracker with five DataShape field maps inferred, field_maps Property=field overrides required for missing or ambiguous maps), set-on-click (widget, param, expression, inputs; evaluate only on click and write the mashup parameter). collapsible (widget container with siblings; toggle existing button or add_toggle with in_container outside it; tab inside|outside|none, start collapsed). A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
     "inputSchema": {
       "required": [
         "recipe",
@@ -7253,8 +7472,23 @@
       "additionalProperties": false,
       "type": "object",
       "properties": {
+        "toggle": {
+          "type": "string"
+        },
+        "add_toggle": {
+          "type": "boolean"
+        },
+        "in_container": {
+          "type": "string"
+        },
+        "tab": {
+          "type": "string"
+        },
+        "start": {
+          "type": "string"
+        },
         "recipe": {
-          "description": "enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, picker, tracker or set-on-click.",
+          "description": "enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, picker, tracker, set-on-click, nested-menu, navigate-on-click or collapsible.",
           "type": "string"
         },
         "mashup": {
@@ -7403,6 +7637,23 @@
         "auto_select_first": {
           "description": "A picker that selects its first row.",
           "type": "boolean"
+        },
+        "menu": {
+          "description": "The root Menu of recipe nested-menu.",
+          "type": "string"
+        },
+        "no_auto_collapse": {
+          "description": "nested-menu: leave several groups open at once.",
+          "type": "boolean"
+        },
+        "width": {
+          "description": "nested-menu: the column's width in pixels (300 by default).",
+          "type": "integer",
+          "minimum": 0
+        },
+        "field": {
+          "description": "navigate-on-click: the selected row's field that names the mashup to open.",
+          "type": "string"
         },
         "dry_run": {
           "type": "boolean",
@@ -7679,6 +7930,10 @@
       "additionalProperties": false,
       "type": "object",
       "properties": {
+        "detail": {
+          "type": "boolean",
+          "default": false
+        },
         "mashup": {
           "description": "The mashup's name.",
           "type": "string"

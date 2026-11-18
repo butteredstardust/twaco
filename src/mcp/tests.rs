@@ -409,6 +409,15 @@ fn hand_written_tools() -> Vec<Value> {
         .iter_mut()
         .find(|tool| tool["name"] == "mashup_recipe")
         .unwrap();
+    for (name, kind) in [
+        ("toggle", "string"),
+        ("add_toggle", "boolean"),
+        ("in_container", "string"),
+        ("tab", "string"),
+        ("start", "string"),
+    ] {
+        recipe["inputSchema"]["properties"][name] = json!({"type": kind});
+    }
     recipe["inputSchema"]["properties"]["on_failure"] = json!({
         "description": "Error status message on Data_Error for message; may be used without say/from.",
         "type": "string"
@@ -451,6 +460,17 @@ fn hand_written_tools() -> Vec<Value> {
             "A picker that selects its first row.",
             "boolean",
         ),
+        ("menu", "The root Menu of recipe nested-menu.", "string"),
+        (
+            "no_auto_collapse",
+            "nested-menu: leave several groups open at once.",
+            "boolean",
+        ),
+        (
+            "field",
+            "navigate-on-click: the selected row's field that names the mashup to open.",
+            "string",
+        ),
     ] {
         let mut property = json!({"description": description, "type": kind});
         if kind == "array" {
@@ -458,7 +478,45 @@ fn hand_written_tools() -> Vec<Value> {
         }
         recipe["inputSchema"]["properties"][name] = property;
     }
-    recipe["inputSchema"]["properties"]["recipe"]["description"] = json!("enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, picker, tracker or set-on-click.");
+    recipe["inputSchema"]["properties"]["width"] = json!({"description": "nested-menu: the column's width in pixels (300 by default).", "type": "integer", "minimum": 0});
+    recipe["inputSchema"]["properties"]["recipe"]["description"] = json!("enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, picker, tracker, set-on-click, nested-menu, navigate-on-click or collapsible.");
+    let edit = tools
+        .iter_mut()
+        .find(|tool| tool["name"] == "entity_edit")
+        .unwrap();
+    let actions = edit["inputSchema"]["properties"]["action"]["enum"]
+        .as_array_mut()
+        .unwrap();
+    actions.splice(
+        0..0,
+        [
+            json!("entity_set"),
+            json!("menu_item_set"),
+            json!("menu_nest"),
+        ],
+    );
+    for name in ["new_title", "submenu", "icon"] {
+        edit["inputSchema"]["properties"][name] = json!({"type": "string"});
+    }
+    edit["inputSchema"]["properties"]["groups"] = json!({"description": "menu_nest: the groups, each `Label=<icon>:Title=Mashup,Title=Mashup` (icon a `cds:icon_<name>`, a MediaEntity or empty).", "type": "array", "items": {"type": "string"}});
+    edit["inputSchema"]["properties"]["project"] = json!({"description": "menu_nest: the project a new Menu goes in, when the solution has several.", "type": "string"});
+    let new = tools
+        .iter_mut()
+        .find(|tool| tool["name"] == "entity_new")
+        .unwrap();
+    new["inputSchema"]["properties"]["icon"] =
+        json!({"description": "Menu-level image URL or MediaEntity.", "type": "string"});
+    let new = tools
+        .iter_mut()
+        .find(|tool| tool["name"] == "mashup_new")
+        .unwrap();
+    new["inputSchema"]["properties"]["replacements"] =
+        json!({"type": "array", "items": {"type": "string"}});
+    let describe = tools
+        .iter_mut()
+        .find(|tool| tool["name"] == "mashup_describe")
+        .unwrap();
+    describe["inputSchema"]["properties"]["detail"] = json!({"type": "boolean", "default": false});
     tools
 }
 
@@ -619,12 +677,19 @@ fn generated_schemas_mean_what_the_hand_written_ones_did() {
             "{name}"
         );
         for key in ["description", "annotations"] {
-            // These descriptions evolved with rename selectors, form warnings and failure handling.
+            // These descriptions evolved with selectors, formatting, form warnings and failure handling.
             // Their current wording is checked by the golden file and tools/list tests.
             if key == "description"
                 && matches!(
                     name,
-                    "mashup_bind" | "mashup_on" | "mashup_recipe" | "rename"
+                    "fmt"
+                        | "mashup_bind"
+                        | "mashup_on"
+                        | "mashup_recipe"
+                        | "rename"
+                        | "entity_edit"
+                        | "mashup_new"
+                        | "widgets"
                 )
             {
                 continue;
@@ -1309,6 +1374,7 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
             "mashup_on",
             "mashup_gap",
             "mashup_remove",
+            "mashup_move",
             "mashup_unbind",
             "mashup_off",
             "widgets",
@@ -1396,6 +1462,7 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
         "mashup_on",
         "mashup_gap",
         "mashup_remove",
+        "mashup_move",
         "mashup_unbind",
         "mashup_off",
         "mashup_param",
@@ -2567,6 +2634,7 @@ fn a_deploy_the_gates_stop_answers_in_the_published_shape_and_says_why() {
     let result = call(&root, "deploy", json!({}));
     let content = &result["structuredContent"];
     assert_eq!(content["stage"], "gates", "{result}");
+    assert_eq!(content["deployed"], false);
     assert!(
         content["blocking_gates"]
             .as_array()
@@ -2851,7 +2919,7 @@ fn status_record_returns_matching_entities_in_sync_and_keeps_differing_verdicts(
     )
     .unwrap();
     std::fs::create_dir_all(root.join(".twaco/baselines")).unwrap();
-    std::fs::write(root.join(".twaco/baselines/default.json"),r#"{"entities":{"Things":{"Acme.Same":{"local":"v11:old","server":"v11:old"},"Acme.Different":{"local":"v11:old","server":"v11:old"}}}}"#).unwrap();
+    std::fs::write(root.join(".twaco/baselines/default.json"),r#"{"entities":{"Things":{"Acme.Same":{"local":"v12:old","server":"v12:old"},"Acme.Different":{"local":"v12:old","server":"v12:old"}}}}"#).unwrap();
     let before = call(root, "status", json!({"all":true,"detail":true}));
     assert_eq!(body(&before)["counts"]["converged"], 1);
     assert_eq!(body(&before)["counts"]["both-changed"], 1);
@@ -4472,4 +4540,118 @@ fn mashup_add_reports_container_contents_without_changing_container_ids() {
     }
     assert_eq!(contents[0]["holds"], json!([anchor]));
     assert_eq!(contents[1]["holds"], json!([report["id"]]));
+}
+
+#[test]
+fn collapsible_mcp_plans_then_applies_and_reuses_its_toggle() {
+    let (_dir, root) = solution_dir();
+    let (failed, body) = call_tool(
+        &root,
+        "mashup_new",
+        json!({"name":"Acme.Shell_MU", "template":"header-footer", "dry_run":false}),
+    );
+    assert!(!failed, "{body}");
+    let mut args = json!({"recipe":"collapsible", "mashup":"Acme.Shell_MU", "widget":"center", "add_toggle":true, "in_container":"header", "tab":"none"});
+    let (failed, planned) = call_tool(&root, "mashup_recipe", args.clone());
+    assert!(!failed, "{planned}");
+    assert_eq!(planned["dry_run"], true);
+    args["dry_run"] = json!(false);
+    let (failed, applied) = call_tool(&root, "mashup_recipe", args.clone());
+    assert!(!failed, "{applied}");
+    assert_eq!(applied["added"].as_array().unwrap().len(), 1);
+    let (failed, repeated) = call_tool(&root, "mashup_recipe", args);
+    assert!(!failed, "{repeated}");
+    assert!(repeated["added"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn metadata_and_menu_item_tools_plan_then_apply() {
+    let (_dir, root) = solution_dir();
+    let args = json!({"entity": "P.T", "action": "entity_set", "description": "R&D <page>"});
+    let (failed, plan) = call_tool(&root, "entity_edit", args.clone());
+    assert!(!failed, "{plan}");
+    assert_eq!(plan["applied"], false);
+    let mut args = args;
+    args["dry_run"] = json!(false);
+    let (failed, applied) = call_tool(&root, "entity_edit", args);
+    assert!(!failed, "{applied}");
+    let (failed, new) = call_tool(
+        &root,
+        "entity_new",
+        json!({"kind": "menu", "name": "Acme.Main_MN", "item": ["Home=Acme.Home_MU"], "icon": "/images/menu.svg", "dry_run": false}),
+    );
+    assert!(!failed, "{new}");
+    let (failed, plan) = call_tool(
+        &root,
+        "entity_edit",
+        json!({"entity": "Acme.Main_MN", "action": "menu_item_set", "title": "Home", "new_title": "Start", "icon": "/images/item.svg"}),
+    );
+    assert!(!failed, "{plan}");
+    assert_eq!(plan["applied"], false);
+    let (failed, applied) = call_tool(
+        &root,
+        "entity_edit",
+        json!({"entity": "Acme.Main_MN", "action": "menu_item_set", "title": "Home", "new_title": "Start", "icon": "/images/item.svg", "dry_run": false}),
+    );
+    assert!(!failed, "{applied}");
+}
+
+#[test]
+fn mashup_move_defaults_to_plan_applies_and_is_a_no_op_when_repeated() {
+    let (_dir, root) = solution_dir();
+    let name = "Acme.Moves_MU";
+    let new = call(&root, "mashup_new", json!({"name": name, "dry_run": false}));
+    assert_eq!(new["isError"], false, "{new}");
+    let first = call(
+        &root,
+        "mashup_add",
+        json!({"mashup": name, "widget": "label", "in": "center", "dry_run": false}),
+    );
+    assert_eq!(first["isError"], false, "{first}");
+    let first = first["structuredContent"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let second = call(
+        &root,
+        "mashup_add",
+        json!({"mashup": name, "widget": "label", "below": first, "dry_run": false}),
+    );
+    assert_eq!(second["isError"], false, "{second}");
+    let ids = [
+        first,
+        second["structuredContent"]["id"]
+            .as_str()
+            .unwrap()
+            .to_string(),
+    ];
+    let path = root.join("Mashups/Acme.Moves_MU.xml");
+    let before = std::fs::read(&path).unwrap();
+    let mut arguments = json!({"mashup": name, "widget": ids[1], "right_of": ids[0]});
+    let planned = call(&root, "mashup_move", arguments.clone());
+    assert_eq!(planned["isError"], false, "{planned}");
+    assert_eq!(planned["structuredContent"]["applied"], false);
+    assert_eq!(planned["structuredContent"]["changed"], true);
+    assert_eq!(planned["structuredContent"]["id"], ids[1]);
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    arguments["dry_run"] = json!(false);
+    let applied = call(&root, "mashup_move", arguments.clone());
+    assert_eq!(applied["isError"], false, "{applied}");
+    assert_eq!(applied["structuredContent"]["applied"], true);
+    let written = std::fs::read(&path).unwrap();
+    assert_ne!(before, written);
+    let tool = tool_definitions()
+        .into_iter()
+        .find(|tool| tool["name"] == "mashup_move")
+        .unwrap();
+    jsonschema::validate(&tool["outputSchema"], &applied["structuredContent"]).unwrap();
+    assert_schema_hygiene("mashup_move", "$", &tool["inputSchema"]);
+    let again = call(&root, "mashup_move", arguments.clone());
+    assert_eq!(again["isError"], false, "{again}");
+    assert_eq!(again["structuredContent"]["changed"], false);
+    assert_eq!(std::fs::read(&path).unwrap(), written);
+    arguments["right_of"] = json!(ids[1]);
+    let refused = call(&root, "mashup_move", arguments);
+    assert_eq!(refused["isError"], true);
+    assert_eq!(std::fs::read(&path).unwrap(), written);
 }

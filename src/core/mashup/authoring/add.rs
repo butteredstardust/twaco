@@ -229,6 +229,10 @@ pub(crate) fn plan_add(
     solution: &Solution,
     request: &AddRequest,
 ) -> Result<AddPlan, AuthoringError> {
+    for (_, value) in &request.properties {
+        crate::core::repo::refuse_git_bash_value(&Value::String(value.clone()))
+            .map_err(|error| AuthoringError::Invalid(error.to_string()))?;
+    }
     let loaded = load_existing(solution, &request.mashup)?;
     let mut document = parse_loaded(&loaded)?;
     // A platform widget first, then one of the solution's own extension projects defines.
@@ -306,10 +310,19 @@ pub(crate) fn plan_add(
         // Placement measures the rows it touches, so it sees the widget as --prop leaves it (a
         // margin or a label type changes its height); the loop below still checks and sets each.
         let adjusted;
-        let placing = if request.properties.is_empty() {
+        let placing = if request.properties.is_empty() && request.label.is_none() {
             widget
         } else {
             let mut copy = widget.clone();
+            if let Some(label) = &request.label {
+                if let Some(property) = ["LabelText", "Label", "Text", "Title"]
+                    .into_iter()
+                    .find(|name| widget.defaults.contains_key(*name))
+                {
+                    copy.defaults
+                        .insert(property.into(), Value::String(label.clone()));
+                }
+            }
             for (name, text) in &request.properties {
                 // A catalogue default, or a contract property an extension declares without one.
                 if copy.defaults.contains_key(name) || widget.property(name).is_some() {
@@ -453,6 +466,28 @@ pub(crate) fn plan_add(
         document.set_property(&path, "DataSource", json!("menuentity"));
     }
     let mut notes = notes;
+    let path = document
+        .find_exact(&placed.id)
+        .map_err(AuthoringError::Edit)?
+        .path;
+    let mut limit_properties = request
+        .properties
+        .iter()
+        .map(|(name, text)| (name.clone(), Value::String(text.clone())))
+        .collect();
+    notes.extend(super::set::menubar_limit(
+        solution,
+        &document,
+        &widget.type_id,
+        &placed.id,
+        &mut limit_properties,
+    )?);
+    for (name, value) in limit_properties {
+        if name == "PrimaryNavMaxItems" {
+            document.set_property(&path, &name, super::property_value(widget, &name, value)?);
+        }
+    }
+
     // A tab set shows one container per tab; without them Composer has nowhere to drop a tab's content.
     if widget.type_id == "ptcstabset" {
         let path = document
@@ -621,6 +656,24 @@ pub(crate) fn property_value(
     name: &str,
     supplied: Value,
 ) -> Result<Value, AuthoringError> {
+    let value = checked_property_value(widget, name, supplied)?;
+    let imagelink = widget
+        .property(name)
+        .is_some_and(|contract| contract.base_type.as_deref() == Some("IMAGELINK"));
+    if let (true, Value::String(text)) = (imagelink, &value) {
+        crate::core::cds_icons::check(text)
+            .map_err(|error| AuthoringError::Invalid(format!("{name}: {error}")))?;
+    }
+    Ok(value)
+}
+
+fn checked_property_value(
+    widget: &widgets::Widget,
+    name: &str,
+    supplied: Value,
+) -> Result<Value, AuthoringError> {
+    crate::core::repo::refuse_git_bash_value(&supplied)
+        .map_err(|error| AuthoringError::Invalid(error.to_string()))?;
     let numbered = widget.numbered_default(name);
     let default = widget.defaults.get(name).or(numbered.as_ref());
     let contract = widget.property(name);

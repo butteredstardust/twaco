@@ -635,6 +635,10 @@ fn restore_key(current: &Table, saved: &Table) -> Result<Vec<String>, TableError
 }
 
 pub(crate) fn plan_restore(current: &Table, saved: &Table) -> Result<RestorePlan, TableError> {
+    for row in &saved.rows {
+        super::repo::refuse_git_bash_value(&Value::Object(row.clone()))
+            .map_err(|error| TableError::Shape(error.to_string()))?;
+    }
     let key = restore_key(current, saved)?;
     if key.is_empty() {
         let same =
@@ -985,6 +989,24 @@ mod tests {
                 other => panic!("unexpected service {other}"),
             }
         }
+    }
+
+    #[test]
+    fn restore_refuses_rewritten_values_but_accepts_other_drive_paths() {
+        let current = Table {
+            data_shape: shape(&["Key"]),
+            rows: vec![],
+        };
+        let mut saved = Table {
+            data_shape: shape(&["Key"]),
+            rows: vec![row("a", json!("C:/Program Files/Git/usr/file"))],
+        };
+        assert!(plan_restore(&current, &saved)
+            .unwrap_err()
+            .to_string()
+            .contains("MSYS_NO_PATHCONV=1"));
+        saved.rows[0].insert("Value".into(), json!("D:/data/file.csv"));
+        plan_restore(&current, &saved).unwrap();
     }
 
     #[test]

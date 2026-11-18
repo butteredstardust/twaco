@@ -446,6 +446,7 @@ pub(crate) fn deploy_tool(
             let mut value = json!({
                 "ok": false,
                 "stage": "gates",
+                "deployed": false,
                 "blocking_gates": failing,
                 "note": "nothing was sent; fix these, or pass skip_checks: true",
             });
@@ -566,6 +567,9 @@ pub(crate) fn deploy_tool(
                         other => ("unexpected", format!("{other:?}")),
                     };
                     let mut entry = json!({ "entity": format!("{}/{}", c.collection, c.name), "reason": code, "server_owned": c.server_owned, "cleared": c.cleared, "repository_values": c.repository_values });
+                    if let Some(hint) = &c.hint {
+                        entry["hint"] = json!(hint);
+                    }
                     if detail {
                         entry["explanation"] = json!(full);
                     }

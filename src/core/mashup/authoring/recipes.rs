@@ -19,6 +19,13 @@ const MAX_COMBO_SERIES: usize = 24;
 /// One recipe and what it needs. Addresses are those `mashup bind` and `mashup on` take.
 #[derive(Clone, Debug)]
 pub enum Recipe {
+    Collapsible {
+        container: String,
+        toggle: Option<String>,
+        add_toggle_in: Option<String>,
+        tab: String,
+        collapsed: bool,
+    },
     /// A widget enabled only while a condition holds (an expression into `Disabled`; 146 seen).
     EnableWhen {
         widget: String,
@@ -116,6 +123,19 @@ pub enum Recipe {
         /// AutoSelectFirstRow on.
         auto_select_first: bool,
     },
+    /// A menu bar showing a Menu of sub-Menus as an accordion, in a column of a fixed width.
+    NestedMenu {
+        menubar: String,
+        menu: String,
+        auto_collapse: bool,
+        width: u32,
+    },
+    /// A click on a collection cell or grid row opens the mashup its selected row names.
+    NavigateOnClick {
+        widget: String,
+        field: String,
+        window: String,
+    },
     /// A check before an action: the handler runs when it holds, a message shows when not.
     Validate {
         trigger: String,
@@ -147,6 +167,7 @@ pub struct RecipePlan {
 impl Recipe {
     pub(crate) fn name(&self) -> &'static str {
         match self {
+            Self::Collapsible { .. } => "collapsible",
             Self::EnableWhen { .. } => "enable-when",
             Self::ShowWhen { .. } => "show-when",
             Self::Text { .. } => "text",
@@ -158,6 +179,8 @@ impl Recipe {
             Self::CloseAfter { .. } => "close-after",
             Self::AutoRefresh { .. } => "auto-refresh",
             Self::Validate { .. } => "validate",
+            Self::NestedMenu { .. } => "nested-menu",
+            Self::NavigateOnClick { .. } => "navigate-on-click",
             Self::Chart { .. } => "chart",
             Self::Columns { .. } => "columns",
             Self::Picker { .. } => "picker",
@@ -550,6 +573,151 @@ pub(crate) fn plan_recipe(
         notes: Vec::new(),
     };
     match &request.recipe {
+        Recipe::Collapsible {
+            container,
+            toggle,
+            add_toggle_in,
+            tab,
+            collapsed,
+        } => {
+            let target = work
+                .document
+                .find_exact(container)
+                .map_err(AuthoringError::Edit)?;
+            if target.type_id != "flexcontainer" {
+                return Err(AuthoringError::Refused(format!(
+                    "{container}: collapsible needs a flexcontainer"
+                )));
+            }
+            let Some((_, parent)) = target.path.split_last() else {
+                return Err(AuthoringError::Refused(format!(
+                    "{container}: the root cannot collapse; choose a container with a sibling"
+                )));
+            };
+            if !mashup::edit::children(work.document.at(parent))
+                .iter()
+                .enumerate()
+                .any(|(index, sibling)| {
+                    Some(&index) != target.path.last()
+                        && sibling["Properties"]["Type"] == "flexcontainer"
+                })
+            {
+                return Err(AuthoringError::Refused(format!("{container}: expand/collapse requires a sibling in its parent; add a sibling container first")));
+            }
+            let invoke = format!("ui:{}.ToggleExpandCollapse", target.id);
+            let mut button = toggle.clone();
+            if let Some(destination) = add_toggle_in {
+                let header = work
+                    .document
+                    .find_exact(destination)
+                    .map_err(AuthoringError::Edit)?;
+                if header.type_id != "flexcontainer" {
+                    return Err(AuthoringError::Refused(format!(
+                        "{destination}: --in needs a flexcontainer"
+                    )));
+                }
+                if header.path.starts_with(&target.path) {
+                    return Err(AuthoringError::Refused(format!("{destination}: the toggle must be outside {container}, or it vanishes when the container collapses")));
+                }
+                button = work
+                    .document
+                    .widgets()
+                    .iter()
+                    .find(|widget| {
+                        widget.type_id == "ptcsbutton"
+                            && widget.path.starts_with(&header.path)
+                            && work.has_handler(&format!("ui:{}.Clicked", widget.id), &invoke)
+                    })
+                    .map(|widget| widget.id.clone());
+                if button.is_none() {
+                    let contract = widgets::catalog()
+                        .by_type("ptcsbutton")
+                        .expect("button catalogue");
+                    let placed = work
+                        .document
+                        .place(contract, &mashup::edit::Placement::In(header.id))
+                        .map_err(AuthoringError::Edit)?;
+                    let found = work
+                        .document
+                        .find_exact(&placed.id)
+                        .map_err(AuthoringError::Edit)?;
+                    if contract.property("Icon").is_some() {
+                        work.document.set_property(
+                            &found.path,
+                            "Icon",
+                            json!("cds:icon_hamburger"),
+                        );
+                        work.document.set_property(&found.path, "Label", json!(""));
+                    } else {
+                        work.document
+                            .set_property(&found.path, "Label", json!("Menu"));
+                    }
+                    work.added.push(placed.id.clone());
+                    button = Some(placed.id);
+                }
+            }
+            if let Some(button) = button {
+                let button = work
+                    .document
+                    .find_exact(&button)
+                    .map_err(AuthoringError::Edit)?;
+                if button.type_id != "ptcsbutton" {
+                    return Err(AuthoringError::Refused(format!(
+                        "{}: --toggle needs a ptcsbutton",
+                        button.id
+                    )));
+                }
+                let target_path = work
+                    .document
+                    .find_exact(&target.id)
+                    .map_err(AuthoringError::Edit)?
+                    .path;
+                if button.path.starts_with(&target_path) {
+                    return Err(AuthoringError::Refused(format!("{}: the toggle must be outside {container}, or it vanishes when the container collapses", button.id)));
+                }
+                let event = format!("ui:{}.Clicked", button.id);
+                if !work.has_handler(&event, &invoke) {
+                    work.on(&event, &invoke)?;
+                }
+            }
+            let target = work
+                .document
+                .find_exact(&target.id)
+                .map_err(AuthoringError::Edit)?;
+            for (name, value) in [
+                ("EnableExpandCollapse", json!(true)),
+                ("Expanded", json!(!collapsed)),
+                ("ShowExpandCollapseTab", json!(tab != "none")),
+            ] {
+                work.document.set_property(&target.path, name, value);
+            }
+            if tab != "none" {
+                for (name, value) in [
+                    ("ExpandCollapseTabLocation", tab.as_str()),
+                    ("ExpandTabIcon", "cds:icon_chevron_right"),
+                    ("CollapseTabIcon", "cds:icon_chevron_left"),
+                ] {
+                    work.document.set_property(&target.path, name, json!(value));
+                }
+            }
+            // A nested menu that is not always open renders an empty rail when its column is narrow.
+            let bars: Vec<_> = work
+                .document
+                .widgets()
+                .into_iter()
+                .filter(|bar| bar.type_id == "ptcsmenubar" && bar.path.starts_with(&target.path))
+                .collect();
+            for bar in bars {
+                let properties = &work.document.at(&bar.path)["Properties"];
+                if properties["SubMenuType"] == "nested" && properties["AlwaysOpen"] != true {
+                    work.set(&bar, &[("AlwaysOpen", json!(true))]);
+                    work.notes.push(format!(
+                        "{} is a nested menu; AlwaysOpen is now true so it keeps its labels in the column that collapses",
+                        bar.id
+                    ));
+                }
+            }
+        }
         Recipe::EnableWhen {
             widget,
             condition,
@@ -1120,6 +1288,209 @@ pub(crate) fn plan_recipe(
                 work.bind(selected, &format!("ui:{}.SelectedText", target.id))?;
             }
         }
+        Recipe::NestedMenu {
+            menubar,
+            menu,
+            auto_collapse,
+            width,
+        } => {
+            let target = widget_id(&work.document, menubar)?;
+            if target.type_id != "ptcsmenubar" {
+                return Err(AuthoringError::Invalid(format!(
+                    "{} is a {}, not a menu bar",
+                    target.id, target.type_id
+                )));
+            }
+            match crate::core::entity::edit::menu_links(solution, menu)
+                .map_err(|error| AuthoringError::Invalid(error.to_string()))?
+            {
+                Some(links) if !links.iter().any(|(kind, _)| kind == "Menu") => {
+                    return Err(AuthoringError::Refused(format!(
+                        "Menus/{menu} has no sub-Menu items; build the groups first with `twaco menu nest {menu} --group \"<Label>=<icon>:<Title>=<Mashup>\"...`"
+                    )));
+                }
+                Some(_) => {}
+                None => work.notes.push(format!(
+                    "Menus/{menu} is not in the solution; it was not checked for sub-Menu items"
+                )),
+            }
+            let mut properties: Vec<(String, Value)> = vec![("PrimaryNavMenu".into(), json!(menu))];
+            let notes = super::set::menubar_properties(
+                &work.document,
+                "ptcsmenubar",
+                &target.id,
+                &mut properties,
+            )?;
+            work.notes.extend(notes);
+            for (name, value) in [
+                ("SubMenuType", json!("nested")),
+                ("AutoCollapseMenus", json!(*auto_collapse)),
+                ("StayOpenOnSelection", json!(true)),
+                ("AlwaysOpen", json!(true)),
+                ("DisableResizing", json!(true)),
+                ("PrimaryNavIcons", json!(true)),
+                ("Width", json!(*width)),
+                ("MaxWidth", json!(*width)),
+            ] {
+                properties.push((name.into(), value));
+            }
+            let properties: Vec<(&str, Value)> = properties
+                .iter()
+                .map(|(name, value)| (name.as_str(), value.clone()))
+                .collect();
+            work.set(&target, &properties);
+            let column = &target.path[..target.path.len().saturating_sub(1)];
+            let owned = column.len() > 1
+                && work.document.at(column)["Properties"]["Type"] == "flexcontainer"
+                && mashup::edit::children(work.document.at(column)).len() == 1
+                && work.document.at(&column[..column.len() - 1])["Properties"]["flex-direction"]
+                    == "row";
+            if owned {
+                let id = work.document.at(column)["Properties"]["Id"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_string();
+                let column = widget_id(&work.document, &id)?;
+                let px = format!("{width}px");
+                work.set(
+                    &column,
+                    &[
+                        ("flex-size", json!("fixed")),
+                        ("flex-min-width", json!(px)),
+                        ("flex-max-width", json!(px)),
+                        ("iconClass", json!("widgets-flexcontainer-fixed")),
+                    ],
+                );
+                if work.document.at(&column.path)["Properties"]["EnableExpandCollapse"] == true {
+                    work.notes.push(format!(
+                        "{id} also collapses; the menu keeps its labels while the column is open (AlwaysOpen is true)"
+                    ));
+                }
+            } else {
+                work.notes.push(format!(
+                    "{} is not alone in a column of a row; give its container a fixed width of {width}px yourself",
+                    target.id
+                ));
+            }
+        }
+        Recipe::NavigateOnClick {
+            widget,
+            field,
+            window,
+        } => {
+            if !matches!(window.as_str(), "modal-popup" | "popup" | "replace" | "new") {
+                return Err(AuthoringError::Invalid(
+                    "the window is modal-popup, popup, replace or new".into(),
+                ));
+            }
+            let target = widget_id(&work.document, widget)?;
+            let event = match target.type_id.as_str() {
+                "ptcscollection" => "CellClicked",
+                "ptcsgrid" => "RowClicked",
+                other => {
+                    return Err(AuthoringError::Invalid(format!(
+                        "{} is a {other}; navigate-on-click needs a collection or a grid",
+                        target.id
+                    )))
+                }
+            };
+            let sections = bindings::data_sections(work.document.value());
+            let mut shown = bindings::whole_data_bindings(work.document.value())
+                .into_iter()
+                .filter(|binding| binding.widget == target.id);
+            let source = shown.next().ok_or_else(|| {
+                AuthoringError::Invalid(format!(
+                    "{} shows no service result; bind its Data first (mashup bind data:<Entity>.<Service> ui:{}.Data)",
+                    target.id, target.id
+                ))
+            })?;
+            if shown.next().is_some() {
+                return Err(AuthoringError::Ambiguous(format!(
+                    "{} shows several service results; the recipe needs one",
+                    target.id
+                )));
+            }
+            let (section, call) = bindings::service_at(&sections, &source.section, &source.call)
+                .ok_or_else(|| {
+                    AuthoringError::Unknown(format!(
+                        "the data call {} of {} is not in the mashup",
+                        source.call, target.id
+                    ))
+                })?;
+            let alias = if call.instance == call.target {
+                String::new()
+            } else {
+                format!("[as {}]", call.instance)
+            };
+            let address = format!(
+                "data:{}.{}{alias}[SelectedRows].{field}",
+                section.entity, call.target
+            );
+            let fields = work.bound_fields(&target.id);
+            work.field(&fields, field)?;
+            let click = format!("ui:{}.{event}", target.id);
+            let existing = work
+                .document
+                .widgets()
+                .iter()
+                .filter(|candidate| candidate.type_id == "navigationfunction")
+                .map(|candidate| candidate.id.clone())
+                .find(|id| work.has_handler(&click, &format!("ui:{id}.Navigate")));
+            match existing {
+                Some(id) => {
+                    let function = widget_id(&work.document, &id)?;
+                    let to = format!("ui:{id}.TargetMashup");
+                    if !work.has_binding(&address, &to) {
+                        for binding in work.document.bindings_mut() {
+                            if binding["TargetId"] == id.as_str() {
+                                if let Some(maps) = binding["PropertyMaps"].as_array_mut() {
+                                    maps.retain(|map| map["TargetProperty"] != "TargetMashup");
+                                }
+                            }
+                        }
+                        work.document.bindings_mut().retain(|binding| {
+                            binding["PropertyMaps"]
+                                .as_array()
+                                .is_none_or(|maps| !maps.is_empty())
+                        });
+                        work.bind(&address, &to)?;
+                        work.notes.push(format!(
+                            "{id} already navigates on {click}; it now opens the mashup named by {field}"
+                        ));
+                    }
+                    if work.document.at(&function.path)["Properties"]["TargetWindowType"]
+                        != window.as_str()
+                    {
+                        work.set(&function, &[("TargetWindowType", json!(window))]);
+                    }
+                }
+                None => {
+                    let id = work.add("navigationfunction", &[("TargetWindowType", json!(window))]);
+                    work.bind(&address, &format!("ui:{id}.TargetMashup"))?;
+                    work.on(&click, &format!("ui:{id}.Navigate"))?;
+                }
+            }
+            let selection = if target.type_id == "ptcscollection" {
+                "SelectionMode"
+            } else {
+                "RowSelection"
+            };
+            let current = &work.document.at(&target.path)["Properties"][selection];
+            if current.is_null() || current == "none" {
+                work.set(&target, &[(selection, json!("single"))]);
+                work.notes.push(format!(
+                    "{} could not select rows; its {selection} is now single so the click has a selected row to read",
+                    target.id
+                ));
+            }
+            if work.document.at(&target.path)["Properties"]["AutoSelectFirstRow"] == true {
+                work.notes.push(format!(
+                    "{id} selects its first row when it loads, which navigates away at once; run twaco mashup set {} {id} --prop AutoSelectFirstRow=false --apply",
+                    request.mashup,
+                    id = target.id
+                ));
+            }
+        }
         Recipe::Validate {
             trigger,
             condition,
@@ -1164,6 +1535,11 @@ pub(crate) fn plan_recipe(
 /// What a recipe can be given, as the command line and MCP both pass it.
 #[derive(Clone, Debug, Default)]
 pub struct RecipeArgs {
+    pub toggle: Option<String>,
+    pub add_toggle: bool,
+    pub in_container: Option<String>,
+    pub tab: Option<String>,
+    pub start: Option<String>,
     /// The widget the recipe is about (enable-when, show-when, text) or its trigger (confirm, popup).
     pub widget: Option<String>,
     pub condition: Option<String>,
@@ -1213,10 +1589,19 @@ pub struct RecipeArgs {
     pub no_none_row: bool,
     /// A picker that selects its first row.
     pub auto_select_first: bool,
+    /// nested-menu: the root Menu.
+    pub menu: Option<String>,
+    /// nested-menu: leave several groups open at once.
+    pub no_auto_collapse: bool,
+    /// nested-menu: the column's width in pixels.
+    pub width: Option<u32>,
+    /// navigate-on-click: the field of the selected row that names the mashup.
+    pub field: Option<String>,
 }
 
 /// The recipe names, for help and errors.
 pub const RECIPES: &[&str] = &[
+    "collapsible",
     "enable-when",
     "show-when",
     "text",
@@ -1231,6 +1616,8 @@ pub const RECIPES: &[&str] = &[
     "picker",
     "tracker",
     "set-on-click",
+    "nested-menu",
+    "navigate-on-click",
 ];
 
 fn pairs(flag: &str, values: &[String]) -> Result<Vec<(String, String)>, AuthoringError> {
@@ -1262,6 +1649,11 @@ impl Recipe {
             ));
         }
         for (given, flag, recipe) in [
+            (args.toggle.is_some(), "--toggle", "collapsible"),
+            (args.add_toggle, "--add-toggle", "collapsible"),
+            (args.in_container.is_some(), "--in", "collapsible"),
+            (args.tab.is_some(), "--tab", "collapsible"),
+            (args.start.is_some(), "--start", "collapsible"),
             (args.action_label.is_some(), "--action-label", "confirm"),
             (args.cancel_label.is_some(), "--cancel-label", "confirm"),
             (args.param.is_some(), "--param", "set-on-click"),
@@ -1279,6 +1671,10 @@ impl Recipe {
             ),
             (args.no_none_row, "--no-none-row", "picker"),
             (args.auto_select_first, "--auto-select-first", "picker"),
+            (args.menu.is_some(), "--menu", "nested-menu"),
+            (args.no_auto_collapse, "--no-auto-collapse", "nested-menu"),
+            (args.width.is_some(), "--width", "nested-menu"),
+            (args.field.is_some(), "--field", "navigate-on-click"),
         ] {
             if given && name != recipe {
                 return Err(AuthoringError::Invalid(format!(
@@ -1289,6 +1685,44 @@ impl Recipe {
         let inputs = pairs("--input", &args.inputs)?;
         let widget = |what: &str| required(&args.widget, what, name);
         Ok(match name {
+            "collapsible" => {
+                if args.toggle.is_some() && args.add_toggle {
+                    return Err(AuthoringError::Invalid(
+                        "collapsible: choose --toggle or --add-toggle".into(),
+                    ));
+                }
+                if args.in_container.is_some() && !args.add_toggle {
+                    return Err(AuthoringError::Invalid(
+                        "collapsible: --in requires --add-toggle".into(),
+                    ));
+                }
+                let tab = args.tab.clone().unwrap_or_else(|| "outside".into());
+                if !["inside", "outside", "none"].contains(&tab.as_str()) {
+                    return Err(AuthoringError::Invalid(
+                        "collapsible: --tab must be inside, outside or none".into(),
+                    ));
+                }
+                if args
+                    .start
+                    .as_deref()
+                    .is_some_and(|value| value != "collapsed")
+                {
+                    return Err(AuthoringError::Invalid(
+                        "collapsible: --start must be collapsed".into(),
+                    ));
+                }
+                Recipe::Collapsible {
+                    container: widget("the container")?,
+                    toggle: args.toggle.clone(),
+                    add_toggle_in: if args.add_toggle {
+                        Some(required(&args.in_container, "--in <container>", name)?)
+                    } else {
+                        None
+                    },
+                    tab,
+                    collapsed: args.start.is_some(),
+                }
+            }
             "enable-when" | "show-when" => {
                 let widget = widget("the widget")?;
                 let condition = required(&args.condition, "--if <condition>", name)?;
@@ -1417,6 +1851,24 @@ impl Recipe {
                 selected: args.selected.clone(),
                 no_none_row: args.no_none_row,
                 auto_select_first: args.auto_select_first,
+            },
+            "nested-menu" => Recipe::NestedMenu {
+                menubar: widget("the menu bar")?,
+                menu: required(&args.menu, "--menu <root Menu>", name)?,
+                auto_collapse: !args.no_auto_collapse,
+                width: match args.width.unwrap_or(300) {
+                    0 => {
+                        return Err(AuthoringError::Invalid(
+                            "--width is a number of pixels above 0".into(),
+                        ))
+                    }
+                    width => width,
+                },
+            },
+            "navigate-on-click" => Recipe::NavigateOnClick {
+                widget: widget("the collection or grid")?,
+                field: required(&args.field, "--field <field naming the mashup>", name)?,
+                window: args.window.clone().unwrap_or_else(|| "replace".into()),
             },
             other => {
                 return Err(AuthoringError::Invalid(format!(

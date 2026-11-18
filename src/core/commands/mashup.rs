@@ -224,6 +224,24 @@ pub struct MashupRemoveOutcome {
 }
 
 #[derive(Clone, Debug)]
+pub struct MashupMoveRequest {
+    pub request: mashup::authoring::MoveRequest,
+    pub mode: Mode,
+    pub lock_label: &'static str,
+}
+
+#[derive(Debug)]
+pub struct MashupMoveOutcome {
+    pub plan: mashup::authoring::MovePlan,
+    pub applied: bool,
+    #[allow(
+        dead_code,
+        reason = "the command facade's Effects (COMMAND_FACADE.md); no adapter reads it yet"
+    )]
+    pub(crate) effects: Effects,
+}
+
+#[derive(Clone, Debug)]
 pub struct MashupUnbindRequest {
     pub request: mashup::authoring::UnbindRequest,
     pub mode: Mode,
@@ -703,6 +721,39 @@ pub fn remove(
                     .map_err(MashupCommandError::Authoring)?;
             }
             Ok(MashupRemoveOutcome {
+                plan,
+                applied: true,
+                effects: Effects::new(Access::Write, Access::None),
+            })
+        }
+    }
+}
+
+/// Plan without a lock; to apply, lock first and plan again from what is on disk then.
+pub fn move_widget(
+    solution: &Solution,
+    request: &MashupMoveRequest,
+    notices: &mut Notices,
+) -> Result<MashupMoveOutcome, MashupCommandError> {
+    match request.mode {
+        Mode::Plan => Ok(MashupMoveOutcome {
+            plan: mashup::authoring::plan_move(solution, &request.request)
+                .map_err(MashupCommandError::Authoring)?,
+            applied: false,
+            effects: Effects::new(Access::Read, Access::None),
+        }),
+        Mode::Apply => {
+            let lock = lock_workspace(solution, request.lock_label, notices)
+                .map_err(MashupCommandError::Lock)?;
+            let reloaded = Solution::load(&solution.root.join(config::CONFIG_FILE))
+                .map_err(MashupCommandError::Config)?;
+            let plan = mashup::authoring::plan_move(&reloaded, &request.request)
+                .map_err(MashupCommandError::Authoring)?;
+            if let Some(edit) = &plan.edit {
+                mashup::authoring::apply_edit(&reloaded, edit, &lock)
+                    .map_err(MashupCommandError::Authoring)?;
+            }
+            Ok(MashupMoveOutcome {
                 plan,
                 applied: true,
                 effects: Effects::new(Access::Write, Access::None),

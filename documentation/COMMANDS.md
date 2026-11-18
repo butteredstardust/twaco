@@ -55,8 +55,8 @@ sync <entity>|--all         sidecars -> entity XML
     --relayout              rewrite scripts in the configured CDATA layout
     --json                  print the report as JSON
 fmt [--check] [--entity <name>] [--changed-since <git-rev>]
-                            format service scripts
-    --check                 report which scripts would change, write nothing
+                            format service scripts and order subscription Events by alias
+    --check                 report which files would change, write nothing
     --entity <name>         an entity name or Collection/Name glob to format (repeatable)
     --changed-since <git-rev>  format entity files and sidecars changed since this revision
 check [--detail]            every gate, one exit code
@@ -170,17 +170,20 @@ reproject <entity>... --to <project> [--apply] [--json]
                             outside the deploy order, with the depends_on that allows it
     --to <project>          the project they move to
 widgets [<widget>] [--search <text>] [--json]
+widgets --icons [<filter>] [--json]
                             the embedded ThingWorx 10.2 widget catalogue: types, Composer labels,
-                            aliases, containers and bindable properties, events and services
+                            aliases, containers and editable or bindable properties with defaults, events and services
+    --icons                 the 153 CDS icon names a cds: value may take; twaco refuses any other
 mashup validate <mashup>|--all [--json]
                             what in a mashup ThingWorx would load but not honour, or the next edit would
                             trip over: structure, ids, bindings and events that name what is not there,
                             catalogue contracts, several property maps, contained-mashup drift;
                             exit 1 when it finds any
-mashup describe <mashup> [--json]
+mashup describe <mashup> [--detail] [--json]
                             what a mashup holds and how it is wired, without its XML: the widget tree,
                             each service it calls with what sets each parameter (or that nothing does),
                             each binding and each event, in the addresses mashup bind and on take
+    --detail                show non-default widget properties and widget bindings
 mashup diff <a> <b> [--tier <tier>] [--json]
                             compare two repository mashups by executable wiring, responsive layout and visual
                             content; ignores Composer-generated identifiers; exits 1 when the selected tier differs
@@ -285,6 +288,7 @@ mashup bind <mashup> --from <address> --to <address> [--apply] [--json]
                             add one data binding to a mashup; plan unless --apply
     --from <address>        source address from mashup describe
     --to <address>          target address from mashup describe
+                            selected row example: data:Acme.Manager.Load[SelectedRows].name
 mashup on <mashup> --event <address> --invoke <address> [--apply] [--json]
                             run a service or widget service when a mashup event fires; plan unless --apply
     --event <address>       widget/mashup event or data call event (Data_Error on failure)
@@ -296,6 +300,13 @@ mashup remove <mashup> <widget> [--cascade] [--apply] [--json]
                             remove a widget or subtree; refuses wiring and unknown references unless --cascade;
                             plan unless --apply
     --cascade                also remove proven bindings and event handlers; leave data calls for review
+mashup move <mashup> <widget> [--in <container> [--bottom] | --right-of <widget> [--end] | --left-of <widget> | --above <widget> | --below <widget>]
+    [--in-column] [--apply] [--json]
+                            move a widget and its subtree, keeping ids, properties, bindings and events;
+                            the old place is tidied as mashup remove does, the new one laid out as
+                            mashup add does; plan unless --apply; already there is a no-op
+    --in/--bottom/--right-of/--left-of/--above/--below/--end/--in-column
+                            as mashup add; the target must lie outside the moved subtree
 mashup unbind <mashup> --from <address> --to <address> [--apply] [--json]
                             remove exactly one data binding; plan unless --apply
     --from <address>        source address from mashup describe
@@ -315,6 +326,9 @@ mashup param <add|set|remove> <mashup> <name> [--type <BASETYPE>] [--direction <
     --force                  remove bindings when removing a parameter
 mashup recipe <recipe> <mashup> [<widget>] [recipe flags] [--apply] [--json]
                             write the wiring real mashups repeat, in one edit; plan unless --apply
+    collapsible <container> [--toggle <button> | --add-toggle --in <container>]
+        [--tab inside|outside|none] [--start collapsed]
+                            collapse a container with siblings; keep its toggle outside it
     enable-when|show-when <widget> --if <condition> [--input name=<address>]...
                             an expression into the widget's Disabled or Visible
     text <label> --expr <expression> [--input name=<address>]...
@@ -348,6 +362,12 @@ mashup recipe <recipe> <mashup> [<widget>] [recipe flags] [--apply] [--json]
                             interactive large tracker; infer all five maps from the result DataShape
     set-on-click <button> --param <name> --expr <expression> [--input name=<address>]...
                             set a mashup parameter on click; no automatic evaluation
+    nested-menu <menubar> --menu <Root> [--no-auto-collapse] [--width <px>]
+                            a menu bar as an accordion over a Root Menu of sub-Menus (menu nest builds
+                            them), in a column fixed at --width (300 by default)
+    navigate-on-click <collection|grid> --field <field> [--window replace|new|popup|modal-popup]
+                            a click opens the mashup the selected row's field names; plan warns when
+                            the widget selects its first row on load
 mashup event add <mashup> <name> --when <address> [--apply] [--json]
                             give a mashup an event its parents react to with mashup on --event
                             ui:<container>.<name>: a NUMBER parameter set to the time when the
@@ -372,6 +392,7 @@ mashup new <name> [--project <name>] [--from <address> | --template <name>]
     --visibility            Organization/<name> or OrganizationalUnit/<organization>:<unit>, repeatable;
                             none unless given
     --tab                   with --template tabs: a tab's label and the mashup it shows, repeatable
+    --replace <old=new>     replace whole tokens in copied content string values; repeatable, needs --from
 new building-block <name> [--type standard|abstract|implementation] [--display-name <text>] [--description <text>]
     [--parent <block>] [--model-logic] [--no-management-shape] [--root <dir>] [--base-extension PTC.Base:<version>]
     [--apply] [--json]
@@ -437,10 +458,23 @@ style set <StyleDefinition> [--background <color>] [--foreground <color>]
 media set <MediaEntity> --file <path> [--apply] [--json]
                             replace a MediaEntity's image (PNG, JPEG, GIF or SVG, up to 10 MB);
                             plan unless --apply
-menu item add <Menu> <Title>=<Mashup> [--default] [--before <Title>] [--apply] [--json]
+menu nest <Root> --group <Label>=<icon>:<Title>=<Mashup>,<Title>=<Mashup>... [--project <name>] [--apply] [--json]
+                            write a root Menu of sub-Menu links and one leaf Menu per group, in the
+                            given order; rerunning with the same groups changes nothing
+    --group <spec>          a group: its label, Menu-level icon (cds:icon_<name>, a MediaEntity, or
+                            empty) and its items; repeatable; the leaf is <Root minus _MN>_<Label>_MN
+menu item add <Menu> <Title>=<Mashup> [--icon <image>] [--default] [--before <Title>] [--apply] [--json]
+menu item add <Menu> --submenu <name> [--icon <image>] [--before <Title>] [--apply] [--json]
 menu item remove <Menu> <Title> [--apply] [--json]
-                            add or remove a mashup item, keeping the effective menu in step;
+menu item set <Menu> <Title> [--title <text>] [--mashup <name>] [--submenu <name>]
+    [--icon <image>] [--default] [--description <text>] [--apply] [--json]
+                            edit menu items in order, keeping the effective menu in step;
                             plan unless --apply
+    --submenu <name>        link to a sub-Menu; the server shows its label and Menu-level icon
+    --icon <image>          an item image URL or MediaEntity
+    --title <text>          rename the selected item
+    --mashup <name>         change the selected item's Mashup
+    --description <text>    change the selected item's description
 mcp-namespace add <Namespace> tool|service-resource|file-resource|prompt <spec> [--description <text>]
     [--apply] [--json]
                             add a tool, resource or prompt, written as new mcp-namespace writes it;
@@ -504,7 +538,7 @@ new state <name> --type numeric|string --state <spec>... [--project <name>] [--d
                             background, foreground, secondary-background, line-color,
                             line-style, line-thickness, bold, italic, underline, text-size,
                             image, e.g. "<=10=Low;background:#00ff00"
-new menu <name> --item <Title=Mashup>... [--project <name>] [--description <text>] [--default]
+new menu <name> --item <Title=Mashup>... [--project <name>] [--description <text>] [--default] [--icon <image>]
     [--label <text>] [--apply] [--json]
                             create a Menu; plan unless --apply
 new theme <name> [--project <name>] [--description <text>] [--from <StyleTheme>]
@@ -530,6 +564,9 @@ new ai-agent <name> --namespace <Namespace[=item,...]>... [--skill Repository:/p
     --namespace             everything the namespace defines, or the tools, resources and prompts
                             named; AgentUtilities, the platform's, gives its standard tools
     --agent-description     what the assistant routes questions to the agent by
+entity set <entity> [--description <text>] [--icon <image>] [--apply] [--json]
+                            set entity metadata; empty description clears it; plan unless --apply
+    --icon <image>          a Menu-level MediaEntity or image URL
 ```
 
 ## Deploy and compare
@@ -667,7 +704,8 @@ bundle [--backend-only] [--changed-since <git-rev>] [--exclude <entity-or-glob>]
     --profile <name>        apply this profile's mashup patches
     --json                  print the result as JSON
 deploy [--apply] [--force] [--json]
-                            check, bundle, live-parse, conflict-check, import
+                            check, bundle, live-parse, conflict-check, import; a blocking gate
+                            stops it before anything is sent (exit 2)
     --backend-only          exclude configured UI collections
     --only <entity>         include only this entity (repeatable)
     --changed-since <git-rev>  include entities changed since this revision
@@ -698,8 +736,11 @@ Call services and read what the server says.
 
 ```text
 call <target> <service> [<json>] [--timeout <seconds>] [--detail] [--as <test user>] [--json]
-    [--lang <code>]         target: Collection/Name, full name, or last dotted segment;
+    [--lang <code>] [--param <name=value>]...
+                            target: Collection/Name, full name, or last dotted segment;
                             <target>.<service> [<json>] works too, split at the last dot
+    --param <name=value>    one parameter (repeatable), typed by the known signature, else
+                            text; not with <json>
     --with-logs             then what it wrote to ScriptLog and ApplicationLog (waits up to 3 s)
     --json                  one complete service reply as JSON (logs and notices go to stderr)
     --as <test user>        call as a [[test.user]] with the profile's test_password (the profile
@@ -858,7 +899,8 @@ Workflow, platform quirks, project documents, the help center and the Java API.
 guide                       the knowledge topics: twaco's workflow, the platform's verified quirks,
                             the service-code reference, and the solution's own markdown
 guide <topic> [--section <heading>]  read one (a long one gives its outline)
-guide --search <words>      the sections that best match; --limit <n>; --json
+guide --search <words>      the sections that best match; extra operands extend the search
+                            --limit <n>; --json
 help search <words>         search the ThingWorx Platform help (the server's version)
 help page <page>            read a help page as Markdown; --section <heading>
     --version <10.1>        another release; --limit <n>; --refresh; --json

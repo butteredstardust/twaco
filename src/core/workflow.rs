@@ -827,12 +827,12 @@ pub struct FmtOutcome {
     pub log: Log,
     /// Service scripts looked at.
     pub files: usize,
-    /// Scripts reformatted, or that would be with `check`.
+    /// Scripts or entity files reformatted, or that would be with `check`.
     pub changed: Vec<std::path::PathBuf>,
     pub failed: usize,
 }
 
-/// Format every service script sidecar with the built-in formatter.
+/// Format service script sidecars and order subscription Events by alias.
 ///
 /// A reformatted script is written through the workspace's atomic write, as every other file
 /// twaco writes is. Until this moved here it used a plain `fs::write`, so an interrupted run
@@ -843,6 +843,36 @@ pub(crate) fn fmt(
     entities: Option<&[super::workspace::EntityFile]>,
 ) -> FmtOutcome {
     let mut outcome = FmtOutcome::default();
+    let discovered;
+    let selected = match entities {
+        Some(selected) => selected,
+        None => {
+            discovered = super::workspace::entities(solution);
+            &discovered
+        }
+    };
+    for entity in selected {
+        let result = std::fs::read(&entity.path)
+            .map_err(|error| error.to_string())
+            .and_then(|before| {
+                let after = super::layout::subscription_events(&before)
+                    .map_err(|error| error.to_string())?;
+                if before != after {
+                    if !check {
+                        super::workspace::write_entity(&entity.path, &after)
+                            .map_err(|error| error.to_string())?;
+                    }
+                    outcome.changed.push(entity.path.clone());
+                }
+                Ok(())
+            });
+        if let Err(error) = result {
+            outcome
+                .log
+                .error(format!("{}: {error}", entity.path.display()));
+            outcome.failed += 1;
+        }
+    }
     let style = super::fmt::Style::from(&solution.format.script);
     let tree = super::workspace::script_files(solution);
     for why in &tree.unreadable {
@@ -900,6 +930,24 @@ mod tests {
     use super::*;
     use crate::core::{config::Solution, types, workspace};
     use std::path::PathBuf;
+
+    #[test]
+    fn fmt_orders_subscription_events_and_is_idempotent() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("twaco.toml"), "[[project]]\nname='Acme'\n").unwrap();
+        std::fs::create_dir(dir.path().join("Things")).unwrap();
+        let path = dir.path().join("Things/Acme.T.xml");
+        let before = r#"<Entities><Things><Thing name="Acme.T" projectName="Acme"><Subscriptions><Subscription version="2"><Events><Event alias="Temperature"/><Event alias="Pressure"/></Events></Subscription></Subscriptions></Thing></Things></Entities>"#;
+        std::fs::write(&path, before).unwrap();
+        let solution = Solution::load(&dir.path().join("twaco.toml")).unwrap();
+        assert_eq!(fmt(&solution, true, None).changed, vec![path.clone()]);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), before);
+        assert_eq!(fmt(&solution, false, None).changed, vec![path.clone()]);
+        let after = std::fs::read_to_string(&path).unwrap();
+        assert!(after.find("Pressure").unwrap() < after.find("Temperature").unwrap());
+        assert!(fmt(&solution, false, None).changed.is_empty());
+        assert_eq!(std::fs::read_to_string(path).unwrap(), after);
+    }
 
     #[test]
     fn a_byte_order_mark_is_a_sidecar_encoding_not_script_content() {
