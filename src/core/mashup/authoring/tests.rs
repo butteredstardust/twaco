@@ -11862,3 +11862,120 @@ fn on_hints_only_for_bindings_it_added_not_earlier_selected_rows_bindings() {
     .unwrap();
     assert!(plan.warnings.is_empty(), "{:?}", plan.warnings);
 }
+
+#[test]
+fn a_copy_is_in_step_at_once_so_the_next_edit_needs_no_sync() {
+    for css in ["", ".a { color: red; }\n", ".a {\r\n color: red; }\r\n"] {
+        let (_dir, solution) = one_project();
+        let source = plan_new(&solution, &request("Acme.Reference_MU")).unwrap();
+        apply_new(&solution, &source, &lock(&solution)).unwrap();
+        let dir = source.content_path.parent().unwrap().to_path_buf();
+        std::fs::write(dir.join("custom.css"), css).unwrap();
+        let assets = workspace::read_mashup(&dir).unwrap().unwrap();
+        let (synced, _) =
+            mashup::sync(&std::fs::read(&source.entity_path).unwrap(), &assets).unwrap();
+        std::fs::write(&source.entity_path, synced).unwrap();
+        let mut copy = request("Acme.Copy_MU");
+        copy.from = Some("Acme.Reference_MU".into());
+        let plan = plan_new(&solution, &copy).unwrap();
+        apply_new(&solution, &plan, &lock(&solution)).unwrap();
+        let on_disk = workspace::read_mashup(plan.content_path.parent().unwrap())
+            .unwrap()
+            .unwrap();
+        let (_, changes) =
+            mashup::sync(&std::fs::read(&plan.entity_path).unwrap(), &on_disk).unwrap();
+        assert!(changes.is_empty(), "{css:?}: {changes:?}");
+        let mut label = add_request("Acme.Copy_MU", "ptcslabel");
+        label.placement = Some(Placement::In("center".into()));
+        let added = plan_add(&solution, &label).unwrap();
+        apply_edit(&solution, &added.edit, &lock(&solution)).unwrap();
+        let report = crate::core::check::run(&solution);
+        let failing: Vec<_> = report
+            .gates
+            .iter()
+            .filter(|gate| !gate.ok() && judged(gate))
+            .map(|gate| gate.name.clone())
+            .collect();
+        assert!(failing.is_empty(), "{css:?}: {failing:?}");
+    }
+}
+
+#[test]
+fn unbind_removes_a_binding_whose_widget_is_gone_and_validate_prints_the_command() {
+    let (dir, solution) = bind_fixture();
+    let binding = bind(
+        &solution,
+        "ui:ptcstextfield-3.Text",
+        "data:Acme.Orders.Manager.SaveOrder.note",
+    )
+    .unwrap();
+    apply_edit(&solution, &binding.edit, &lock(&solution)).unwrap();
+    rewrite_mashup(dir.path(), "Acme.Orders_MU", |value| {
+        value["DataBindings"][0]["SourceId"] = json!("ptcspropertydisplay-107");
+    });
+    let mut found = Vec::new();
+    crate::core::mashup::validate::check_content(&sidecar_content(&solution), &mut found);
+    let finding = found
+        .iter()
+        .find(|problem| problem.rule == "unknown-widget")
+        .expect("the dangling binding is reported");
+    let command = "twaco mashup unbind <mashup> --from ui:ptcspropertydisplay-107.Text --to data:Acme.Orders.Manager.SaveOrder.note --apply";
+    assert!(finding.message.contains(command), "{}", finding.message);
+
+    let request = |from: &str| UnbindRequest {
+        mashup: "Acme.Orders_MU".into(),
+        from: from.into(),
+        to: "data:Acme.Orders.Manager.SaveOrder.note".into(),
+    };
+    // An id no binding names stays unknown; a name that is not an id is not guessed.
+    for from in ["ui:ptcspropertydisplay-108.Text", "ui:ptcsbutton.Text"] {
+        let error = plan_unbind(&solution, &request(from)).unwrap_err();
+        assert!(
+            matches!(error, AuthoringError::Unknown(_) | AuthoringError::Edit(_)),
+            "{from}: {error}"
+        );
+    }
+    let unbound = plan_unbind(&solution, &request("ui:ptcspropertydisplay-107.Text")).unwrap();
+    apply_edit(&solution, &unbound.edit, &lock(&solution)).unwrap();
+    assert!(content_value(&solution)["DataBindings"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+}
+
+#[test]
+fn an_add_beside_a_widget_names_the_widget_to_chain_from() {
+    let (_dir, solution) = one_project();
+    let name = "Acme.Chain_MU";
+    apply_new(
+        &solution,
+        &plan_new(&solution, &request(name)).unwrap(),
+        &lock(&solution),
+    )
+    .unwrap();
+    let first = plan_add(&solution, &add_request(name, "ptcsbutton")).unwrap();
+    apply_edit(&solution, &first.edit, &lock(&solution)).unwrap();
+    assert!(first.notes.iter().all(|note| !note.starts_with("next:")));
+    for (side, flag) in [
+        (mashup::edit::Side::Right, "--right-of"),
+        (mashup::edit::Side::Left, "--left-of"),
+    ] {
+        let mut next = add_request(name, "ptcsbutton");
+        next.placement = Some(Placement::Beside {
+            anchor: first.placed.id.clone(),
+            side,
+        });
+        let plan = plan_add(&solution, &next).unwrap();
+        let hint = plan
+            .notes
+            .iter()
+            .find(|note| note.starts_with("next:"))
+            .unwrap_or_else(|| panic!("{flag}: {:?}", plan.notes));
+        assert!(
+            hint.contains(&format!("{flag} {}", plan.placed.id)),
+            "{hint}"
+        );
+        let json = add_plan_json(&solution, &plan, false);
+        assert!(json["notes"].to_string().contains(&plan.placed.id));
+    }
+}

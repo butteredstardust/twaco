@@ -38,7 +38,12 @@ pub enum Refusal {
     /// The server baseline says the entity was present; now it is not.
     DeletedOnServer,
     /// The server has the entity but there is no baseline, so who changed what is unknowable.
-    UnknownAncestor { server: String },
+    /// `policy_changed`: a baseline exists, but under a different server-owned policy, which
+    /// cannot be restated for the current one.
+    UnknownAncestor {
+        server: String,
+        policy_changed: bool,
+    },
     /// The server changed since its recorded baseline.
     Conflict { server: String, baseline: String },
     /// Server-owned parts hold an encrypted value, which an import cannot carry: the push would
@@ -53,7 +58,18 @@ impl fmt::Display for Refusal {
                 f,
                 "the entity was deleted on the server since the last sync; pushing would recreate it"
             ),
-            Refusal::UnknownAncestor { server } => write!(
+            Refusal::UnknownAncestor {
+                server,
+                policy_changed: true,
+            } => write!(
+                f,
+                "the server has a different version ({server}) and the baseline was recorded under \
+                 a different server-owned policy, so it cannot say which side changed; if the \
+                 repository and the server agree, `twaco entity status <entity> --record` records \
+                 a baseline under the current policy; otherwise look at the server's copy with \
+                 `twaco entity get <entity>` and bring its change into the repository"
+            ),
+            Refusal::UnknownAncestor { server, .. } => write!(
                 f,
                 "the server has a different version ({server}) and there is no baseline to say \
                  which side changed; look at it with `twaco entity get <entity>` and bring its \
@@ -81,7 +97,13 @@ impl Refusal {
     /// The reason shown beside an already-selected `--force`, without repeating its advice.
     pub fn short_reason(&self) -> String {
         match self {
-            Self::UnknownAncestor { server } => format!(
+            Self::UnknownAncestor {
+                server,
+                policy_changed: true,
+            } => format!(
+                "the server has a different version ({server}) and the baseline was recorded under a different server-owned policy"
+            ),
+            Self::UnknownAncestor { server, .. } => format!(
                 "the server has a different version ({server}) and there is no baseline to say which side changed"
             ),
             _ => self.to_string(),
@@ -90,10 +112,21 @@ impl Refusal {
 }
 
 /// The decision table. Pure, so every row is testable.
+#[cfg(test)]
 pub(crate) fn decide(
     working: &str,
     server: Option<&str>,
     baseline: Option<(&str, &str)>,
+) -> Decision {
+    decide_with(working, server, baseline, false)
+}
+
+/// [`decide`], told whether the missing baseline is one recorded under another policy.
+pub(crate) fn decide_with(
+    working: &str,
+    server: Option<&str>,
+    baseline: Option<(&str, &str)>,
+    policy_changed: bool,
 ) -> Decision {
     match (server, baseline) {
         (Some(server), _) if server == working => Decision::AlreadyThere,
@@ -101,6 +134,7 @@ pub(crate) fn decide(
         (None, Some(_)) => Decision::Refuse(Refusal::DeletedOnServer),
         (Some(server), None) => Decision::Refuse(Refusal::UnknownAncestor {
             server: server.to_string(),
+            policy_changed,
         }),
         (Some(server), Some((local, server_baseline)))
             if working == local && server == server_baseline =>
@@ -265,11 +299,18 @@ pub(crate) fn push_with_parts(
         .transpose()
         .map_err(PushError::Server)?;
     let baseline = Baseline::load(root, profile).map_err(PushError::Baseline)?;
-    let entry = baseline.get_for(target.key.collection(), target.key.name(), &working);
-    let decision = decide(
+    let ancestor = baseline.ancestor(
+        target.key.collection(),
+        target.key.name(),
+        &working,
+        fetched.as_deref().zip(server.as_deref()),
+        grants,
+    );
+    let decision = decide_with(
         &working,
         server.as_deref(),
-        entry.map(|entry| (entry.local.as_str(), entry.server.as_str())),
+        ancestor.sides(),
+        ancestor.policy_changed,
     );
 
     if !apply {
@@ -417,6 +458,9 @@ mod tests {
         fn fetch(&self, _: &EntityKey) -> Result<Option<Vec<u8>>, ServerError> {
             Ok(self.held.borrow().clone())
         }
+        fn export_owned(&self, _: &EntityKey) -> Result<Option<Vec<u8>>, ServerError> {
+            Ok(self.held.borrow().clone())
+        }
         fn import(&self, _: &str, xml: &[u8]) -> Result<(), ServerError> {
             *self.imports.borrow_mut() += 1;
             if self.keep {
@@ -453,7 +497,11 @@ mod tests {
 
     #[test]
     fn a_push_with_no_baseline_says_how_to_settle_it() {
-        let text = Refusal::UnknownAncestor { server: "s".into() }.to_string();
+        let text = Refusal::UnknownAncestor {
+            server: "s".into(),
+            policy_changed: false,
+        }
+        .to_string();
         for step in [
             "entity get <entity>",
             "--force --apply",
@@ -467,7 +515,10 @@ mod tests {
     fn refusal_text_never_has_two_spaces() {
         for refusal in [
             Refusal::DeletedOnServer,
-            Refusal::UnknownAncestor { server: "s".into() },
+            Refusal::UnknownAncestor {
+                server: "s".into(),
+                policy_changed: false,
+            },
             Refusal::Conflict {
                 server: "s".into(),
                 baseline: "b".into(),
@@ -515,7 +566,10 @@ mod tests {
         );
         assert_eq!(
             decide("w", Some("s"), None),
-            Decision::Refuse(Refusal::UnknownAncestor { server: "s".into() })
+            Decision::Refuse(Refusal::UnknownAncestor {
+                server: "s".into(),
+                policy_changed: false
+            })
         );
         assert_eq!(decide("w", Some("b"), Some(("l", "b"))), Decision::Update);
         assert_eq!(
@@ -764,5 +818,116 @@ mod tests {
         let error = push(&fake, &root, &target(two), true, false).unwrap_err();
         assert!(matches!(error, PushError::Working(_)), "{error}");
         assert_eq!(*fake.imports.borrow(), 0);
+    }
+
+    fn with_speed(script: &str, speed: u32) -> Vec<u8> {
+        format!(
+            "<Entities><Things><Thing name=\"T\" projectName=\"P\"><ThingProperties>             <speed><Value>{speed}</Value></speed></ThingProperties>             <code><![CDATA[{script}]]></code></Thing></Things></Entities>"
+        )
+        .into_bytes()
+    }
+
+    fn property_values() -> Vec<super::super::server_owned::Part> {
+        vec![super::super::server_owned::Part::Properties(
+            Default::default(),
+        )]
+    }
+
+    /// A baseline recorded before any ownership rule: plain `v13:<sha>` on both sides.
+    fn plain_baseline(root: &Path, recorded: &[u8]) {
+        let hash = normalise::hash(recorded).unwrap();
+        let mut baseline = Baseline::default();
+        baseline.set("Things", "T", hash.clone(), hash);
+        baseline.write(root, "default").unwrap();
+    }
+
+    #[test]
+    fn a_new_ownership_rule_does_not_hide_that_only_the_repository_changed() {
+        let (_dir, root) = temp();
+        let recorded = with_speed("old();", 1);
+        plain_baseline(&root, &recorded);
+        let fake = Fake::holding(Some(recorded));
+        let edited = with_speed("new();", 1);
+        let parts = property_values();
+        let outcome = push_with_parts(
+            &fake,
+            &root,
+            "default",
+            &target(&edited),
+            true,
+            false,
+            &parts,
+        )
+        .unwrap();
+        assert_eq!(outcome, Outcome::Pushed { created: false });
+        // The baseline is now recorded under the current policy.
+        let after = Baseline::load(&root, "default").unwrap();
+        let entry = after.get("Things", "T").unwrap();
+        assert!(entry.local.starts_with("v13:so1:"), "{}", entry.local);
+        assert_eq!(entry.local, entry.server);
+    }
+
+    #[test]
+    fn a_new_ownership_rule_still_refuses_when_the_server_changed_too() {
+        let (_dir, root) = temp();
+        plain_baseline(&root, &with_speed("old();", 1));
+        let fake = Fake::holding(Some(with_speed("theirs();", 1)));
+        let edited = with_speed("new();", 1);
+        let parts = property_values();
+        let outcome = push_with_parts(
+            &fake,
+            &root,
+            "default",
+            &target(&edited),
+            true,
+            false,
+            &parts,
+        )
+        .unwrap();
+        let Outcome::Refused(refusal) = outcome else {
+            panic!("{outcome:?}");
+        };
+        assert!(matches!(
+            refusal,
+            Refusal::UnknownAncestor {
+                policy_changed: true,
+                ..
+            }
+        ));
+        let text = refusal.to_string();
+        assert!(text.contains("entity status <entity> --record"), "{text}");
+        assert!(!text.contains("--force"), "{text}");
+        assert_eq!(*fake.imports.borrow(), 0);
+    }
+
+    #[test]
+    fn a_baseline_under_another_ownership_policy_cannot_be_restated() {
+        let (_dir, root) = temp();
+        let recorded = with_speed("old();", 1);
+        let other = vec![super::super::server_owned::Part::Members];
+        let hash = normalise::hash_with_parts(&recorded, &other).unwrap();
+        let mut baseline = Baseline::default();
+        baseline.set("Things", "T", hash.clone(), hash);
+        baseline.write(&root, "default").unwrap();
+        let fake = Fake::holding(Some(recorded));
+        let edited = with_speed("new();", 1);
+        let parts = property_values();
+        let outcome = push_with_parts(
+            &fake,
+            &root,
+            "default",
+            &target(&edited),
+            true,
+            false,
+            &parts,
+        )
+        .unwrap();
+        assert!(matches!(
+            outcome,
+            Outcome::Refused(Refusal::UnknownAncestor {
+                policy_changed: true,
+                ..
+            })
+        ));
     }
 }

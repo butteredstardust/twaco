@@ -8,6 +8,9 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- `traps.event-data` lint rule (warns by default, in `check` and `lint`): a bare `eventData` in a version 2 subscription script is a ReferenceError at run time; the finding names `events["<alias>"].eventData`.
+- `mashup add --right-of/--left-of` prints `next: --right-of <id> keeps order` (in `notes` for `--json` and MCP) so a series can be chained in order; the usage text and guide explain it.
+- A field quirk covers Playwright text lookups that hit hidden Rich Text Editor text.
 - `url <entity>` (also MCP `url`) prints a Composer deep link from the selected profile without contacting the server, with type-specific tabs and JSON output; routes checked live on 10.2, and types without a Composer details page are refused.
 - Three ThingWorx 10.2.1 field quirks cover read-only ptcsrte links, Builder filter subproperties, and per-user Custom workspaces.
 - Roles and PermissionGroups participate in status, pull baselines, deploy, delete, references and script globals; `new role`, `new permission-group`, and `group member` / `role member` add/remove repository members (also MCP entity tools).
@@ -16,6 +19,9 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Fixed
 
+- `mashup new --from` settles the copy's entity file against the sidecars it writes, so the next `mashup set`/`add` needs no `twaco sync`.
+- `mashup unbind` removes a binding whose widget no longer exists, by the id the binding names, and `mashup validate` prints the exact `unbind` command in its `unknown-widget` finding.
+- Adding the first `[[server_owned]]` rule to an entity no longer makes its next deploy refuse for lack of a baseline: while the server still matches the plain baseline, only the repository counts as changed, and the baseline is re-recorded under the new policy. When the baseline cannot be restated, the refusal advises `entity status <entity> --record` instead of `--force`.
 - Repository PermissionGroups explain their target principals in permission comparisons, entity status/diff and deploy read-back. Targets explained by PermissionGroups hash with a `pg1:` marker, so adding or removing a PermissionGroup grant re-baselines those targets. Pull, adopt and `init --from-server` never write the explained principals into target XML, and a permission push names the PermissionGroup principals it removed. Missing derived grants name the PermissionGroup to deploy; target permission pushes never synthesize them. External targets are checked only for derived grants or listed as not checked.
 - SelectedRows field bindings with no selecting widget or automatic first-row selection produce a non-blocking bindings/validation advisory and authoring hints suggesting All Data or automatic selection.
 - Entity inclusion selectors accept comma-separated names with surrounding spaces, preserving exact names containing commas and repeated flags; excluded literal names fail rather than becoming lists.

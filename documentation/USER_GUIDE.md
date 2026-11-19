@@ -380,6 +380,9 @@ The script traps are runtime failures that look like valid JavaScript:
 - **`unbounded-loop`:** a `while` loop that can run forever pins a platform thread.
 - **`nan-risk`:** a NaN in a result row makes the whole service fail to serialise.
 - **`read-before-assign`:** a variable read before it is assigned.
+- **`event-data`:** a bare `eventData` in a version 2 subscription script, which compiles and
+  throws a ReferenceError when the event fires; the payload is `events["<alias>"].eventData`.
+  It reads the subscription from the entity file, and warns unless a `[lint]` table raises it.
 
 `twaco unused --fields` is a separate advisory report: for each service result that mashups bind
 field by field, the fields no mashup binds or names. A result some mashup binds whole (a grid
@@ -1233,6 +1236,11 @@ the row that grows, its controls at its bottom; beside a grid or a chart it is f
 A compact date, as the kits show in a two-field range, is `--prop FormatToken=DD-MM-YY` on the
 date picker; the default format is Composer's.
 
+Every add beside an anchor lands immediately next to it, so five `--right-of A` adds come out
+reversed. To add a series in order, chain from the widget just added: the add prints
+`next: --right-of <id> keeps order` (in `notes` with `--json`, and in MCP), and `--end` appends
+at the far end of the row instead.
+
 For a two-column form, use `--right-of` for the second field, then
 `--below <widget> --in-column` to stack within either field's column. Repeat it beneath each
 new field to keep that column flat. Without `--in-column`, `--below` keeps its existing rule:
@@ -1578,7 +1586,9 @@ twaco mashup remove Acme.App.Orders_MU ptcsbutton-6 --cascade --apply
 ```
 
 `mashup unbind` and `mashup off` remove exactly the one binding or event handler the two
-addresses select. `mashup remove` removes a widget and its descendants. It normally refuses if
+addresses select. `mashup validate` reports a binding whose widget was removed in Composer as
+`unknown-widget` and prints the `unbind` command for it; unbind matches the widget id the binding
+names even though the widget is gone, and still refuses an id no binding names. `mashup remove` removes a widget and its descendants. It normally refuses if
 bindings, events, data-call configuration, or extension JSON names that subtree. `--cascade`
 removes only the proven bindings and events; it still refuses unknown references and reports data
 calls made orphaned for you to review rather than deleting a call it cannot prove is unused. All

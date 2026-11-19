@@ -174,6 +174,13 @@ pub(crate) const RULES: &[Rule] = &[
         options: NO_OPTIONS,
     },
     Rule {
+        id: "traps.event-data",
+        gate: "script traps",
+        rule: "event-data",
+        summary: "A bare eventData in a version 2 subscription is a ReferenceError at run time; the payload is events[\"<alias>\"].eventData.",
+        options: NO_OPTIONS,
+    },
+    Rule {
         id: "traps.unbounded-loop",
         gate: "script traps",
         rule: "unbounded-loop",
@@ -240,6 +247,10 @@ pub(crate) fn by_id(id: &str) -> Option<&'static Rule> {
 }
 
 pub(crate) fn preset(name: &str, rule: &Rule) -> Option<Severity> {
+    // A newer rule warns until a project raises it, so it cannot fail a gate that passed before.
+    if rule.id == "traps.event-data" {
+        return PRESETS.contains(&name).then_some(Severity::Warn);
+    }
     match name {
         // Today's gates and nothing more: the comment rules are only for those who opt in.
         "checks-v1" => Some(if rule.id.starts_with("comments.") {
@@ -283,6 +294,7 @@ mod tests {
             ("script traps", "for-in"),
             ("script traps", "indexed-rows"),
             ("script traps", "nan-risk"),
+            ("script traps", "event-data"),
             ("script traps", "read-before-assign"),
             ("script traps", "unbounded-loop"),
             ("script traps", "suppression"),

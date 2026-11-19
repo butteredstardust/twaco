@@ -502,6 +502,25 @@ pub(crate) fn plan_add(
             tabs.join(", ")
         ));
     }
+    // Each add beside the same anchor lands immediately next to it, so a series reverses unless
+    // it chains from the widget just added.
+    match &request.placement {
+        Some(Placement::Beside {
+            anchor,
+            side: mashup::edit::Side::Right,
+        }) => notes.push(format!(
+            "next: --right-of {} keeps order (--right-of {anchor} again would insert before it)",
+            placed.id
+        )),
+        Some(Placement::Beside {
+            anchor,
+            side: mashup::edit::Side::Left,
+        }) => notes.push(format!(
+            "next: --left-of {} adds further left (--left-of {anchor} again keeps order)",
+            placed.id
+        )),
+        _ => {}
+    }
     document.fit_placed_width(&placed.id);
     document.reflow_for(&placed.id);
     let container_contents = placed

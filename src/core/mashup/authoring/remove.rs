@@ -4,7 +4,7 @@ use super::bind::existing_data_call;
 use super::end::{area, details, property, resolve_end, End};
 use super::{finish_edit, load_existing, parse_loaded, AuthoringContext, AuthoringError, EditPlan};
 use crate::core::config::Solution;
-use crate::core::mashup::address::parse_address;
+use crate::core::mashup::address::{parse_address, Address};
 use crate::core::mashup::describe::mashup_parameters;
 use crate::core::mashup::edit::MashupDocument;
 use crate::core::{mashup, types};
@@ -153,8 +153,8 @@ pub(crate) fn plan_unbind(
         model: &model,
         platform: platform.as_ref(),
     };
-    let from = endpoint(&mut document, solution, &context, &request.from, true)?;
-    let to = endpoint(&mut document, solution, &context, &request.to, false)?;
+    let from = unbind_endpoint(&mut document, solution, &context, &request.from, true)?;
+    let to = unbind_endpoint(&mut document, solution, &context, &request.to, false)?;
     let from_location = endpoint_location(&document, &from)?;
     let to_location = endpoint_location(&document, &to)?;
     let matching = document.value()["DataBindings"]
@@ -265,6 +265,42 @@ pub(crate) fn plan_off(
         event: request.event.clone(),
         invoke: request.invoke.clone(),
     })
+}
+
+/// An end of a binding to remove. A widget that is gone but still named by a binding is the
+/// dangling end `mashup validate` reports as `unknown-widget`; it resolves to the id the binding
+/// names so that binding can be removed. Anything else resolves as for `bind`.
+fn unbind_endpoint(
+    document: &mut MashupDocument,
+    solution: &Solution,
+    context: &AuthoringContext<'_>,
+    raw: &str,
+    source: bool,
+) -> Result<End, AuthoringError> {
+    if let Ok(Address::Ui { widget, property }) = parse_address(raw) {
+        let named = document.value()["DataBindings"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|binding| {
+                [("SourceArea", "SourceId"), ("TargetArea", "TargetId")]
+                    .iter()
+                    .any(|(area, id)| binding[*area] == "UI" && binding[*id] == widget.as_str())
+            });
+        if named
+            && matches!(
+                document.find_exact(&widget),
+                Err(crate::core::mashup::edit::EditError::NoWidget(_))
+            )
+        {
+            return Ok(End::Ui {
+                id: widget,
+                property,
+                base: String::new(),
+            });
+        }
+    }
+    endpoint(document, solution, context, raw, source)
 }
 
 fn endpoint(

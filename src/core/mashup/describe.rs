@@ -693,8 +693,32 @@ fn containers(solution: &Solution, value: &Value) -> Vec<Container> {
     out
 }
 
-struct Addresses<'a> {
+pub(crate) struct Addresses<'a> {
     sections: &'a BTreeMap<String, Section>,
+}
+
+/// The command that removes one binding, with `<mashup>` for the caller to name.
+pub(crate) fn unbind_command(value: &Value, binding: &Value) -> String {
+    let sections = bindings::data_sections(value);
+    let address = Addresses {
+        sections: &sections,
+    };
+    let map = &binding["PropertyMaps"][0];
+    let from = address.of(
+        &text(binding, "SourceArea"),
+        &text(binding, "SourceSection"),
+        &text(binding, "SourceId"),
+        &text(map, "SourceProperty"),
+        &text(binding, "SourceDetails"),
+    );
+    let to = address.of(
+        &text(binding, "TargetArea"),
+        &text(binding, "TargetSection"),
+        &text(binding, "TargetId"),
+        &text(map, "TargetProperty"),
+        "",
+    );
+    format!("twaco mashup unbind <mashup> --from {from} --to {to} --apply")
 }
 
 impl Addresses<'_> {

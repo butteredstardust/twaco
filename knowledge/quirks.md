@@ -983,3 +983,9 @@ re-checked on every Builder load; it does not persist as OFF.
 Verified on ThingWorx 10.2.1: dragging a Mashup Builder splitter saves a per-user
 **Custom** workspace on the server. A changed pane layout can therefore follow the
 user into another session.
+
+## Rich Text Editor text hides a button label from Playwright text lookups
+
+Verified on ThingWorx 10.2.1: once a Rich Text Editor holds text that repeats a button label,
+Playwright `get_by_text(label).first` matches the hidden editor text instead of the button. Filter
+with `locator("visible=true")`, as in `get_by_text(label).locator("visible=true").first`.

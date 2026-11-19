@@ -143,30 +143,37 @@ pub(crate) fn compute_with_expected(
                     .map_err(|error| error.to_string())
             })
             .map_err(|error| format!("{}: {error}", entity.path.display()))?;
-        let server = match EntityKey::address(&entity.info.collection, &entity.info.name)
-            .and_then(|key| remote.fetch(&key))
-        {
-            Ok(Some(bytes)) => Some(
-                normalise::hash_with_grants(&bytes, &parts, &grants)
-                    .map_err(|error| format!("server export for {}: {error}", entity.info.name))?,
-            ),
-            Ok(None) => None,
-            Err(error) => return Err(format!("{}: {error}", entity.info.name)),
-        };
-        let ancestor = baseline.get_for(&entity.info.collection, &entity.info.name, &working);
+        let (server, server_bytes) =
+            match EntityKey::address(&entity.info.collection, &entity.info.name)
+                .and_then(|key| remote.fetch(&key))
+            {
+                Ok(Some(bytes)) => (
+                    Some(
+                        normalise::hash_with_grants(&bytes, &parts, &grants).map_err(|error| {
+                            format!("server export for {}: {error}", entity.info.name)
+                        })?,
+                    ),
+                    Some(bytes),
+                ),
+                Ok(None) => (None, None),
+                Err(error) => return Err(format!("{}: {error}", entity.info.name)),
+            };
+        let ancestor = baseline.ancestor(
+            &entity.info.collection,
+            &entity.info.name,
+            &working,
+            server_bytes.as_deref().zip(server.as_deref()),
+            &grants,
+        );
         Ok(EntityStatus {
             server_owned: super::server_owned::labels(&parts),
             collection: entity.info.collection.clone(),
             name: entity.info.name.clone(),
-            verdict: verdict(
-                &working,
-                server.as_deref(),
-                ancestor.map(|entry| (entry.local.as_str(), entry.server.as_str())),
-            ),
+            verdict: verdict(&working, server.as_deref(), ancestor.sides()),
             working,
             server,
-            local_baseline: ancestor.map(|entry| entry.local.clone()),
-            server_baseline: ancestor.map(|entry| entry.server.clone()),
+            local_baseline: ancestor.pair.as_ref().map(|(local, _)| local.clone()),
+            server_baseline: ancestor.pair.as_ref().map(|(_, server)| server.clone()),
         })
     });
     let mut statuses = Vec::new();

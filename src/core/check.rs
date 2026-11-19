@@ -1225,6 +1225,34 @@ pub(crate) fn script_traps_with(
         }
         in_line_order(&mut result, mark);
     }
+    // Subscription scripts stay in the entity file, so they are read from it.
+    for entity in &discovered.entities {
+        if !matches!(
+            entity.info.collection.as_str(),
+            "Things" | "ThingTemplates" | "ThingShapes"
+        ) {
+            continue;
+        }
+        let Ok(bytes) = std::fs::read(&entity.path) else {
+            continue;
+        };
+        for trap in super::lint::event_data_in_subscriptions(&bytes) {
+            lint_finding(
+                &mut result,
+                lint,
+                Some((entity.info.collection.as_str(), entity.info.name.as_str())),
+                "script traps",
+                trap.rule,
+                Finding {
+                    gate: "script traps".to_string(),
+                    file: relative(solution, &entity.path),
+                    line: trap.line,
+                    rule: trap.rule.to_string(),
+                    message: trap.message,
+                },
+            );
+        }
+    }
     result
 }
 
@@ -2214,6 +2242,39 @@ mod tests {
         std::fs::write(bad.join("script.js"), "var a = 1;\nvar b = ;").unwrap();
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
         (root_guard, root, solution)
+    }
+
+    #[test]
+    fn a_bare_event_data_in_a_v2_subscription_warns_and_can_be_raised() {
+        let (_dir, root, solution) = live_solution();
+        let xml = "<Entities><Things><Thing name=\"P.S\" projectName=\"P\"><ThingShape><Subscriptions>             <Subscription name=\"On\" version=\"2\"><Events><Event alias=\"Level\"/></Events>             <ServiceImplementation handlerName=\"Script\" name=\"On\"><ConfigurationTables>             <ConfigurationTable name=\"Script\"><Rows><Row><code><![CDATA[use(eventData);]]></code></Row></Rows>             </ConfigurationTable></ConfigurationTables></ServiceImplementation></Subscription>             </Subscriptions></ThingShape></Thing></Things></Entities>";
+        std::fs::write(root.join("Things/P.S.xml"), xml).unwrap();
+        let gate = script_traps(&solution);
+        assert!(
+            gate.warnings
+                .iter()
+                .any(|f| f.rule == "event-data" && f.file.ends_with("Things/P.S.xml")),
+            "{:?}",
+            gate.warnings
+        );
+        assert!(!gate.findings.iter().any(|f| f.rule == "event-data"));
+
+        let mut config = std::fs::read_to_string(root.join("twaco.toml")).unwrap();
+        config.push_str(
+            "
+[lint]
+extends = [\"checks-v1\"]
+
+[lint.rules.\"traps.event-data\"]
+severity = \"error\"
+",
+        );
+        std::fs::write(root.join("twaco.toml"), config).unwrap();
+        let raised = Solution::load(&root.join("twaco.toml")).unwrap();
+        assert!(script_traps(&raised)
+            .findings
+            .iter()
+            .any(|f| f.rule == "event-data"));
     }
 
     #[test]

@@ -298,7 +298,12 @@ the server also owns its row structure.
 
 Status (including `--record`), guards and read-back compare both sides without these parts.
 Applicable parts are fingerprinted in the hash: a policy change makes that entity's old
-baseline absent; entities without rules keep their existing hashes. `entity status --detail`
+baseline absent; entities without rules keep their existing hashes. The exception is an entity
+that had no rule: while the server still holds exactly what the baseline recorded, twaco rebuilds
+that plain baseline, so a deploy after adding the first rule proceeds on the repository's changes
+alone and records a baseline under the new policy. If the server also changed, or the baseline
+came from a different rule set, it refuses and says to run `twaco entity status <entity> --record`
+once repository and server agree. `entity status --detail`
 names the parts; `doctor` warns when an entire rule matches no solution entity, and when it
 names `members` but matches no Group or Organization, or property values but matches no Thing
 or ThingTemplate.
@@ -416,6 +421,7 @@ A malformed directive, or one that suppresses nothing, is itself reported.
 | `traps.for-in` | script traps |
 | `traps.indexed-rows` | script traps |
 | `traps.nan-risk` | script traps |
+| `traps.event-data` | script traps |
 | `traps.read-before-assign` | script traps |
 | `traps.unbounded-loop` | script traps |
 | `traps.suppression` | script traps |

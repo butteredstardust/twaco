@@ -18,6 +18,22 @@ pub(crate) struct Entry {
     pub(crate) server: String,
 }
 
+/// What a comparison has to go on: the (local, server) pair, and whether an entry exists that
+/// was recorded under a different server-owned policy and could not be restated.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(crate) struct Ancestor {
+    pub(crate) pair: Option<(String, String)>,
+    pub(crate) policy_changed: bool,
+}
+
+impl Ancestor {
+    pub(crate) fn sides(&self) -> Option<(&str, &str)> {
+        self.pair
+            .as_ref()
+            .map(|(local, server)| (local.as_str(), server.as_str()))
+    }
+}
+
 impl Entry {
     /// Whether both sides were hashed by this normalisation version.
     pub(crate) fn is_current(&self) -> bool {
@@ -66,6 +82,51 @@ impl Baseline {
                 && entry.server.rsplit_once(':').map(|p| p.0) == Some(scope)
         })
     }
+    /// The ancestor to compare against: [`Baseline::get_for`], and, when the entry was recorded
+    /// under another server-owned policy, the same entry restated for the current one where that
+    /// is provable. A baseline recorded with no ownership and no grants can be rebuilt from the
+    /// server's bytes: if they still hash to the recorded server side under that plain policy,
+    /// the server is unchanged since, and the recorded server side stands for today's hash too.
+    /// Any other policy cannot be rebuilt, which `policy_changed` says.
+    pub(crate) fn ancestor(
+        &self,
+        collection: &str,
+        name: &str,
+        working: &str,
+        server: Option<(&[u8], &str)>,
+        grants: &super::permissions::Sets,
+    ) -> Ancestor {
+        if let Some(entry) = self.get_for(collection, name, working) {
+            return Ancestor {
+                pair: Some((entry.local.clone(), entry.server.clone())),
+                policy_changed: false,
+            };
+        }
+        let Some(entry) = self.get(collection, name) else {
+            return Ancestor::default();
+        };
+        let rebased = server.and_then(|(bytes, current)| {
+            let scope = entry.server.rsplit_once(':')?.0;
+            if entry.local.rsplit_once(':')?.0 != scope {
+                return None;
+            }
+            let plain = super::normalise::hash_with_grants(bytes, &[], grants).ok()?;
+            // The server is unchanged since the baseline; a repository that agrees with it is
+            // unchanged too, so both sides restate to today's hash (else status would see drift).
+            (plain.rsplit_once(':')?.0 == scope && plain == entry.server).then(|| {
+                if working == current {
+                    (current.to_string(), current.to_string())
+                } else {
+                    (entry.local.clone(), current.to_string())
+                }
+            })
+        });
+        Ancestor {
+            policy_changed: rebased.is_none(),
+            pair: rebased,
+        }
+    }
+
     /// The entry recorded for an entity, if its hashes are of the current normalisation: one
     /// from another version cannot be compared, so it counts as no baseline at all.
     pub(crate) fn get(&self, collection: &str, name: &str) -> Option<&Entry> {
@@ -300,6 +361,49 @@ impl Coded for BaselineError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_plain_baseline_is_restated_for_a_new_policy_only_while_the_server_is_unchanged() {
+        use crate::core::normalise;
+        use crate::core::server_owned::Part;
+        let thing = |script: &str| {
+            format!(
+                "<Entities><Things><Thing name=\"T\" projectName=\"P\"><code><![CDATA[{script}]]></code></Thing></Things></Entities>"
+            )
+            .into_bytes()
+        };
+        let (old, other) = (thing("old();"), thing("other();"));
+        let plain = normalise::hash(&old).unwrap();
+        let mut baseline = Baseline::default();
+        baseline.set("Things", "T", plain.clone(), plain.clone());
+        let parts = [Part::Members];
+        let working = normalise::hash_with_parts(&thing("new();"), &parts).unwrap();
+        let grants = Default::default();
+        let now = |bytes: &[u8]| normalise::hash_with_parts(bytes, &parts).unwrap();
+
+        let same = baseline.ancestor("Things", "T", &working, Some((&old, &now(&old))), &grants);
+        assert_eq!(same.pair, Some((plain.clone(), now(&old))));
+        assert!(!same.policy_changed);
+
+        // Repository and server both unchanged: both sides restate, so status sees no drift.
+        let agreed =
+            baseline.ancestor("Things", "T", &now(&old), Some((&old, &now(&old))), &grants);
+        assert_eq!(agreed.pair, Some((now(&old), now(&old))));
+        assert!(!agreed.policy_changed);
+
+        let changed = baseline.ancestor(
+            "Things",
+            "T",
+            &working,
+            Some((&other, &now(&other))),
+            &grants,
+        );
+        assert_eq!(changed.pair, None);
+        assert!(changed.policy_changed);
+
+        let absent = Baseline::default().ancestor("Things", "T", &working, None, &grants);
+        assert_eq!(absent, Ancestor::default());
+    }
 
     fn temp() -> (tempfile::TempDir, PathBuf) {
         let path_guard = tempfile::Builder::new()

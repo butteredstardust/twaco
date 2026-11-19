@@ -65,21 +65,27 @@ pub(crate) fn decide_all_with_progress(
             }
             None => (Vec::new(), Vec::new()),
         };
-        let decision = push::decide(
+        let ancestor = baseline.ancestor(
+            &entity.collection,
+            &entity.name,
+            &working,
+            fetched.as_deref().zip(server.as_deref()),
+            &entity.derived,
+        );
+        let decision = push::decide_with(
             &working,
             server.as_deref(),
-            baseline
-                .get_for(&entity.collection, &entity.name, &working)
-                .map(|entry| (entry.local.as_str(), entry.server.as_str())),
+            ancestor.sides(),
+            ancestor.policy_changed,
         );
         let hint = property_values_hint(entity, &working, fetched.as_deref(), baseline, &decision);
         let (warnings, removed_members) = if entity.collection == "Roles" {
             fetched
                 .as_deref()
                 .map(|bytes| {
-                    let unchanged = baseline
-                        .get_for(&entity.collection, &entity.name, &working)
-                        .is_some_and(|entry| server.as_deref() == Some(entry.server.as_str()));
+                    let unchanged = ancestor
+                        .sides()
+                        .is_some_and(|(_, recorded)| server.as_deref() == Some(recorded));
                     role_member_changes(entity, bytes, unchanged)
                 })
                 .transpose()

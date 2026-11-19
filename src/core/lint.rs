@@ -34,6 +34,123 @@ pub(crate) fn lint(text: &str) -> Vec<Trap> {
     traps
 }
 
+/// A bare `eventData` in a version 2 subscription script.
+///
+/// A version 2 subscription receives `events["<alias>"].eventData`; the bare name compiles and
+/// then throws a ReferenceError the first time the event fires. A name the script declares itself
+/// is its own, and `x.eventData` is a property, so neither is reported. A script the parser
+/// rejects yields nothing: the formatting gate already says so.
+pub(crate) fn event_data_in_subscriptions(src: &[u8]) -> Vec<Trap> {
+    use super::scan::{self, Kind};
+    use super::script::{self, Role};
+    if !src.windows(9).any(|window| window == b"eventData") {
+        return Vec::new();
+    }
+    let Ok(tokens) = scan::tokenize(src) else {
+        return Vec::new();
+    };
+    let text = |span: scan::Span| String::from_utf8_lossy(span.of(src)).into_owned();
+    let mut traps = Vec::new();
+    for (index, token) in tokens.iter().enumerate() {
+        if token.kind != Kind::Start || token.name.of(src) != b"Subscription" {
+            continue;
+        }
+        let version_two = scan::attribute(src, token, "version")
+            .ok()
+            .flatten()
+            .is_some_and(|span| span.of(src) == b"2");
+        if !version_two {
+            continue;
+        }
+        let aliases: Vec<String> = scan::tags_within(&tokens, src, "Event", index)
+            .into_iter()
+            .filter_map(|event| scan::attribute(src, &tokens[event], "alias").ok().flatten())
+            .map(text)
+            .collect();
+        for implementation in scan::child_tags(&tokens, src, "ServiceImplementation", index) {
+            let handler = super::sidecar::handler_of(&tokens, src, implementation);
+            if !matches!(handler.as_deref(), Ok("Script")) {
+                continue;
+            }
+            let Some(code) = super::sidecar::code_element_of(&tokens, src, implementation) else {
+                continue;
+            };
+            let Some(end) = scan::element_end(&tokens, code) else {
+                continue;
+            };
+            let mut payload = String::new();
+            for part in tokens.get(code + 1..end).unwrap_or_default() {
+                match part.kind {
+                    Kind::Cdata => payload.push_str(&text(part.inner)),
+                    Kind::Text => payload.push_str(&scan::decode_entities(&text(part.span))),
+                    _ => {}
+                }
+            }
+            let Ok(parsed) = script::parse(payload.as_bytes()) else {
+                continue;
+            };
+            let named = |identifier: &script::Identifier| {
+                identifier.span.of(payload.as_bytes()) == b"eventData"
+            };
+            // `{ eventData }` in an object literal reads the name; in a pattern it binds it.
+            let in_literal = |identifier: &script::Identifier| {
+                parsed.objects.iter().any(|object| {
+                    object.span.start <= identifier.span.start
+                        && identifier.span.end <= object.span.end
+                })
+            };
+            let reads = |identifier: &script::Identifier| {
+                identifier.role == Role::Reference
+                    || (identifier.role == Role::Shorthand && in_literal(identifier))
+            };
+            let declared = parsed.identifiers.iter().any(|identifier| {
+                named(identifier)
+                    && (matches!(identifier.role, Role::Declaration | Role::Parameter)
+                        || (identifier.role == Role::Shorthand && !in_literal(identifier)))
+            });
+            if declared {
+                continue;
+            }
+            let first_line = src[..tokens[code].span.start]
+                .iter()
+                .filter(|&&byte| byte == b'\n')
+                .count()
+                + 1;
+            let fix = match aliases.as_slice() {
+                [only] => format!("events[\"{only}\"].eventData"),
+                _ => "events[\"<alias>\"].eventData, with the alias of the event the subscription listens to"
+                    .to_string(),
+            };
+            for identifier in parsed
+                .identifiers
+                .iter()
+                .filter(|identifier| named(identifier) && reads(identifier))
+            {
+                let line = first_line
+                    + payload.as_bytes()[..identifier.span.start]
+                        .iter()
+                        .filter(|&&byte| byte == b'\n')
+                        .count();
+                let source = payload
+                    .lines()
+                    .nth(line - first_line)
+                    .unwrap_or_default()
+                    .trim()
+                    .to_string();
+                traps.push(Trap {
+                    line,
+                    rule: "event-data",
+                    message: format!(
+                        "a bare `eventData` in a version 2 subscription is a ReferenceError at run time; read the payload as {fix}"
+                    ),
+                    source,
+                });
+            }
+        }
+    }
+    traps
+}
+
 fn indent_of(line: &str) -> usize {
     line.len() - line.trim_start().len()
 }
@@ -723,6 +840,68 @@ mod tests {
 
     fn rules(source: &str) -> Vec<&'static str> {
         lint(source).into_iter().map(|t| t.rule).collect()
+    }
+
+    fn subscription(attributes: &str, code: &str) -> Vec<u8> {
+        format!(
+            "<Entities><Things><Thing name=\"T\" projectName=\"P\"><ThingShape><Subscriptions>
+             <Subscription enabled=\"true\" name=\"OnChange\"{attributes}>
+             <Events><Event alias=\"Temp\" eventName=\"DataChange\"/></Events>
+             <ServiceImplementation handlerName=\"Script\" name=\"OnChange\"><ConfigurationTables>
+             <ConfigurationTable name=\"Script\"><Rows><Row><code><![CDATA[{code}]]></code></Row></Rows>
+             </ConfigurationTable></ConfigurationTables></ServiceImplementation>
+             </Subscription></Subscriptions></ThingShape></Thing></Things></Entities>"
+        )
+        .into_bytes()
+    }
+
+    #[test]
+    fn a_bare_event_data_in_a_version_2_subscription_is_reported_with_its_fix() {
+        let found = event_data_in_subscriptions(&subscription(
+            " version=\"2\"",
+            "var x = 1;
+logger.warn(eventData.newValue.value);",
+        ));
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].rule, "event-data");
+        // The <code> element is on line 5 of the document, the use on its second line.
+        assert_eq!(found[0].line, 6);
+        assert!(found[0].message.contains("events[\"Temp\"].eventData"));
+        assert_eq!(found[0].source, "logger.warn(eventData.newValue.value);");
+
+        // An object-literal shorthand reads the name, so it is a use, not a declaration.
+        let shorthand =
+            event_data_in_subscriptions(&subscription(" version=\"2\"", "var o = { eventData };"));
+        assert_eq!(shorthand.len(), 1);
+    }
+
+    #[test]
+    fn event_data_that_is_a_property_or_declared_or_version_1_is_left_alone() {
+        let v2 = " version=\"2\"";
+        for (attributes, code) in [
+            (v2, "var d = events[\"Temp\"].eventData; use(d);"),
+            (v2, "use(x.eventData);"),
+            (
+                v2,
+                "var eventData = events[\"Temp\"].eventData;
+use(eventData);",
+            ),
+            (
+                v2,
+                "function show(eventData) { return eventData; }
+show(1);",
+            ),
+            (v2, "var a = { eventData: 1 };"),
+            (v2, "var { eventData } = events[\"Temp\"]; use(eventData);"),
+            ("", "use(eventData);"),
+            (" version=\"1\"", "use(eventData);"),
+            (v2, "use(eventData"),
+        ] {
+            assert!(
+                event_data_in_subscriptions(&subscription(attributes, code)).is_empty(),
+                "{attributes}: {code}"
+            );
+        }
     }
 
     #[test]

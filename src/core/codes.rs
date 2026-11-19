@@ -487,7 +487,10 @@ mod tests {
         use crate::core::push::Refusal;
         is(Refusal::DeletedOnServer, ErrorCode::ServerConflict);
         is(
-            Refusal::UnknownAncestor { server: text() },
+            Refusal::UnknownAncestor {
+                server: text(),
+                policy_changed: false,
+            },
             ErrorCode::ServerConflict,
         );
         is(

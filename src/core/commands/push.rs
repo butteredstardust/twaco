@@ -542,6 +542,7 @@ mod tests {
                 None,
                 push::Decision::Refuse(push::Refusal::UnknownAncestor {
                     server: normalise::hash(&changed).unwrap(),
+                    policy_changed: false,
                 }),
             ),
             (

@@ -740,7 +740,9 @@ pub(crate) const USAGE: &[Usage] = &[
       --bottom                with --in <column>: in a footer row at the column's foot (a filter
                               panel's Apply; --right-of it adds Clear); later widgets go above it
       --right-of/--left-of/--above/--below <widget>
-                              place beside an existing widget
+                              place beside an existing widget; every add lands immediately next to
+                              the anchor, so to add a series in order chain --right-of from the
+                              widget just added (the output says "next: --right-of <id>")
       --end                   with --right-of: at the far end of the row, which splits into a start
                               and an end group (a label and its value, as the kits lay them out)
       --in-column             with --below: stack within that widget's column of a split row;
@@ -909,7 +911,8 @@ pub(crate) const USAGE: &[Usage] = &[
         path: "mashup unbind",
         group: 1,
         text: r#"  mashup unbind <mashup> --from <address> --to <address> [--apply] [--json]
-                              remove exactly one data binding; plan unless --apply
+                              remove exactly one data binding; plan unless --apply; a binding whose
+                              widget is gone (validate: unknown-widget) is removed by the id it names
       --from <address>        source address from mashup describe
       --to <address>          target address from mashup describe"#,
     },
