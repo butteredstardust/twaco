@@ -67,7 +67,18 @@ pub fn run(solution: &Solution, request: &LintRequest) -> Result<LintReport, Str
         examined: scripts.len(),
         ..LintReport::default()
     };
-    let addresses: BTreeSet<String> = scripts.into_iter().collect();
+    let mut addresses: BTreeSet<String> = scripts.into_iter().collect();
+    // Findings in a subscription script are reported against the entity file that holds it.
+    if request.service.is_none() {
+        addresses.extend(discovery.entities.iter().filter_map(|entity| {
+            let address = format!("{}/{}", entity.info.collection, entity.info.name);
+            request
+                .entity
+                .as_deref()
+                .is_none_or(|pattern| glob::matches(pattern, &address))
+                .then(|| check::relative(solution, &entity.path))
+        }));
+    }
     for gate in &gates {
         collect_gate(gate, &addresses, &selected, &mut report);
     }

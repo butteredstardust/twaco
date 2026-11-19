@@ -172,7 +172,133 @@ pub(crate) fn fetch(remote: &dyn Remote, thing: &str, table: &str) -> Result<Tab
     Ok(Table { data_shape, rows })
 }
 
-/// The primary-key fields a DataShape declares, sorted so the key text is stable.
+/// Replace all rows using the service selected by the live definition. Passwords are refused
+/// before any write because the platform silently discards them through these services.
+pub(crate) fn set(
+    remote: &dyn Remote,
+    thing: &str,
+    table: &str,
+    input: &[String],
+    apply: bool,
+) -> Result<Value, TableError> {
+    let bad = |why: String| TableError::Repository(format!("{thing}.{table}: {why}"));
+    if input.is_empty() {
+        return Err(bad("set needs at least one --row k=v[,k=v...]".into()));
+    }
+    let current = fetch(remote, thing, table)?;
+    let target = thing_target(thing).map_err(TableError::Remote)?;
+    let definition = remote
+        .call(
+            &target,
+            "GetConfigurationTableDefinition",
+            &json!({"tableName":table}),
+        )
+        .map_err(TableError::Remote)?;
+    let multi = definition
+        .as_ref()
+        .and_then(|v| v["rows"][0]["isMultiRow"].as_bool())
+        .ok_or_else(|| {
+            bad("cannot read boolean isMultiRow from the definition; nothing was written".into())
+        })?;
+    if !multi && input.len() != 1 {
+        return Err(bad("single-row table needs exactly one --row".into()));
+    }
+    let fields = current.data_shape["fieldDefinitions"]
+        .as_object()
+        .ok_or_else(|| bad("definition has no fields".into()))?;
+    let mut rows = Vec::new();
+    for raw in input {
+        let mut row = Map::new();
+        for cell in &split_row_argument(raw, fields) {
+            let (name, text) = cell
+                .split_once('=')
+                .ok_or_else(|| bad("--row needs k=v[,k=v...]".into()))?;
+            let field = fields
+                .get(name)
+                .ok_or_else(|| bad(format!("unknown field {name}; read the table definition")))?;
+            let base = field["baseType"]
+                .as_str()
+                .ok_or_else(|| bad(format!("field {name} has no baseType")))?;
+            let value = match base {
+                "PASSWORD" => return Err(bad(format!("PASSWORD field {name} must be set in entity XML / deploy (or Composer); the configuration-table service silently stores nothing"))),
+                "BOOLEAN" => match text { "true" => Value::Bool(true), "false" => Value::Bool(false), _ => return Err(bad(format!("field {name} needs BOOLEAN true or false"))) },
+                "INTEGER" => Value::from(text.parse::<i32>().map_err(|_| bad(format!("field {name} needs INTEGER")))?),
+                "LONG" => Value::from(text.parse::<i64>().map_err(|_| bad(format!("field {name} needs LONG")))?),
+                "NUMBER" => { let n = text.parse::<f64>().ok().and_then(serde_json::Number::from_f64).ok_or_else(|| bad(format!("field {name} needs a finite NUMBER")))?; Value::Number(n) },
+                "JSON" | "QUERY" | "INFOTABLE" | "TAGS" | "VARIANT" | "LOCATION" | "VEC2" | "VEC3" | "VEC4" => serde_json::from_str(text).map_err(|_| bad(format!("field {name} needs JSON for {base}")))?,
+                _ => Value::String(text.into()),
+            };
+            super::repo::refuse_git_bash_value(&value).map_err(|_| {
+                bad(format!(
+                    "field {name} contains a shell-expanded value; use PowerShell"
+                ))
+            })?;
+            if row.insert(name.into(), value).is_some() {
+                return Err(bad(format!("duplicate field {name} in --row")));
+            }
+        }
+        rows.push(row);
+    }
+    let service = if multi {
+        "SetMultiRowConfigurationTable"
+    } else {
+        "SetConfigurationTable"
+    };
+    if apply {
+        let mut parameters = json!({"tableName":table,"persistent":true});
+        parameters[if multi {
+            "values"
+        } else {
+            "configurationTable"
+        }] = json!({"dataShape":current.data_shape,"rows":rows});
+        remote
+            .call(&target, service, &parameters)
+            .map_err(TableError::Remote)?;
+        let after = fetch(remote, thing, table)?;
+        // Both sides are typed JSON, so text is compared untrimmed.
+        let differences = compare_rows_by(
+            "server",
+            &after.rows,
+            "requested",
+            &rows,
+            &primary_key(&current.data_shape),
+            exact,
+        )
+        .differences;
+        if !differences.is_empty() {
+            return Err(TableError::NotRestored(differences));
+        }
+    }
+    Ok(
+        json!({"thing":thing,"table":table,"service":service,"dry_run":!apply,"rows_written":rows.len(),"note":format!("{}; all supplied rows replace the table. Server only; run twaco entity pull afterwards to update the repository.", if apply { "set and read back" } else { "plan; nothing written" })}),
+    )
+}
+
+/// Splits one `--row` into `k=v` cells. A comma starts a new cell only when a field-like name and
+/// `=` follow it, so JSON values such as `{"a":1,"b":2}` keep their commas and a mistyped field
+/// name is still refused rather than joined to the previous value.
+fn split_row_argument(raw: &str, fields: &Map<String, Value>) -> Vec<String> {
+    let mut cells: Vec<String> = Vec::new();
+    for part in raw.split(',') {
+        let starts_cell = part.split_once('=').is_some_and(|(name, _)| {
+            fields.contains_key(name)
+                || name
+                    .chars()
+                    .next()
+                    .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+                    && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+        });
+        match cells.last_mut() {
+            Some(last) if !starts_cell => {
+                last.push(',');
+                last.push_str(part);
+            }
+            _ => cells.push(part.to_string()),
+        }
+    }
+    cells
+}
+
 /// The Thing's configuration tables, `(name, description)`, in the server's order.
 pub(crate) fn list(remote: &dyn Remote, thing: &str) -> Result<Vec<(String, String)>, TableError> {
     let target = ServiceTarget::Thing(thing.to_string());
@@ -191,6 +317,7 @@ pub(crate) fn list(remote: &dyn Remote, thing: &str) -> Result<Vec<(String, Stri
         .unwrap_or_default())
 }
 
+/// The primary-key fields a DataShape declares, sorted so the key text is stable.
 pub fn primary_key(data_shape: &Value) -> Vec<String> {
     let mut key: Vec<String> = data_shape
         .get("fieldDefinitions")
@@ -948,9 +1075,13 @@ mod tests {
                 "GetConfigurationTableDefinition" => {
                     Ok(Some(json!({"rows": [{"isMultiRow": self.multi_row}]})))
                 }
-                "SetConfigurationTable" => {
+                "SetConfigurationTable" | "SetMultiRowConfigurationTable" if !self.ignore_set => {
                     assert_eq!(parameters["persistent"], true);
-                    table.rows = parameters["configurationTable"]["rows"]
+                    table.rows = parameters[if service == "SetMultiRowConfigurationTable" {
+                        "values"
+                    } else {
+                        "configurationTable"
+                    }]["rows"]
                         .as_array()
                         .unwrap()
                         .iter()
@@ -958,6 +1089,7 @@ mod tests {
                         .collect();
                     Ok(None)
                 }
+                "SetConfigurationTable" | "SetMultiRowConfigurationTable" => Ok(None),
                 "GetConfigurationTable" => Ok(Some(
                     json!({ "dataShape": table.data_shape, "rows": table.rows }),
                 )),
@@ -1007,6 +1139,120 @@ mod tests {
             .contains("MSYS_NO_PATHCONV=1"));
         saved.rows[0].insert("Value".into(), json!("D:/data/file.csv"));
         plan_restore(&current, &saved).unwrap();
+    }
+
+    #[test]
+    fn set_types_cells_selects_service_replaces_and_reads_back() {
+        for multi in [false, true] {
+            let mut fake = Fake::with(vec![row("Acme.Old", json!("old"))]);
+            fake.multi_row = multi;
+            fake.table.borrow_mut().data_shape = json!({"fieldDefinitions": {
+                "Key":{"baseType":"STRING"}, "Count":{"baseType":"INTEGER"},
+                "Enabled":{"baseType":"BOOLEAN"}, "Rate":{"baseType":"NUMBER"}
+            }});
+            let mut rows = vec!["Key=Acme.New,Count=2,Enabled=true,Rate=1.5".into()];
+            if multi {
+                rows.push("Key=Acme.Next,Count=3,Enabled=false,Rate=2".into());
+            }
+            let plan = set(&fake, "Acme.Broker", "Settings", &rows, false).unwrap();
+            assert!(plan["note"].as_str().unwrap().contains("replace"));
+            assert!(fake.calls.borrow().iter().all(|s| s.starts_with("Get")));
+            let report = set(&fake, "Acme.Broker", "Settings", &rows, true).unwrap();
+            assert_eq!(
+                report["service"],
+                if multi {
+                    "SetMultiRowConfigurationTable"
+                } else {
+                    "SetConfigurationTable"
+                }
+            );
+            assert_eq!(fake.table.borrow().rows.len(), rows.len());
+            assert_eq!(fake.table.borrow().rows[0]["Count"], 2);
+            assert_eq!(fake.table.borrow().rows[0]["Enabled"], true);
+            assert_eq!(fake.calls.borrow().last().unwrap(), "GetConfigurationTable");
+        }
+    }
+
+    #[test]
+    fn set_keeps_commas_inside_json_and_types_query_as_an_object() {
+        let mut fake = Fake::with(vec![]);
+        fake.multi_row = false;
+        fake.table.borrow_mut().data_shape = json!({"fieldDefinitions": {
+            "Payload":{"baseType":"JSON"}, "Filter":{"baseType":"QUERY"},
+            "Name":{"baseType":"STRING"}
+        }});
+        let rows = vec![r#"Payload={"a":1,"b":2},Filter={},Name= x "#.into()];
+        set(&fake, "Acme.Broker", "Settings", &rows, true).unwrap();
+        let stored = fake.table.borrow().rows[0].clone();
+        assert_eq!(stored["Payload"], json!({"a":1,"b":2}));
+        assert_eq!(stored["Filter"], json!({}));
+        assert_eq!(stored["Name"], " x ");
+        let typo = vec!["Name=a,Nmae=b".into()];
+        assert!(set(&fake, "Acme.Broker", "Settings", &typo, false)
+            .unwrap_err()
+            .to_string()
+            .contains("unknown field Nmae"));
+    }
+
+    #[test]
+    fn set_refuses_password_unknown_invalid_and_duplicate_cells_without_writes() {
+        let mut fake = Fake::with(vec![]);
+        fake.multi_row = false;
+        fake.table.borrow_mut().data_shape = json!({"fieldDefinitions": {
+            "Secret":{"baseType":"PASSWORD"}, "Count":{"baseType":"INTEGER"},
+            "Enabled":{"baseType":"BOOLEAN"}
+        }});
+        for rows in [
+            vec!["Secret=redacted".into()],
+            vec!["Missing=x".into()],
+            vec!["Count=no".into()],
+            vec!["Enabled=yes".into()],
+            vec!["Count=1,Count=2".into()],
+            vec!["Count=1".into(), "Count=2".into()],
+            vec![],
+        ] {
+            assert!(set(&fake, "Acme.Broker", "Settings", &rows, true).is_err());
+        }
+        let error = set(
+            &fake,
+            "Acme.Broker",
+            "Settings",
+            &["Secret=redacted".into()],
+            true,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("Composer") && !error.contains("redacted"));
+        assert!(fake.calls.borrow().iter().all(|s| s.starts_with("Get")));
+    }
+
+    #[test]
+    fn set_refuses_a_failed_definition_and_detects_ignored_writes() {
+        let mut fake = Fake::with(vec![]);
+        fake.table.borrow_mut().data_shape =
+            json!({"fieldDefinitions":{"Key":{"baseType":"STRING"}}});
+        fake.fail_definition = true;
+        assert!(set(
+            &fake,
+            "Acme.Broker",
+            "Settings",
+            &["Key=Acme.New".into()],
+            true
+        )
+        .is_err());
+        assert!(fake.calls.borrow().iter().all(|s| s.starts_with("Get")));
+        fake.fail_definition = false;
+        fake.ignore_set = true;
+        assert!(matches!(
+            set(
+                &fake,
+                "Acme.Broker",
+                "Settings",
+                &["Key=Acme.New".into()],
+                true
+            ),
+            Err(TableError::NotRestored(_))
+        ));
     }
 
     #[test]

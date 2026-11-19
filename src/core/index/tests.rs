@@ -1555,3 +1555,38 @@ fn a_project_cycle_leaves_the_index_complete_with_no_deploy_order() {
     assert!(index.is_complete(), "{:?}", index.unreadable());
     assert!(index.deploy_order().is_empty());
 }
+
+#[test]
+fn rbac_members_are_typed_structural_references() {
+    let (_dir, root) = scratch("rbac-members");
+    write(&root, "twaco.toml", "[[project]]\nname='Acme'\n");
+    for (collection, kind, name, body) in [
+        ("Users", "User", "Acme.Same", ""),
+        ("Groups", "Group", "Acme.Same", ""),
+        ("PermissionGroups", "PermissionGroup", "Acme.Access", "<Members><Member name='Acme.Same' type='Group'/></Members>"),
+        ("Roles", "Role", "Acme.Operator", "<Members><Member name='Acme.Same' type='User'/><Member name='Acme.Same' type='Group'/><Member name='Acme.Access' type='PermissionGroup'/></Members>"),
+    ] {
+        write(&root,&format!("{collection}/{name}.xml"),&entity(collection,kind,name,"Acme","",body));
+    }
+    let solution = Solution::load(&root.join("twaco.toml")).unwrap();
+    let index = Index::build(&solution);
+    for target in [
+        "Users/Acme.Same",
+        "Groups/Acme.Same",
+        "PermissionGroups/Acme.Access",
+    ] {
+        let found = edge(&index, "Roles/Acme.Operator", target, EdgeKind::Member);
+        assert_eq!(found.len(), 1, "{target}");
+        assert_eq!(found[0].confidence(), Confidence::Structural);
+    }
+    assert_eq!(
+        edge(
+            &index,
+            "PermissionGroups/Acme.Access",
+            "Groups/Acme.Same",
+            EdgeKind::Member
+        )
+        .len(),
+        1
+    );
+}

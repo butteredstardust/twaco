@@ -29,6 +29,9 @@
 //!   `ParameterDefinitions`, `ServiceDefinitions`, `ServiceImplementations`, `ConfigurationTables`,
 //!   `ConfigurationTableDefinitions`, and `PropertyDefinitions`; some live exports reorder these
 //!   named sections (PropertyDefinitions observed 2026-10-29; version 8);
+//! - sort direct PermissionGroup/EntityPermissions by entityName, entityType, permissionCategory,
+//!   permissionName, resourceName, then canonical bytes; Role and PermissionGroup Members by
+//!   type, name, then canonical bytes (field exports on 10.2.1-b148; version 13);
 //! - sort direct Subscription/Events children by alias, eventName, source, sourceProperty,
 //!   then canonical bytes (10.2.1 field report; version 12);
 //! - sort the entries of a direct-child `ThingProperties` by element name, and drop each entry's
@@ -69,11 +72,14 @@
 //! - a leaf holding only an empty or whitespace-only CDATA is the same as an empty element, as
 //!   the server stores an empty service script as `<code/>` (observed 2026-10-29; version 8).
 //!
+//! `effectiveThingPackage` is derived from the template; version 13 omits it while retaining
+//! the declared `thingPackage`.
+//!
 //! No generated id, default attribute, or other exception is included without a live/committed
 //! observation. Apart from the rules above, CDATA bytes are never decoded, re-indented, or joined.
 //!
-//! Without server ownership, hashes remain `v12:<sha256>` byte for byte. With ownership they are
-//! `v12:so1:<policy-sha256>:<content-sha256>`: the policy digest covers the sorted, deduplicated
+//! Without server ownership, hashes remain `v13:<sha256>` byte for byte. With ownership they are
+//! `v13:so1:<policy-sha256>:<content-sha256>`: the policy digest covers the sorted, deduplicated
 //! union of applicable part labels (newline-delimited). `so1` versions selector semantics.
 //! Content uses the same comparison tree with owned nodes omitted. Baselines must compare the
 //! entire prefix before the final colon; adding, removing or changing ownership invalidates
@@ -83,7 +89,7 @@ use super::scan::{self, Kind, ScanError, Token};
 use sha2::{Digest, Sha256};
 
 /// The normalisation version every hash carries; a baseline from another one says nothing.
-pub(crate) const HASH_VERSION: &str = "v12";
+pub(crate) const HASH_VERSION: &str = "v13";
 pub(crate) const LIVE_ONLY_ELEMENTS: [&[u8]; 9] = [
     b"effectiveShape",
     b"Owner",
@@ -264,6 +270,7 @@ pub(crate) fn comparison_element(mut entity: Element, with_permissions: bool) ->
     sort_name_keyed_containers(&mut entity);
     sort_thing_properties(&mut entity);
     sort_organization_sets(&mut entity);
+    sort_rbac_sets(&mut entity);
     if with_permissions {
         normalise_permissions(&mut entity);
     } else {
@@ -293,6 +300,36 @@ pub(crate) fn entity_of(src: &[u8]) -> Result<Element, NormaliseError> {
 pub(crate) fn hash(src: &[u8]) -> Result<String, NormaliseError> {
     let canonical = normalise(src)?;
     Ok(format!("{HASH_VERSION}:{}", hex(&sha256(&canonical))))
+}
+
+/// Matching derived principals affect comparisons only; pg1 invalidates older raw baselines.
+pub(crate) fn hash_with_grants(
+    src: &[u8],
+    parts: &[super::server_owned::Part],
+    grants: &super::permissions::Sets,
+) -> Result<String, NormaliseError> {
+    let bytes = super::permissions::derived::comparison(src, grants)?;
+    let hash = hash_with_parts(&bytes, parts)?;
+    if grants.is_empty() {
+        return Ok(hash);
+    }
+    let (scope, content) = hash.rsplit_once(':').expect("versioned hash");
+    Ok(format!("{scope}:pg1:{content}"))
+}
+
+pub(crate) fn read_back_with_grants(
+    sent: &[u8],
+    back: &[u8],
+    parts: &[super::server_owned::Part],
+    grants: &super::permissions::Sets,
+) -> Vec<String> {
+    match (
+        super::permissions::derived::comparison(sent, grants),
+        super::permissions::derived::comparison(back, grants),
+    ) {
+        (Ok(sent), Ok(back)) => read_back_differences(&sent, &back, parts),
+        _ => read_back_differences(sent, back, parts),
+    }
 }
 
 pub(crate) fn hash_with_parts(
@@ -621,6 +658,20 @@ fn note(out: &mut Collector, what: String) {
 /// An element's name, with its `name` attribute when it has one: `PropertyDefinition[a]`.
 fn element_label(element: &Element) -> String {
     let tag = String::from_utf8_lossy(&element.name);
+    if element.name == b"Member" {
+        let kind = element
+            .attributes
+            .iter()
+            .find(|(key, _)| key == b"type")
+            .map(|(_, value)| value.as_slice());
+        if let Some(kind) = kind {
+            return format!(
+                "{tag}[{}:{}]",
+                String::from_utf8_lossy(kind),
+                String::from_utf8_lossy(name_attribute(element))
+            );
+        }
+    }
     match name_attribute(element) {
         [] => tag.into_owned(),
         name => format!("{tag}[{}]", String::from_utf8_lossy(name)),
@@ -809,7 +860,7 @@ fn strip_live_only(element: &mut Element) {
 fn strip_live_only_attributes(element: &mut Element) {
     element
         .attributes
-        .retain(|(name, _)| name != LIVE_ONLY_ATTRIBUTE);
+        .retain(|(name, _)| name != LIVE_ONLY_ATTRIBUTE && name != b"effectiveThingPackage");
     for child in &mut element.children {
         if let Node::Element(child) = child {
             strip_live_only_attributes(child);
@@ -1215,6 +1266,48 @@ fn sort_json_payload_keys(element: &mut Element) {
         return;
     };
     element.children = vec![Node::Cdata(sorted)];
+}
+
+/// Only direct RBAC membership and grant lists are sets.
+fn sort_rbac_sets(entity: &mut Element) {
+    if entity.name != b"Role" && entity.name != b"PermissionGroup" {
+        return;
+    }
+    for node in &mut entity.children {
+        let Node::Element(list) = node else { continue };
+        let keys: &[&[u8]] = if list.name == b"Members" {
+            &[b"type", b"name"]
+        } else if entity.name == b"PermissionGroup" && list.name == b"EntityPermissions" {
+            &[
+                b"entityName",
+                b"entityType",
+                b"permissionCategory",
+                b"permissionName",
+                b"resourceName",
+            ]
+        } else {
+            continue;
+        };
+        if list.children.iter().all(|n| matches!(n, Node::Element(_))) {
+            list.unordered = true;
+            list.children.sort_by_cached_key(|node| {
+                let Node::Element(row) = node else {
+                    unreachable!()
+                };
+                let key: Vec<Vec<u8>> = keys
+                    .iter()
+                    .map(|key| {
+                        row.attributes
+                            .iter()
+                            .find(|(name, _)| name.as_slice() == *key)
+                            .map(|(_, value)| value.clone())
+                            .unwrap_or_default()
+                    })
+                    .collect();
+                (key, canonical_element_bytes(row))
+            });
+        }
+    }
 }
 
 /// An Organization's tree of connections and its units are sets; see the module rules.
@@ -2004,8 +2097,21 @@ mod tests {
     }
 
     #[test]
+    fn effective_package_is_derived_but_declared_package_is_compared() {
+        let base = br#"<Thing name="Acme.Broker"/>"#;
+        assert_eq!(
+            hash(base).unwrap(),
+            hash(br#"<Thing name="Acme.Broker" effectiveThingPackage="Acme.Package"/>"#).unwrap()
+        );
+        assert_ne!(
+            hash(base).unwrap(),
+            hash(br#"<Thing name="Acme.Broker" thingPackage="Acme.Package"/>"#).unwrap()
+        );
+    }
+
+    #[test]
     fn hash_version_eleven_keeps_version_nine_framing() {
-        assert!(hash(b"<Thing/>").unwrap().starts_with("v12:"));
+        assert!(hash(b"<Thing/>").unwrap().starts_with("v13:"));
         assert!(normalise(b"<Thing/>")
             .unwrap()
             .starts_with(b"twaco-entity-normalise-v9\0"));
@@ -2361,5 +2467,73 @@ mod tests {
             normalise(xml),
             Err(NormaliseError::DeclaredEncoding(_))
         ));
+    }
+}
+
+#[cfg(test)]
+mod rbac_tests {
+    use super::*;
+    #[test]
+    fn rbac_lists_are_sets_and_values_remain_content() {
+        let a = r#"<EntityPermission entityName="Acme.Pump" entityType="Thing" permissionCategory="RunTime" permissionName="ServiceInvoke" resourceName="Start" isPermitted="true" onInstances="false"/>"#;
+        let b = r#"<EntityPermission entityName="Acme.Pump" entityType="Thing" permissionCategory="Visibility" permissionName="Visibility" resourceName="" isPermitted="true" onInstances="false"/>"#;
+        let xml = |rows: String| {
+            format!("<PermissionGroup name='Acme.Access'><EntityPermissions>{rows}</EntityPermissions></PermissionGroup>")
+        };
+        let left = xml(format!("{a}{b}"));
+        let right = xml(format!("{b}{a}"));
+        assert_eq!(
+            hash(left.as_bytes()).unwrap(),
+            hash(right.as_bytes()).unwrap()
+        );
+        for (from, to) in [
+            ("isPermitted=\"true\"", "isPermitted=\"false\""),
+            ("onInstances=\"false\"", "onInstances=\"true\""),
+            ("Start", "Stop"),
+        ] {
+            assert_ne!(
+                hash(left.as_bytes()).unwrap(),
+                hash(left.replace(from, to).as_bytes()).unwrap()
+            );
+        }
+        for kind in ["Role", "PermissionGroup"] {
+            let xml =
+                |rows| format!("<{kind} name='Acme.Access'><Members>{rows}</Members></{kind}>");
+            let a = "<Member type='User' name='Acme.Same'/>";
+            let b = "<Member type='Group' name='Acme.Same'/>";
+            assert_eq!(
+                hash(xml(format!("{a}{b}")).as_bytes()).unwrap(),
+                hash(xml(format!("{b}{a}")).as_bytes()).unwrap()
+            );
+            assert_ne!(
+                hash(xml(format!("{a}{b}")).as_bytes()).unwrap(),
+                hash(xml(a.to_string()).as_bytes()).unwrap()
+            );
+        }
+        let thing = left.replace("PermissionGroup", "Thing");
+        assert_ne!(
+            hash(thing.as_bytes()).unwrap(),
+            hash(right.replace("PermissionGroup", "Thing").as_bytes()).unwrap()
+        );
+    }
+    #[test]
+    fn fmt_rbac_sets_splices_rows_and_keeps_every_other_byte() {
+        let xml = b"<PermissionGroup name='Acme.Access'><!--keep--><Members><Member name='Acme.Z' type='User'/><Member name='Acme.A' type='Group'/></Members><EntityPermissions><EntityPermission entityName='Acme.Z'/><EntityPermission entityName='Acme.A'/></EntityPermissions><Other/></PermissionGroup>";
+        let expected = String::from_utf8(xml.to_vec())
+            .unwrap()
+            .replace(
+                "<Member name='Acme.Z' type='User'/><Member name='Acme.A' type='Group'/>",
+                "<Member name='Acme.A' type='Group'/><Member name='Acme.Z' type='User'/>",
+            )
+            .replace(
+                "<EntityPermission entityName='Acme.Z'/><EntityPermission entityName='Acme.A'/>",
+                "<EntityPermission entityName='Acme.A'/><EntityPermission entityName='Acme.Z'/>",
+            );
+        let after = crate::core::layout::subscription_events(xml).unwrap();
+        assert_eq!(after, expected.as_bytes());
+        assert_eq!(
+            after,
+            crate::core::layout::subscription_events(&after).unwrap()
+        );
     }
 }

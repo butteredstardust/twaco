@@ -33,13 +33,12 @@ pub(crate) fn decide_all_with_progress(
     let plans = parallel::map_progress(&entities, progress, |(project, entity)| {
         progress.message(&entity.name);
         let working =
-            normalise::hash_with_parts(&entity.bytes, &entity.server_owned).map_err(|error| {
-                DeployError::Working {
+            normalise::hash_with_grants(&entity.bytes, &entity.server_owned, &entity.derived)
+                .map_err(|error| DeployError::Working {
                     collection: entity.collection.clone(),
                     name: entity.name.clone(),
                     why: error.to_string(),
-                }
-            })?;
+                })?;
         let server_error = |why: String| DeployError::Server {
             collection: entity.collection.clone(),
             name: entity.name.clone(),
@@ -50,7 +49,7 @@ pub(crate) fn decide_all_with_progress(
             .map_err(|error| server_error(error.to_string()))?;
         let server = fetched
             .as_deref()
-            .map(|bytes| normalise::hash_with_parts(bytes, &entity.server_owned))
+            .map(|bytes| normalise::hash_with_grants(bytes, &entity.server_owned, &entity.derived))
             .transpose()
             .map_err(|error| server_error(error.to_string()))?;
         // The live copy supplies the definitions of encrypted fields.
@@ -66,15 +65,38 @@ pub(crate) fn decide_all_with_progress(
             }
             None => (Vec::new(), Vec::new()),
         };
-        let decision = push::decide(
+        let ancestor = baseline.ancestor(
+            &entity.collection,
+            &entity.name,
+            &working,
+            fetched.as_deref().zip(server.as_deref()),
+            &entity.derived,
+        );
+        let decision = push::decide_with(
             &working,
             server.as_deref(),
-            baseline
-                .get_for(&entity.collection, &entity.name, &working)
-                .map(|entry| (entry.local.as_str(), entry.server.as_str())),
+            ancestor.sides(),
+            ancestor.policy_changed,
         );
         let hint = property_values_hint(entity, &working, fetched.as_deref(), baseline, &decision);
+        let (warnings, removed_members) = if entity.collection == "Roles" {
+            fetched
+                .as_deref()
+                .map(|bytes| {
+                    let unchanged = ancestor
+                        .sides()
+                        .is_some_and(|(_, recorded)| server.as_deref() == Some(recorded));
+                    role_member_changes(entity, bytes, unchanged)
+                })
+                .transpose()
+                .map_err(|error| server_error(error.to_string()))?
+                .unwrap_or_default()
+        } else {
+            (Vec::new(), Vec::new())
+        };
         Ok(EntityPlan {
+            warnings,
+            removed_members,
             hint,
             server_owned: if server.is_some() {
                 super::super::server_owned::labels(&super::super::server_owned::carried(
@@ -133,6 +155,8 @@ pub(crate) fn plan_bundles(
     if !found.unreadable.is_empty() {
         return Err(found.unreadable.join("; "));
     }
+    let derived = crate::core::permissions::derived::Derived::read(&found.entities)
+        .map_err(|e| e.to_string())?;
     let unknown = solution.unknown_patches(profile, &found.entities);
     if !unknown.is_empty() {
         return Err(format!(
@@ -140,6 +164,7 @@ pub(crate) fn plan_bundles(
             unknown.join(", ")
         ));
     }
+    let only = super::workspace::entity_selectors(&found.entities, options.only);
     let backend_only = options.backend_only;
     let selection = if backend_only {
         super::bundle::Selection::backend(solution)
@@ -173,7 +198,7 @@ pub(crate) fn plan_bundles(
     if !options.only.is_empty() {
         let mut narrowed = Vec::new();
         let mut seen = BTreeSet::new();
-        for name in options.only {
+        for name in only {
             let entity = match super::workspace::resolve(&pool, name) {
                 Ok(entity) => entity.clone(),
                 Err(error) => {
@@ -286,6 +311,7 @@ pub(crate) fn plan_bundles(
                 }
             }
             entities.push(Entity {
+                derived: derived.target(&entity.info.collection, &entity.info.name),
                 server_owned: super::super::server_owned::parts(
                     &solution.server_owned_for(profile),
                     &entity.info.collection,
@@ -368,10 +394,94 @@ fn property_values_hint(
     parts.push(super::super::server_owned::Part::Properties(
         Default::default(),
     ));
-    let local = normalise::hash_with_parts(&entity.bytes, &parts).ok()?;
-    let server = normalise::hash_with_parts(fetched?, &parts).ok()?;
+    let local = normalise::hash_with_grants(&entity.bytes, &parts, &entity.derived).ok()?;
+    let server = normalise::hash_with_grants(fetched?, &parts, &entity.derived).ok()?;
     (local == server).then(|| {
         let name = serde_json::to_string(&format!("{}/{}", entity.collection, entity.name)).expect("entity name");
         format!("only property values differ; declare their server ownership in twaco.toml:\n[[server_owned]]\nentities = [{name}]\nparts = [\"property-values\"]")
+    })
+}
+
+fn role_member_changes(
+    entity: &Entity,
+    server: &[u8],
+    unchanged: bool,
+) -> Result<(Vec<String>, Vec<String>), normalise::NormaliseError> {
+    use super::super::server_owned::{self, Part};
+    use std::collections::BTreeSet;
+    if entity
+        .server_owned
+        .iter()
+        .any(|p| matches!(p, Part::Members))
+    {
+        return Ok((Vec::new(), Vec::new()));
+    }
+    let members = |bytes: &[u8]| -> Result<BTreeSet<(String, String)>, normalise::NormaliseError> {
+        let mut tree = normalise::entity_of(bytes)?;
+        server_owned::omit(&mut tree, &entity.server_owned);
+        let mut out = BTreeSet::new();
+        for node in tree.children {
+            let normalise::Node::Element(list) = node else {
+                continue;
+            };
+            if list.name != b"Members" {
+                continue;
+            }
+            for node in list.children {
+                let normalise::Node::Element(row) = node else {
+                    continue;
+                };
+                if row.name != b"Member" {
+                    continue;
+                }
+                let attr = |key: &[u8]| {
+                    row.attributes
+                        .iter()
+                        .find(|(k, _)| k == key)
+                        .map(|(_, v)| String::from_utf8_lossy(v).into_owned())
+                        .unwrap_or_default()
+                };
+                out.insert((attr(b"type"), attr(b"name")));
+            }
+        }
+        Ok(out)
+    };
+    let local = members(&entity.bytes)?;
+    let remote = members(server)?;
+    let removed: Vec<_> = remote
+        .difference(&local)
+        .map(|(kind, name)| format!("{kind}/{name}"))
+        .collect();
+    Ok(if unchanged {
+        (Vec::new(), removed)
+    } else if removed.is_empty() {
+        (Vec::new(), Vec::new())
+    } else {
+        let key = serde_json::to_string(&format!("Roles/{}", entity.name)).expect("entity name");
+        let mut types = BTreeSet::new();
+        for part in &entity.server_owned {
+            if let Part::MemberTypes(owned) = part {
+                types.extend(owned.iter().cloned());
+            }
+        }
+        let suggestion = if types.is_empty() {
+            format!("keep run-time membership in twaco.toml:\n[[server_owned]]\nentities = [{key}]\nparts = [\"members\"]\nUse members:User,Group to keep only those types.")
+        } else {
+            types.extend(remote.difference(&local).map(|(kind, _)| kind.clone()));
+            let types = ["User", "Group", "PermissionGroup"]
+                .into_iter()
+                .filter(|kind| types.contains(*kind))
+                .collect::<Vec<_>>()
+                .join(",");
+            format!("extend the existing typed members policy in twaco.toml to keep run-time membership:\n[[server_owned]]\nentities = [{key}]\nparts = [\"members:{types}\"]")
+        };
+        (
+            vec![format!(
+                "Roles/{}: importing replaces Members and removes {}; {suggestion}",
+                entity.name,
+                removed.join(", ")
+            )],
+            Vec::new(),
+        )
     })
 }

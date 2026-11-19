@@ -78,9 +78,22 @@ impl<'a> Document<'a> {
                     .find(|(key, _)| key == name)
                     .map(|(_, value)| value.clone())
             };
-            let key = if element.name == b"Principal" {
+            let key = if element.name == b"Principal" || element.name == b"Member" {
                 attr(b"name")
                     .map(|name| [name, vec![0], attr(b"type").unwrap_or_default()].concat())
+            } else if element.name == b"EntityPermission" {
+                Some(
+                    [
+                        b"entityName".as_slice(),
+                        b"entityType",
+                        b"permissionCategory",
+                        b"permissionName",
+                        b"resourceName",
+                    ]
+                    .into_iter()
+                    .flat_map(|key| [attr(key).unwrap_or_default(), vec![0]].concat())
+                    .collect(),
+                )
             } else if element.name == b"Connection" {
                 attr(b"from").map(|from| [from, vec![0], attr(b"to").unwrap_or_default()].concat())
             } else {
@@ -203,7 +216,7 @@ impl<'a> Document<'a> {
     }
 }
 
-/// Orders subscription Events without changing any other bytes.
+/// Orders subscription Events and RBAC sets without changing any other bytes.
 pub(crate) fn subscription_events(src: &[u8]) -> Result<Vec<u8>, LayoutError> {
     let doc = Document::new(src)?;
     let tree = normalise::comparison_tree(src, true).map_err(|e| LayoutError(e.to_string()))?;
@@ -212,12 +225,19 @@ pub(crate) fn subscription_events(src: &[u8]) -> Result<Vec<u8>, LayoutError> {
         doc: &Document<'_>,
         edits: &mut Vec<Edit>,
     ) -> Result<(), LayoutError> {
-        if element.name == b"Subscription" {
+        if matches!(
+            element.name.as_slice(),
+            b"Subscription" | b"Role" | b"PermissionGroup"
+        ) {
             for child in &element.children {
                 let normalise::Node::Element(events) = child else {
                     continue;
                 };
-                if events.name != b"Events" {
+                if !(element.name == b"Subscription" && events.name == b"Events"
+                    || matches!(element.name.as_slice(), b"Role" | b"PermissionGroup")
+                        && events.name == b"Members"
+                    || element.name == b"PermissionGroup" && events.name == b"EntityPermissions")
+                {
                     continue;
                 }
                 let ordered: Vec<_> = events

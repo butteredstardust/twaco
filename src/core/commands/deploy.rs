@@ -302,7 +302,7 @@ where
             gate_reads_server,
         ));
     }
-    let (projects, notes) = match deploy::plan_bundles(
+    let (projects, mut notes) = match deploy::plan_bundles(
         solution,
         &request.profile,
         deploy::PlanOptions {
@@ -394,14 +394,52 @@ where
     ) {
         Ok(report) => report,
         Err(why) => {
+            // What imported before the failure also changed the targets of its groups.
+            if matches!(request.mode, Mode::Apply) && !why.imported().is_empty() {
+                let _ = deploy::record_permission_group_targets(
+                    &remote,
+                    solution,
+                    &request.profile,
+                    &projects,
+                    why.imported(),
+                    progress,
+                );
+            }
             return Err(DeployCommandError::Deploy {
                 why: Box::new(why),
                 backup,
                 gates,
                 network_changes,
-            })
+            });
         }
     };
+    if matches!(request.mode, Mode::Apply) {
+        match deploy::record_permission_group_targets(
+            &remote,
+            solution,
+            &request.profile,
+            &projects,
+            &report.imported,
+            progress,
+        ) {
+            Ok((recorded, target_notes)) => {
+                if recorded > 0 {
+                    notes.push(format!(
+                        "PermissionGroup target baselines recorded: {recorded}"
+                    ));
+                }
+                notes.extend(target_notes);
+            }
+            Err(why) => {
+                return Err(DeployCommandError::Deploy {
+                    why: Box::new(why),
+                    backup,
+                    gates,
+                    network_changes,
+                })
+            }
+        }
+    }
     report.network_changes = network_changes;
     let localization = match tables {
         Some(planned) if matches!(request.mode, Mode::Apply) && !planned.tables.is_empty() => {
@@ -546,6 +584,7 @@ mod tests {
             file_name: "Acme.xml".into(),
             bytes: Vec::new(),
             entities: vec![deploy::Entity {
+                derived: Default::default(),
                 server_owned: Vec::new(),
                 collection: "Things".into(),
                 name: "Acme.Timer".into(),
@@ -576,6 +615,7 @@ mod tests {
             file_name: "Acme.xml".into(),
             bytes: Vec::new(),
             entities: vec![deploy::Entity {
+                derived: Default::default(),
                 server_owned: Vec::new(),
                 collection: "Networks".into(),
                 name: "Acme.Plant".into(),
@@ -626,6 +666,7 @@ mod tests {
             file_name: "Acme.xml".into(),
             bytes: Vec::new(),
             entities: vec![deploy::Entity {
+                derived: Default::default(),
                 server_owned: Vec::new(),
                 collection: "Networks".into(),
                 name: "Acme.Plant".into(),

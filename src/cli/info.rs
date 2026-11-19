@@ -1271,3 +1271,42 @@ fn catalog_type(base_type: &str, data_shape: Option<&str>) -> String {
         None => base_type.to_string(),
     }
 }
+
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct Url {
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+    #[arg(long = "tab", value_name = "tab")]
+    pub(crate) tab: Option<String>,
+    #[command(flatten)]
+    pub(crate) profile: Profile,
+    #[command(flatten)]
+    pub(crate) json: Json,
+}
+
+pub(crate) fn url_cmd(solution: &Solution, args: &Url) -> u8 {
+    let [entity] = args.operands.as_slice() else {
+        eprintln!("{} url needs one entity name", style::prefix());
+        return FAILED;
+    };
+    match twaco::core::composer::entity_url(
+        solution,
+        entity,
+        args.tab.as_deref(),
+        args.profile.name(),
+    ) {
+        Ok(url) => {
+            if args.json.json {
+                println!("{}", serde_json::json!({"url": url}));
+            } else {
+                println!("{url}");
+            }
+            OK
+        }
+        Err(error) => {
+            eprintln!("{} {error}", style::prefix());
+            FAILED
+        }
+    }
+}

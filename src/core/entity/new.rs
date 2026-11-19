@@ -27,6 +27,8 @@ pub(crate) mod ai;
 pub enum Kind {
     Project,
     Group,
+    Role,
+    PermissionGroup,
     Thing,
     ThingTemplate,
     ThingShape,
@@ -51,6 +53,8 @@ impl Kind {
         Some(match word {
             "project" => Self::Project,
             "group" => Self::Group,
+            "role" => Self::Role,
+            "permission-group" => Self::PermissionGroup,
             "thing" => Self::Thing,
             "thing-template" => Self::ThingTemplate,
             "thing-shape" => Self::ThingShape,
@@ -76,6 +80,8 @@ impl Kind {
         match self {
             Self::Project => "project",
             Self::Group => "group",
+            Self::Role => "role",
+            Self::PermissionGroup => "permission-group",
             Self::Thing => "thing",
             Self::ThingTemplate => "thing-template",
             Self::ThingShape => "thing-shape",
@@ -100,6 +106,8 @@ impl Kind {
         match self {
             Self::Project => "Projects",
             Self::Group => "Groups",
+            Self::Role => "Roles",
+            Self::PermissionGroup => "PermissionGroups",
             Self::Thing
             | Self::Timer
             | Self::Scheduler
@@ -350,6 +358,8 @@ fn known_entity(solution: &Solution, collection: &str, name: &str) -> bool {
     (collection == "ThingTemplates" && name == "GenericThing")
         || entity_exists(solution, collection, name)
         || platform_has(solution, collection, name)
+        || collection == "ThingTemplates"
+            && crate::core::extension_source::templates(solution).contains_key(name)
 }
 
 fn entity_file(solution: &Solution, collection: &str, name: &str) -> Option<workspace::EntityFile> {
@@ -1148,6 +1158,11 @@ fn make_xml(
             ))?;
             format!("{}        <Project\n         artifactId=\"\"\n         aspect.projectType=\"Component\"\n         dependsOn=\"{depends_on}\"\n         description=\"{desc}\"\n         documentationContent=\"\"\n         groupId=\"\"\n         homeMashup=\"\"\n         minPlatformVersion=\"\"\n         name=\"{name}\"\n         packageVersion=\"1.0.0\"\n         projectName=\"{project}\"\n         publishResult=\"\"\n         state=\"DRAFT\"\n         tags=\"\">\n            <avatar></avatar>\n            <DesignTimePermissions>\n                <Create></Create>\n                <Read></Read>\n                <Update></Update>\n                <Delete></Delete>\n                <Metadata></Metadata>\n            </DesignTimePermissions>\n            <RunTimePermissions></RunTimePermissions>\n            <VisibilityPermissions>\n                <Visibility></Visibility>\n            </VisibilityPermissions>\n            <ConfigurationTableDefinitions></ConfigurationTableDefinitions>\n            <ConfigurationTables></ConfigurationTables>\n        </Project>\n{}", header("Projects"), footer("Projects"))
         }
+        Kind::Role | Kind::PermissionGroup => {
+            let (tag, collection) = if request.kind == Kind::Role { ("Role", "Roles") } else { ("PermissionGroup", "PermissionGroups") };
+            let permissions = if request.kind == Kind::PermissionGroup { "\n            <EntityPermissions></EntityPermissions>" } else { "" };
+            format!("{}        <{tag} description=\"{desc}\" documentationContent=\"\" homeMashup=\"\" name=\"{name}\" projectName=\"{project}\" tags=\"\">\n{common}\n            <Members></Members>{permissions}\n        </{tag}>\n{}", header(collection), footer(collection))
+        }
         Kind::Group => format!("{}        <Group\n         description=\"{desc}\"\n         documentationContent=\"\"\n         homeMashup=\"\"\n         name=\"{name}\"\n         projectName=\"{project}\"\n         scimDisplayName=\"\"\n         scimExternalId=\"\"\n         scimId=\"\"\n         tags=\"\">\n{common}\n            <Members>\n                <Members></Members>\n            </Members>\n        </Group>\n{}", header("Groups"), footer("Groups")),
         Kind::DataTable => data_thing(
             request,
@@ -1218,8 +1233,12 @@ fn make_xml(
         }
         Kind::ThingTemplate => format!("{}        <ThingTemplate\n         aspect.isSystemObject=\"false\"\n         baseThingTemplate=\"{}\"\n         description=\"{desc}\"\n         documentationContent=\"\"\n         effectiveThingPackage=\"ConfiguredThing\"\n         homeMashup=\"\"\n         inheritedValueStream=\"\"\n         name=\"{name}\"\n         projectName=\"{project}\"\n         tags=\"\"\n         thingPackage=\"\"\n         valueStream=\"\">\n{common}\n            <PropertyBindings></PropertyBindings>\n            <RemotePropertyBindings></RemotePropertyBindings>\n            <RemoteServiceBindings></RemoteServiceBindings>\n            <RemoteEventBindings></RemoteEventBindings>\n            <AlertConfigurations></AlertConfigurations>\n{}\n{}\n            <SharedConfigurationTables></SharedConfigurationTables>\n            <InstanceDesignTimePermissions>\n                <Create></Create>\n                <Read></Read>\n                <Update></Update>\n                <Delete></Delete>\n                <Metadata></Metadata>\n            </InstanceDesignTimePermissions>\n            <InstanceRunTimePermissions></InstanceRunTimePermissions>\n            <InstanceVisibilityPermissions>\n                <Visibility></Visibility>\n            </InstanceVisibilityPermissions>\n        </ThingTemplate>\n{}", header("ThingTemplates"), escape(request.base.as_deref().unwrap_or("GenericThing"))?, local_shape(None)?, shapes(&request.shapes)?, footer("ThingTemplates")),
         Kind::Thing | Kind::Timer | Kind::Scheduler => {
-            let (template, package) = match request.kind { Kind::Timer => ("Timer", "TimerThing"), Kind::Scheduler => ("Scheduler", "SchedulerThing"), _ => (request.template.as_deref().unwrap_or("GenericThing"), "ConfiguredThing") };
-            let setting = match request.kind { Kind::Timer => scheduler_settings(Kind::Timer, !request.disabled, request.run_as.as_deref().unwrap_or(""), &crate::core::number::java_text("NUMBER", &duration.unwrap().to_string()).expect("duration is a finite number")), Kind::Scheduler => scheduler_settings(Kind::Scheduler, !request.disabled, request.run_as.as_deref().unwrap_or(""), cron.unwrap()), _ => "            <ConfigurationTables></ConfigurationTables>".into() };
+            let (template, builtin_package) = match request.kind { Kind::Timer => ("Timer", "TimerThing"), Kind::Scheduler => ("Scheduler", "SchedulerThing"), _ => (request.template.as_deref().unwrap_or("GenericThing"), "ConfiguredThing") };
+            let package = if request.kind == Kind::Thing {
+                template_package(solution, template, &mut BTreeSet::new()).or_else(|| (template == "GenericThing").then(|| "ConfiguredThing".into()))
+            } else { Some(builtin_package.into()) };
+            let package_attribute = package.map(|p| escape(&p).map(|p| format!("         effectiveThingPackage=\"{p}\"\n"))).transpose()?.unwrap_or_default();
+            let setting = match request.kind { Kind::Timer => scheduler_settings(Kind::Timer, !request.disabled, request.run_as.as_deref().unwrap_or(""), &crate::core::number::java_text("NUMBER", &duration.unwrap().to_string()).expect("duration is a finite number")), Kind::Scheduler => scheduler_settings(Kind::Scheduler, !request.disabled, request.run_as.as_deref().unwrap_or(""), cron.unwrap()), _ => template_tables(solution, template)?.unwrap_or_else(|| "            <ConfigurationTables></ConfigurationTables>".into()) };
             // A Thing writes its own configuration tables (a timer's or scheduler's settings): one
             // element, not the shared empty one as well.
             let common = common
@@ -1227,9 +1246,135 @@ fn make_xml(
                 .unwrap_or(&common)
                 .to_string();
             let subscription = match request.kind { Kind::Timer => script.map(|code| ("Timer", "TimerSubscription", code)), Kind::Scheduler => script.map(|code| ("ScheduledEvent", "SchedulerSubscription", code)), _ => None };
-            format!("{}        <Thing\n         aspect.isSystemObject=\"false\"\n         description=\"{desc}\"\n         documentationContent=\"\"\n         effectiveThingPackage=\"{package}\"\n         enabled=\"true\"\n         homeMashup=\"\"\n         identifier=\"\"\n         inheritedValueStream=\"\"\n         name=\"{name}\"\n         projectName=\"{project}\"\n         published=\"false\"\n         tags=\"\"\n         thingTemplate=\"{}\"\n         valueStream=\"{}\">\n{common}\n{setting}\n{}\n            <PropertyBindings></PropertyBindings>\n            <RemotePropertyBindings></RemotePropertyBindings>\n            <RemoteServiceBindings></RemoteServiceBindings>\n            <RemoteEventBindings></RemoteEventBindings>\n            <AlertConfigurations></AlertConfigurations>\n{}\n            <ThingProperties></ThingProperties>\n        </Thing>\n{}", header("Things"), escape(template)?, escape(request.value_stream.as_deref().unwrap_or(""))?, local_shape(subscription)?, shapes(&request.shapes)?, footer("Things"))
+            format!("{}        <Thing\n         aspect.isSystemObject=\"false\"\n         description=\"{desc}\"\n         documentationContent=\"\"\n{package_attribute}         enabled=\"true\"\n         homeMashup=\"\"\n         identifier=\"\"\n         inheritedValueStream=\"\"\n         name=\"{name}\"\n         projectName=\"{project}\"\n         published=\"false\"\n         tags=\"\"\n         thingTemplate=\"{}\"\n         valueStream=\"{}\">\n{common}\n{setting}\n{}\n            <PropertyBindings></PropertyBindings>\n            <RemotePropertyBindings></RemotePropertyBindings>\n            <RemoteServiceBindings></RemoteServiceBindings>\n            <RemoteEventBindings></RemoteEventBindings>\n            <AlertConfigurations></AlertConfigurations>\n{}\n            <ThingProperties></ThingProperties>\n        </Thing>\n{}", header("Things"), escape(template)?, escape(request.value_stream.as_deref().unwrap_or(""))?, local_shape(subscription)?, shapes(&request.shapes)?, footer("Things"))
         }
     })
+}
+
+fn template_package(
+    solution: &Solution,
+    template: &str,
+    seen: &mut BTreeSet<String>,
+) -> Option<String> {
+    if !seen.insert(template.into()) {
+        return None;
+    }
+    if let Some(file) = entity_file(solution, "ThingTemplates", template) {
+        let bytes = std::fs::read(file.path).ok()?;
+        let tokens = scan::scan(&bytes).ok()?;
+        let token = tokens.tokens.iter().find(|token| {
+            matches!(token.kind, scan::Kind::Start | scan::Kind::Empty)
+                && token.name.of(&bytes) == b"ThingTemplate"
+        })?;
+        let attr = |name| {
+            scan::attribute(&bytes, token, name)
+                .ok()
+                .flatten()
+                .and_then(|span| {
+                    std::str::from_utf8(span.of(&bytes))
+                        .ok()
+                        .map(scan::decode_entities)
+                })
+        };
+        for name in ["thingPackage", "effectiveThingPackage"] {
+            if let Some(value) = attr(name).filter(|s| !s.is_empty()) {
+                return Some(value);
+            }
+        }
+        return template_package(solution, &attr("baseThingTemplate")?, seen);
+    }
+    types::cached_platform(solution)
+        .and_then(|p| {
+            p.templates
+                .get(template)
+                .and_then(|m| m.thing_package.clone())
+        })
+        .or_else(|| {
+            crate::core::extension_source::templates(solution)
+                .get(template)
+                .filter(|p| !p.is_empty())
+                .cloned()
+        })
+}
+
+fn template_tables(solution: &Solution, template: &str) -> Result<Option<String>, IllegalXmlChar> {
+    let Some(meta) =
+        types::cached_platform(solution).and_then(|p| p.templates.get(template).cloned())
+    else {
+        return Ok(None);
+    };
+    if meta.configuration_tables.is_empty() {
+        return Ok(None);
+    }
+    let mut xml = String::from("            <ConfigurationTables>\n");
+    for (name, definition) in meta.configuration_tables {
+        let Some(multi) = definition["isMultiRow"].as_bool() else {
+            return Ok(None);
+        };
+        xml.push_str(&format!("                <ConfigurationTable name=\"{}\" isMultiRow=\"{multi}\" dataShapeName=\"{}\" description=\"{}\" ordinal=\"{}\"><DataShape><FieldDefinitions>", escape(&name)?, escape(definition["dataShapeName"].as_str().unwrap_or(""))?, escape(definition["description"].as_str().unwrap_or(""))?, definition["ordinal"].as_u64().unwrap_or(0)));
+        let fields = definition
+            .pointer("/dataShape/fieldDefinitions")
+            .or_else(|| definition.pointer("/DataShape/fieldDefinitions"))
+            .or_else(|| definition.get("fieldDefinitions"))
+            .and_then(Value::as_object);
+        let Some(fields) = fields else {
+            return Ok(None);
+        };
+        let mut defaults = String::new();
+        for (field, raw) in fields {
+            let Some(base) = raw["baseType"].as_str() else {
+                return Ok(None);
+            };
+            xml.push_str(&format!(
+                "<FieldDefinition name=\"{}\" baseType=\"{}\" description=\"{}\" ordinal=\"{}\"",
+                escape(field)?,
+                escape(base)?,
+                escape(raw["description"].as_str().unwrap_or(""))?,
+                raw["ordinal"].as_u64().unwrap_or(0)
+            ));
+            if let Some(aspects) = raw["aspects"].as_object() {
+                for (key, value) in aspects {
+                    let text = value
+                        .as_str()
+                        .map(str::to_string)
+                        .unwrap_or_else(|| value.to_string());
+                    xml.push_str(&format!(" aspect.{}=\"{}\"", escape(key)?, escape(&text)?));
+                }
+            }
+            xml.push_str("></FieldDefinition>");
+            // Defaults are metadata, never values fetched from a configured Thing.
+            if let Some(value) = raw
+                .pointer("/aspects/defaultValue")
+                .filter(|v| !v.is_null())
+            {
+                if base != "PASSWORD" {
+                    let text = value
+                        .as_str()
+                        .map(str::to_string)
+                        .unwrap_or_else(|| value.to_string());
+                    // The platform reads a JSON cell only from a `<json>` child.
+                    let (open, close) = if base == "JSON" {
+                        ("<json>", "</json>")
+                    } else {
+                        ("", "")
+                    };
+                    defaults.push_str(&format!(
+                        "<{}>{open}{}{close}</{}>",
+                        escape(field)?,
+                        escape(&text)?,
+                        escape(field)?
+                    ));
+                }
+            }
+        }
+        xml.push_str("</FieldDefinitions></DataShape><Rows>");
+        if !multi {
+            xml.push_str(&format!("<Row>{defaults}</Row>"));
+        }
+        xml.push_str("</Rows></ConfigurationTable>\n");
+    }
+    xml.push_str("            </ConfigurationTables>");
+    Ok(Some(xml))
 }
 
 pub(crate) fn plan(solution: &Solution, request: &NewRequest) -> Result<Plan, NewError> {
@@ -1619,7 +1764,7 @@ pub(crate) fn apply(
 
 pub fn plan_json(solution: &Solution, plan: &Plan, applied: bool) -> Value {
     let relative = |path: &Path| solution.relative(path);
-    json!({ "applied": applied, "kind": plan.request.kind.word(), "name": plan.request.name, "project": plan.project, "files": std::iter::once(relative(&plan.entity_path)).chain(plan.sidecars.iter().map(|(path, _)| relative(path))).collect::<Vec<_>>(), "twaco_toml": plan.config_after.as_ref().map(|_| if plan.config_before.as_deref() == Some("") { "created" } else { "project appended" }), "every_ms": plan.duration_ms, "cron": plan.cron, "runs": plan.script.as_ref().map(|code| code.lines().next().unwrap_or_default()) })
+    json!({ "scope": "repository", "deploy_command": format!("twaco deploy --project {} --apply", plan.project), "note": "Repository only; deploy imports it on the server. The server adds template configuration tables absent from the repository; after the first deploy read-back use twaco entity pull to take them.", "applied": applied, "kind": plan.request.kind.word(), "name": plan.request.name, "project": plan.project, "files": std::iter::once(relative(&plan.entity_path)).chain(plan.sidecars.iter().map(|(path, _)| relative(path))).collect::<Vec<_>>(), "twaco_toml": plan.config_after.as_ref().map(|_| if plan.config_before.as_deref() == Some("") { "created" } else { "project appended" }), "every_ms": plan.duration_ms, "cron": plan.cron, "runs": plan.script.as_ref().map(|code| code.lines().next().unwrap_or_default()) })
 }
 
 #[cfg(test)]
@@ -2025,6 +2170,29 @@ mod tests {
             ("network", network),
         ] {
             assert_golden(name, &plan(&solution, &request).unwrap().entity);
+        }
+    }
+
+    #[test]
+    fn rbac_kinds_have_1021_export_goldens() {
+        let (_dir, solution) = fixture();
+        for (kind, tag, name) in [
+            (Kind::Role, "Role", "role"),
+            (Kind::PermissionGroup, "PermissionGroup", "permission-group"),
+        ] {
+            let request = request(kind, "Acme.Orders.Access");
+            let planned = plan(&solution, &request).unwrap();
+            assert_golden(name, &planned.entity);
+            let tokens = scan::tokenize(&planned.entity).unwrap();
+            let entity = crate::core::sidecar::entity_element(&tokens, &planned.entity).unwrap();
+            assert_eq!(tokens[entity].name.of(&planned.entity), tag.as_bytes());
+            let members = scan::child_tags(&tokens, &planned.entity, "Members", entity);
+            assert_eq!(members.len(), 1);
+            assert!(scan::child_tags(&tokens, &planned.entity, "Members", members[0]).is_empty());
+            assert_eq!(
+                scan::child_tags(&tokens, &planned.entity, "EntityPermissions", entity).len(),
+                usize::from(kind == Kind::PermissionGroup)
+            );
         }
     }
 
@@ -2700,6 +2868,46 @@ mod tests {
             ],
         )]);
         assert!(rate.contains("\"aspects\":{\"defaultValue\":500.0,\"isPrimaryKey\":false}"));
+    }
+
+    #[test]
+    fn thing_creation_uses_template_package_and_cached_tables_and_reports_repository_scope() {
+        let (_dir, solution) = fixture();
+        std::fs::write(solution.root.join("app/ThingTemplates/Acme.Template.xml"),r#"<Entities><ThingTemplates><ThingTemplate name="Acme.Template" projectName="Acme.Orders" thingPackage="Acme.Package"/></ThingTemplates></Entities>"#).unwrap();
+        std::fs::create_dir_all(solution.root.join(".twaco")).unwrap();
+        std::fs::write(solution.root.join(".twaco/platform.json"),r#"{"templates":{"Acme.Template":{"thing_package":"Acme.CachedPackage","configuration_tables":{"Settings":{"isMultiRow":false,"dataShapeName":"Acme.Settings_DS","ordinal":2,"dataShape":{"fieldDefinitions":{"Enabled":{"baseType":"BOOLEAN","aspects":{"defaultValue":true}},"Payload":{"baseType":"JSON","aspects":{"defaultValue":"{\"a\":1}"}}}}}}}}}"#).unwrap();
+        let mut request = NewRequest::blank(Kind::Thing, "Acme.Orders.Broker");
+        request.template = Some("Acme.Template".into());
+        let planned = plan(&solution, &request).unwrap();
+        let xml = String::from_utf8(planned.entity.clone()).unwrap();
+        assert!(xml.contains("effectiveThingPackage=\"Acme.Package\""));
+        assert!(xml.contains("<Enabled>true</Enabled>"));
+        assert!(xml.contains("<Payload><json>") && xml.contains("</json></Payload>"));
+        assert!(xml.contains("dataShapeName=\"Acme.Settings_DS\""));
+        assert!(xml.contains("ordinal=\"2\""));
+        let report = plan_json(&solution, &planned, true);
+        assert_eq!(report["scope"], "repository");
+        assert!(report["deploy_command"]
+            .as_str()
+            .unwrap()
+            .contains("twaco deploy"));
+        std::fs::remove_file(solution.root.join("app/ThingTemplates/Acme.Template.xml")).unwrap();
+        assert_eq!(
+            template_package(&solution, "Acme.Template", &mut BTreeSet::new()).as_deref(),
+            Some("Acme.CachedPackage")
+        );
+        std::fs::remove_file(solution.root.join(".twaco/platform.json")).unwrap();
+        assert!(template_package(&solution, "Acme.Template", &mut BTreeSet::new()).is_none());
+        std::fs::write(solution.root.join("app/ThingTemplates/Acme.Template.xml"),r#"<Entities><ThingTemplates><ThingTemplate name="Acme.Template" projectName="Acme.Orders"/></ThingTemplates></Entities>"#).unwrap();
+        let unknown = plan(&solution, &request).unwrap();
+        assert!(!String::from_utf8(unknown.entity)
+            .unwrap()
+            .contains("effectiveThingPackage"));
+        std::fs::write(solution.root.join("app/ThingTemplates/Acme.Template.xml"),r#"<Entities><ThingTemplates><ThingTemplate name="Acme.Template" projectName="Acme.Orders" effectiveThingPackage="Acme.Effective"/></ThingTemplates></Entities>"#).unwrap();
+        assert_eq!(
+            template_package(&solution, "Acme.Template", &mut BTreeSet::new()).as_deref(),
+            Some("Acme.Effective")
+        );
     }
 
     #[test]

@@ -18,6 +18,22 @@ pub(crate) struct Entry {
     pub(crate) server: String,
 }
 
+/// What a comparison has to go on: the (local, server) pair, and whether an entry exists that
+/// was recorded under a different server-owned policy and could not be restated.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(crate) struct Ancestor {
+    pub(crate) pair: Option<(String, String)>,
+    pub(crate) policy_changed: bool,
+}
+
+impl Ancestor {
+    pub(crate) fn sides(&self) -> Option<(&str, &str)> {
+        self.pair
+            .as_ref()
+            .map(|(local, server)| (local.as_str(), server.as_str()))
+    }
+}
+
 impl Entry {
     /// Whether both sides were hashed by this normalisation version.
     pub(crate) fn is_current(&self) -> bool {
@@ -66,6 +82,51 @@ impl Baseline {
                 && entry.server.rsplit_once(':').map(|p| p.0) == Some(scope)
         })
     }
+    /// The ancestor to compare against: [`Baseline::get_for`], and, when the entry was recorded
+    /// under another server-owned policy, the same entry restated for the current one where that
+    /// is provable. A baseline recorded with no ownership and no grants can be rebuilt from the
+    /// server's bytes: if they still hash to the recorded server side under that plain policy,
+    /// the server is unchanged since, and the recorded server side stands for today's hash too.
+    /// Any other policy cannot be rebuilt, which `policy_changed` says.
+    pub(crate) fn ancestor(
+        &self,
+        collection: &str,
+        name: &str,
+        working: &str,
+        server: Option<(&[u8], &str)>,
+        grants: &super::permissions::Sets,
+    ) -> Ancestor {
+        if let Some(entry) = self.get_for(collection, name, working) {
+            return Ancestor {
+                pair: Some((entry.local.clone(), entry.server.clone())),
+                policy_changed: false,
+            };
+        }
+        let Some(entry) = self.get(collection, name) else {
+            return Ancestor::default();
+        };
+        let rebased = server.and_then(|(bytes, current)| {
+            let scope = entry.server.rsplit_once(':')?.0;
+            if entry.local.rsplit_once(':')?.0 != scope {
+                return None;
+            }
+            let plain = super::normalise::hash_with_grants(bytes, &[], grants).ok()?;
+            // The server is unchanged since the baseline; a repository that agrees with it is
+            // unchanged too, so both sides restate to today's hash (else status would see drift).
+            (plain.rsplit_once(':')?.0 == scope && plain == entry.server).then(|| {
+                if working == current {
+                    (current.to_string(), current.to_string())
+                } else {
+                    (entry.local.clone(), current.to_string())
+                }
+            })
+        });
+        Ancestor {
+            policy_changed: rebased.is_none(),
+            pair: rebased,
+        }
+    }
+
     /// The entry recorded for an entity, if its hashes are of the current normalisation: one
     /// from another version cannot be compared, so it counts as no baseline at all.
     pub(crate) fn get(&self, collection: &str, name: &str) -> Option<&Entry> {
@@ -301,6 +362,49 @@ impl Coded for BaselineError {
 mod tests {
     use super::*;
 
+    #[test]
+    fn a_plain_baseline_is_restated_for_a_new_policy_only_while_the_server_is_unchanged() {
+        use crate::core::normalise;
+        use crate::core::server_owned::Part;
+        let thing = |script: &str| {
+            format!(
+                "<Entities><Things><Thing name=\"T\" projectName=\"P\"><code><![CDATA[{script}]]></code></Thing></Things></Entities>"
+            )
+            .into_bytes()
+        };
+        let (old, other) = (thing("old();"), thing("other();"));
+        let plain = normalise::hash(&old).unwrap();
+        let mut baseline = Baseline::default();
+        baseline.set("Things", "T", plain.clone(), plain.clone());
+        let parts = [Part::Members];
+        let working = normalise::hash_with_parts(&thing("new();"), &parts).unwrap();
+        let grants = Default::default();
+        let now = |bytes: &[u8]| normalise::hash_with_parts(bytes, &parts).unwrap();
+
+        let same = baseline.ancestor("Things", "T", &working, Some((&old, &now(&old))), &grants);
+        assert_eq!(same.pair, Some((plain.clone(), now(&old))));
+        assert!(!same.policy_changed);
+
+        // Repository and server both unchanged: both sides restate, so status sees no drift.
+        let agreed =
+            baseline.ancestor("Things", "T", &now(&old), Some((&old, &now(&old))), &grants);
+        assert_eq!(agreed.pair, Some((now(&old), now(&old))));
+        assert!(!agreed.policy_changed);
+
+        let changed = baseline.ancestor(
+            "Things",
+            "T",
+            &working,
+            Some((&other, &now(&other))),
+            &grants,
+        );
+        assert_eq!(changed.pair, None);
+        assert!(changed.policy_changed);
+
+        let absent = Baseline::default().ancestor("Things", "T", &working, None, &grants);
+        assert_eq!(absent, Ancestor::default());
+    }
+
     fn temp() -> (tempfile::TempDir, PathBuf) {
         let path_guard = tempfile::Builder::new()
             .prefix("twaco-baseline-")
@@ -318,20 +422,20 @@ mod tests {
         baseline.set(
             "Things",
             "Z",
-            "v12:two-local".to_string(),
-            "v12:two-server".to_string(),
+            "v13:two-local".to_string(),
+            "v13:two-server".to_string(),
         );
         baseline.set(
             "DataShapes",
             "A",
-            "v12:one".to_string(),
-            "v12:one".to_string(),
+            "v13:one".to_string(),
+            "v13:one".to_string(),
         );
         baseline.set(
             "Things",
             "A",
-            "v12:three".to_string(),
-            "v12:three".to_string(),
+            "v13:three".to_string(),
+            "v13:three".to_string(),
         );
         baseline.write(&root, "default").unwrap();
         let first = std::fs::read(Baseline::path(&root, "default")).unwrap();
@@ -344,8 +448,8 @@ mod tests {
         assert_eq!(
             Baseline::load(&root, "default").unwrap().get("Things", "Z"),
             Some(&Entry {
-                local: "v12:two-local".into(),
-                server: "v12:two-server".into()
+                local: "v13:two-local".into(),
+                server: "v13:two-server".into()
             })
         );
         assert!(
@@ -360,7 +464,7 @@ mod tests {
     #[test]
     fn an_entry_from_another_hash_version_counts_as_no_baseline() {
         let baseline: Baseline = serde_json::from_slice(
-            br#"{"entities":{"Things":{"Old":"v11:old","Half":{"local":"v12:a","server":"v4:b"},"New":"v12:new"}}}"#,
+            br#"{"entities":{"Things":{"Old":"v12:old","Half":{"local":"v13:a","server":"v4:b"},"New":"v13:new"}}}"#,
         )
         .unwrap();
         assert_eq!(baseline.get("Things", "Old"), None);
@@ -375,7 +479,7 @@ mod tests {
         std::fs::create_dir_all(root.join(".twaco")).unwrap();
         std::fs::write(
             root.join(LEGACY_RELATIVE_PATH),
-            br#"{"entities":{"Things":{"T":"v12:old"}}}"#,
+            br#"{"entities":{"Things":{"T":"v13:old"}}}"#,
         )
         .unwrap();
 
@@ -383,15 +487,15 @@ mod tests {
         assert_eq!(
             baseline.get("Things", "T"),
             Some(&Entry {
-                local: "v12:old".into(),
-                server: "v12:old".into()
+                local: "v13:old".into(),
+                server: "v13:old".into()
             })
         );
         baseline.write(&root, "default").unwrap();
         assert!(!root.join(LEGACY_RELATIVE_PATH).exists());
         assert_eq!(
             std::fs::read_to_string(Baseline::path(&root, "default")).unwrap(),
-            "{\n  \"entities\": {\n    \"Things\": {\n      \"T\": {\n        \"local\": \"v12:old\",\n        \"server\": \"v12:old\"\n      }\n    }\n  }\n}\n"
+            "{\n  \"entities\": {\n    \"Things\": {\n      \"T\": {\n        \"local\": \"v13:old\",\n        \"server\": \"v13:old\"\n      }\n    }\n  }\n}\n"
         );
     }
 
@@ -401,23 +505,23 @@ mod tests {
         std::fs::create_dir_all(root.join(".twaco")).unwrap();
         std::fs::write(
             root.join(LEGACY_RELATIVE_PATH),
-            br#"{"entities":{"Things":{"T":{"local":"v12:local","server":"v12:server"}}}}"#,
+            br#"{"entities":{"Things":{"T":{"local":"v13:local","server":"v13:server"}}}}"#,
         )
         .unwrap();
 
         let mut baseline = Baseline::load(&root, "default").unwrap();
         baseline
-            .set_server("Things", "T", "v12:after-deploy".into())
+            .set_server("Things", "T", "v13:after-deploy".into())
             .unwrap();
         assert_eq!(
             baseline.get("Things", "T"),
             Some(&Entry {
-                local: "v12:local".into(),
-                server: "v12:after-deploy".into()
+                local: "v13:local".into(),
+                server: "v13:after-deploy".into()
             })
         );
         assert!(matches!(
-            baseline.set_server("Things", "Missing", "v12:x".into()),
+            baseline.set_server("Things", "Missing", "v13:x".into()),
             Err(BaselineError::Missing { .. })
         ));
         baseline.write(&root, "default").unwrap();
@@ -433,7 +537,7 @@ mod tests {
         std::fs::create_dir_all(root.join(".twaco")).unwrap();
         std::fs::write(
             root.join(LEGACY_RELATIVE_PATH),
-            br#"{"entities":{"Things":{"T":"v12:old"}}}"#,
+            br#"{"entities":{"Things":{"T":"v13:old"}}}"#,
         )
         .unwrap();
 
@@ -450,8 +554,8 @@ mod tests {
         development.set(
             "Things",
             "T",
-            "v12:development".into(),
-            "v12:development".into(),
+            "v13:development".into(),
+            "v13:development".into(),
         );
         development.write(&root, "development").unwrap();
         assert_eq!(
@@ -468,14 +572,14 @@ mod tests {
     fn profiles_keep_independent_baselines() {
         let (_dir, root) = temp();
         let mut first = Baseline::default();
-        first.set("Things", "T", "v12:first".into(), "v12:first".into());
+        first.set("Things", "T", "v13:first".into(), "v13:first".into());
         first.write(&root, "first").unwrap();
         let mut second = Baseline::default();
-        second.set("Things", "T", "v12:second".into(), "v12:second".into());
+        second.set("Things", "T", "v13:second".into(), "v13:second".into());
         second.write(&root, "second").unwrap();
 
         let mut first = Baseline::load(&root, "first").unwrap();
-        first.set("Things", "T", "v12:recorded".into(), "v12:recorded".into());
+        first.set("Things", "T", "v13:recorded".into(), "v13:recorded".into());
         first.write(&root, "first").unwrap();
         assert_eq!(
             Baseline::load(&root, "second")
@@ -483,15 +587,15 @@ mod tests {
                 .get("Things", "T")
                 .unwrap()
                 .local,
-            "v12:second"
+            "v13:second"
         );
     }
 
     #[test]
     fn remove_reports_presence_and_prunes_an_empty_collection() {
         let mut baseline = Baseline::default();
-        baseline.set("Things", "A", "v12:a".into(), "v12:a".into());
-        baseline.set("Things", "B", "v12:b".into(), "v12:b".into());
+        baseline.set("Things", "A", "v13:a".into(), "v13:a".into());
+        baseline.set("Things", "B", "v13:b".into(), "v13:b".into());
         assert!(baseline.remove("Things", "A"));
         assert!(!baseline.remove("Things", "A"));
         assert!(baseline.get("Things", "B").is_some());

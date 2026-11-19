@@ -3767,3 +3767,113 @@ fn a_cds_icon_that_does_not_exist_is_refused_with_the_closest_names() {
         .to_string();
     assert!(error.contains("not a CDS icon"), "{error}");
 }
+
+#[test]
+fn membership_edits_keep_types_distinct_and_are_idempotent() {
+    let (_dir, solution) = fixture();
+    for (kind, collection) in [
+        (Kind::Group, "Groups"),
+        (Kind::Role, "Roles"),
+        (Kind::PermissionGroup, "PermissionGroups"),
+    ] {
+        new(&solution, kind, "Acme.Access", |_| {});
+        run(
+            &solution,
+            &format!("{collection}/Acme.Access"),
+            Action::EntitySet {
+                description: Some("Access".into()),
+                icon: None,
+            },
+        );
+        assert!(file(&solution, collection, "Acme.Access").contains("description=\"Access\""));
+        for member_type in ["User", "Group", "PermissionGroup"] {
+            let action = || Action::MemberSet {
+                name: "Acme.Same".into(),
+                member_type: member_type.into(),
+                remove: false,
+            };
+            let entity = format!("{collection}/Acme.Access");
+            let before = file(&solution, collection, "Acme.Access");
+            assert_eq!(
+                plan_of(&solution, &entity, action()).unwrap().changes.len(),
+                1
+            );
+            assert_eq!(file(&solution, collection, "Acme.Access"), before);
+            run(&solution, &entity, action());
+            assert!(run(&solution, &entity, action()).changes.is_empty());
+        }
+        let entity = format!("{collection}/Acme.Access");
+        let action = || Action::MemberSet {
+            name: "Acme.Same".into(),
+            member_type: "User".into(),
+            remove: true,
+        };
+        run(&solution, &entity, action());
+        let xml = file(&solution, collection, "Acme.Access");
+        assert!(!xml.contains("type=\"User\""));
+        assert!(xml.contains("type=\"Group\""));
+        assert!(xml.contains("type=\"PermissionGroup\""));
+        assert!(run(&solution, &entity, action()).changes.is_empty());
+    }
+}
+
+#[test]
+fn subscription_uses_package_events_from_platform_cache_and_refuses_plain_unknowns() {
+    let (_dir, solution) = fixture();
+    new(
+        &solution,
+        Kind::ThingTemplate,
+        "Acme.Orders.Template",
+        |_| {},
+    );
+    new(&solution, Kind::Thing, "Acme.Orders.Broker", |r| {
+        r.template = Some("Acme.Orders.Template".into())
+    });
+    let action = || Action::SubscriptionAdd {
+        name: "OnMessage".into(),
+        event: "MqttMessage".into(),
+        source: None,
+        source_property: None,
+        code: "".into(),
+    };
+    assert!(plan_of(&solution, "Acme.Orders.Broker", action()).is_err());
+    std::fs::create_dir_all(solution.root.join(".twaco")).unwrap();
+    std::fs::write(solution.root.join(".twaco/platform.json"), r#"{"templates":{"Acme.Orders.Template":{"events":{"MqttMessage":{"sourceType":"ThingPackage"}}}}}"#).unwrap();
+    // Cached effective metadata also completes a repository template.
+    let plan = plan_of(&solution, "Acme.Orders.Broker", action()).unwrap();
+    assert!(plan.warnings.is_empty());
+    std::fs::write(solution.root.join(".twaco/platform.json"),r#"{"things":{"Acme.Orders.Broker":{"events":{"MqttMessage":{"sourceType":"ThingPackage"}}}}}"#).unwrap();
+    assert!(plan_of(&solution, "Acme.Orders.Broker", action())
+        .unwrap()
+        .warnings
+        .is_empty());
+}
+
+#[test]
+fn subscription_warns_for_extension_java_events_unknown_offline() {
+    let (_dir, solution) = fixture();
+    let config = solution.root.join("twaco.toml");
+    let mut text = std::fs::read_to_string(&config).unwrap();
+    text.push_str("\n[[extension]]\nroot = 'extension'\nname = 'Acme Java'\n");
+    std::fs::write(&config, text).unwrap();
+    std::fs::create_dir_all(solution.root.join("extension/configfiles")).unwrap();
+    std::fs::write(solution.root.join("extension/configfiles/metadata.xml"),r#"<Entities><ThingPackages><ThingPackage name="Acme.Package" className="com.acme.Broker"/></ThingPackages><ThingTemplates><ThingTemplate name="Acme.Template" thingPackage="Acme.Package"/></ThingTemplates></Entities>"#).unwrap();
+    let solution = Solution::load(&config).unwrap();
+    new(&solution, Kind::Thing, "Acme.Orders.Broker", |r| {
+        r.template = Some("Acme.Template".into())
+    });
+    let plan = plan_of(
+        &solution,
+        "Acme.Orders.Broker",
+        Action::SubscriptionAdd {
+            name: "OnMessage".into(),
+            event: "MqttMessage".into(),
+            source: None,
+            source_property: None,
+            code: "".into(),
+        },
+    )
+    .unwrap();
+    assert_eq!(plan.warnings.len(), 1);
+    assert!(plan.warnings[0].contains("Java package"));
+}

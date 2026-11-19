@@ -330,6 +330,7 @@ struct FixedHeader {
 
 #[derive(Serialize, JsonSchema)]
 pub(crate) struct FmtResult {
+    synced: usize,
     ok: bool,
     check: bool,
     scripts: u64,
@@ -385,6 +386,8 @@ pub(crate) struct PushResult {
 /// differently; `ok` and the stage it reached tell them apart.
 #[derive(Serialize, JsonSchema)]
 pub(crate) struct DeployResult {
+    /// Role members an import removes, with server ownership guidance.
+    warnings: Option<Vec<String>>,
     /// False when gates stopped the deploy before sending anything.
     deployed: Option<bool>,
     /// Each existing entity whose import preserves server-owned parts, with its part labels.
@@ -1209,6 +1212,8 @@ pub(crate) struct MoveMemberResult {
 
 #[derive(Serialize, JsonSchema)]
 pub(crate) struct NewBuildingBlockResult {
+    scope: String,
+    deploy_command: String,
     ok: bool,
     name: String,
     #[serde(rename = "type")]
@@ -1224,6 +1229,9 @@ pub(crate) struct NewBuildingBlockResult {
 
 #[derive(Serialize, JsonSchema)]
 pub(crate) struct EntityNewResult {
+    scope: String,
+    deploy_command: String,
+    note: String,
     applied: bool,
     dry_run: bool,
     kind: String,
@@ -1513,6 +1521,7 @@ pub(crate) struct MashupOnResult {
     new_source: Option<String>,
     files: Vec<String>,
     notices: Notices,
+    warnings: Vec<String>,
 }
 
 #[derive(Serialize, JsonSchema)]
@@ -1607,6 +1616,8 @@ pub(crate) struct MashupParameterResult {
 
 #[derive(Serialize, JsonSchema)]
 pub(crate) struct MashupRecipeResult {
+    removed: Vec<String>,
+    notes: Vec<String>,
     applied: bool,
     unchanged: bool,
     dry_run: bool,
@@ -1695,4 +1706,9 @@ pub(crate) struct MashupGapResult {
     px: i32,
     spacers: usize,
     notices: Notices,
+}
+
+#[derive(Serialize, JsonSchema)]
+pub(crate) struct UrlResult {
+    url: String,
 }

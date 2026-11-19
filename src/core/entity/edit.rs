@@ -100,6 +100,11 @@ pub struct MenuItemChange {
 
 #[derive(Clone, Debug)]
 pub enum Action {
+    MemberSet {
+        name: String,
+        member_type: String,
+        remove: bool,
+    },
     EntitySet {
         description: Option<String>,
         icon: Option<String>,
@@ -453,6 +458,11 @@ pub(crate) fn plan(solution: &Solution, request: &Request) -> Result<Plan, EditE
         doc: &doc,
     };
     match &request.action {
+        Action::MemberSet {
+            name,
+            member_type,
+            remove,
+        } => member_set(&doc, name, member_type, *remove, &mut plan)?,
         Action::EntitySet { description, icon } => entity_set(
             &references,
             &doc,
@@ -2052,8 +2062,20 @@ impl Edit2<'_> {
             }
         };
         let target = source_doc.as_ref().unwrap_or(doc);
-        let (events, properties) = events_and_properties(&model, target)?;
-        if !events.contains(event) {
+        let (mut events, properties) = events_and_properties(&model, target)?;
+        let (source_model, _) = types::load_model(self.solution);
+        for entity in &source_model.entities {
+            if model.inherited_names(target).contains(&entity.name) {
+                events.extend(entity.events.iter().map(|(name, _)| name.clone()));
+            }
+        }
+        let extension_templates = crate::core::extension_source::templates(self.solution);
+        let extension_template = model.inherited_names(target).iter().any(|name| {
+            extension_templates.contains_key(name) && model.file("ThingTemplates", name).is_none()
+        });
+        if !events.contains(event) && extension_template {
+            plan.warnings.push(format!("{}: {event}: event not known offline; it may come from the extension's Java package; check with `twaco model resolve` / deploy read-back", target.label()));
+        } else if !events.contains(event) {
             let known = events.into_iter().collect::<Vec<_>>().join(", ");
             return Err(EditError::Unknown(format!(
                 "{} has no event {event}; it has {known}",
@@ -2982,6 +3004,17 @@ fn events_and_properties(
     if model.is_a(target, "Scheduler") {
         events.insert("ScheduledEvent".into());
     }
+    let own_meta = if target.collection() == "Things" {
+        model
+            .platform
+            .as_ref()
+            .and_then(|p| p.things.get(target.name()))
+    } else {
+        model.platform_meta(target.name())
+    };
+    if let Some(meta) = own_meta {
+        events.extend(meta.events.keys().cloned());
+    }
     let host = target.members()?;
     events.extend(target.names_in(host, "EventDefinitions", "EventDefinition"));
     let mut properties: BTreeSet<String> = target
@@ -2994,7 +3027,9 @@ fn events_and_properties(
             let host = ancestor.members()?;
             events.extend(ancestor.names_in(host, "EventDefinitions", "EventDefinition"));
             properties.extend(ancestor.names_in(host, "PropertyDefinitions", "PropertyDefinition"));
-        } else if let Some(meta) = model.platform_meta(&name) {
+        }
+        if let Some(meta) = model.platform_meta(&name) {
+            events.extend(meta.events.keys().cloned());
             properties.extend(meta.properties.keys().cloned());
         }
     }
@@ -3273,6 +3308,8 @@ fn entity_set(
         &[
             "Projects",
             "Groups",
+            "Roles",
+            "PermissionGroups",
             "Things",
             "ThingTemplates",
             "ThingShapes",
@@ -3777,3 +3814,60 @@ fn reindent_block(xml: &str, from: usize, to: &str) -> String {
 
 #[cfg(test)]
 mod tests;
+
+fn member_set(
+    doc: &Doc,
+    name: &str,
+    member_type: &str,
+    remove: bool,
+    plan: &mut Plan,
+) -> Result<(), EditError> {
+    doc.require(
+        &["Groups", "Roles", "PermissionGroups"],
+        "membership needs a Group, Role or PermissionGroup",
+    )?;
+    if !matches!(member_type, "User" | "Group" | "PermissionGroup") || name.trim().is_empty() {
+        return Err(invalid(
+            "member needs a name and type User, Group or PermissionGroup",
+        ));
+    }
+    let outer = doc.only_child(doc.entity, "Members")?;
+    let list = if doc.collection() == "Groups" {
+        doc.optional_child(outer, "Members")?.unwrap_or(outer)
+    } else {
+        outer
+    };
+    let found = scan::child_tags(&doc.tokens, &doc.src, "Member", list)
+        .into_iter()
+        .filter(|&at| {
+            doc.attr(at, "name").as_deref() == Some(name)
+                && doc.attr(at, "type").as_deref() == Some(member_type)
+        })
+        .collect::<Vec<_>>();
+    plan.summary = format!(
+        "{} member {member_type}/{name}",
+        if remove { "remove" } else { "add" }
+    );
+    let edits = if remove {
+        found
+            .into_iter()
+            .map(|at| Ok(Edit::new(doc.span(at)?, Vec::new())))
+            .collect::<Result<Vec<_>, EditError>>()?
+    } else if found.is_empty() {
+        let member = format!(
+            "<Member name=\"{}\" type=\"{}\"/>",
+            scan::escape_attribute(name)?,
+            member_type
+        );
+        let mut inner = String::from_utf8_lossy(doc.inner(list)?.of(&doc.src)).into_owned();
+        inner.push_str(&member);
+        vec![doc.inner_edit(list, inner)?]
+    } else {
+        Vec::new()
+    };
+    let after = splice_all(&doc.src, edits)?;
+    if after != doc.src {
+        plan.changes.push(doc.change(after));
+    }
+    Ok(())
+}

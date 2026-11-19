@@ -115,6 +115,7 @@ pub(crate) fn validate_in(
             Err(error) => problems.push(problem("unreadable", error)),
             Ok(content) => {
                 check_content(&content, &mut problems);
+                name_the_mashup(&mut problems, &file.info.name);
                 if let Ok(value) = serde_json::from_str::<Value>(&content) {
                     scalar_result_problems(&value, &resolver, &mut problems);
                     chart_axis_problems(&file.info.name, &value, &resolver, &mut problems);
@@ -280,12 +281,20 @@ pub(crate) fn content_problems_in(
                     .is_ok_and(|value| value.get("UI").is_some());
                 if judged {
                     check_content(payload.trim(), &mut problems);
+                    name_the_mashup(&mut problems, &file.info.name);
                 }
             }
         }
         found.extend(problems.into_iter().map(|p| (relative.clone(), p)));
     }
     (files.len(), found)
+}
+
+/// A finding that quotes a command writes `<mashup>`; the caller knows which mashup it judged.
+fn name_the_mashup(problems: &mut [Problem], name: &str) {
+    for found in problems {
+        found.message = found.message.replace("<mashup>", name);
+    }
 }
 
 fn problem(rule: &str, message: String) -> Problem {
@@ -299,7 +308,8 @@ fn problem(rule: &str, message: String) -> Problem {
 /// Rules that describe tolerated Composer state rather than a broken mashup.
 fn severity(rule: &str) -> Severity {
     match rule {
-        "chart-axis-type"
+        "selected-rows-without-selection"
+        | "chart-axis-type"
         | "unknown-cell-parameter"
         | "mixed-label-alignment"
         | "responsive-leaf-size"
@@ -411,7 +421,7 @@ pub(crate) fn check_content(content: &str, problems: &mut Vec<Problem>) {
             problems.push(problem(
                 "wrapped-row-clipping",
                 format!(
-                    "{}: a wrapped second line is clipped; use flex-size range with no max height",
+                    "{}: a wrapped second line is clipped; use flex-size range with no max height; on 10.2.1 set height:auto, min-height:0, max-height:none (!important) on the row bounding box, inner .widget-flexcontainer and parents up to the panel, including rows populated after layout",
                     widget.id
                 ),
             ));
@@ -577,6 +587,7 @@ pub(crate) fn check_content(content: &str, problems: &mut Vec<Problem>) {
             ));
         }
         let map = &binding["PropertyMaps"][0];
+        let unbind = mashup::describe::unbind_command(value, binding);
         for (source, area, section, end, property) in [
             (
                 true,
@@ -600,7 +611,14 @@ pub(crate) fn check_content(content: &str, problems: &mut Vec<Problem>) {
                 property.as_str().unwrap_or_default(),
             );
             match area {
-                "UI" => check_ui_end(&widgets_by_id, id, end, property, source, problems),
+                "UI" => check_ui_end(
+                    &widgets_by_id,
+                    (id, &unbind),
+                    end,
+                    property,
+                    source,
+                    problems,
+                ),
                 "Data" if end == "EntityName" => {
                     if !calls.contains_key(section) {
                         problems.push(problem("missing-data-source", format!("binding {id} names data source {section}, which the mashup does not have")));
@@ -743,7 +761,7 @@ fn wraps_content(widget: &Value, authored: bool) -> bool {
 /// parameters) are read from the widget itself.
 fn check_ui_end(
     widgets_by_id: &BTreeMap<String, Value>,
-    binding: &str,
+    (binding, unbind): (&str, &str),
     id: &str,
     property: &str,
     source: bool,
@@ -752,7 +770,9 @@ fn check_ui_end(
     let Some(properties) = widgets_by_id.get(id) else {
         problems.push(problem(
             "unknown-widget",
-            format!("binding {binding} names widget {id}, which the mashup does not have"),
+            format!(
+                "binding {binding} names widget {id}, which the mashup does not have; remove the binding with: {unbind}"
+            ),
         ));
         return;
     };
@@ -1170,7 +1190,7 @@ mod tests {
             assert_eq!(warnings.len(), usize::from(warn), "{value}");
             if let Some(warning) = warnings.first() {
                 assert_eq!(warning.severity, Severity::Advisory);
-                assert_eq!(warning.message, "row-1: a wrapped second line is clipped; use flex-size range with no max height");
+                assert_eq!(warning.message, "row-1: a wrapped second line is clipped; use flex-size range with no max height; on 10.2.1 set height:auto, min-height:0, max-height:none (!important) on the row bounding box, inner .widget-flexcontainer and parents up to the panel, including rows populated after layout");
             }
         }
     }

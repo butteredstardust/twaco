@@ -380,6 +380,9 @@ The script traps are runtime failures that look like valid JavaScript:
 - **`unbounded-loop`:** a `while` loop that can run forever pins a platform thread.
 - **`nan-risk`:** a NaN in a result row makes the whole service fail to serialise.
 - **`read-before-assign`:** a variable read before it is assigned.
+- **`event-data`:** a bare `eventData` in a version 2 subscription script, which compiles and
+  throws a ReferenceError when the event fires; the payload is `events["<alias>"].eventData`.
+  It reads the subscription from the entity file, and warns unless a `[lint]` table raises it.
 
 `twaco unused --fields` is a separate advisory report: for each service result that mashups bind
 field by field, the fields no mashup binds or names. A result some mashup binds whole (a grid
@@ -872,6 +875,13 @@ a block the framework configured stays configured and its entry point is not rep
 given. Every kind accepts `--project`, one-line `--description`, and repeated
 `--visibility Organization/name` or `OrganizationalUnit/org:unit`.
 
+All `new` kinds write the repository only, including with `--apply`; the output names
+the deploy command that imports them. Things use the template's known package and
+cached configuration-table definitions. An unknown effective package is omitted and
+ignored in comparisons because the server derives it.
+When table metadata is unavailable, the server adds the inherited tables;
+after the first deploy read-back, use `twaco entity pull` to take them into source control.
+
 Create a project before deploying entities assigned to it; `new project` also appends its
 `[[project]]` entry when it is not already declared. In a folder with no `twaco.toml` above it,
 `new project` creates the file with that one entry, so a solution can start from an empty folder. `new group` creates an empty Group in a
@@ -1233,6 +1243,11 @@ the row that grows, its controls at its bottom; beside a grid or a chart it is f
 A compact date, as the kits show in a two-field range, is `--prop FormatToken=DD-MM-YY` on the
 date picker; the default format is Composer's.
 
+Every add beside an anchor lands immediately next to it, so five `--right-of A` adds come out
+reversed. To add a series in order, chain from the widget just added: the add prints
+`next: --right-of <id> keeps order` (in `notes` with `--json`, and in MCP), and `--end` appends
+at the far end of the row instead.
+
 For a two-column form, use `--right-of` for the second field, then
 `--below <widget> --in-column` to stack within either field's column. Repeat it beneath each
 new field to keep that column flat. Without `--in-column`, `--below` keeps its existing rule:
@@ -1578,7 +1593,9 @@ twaco mashup remove Acme.App.Orders_MU ptcsbutton-6 --cascade --apply
 ```
 
 `mashup unbind` and `mashup off` remove exactly the one binding or event handler the two
-addresses select. `mashup remove` removes a widget and its descendants. It normally refuses if
+addresses select. `mashup validate` reports a binding whose widget was removed in Composer as
+`unknown-widget` and prints the `unbind` command for it; unbind matches the widget id the binding
+names even though the widget is gone, and still refuses an id no binding names. `mashup remove` removes a widget and its descendants. It normally refuses if
 bindings, events, data-call configuration, or extension JSON names that subtree. `--cascade`
 removes only the proven bindings and events; it still refuses unknown references and reports data
 calls made orphaned for you to review rather than deleting a call it cannot prove is unused. All
@@ -1630,6 +1647,32 @@ twaco mashup recipe columns Acme.App.Orders_MU ptcsgrid-5 --data data:Acme.App.O
 twaco mashup recipe tracker Acme.App.Wizard_MU new --data data:Acme.App.Wizard.Manager.GetSteps --field-map StepLabelField=caption --apply
 twaco mashup recipe set-on-click Acme.App.Wizard_MU ptcsbutton-6 --param CurrentStep --expr "CurrentStep + 1" --input CurrentStep=mashup:CurrentStep --apply
 ```
+
+`mashup recipe label-pairs` fills an empty responsive container with caption/value labels
+from an existing data call's result DataShape. By default it uses all fields in DataShape order,
+splits field names into captions, and gives each pair its own column in a wrapping row, matching
+the measured detail-panel pattern. Repeat `--field name[:Caption]` to pick, order and rename
+fields. With `--columns n` (above zero), pairs go across the n columns in order, then continue in
+the first column; there are never more columns than pairs. `--title` adds a sub-header above the
+wrapping row. Captions use `LabelType=label`; values use `body`.
+
+```sh
+twaco mashup recipe label-pairs Acme.App.Asset_MU details --data data:Acme.App.Manager.GetAssets --field assetName:Name --field status:Status --title Details --columns 3 --replace ptcspropertydisplay-8 --apply
+```
+
+`--replace` removes a widget inside or beside the destination, its descendants, and their
+bindings and event handlers in the same edit. Unknown references refuse. A non-empty destination
+refuses unless the replacement is its only child; there is no append mode. Plans list added
+widgets with properties, bindings and removals. No files change without `--apply`.
+
+Values bind to the call's `SelectedRows` fields. Result cardinality cannot be known offline, so
+this also applies to a one-row result: select a row or enable the call's `Properties.AutoSelectFirstRow`.
+The existing selection hints explain missing selection and the All Data alternative for reading
+the first row. The wrapping row uses range sizing with no maximum height; on 10.2.1 the plan
+also names the CSS height overrides needed on its bounding box, inner flexcontainer and ancestors
+(see `twaco guide quirks`). MCP uses `mashup_recipe` with `recipe: "label-pairs"`, `widget` for the
+container, `data`, `fields` (array), `title`, `label_columns` and `replace`; `columns` remains the
+grid-column array. MCP plans by default with `dry_run: true`.
 
 `mashup recipe` writes, in one edit, the wiring real mashups repeat, from the same pieces `mashup add`,
 `bind` and `on` use:
@@ -2090,6 +2133,12 @@ keep a `jar:file:` URL and report the SDK version.
   time. `--grep`, `--user` and `--thread` narrow it.
 - **`twaco logs level ScriptLog DEBUG --apply`** changes a log's level for the whole server.
   The command prints the undo; run it afterwards.
+- **`twaco config-table set Acme.Broker Settings --row Enabled=true --apply --json`**
+  replaces the live table's rows and reads them back. Omit `--apply` for a plan; repeat
+  `--row k=v[,k=v...]` for a multi-row table (commas inside JSON values are kept). The live definition supplies cell types
+  and selects `SetConfigurationTable` or `SetMultiRowConfigurationTable`. PASSWORD
+  cells must be set through entity XML / deploy or Composer because REST silently
+  drops them. This edits the server only; run `twaco entity pull` afterwards.
 - **`twaco config-table <Thing> <Table> --backup before.json`** saves a configuration table
   before a test that writes it. `--diff` compares it with the repository, and
   `--restore before.json --apply` puts it back. `SetConfigurationTableRows` replaces whole
@@ -2255,3 +2304,28 @@ twaco completions bash > ~/.local/share/bash-completion/completions/twaco
 twaco completions zsh > "${fpath[1]}/_twaco"
 twaco completions fish > ~/.config/fish/completions/twaco.fish
 ```
+
+## Roles and PermissionGroups
+
+`twaco new role Acme.Operator --project Acme --apply` and
+`twaco new permission-group Acme.Operate --project Acme --apply` create repository XML.
+`twaco role member add Acme.Operator PermissionGroup/Acme.Operate --apply` adds a typed
+member; `remove` removes only that type/name pair. `group member` follows the same grammar.
+MCP uses `entity_new` kinds `role` / `permission-group` and `entity_edit` actions
+`member_add` / `member_remove` with `name` and `type`.
+
+To keep run-time users and groups while deploying a Role's repository-defined permission
+groups, configure:
+
+```toml
+[[server_owned]]
+entities = ["Roles/Acme.Operator"]
+parts = ["members:User,Group"]
+```
+
+Plain `members` owns all membership. Typed selectors work on Groups, Roles and PermissionGroups;
+Organization membership continues to use plain `members`. An unprotected Role deploy names
+members its import would remove. Role and PermissionGroup Members compare as sets by type/name;
+PermissionGroup EntityPermissions compare by entity, permission category/name and resource.
+Changing isPermitted or onInstances remains a real change. `twaco fmt` writes these sets in
+comparison order without rewriting the enclosing XML.

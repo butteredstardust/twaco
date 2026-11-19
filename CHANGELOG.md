@@ -6,6 +6,37 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `mashup recipe label-pairs` (also MCP `mashup_recipe`) builds caption/value detail panels from an existing call's DataShape, with selected-row field bindings, optional title, ordered captions, column count and property-display replacement. Plans include properties, removals, selection hints and wrapping guidance.
+- `config-table set` (also MCP `config_table` action `set`) types cells from the live definition, plans by default, replaces single/multi-row tables with the correct service, refuses PASSWORD cells, and verifies read-back. Pull afterwards to update the repository.
+- `traps.event-data` lint rule (warns by default, in `check` and `lint`): a bare `eventData` in a version 2 subscription script is a ReferenceError at run time; the finding names `events["<alias>"].eventData`.
+- `mashup add --right-of/--left-of` prints `next: --right-of <id> keeps order` (in `notes` for `--json` and MCP) so a series can be chained in order; the usage text and guide explain it.
+- A field quirk covers Playwright text lookups that hit hidden Rich Text Editor text.
+- `url <entity>` (also MCP `url`) prints a Composer deep link from the selected profile without contacting the server, with type-specific tabs and JSON output; routes checked live on 10.2, and types without a Composer details page are refused.
+- Three ThingWorx 10.2.1 field quirks cover read-only ptcsrte links, Builder filter subproperties, and per-user Custom workspaces.
+- Roles and PermissionGroups participate in status, pull baselines, deploy, delete, references and script globals; `new role`, `new permission-group`, and `group member` / `role member` add/remove repository members (also MCP entity tools).
+- `server_owned` accepts `members:User,Group` alongside `members`, preserving selected member types on Groups, Roles and PermissionGroups. Deploy warns when a Role import removes unowned server members.
+- RBAC field notes from ThingWorx 10.2.1 cover grants, visibility, mashup bootstrap services, permission checks and import membership behaviour.
+
+### Fixed
+
+- Subscription authoring accepts cached template events including Java ThingPackage events; unknown extension-template events warn offline while plain-template unknown events still refuse.
+- Entity creation reports repository scope and the deploy command, uses known template packages and cached configuration tables, and omits an unknown effective package. Derived `effectiveThingPackage` no longer causes false read-back differences.
+- The widget overlay adds the field-verified 10.2.1 text-field Icon property with CDS validation. The guide and wrapped-row advisory explain first-line sizing and late content.
+- `mashup new --from` settles the copy's entity file against the sidecars it writes, so the next `mashup set`/`add` needs no `twaco sync`.
+- `mashup unbind` removes a binding whose widget no longer exists, by the id the binding names, and `mashup validate` prints the exact `unbind` command in its `unknown-widget` finding.
+- Adding the first `[[server_owned]]` rule to an entity no longer makes its next deploy refuse for lack of a baseline: while the server still matches the plain baseline, only the repository counts as changed, and the baseline is re-recorded under the new policy. When the baseline cannot be restated, the refusal advises `entity status <entity> --record` instead of `--force`.
+- Repository PermissionGroups explain their target principals in permission comparisons, entity status/diff and deploy read-back. Targets explained by PermissionGroups hash with a `pg1:` marker, so adding or removing a PermissionGroup grant re-baselines those targets. Pull, adopt and `init --from-server` never write the explained principals into target XML, and a permission push names the PermissionGroup principals it removed. Missing derived grants name the PermissionGroup to deploy; target permission pushes never synthesize them. External targets are checked only for derived grants or listed as not checked.
+- SelectedRows field bindings with no selecting widget or automatic first-row selection produce a non-blocking bindings/validation advisory and authoring hints suggesting All Data or automatic selection.
+- Entity inclusion selectors accept comma-separated names with surrounding spaces, preserving exact names containing commas and repeated flags; excluded literal names fail rather than becoming lists.
+- `fmt` stages formatted scripts and synced XML together per entity, rolls back failed writes, and reports every changed path. Sidecar repair commands quote collection-qualified addresses and permit structural changes when required.
+- Composer links preserve explicit profile application contexts; origin-only profiles use `/Thingworx`.
+- Help and guide searches ignore common English stopwords, retaining them when they are the entire query.
+- PermissionGroup EntityPermissions and Role/PermissionGroup Members compare as sets; `fmt` orders these rows through byte spans. Comparison hashes are v13 (which also ignores the server-derived `effectiveThingPackage`); repositories need `twaco entity status --all --record` once.
+- Re-running `mashup recipe columns` preserves state formatting and unrelated column options, and refreshes renderer, format and editor defaults when a field's base type changes.
+- Deploy lists Role member removals as intended changes when the server matches the baseline; uncertain removals warn before import, suggest extending existing typed ownership, and remain visible after import or read-back failures.
+
 ## [0.1.67] - 2026-11-18
 
 ### Added

@@ -31,8 +31,8 @@ impl fmt::Display for Method {
 /// The delete route is an explicit allow-list. Verified ThingWorx EntityServices metadata
 /// reports one STRING input named `name` for every listed service: DeleteThing,
 /// DeleteThingTemplate, DeleteThingShape, DeleteMediaEntity, DeleteGroup, DeleteOrganization,
-/// DeleteProject and DeleteUser. Collections listed as REST use Composer's verified route;
-/// Roles and PermissionGroups were checked against a 10.2 server the same way.
+/// DeleteProject and DeleteUser. Role and PermissionGroup services follow the 10.2.1 field
+/// report. Collections listed as REST use Composer's verified route.
 pub(crate) fn method_for(collection: &str) -> Option<Method> {
     let service = match collection {
         "Things" => Some("DeleteThing"),
@@ -40,6 +40,8 @@ pub(crate) fn method_for(collection: &str) -> Option<Method> {
         "ThingShapes" => Some("DeleteThingShape"),
         "MediaEntities" => Some("DeleteMediaEntity"),
         "Groups" => Some("DeleteGroup"),
+        "Roles" => Some("DeleteRole"),
+        "PermissionGroups" => Some("DeletePermissionGroup"),
         "Organizations" => Some("DeleteOrganization"),
         "Projects" => Some("DeleteProject"),
         "Users" => Some("DeleteUser"),
@@ -71,8 +73,6 @@ pub(crate) fn method_for(collection: &str) -> Option<Method> {
         | "StyleDefinitions"
         | "StyleThemes"
         | "ThingGroups"
-        | "Roles"
-        | "PermissionGroups"
         | "Timers"
         | "ValueStreams"
         | "Widgets"
@@ -102,4 +102,24 @@ pub(super) fn known_collections() -> Vec<&'static str> {
         }
     }
     collections
+}
+
+#[cfg(test)]
+mod rbac_tests {
+    use super::*;
+    #[test]
+    fn rbac_deletes_use_the_field_verified_entity_services() {
+        for (collection, service) in [
+            ("Roles", "DeleteRole"),
+            ("PermissionGroups", "DeletePermissionGroup"),
+        ] {
+            assert_eq!(
+                method_for(collection),
+                Some(Method::Service {
+                    service: service.into()
+                })
+            );
+            assert!(known_collections().contains(&collection));
+        }
+    }
 }

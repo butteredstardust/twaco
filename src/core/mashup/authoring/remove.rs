@@ -4,7 +4,7 @@ use super::bind::existing_data_call;
 use super::end::{area, details, property, resolve_end, End};
 use super::{finish_edit, load_existing, parse_loaded, AuthoringContext, AuthoringError, EditPlan};
 use crate::core::config::Solution;
-use crate::core::mashup::address::parse_address;
+use crate::core::mashup::address::{parse_address, Address};
 use crate::core::mashup::describe::mashup_parameters;
 use crate::core::mashup::edit::MashupDocument;
 use crate::core::{mashup, types};
@@ -153,8 +153,8 @@ pub(crate) fn plan_unbind(
         model: &model,
         platform: platform.as_ref(),
     };
-    let from = endpoint(&mut document, solution, &context, &request.from, true)?;
-    let to = endpoint(&mut document, solution, &context, &request.to, false)?;
+    let from = unbind_endpoint(&mut document, solution, &context, &request.from, true)?;
+    let to = unbind_endpoint(&mut document, solution, &context, &request.to, false)?;
     let from_location = endpoint_location(&document, &from)?;
     let to_location = endpoint_location(&document, &to)?;
     let matching = document.value()["DataBindings"]
@@ -267,6 +267,42 @@ pub(crate) fn plan_off(
     })
 }
 
+/// An end of a binding to remove. A widget that is gone but still named by a binding is the
+/// dangling end `mashup validate` reports as `unknown-widget`; it resolves to the id the binding
+/// names so that binding can be removed. Anything else resolves as for `bind`.
+fn unbind_endpoint(
+    document: &mut MashupDocument,
+    solution: &Solution,
+    context: &AuthoringContext<'_>,
+    raw: &str,
+    source: bool,
+) -> Result<End, AuthoringError> {
+    if let Ok(Address::Ui { widget, property }) = parse_address(raw) {
+        let named = document.value()["DataBindings"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|binding| {
+                [("SourceArea", "SourceId"), ("TargetArea", "TargetId")]
+                    .iter()
+                    .any(|(area, id)| binding[*area] == "UI" && binding[*id] == widget.as_str())
+            });
+        if named
+            && matches!(
+                document.find_exact(&widget),
+                Err(crate::core::mashup::edit::EditError::NoWidget(_))
+            )
+        {
+            return Ok(End::Ui {
+                id: widget,
+                property,
+                base: String::new(),
+            });
+        }
+    }
+    endpoint(document, solution, context, raw, source)
+}
+
 fn endpoint(
     document: &mut MashupDocument,
     solution: &Solution,
@@ -359,7 +395,10 @@ fn one(matches: Vec<usize>, absent: String) -> Result<usize, AuthoringError> {
     }
 }
 
-fn dependencies(document: &MashupDocument, ids: &BTreeSet<String>) -> (Vec<usize>, Vec<usize>) {
+pub(super) fn dependencies(
+    document: &MashupDocument,
+    ids: &BTreeSet<String>,
+) -> (Vec<usize>, Vec<usize>) {
     let bindings = document.value()["DataBindings"]
         .as_array()
         .into_iter()
@@ -384,7 +423,7 @@ fn dependencies(document: &MashupDocument, ids: &BTreeSet<String>) -> (Vec<usize
 fn named(value: &Value, key: &str, ids: &BTreeSet<String>) -> bool {
     value[key].as_str().is_some_and(|text| ids.contains(text))
 }
-fn remove_indexes(values: &mut Vec<Value>, indexes: &[usize]) {
+pub(super) fn remove_indexes(values: &mut Vec<Value>, indexes: &[usize]) {
     for &index in indexes.iter().rev() {
         values.remove(index);
     }
@@ -452,7 +491,7 @@ fn data_call_referenced(document: &MashupDocument, call: &(String, String)) -> b
 }
 
 /// Any non-standard location that names a removed widget is unsafe to rewrite automatically.
-fn unknown_references(root: &Value, ids: &BTreeSet<String>) -> Vec<String> {
+pub(super) fn unknown_references(root: &Value, ids: &BTreeSet<String>) -> Vec<String> {
     let mut found = Vec::new();
     if let Some(data) = root.get("Data") {
         scan(data, ids, "Data", &mut found);

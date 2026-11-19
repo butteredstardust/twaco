@@ -190,6 +190,7 @@ fn dispatch(command: Command) -> u8 {
         Command::Javadoc(javadoc) => javadoc_cmd(&javadoc),
         // So does the guide: its built-in topics are the same everywhere.
         Command::Guide(guide) => guide_cmd(&guide),
+        Command::Url(args) => run(|solution| cli::info::url_cmd(solution, &args)),
         Command::Package(package) => run(|solution| package_cmd(solution, &package)),
         Command::Widgets(widgets) => widgets_cmd(&widgets),
         Command::Catalog(catalog) => run(|solution| catalog_cmd(solution, &catalog)),
@@ -240,6 +241,8 @@ fn dispatch(command: Command) -> u8 {
         Command::Call(command) => run(|solution| call(solution, &command)),
         Command::Logs(logs) => run(|solution| logs_cmd(solution, &logs)),
         Command::Settings(settings) => run(|solution| settings_cmd(solution, &settings)),
+        Command::Group(member) => run(|solution| entity_edit_cmd(solution, member.edit("Groups"))),
+        Command::Role(member) => run(|solution| entity_edit_cmd(solution, member.edit("Roles"))),
         Command::Thing(thing) => run(|solution| entity_edit_cmd(solution, thing.edit())),
         Command::Timer(timer) => run(|solution| entity_edit_cmd(solution, timer.edit())),
         Command::Scheduler(scheduler) => {

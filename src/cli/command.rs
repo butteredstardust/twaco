@@ -21,6 +21,7 @@ pub(crate) enum Command {
     Update(super::info::Update),
     Completions(crate::Completions),
     Guide(super::info::Guide),
+    Url(super::info::Url),
     Help(super::info::Help),
     Javadoc(super::info::Javadoc),
     Package(super::content::Package),
@@ -54,6 +55,10 @@ pub(crate) enum Command {
     Settings(super::info::Settings),
     #[command(subcommand)]
     Thing(super::entity_edit::Thing),
+    #[command(subcommand)]
+    Group(super::entity_edit::Membership),
+    #[command(subcommand)]
+    Role(super::entity_edit::Membership),
     #[command(subcommand)]
     Timer(super::entity_edit::Timer),
     #[command(subcommand)]
@@ -116,6 +121,7 @@ impl Command {
             Command::Update(_) => "update",
             Command::Completions(_) => "completions",
             Command::Guide(_) => "guide",
+            Command::Url(_) => "url",
             Command::Help(_) => "help",
             Command::Javadoc(_) => "javadoc",
             Command::Package(_) => "package",
@@ -159,6 +165,8 @@ impl Command {
                 super::entity_edit::Thing::Subscription(_) => "thing subscription",
                 super::entity_edit::Thing::Shape(_) => "thing shape",
             },
+            Command::Group(_) => "group member",
+            Command::Role(_) => "role member",
             Command::Timer(_) => "timer set",
             Command::Scheduler(_) => "scheduler set",
             Command::Style(_) => "style set",
@@ -228,6 +236,10 @@ impl Command {
             Command::Permissions(super::entity::Permissions::Diff(diff)) => {
                 diff.selection.validate()
             }
+            Command::Fmt(args) if args.check && args.apply.apply => {
+                Err("--check and --apply are incompatible".into())
+            }
+            Command::Fmt(_) => Ok(()),
             Command::Permissions(super::entity::Permissions::Push(push)) => {
                 push.diff.selection.validate()
             }
@@ -237,6 +249,7 @@ impl Command {
             | Command::Mcp(_)
             | Command::Update(_)
             | Command::Completions(_)
+            | Command::Url(_)
             | Command::Guide(_)
             | Command::Help(_)
             | Command::Javadoc(_)
@@ -248,7 +261,6 @@ impl Command {
             | Command::Unused(_)
             | Command::Docs(_)
             | Command::Widgets(_)
-            | Command::Fmt(_)
             | Command::Check(_)
             | Command::Lint(_)
             | Command::Types(_)
@@ -293,6 +305,8 @@ impl Command {
             | Command::Datatable(_)
             | Command::Call(_)
             | Command::Deploy(_)
+            | Command::Group(_)
+            | Command::Role(_)
             | Command::Db(_) => Ok(()),
         }
     }

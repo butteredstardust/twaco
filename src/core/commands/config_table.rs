@@ -11,6 +11,10 @@ use std::path::PathBuf;
 pub enum ConfigTableAction {
     /// The Thing's tables, when no table is named.
     List,
+    Set {
+        rows: Vec<String>,
+        mode: Mode,
+    },
     Read,
     Backup {
         path: PathBuf,
@@ -39,6 +43,10 @@ pub struct ConfigTableRequest {
 /// The completed configuration-table operation.
 #[derive(Debug)]
 pub enum ConfigTableOutcome {
+    Set {
+        report: serde_json::Value,
+        effects: Effects,
+    },
     Listed {
         tables: Vec<(String, String)>,
         effects: Effects,
@@ -68,7 +76,8 @@ impl ConfigTableOutcome {
     #[cfg(test)]
     pub(crate) const fn effects(&self) -> Effects {
         match self {
-            Self::Listed { effects, .. }
+            Self::Set { effects, .. }
+            | Self::Listed { effects, .. }
             | Self::Read { effects, .. }
             | Self::BackedUp { effects, .. }
             | Self::Restored { effects, .. }
@@ -122,6 +131,17 @@ where
         .map_err(ConfigTableCommandError::Profile)?;
     let remote = open(profile);
     match &request.action {
+        ConfigTableAction::Set { rows, mode } => {
+            let apply = matches!(mode, Mode::Apply);
+            Ok(ConfigTableOutcome::Set {
+                report: config_table::set(&remote, &request.thing, &request.table, rows, apply)
+                    .map_err(ConfigTableCommandError::Table)?,
+                effects: Effects::new(
+                    Access::None,
+                    if apply { Access::Write } else { Access::Read },
+                ),
+            })
+        }
         ConfigTableAction::List => Ok(ConfigTableOutcome::Listed {
             tables: config_table::list(&remote, &request.thing)
                 .map_err(ConfigTableCommandError::Table)?,
@@ -196,7 +216,9 @@ where
                         effects: Effects::new(Access::Read, Access::Read),
                     })
                 }
-                ConfigTableAction::Restore { .. } | ConfigTableAction::List => unreachable!(),
+                ConfigTableAction::Restore { .. }
+                | ConfigTableAction::Set { .. }
+                | ConfigTableAction::List => unreachable!(),
             }
         }
     }

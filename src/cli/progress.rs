@@ -55,6 +55,13 @@ impl Bars {
 }
 
 impl Progress for Bars {
+    fn warning(&self, text: &str) {
+        if let Some(bar) = self.slot().as_ref() {
+            bar.suspend(|| eprintln!("warning: {text}"));
+        } else {
+            eprintln!("warning: {text}");
+        }
+    }
     fn start(&self, phase: &str, total: Option<u64>) {
         if !self.enabled {
             return;

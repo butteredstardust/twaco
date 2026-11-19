@@ -24,6 +24,7 @@ pub struct OnPlan {
     pub event: String,
     pub invoke: String,
     pub new_source: Option<String>,
+    pub warnings: Vec<String>,
 }
 
 /// A child mashup's event is a BOTH or OUT parameter whose value it changes (to a timestamp, see
@@ -173,14 +174,24 @@ pub(crate) fn plan_on(solution: &Solution, request: &OnRequest) -> Result<OnPlan
         model: &model,
         platform: platform.as_ref(),
     };
+    let before = document.value()["DataBindings"]
+        .as_array()
+        .map_or(0, Vec::len);
     let new_source = on_in(&mut document, &context, &request.event, &request.invoke)?;
     refuse_unknown_cell_menu_item(solution, &document, &request.event)?;
+    // Only a binding this call added; older ones were reported when they were made.
+    let warnings = crate::core::bindings::selected_rows_hints(document.value())
+        .into_iter()
+        .filter(|(index, _)| *index >= before)
+        .map(|(_, message)| message)
+        .collect();
     let edit = finish_edit(loaded, document, "mashup on")?;
     Ok(OnPlan {
         edit,
         event: request.event.clone(),
         invoke: request.invoke.clone(),
         new_source,
+        warnings,
     })
 }
 

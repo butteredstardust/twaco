@@ -136,6 +136,9 @@ where
     if !found.unreadable.is_empty() {
         return Err(PermissionsCommandError::Unreadable(found.unreadable));
     }
+    let derived = permissions::derived::Derived::read(&found.entities)
+        .map_err(|e| PermissionsCommandError::Unreadable(vec![e.to_string()]))?;
+    notices.extend(derived.notes.iter().cloned());
     let mut pool = found.entities;
     if let Some(project) = &request.project {
         if solution.project(project).is_none() {
@@ -170,7 +173,8 @@ where
         .map_err(PermissionsCommandError::Profile)?;
     let rules = solution.server_owned_for(&request.profile);
     let remote = open(profile);
-    let report = permissions::run_with_progress(&remote, &chosen, apply, progress);
+    let external = request.project.is_none() && matches!(request.target, StatusTarget::All);
+    let report = permissions::run_expected(&remote, &chosen, apply, progress, &derived, external);
     let pushed: Vec<_> = chosen
         .iter()
         .zip(&report.entities)
@@ -180,13 +184,14 @@ where
     let recorded = if apply && !pushed.is_empty() {
         let mut baseline = Baseline::load(&solution.root, &request.profile)
             .map_err(PermissionsCommandError::Baseline)?;
-        let (mut statuses, _) = status::compute_with_progress(
+        let (mut statuses, _) = status::compute_with_expected(
             &remote,
             &baseline,
             &pushed,
             &rules,
             solution.patches_for(&request.profile),
             progress,
+            &derived,
         );
         let recorded = status::record_matching(&mut baseline, &mut statuses);
         if recorded > 0 {

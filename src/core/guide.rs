@@ -23,7 +23,7 @@ const BUILTIN: [(&str, &str); 3] = [
 const DEFAULT_PATHS: [&str; 3] = ["AGENTS.md", "CLAUDE.md", "docs"];
 const HEADING_WEIGHT: f64 = 3.0;
 /// Words a question is made of that say nothing about what it asks.
-const STOPWORDS: [&str; 40] = [
+pub(crate) const STOPWORDS: [&str; 40] = [
     "a", "an", "and", "are", "as", "at", "be", "by", "can", "do", "does", "for", "from", "how",
     "i", "if", "in", "is", "it", "my", "of", "on", "or", "should", "so", "that", "the", "this",
     "to", "was", "what", "when", "where", "which", "why", "will", "with", "would", "you", "we",
@@ -354,9 +354,8 @@ pub struct Hit {
 /// heading counting again. Long questions rarely share every word with the answer, so a
 /// section holding only some of them still ranks, below the ones holding all.
 pub fn search(topics: &[Topic], query: &str, limit: usize) -> Vec<Hit> {
-    let asked: Vec<String> = super::help::words(query)
+    let asked: Vec<String> = super::help::query_words(query)
         .into_iter()
-        .filter(|w| !STOPWORDS.contains(&w.as_str()))
         .flat_map(|w| stems(&w))
         .collect();
     if asked.is_empty() {
@@ -682,5 +681,24 @@ mod tests {
         let (topics, problems) = super::topics(Some(&solution));
         assert_eq!(topics.len(), 3);
         assert_eq!(problems.len(), 2, "{problems:?}");
+    }
+}
+
+#[cfg(test)]
+mod stopword_tests {
+    use super::*;
+    #[test]
+    fn guide_ignores_stopwords_and_falls_back_for_only_stopwords() {
+        let topic = Topic {
+            id: "test".into(),
+            title: "Test".into(),
+            file: None,
+            text: "## Menu title\nMenu title.\n## By\nBy.".into(),
+        };
+        let topics = [topic];
+        let hit = &search(&topics, "menu by title", 10)[0];
+        assert_eq!(hit.heading, "Menu title");
+        assert_eq!(hit.matched, hit.of);
+        assert_eq!(search(&topics, "by", 10)[0].heading, "By");
     }
 }

@@ -561,13 +561,17 @@ pub(crate) struct MashupRecipe {
     #[arg(long = "width", value_name = "px")]
     pub(crate) width: Option<String>,
     #[arg(long = "field", value_name = "field")]
-    pub(crate) field: Option<String>,
+    pub(crate) fields: Vec<String>,
     #[command(flatten)]
     pub(crate) apply: Apply,
     #[command(flatten)]
     pub(crate) json: Json,
     #[arg(id = "operands", value_name = "operand")]
     pub(crate) operands: Vec<String>,
+    #[arg(long = "columns", value_name = "n")]
+    pub(crate) label_columns: Option<u32>,
+    #[arg(long = "replace", value_name = "widget")]
+    pub(crate) replace: Option<String>,
 }
 
 /// `twaco mashup event add <mashup> <name> --when <address>`.
@@ -817,6 +821,10 @@ pub(crate) fn mashup_recipe_cmd(solution: &Solution, args: &MashupRecipe) -> u8 
             return FAILED;
         }
     };
+    if name != "label-pairs" && args.fields.len() > 1 {
+        eprintln!("{} give --field once for {name}", style::prefix());
+        return FAILED;
+    }
     let recipe_args = mashup::authoring::RecipeArgs {
         toggle: args.toggle.clone(),
         add_toggle: args.add_toggle,
@@ -860,7 +868,18 @@ pub(crate) fn mashup_recipe_cmd(solution: &Solution, args: &MashupRecipe) -> u8 
         menu: args.menu.clone(),
         no_auto_collapse: args.no_auto_collapse,
         width,
-        field: args.field.clone(),
+        field: if name == "label-pairs" {
+            None
+        } else {
+            args.fields.first().cloned()
+        },
+        fields: if name == "label-pairs" {
+            args.fields.clone()
+        } else {
+            Vec::new()
+        },
+        label_columns: args.label_columns,
+        replace: args.replace.clone(),
     };
     let recipe = match mashup::authoring::Recipe::from_args(name, &recipe_args) {
         Ok(recipe) => recipe,
@@ -918,6 +937,9 @@ pub(crate) fn mashup_recipe_cmd(solution: &Solution, args: &MashupRecipe) -> u8 
     );
     for id in &outcome.plan.added {
         println!("  added {id}");
+    }
+    for id in &outcome.plan.removed {
+        println!("  remove {id}");
     }
     for line in &outcome.plan.wired {
         println!("  {line}");
@@ -2288,7 +2310,7 @@ pub(crate) fn mashup_on_cmd(solution: &Solution, args: &MashupOn) -> u8 {
                 .replace('\\', "/"),
         );
     }
-    let report = serde_json::json!({ "applied": outcome.applied, "mashup": outcome.plan.edit.mashup, "event": outcome.plan.event, "invoke": outcome.plan.invoke, "new_source": outcome.plan.new_source, "files": files });
+    let report = serde_json::json!({ "applied": outcome.applied, "mashup": outcome.plan.edit.mashup, "event": outcome.plan.event, "invoke": outcome.plan.invoke, "new_source": outcome.plan.new_source, "warnings": outcome.plan.warnings, "files": files });
     if args.json.json {
         println!(
             "{}",
@@ -2303,6 +2325,9 @@ pub(crate) fn mashup_on_cmd(solution: &Solution, args: &MashupOn) -> u8 {
         outcome.plan.event,
         outcome.plan.edit.mashup
     );
+    for warning in &outcome.plan.warnings {
+        println!("  hint: {warning}");
+    }
     if let Some(source) = &outcome.plan.new_source {
         println!("  new data source {source}");
     }

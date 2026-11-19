@@ -201,3 +201,22 @@ keeps AlwaysOpen true so it keeps its labels.
 from the selected row's field of the widget's own data call, and runs its Navigate on the
 collection's CellClicked or the grid's RowClicked. A widget that cannot select rows gets
 single selection; the plan warns when AutoSelectFirstRow is on, which would navigate on load.
+
+## Composer links without a server request
+
+`twaco url Acme.Thing` prints the Composer General tab link using the selected
+profile (`--profile <name>`). `--json` returns `{"url":"..."}`. `--tab services`
+applies to Things, ThingTemplates and ThingShapes; `--tab design` to Mashups;
+`--tab fields` to DataShapes. Every type supports the default `attributes` tab.
+
+Composer routes checked live on 10.2: Thing (also Data Tables, Streams, Schedulers,
+Value Streams and Timers), ThingTemplate, ThingShape, DataShape, Mashup (gadgets
+are Mashups too), Menu, MediaEntity, ApplicationKey, MCPNamespace, QueueProvider,
+Group, Role, PermissionGroup, AIAgent, Authenticator, DirectoryService,
+LocalizationTable, Network, NotificationDefinition, Organization,
+PersistenceProvider, Project, Resource, StateDefinition, StyleDefinition,
+StyleTheme, Subsystem, ThingGroup and User. Model and data tag vocabularies use
+`ModelTagVocabulary` and `DataTagVocabulary`. Composer has no details page for
+ExtensionPackage, Log, PersistenceProviderPackage, QueueProviderPackage,
+ScriptFunctionLibrary, ThingPackage or Widget, so `twaco url` refuses them.
+Dashboard and NotificationContent routes are unverified.

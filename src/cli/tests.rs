@@ -170,6 +170,8 @@ fn usage_paths() -> std::collections::BTreeSet<String> {
         "contract",
         "mashup",
         "thing",
+        "group",
+        "role",
         "timer",
         "scheduler",
         "style",
@@ -297,10 +299,11 @@ fn mutation_classes_hold_cli_plans_and_workspace_writes() {
             // `export` has one routed flag list, but only its source-control form uses
             // --apply; entity, collection and project write their requested local output.
             // `ext build` shares `ext`'s flags but refuses --apply: it runs the project's build.
+            // fmt keeps its historical write default; --apply is an explicit alias.
             if flags.iter().any(|flag| flag == "--apply")
                 && !matches!(
                     command,
-                    "export entity" | "export collection" | "export project" | "ext build"
+                    "export entity" | "export collection" | "export project" | "ext build" | "fmt"
                 )
             {
                 assert_eq!(
@@ -523,6 +526,12 @@ fn every_flag_means_the_same_in_every_command() {
                     continue;
                 }
             }
+            // Composer selects one existing tab; mashup new declares labelled tabs.
+            if command.path == "url" && name == "--tab" {
+                assert_eq!(kind, "value");
+                assert_eq!(value_names, ["tab"]);
+                continue;
+            }
             // The collapsible recipe selects a native-tab position; new declares labelled tabs.
             if command.path == "mashup recipe" && name == "--tab" {
                 assert_eq!(kind, "value");
@@ -535,10 +544,16 @@ fn every_flag_means_the_same_in_every_command() {
                 assert_eq!(value_names, ["Menu"]);
                 continue;
             }
-            // navigate-on-click names a result field; new data-shape declares fields.
+            // Recipes select result fields or field[:Caption] pairs; new declares DataShape fields.
             if command.path == "mashup recipe" && name == "--field" {
-                assert_eq!(kind, "value");
+                assert_eq!(kind, "repeated");
                 assert_eq!(value_names, ["field"]);
+                continue;
+            }
+            // label-pairs removes a widget; mashup new replaces tokens in copied text.
+            if command.path == "mashup recipe" && name == "--replace" {
+                assert_eq!(kind, "value");
+                assert_eq!(value_names, ["widget"]);
                 continue;
             }
             if command.path == "mashup new" && name == "--replace" {
@@ -1366,4 +1381,36 @@ fn diagnostic_filter_is_global_before_and_after_nested_commands() {
         assert_eq!(spec::log_options(&matches).0.as_deref(), Some("debug"));
         Command::from_arg_matches(&matches).unwrap();
     }
+}
+
+#[test]
+fn label_pairs_cli_accepts_repeated_fields_and_panel_options() {
+    let Command::Mashup(Mashup::Recipe(args)) = parse(&[
+        "mashup",
+        "recipe",
+        "label-pairs",
+        "Acme.Asset_MU",
+        "details",
+        "--data",
+        "data:Acme.Manager.GetAssets",
+        "--field",
+        "id:Identifier",
+        "--field",
+        "assetName",
+        "--title",
+        "Details",
+        "--columns",
+        "3",
+        "--replace",
+        "ptcspropertydisplay-8",
+        "--apply",
+        "--json",
+    ])
+    .unwrap() else {
+        panic!("recipe command")
+    };
+    assert_eq!(args.fields, ["id:Identifier", "assetName"]);
+    assert_eq!(args.label_columns, Some(3));
+    assert_eq!(args.replace.as_deref(), Some("ptcspropertydisplay-8"));
+    assert_eq!(args.title.as_deref(), Some("Details"));
 }

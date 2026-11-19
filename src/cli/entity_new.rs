@@ -20,6 +20,8 @@ pub(crate) enum New {
 pub(crate) enum NewEntity {
     Project(NewProject),
     Group(NewGroup),
+    Role(NewGroup),
+    PermissionGroup(NewGroup),
     Thing(NewThing),
     ThingTemplate(NewThingTemplate),
     ThingShape(NewThingShape),
@@ -343,6 +345,8 @@ impl NewEntity {
         match self {
             NewEntity::Project(_) => "new project",
             NewEntity::Group(_) => "new group",
+            NewEntity::Role(_) => "new role",
+            NewEntity::PermissionGroup(_) => "new permission-group",
             NewEntity::Thing(_) => "new thing",
             NewEntity::ThingTemplate(_) => "new thing-template",
             NewEntity::ThingShape(_) => "new thing-shape",
@@ -367,7 +371,9 @@ impl NewEntity {
     pub(crate) fn base(&self) -> &Base {
         match self {
             NewEntity::Project(_) => panic!("a project has no shared entity base"),
-            NewEntity::Group(new) => &new.base,
+            NewEntity::Group(new) | NewEntity::Role(new) | NewEntity::PermissionGroup(new) => {
+                &new.base
+            }
             NewEntity::Thing(new) => &new.base,
             NewEntity::ThingTemplate(new) => &new.base,
             NewEntity::ThingShape(new) => &new.base,
@@ -403,7 +409,7 @@ impl NewEntity {
                 request.description = new.description.clone().unwrap_or_default();
                 request.depends_on.clone_from(&new.depends_on);
             }
-            NewEntity::Group(_) => {}
+            NewEntity::Group(_) | NewEntity::Role(_) | NewEntity::PermissionGroup(_) => {}
             NewEntity::Thing(new) => {
                 request.visibility.clone_from(&new.visibility);
                 request.template.clone_from(&new.template);
@@ -542,6 +548,13 @@ pub(crate) fn entity_new_cmd(solution: &Solution, new: &NewEntity) -> u8 {
         return OK;
     }
     let plan = &outcome.plan;
+    println!(
+        "repository only; deploy with: {}",
+        report["deploy_command"].as_str().unwrap()
+    );
+    if plan.request.kind == Kind::Thing {
+        println!("{}", report["note"].as_str().unwrap());
+    }
     match plan.request.kind {
         Kind::Timer => println!(
             "{} timer {} in project {} (every {} as {})",

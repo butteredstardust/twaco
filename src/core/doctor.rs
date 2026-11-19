@@ -542,7 +542,7 @@ parts=['members', 'property-values', 'run-time-permissions']
         let messages: Vec<_> = items.iter().map(|item| item.detail.as_str()).collect();
         assert_eq!(
             messages,
-            ["server_owned rule 1: members only exists on Groups and Organizations, and the rule matches none"],
+            ["server_owned rule 1: members only exists on Groups and Roles and PermissionGroups and Organizations, and the rule matches none"],
         );
     }
 

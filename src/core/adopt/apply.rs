@@ -15,6 +15,7 @@ use super::{
 use crate::core::config::Solution;
 use crate::core::lock::WorkspaceLock;
 use crate::core::normalise::{self, Element};
+use crate::core::permissions::derived::{without_explained, Derived};
 use crate::core::transaction::Transaction;
 use crate::core::{scan, sidecar, sync, workspace};
 use std::collections::{BTreeMap, BTreeSet};
@@ -39,6 +40,7 @@ pub(crate) fn apply(
 ) -> Result<ApplyOutcome, AdoptError> {
     let exported = export_entities(export)?;
     let here = repository_entities(solution)?;
+    let derived = Derived::load(solution).map_err(|e| io_error(&solution.root, e))?;
     validate_takes(report, takes)?;
     // In the report's order, notes and writes alike, so the output reads as the comparison did.
     let mut steps: Vec<(Option<Write>, String)> = Vec::new();
@@ -155,7 +157,7 @@ pub(crate) fn apply(
                         continue;
                     }
                     if !here.contains_key(&entry.entity) {
-                        plan_ui_entity(solution, export, entry, &here, &mut steps)?;
+                        plan_ui_entity(solution, export, entry, &here, &derived, &mut steps)?;
                     } else if let (Some((_, path)), Some(content)) = (
                         here.get(&entry.entity),
                         child_elements(element)
@@ -182,12 +184,12 @@ pub(crate) fn apply(
                     if !ui_should_write(entry, takes) {
                         steps.push((None, ui_skip_line(entry, takes)));
                     } else {
-                        plan_ui_entity(solution, export, entry, &here, &mut steps)?;
+                        plan_ui_entity(solution, export, entry, &here, &derived, &mut steps)?;
                     }
                 }
             },
             Kind::Backend => plan_backend(
-                solution, export, report, entry, element, &here, takes, &mut steps,
+                solution, export, report, entry, element, &here, &derived, takes, &mut steps,
             )?,
         }
     }
@@ -607,9 +609,13 @@ fn prepare_entity(
     export: &Path,
     entry: &EntityReport,
     here: &BTreeMap<EntityRef, (Element, PathBuf)>,
+    derived: &Derived,
 ) -> Result<PreparedEntity, AdoptError> {
     let entity = &entry.entity;
     let raw = raw_entity(export, entity)?;
+    // A PermissionGroup's grants on the entity are the group's to write, not the file's.
+    let raw = without_explained(&raw, derived, &entity.collection, &entity.name)
+        .map_err(|e| io_error(export, e))?;
     let parts =
         super::super::server_owned::parts(&solution.server_owned, &entity.collection, &entity.name);
     // Restore ours before layout's node-by-node comparison, so unchanged owned subtrees retain
@@ -686,6 +692,7 @@ fn plan_ui_entity(
     export: &Path,
     entry: &EntityReport,
     here: &BTreeMap<EntityRef, (Element, PathBuf)>,
+    derived: &Derived,
     steps: &mut Vec<(Option<Write>, String)>,
 ) -> Result<(), AdoptError> {
     let entity = &entry.entity;
@@ -699,7 +706,7 @@ fn plan_ui_entity(
             ),
         });
     }
-    let prepared = prepare_entity(solution, export, entry, here)?;
+    let prepared = prepare_entity(solution, export, entry, here, derived)?;
     if entry.change == Change::Added {
         let Some((path, bytes)) = new_entity_file(solution, entry, here, &prepared)? else {
             steps.push((
@@ -756,6 +763,7 @@ fn plan_backend(
     entry: &EntityReport,
     _element: &Element,
     here: &BTreeMap<EntityRef, (Element, PathBuf)>,
+    derived: &Derived,
     takes: &[Take],
     steps: &mut Vec<(Option<Write>, String)>,
 ) -> Result<(), AdoptError> {
@@ -765,7 +773,7 @@ fn plan_backend(
         steps.push((None, format!("kept     {}: ours", entity.path())));
         return Ok(());
     }
-    let prepared = prepare_entity(solution, export, entry, here)?;
+    let prepared = prepare_entity(solution, export, entry, here, derived)?;
     let their_raw = &prepared.their_raw;
     let parts =
         super::super::server_owned::parts(&solution.server_owned, &entity.collection, &entity.name);

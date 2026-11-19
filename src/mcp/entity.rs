@@ -796,6 +796,7 @@ mod tests {
             differences: Vec::new(),
             sets: Vec::new(),
             error: error.map(Into::into),
+            notes: Vec::new(),
         }
     }
 

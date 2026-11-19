@@ -3,6 +3,31 @@
 These are behaviours measured on live ThingWorx servers from 9.5 through 10.2. They are not a
 substitute for testing the target server. Examples use Acme.Orders names.
 
+## PermissionGroup rows also become target principals (verified on 10.2.0-b75, 2026-11-19)
+
+Importing `Acme.Access` with `EntityPermissions/EntityPermission` rows also stores principals
+of `type="PermissionGroup" name="Acme.Access"` in the targets' permission blocks. The observed
+Thing received Visibility/Visibility (`resourceName=""`), RunTime/PropertyRead (`resourceName="*"`),
+RunTime/ServiceInvoke (`resourceName="GetPropertyValues"`) and DesignTime/Read (`resourceName=""`),
+all allowing and with `onInstances=false`. These are expected target grants derived from the
+repository PermissionGroup, including rows naming platform targets such as
+`Subsystems/PlatformSubsystem`. An unexplained principal remains server-only. Missing derived
+grants require deploying the PermissionGroup; twaco never adds them to a target's XML or push.
+Status, diff and deploy compare exact explained target principals without treating them as drift.
+Affected hashes carry `pg1`; older raw permission baselines need recording once. A PermissionGroup
+deploy also records matching repository targets outside its selection, without importing them.
+Pull, adopt and `init --from-server` leave the explained principals out of the files they write.
+Known gap: targets that only the old bytes of a changed PermissionGroup covered (a removed row) are
+not re-recorded by its deploy; run `twaco entity status --record` for them.
+
+The derivation assumes singular entity types map to their collection (or accepts a collection
+name directly), empty run-time resources mean `*`, and non-run-time resources are empty.
+Visibility rows use the Visibility action. `isPermitted=false` is a deny; absent values follow
+the existing permission reader's allow default. The instance mapping is inferred from twaco's
+existing permission model, not verified by this probe: on ThingTemplates and ThingShapes,
+`onInstances=true` selects the corresponding `Instance...Permissions` block; false selects the
+entity's own block. Other target types use their own blocks.
+
 ## Validators can save a form on load (verified on 10.2 Runtime)
 
 A `validator2` with `AutoEvaluate=true` evaluates as soon as loaded values reach its inputs.
@@ -12,6 +37,18 @@ For example, `Acme.Records.GetRecord` loading a title into a popup field can tri
 and wire the Save button's `Clicked` event to `Evaluate` so validation runs only when asked.
 For a one-record form, `data:Acme.Records.GetRecord.title` reads the first row through All Data;
 `data:Acme.Records.GetRecord[SelectedRows].title` stays empty until a row is selected.
+
+SelectedRows field diagnostics read `Data.<section>.Services[]` by `Name` (the call alias), with
+`Properties.AutoSelectFirstRow=true` enabling automatic service selection. Missing/false is off.
+`DataBindings` identifies fields with `SourceArea="Data"`, `SourceDetails="SelectedRows"` and
+`PropertyMaps[].SourcePropertyType="Field"`; `SourceSection` and `SourceId` identify the call.
+All Data reads the first row. Selecting widgets must receive that same call's whole AllData
+through an InfoTable map to their Data property: ptcsgrid with RowSelection single/multiple,
+ptcscollection with SelectionMode single/multiple and HandleSelectionUpdates enabled, or an
+enabled ptcslist/ptcsdropdown. Composer propagates their selection through the shared Data
+binding; there is no extra two-way flag in twaco's binding shape. Other widgets, extension
+selectors and script-driven selection are conservatively not inferred. Bind/on hints and the
+bindings gate/mashup validation share this advisory; the service option is never changed.
 
 ## Networks are declarative forests (verified on 10.1)
 
@@ -892,3 +929,73 @@ clear `::part(property-group)` too. Values are capped by ValueMaxWidth (250px by
 raise it for long values. A fixed-height container clips a property display whose values
 wrap (a 220px panel did at 1280px width): use `flex-size` range with no max height. A
 ptcstextarea styles its text through `::part(text-value)`. Field-verified on 10.2.1.
+
+## PermissionGroup grants require onInstances (10.2.1)
+
+`PermissionGroup.UpdateEntityPermissions` fails with "Field [onInstances] is missing or null"
+unless every row sets `onInstances`, including Visibility and DesignTime rows. Its inputs
+`entityPermissionsToSet` and `entityPermissionsToDelete` are EntityPermission infotables.
+Exports put EntityPermission rows directly under EntityPermissions, with entityName,
+entityType, permissionCategory, permissionName and resourceName identifying a grant;
+isPermitted and onInstances are values. Visibility and DesignTime exports use resourceName=""
+where QueryEntityPermissions returns null. Field-verified on 10.2.1-b148.
+
+## RBAC RunTime grants also need Visibility (10.2.1)
+
+A RunTime grant without Visibility still answers 404. Give the caller Visibility as well as
+the RunTime permission needed for the operation. Field-verified on 10.2.1-b148.
+
+## RBAC-only users need mashup bootstrap services (10.2.1)
+
+A user whose access comes only through RBAC sees an empty mashup until permitted to call
+PlatformSubsystem's `GetMashupConfiguration`, `GetAllStyleDefinitions`,
+`GetAllStateDefinitions` and `GetAllStyleThemes`. Field-verified on 10.2.1-b148.
+
+## Permission checks include roles (10.2.1)
+
+`CheckPermissionForUser` and `CheckDesignTimePermissionForUser` include roles. There is no
+per-user visibility check. Field-verified on 10.2.1-b148.
+
+## Role imports replace Members; Group imports keep them (10.2.1)
+
+Importing a Role replaces its Members; importing a Group keeps them. Role and PermissionGroup
+exports have direct `Members/Member` rows with name and type (User, Group or PermissionGroup).
+For a Role whose PermissionGroup members belong in source and User/Group members are assigned
+at run time, use `[[server_owned]] entities = ["Roles/Acme.Operator"]` with
+`parts = ["members:User,Group"]`; plain `members` preserves all types. Field-verified on
+10.2.1-b148. Role services `AddMembers`, `DeleteMembers` and `UpdateMembers` use EntityReference
+infotables (`name`, `type`); UpdateMembers takes membersToAdd and membersToDelete.
+
+## Read-only ptcsrte drops links combined with code
+
+Verified on ThingWorx 10.2.1: the read-only `ptcsrte` sanitizer drops an `<a href>`
+combined with `<code>`, in either nesting order. A plain `<a>` survives. Use a plain
+link when its destination must remain available in read-only content.
+
+## Mashup Builder filter subproperties setting resets
+
+Verified on ThingWorx 10.2.1: with **Include Subproperties in Filter** OFF, matching
+INFOTABLE parameters still appear in Mashup Builder, collapsed. The setting is
+re-checked on every Builder load; it does not persist as OFF.
+
+## Mashup Builder splitter saves a per-user Custom workspace
+
+Verified on ThingWorx 10.2.1: dragging a Mashup Builder splitter saves a per-user
+**Custom** workspace on the server. A changed pane layout can therefore follow the
+user into another session.
+
+## Rich Text Editor text hides a button label from Playwright text lookups
+
+Verified on ThingWorx 10.2.1: once a Rich Text Editor holds text that repeats a button label,
+Playwright `get_by_text(label).first` matches the hidden editor text instead of the button. Filter
+with `locator("visible=true")`, as in `get_by_text(label).locator("visible=true").first`.
+
+## Wrapping responsive rows keep their first-line height (10.2.1)
+
+Field-verified on ThingWorx 10.2.1: a responsive flexcontainer row with
+`flex-wrap: wrap` can measure 88px high while its content has a 188px
+`scrollHeight`. Later lines overflow the panel and their values disappear.
+Set `height: auto !important; min-height: 0 !important; max-height: none !important;`
+on the row's bounding box, its inner `.widget-flexcontainer`, and every parent
+up to the panel. This also applies when wrapping content arrives after layout,
+such as labels filled by a service in `Acme.Search_MU`.

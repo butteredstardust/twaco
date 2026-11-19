@@ -191,6 +191,13 @@ fn analyse_in(
             .unwrap_or(&file.path)
             .to_string_lossy()
             .replace('\\', "/");
+        for (_, message) in selected_rows_hints(&content) {
+            report.problems.push(Problem {
+                file: relative.clone(),
+                rule: SELECTED_ROWS_RULE.into(),
+                message,
+            });
+        }
         let sections = data_sections(&content);
         for section in sections.values() {
             for service in &section.services {
@@ -371,6 +378,86 @@ fn analyse_in(
         .problems
         .sort_by(|a, b| (&a.file, &a.rule, &a.message).cmp(&(&b.file, &b.rule, &b.message)));
     (report, usage)
+}
+
+pub(crate) const SELECTED_ROWS_RULE: &str = "selected-rows-without-selection";
+
+/// Composer's AllData binding shares selection with these built-in selecting widgets.
+/// Extensions and script-driven selection are deliberately not inferred.
+pub(crate) fn selected_rows_hints(content: &Value) -> Vec<(usize, String)> {
+    let bindings = content["DataBindings"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    let document = mashup::edit::parse(&mashup::to_sidecar(content)).ok();
+    let mut hints = Vec::new();
+    for (index, binding) in bindings.iter().enumerate() {
+        if binding["SourceArea"] != "Data" || binding["SourceDetails"] != "SelectedRows" {
+            continue;
+        }
+        let section = binding["SourceSection"].as_str().unwrap_or_default();
+        let call = binding["SourceId"].as_str().unwrap_or_default();
+        let automatic = content["Data"][section]["Services"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|service| service["Name"] == call)
+            .any(|service| service["Properties"]["AutoSelectFirstRow"] == true);
+        let selecting = document.as_ref().is_some_and(|document| {
+            bindings.iter().any(|other| {
+                if other["SourceArea"] != "Data"
+                    || other["SourceSection"] != section
+                    || other["SourceId"] != call
+                    || other["SourceDetails"] != "AllData"
+                    || other["TargetArea"] != "UI"
+                {
+                    return false;
+                }
+                let Some(id) = other["TargetId"].as_str() else {
+                    return false;
+                };
+                let Ok(widget) = document.find_exact(id) else {
+                    return false;
+                };
+                let properties = &document.at(&widget.path)["Properties"];
+                let selection = match widget.type_id.as_str() {
+                    "ptcsgrid" => properties["RowSelection"]
+                        .as_str()
+                        .is_some_and(|s| matches!(s, "single" | "multiple")),
+                    "ptcscollection" => {
+                        properties["SelectionMode"]
+                            .as_str()
+                            .is_some_and(|s| matches!(s, "single" | "multiple"))
+                            && properties["HandleSelectionUpdates"] != false
+                    }
+                    "ptcslist" | "ptcsdropdown" => properties["Disabled"] != true,
+                    _ => false,
+                };
+                selection
+                    && other["PropertyMaps"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .any(|map| {
+                            map["TargetProperty"] == "Data"
+                                && map["SourcePropertyType"] == "InfoTable"
+                        })
+            })
+        });
+        if automatic || selecting {
+            continue;
+        }
+        for map in binding["PropertyMaps"].as_array().into_iter().flatten() {
+            if map["SourcePropertyType"] != "Field" {
+                continue;
+            }
+            let field = map["SourceProperty"].as_str().unwrap_or_default();
+            let target = binding["TargetId"].as_str().unwrap_or_default();
+            let property = map["TargetProperty"].as_str().unwrap_or_default();
+            hints.push((index, format!("{section}.{call}[SelectedRows].{field} -> {target}.{property} fills only after a row is selected, even for a one-row result; no selecting widget is bound to All Data and automatic first-row selection is off; bind the field from All Data to read the first row, or turn on the service's Properties.AutoSelectFirstRow")));
+        }
+    }
+    hints
 }
 
 /// The properties the catalogue types `FIELDNAME` that name a field of the widget's own `Data`.
@@ -1228,5 +1315,90 @@ mod tests {
             .find(|gate| gate.name == GATE)
             .unwrap()
             .blocks());
+    }
+    fn selected_content() -> Value {
+        serde_json::json!({
+            "Data": {"Shape": {"EntityName":"P.Shape", "EntityType":"DynamicThingShapes", "Services":[{"Name":"Svc1", "Target":"Svc", "Properties":{"AutoSelectFirstRow":false}}]}},
+            "UI":{"Properties":{"Id":"mashup-root", "Type":"mashup"}, "Widgets":[]},
+            "DataBindings":[{"SourceArea":"Data", "SourceSection":"Shape", "SourceId":"Svc1", "SourceDetails":"SelectedRows", "TargetArea":"UI", "TargetId":"field", "PropertyMaps":[{"SourcePropertyType":"Field", "SourceProperty":"good", "TargetProperty":"Text"}]}]
+        })
+    }
+
+    #[test]
+    fn selected_rows_hint_respects_service_automatic_selection_and_field_selector() {
+        let mut content = selected_content();
+        let hints = selected_rows_hints(&content);
+        assert_eq!(hints.len(), 1);
+        for name in [
+            "Svc1",
+            "good",
+            "field.Text",
+            "All Data",
+            "AutoSelectFirstRow",
+        ] {
+            assert!(hints[0].1.contains(name));
+        }
+        content["Data"]["Shape"]["Services"][0]["Properties"]["AutoSelectFirstRow"] =
+            Value::Bool(true);
+        assert!(selected_rows_hints(&content).is_empty());
+        content["Data"]["Shape"]["Services"][0]["Properties"]["AutoSelectFirstRow"] =
+            Value::Bool(false);
+        content["DataBindings"][0]["SourceDetails"] = Value::from("AllData");
+        assert!(selected_rows_hints(&content).is_empty());
+        content["DataBindings"][0]["SourceDetails"] = Value::from("SelectedRows");
+        content["DataBindings"][0]["PropertyMaps"][0]["SourcePropertyType"] =
+            Value::from("InfoTable");
+        assert!(selected_rows_hints(&content).is_empty());
+    }
+
+    #[test]
+    fn selected_rows_hint_requires_a_selecting_widget_bound_to_the_same_call() {
+        for (kind, setting) in [
+            ("ptcsgrid", "RowSelection"),
+            ("ptcscollection", "SelectionMode"),
+            ("ptcslist", ""),
+            ("ptcsdropdown", ""),
+        ] {
+            let mut content = selected_content();
+            let mut properties = serde_json::json!({"Id":"selector", "Type":kind});
+            if !setting.is_empty() {
+                properties[setting] = Value::from("single");
+            }
+            content["UI"]["Widgets"] = serde_json::json!([{"Properties":properties, "Widgets":[]}]);
+            content["DataBindings"].as_array_mut().unwrap().push(serde_json::json!({"SourceArea":"Data", "SourceSection":"Shape", "SourceId":"Svc1", "SourceDetails":"AllData", "TargetArea":"UI", "TargetId":"selector", "PropertyMaps":[{"SourcePropertyType":"InfoTable", "TargetProperty":"Data"}]}));
+            assert!(selected_rows_hints(&content).is_empty(), "{kind}");
+            content["DataBindings"][1]["SourceId"] = Value::from("OtherAlias");
+            assert_eq!(selected_rows_hints(&content).len(), 1, "{kind}");
+            content["DataBindings"][1]["SourceId"] = Value::from("Svc1");
+            if !setting.is_empty() {
+                content["UI"]["Widgets"][0]["Properties"][setting] = Value::from("none");
+                assert_eq!(selected_rows_hints(&content).len(), 1, "{kind}");
+            }
+        }
+    }
+
+    #[test]
+    fn selected_rows_findings_are_advisory_in_both_validation_and_bindings_gate() {
+        let (_dir, solution) = solution(&selected_content().to_string());
+        let report = super::super::check::run(&solution);
+        let gate = report.gates.iter().find(|g| g.name == GATE).unwrap();
+        assert!(!gate.findings.iter().any(|f| f.rule == SELECTED_ROWS_RULE));
+        assert_eq!(
+            gate.warnings
+                .iter()
+                .filter(|f| f.rule == SELECTED_ROWS_RULE)
+                .count(),
+            1
+        );
+        let reports = super::super::mashup::validate::validate(&solution, None).unwrap();
+        let finding = reports
+            .iter()
+            .flat_map(|r| &r.problems)
+            .find(|p| p.rule == SELECTED_ROWS_RULE)
+            .unwrap();
+        assert_eq!(
+            finding.severity,
+            super::super::mashup::validate::Severity::Advisory
+        );
     }
 }

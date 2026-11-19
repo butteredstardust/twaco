@@ -250,6 +250,7 @@ fn push_uses_exporter_parts_verifies_readback_and_sends_new_entities_unchanged()
             ..Fake::default()
         };
         let target = push::Target {
+            derived: Default::default(),
             key: EntityKey::new(format!("{kind}s"), "Acme.Entity").unwrap(),
             document: push::EntityDocument {
                 file_name: "Acme.Entity.xml",
@@ -391,6 +392,7 @@ fn deploy_plans_allow_owned_drift_refuse_source_drift_and_preserve_bundle_values
         file_name: "Acme.Project.xml".into(),
         bytes: local.clone(),
         entities: vec![deploy::Entity {
+            derived: Default::default(),
             collection: "Things".into(),
             name: "Acme.Entity".into(),
             bytes: local.clone(),
@@ -538,6 +540,7 @@ fn exporter_failure_refuses_before_any_import_and_keeps_the_baseline_absent() {
     let dir = tempfile::tempdir().unwrap();
     let bytes = document("Group", "<Members/>");
     let target = push::Target {
+        derived: Default::default(),
         key: EntityKey::new("Groups", "Acme.Entity").unwrap(),
         document: push::EntityDocument {
             file_name: "Acme.Entity.xml",
@@ -620,6 +623,7 @@ fn column_preservation_refuses_unmatched_rows_before_sending_anything() {
     };
     let dir = tempfile::tempdir().unwrap();
     let target = push::Target {
+        derived: Default::default(),
         key: EntityKey::new("Things", "Acme.Entity").unwrap(),
         document: push::EntityDocument {
             file_name: "Acme.Entity.xml",
@@ -660,6 +664,7 @@ fn an_encrypted_owned_value_is_never_carried_and_push_refuses_to_clear_it_withou
         ["configuration-table:ConnectionInfo.password"]
     );
     let target = push::Target {
+        derived: Default::default(),
         key: EntityKey::new("Things", "Acme.Entity").unwrap(),
         document: push::EntityDocument {
             file_name: "Acme.Entity.xml",
@@ -682,6 +687,7 @@ fn an_encrypted_owned_value_is_never_carried_and_push_refuses_to_clear_it_withou
         .replace("Acme.Host", "Acme.NewHost")
         .into_bytes();
     let target = push::Target {
+        derived: Default::default(),
         document: push::EntityDocument {
             file_name: "Acme.Entity.xml",
             bytes: &changed,
@@ -1050,5 +1056,237 @@ fn encrypted_selector_groups_split_by_actual_repository_values() {
             ]
         );
         assert_eq!(labels(&supplied), ["property-values:secret"]);
+    }
+}
+
+#[test]
+fn rbac_member_ownership_is_typed_in_diff_status_and_deploy() {
+    for kind in ["Role", "PermissionGroup", "Group"] {
+        for selector in ["members", "members:User,Group"] {
+            let selected = part(selector);
+            let body = |members: &str| {
+                if kind == "Group" {
+                    format!("<Members><Members>{members}</Members></Members>")
+                } else {
+                    format!("<Members>{members}</Members>")
+                }
+            };
+            let local = document(kind, &body("<Member type='PermissionGroup' name='Acme.Access'/><Member type='User' name='Acme.Same'/>"));
+            let remote = document(kind, &body("<Member type='PermissionGroup' name='Acme.Access'/><Member type='Group' name='Acme.Same'/><Member type='User' name='Acme.Runtime'/>"));
+            assert_eq!(
+                normalise::hash_with_parts(&local, &selected).unwrap(),
+                normalise::hash_with_parts(&remote, &selected).unwrap()
+            );
+            assert!(normalise::read_back_differences(&local, &remote, &selected).is_empty());
+            let sent = preserve(&local, &remote, &selected).unwrap();
+            assert!(String::from_utf8_lossy(&sent).contains("Acme.Runtime"));
+            assert!(String::from_utf8_lossy(&sent).contains("type='Group' name='Acme.Same'"));
+            assert!(!String::from_utf8_lossy(&sent).contains("type='User' name='Acme.Same'"));
+            assert_eq!(preserve(&sent, &remote, &selected).unwrap(), sent);
+            if selector != "members" {
+                let changed = String::from_utf8(remote.clone())
+                    .unwrap()
+                    .replace("Acme.Access", "Acme.Other");
+                assert_ne!(
+                    normalise::hash_with_parts(&local, &selected).unwrap(),
+                    normalise::hash_with_parts(changed.as_bytes(), &selected).unwrap()
+                );
+                assert!(String::from_utf8_lossy(
+                    &preserve(&local, changed.as_bytes(), &selected).unwrap()
+                )
+                .contains("Acme.Access"));
+            }
+            let fake = Fake {
+                held: Mutex::new(Some(remote)),
+                ..Fake::default()
+            };
+            let mut bundle = deploy::ProjectBundle {
+                project: "Acme.Project".into(),
+                file_name: "Acme.Project.xml".into(),
+                bytes: local.clone(),
+                entities: vec![deploy::Entity {
+                    derived: Default::default(),
+                    collection: format!("{kind}s"),
+                    name: "Acme.Entity".into(),
+                    bytes: local.clone(),
+                    server_owned: selected.clone(),
+                }],
+                scripts: Vec::new(),
+                deploy: None,
+                post_import: Vec::new(),
+                framework: false,
+            };
+            assert_eq!(
+                deploy::decide_all(&fake, &Baseline::default(), &[bundle.clone()]).unwrap()[0]
+                    .decision,
+                push::Decision::AlreadyThere
+            );
+            bundle.entities[0].bytes = String::from_utf8(local)
+                .unwrap()
+                .replace("ours", "updated")
+                .into_bytes();
+            bundle.bytes = bundle.entities[0].bytes.clone();
+            deploy::run(
+                &fake,
+                &Store::default(),
+                &Profile {
+                    url: "http://server".into(),
+                    username: "fixture".into(),
+                    password: "fixture".into(),
+                    app_key: None,
+                    sdk: None,
+                    extra: BTreeMap::new(),
+                },
+                &[bundle],
+                true,
+                true,
+                false,
+            )
+            .unwrap();
+            assert!(
+                String::from_utf8_lossy(&fake.imports.lock().unwrap()[0]).contains("Acme.Runtime")
+            );
+        }
+    }
+}
+
+#[test]
+fn typed_member_rules_have_canonical_unions_and_reject_invalid_types() {
+    for invalid in [
+        "members:",
+        "members:User,",
+        "members:Unknown",
+        "members:user",
+        "members:User, Group",
+    ] {
+        assert!(Part::try_from(invalid.to_string()).is_err());
+    }
+    let rules = |parts| {
+        vec![Rule {
+            entities: vec!["Roles/Acme.*".into()],
+            parts,
+            built_in: false,
+        }]
+    };
+    let separate = parts(
+        &rules([part("members:User"), part("members:Group")].concat()),
+        "Roles",
+        "Acme.Access",
+    );
+    let together = parts(
+        &rules(part("members:Group,User,User")),
+        "Roles",
+        "Acme.Access",
+    );
+    assert_eq!(labels(&separate), labels(&together));
+    assert_eq!(
+        labels(&parts(
+            &rules([part("members"), together].concat()),
+            "Roles",
+            "Acme.Access"
+        )),
+        ["members"]
+    );
+}
+
+#[test]
+fn role_status_ignores_owned_members_and_records_baseline() {
+    let root = tempfile::tempdir().unwrap();
+    let config = root.path().join("twaco.toml");
+    std::fs::write(&config, "[[project]]\nname='Acme.Project'\n[[server_owned]]\nentities=['Roles/Acme.Entity']\nparts=['members']").unwrap();
+    std::fs::create_dir(root.path().join("Roles")).unwrap();
+    let local = document("Role", "<Members/>");
+    std::fs::write(root.path().join("Roles/Acme.Entity.xml"), &local).unwrap();
+    let solution = Solution::load(&config).unwrap();
+    let fake = Fake {
+        held: Mutex::new(Some(document(
+            "Role",
+            "<Members><Member name=\"Acme.Server\"/></Members>",
+        ))),
+        ..Fake::default()
+    };
+    let entities = workspace::discover(&solution).entities;
+    let mut baseline = Baseline::default();
+    let (mut statuses, errors) = status::compute_with_progress(
+        &fake,
+        &baseline,
+        &entities,
+        &solution.server_owned,
+        &[],
+        &progress::NONE,
+    );
+    assert!(errors.is_empty());
+    assert_eq!(statuses[0].verdict, status::Verdict::NoBaselineSame);
+    assert_eq!(statuses[0].server_owned, ["members"]);
+    assert_eq!(status::record_matching(&mut baseline, &mut statuses), 1);
+    assert_eq!(statuses[0].verdict, status::Verdict::InSync);
+    let (statuses, _) =
+        status::compute_with_progress(&fake, &baseline, &entities, &[], &[], &progress::NONE);
+    assert_eq!(statuses[0].verdict, status::Verdict::NoBaselineDiffers);
+    assert!(statuses[0].local_baseline.is_none());
+}
+
+#[test]
+fn permissiongroup_status_ignores_owned_members_and_records_baseline() {
+    let root = tempfile::tempdir().unwrap();
+    let config = root.path().join("twaco.toml");
+    std::fs::write(&config, "[[project]]\nname='Acme.Project'\n[[server_owned]]\nentities=['PermissionGroups/Acme.Entity']\nparts=['members']").unwrap();
+    std::fs::create_dir(root.path().join("PermissionGroups")).unwrap();
+    let local = document("PermissionGroup", "<Members/>");
+    std::fs::write(root.path().join("PermissionGroups/Acme.Entity.xml"), &local).unwrap();
+    let solution = Solution::load(&config).unwrap();
+    let fake = Fake {
+        held: Mutex::new(Some(document(
+            "PermissionGroup",
+            "<Members><Member name=\"Acme.Server\"/></Members>",
+        ))),
+        ..Fake::default()
+    };
+    let entities = workspace::discover(&solution).entities;
+    let mut baseline = Baseline::default();
+    let (mut statuses, errors) = status::compute_with_progress(
+        &fake,
+        &baseline,
+        &entities,
+        &solution.server_owned,
+        &[],
+        &progress::NONE,
+    );
+    assert!(errors.is_empty());
+    assert_eq!(statuses[0].verdict, status::Verdict::NoBaselineSame);
+    assert_eq!(statuses[0].server_owned, ["members"]);
+    assert_eq!(status::record_matching(&mut baseline, &mut statuses), 1);
+    assert_eq!(statuses[0].verdict, status::Verdict::InSync);
+    let (statuses, _) =
+        status::compute_with_progress(&fake, &baseline, &entities, &[], &[], &progress::NONE);
+    assert_eq!(statuses[0].verdict, status::Verdict::NoBaselineDiffers);
+    assert!(statuses[0].local_baseline.is_none());
+}
+
+#[test]
+fn typed_members_empty_scaffolding_is_ignored_and_unrelated_members_are_compared() {
+    let selected = part("members:User");
+    for kind in ["Group", "Role", "PermissionGroup"] {
+        let empty = document(kind, "");
+        let body = if kind == "Group" {
+            "<Members><Members><Member type='User' name='Acme.Runtime'/></Members></Members>"
+        } else {
+            "<Members><Member type='User' name='Acme.Runtime'/></Members>"
+        };
+        let remote = document(kind, body);
+        assert_eq!(
+            normalise::hash_with_parts(&empty, &selected).unwrap(),
+            normalise::hash_with_parts(&remote, &selected).unwrap()
+        );
+        let sent = preserve(&empty, &remote, &selected).unwrap();
+        assert!(String::from_utf8_lossy(&sent).contains("Acme.Runtime"));
+        let unrelated = document(
+            kind,
+            "<Other><Members><Member type='User' name='Acme.Runtime'/></Members></Other>",
+        );
+        assert_ne!(
+            normalise::hash_with_parts(&empty, &selected).unwrap(),
+            normalise::hash_with_parts(&unrelated, &selected).unwrap()
+        );
     }
 }

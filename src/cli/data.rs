@@ -11,6 +11,10 @@ use twaco::core::{config_table, datatable_copy, db, profile, server, workspace};
 #[derive(Debug, clap::Args)]
 #[group(skip)]
 pub(crate) struct ConfigTable {
+    #[arg(long = "row", value_name = "k=v")]
+    pub(crate) rows: Vec<String>,
+    #[command(flatten)]
+    pub(crate) json: Json,
     #[arg(long = "backup", value_name = "file", value_parser = super::flags::path())]
     pub(crate) backup: Option<PathBuf>,
     #[arg(long = "restore", value_name = "file", value_parser = super::flags::path())]
@@ -34,8 +38,21 @@ pub(crate) struct ConfigTable {
 /// `--restore` is a plan unless `--apply`, as every command that writes to a server is. It
 /// refuses a backup made from another Thing or table, and reads the table back afterwards.
 pub(crate) fn config_table(solution: &Solution, args: &ConfigTable) -> u8 {
-    let listing = args.operands.len() == 1;
-    if !listing && args.operands.len() != 2 {
+    let setting = args.operands.first().is_some_and(|s| s == "set");
+    let operands = if setting {
+        &args.operands[1..]
+    } else {
+        &args.operands[..]
+    };
+    if (!setting && !args.rows.is_empty()) || (setting && args.rows.is_empty()) {
+        eprintln!(
+            "{} config-table set needs --row k=v[,k=v...]",
+            style::prefix()
+        );
+        return FAILED;
+    }
+    let listing = operands.len() == 1 && !setting;
+    if !listing && operands.len() != 2 {
         eprintln!("{} config-table needs <thing> [<table>]", style::prefix());
         return FAILED;
     }
@@ -45,7 +62,7 @@ pub(crate) fn config_table(solution: &Solution, args: &ConfigTable) -> u8 {
         eprintln!(
             "{} --backup, --restore, --compare and --diff need a <table>; `twaco config-table {}` lists them",
             style::prefix(),
-            args.operands[0]
+            operands[0]
         );
         return FAILED;
     }
@@ -54,6 +71,7 @@ pub(crate) fn config_table(solution: &Solution, args: &ConfigTable) -> u8 {
         args.restore.is_some(),
         args.compare.is_some(),
         args.diff,
+        setting,
     ];
     if modes.iter().filter(|m| **m).count() > 1 {
         eprintln!(
@@ -62,7 +80,7 @@ pub(crate) fn config_table(solution: &Solution, args: &ConfigTable) -> u8 {
         );
         return FAILED;
     }
-    if args.apply.apply && args.restore.is_none() {
+    if args.apply.apply && args.restore.is_none() && !setting {
         eprintln!(
             "{} --apply only means something with --restore",
             style::prefix()
@@ -72,7 +90,7 @@ pub(crate) fn config_table(solution: &Solution, args: &ConfigTable) -> u8 {
     // A Thing in the solution may be named by its last segment, as elsewhere. One that is not in
     // the solution is taken as given, except by --diff, which needs the repository's copy.
     let found = workspace::discover(solution).entities;
-    let (thing, entity_file) = match workspace::resolve(&found, &args.operands[0]) {
+    let (thing, entity_file) = match workspace::resolve(&found, &operands[0]) {
         Ok(entity) if entity.info.collection == "Things" => {
             (entity.info.name.clone(), Some(entity.path.clone()))
         }
@@ -86,20 +104,29 @@ pub(crate) fn config_table(solution: &Solution, args: &ConfigTable) -> u8 {
             return FAILED;
         }
         Err(workspace::WorkspaceError::UnknownEntity { .. }) if !args.diff => {
-            (args.operands[0].clone(), None)
+            (operands[0].clone(), None)
         }
         Err(error) => {
             eprintln!("{} {error}", style::prefix());
             return FAILED;
         }
     };
-    let table = args.operands.get(1).cloned().unwrap_or_default();
+    let table = operands.get(1).cloned().unwrap_or_default();
     let label = if listing {
         thing.clone()
     } else {
         format!("{thing}.{table}")
     };
-    let action = if listing {
+    let action = if setting {
+        commands::config_table::ConfigTableAction::Set {
+            rows: args.rows.clone(),
+            mode: if args.apply.apply {
+                Mode::Apply
+            } else {
+                Mode::Plan
+            },
+        }
+    } else if listing {
         commands::config_table::ConfigTableAction::List
     } else if let Some(path) = &args.restore {
         commands::config_table::ConfigTableAction::Restore {
@@ -150,6 +177,19 @@ pub(crate) fn config_table(solution: &Solution, args: &ConfigTable) -> u8 {
     };
     print_notices(&notices);
     match outcome {
+        commands::config_table::ConfigTableOutcome::Set { report, .. } => {
+            if args.json.json {
+                println!("{}", serde_json::to_string_pretty(&report).unwrap());
+            } else {
+                println!(
+                    "{label}: {} row(s) via {}; {}",
+                    report["rows_written"],
+                    report["service"].as_str().unwrap(),
+                    report["note"].as_str().unwrap()
+                );
+            }
+            OK
+        }
         commands::config_table::ConfigTableOutcome::Listed { tables, .. } => {
             if tables.is_empty() {
                 println!("{label} has no configuration tables");

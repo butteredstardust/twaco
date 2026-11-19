@@ -366,6 +366,10 @@ pub(crate) enum EntityNewKind {
     Project,
     #[serde(rename = "group")]
     Group,
+    #[serde(rename = "role")]
+    Role,
+    #[serde(rename = "permission-group")]
+    PermissionGroup,
     #[serde(rename = "thing")]
     Thing,
     #[serde(rename = "thing-template")]
@@ -407,6 +411,8 @@ impl From<EntityNewKind> for crate::core::entity::new::Kind {
         match value {
             EntityNewKind::Project => Self::Project,
             EntityNewKind::Group => Self::Group,
+            EntityNewKind::Role => Self::Role,
+            EntityNewKind::PermissionGroup => Self::PermissionGroup,
             EntityNewKind::Thing => Self::Thing,
             EntityNewKind::ThingTemplate => Self::ThingTemplate,
             EntityNewKind::ThingShape => Self::ThingShape,
@@ -431,7 +437,7 @@ impl From<EntityNewKind> for crate::core::entity::new::Kind {
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct EntityNewRequest {
-    /// `project`, `group`, `thing`, `thing-template`, `thing-shape`, `data-shape`, `timer`, `scheduler`, `data-table`, `stream`, `value-stream`, `media`, `style`, `state`, `menu`, `theme`, `network`, `mcp-namespace` or `ai-agent`.
+    /// `project`, `group`, `role`, `permission-group`, `thing`, `thing-template`, `thing-shape`, `data-shape`, `timer`, `scheduler`, `data-table`, `stream`, `value-stream`, `media`, `style`, `state`, `menu`, `theme`, `network`, `mcp-namespace` or `ai-agent`.
     pub(crate) kind: EntityNewKind,
     /// The entity name.
     pub(crate) name: String,
@@ -561,6 +567,10 @@ pub(crate) struct EntityNewRequest {
 /// plan and apply all Composer-style changes through one dry-run-by-default tool.
 #[derive(Clone, Copy, Debug, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
 pub(crate) enum EntityEditAction {
+    #[serde(rename = "member_add")]
+    MemberAdd,
+    #[serde(rename = "member_remove")]
+    MemberRemove,
     #[serde(rename = "entity_set")]
     EntitySet,
     #[serde(rename = "menu_item_set")]
@@ -633,7 +643,7 @@ pub(crate) struct EntityEditRequest {
     /// The property, subscription or service name.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) name: Absent<String>,
-    /// The property base type: required for property_add; for property_set a new type.
+    /// Property base type, or member_add/member_remove: User, Group or PermissionGroup.
     #[serde(default, rename = "type", skip_serializing_if = "Absent::is_absent")]
     pub(crate) base_type: Absent<String>,
     /// The property default value.
@@ -1000,6 +1010,15 @@ pub(crate) struct MashupParameterRequest {
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct MashupRecipeRequest {
+    /// label-pairs: ordered field[:Caption] entries; omitted means all DataShape fields.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) fields: Absent<Vec<String>>,
+    /// label-pairs: number of columns, one per field by default, above zero.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) label_columns: Absent<u32>,
+    /// label-pairs: widget inside or beside the destination to remove with its bindings.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) replace: Absent<String>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) toggle: Absent<String>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
@@ -1010,7 +1029,7 @@ pub(crate) struct MashupRecipeRequest {
     pub(crate) tab: Absent<String>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) start: Absent<String>,
-    /// enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, picker, tracker, set-on-click, nested-menu, navigate-on-click or collapsible.
+    /// enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, picker, tracker, set-on-click, nested-menu, navigate-on-click or collapsible; label-pairs uses widget as the responsive container, data, fields, title, label_columns and replace.
     pub(crate) recipe: String,
     /// The mashup to write it in.
     pub(crate) mashup: String,

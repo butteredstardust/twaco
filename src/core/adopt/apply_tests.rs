@@ -1169,3 +1169,36 @@ fn a_data_shape_they_added_comes_with_its_fields_json() {
     // The shape already here was not changed, so its sidecar is left alone.
     assert!(read(&solution, "src/P.D/fields.json").contains("\"old\""));
 }
+
+#[test]
+fn adopted_bytes_never_carry_the_principals_a_permission_group_explains() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("twaco.toml"),
+        "[[project]]\nname='Acme.App'\n",
+    )
+    .unwrap();
+    std::fs::create_dir(dir.path().join("Things")).unwrap();
+    std::fs::create_dir(dir.path().join("PermissionGroups")).unwrap();
+    std::fs::write(
+        dir.path().join("PermissionGroups/Acme.G.xml"),
+        "<Entities><PermissionGroups><PermissionGroup name=\"Acme.G\" projectName=\"Acme.App\"><EntityPermissions><EntityPermission entityType=\"Thing\" entityName=\"Acme.Manager\" permissionCategory=\"Visibility\" permissionName=\"Visibility\" resourceName=\"\" isPermitted=\"true\" onInstances=\"false\"/></EntityPermissions></PermissionGroup></PermissionGroups></Entities>",
+    )
+    .unwrap();
+    let path = dir.path().join("Things/Acme.Manager.xml");
+    let before = "<Entities><Things><Thing name=\"Acme.Manager\" projectName=\"Acme.App\" description=\"a\"></Thing></Things></Entities>";
+    std::fs::write(&path, before).unwrap();
+    let theirs = before.replace("></Thing>", "><VisibilityPermissions><Visibility><Principal isPermitted=\"true\" name=\"Acme.G\" type=\"PermissionGroup\"/><Principal isPermitted=\"true\" name=\"Acme.Other\" type=\"PermissionGroup\"/></Visibility></VisibilityPermissions></Thing>").replace("\"a\"", "\"b\"");
+    let export = dir.path().join("export.xml");
+    std::fs::write(&export, theirs).unwrap();
+    let solution = Solution::load(&dir.path().join("twaco.toml")).unwrap();
+    let report = compare(&solution, &export, &[]).unwrap();
+    let takes = [Take {
+        side: TakeSide::Theirs,
+        target: "Acme.Manager".into(),
+    }];
+    apply(&solution, &export, &report, &takes, &locked(&solution)).unwrap();
+    let written = std::fs::read_to_string(&path).unwrap();
+    assert!(written.contains("description=\"b\""), "{written}");
+    assert!(written.contains("Acme.Other") && !written.contains("name=\"Acme.G\""));
+}

@@ -277,6 +277,9 @@ pub(crate) fn run_with_progress(
     // A failed import stops the projects after it, but the ones before it are on the server by
     // then. They are still read back and recorded, so a partial deploy does not later look like
     // someone else's change to entities this deploy wrote.
+    for warning in report.plans.iter().flat_map(|plan| &plan.warnings) {
+        progress.warning(warning);
+    }
     let mut narrowed = Vec::new();
     for interim in &interim {
         if let Err(source) = remote.import(&interim.file_name(), &interim.narrowed) {
@@ -328,9 +331,10 @@ pub(crate) fn run_with_progress(
                 ));
                 import_failure = Some(DeployError::Import {
                     project: project.project.clone(),
-                    source,
+                    source: Box::new(source),
                     imported: report.imported.clone(),
                     notes: notes.into(),
+                    plans: report.plans.clone(),
                 });
                 break;
             }
@@ -356,36 +360,38 @@ pub(crate) fn run_with_progress(
         let entity = *entity;
         progress.message(&entity.name);
         let sent =
-            normalise::hash_with_parts(&entity.bytes, &entity.server_owned).map_err(|error| {
-                DeployError::Working {
+            normalise::hash_with_grants(&entity.bytes, &entity.server_owned, &entity.derived)
+                .map_err(|error| DeployError::Working {
                     collection: entity.collection.clone(),
                     name: entity.name.clone(),
                     why: error.to_string(),
-                }
-            })?;
+                })?;
         let fetched =
             EntityKey::address(&entity.collection, &entity.name).and_then(|key| remote.fetch(&key));
         let mut only_permissions = false;
         let mut added_dependencies = Vec::new();
         let mut differences = Vec::new();
         let (read_back, error) = match fetched {
-            Ok(Some(bytes)) => match normalise::hash_with_parts(&bytes, &entity.server_owned) {
-                Ok(hash) => {
-                    if hash != sent {
-                        only_permissions =
-                            normalise::differ_only_in_permissions(&entity.bytes, &bytes);
-                        added_dependencies =
-                            normalise::added_project_dependencies(&entity.bytes, &bytes);
-                        differences = normalise::read_back_differences(
-                            &entity.bytes,
-                            &bytes,
-                            &entity.server_owned,
-                        );
+            Ok(Some(bytes)) => {
+                match normalise::hash_with_grants(&bytes, &entity.server_owned, &entity.derived) {
+                    Ok(hash) => {
+                        if hash != sent {
+                            only_permissions =
+                                normalise::differ_only_in_permissions(&entity.bytes, &bytes);
+                            added_dependencies =
+                                normalise::added_project_dependencies(&entity.bytes, &bytes);
+                            differences = normalise::read_back_with_grants(
+                                &entity.bytes,
+                                &bytes,
+                                &entity.server_owned,
+                                &entity.derived,
+                            );
+                        }
+                        (Some(hash), None)
                     }
-                    (Some(hash), None)
+                    Err(why) => (None, Some(why.to_string())),
                 }
-                Err(why) => (None, Some(why.to_string())),
-            },
+            }
             Ok(None) => (None, None),
             Err(why) => (None, Some(why.to_string())),
         };
@@ -561,12 +567,11 @@ pub(crate) fn run_with_progress(
                     name: entity.name.clone(),
                     why: "the entity disappeared after its deploy calls".to_string(),
                 })?;
-            let hash = normalise::hash_with_parts(&bytes, &entity.server_owned).map_err(|why| {
-                DeployError::Server {
-                    collection: entity.collection.clone(),
-                    name: entity.name.clone(),
-                    why: why.to_string(),
-                }
+            let hash = normalise::hash_with_grants(&bytes, &entity.server_owned, &entity.derived)
+                .map_err(|why| DeployError::Server {
+                collection: entity.collection.clone(),
+                name: entity.name.clone(),
+                why: why.to_string(),
             })?;
             Ok((entity, hash))
         });
@@ -616,4 +621,77 @@ pub(crate) fn run_with_progress(
     } else {
         Ok(report)
     }
+}
+
+/// A PermissionGroup import also changes repository targets outside the deploy selection.
+pub(crate) fn record_permission_group_targets(
+    remote: &(dyn super::super::push::Remote + Sync),
+    solution: &super::super::config::Solution,
+    profile: &str,
+    projects: &[ProjectBundle],
+    imported: &[String],
+    progress: &dyn Progress,
+) -> Result<(usize, Vec<String>), DeployError> {
+    use super::super::{baseline::Baseline, permissions::derived::Derived, status, workspace};
+    let failure = |why: String| DeployError::Server {
+        collection: "PermissionGroups".into(),
+        name: "target baselines".into(),
+        why,
+    };
+    let mut affected = Derived::default();
+    for project in projects
+        .iter()
+        .filter(|project| imported.contains(&project.project))
+    {
+        for group in project
+            .entities
+            .iter()
+            .filter(|entity| entity.collection == "PermissionGroups")
+        {
+            affected.add(&group.bytes);
+        }
+    }
+    if affected.targets.is_empty() {
+        return Ok((0, vec![]));
+    }
+    let found = workspace::discover(solution);
+    let derived = Derived::read(&found.entities).map_err(|e| failure(e.to_string()))?;
+    let targets: Vec<_> = found
+        .entities
+        .into_iter()
+        .filter(|file| {
+            affected
+                .targets
+                .contains_key(&(file.info.collection.clone(), file.info.name.clone()))
+        })
+        .collect();
+    if targets.is_empty() {
+        return Ok((0, vec![]));
+    }
+    let mut baseline = Baseline::load(&solution.root, profile).map_err(DeployError::Baseline)?;
+    let (mut statuses, mut notes) = status::compute_with_expected(
+        remote,
+        &baseline,
+        &targets,
+        &solution.server_owned_for(profile),
+        solution.patches_for(profile),
+        progress,
+        &derived,
+    );
+    let recorded = status::record_matching(&mut baseline, &mut statuses);
+    if recorded > 0 {
+        baseline
+            .write(&solution.root, profile)
+            .map_err(DeployError::Baseline)?;
+    }
+    for status in statuses
+        .iter()
+        .filter(|status| status.working != status.server.as_deref().unwrap_or_default())
+    {
+        notes.push(format!(
+            "PermissionGroup target {}/{} differs beyond explained grants; baseline not changed",
+            status.collection, status.name
+        ));
+    }
+    Ok((recorded, notes))
 }

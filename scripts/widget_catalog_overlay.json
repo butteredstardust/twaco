@@ -395,6 +395,9 @@
         "input"
       ],
       "type_display_name": "Text Field",
+      "properties": {
+        "Icon": { "baseType": "IMAGELINK", "isBindingTarget": true }
+      },
       "overrides": {
         "DisplayTrailingZeros": true
       }

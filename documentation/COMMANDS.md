@@ -54,8 +54,9 @@ sync <entity>|--all         sidecars -> entity XML
     --allow-add-remove      add and remove services and fields as the sidecars do
     --relayout              rewrite scripts in the configured CDATA layout
     --json                  print the report as JSON
-fmt [--check] [--entity <name>] [--changed-since <git-rev>]
-                            format service scripts and order subscription Events by alias
+fmt [--check] [--apply] [--entity <name>] [--changed-since <git-rev>]
+                            format scripts and sync their entity XML; order subscription Events and RBAC sets
+    --apply                 apply formatting (the default); incompatible with --check
     --check                 report which files would change, write nothing
     --entity <name>         an entity name or Collection/Name glob to format (repeatable)
     --changed-since <git-rev>  format entity files and sidecars changed since this revision
@@ -178,7 +179,7 @@ mashup validate <mashup>|--all [--json]
                             what in a mashup ThingWorx would load but not honour, or the next edit would
                             trip over: structure, ids, bindings and events that name what is not there,
                             catalogue contracts, several property maps, contained-mashup drift;
-                            exit 1 when it finds any
+                            SelectedRows fields without selection are advisory; exit 1 for errors
 mashup describe <mashup> [--detail] [--json]
                             what a mashup holds and how it is wired, without its XML: the widget tree,
                             each service it calls with what sets each parameter (or that nothing does),
@@ -197,7 +198,9 @@ mashup add <mashup> <widget> [--in <container> [--bottom] | --right-of <widget> 
     --bottom                with --in <column>: in a footer row at the column's foot (a filter
                             panel's Apply; --right-of it adds Clear); later widgets go above it
     --right-of/--left-of/--above/--below <widget>
-                            place beside an existing widget
+                            place beside an existing widget; every add lands immediately next to
+                            the anchor, so to add a series in order chain --right-of from the
+                            widget just added (the output says "next: --right-of <id>")
     --end                   with --right-of: at the far end of the row, which splits into a start
                             and an end group (a label and its value, as the kits lay them out)
     --in-column             with --below: stack within that widget's column of a split row;
@@ -289,8 +292,10 @@ mashup bind <mashup> --from <address> --to <address> [--apply] [--json]
     --from <address>        source address from mashup describe
     --to <address>          target address from mashup describe
                             selected row example: data:Acme.Manager.Load[SelectedRows].name
+                            hints when a selected-row field has no row selector or automatic selection
 mashup on <mashup> --event <address> --invoke <address> [--apply] [--json]
                             run a service or widget service when a mashup event fires; plan unless --apply
+                            hints when selected-row fields have no row selector or automatic selection
     --event <address>       widget/mashup event or data call event (Data_Error on failure)
     --invoke <address>      data call or widget service to run
 mashup gap <mashup> <container> <px> [--apply] [--json]
@@ -308,7 +313,8 @@ mashup move <mashup> <widget> [--in <container> [--bottom] | --right-of <widget>
     --in/--bottom/--right-of/--left-of/--above/--below/--end/--in-column
                             as mashup add; the target must lie outside the moved subtree
 mashup unbind <mashup> --from <address> --to <address> [--apply] [--json]
-                            remove exactly one data binding; plan unless --apply
+                            remove exactly one data binding; plan unless --apply; a binding whose
+                            widget is gone (validate: unknown-widget) is removed by the id it names
     --from <address>        source address from mashup describe
     --to <address>          target address from mashup describe
 mashup off <mashup> --event <address> --invoke <address> [--apply] [--json]
@@ -354,6 +360,11 @@ mashup recipe <recipe> <mashup> [<widget>] [recipe flags] [--apply] [--json]
                             --editable-column makes a listed column (and so the grid) editable
                             --column-editor <field=editor> chooses a typed cell editor (repeatable)
                             --preserve-whitespace <field> keeps newlines and spaces when shown (repeatable)
+    label-pairs <container> --data <data call> [--field <field>]... [--title <text>]
+        [--columns <n>] [--replace <widget>]
+                            caption/value labels from an existing call's DataShape; field[:Caption]
+                            picks/orders/renames; default all fields, a column each; SelectedRows
+                            bindings; empty responsive container unless --replace removes its only child
     picker <dropdown|list> --data <data call> --x <display field> [--value <field>]
         [--selected <address>] [--no-none-row] [--auto-select-first]
                             fill a dropdown or list from a service result; without the "(None)" row,
@@ -408,6 +419,14 @@ new project <name> [--description <text>] [--depends-on <P>]... [--apply] [--jso
                             create a ThingWorx Project and add it to twaco.toml when needed; plan unless --apply
 new group <name> [--project <name>] [--description <text>] [--apply] [--json]
                             create a ThingWorx Group without members as a repository file; plan unless --apply
+group member <add|remove> <Entity> <User/name|Group/name|PermissionGroup/name> [--apply] [--json]
+                            edit repository membership; plan unless --apply
+role member <add|remove> <Entity> <User/name|Group/name|PermissionGroup/name> [--apply] [--json]
+                            edit repository membership; plan unless --apply
+new role <name> [--project <name>] [--description <text>] [--apply] [--json]
+                            create a ThingWorx Role without members as a repository file; plan unless --apply
+new permission-group <name> [--project <name>] [--description <text>] [--apply] [--json]
+                            create a ThingWorx PermissionGroup without members as a repository file; plan unless --apply
 thing property add <Entity> <name>:<TYPE> [--default <value>] [--persistent] [--logged]
     [--read-only] [--category <text>] [--units <text>] [--data-shape <DataShape>]
     [--description <text>] [--apply] [--json]
@@ -683,11 +702,14 @@ permissions diff <entity>...|--all [--json]
                             shape's or template's instance permissions) against the server's:
                             grants only the server has (an import never removes one), grants only
                             the repository has, and allow/deny that differs (an import keeps the
-                            server's); exit 1 when any differs
+                            server's); repository PermissionGroups explain target grants; missing derived
+                            grants need their PermissionGroup deployed; external targets check only derived
+                            grants, or report not checked; exit 1 when any differs
 permissions push <entity>...|--all|--platform [--apply] [--json]
                             make the server's permission sets exactly the repository's, set by set,
                             reading each back; plan unless --apply; records the baseline of pushed
-                            entities that then match the server
+                            entities that then match the server; derived PermissionGroup grants are never
+                            pushed to targets: deploy their PermissionGroup instead
     --platform              instead, add the policies' [[platform]] grants and memberships the
                             server lacks (what DeployComponent does); never removes anything
 datatable copy <old> <new> [--map a=b,c=d] [--drop-unmapped] [--append] [--max-rows <n>] [--apply] [--json]
@@ -707,7 +729,7 @@ deploy [--apply] [--force] [--json]
                             check, bundle, live-parse, conflict-check, import; a blocking gate
                             stops it before anything is sent (exit 2)
     --backend-only          exclude configured UI collections
-    --only <entity>         include only this entity (repeatable)
+    --only <entity>         include only these entities (comma-separated or repeatable)
     --changed-since <git-rev>  include entities changed since this revision
     --exclude <entity-or-glob> leave out this Collection/Name selector (repeatable)
     --only-projects <a,b>   include only these projects
@@ -717,6 +739,11 @@ deploy [--apply] [--force] [--json]
                             even when the Solution Framework has it Configured
 config-table <thing> [<table>]  one Thing's configuration table on the server; without a
                             table, the Thing's tables
+    set <thing> <table> --row <k=v>... [--apply] [--json]
+                            replace all rows (repeat --row k=v[,k=v...]); plan by default.
+                            Live definition types cells and selects single/multi-row service.
+                            PASSWORD cells need entity XML / deploy or Composer.
+                            Server only; run entity pull afterwards for the repository.
     --backup <file>         save it (never overwrites a file)
     --restore <file>        put a backup back; a plan unless --apply
     --compare <file>        compare with a backup
@@ -896,12 +923,20 @@ package extension [--project P] [--editable] --out <file.zip>  an extension pack
 Workflow, platform quirks, project documents, the help center and the Java API.
 
 ```text
+url <entity> [--tab <tab>] [--profile <name>] [--json]
+                            print a Composer link; no network request
+    --tab <tab>             attributes (default); design for Mashup, fields for DataShape,
+                            services for Thing, ThingTemplate or ThingShape
+    --profile <name>        server profile (default: default)
+    --json                  print {url}
 guide                       the knowledge topics: twaco's workflow, the platform's verified quirks,
                             the service-code reference, and the solution's own markdown
 guide <topic> [--section <heading>]  read one (a long one gives its outline)
 guide --search <words>      the sections that best match; extra operands extend the search
+                            common English stopwords are ignored unless they are the whole query
                             --limit <n>; --json
 help search <words>         search the ThingWorx Platform help (the server's version)
+                            common English stopwords are ignored unless they are the whole query
 help page <page>            read a help page as Markdown; --section <heading>
     --version <10.1>        another release; --limit <n>; --refresh; --json
     --profile <name>        the server whose version to read (default: default)

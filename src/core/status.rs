@@ -99,6 +99,7 @@ pub struct EntityStatus {
 /// statuses rather than aborting the rest, in input order.
 ///
 /// It reports one step per entity. Messages hold entity names only.
+#[cfg(test)]
 pub(crate) fn compute_with_progress(
     remote: &(dyn Remote + Sync),
     baseline: &Baseline,
@@ -107,43 +108,72 @@ pub(crate) fn compute_with_progress(
     patches: &[super::config::Patch],
     progress: &dyn Progress,
 ) -> (Vec<EntityStatus>, Vec<String>) {
+    compute_with_expected(
+        remote,
+        baseline,
+        entities,
+        rules,
+        patches,
+        progress,
+        &super::permissions::derived::Derived::default(),
+    )
+}
+
+pub(crate) fn compute_with_expected(
+    remote: &(dyn Remote + Sync),
+    baseline: &Baseline,
+    entities: &[EntityFile],
+    rules: &[super::server_owned::Rule],
+    patches: &[super::config::Patch],
+    progress: &dyn Progress,
+    derived: &super::permissions::derived::Derived,
+) -> (Vec<EntityStatus>, Vec<String>) {
     let _phase = progress::phase(progress, "comparing entities", Some(entities.len() as u64));
     let results = parallel::map_progress(entities, progress, |entity| {
         progress.message(&entity.info.name);
         let parts = super::server_owned::parts(rules, &entity.info.collection, &entity.info.name);
+        let grants = derived.target(&entity.info.collection, &entity.info.name);
         let working = std::fs::read(&entity.path)
             .map_err(|error| error.to_string())
             .and_then(|bytes| {
                 super::patch::apply(&bytes, &entity.info.collection, &entity.info.name, patches)
             })
             .and_then(|bytes| {
-                normalise::hash_with_parts(&bytes, &parts).map_err(|error| error.to_string())
+                normalise::hash_with_grants(&bytes, &parts, &grants)
+                    .map_err(|error| error.to_string())
             })
             .map_err(|error| format!("{}: {error}", entity.path.display()))?;
-        let server = match EntityKey::address(&entity.info.collection, &entity.info.name)
-            .and_then(|key| remote.fetch(&key))
-        {
-            Ok(Some(bytes)) => Some(
-                normalise::hash_with_parts(&bytes, &parts)
-                    .map_err(|error| format!("server export for {}: {error}", entity.info.name))?,
-            ),
-            Ok(None) => None,
-            Err(error) => return Err(format!("{}: {error}", entity.info.name)),
-        };
-        let ancestor = baseline.get_for(&entity.info.collection, &entity.info.name, &working);
+        let (server, server_bytes) =
+            match EntityKey::address(&entity.info.collection, &entity.info.name)
+                .and_then(|key| remote.fetch(&key))
+            {
+                Ok(Some(bytes)) => (
+                    Some(
+                        normalise::hash_with_grants(&bytes, &parts, &grants).map_err(|error| {
+                            format!("server export for {}: {error}", entity.info.name)
+                        })?,
+                    ),
+                    Some(bytes),
+                ),
+                Ok(None) => (None, None),
+                Err(error) => return Err(format!("{}: {error}", entity.info.name)),
+            };
+        let ancestor = baseline.ancestor(
+            &entity.info.collection,
+            &entity.info.name,
+            &working,
+            server_bytes.as_deref().zip(server.as_deref()),
+            &grants,
+        );
         Ok(EntityStatus {
             server_owned: super::server_owned::labels(&parts),
             collection: entity.info.collection.clone(),
             name: entity.info.name.clone(),
-            verdict: verdict(
-                &working,
-                server.as_deref(),
-                ancestor.map(|entry| (entry.local.as_str(), entry.server.as_str())),
-            ),
+            verdict: verdict(&working, server.as_deref(), ancestor.sides()),
             working,
             server,
-            local_baseline: ancestor.map(|entry| entry.local.clone()),
-            server_baseline: ancestor.map(|entry| entry.server.clone()),
+            local_baseline: ancestor.pair.as_ref().map(|(local, _)| local.clone()),
+            server_baseline: ancestor.pair.as_ref().map(|(_, server)| server.clone()),
         })
     });
     let mut statuses = Vec::new();
@@ -326,28 +356,28 @@ mod tests {
         }
 
         let mut statuses = [
-            status("Acme.Same", "v12:same", Some("v12:same")),
-            status("Acme.Different", "v12:working", Some("v12:server")),
-            status("Acme.Missing", "v12:working", None),
+            status("Acme.Same", "v13:same", Some("v13:same")),
+            status("Acme.Different", "v13:working", Some("v13:server")),
+            status("Acme.Missing", "v13:working", None),
         ];
         let mut baseline = Baseline::default();
         statuses[0].verdict = Verdict::BothChanged;
         assert_eq!(record_matching(&mut baseline, &mut statuses), 1);
         assert_eq!(statuses[0].verdict, Verdict::InSync);
-        assert_eq!(statuses[0].local_baseline.as_deref(), Some("v12:same"));
-        assert_eq!(statuses[0].server_baseline.as_deref(), Some("v12:same"));
+        assert_eq!(statuses[0].local_baseline.as_deref(), Some("v13:same"));
+        assert_eq!(statuses[0].server_baseline.as_deref(), Some("v13:same"));
         assert_eq!(statuses[1].verdict, Verdict::NoBaselineDiffers);
         assert_eq!(
             baseline
                 .get("Things", "Acme.Same")
                 .map(|entry| entry.local.as_str()),
-            Some("v12:same")
+            Some("v13:same")
         );
         assert_eq!(
             baseline
                 .get("Things", "Acme.Same")
                 .map(|entry| entry.server.as_str()),
-            Some("v12:same")
+            Some("v13:same")
         );
         assert_eq!(baseline.get("Things", "Acme.Different"), None);
         assert_eq!(baseline.get("Things", "Acme.Missing"), None);

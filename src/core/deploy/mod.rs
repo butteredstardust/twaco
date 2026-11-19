@@ -34,7 +34,7 @@ pub(crate) use plan::{decide_all, decide_all_with_progress, plan_bundles};
 pub(crate) use remote::{BaselineStore, DiskBaseline, Remote};
 #[cfg(test)]
 pub(crate) use run::run;
-pub(crate) use run::{run_with_progress, RunOptions};
+pub(crate) use run::{record_permission_group_targets, run_with_progress, RunOptions};
 
 impl Coded for DeployError {
     fn code(&self) -> ErrorCode {
@@ -44,9 +44,8 @@ impl Coded for DeployError {
             | Self::Server { .. }
             | Self::UnknownPlaceholder { .. }
             | Self::PlaceholderNotText { .. } => ErrorCode::InvalidData,
-            Self::ParseUnavailable { source, .. }
-            | Self::Import { source, .. }
-            | Self::Narrowing { source, .. } => source.code(),
+            Self::ParseUnavailable { source, .. } | Self::Narrowing { source, .. } => source.code(),
+            Self::Import { source, .. } => source.code(),
             Self::ParseFailed(_) => ErrorCode::GateFailed,
             Self::Conflicts(_) | Self::AgentsOutside(_) => ErrorCode::ServerConflict,
             Self::Call { .. } => ErrorCode::ServerError,

@@ -2395,3 +2395,166 @@ fn fmt_checks_and_orders_subscription_events_without_script_sidecars() {
     assert!(run(&["fmt"]).status.success());
     assert_eq!(std::fs::read(path).unwrap(), once);
 }
+
+#[test]
+fn rbac_cli_creation_and_members_are_offline_and_plan_by_default() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("twaco.toml"), "[[project]]\nname='Acme'\n").unwrap();
+    let run = |args: &[&str]| {
+        let output = Command::new(env!("CARGO_BIN_EXE_twaco"))
+            .current_dir(dir.path())
+            .args(args)
+            .env_clear()
+            .env(
+                "SystemRoot",
+                std::env::var_os("SystemRoot").unwrap_or_default(),
+            )
+            .env("TEMP", std::env::temp_dir())
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{args:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap()
+    };
+    for (kind, collection) in [
+        ("role", "Roles"),
+        ("permission-group", "PermissionGroups"),
+        ("group", "Groups"),
+    ] {
+        let path = dir.path().join(format!("{collection}/Acme.Access.xml"));
+        assert_eq!(
+            run(&["new", kind, "Acme.Access", "--json"])["applied"],
+            false
+        );
+        assert!(!path.exists());
+        assert_eq!(
+            run(&[
+                "new",
+                kind,
+                "Acme.Access",
+                "--description",
+                "Access",
+                "--project",
+                "Acme",
+                "--apply",
+                "--json"
+            ])["applied"],
+            true
+        );
+        if kind == "permission-group" {
+            continue;
+        }
+        let before = std::fs::read(&path).unwrap();
+        assert_eq!(
+            run(&[
+                kind,
+                "member",
+                "add",
+                "Acme.Access",
+                "User/Acme.Runtime",
+                "--json"
+            ])["applied"],
+            false
+        );
+        assert_eq!(before, std::fs::read(&path).unwrap());
+        assert_eq!(
+            run(&[
+                kind,
+                "member",
+                "add",
+                "Acme.Access",
+                "User/Acme.Runtime",
+                "--apply",
+                "--json"
+            ])["applied"],
+            true
+        );
+        assert!(std::fs::read_to_string(&path)
+            .unwrap()
+            .contains("Acme.Runtime"));
+        assert_eq!(
+            run(&[
+                kind,
+                "member",
+                "remove",
+                "Acme.Access",
+                "User/Acme.Runtime",
+                "--apply",
+                "--json"
+            ])["applied"],
+            true
+        );
+        assert_eq!(before, std::fs::read(&path).unwrap());
+    }
+}
+
+#[test]
+fn composer_url_uses_the_named_profile_and_prints_json_without_network() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::fs::create_dir(root.join("Things")).unwrap();
+    std::fs::create_dir_all(root.join(".twaco/profiles")).unwrap();
+    std::fs::write(root.join("twaco.toml"), "[[project]]\nname='Acme.App'\n").unwrap();
+    std::fs::write(root.join("Things/Acme.Thing.xml"), r#"<Entities><Things><Thing name="Acme.Thing" projectName="Acme.App"/></Things></Entities>"#).unwrap();
+    std::fs::write(
+        root.join(".twaco/profiles/field.toml"),
+        "url='https://example.invalid/Thingworx'\nusername='user'\npassword='secret'\n",
+    )
+    .unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_twaco"))
+        .current_dir(root)
+        .args([
+            "url",
+            "Acme.Thing",
+            "--profile",
+            "field",
+            "--tab",
+            "services",
+            "--json",
+        ])
+        .env_clear()
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        result,
+        serde_json::json!({"url":"https://example.invalid/Thingworx/Composer/index.html#/modeler/details/Thing~Acme.Thing/services"})
+    );
+}
+
+#[test]
+fn deploy_excluded_comma_name_does_not_become_two_targets() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::fs::create_dir(root.join("Things")).unwrap();
+    std::fs::write(root.join("twaco.toml"), "[[project]]\nname='Acme'\n").unwrap();
+    for name in ["A", "B", "A,B"] {
+        std::fs::write(
+            root.join(format!("Things/{name}.xml")),
+            format!(
+                r#"<Entities><Things><Thing name="{name}" projectName="Acme"/></Things></Entities>"#
+            ),
+        )
+        .unwrap();
+    }
+    let output = Command::new(env!("CARGO_BIN_EXE_twaco"))
+        .current_dir(root)
+        .args(["deploy", "--only", "A,B", "--exclude", "Things/A,B"])
+        .env_clear()
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let error = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        error.contains("no entity named") && error.contains("A,B"),
+        "{error}"
+    );
+}

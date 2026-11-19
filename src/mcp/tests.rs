@@ -478,8 +478,11 @@ fn hand_written_tools() -> Vec<Value> {
         }
         recipe["inputSchema"]["properties"][name] = property;
     }
+    recipe["inputSchema"]["properties"]["fields"] = json!({"description": "label-pairs: ordered field[:Caption] entries; omitted means all DataShape fields.", "type": "array", "items": {"type": "string"}});
+    recipe["inputSchema"]["properties"]["label_columns"] = json!({"description": "label-pairs: number of columns, one per field by default, above zero.", "type": "integer", "minimum": 0});
+    recipe["inputSchema"]["properties"]["replace"] = json!({"description": "label-pairs: widget inside or beside the destination to remove with its bindings.", "type": "string"});
     recipe["inputSchema"]["properties"]["width"] = json!({"description": "nested-menu: the column's width in pixels (300 by default).", "type": "integer", "minimum": 0});
-    recipe["inputSchema"]["properties"]["recipe"]["description"] = json!("enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, picker, tracker, set-on-click, nested-menu, navigate-on-click or collapsible.");
+    recipe["inputSchema"]["properties"]["recipe"]["description"] = json!("enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, picker, tracker, set-on-click, nested-menu, navigate-on-click or collapsible; label-pairs uses widget as the responsive container, data, fields, title, label_columns and replace.");
     let edit = tools
         .iter_mut()
         .find(|tool| tool["name"] == "entity_edit")
@@ -490,11 +493,15 @@ fn hand_written_tools() -> Vec<Value> {
     actions.splice(
         0..0,
         [
+            json!("member_add"),
+            json!("member_remove"),
             json!("entity_set"),
             json!("menu_item_set"),
             json!("menu_nest"),
         ],
     );
+    edit["inputSchema"]["properties"]["type"]["description"] =
+        json!("Property base type, or member_add/member_remove: User, Group or PermissionGroup.");
     for name in ["new_title", "submenu", "icon"] {
         edit["inputSchema"]["properties"][name] = json!({"type": "string"});
     }
@@ -504,6 +511,22 @@ fn hand_written_tools() -> Vec<Value> {
         .iter_mut()
         .find(|tool| tool["name"] == "entity_new")
         .unwrap();
+    new["description"] = json!(new["description"].as_str().unwrap().replace(
+        "repository XML file: Projects, Groups, common Things",
+        "repository XML file: Projects, Groups, Roles, PermissionGroups, common Things"
+    ));
+    new["inputSchema"]["properties"]["kind"]["description"] = json!(new["inputSchema"]
+        ["properties"]["kind"]["description"]
+        .as_str()
+        .unwrap()
+        .replace(
+            "`project`, `group`, `thing`",
+            "`project`, `group`, `role`, `permission-group`, `thing`"
+        ));
+    new["inputSchema"]["properties"]["kind"]["enum"]
+        .as_array_mut()
+        .unwrap()
+        .splice(2..2, [json!("role"), json!("permission-group")]);
     new["inputSchema"]["properties"]["icon"] =
         json!({"description": "Menu-level image URL or MediaEntity.", "type": "string"});
     let new = tools
@@ -512,6 +535,16 @@ fn hand_written_tools() -> Vec<Value> {
         .unwrap();
     new["inputSchema"]["properties"]["replacements"] =
         json!({"type": "array", "items": {"type": "string"}});
+    let config_table = tools
+        .iter_mut()
+        .find(|tool| tool["name"] == "config_table")
+        .unwrap();
+    config_table["description"] = json!(format!("{} set replaces all rows using the live definition, refuses PASSWORD cells and reads back; it plans unless dry_run is false. Server only; entity pull updates the repository.", config_table["description"].as_str().unwrap()));
+    config_table["inputSchema"]["properties"]["action"]["enum"]
+        .as_array_mut()
+        .unwrap()
+        .insert(0, json!("set"));
+    config_table["inputSchema"]["properties"]["rows"] = json!({"description":"set: each string is k=v[,k=v...]; all rows replace the table. PASSWORD cells are refused.","type":"array","items":{"type":"string"},"default":[]});
     let describe = tools
         .iter_mut()
         .find(|tool| tool["name"] == "mashup_describe")
@@ -1291,7 +1324,9 @@ fn annotations_say_what_each_tool_may_reach_and_discard() {
     // patches from twaco.toml.
     for tool in &tools {
         let name = tool["name"].as_str().unwrap();
-        if name != "bundle" && tool["inputSchema"]["properties"].get("profile").is_some() {
+        if !matches!(name, "bundle" | "url")
+            && tool["inputSchema"]["properties"].get("profile").is_some()
+        {
             assert_eq!(
                 tool["annotations"]["openWorldHint"], true,
                 "{name} takes a profile"
@@ -1422,6 +1457,7 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
             "unused",
             "docs",
             "doctor",
+            "url",
             "guide",
             "help_search",
             "help_page",
@@ -2919,7 +2955,7 @@ fn status_record_returns_matching_entities_in_sync_and_keeps_differing_verdicts(
     )
     .unwrap();
     std::fs::create_dir_all(root.join(".twaco/baselines")).unwrap();
-    std::fs::write(root.join(".twaco/baselines/default.json"),r#"{"entities":{"Things":{"Acme.Same":{"local":"v12:old","server":"v12:old"},"Acme.Different":{"local":"v12:old","server":"v12:old"}}}}"#).unwrap();
+    std::fs::write(root.join(".twaco/baselines/default.json"),r#"{"entities":{"Things":{"Acme.Same":{"local":"v13:old","server":"v13:old"},"Acme.Different":{"local":"v13:old","server":"v13:old"}}}}"#).unwrap();
     let before = call(root, "status", json!({"all":true,"detail":true}));
     assert_eq!(body(&before)["counts"]["converged"], 1);
     assert_eq!(body(&before)["counts"]["both-changed"], 1);
@@ -4654,4 +4690,187 @@ fn mashup_move_defaults_to_plan_applies_and_is_a_no_op_when_repeated() {
     let refused = call(&root, "mashup_move", arguments);
     assert_eq!(refused["isError"], true);
     assert_eq!(std::fs::read(&path).unwrap(), written);
+}
+
+#[test]
+fn rbac_creation_and_typed_members_plan_then_apply_over_mcp() {
+    let (_dir, root) = solution_dir();
+    for (kind, collection) in [("role", "Roles"), ("permission-group", "PermissionGroups")] {
+        let args = json!({"kind":kind,"name":"Acme.Access"});
+        let planned = call(&root, "entity_new", args.clone());
+        assert_eq!(planned["isError"], false, "{planned}");
+        let path = root.join(format!("{collection}/Acme.Access.xml"));
+        assert!(!path.exists());
+        let mut apply = args;
+        apply["dry_run"] = json!(false);
+        let applied = call(&root, "entity_new", apply);
+        assert_eq!(applied["isError"], false, "{applied}");
+        for member_type in ["User", "Group", "PermissionGroup"] {
+            let mut args = json!({"action":"member_add","entity":format!("{collection}/Acme.Access"),"name":"Acme.Member","type":member_type});
+            let before = std::fs::read(&path).unwrap();
+            let planned = call(&root, "entity_edit", args.clone());
+            assert_eq!(planned["isError"], false, "{planned}");
+            assert_eq!(before, std::fs::read(&path).unwrap());
+            args["dry_run"] = json!(false);
+            let applied = call(&root, "entity_edit", args.clone());
+            assert_eq!(applied["isError"], false, "{applied}");
+            assert!(std::fs::read_to_string(&path)
+                .unwrap()
+                .contains(&format!("type=\"{member_type}\"")));
+            args["action"] = json!("member_remove");
+            let removed = call(&root, "entity_edit", args);
+            assert_eq!(removed["isError"], false, "{removed}");
+            assert_eq!(before, std::fs::read(&path).unwrap());
+        }
+    }
+}
+
+#[test]
+fn url_is_listed_read_only_and_builds_from_a_named_profile_without_network() {
+    let (_dir, root) = solution_dir();
+    std::fs::create_dir_all(root.join(".twaco/profiles")).unwrap();
+    std::fs::write(
+        root.join(".twaco/profiles/field.toml"),
+        "url='https://example.invalid/Thingworx/'\nusername='user'\npassword='secret'\n",
+    )
+    .unwrap();
+    let responses = converse(
+        &root,
+        &[json!({"jsonrpc":"2.0","id":1,"method":"tools/list"})],
+    );
+    let tools = responses[0]["result"]["tools"].as_array().unwrap();
+    let tool = tools.iter().find(|tool| tool["name"] == "url").unwrap();
+    assert_eq!(tool["annotations"]["readOnlyHint"], true);
+    assert_eq!(tool["annotations"]["openWorldHint"], false);
+    let (failed, result) = call_tool(
+        &root,
+        "url",
+        json!({"entity":"P.T", "profile":"field", "tab":"services"}),
+    );
+    assert!(!failed, "{result}");
+    assert_eq!(
+        result["url"],
+        "https://example.invalid/Thingworx/Composer/index.html#/modeler/details/Thing~P.T/services"
+    );
+    assert!(jsonschema::draft202012::is_valid(
+        &output_schema_of("url"),
+        &result
+    ));
+    let (failed, result) = call_tool(
+        &root,
+        "url",
+        json!({"entity":"P.T", "profile":"field", "tab":"design"}),
+    );
+    assert!(failed);
+    assert!(result.to_string().contains("attributes, services"));
+}
+
+#[test]
+fn deploy_excluded_comma_name_does_not_become_two_targets() {
+    let (_dir, root) = solution_dir();
+    for name in ["A", "B", "A,B"] {
+        std::fs::write(
+            root.join(format!("Things/{name}.xml")),
+            format!(
+                r#"<Entities><Things><Thing name="{name}" projectName="P"/></Things></Entities>"#
+            ),
+        )
+        .unwrap();
+    }
+    for only in [json!(["A,B"]), json!(["Things/A,B"])] {
+        let (failed, body) = call_tool(
+            &root,
+            "deploy",
+            json!({"only": only, "exclude": ["Things/A,B"]}),
+        );
+        assert!(failed, "{body}");
+        let error = body.to_string();
+        assert!(
+            error.contains("no entity named") && error.contains("A,B"),
+            "{body}"
+        );
+    }
+}
+
+#[test]
+fn fmt_changed_includes_synced_xml_once_alongside_scripts() {
+    let (_dir, root) = solution_dir();
+    let xml = root.join("Things/P.T.xml");
+    std::fs::write(&xml, r#"<Entities><Things><Thing name="P.T" projectName="P"><ThingShape><ServiceDefinitions><ServiceDefinition name="Run"/></ServiceDefinitions><ServiceImplementations><ServiceImplementation name="Run" handlerName="Script"><ConfigurationTables><ConfigurationTable name="Script"><Rows><Row><code><![CDATA[old();]]></code></Row></Rows></ConfigurationTable></ConfigurationTables></ServiceImplementation></ServiceImplementations></ThingShape><Subscriptions><Subscription><Events><Event alias="Z"/><Event alias="A"/></Events></Subscription></Subscriptions></Thing></Things></Entities>"#).unwrap();
+    let service = root.join("src/P.T/services/Run");
+    std::fs::create_dir_all(&service).unwrap();
+    std::fs::write(
+        service.join("definition.xml"),
+        "<ServiceDefinition name=\"Run\"/>",
+    )
+    .unwrap();
+    std::fs::write(service.join("script.js"), "if(true){old();}").unwrap();
+    let (failed, result) = call_tool(&root, "fmt", json!({}));
+    assert!(!failed, "{result}");
+    assert_eq!(result["failed"], 0, "{result}");
+    assert_eq!(result["synced"], 1);
+    assert_eq!(
+        result["changed"],
+        json!(["Things/P.T.xml", "src/P.T/services/Run/script.js"])
+    );
+    let (failed, repeated) = call_tool(&root, "fmt", json!({}));
+    assert!(!failed, "{repeated}");
+    assert_eq!(repeated["changed"], json!([]));
+    assert_eq!(repeated["synced"], 0);
+}
+
+#[test]
+fn label_pairs_mcp_plans_then_applies_with_schema_options() {
+    let definitions = tool_definitions();
+    let tool = definitions
+        .iter()
+        .find(|tool| tool["name"] == "mashup_recipe")
+        .unwrap();
+    assert_eq!(tool["inputSchema"]["properties"]["fields"]["type"], "array");
+    assert_eq!(
+        tool["inputSchema"]["properties"]["label_columns"]["type"],
+        "integer"
+    );
+    assert!(tool["outputSchema"]["properties"]["removed"].is_object());
+    assert!(tool["outputSchema"]["properties"]["notes"].is_object());
+    let (_dir, root) = solution_dir();
+    std::fs::create_dir_all(root.join("DataShapes")).unwrap();
+    std::fs::write(root.join("Things/Acme.Manager.xml"), r#"<Entities><Things><Thing name="Acme.Manager" projectName="P"><ThingShape><ServiceDefinitions><ServiceDefinition name="GetAssets"><ResultType baseType="INFOTABLE" aspect.dataShape="Acme.Asset_DS"/></ServiceDefinition></ServiceDefinitions><ServiceImplementations/></ThingShape></Thing></Things></Entities>"#).unwrap();
+    std::fs::write(root.join("DataShapes/Acme.Asset_DS.xml"), r#"<Entities><DataShapes><DataShape name="Acme.Asset_DS" projectName="P"><FieldDefinitions><FieldDefinition name="assetName" baseType="STRING"/><FieldDefinition name="id" baseType="LONG"/></FieldDefinitions></DataShape></DataShapes></Entities>"#).unwrap();
+    for (name, args) in [
+        (
+            "mashup_new",
+            json!({"name":"Acme.Asset_MU", "dry_run":false}),
+        ),
+        (
+            "mashup_source_add",
+            json!({"mashup":"Acme.Asset_MU", "entity":"Acme.Manager", "service":"GetAssets", "dry_run":false}),
+        ),
+    ] {
+        let (failed, body) = call_tool(&root, name, args);
+        assert!(!failed, "{body}");
+    }
+    let path = root.join("Mashups/Acme.Asset_MU.xml");
+    let before = std::fs::read(&path).unwrap();
+    let mut args = json!({"recipe":"label-pairs", "mashup":"Acme.Asset_MU", "widget":"center", "data":"data:Acme.Manager.GetAssets", "fields":["id:Identifier", "assetName:Name"], "title":"Details", "label_columns":3});
+    let (failed, planned) = call_tool(&root, "mashup_recipe", args.clone());
+    assert!(!failed, "{planned}");
+    assert_eq!(planned["dry_run"], true);
+    assert_eq!(planned["applied"], false);
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    assert!(planned["notes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|n| n.as_str().unwrap().contains("SelectedRows")));
+    args["dry_run"] = json!(false);
+    let (failed, applied) = call_tool(&root, "mashup_recipe", args);
+    assert!(!failed, "{applied}");
+    assert_eq!(applied["applied"], true);
+    assert_eq!(applied["added"].as_array().unwrap().len(), 9);
+    assert_ne!(std::fs::read(path).unwrap(), before);
+    let (failed, validated) =
+        call_tool(&root, "mashup_validate", json!({"mashup":"Acme.Asset_MU"}));
+    assert!(!failed, "{validated}");
+    assert_eq!(validated["errors"], 0, "{validated}");
 }

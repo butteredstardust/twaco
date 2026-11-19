@@ -789,7 +789,10 @@ mod tests {
             ),
             (
                 EntityKey::new("Things", "Unknown").unwrap(),
-                Decision::Refuse(Refusal::UnknownAncestor { server: "s".into() }),
+                Decision::Refuse(Refusal::UnknownAncestor {
+                    server: "s".into(),
+                    policy_changed: false,
+                }),
             ),
             (
                 EntityKey::new("Things", "Changed").unwrap(),

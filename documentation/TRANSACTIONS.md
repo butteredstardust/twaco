@@ -12,7 +12,9 @@ solution through one.
 
 `new building-block`, `move`, `copy`, `adopt` and every `rename` use it, one transaction for the
 whole operation. `extract` uses one per entity: an entity's sidecars change together, and entities
-stay independent, so one that fails is reported and the others are still extracted. A file that
+stay independent, so one that fails is reported and the others are still extracted. `fmt` also
+uses one per entity, staging formatted scripts and the shared sync plan before writing either.
+A refused sync writes nothing for that entity; a failed write rolls its transaction back. A file that
 already holds what it should adds no step, so an extract that changes nothing writes nothing.
 `sync` needs none: it works out an entity file's new bytes in memory, every kind of sidecar in
 turn, and replaces the file once, so a crash leaves it as it was or as it should be. Each

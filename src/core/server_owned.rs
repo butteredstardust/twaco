@@ -14,12 +14,13 @@ use std::collections::BTreeSet;
 #[cfg(test)]
 mod tests;
 
-const KINDS: &str = "members, run-time-permissions, visibility-permissions, property-values, property-values:<a,b>, configuration-table:<Table>, configuration-table:<Table>.<column>";
+const KINDS: &str = "members, members:<Type[,Type]>, run-time-permissions, visibility-permissions, property-values, property-values:<a,b>, configuration-table:<Table>, configuration-table:<Table>.<column>";
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(try_from = "String")]
 pub(crate) enum Part {
     Members,
+    MemberTypes(BTreeSet<String>),
     RunTimePermissions,
     VisibilityPermissions,
     Properties(BTreeSet<String>),
@@ -42,7 +43,12 @@ impl TryFrom<String> for Part {
             "visibility-permissions" => Some(Self::VisibilityPermissions),
             "property-values" => Some(Self::Properties(BTreeSet::new())),
             _ => {
-                if let Some(names) = value.strip_prefix("property-values:") {
+                if let Some(types) = value.strip_prefix("members:") {
+                    types
+                        .split(',')
+                        .all(|t| matches!(t, "User" | "Group" | "PermissionGroup"))
+                        .then(|| Self::MemberTypes(types.split(',').map(str::to_string).collect()))
+                } else if let Some(names) = value.strip_prefix("property-values:") {
                     names
                         .split(',')
                         .all(identifier)
@@ -66,6 +72,10 @@ impl Part {
     pub(crate) fn label(&self) -> String {
         match self {
             Self::Members => "members".into(),
+            Self::MemberTypes(types) => format!(
+                "members:{}",
+                types.iter().cloned().collect::<Vec<_>>().join(",")
+            ),
             Self::RunTimePermissions => "run-time-permissions".into(),
             Self::VisibilityPermissions => "visibility-permissions".into(),
             Self::Properties(names) if names.is_empty() => "property-values".into(),
@@ -206,17 +216,32 @@ pub(crate) fn parts(rules: &[Rule], collection: &str, name: &str) -> Vec<Part> {
             names
         }));
     }
+    let all_members = selected.iter().any(|p| matches!(p, Part::Members));
+    let member_types: BTreeSet<String> = selected
+        .iter()
+        .filter_map(|p| match p {
+            Part::MemberTypes(types) => Some(types),
+            _ => None,
+        })
+        .flatten()
+        .cloned()
+        .collect();
+    selected.retain(|p| !matches!(p, Part::MemberTypes(_)));
+    if !all_members && !member_types.is_empty() {
+        selected.push(Part::MemberTypes(member_types));
+    }
     selected.sort_by_key(Part::label);
     selected.dedup_by_key(|p| p.label());
     selected
 }
 
 /// The collections whose entities can hold a part, when only some can: `members` belong to
-/// Groups and Organizations, property values to Things and ThingTemplates. `None` for parts any
+/// Groups, Roles, PermissionGroups and Organizations, property values to Things and ThingTemplates. `None` for parts any
 /// entity may have.
 pub(crate) fn collections(part: &Part) -> Option<&'static [&'static str]> {
     match part {
-        Part::Members => Some(&["Groups", "Organizations"]),
+        Part::Members => Some(&["Groups", "Roles", "PermissionGroups", "Organizations"]),
+        Part::MemberTypes(_) => Some(&["Groups", "Roles", "PermissionGroups"]),
         Part::Properties(_) => Some(&["Things", "ThingTemplates"]),
         Part::RunTimePermissions | Part::VisibilityPermissions | Part::Table(..) => None,
     }
@@ -352,7 +377,10 @@ fn owned(path: &[&Element], parts: &[Part]) -> bool {
     let tags: Vec<&[u8]> = path.iter().skip(1).map(|e| e.name.as_slice()).collect();
     parts.iter().any(|part| match part {
         Part::Members => {
-            path[0].name == b"Group" && tags == [b"Members".as_slice()]
+            matches!(
+                path[0].name.as_slice(),
+                b"Group" | b"Role" | b"PermissionGroup"
+            ) && tags == [b"Members".as_slice()]
                 || path[0].name == b"Organization"
                     && tags.len() >= 3
                     && tags[0] == b"OrganizationalUnits"
@@ -360,6 +388,21 @@ fn owned(path: &[&Element], parts: &[Part]) -> bool {
                     && tags[1..tags.len() - 1]
                         .iter()
                         .all(|tag| *tag == b"OrganizationalUnit")
+        }
+        Part::MemberTypes(types) => {
+            matches!(
+                path[0].name.as_slice(),
+                b"Group" | b"Role" | b"PermissionGroup"
+            ) && (tags == [b"Members".as_slice(), b"Member".as_slice()]
+                || path[0].name == b"Group"
+                    && tags
+                        == [
+                            b"Members".as_slice(),
+                            b"Members".as_slice(),
+                            b"Member".as_slice(),
+                        ])
+                && attr(node, b"type")
+                    .is_some_and(|t| types.contains(&String::from_utf8_lossy(t).into_owned()))
         }
         Part::RunTimePermissions => tags == [b"RunTimePermissions".as_slice()],
         Part::VisibilityPermissions => tags == [b"VisibilityPermissions".as_slice()],
@@ -411,15 +454,27 @@ pub(crate) fn omit(element: &mut Element, parts: &[Part]) {
             visit(child, &path, parts);
             // Attribute-free empty scaffolding adds no source content; container attributes
             // and payloads remain compared even when all of its entries are server-owned.
-            !(path.len() == 1
+            !((path.len() == 1
+                || child.name == b"Members"
+                    && matches!(
+                        path[0].name.as_slice(),
+                        b"Group" | b"Role" | b"PermissionGroup"
+                    )
+                    && path.iter().skip(1).all(|p| p.name == b"Members"))
                 && child.attributes.is_empty()
                 && children(child).next().is_none()
                 && child
                     .children
                     .iter()
                     .all(|n| matches!(n, Node::Text(t) if t.iter().all(u8::is_ascii_whitespace)))
-                && (child.name == b"ConfigurationTables"
-                    && parts.iter().any(|p| matches!(p, Part::Table(_, _)))
+                && (child.name == b"Members"
+                    && matches!(
+                        path[0].name.as_slice(),
+                        b"Group" | b"Role" | b"PermissionGroup"
+                    )
+                    && parts.iter().any(|p| matches!(p, Part::MemberTypes(_)))
+                    || child.name == b"ConfigurationTables"
+                        && parts.iter().any(|p| matches!(p, Part::Table(_, _)))
                     || child.name == b"ThingProperties"
                         && parts.iter().any(|p| matches!(p, Part::Properties(_)))))
         });
@@ -468,6 +523,16 @@ pub(crate) fn preserve(
         }
     }
     fn key(e: &Element, parents: &[&Element], parts: &[Part]) -> Option<Vec<u8>> {
+        if e.name == b"Member" {
+            return Some(
+                [
+                    attr(e, b"type").unwrap_or_default(),
+                    b"\0",
+                    attr(e, b"name").unwrap_or_default(),
+                ]
+                .concat(),
+            );
+        }
         attr(e, b"name").map(<[u8]>::to_vec).or_else(|| {
             if e.name != b"Row" {
                 return None;

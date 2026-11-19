@@ -85,6 +85,7 @@ pub(crate) fn new_building_block_tool(
         .collect();
     let mut result = json!({
         "ok": true, "name": result_name, "type": result_kind.word(), "root": plan.root,
+        "scope": "repository", "deploy_command": format!("twaco deploy --project {} --apply", plan.request.name),
         "files": files, "twaco_toml": plan.config_addition, "notes": plan.notes,
     });
     result[outcome_key(dry_run)] = json!(true);
@@ -237,6 +238,11 @@ pub(crate) fn entity_edit_tool(
         ));
     }
     let action = match arguments.action {
+        EntityEditAction::MemberAdd | EntityEditAction::MemberRemove => Action::MemberSet {
+            name: need(&arguments.name, "name")?,
+            member_type: need(&arguments.base_type, "type")?,
+            remove: arguments.action == EntityEditAction::MemberRemove,
+        },
         EntityEditAction::EntitySet => Action::EntitySet {
             description: text(&arguments.description),
             icon: text(&arguments.icon),
@@ -981,6 +987,9 @@ pub(crate) fn mashup_recipe_tool(
     use crate::core::mashup::authoring::{Recipe, RecipeArgs, RecipeRequest};
     let dry_run = arguments.dry_run;
     let recipe_args = RecipeArgs {
+        fields: arguments.fields.items().to_vec(),
+        label_columns: arguments.label_columns.as_ref().copied(),
+        replace: arguments.replace.as_ref().cloned(),
         toggle: arguments.toggle.as_ref().cloned(),
         add_toggle: arguments.add_toggle.as_ref().copied().unwrap_or(false),
         in_container: arguments.in_container.as_ref().cloned(),
@@ -1224,7 +1233,7 @@ pub(crate) fn mashup_on_tool(
     let mut result = json!({
         "applied": outcome.applied, "dry_run": dry_run, "mashup": outcome.plan.edit.mashup,
         "event": outcome.plan.event, "invoke": outcome.plan.invoke,
-        "new_source": outcome.plan.new_source, "files": files,
+        "new_source": outcome.plan.new_source, "warnings": outcome.plan.warnings, "files": files,
     });
     add_notices(&mut result, &notices);
     Ok(result)

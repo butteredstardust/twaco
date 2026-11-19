@@ -700,3 +700,36 @@ fn unparsed_script_has_no_resolved_requirements() {
     );
     assert!(collect(&solution).unwrap().references.is_empty());
 }
+
+#[test]
+fn rbac_members_and_script_collections_are_requirements() {
+    let (_dir, solution) = solution("");
+    entity(
+        &solution.root,
+        "Roles",
+        "Role",
+        "Acme.Operator",
+        "",
+        r#"<Members><Member type="PermissionGroup" name="Acme.Access"/><Member type="User" name="Acme.User"/><Member type="Group" name="Acme.Users"/></Members>"#,
+    );
+    entity(
+        &solution.root,
+        "Things",
+        "Thing",
+        "Acme.Consumer",
+        "",
+        &service("Roles['Acme.ExternalRole']; PermissionGroups['Acme.ExternalAccess'];"),
+    );
+    let collected = collect(&solution).unwrap();
+    for (collection, name) in [
+        ("PermissionGroups", "Acme.Access"),
+        ("Groups", "Acme.Users"),
+        ("Roles", "Acme.ExternalRole"),
+        ("PermissionGroups", "Acme.ExternalAccess"),
+    ] {
+        assert!(
+            collected.references[collection].contains_key(name),
+            "{collection}/{name}"
+        );
+    }
+}

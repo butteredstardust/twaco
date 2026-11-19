@@ -1,5 +1,6 @@
 //! Start an empty source repository from Exporter project documents.
 
+use super::permissions::derived::{without_explained, Derived};
 use super::{
     adopt, commands, config, entity, export, gitignore, init, layout, localization, lock,
     normalise, parallel, progress, push, status, transaction, workflow, workspace,
@@ -170,17 +171,40 @@ where
                 .collect()
         })
         .unwrap_or_default();
+    let mut exports = Vec::new();
     for project in &request.projects {
-        let exported = export::export(
-            remote,
-            &export::What::Project {
+        exports.push(
+            export::export(
+                remote,
+                &export::What::Project {
+                    project: project.clone(),
+                },
+            )
+            .map_err(|e| Error::Export {
                 project: project.clone(),
-            },
-        )
-        .map_err(|e| Error::Export {
-            project: project.clone(),
-            why: e.to_string(),
-        })?;
+                why: e.to_string(),
+            })?,
+        );
+    }
+    // Grants a PermissionGroup puts on its targets are the group's to write, not the target's file.
+    let mut derived = existing
+        .as_ref()
+        .and_then(|solution| Derived::load(solution).ok())
+        .unwrap_or_default();
+    for (project, exported) in request.projects.iter().zip(&exports) {
+        for key in adopt::export_entities_bytes(&exported.xml, Path::new(project))
+            .map(|entities| entities.into_keys())
+            .into_iter()
+            .flatten()
+            .filter(|key| key.collection == "PermissionGroups")
+        {
+            if let Ok(raw) = adopt::raw_entity_bytes(&exported.xml, &key) {
+                derived.add(&raw);
+            }
+        }
+    }
+    notes.extend(derived.notes.iter().cloned());
+    for (project, exported) in request.projects.iter().zip(exports) {
         let entities =
             adopt::export_entities_bytes(&exported.xml, Path::new(project)).map_err(|e| {
                 Error::Export {
@@ -196,6 +220,13 @@ where
                     adopt::raw_entity_bytes(&exported.xml, &key).map_err(|e| Error::Export {
                         project: project.clone(),
                         why: format!("{e:?}"),
+                    })?;
+                let raw =
+                    without_explained(&raw, &derived, &key.collection, &key.name).map_err(|e| {
+                        Error::Export {
+                            project: project.clone(),
+                            why: e.to_string(),
+                        }
                     })?;
                 let info = entity::parse(
                     &[
@@ -1071,6 +1102,28 @@ mod tests {
         let error = preflight(temp.path(), &["Acme.Other".into()], true).unwrap_err();
         assert!(matches!(error, Error::MissingProject(_)));
         assert!(error.to_string().contains("drop --missing"));
+    }
+
+    #[test]
+    fn grants_a_permission_group_explains_are_not_written_into_the_target_file() {
+        let temp = tempfile::tempdir().unwrap();
+        profile(temp.path());
+        let xml = "<Entities><Things><Thing name=\"A.T\" projectName=\"A\"><VisibilityPermissions><Visibility><Principal isPermitted=\"true\" name=\"A.G\" type=\"PermissionGroup\"/><Principal isPermitted=\"true\" name=\"A.Other\" type=\"PermissionGroup\"/></Visibility></VisibilityPermissions></Thing></Things><PermissionGroups><PermissionGroup name=\"A.G\" projectName=\"A\"><EntityPermissions><EntityPermission entityType=\"Thing\" entityName=\"A.T\" permissionCategory=\"Visibility\" permissionName=\"Visibility\" resourceName=\"\" isPermitted=\"true\" onInstances=\"false\"/></EntityPermissions></PermissionGroup></PermissionGroups></Entities>";
+        let remote = Fake(BTreeMap::from([("A".to_string(), xml.as_bytes().to_vec())]));
+        execute(
+            &remote,
+            Request {
+                root: temp.path().to_path_buf(),
+                projects: vec!["A".into()],
+                apply: true,
+                missing: false,
+                profile: "default".into(),
+            },
+        )
+        .unwrap();
+        let written = std::fs::read_to_string(temp.path().join("Things/A.T.xml")).unwrap();
+        assert!(!written.contains("name=\"A.G\""), "{written}");
+        assert!(written.contains("A.Other"));
     }
 
     #[test]

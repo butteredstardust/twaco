@@ -11156,6 +11156,26 @@ fn mashup_set_checks_cds_icons_and_leaves_other_images_alone() {
 }
 
 #[test]
+fn textfield_icon_is_accepted_and_checked() {
+    let (_dir, solution) = recipe_fixture();
+    let placed = plan_add(&solution, &add_request("Acme.Orders_MU", "ptcstextfield")).unwrap();
+    apply_edit(&solution, &placed.edit, &lock(&solution)).unwrap();
+    for (icon, valid) in [("cds:icon_search", true), ("cds:icon_nope_x", false)] {
+        let result = plan_set(
+            &solution,
+            &SetRequest {
+                mashup: "Acme.Orders_MU".into(),
+                widget: placed.placed.id.clone(),
+                properties: vec![("Icon".into(), json!(icon))],
+                style_from: None,
+                styles: vec![],
+            },
+        );
+        assert_eq!(result.is_ok(), valid, "{result:?}");
+    }
+}
+
+#[test]
 fn only_image_properties_are_checked_for_cds_icons() {
     let (_dir, solution) = recipe_fixture();
     let placed = plan_add(&solution, &add_request("Acme.Orders_MU", "label")).unwrap();
@@ -11701,4 +11721,717 @@ fn a_move_next_to_its_own_wrapper_is_refused_and_from_names_a_surviving_parent()
     );
     assert_eq!(plan.removed, ["flexcontainer-90"]);
     assert_eq!(plan.from, "flexcontainer-2");
+}
+
+#[test]
+fn columns_recipe_keeps_existing_state_formats_and_other_options() {
+    let (dir, solution) = collection_fixture();
+    state_format_definition(dir.path(), "string");
+    state_format_grid_columns(&solution);
+    let mut request = state_format_request("ptcsgrid-5");
+    request.property = None;
+    request.column = Some("note".into());
+    request.icon_only = true;
+    let plan = plan_state_format_set(&solution, &request).unwrap();
+    apply_edit(&solution, plan.edit.as_ref().unwrap(), &lock(&solution)).unwrap();
+    let before = collection_properties(&solution, "ptcsgrid-5")["ColumnFormat"].clone();
+    recipe(
+        &solution,
+        "columns",
+        RecipeArgs {
+            widget: Some("ptcsgrid-5".into()),
+            data: Some("data:Acme.Orders.Manager.GetOrders".into()),
+            columns: vec!["note:Notes:240".into(), "id:Order:80".into()],
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let after = collection_properties(&solution, "ptcsgrid-5")["ColumnFormat"].clone();
+    for old in before["formatInfo"].as_array().unwrap() {
+        let column = after["formatInfo"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["FieldName"] == old["FieldName"])
+            .unwrap();
+        for (key, value) in old.as_object().unwrap() {
+            if !["Title", "Width", "hidden", "inLayout"].contains(&key.as_str()) {
+                assert_eq!(&column[key], value, "{key}");
+            }
+        }
+    }
+    assert_eq!(after["formatInfo"][0]["Width"], 240);
+}
+
+#[test]
+fn columns_recipe_rebinding_refreshes_types_but_keeps_state_and_unrelated_options() {
+    for (base, renderer, editor) in [
+        ("BOOLEAN", "BOOLEAN", "checkbox"),
+        ("DATETIME", "DATETIME", "datepicker"),
+    ] {
+        let (dir, solution) = collection_fixture();
+        state_format_definition(dir.path(), "string");
+        state_format_grid_columns(&solution);
+        let mut request = state_format_request("ptcsgrid-5");
+        request.property = None;
+        request.column = Some("note".into());
+        request.icon_only = true;
+        let plan = plan_state_format_set(&solution, &request).unwrap();
+        apply_edit(&solution, plan.edit.as_ref().unwrap(), &lock(&solution)).unwrap();
+        let before = collection_properties(&solution, "ptcsgrid-5")["ColumnFormat"].clone();
+        // Both a displayed and a hidden column change type on the new service's DataShape.
+        write(dir.path(), "acme/DataShapes/Acme.Rebound.xml", format!("<Entities><DataShapes><DataShape name='Acme.Rebound' projectName='Acme'><FieldDefinitions><FieldDefinition name='note' baseType='{base}'/><FieldDefinition name='id' baseType='{base}'/></FieldDefinitions></DataShape></DataShapes></Entities>").as_str());
+        write(dir.path(), "acme/Things/Acme.Rebound.xml", "<Entities><Things><Thing name='Acme.Rebound' projectName='Acme'><ThingShape><ServiceDefinitions><ServiceDefinition name='Load'><ResultType baseType='INFOTABLE' aspect.dataShape='Acme.Rebound'/></ServiceDefinition></ServiceDefinitions></ThingShape></Thing></Things></Entities>");
+        recipe(
+            &solution,
+            "columns",
+            RecipeArgs {
+                widget: Some("ptcsgrid-5".into()),
+                data: Some("data:Acme.Rebound.Load".into()),
+                columns: vec!["note:Notes:240".into()],
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let after = collection_properties(&solution, "ptcsgrid-5")["ColumnFormat"].clone();
+        for old in before["formatInfo"].as_array().unwrap() {
+            let column = after["formatInfo"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|c| c["FieldName"] == old["FieldName"])
+                .unwrap();
+            assert_eq!(column["FormatOptions"]["renderer"], renderer);
+            assert_eq!(column["cellEditor"], editor);
+            assert_eq!(
+                column["FormatOptions"]["FormatString"],
+                if base == "BOOLEAN" {
+                    "checkbox"
+                } else {
+                    "[[dateTimeFormat_Default]]"
+                }
+            );
+            for (key, value) in old.as_object().unwrap() {
+                if key == "FormatOptions" {
+                    for (option, value) in value.as_object().unwrap() {
+                        if !["renderer", "FormatString"].contains(&option.as_str()) {
+                            assert_eq!(&column[key][option], value, "{option}");
+                        }
+                    }
+                } else if !["Title", "Width", "hidden", "inLayout", "cellEditor"]
+                    .contains(&key.as_str())
+                {
+                    assert_eq!(&column[key], value, "{key}");
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn selected_rows_authoring_hints_follow_automatic_selection() {
+    let (dir, solution) = bind_fixture();
+    let planned = bind(
+        &solution,
+        "data:Acme.Orders.Manager.GetOrders[SelectedRows].note",
+        "ui:ptcstextfield-3.Text",
+    )
+    .unwrap();
+    assert!(planned
+        .warnings
+        .iter()
+        .any(|w| w.contains("AutoSelectFirstRow")));
+    apply_edit(&solution, &planned.edit, &lock(&solution)).unwrap();
+    let event = "data:Acme.Orders.Manager.GetOrders.ServiceInvokeCompleted";
+    let invoke = "data:Acme.Orders.Manager.GetOrders";
+    let planned = on(&solution, event, invoke).unwrap();
+    assert!(planned.warnings.is_empty(), "{:?}", planned.warnings);
+    rewrite_content(dir.path(), |content| {
+        content["Data"]["Things_Acme.Orders.Manager"]["Services"][0]["Properties"]
+            ["AutoSelectFirstRow"] = json!(true);
+    });
+    let planned = bind(
+        &solution,
+        "data:Acme.Orders.Manager.GetOrders[SelectedRows].note",
+        "ui:ptcslabel-4.LabelText",
+    )
+    .unwrap();
+    assert!(!planned
+        .warnings
+        .iter()
+        .any(|w| w.contains("AutoSelectFirstRow")));
+    assert!(on(&solution, event, invoke).unwrap().warnings.is_empty());
+}
+
+#[test]
+fn on_hints_only_for_bindings_it_added_not_earlier_selected_rows_bindings() {
+    let (_dir, solution) = bind_fixture();
+    let bound = bind(
+        &solution,
+        "data:Acme.Orders.Manager.GetOrders[SelectedRows].note",
+        "ui:ptcslabel-4.LabelText",
+    )
+    .unwrap();
+    assert!(!bound.warnings.is_empty());
+    apply_edit(&solution, &bound.edit, &lock(&solution)).unwrap();
+    let plan = on(
+        &solution,
+        "mashup:Loaded",
+        "data:Acme.Orders.Manager.GetOrders",
+    )
+    .unwrap();
+    assert!(plan.warnings.is_empty(), "{:?}", plan.warnings);
+}
+
+#[test]
+fn a_copy_is_in_step_at_once_so_the_next_edit_needs_no_sync() {
+    for css in ["", ".a { color: red; }\n", ".a {\r\n color: red; }\r\n"] {
+        let (_dir, solution) = one_project();
+        let source = plan_new(&solution, &request("Acme.Reference_MU")).unwrap();
+        apply_new(&solution, &source, &lock(&solution)).unwrap();
+        let dir = source.content_path.parent().unwrap().to_path_buf();
+        std::fs::write(dir.join("custom.css"), css).unwrap();
+        let assets = workspace::read_mashup(&dir).unwrap().unwrap();
+        let (synced, _) =
+            mashup::sync(&std::fs::read(&source.entity_path).unwrap(), &assets).unwrap();
+        std::fs::write(&source.entity_path, synced).unwrap();
+        let mut copy = request("Acme.Copy_MU");
+        copy.from = Some("Acme.Reference_MU".into());
+        let plan = plan_new(&solution, &copy).unwrap();
+        apply_new(&solution, &plan, &lock(&solution)).unwrap();
+        let on_disk = workspace::read_mashup(plan.content_path.parent().unwrap())
+            .unwrap()
+            .unwrap();
+        let (_, changes) =
+            mashup::sync(&std::fs::read(&plan.entity_path).unwrap(), &on_disk).unwrap();
+        assert!(changes.is_empty(), "{css:?}: {changes:?}");
+        let mut label = add_request("Acme.Copy_MU", "ptcslabel");
+        label.placement = Some(Placement::In("center".into()));
+        let added = plan_add(&solution, &label).unwrap();
+        apply_edit(&solution, &added.edit, &lock(&solution)).unwrap();
+        let report = crate::core::check::run(&solution);
+        let failing: Vec<_> = report
+            .gates
+            .iter()
+            .filter(|gate| !gate.ok() && judged(gate))
+            .map(|gate| gate.name.clone())
+            .collect();
+        assert!(failing.is_empty(), "{css:?}: {failing:?}");
+    }
+}
+
+#[test]
+fn unbind_removes_a_binding_whose_widget_is_gone_and_validate_prints_the_command() {
+    let (dir, solution) = bind_fixture();
+    let binding = bind(
+        &solution,
+        "ui:ptcstextfield-3.Text",
+        "data:Acme.Orders.Manager.SaveOrder.note",
+    )
+    .unwrap();
+    apply_edit(&solution, &binding.edit, &lock(&solution)).unwrap();
+    rewrite_mashup(dir.path(), "Acme.Orders_MU", |value| {
+        value["DataBindings"][0]["SourceId"] = json!("ptcspropertydisplay-107");
+    });
+    let mut found = Vec::new();
+    crate::core::mashup::validate::check_content(&sidecar_content(&solution), &mut found);
+    let finding = found
+        .iter()
+        .find(|problem| problem.rule == "unknown-widget")
+        .expect("the dangling binding is reported");
+    let command = "twaco mashup unbind <mashup> --from ui:ptcspropertydisplay-107.Text --to data:Acme.Orders.Manager.SaveOrder.note --apply";
+    assert!(finding.message.contains(command), "{}", finding.message);
+
+    let request = |from: &str| UnbindRequest {
+        mashup: "Acme.Orders_MU".into(),
+        from: from.into(),
+        to: "data:Acme.Orders.Manager.SaveOrder.note".into(),
+    };
+    // An id no binding names stays unknown; a name that is not an id is not guessed.
+    for from in ["ui:ptcspropertydisplay-108.Text", "ui:ptcsbutton.Text"] {
+        let error = plan_unbind(&solution, &request(from)).unwrap_err();
+        assert!(
+            matches!(error, AuthoringError::Unknown(_) | AuthoringError::Edit(_)),
+            "{from}: {error}"
+        );
+    }
+    let unbound = plan_unbind(&solution, &request("ui:ptcspropertydisplay-107.Text")).unwrap();
+    apply_edit(&solution, &unbound.edit, &lock(&solution)).unwrap();
+    assert!(content_value(&solution)["DataBindings"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+}
+
+#[test]
+fn an_add_beside_a_widget_names_the_widget_to_chain_from() {
+    let (_dir, solution) = one_project();
+    let name = "Acme.Chain_MU";
+    apply_new(
+        &solution,
+        &plan_new(&solution, &request(name)).unwrap(),
+        &lock(&solution),
+    )
+    .unwrap();
+    let first = plan_add(&solution, &add_request(name, "ptcsbutton")).unwrap();
+    apply_edit(&solution, &first.edit, &lock(&solution)).unwrap();
+    assert!(first.notes.iter().all(|note| !note.starts_with("next:")));
+    for (side, flag) in [
+        (mashup::edit::Side::Right, "--right-of"),
+        (mashup::edit::Side::Left, "--left-of"),
+    ] {
+        let mut next = add_request(name, "ptcsbutton");
+        next.placement = Some(Placement::Beside {
+            anchor: first.placed.id.clone(),
+            side,
+        });
+        let plan = plan_add(&solution, &next).unwrap();
+        let hint = plan
+            .notes
+            .iter()
+            .find(|note| note.starts_with("next:"))
+            .unwrap_or_else(|| panic!("{flag}: {:?}", plan.notes));
+        assert!(
+            hint.contains(&format!("{flag} {}", plan.placed.id)),
+            "{hint}"
+        );
+        let json = add_plan_json(&solution, &plan, false);
+        assert!(json["notes"].to_string().contains(&plan.placed.id));
+    }
+}
+
+fn label_pairs_fixture() -> (tempfile::TempDir, Solution, RecipeArgs) {
+    let (dir, solution) = bind_fixture();
+    write(
+        dir.path(),
+        "acme/DataShapes/Acme.Orders.Order_DS.xml",
+        r#"<Entities><DataShapes><DataShape name="Acme.Orders.Order_DS" projectName="Acme"><FieldDefinitions>
+        <FieldDefinition name="assetName" baseType="STRING"/>
+        <FieldDefinition name="URLValue" baseType="STRING"/>
+        <FieldDefinition name="serial_number" baseType="STRING"/>
+        <FieldDefinition name="temperature" baseType="NUMBER"/>
+        <FieldDefinition name="active" baseType="BOOLEAN"/>
+        <FieldDefinition name="lastSeen" baseType="DATETIME"/>
+        <FieldDefinition name="id" baseType="LONG"/>
+        </FieldDefinitions></DataShape></DataShapes></Entities>"#,
+    );
+    let call = on(
+        &solution,
+        "mashup:Loaded",
+        "data:Acme.Orders.Manager.GetOrders",
+    )
+    .unwrap();
+    apply_edit(&solution, &call.edit, &lock(&solution)).unwrap();
+    rewrite_content(dir.path(), |value| {
+        let mut document = mashup::edit::parse(&value.to_string()).unwrap();
+        let number = document.allocate();
+        let mut panel = mashup::edit::new_widget(
+            widgets::catalog().by_type("flexcontainer").unwrap(),
+            number,
+            false,
+        );
+        panel["Properties"]["DisplayName"] = json!("Details");
+        document.push_child(&[], panel);
+        *value = document.value().clone();
+    });
+    (
+        dir,
+        solution,
+        RecipeArgs {
+            widget: Some("Details".into()),
+            data: Some("data:Acme.Orders.Manager.GetOrders".into()),
+            ..Default::default()
+        },
+    )
+}
+
+fn label_pairs_plan(solution: &Solution, args: &RecipeArgs) -> Result<RecipePlan, AuthoringError> {
+    plan_recipe(
+        solution,
+        &RecipeRequest {
+            mashup: "Acme.Orders_MU".into(),
+            recipe: Recipe::from_args("label-pairs", args)?,
+        },
+    )
+}
+
+#[test]
+fn label_pairs_all_fields_follow_shape_order_and_measured_styles() {
+    let (_dir, solution, args) = label_pairs_fixture();
+    let before = sidecar_content(&solution);
+    let plan = label_pairs_plan(&solution, &args).unwrap();
+    assert_eq!(
+        sidecar_content(&solution),
+        before,
+        "planning does not write"
+    );
+    assert_eq!(plan.added.len(), 22);
+    let report = recipe_plan_json(&solution, &plan, false);
+    assert!(report["wired"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|s| s.as_str().unwrap().contains("Margin=\"0 12 12\"")));
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    let document = mashup::edit::parse(&sidecar_content(&solution)).unwrap();
+    let panel = document.find("Details").unwrap();
+    let row = &document.at(&panel.path)["Widgets"][0];
+    assert_eq!(row["Properties"]["flex-wrap"], "wrap");
+    assert_eq!(row["Properties"]["flex-size"], "range");
+    assert_eq!(row["Properties"]["flex-max-height"], "");
+    assert_eq!(row["Widgets"].as_array().unwrap().len(), 7);
+    let expected = [
+        "assetName",
+        "URLValue",
+        "serial_number",
+        "temperature",
+        "active",
+        "lastSeen",
+        "id",
+    ];
+    let captions = [
+        "Asset Name",
+        "URL Value",
+        "Serial number",
+        "Temperature",
+        "Active",
+        "Last Seen",
+        "Id",
+    ];
+    for (index, (field, caption)) in expected.iter().zip(captions).enumerate() {
+        let column = &row["Widgets"][index];
+        assert_eq!(column["Properties"]["Margin"], "0 12 12");
+        assert_eq!(column["Properties"]["flex-direction"], "column");
+        assert_eq!(column["Properties"]["flex-wrap"], "nowrap");
+        let offset = 0;
+        let label = &column["Widgets"][offset]["Properties"];
+        let value = &column["Widgets"][offset + 1]["Properties"];
+        assert_eq!(label["LabelText"], caption);
+        assert_eq!(label["LabelType"], "label");
+        assert_eq!(label["Margin"], "5");
+        assert_eq!(value["LabelType"], "body");
+        assert_eq!(value["Margin"], "0 5 5");
+        assert!(document.value()["DataBindings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|binding| {
+                binding["TargetId"] == value["Id"]
+                    && binding["SourceDetails"] == "SelectedRows"
+                    && binding["PropertyMaps"][0]["SourceProperty"] == *field
+                    && binding["PropertyMaps"][0]["SourcePropertyType"] == "Field"
+                    && binding["PropertyMaps"][0]["TargetProperty"] == "LabelText"
+            }));
+    }
+    assert!(problems(&solution).is_empty(), "{:?}", problems(&solution));
+    let report =
+        crate::core::mashup::validate::validate(&solution, Some("Acme.Orders_MU")).unwrap();
+    assert_eq!(
+        crate::core::mashup::validate::problem_counts(&report).errors,
+        0,
+        "{report:?}"
+    );
+}
+
+#[test]
+fn label_pairs_picks_captions_title_and_three_columns() {
+    let (_dir, solution, mut args) = label_pairs_fixture();
+    args.fields = vec![
+        "active:Enabled?".into(),
+        "id:Asset identifier".into(),
+        "assetName".into(),
+        "lastSeen:Updated".into(),
+    ];
+    args.title = Some("Asset details".into());
+    args.label_columns = Some(3);
+    recipe(&solution, "label-pairs", args).unwrap();
+    let document = mashup::edit::parse(&sidecar_content(&solution)).unwrap();
+    let panel = document.find("Details").unwrap();
+    let children = document.at(&panel.path)["Widgets"].as_array().unwrap();
+    assert_eq!(children.len(), 2);
+    let title = &children[0]["Widgets"][0]["Properties"];
+    assert_eq!(title["LabelText"], "Asset details");
+    assert_eq!(title["LabelType"], "sub-header");
+    assert_eq!(title["Margin"], "5 0 5 5");
+    let columns = children[1]["Widgets"].as_array().unwrap();
+    assert_eq!(columns.len(), 3);
+    assert_eq!(
+        columns
+            .iter()
+            .map(|c| c["Widgets"].as_array().unwrap().len())
+            .collect::<Vec<_>>(),
+        [4, 2, 2]
+    );
+    assert_eq!(
+        columns[0]["Widgets"][0]["Properties"]["LabelText"],
+        "Enabled?"
+    );
+    assert_eq!(
+        columns[1]["Widgets"][0]["Properties"]["LabelText"],
+        "Asset identifier"
+    );
+    assert_eq!(
+        columns[2]["Widgets"][0]["Properties"]["LabelText"],
+        "Asset Name"
+    );
+    assert_eq!(
+        columns[0]["Widgets"][2]["Properties"]["LabelText"],
+        "Updated"
+    );
+    assert!(problems(&solution).is_empty(), "{:?}", problems(&solution));
+}
+
+#[test]
+fn label_pairs_replace_removes_property_display_and_binding_inside_or_beside() {
+    for inside in [true, false] {
+        let (dir, solution, mut args) = label_pairs_fixture();
+        let mut display_id = String::new();
+        rewrite_content(dir.path(), |value| {
+            let mut document = mashup::edit::parse(&value.to_string()).unwrap();
+            let parent = if inside {
+                document.find("Details").unwrap().path
+            } else {
+                vec![]
+            };
+            let number = document.allocate();
+            let display = mashup::edit::new_widget(
+                widgets::catalog().by_type("ptcspropertydisplay").unwrap(),
+                number,
+                false,
+            );
+            display_id = display["Properties"]["Id"].as_str().unwrap().to_string();
+            document.push_child(&parent, display);
+            *value = document.value().clone();
+        });
+        let bound = bind(
+            &solution,
+            "data:Acme.Orders.Manager.GetOrders",
+            &format!("ui:{display_id}.Data"),
+        )
+        .unwrap();
+        apply_edit(&solution, &bound.edit, &lock(&solution)).unwrap();
+        args.replace = Some(display_id.clone());
+        let plan = recipe(&solution, "label-pairs", args).unwrap();
+        assert_eq!(plan.removed, [display_id.clone()]);
+        assert_eq!(
+            recipe_plan_json(&solution, &plan, true)["removed"],
+            json!([display_id])
+        );
+        let document = mashup::edit::parse(&sidecar_content(&solution)).unwrap();
+        assert!(document.find_exact(&display_id).is_err());
+        assert!(document.value()["DataBindings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|b| b["TargetId"] != display_id && b["SourceId"] != display_id));
+        assert!(problems(&solution).is_empty());
+    }
+}
+
+#[test]
+fn label_pairs_unknown_field_lists_known_fields_without_writing() {
+    let (_dir, solution, mut args) = label_pairs_fixture();
+    let before = sidecar_content(&solution);
+    args.fields = vec!["missing:Unknown".into()];
+    let error = label_pairs_plan(&solution, &args).unwrap_err().to_string();
+    assert!(
+        error.contains("missing")
+            && error
+                .contains("assetName, URLValue, serial_number, temperature, active, lastSeen, id"),
+        "{error}"
+    );
+    assert_eq!(sidecar_content(&solution), before);
+}
+
+#[test]
+fn label_pairs_refuses_nonempty_container_even_with_unrelated_replacement() {
+    let (_dir, solution, mut args) = label_pairs_fixture();
+    args.widget = Some("center".into());
+    let before = sidecar_content(&solution);
+    let error = label_pairs_plan(&solution, &args).unwrap_err().to_string();
+    assert!(error.contains("not empty"), "{error}");
+    args.replace = Some("ptcstextfield-3".into());
+    let error = label_pairs_plan(&solution, &args).unwrap_err().to_string();
+    assert!(error.contains("not empty"), "{error}");
+    assert_eq!(sidecar_content(&solution), before);
+}
+
+#[test]
+fn label_pairs_refuses_replacement_outside_destination_and_wrong_container() {
+    let (_dir, solution, mut args) = label_pairs_fixture();
+    args.replace = Some("ptcstextfield-3".into());
+    let error = label_pairs_plan(&solution, &args).unwrap_err().to_string();
+    assert!(error.contains("inside or beside"), "{error}");
+    args.replace = Some("Details".into());
+    assert!(label_pairs_plan(&solution, &args)
+        .unwrap_err()
+        .to_string()
+        .contains("inside or beside"));
+    args.replace = None;
+    args.widget = Some("ptcslabel-4".into());
+    assert!(label_pairs_plan(&solution, &args)
+        .unwrap_err()
+        .to_string()
+        .contains("responsive flexcontainer"));
+}
+
+#[test]
+fn label_pairs_notes_selected_rows_and_wrapping_guidance_in_json() {
+    let (_dir, solution, args) = label_pairs_fixture();
+    let plan = label_pairs_plan(&solution, &args).unwrap();
+    assert!(plan
+        .notes
+        .iter()
+        .any(|n| n.contains("multi-row") && n.contains("SelectedRows")));
+    assert!(plan
+        .notes
+        .iter()
+        .any(|n| n.contains(crate::core::bindings::SELECTED_ROWS_RULE) && n.contains("first row")));
+    assert!(plan
+        .notes
+        .iter()
+        .any(|n| n.contains("height:auto !important") && n.contains("every parent")));
+    assert_eq!(
+        recipe_plan_json(&solution, &plan, false)["notes"],
+        json!(plan.notes)
+    );
+}
+
+#[test]
+fn label_pairs_resolves_named_calls_and_requires_an_existing_call() {
+    let (dir, solution, mut args) = label_pairs_fixture();
+    args.data = Some("data:Acme.Orders.Manager.GetOrder".into());
+    assert!(label_pairs_plan(&solution, &args)
+        .unwrap_err()
+        .to_string()
+        .contains("not in the mashup"));
+    rewrite_content(dir.path(), |content| {
+        let services = content["Data"]["Things_Acme.Orders.Manager"]["Services"]
+            .as_array_mut()
+            .unwrap();
+        services[0]["Name"] = json!("details");
+    });
+    args.data = Some("data:Acme.Orders.Manager.GetOrders[as details]".into());
+    let plan = recipe(&solution, "label-pairs", args).unwrap();
+    assert!(plan
+        .wired
+        .iter()
+        .any(|n| n.contains("[as details][SelectedRows]")));
+    let value: Value = serde_json::from_str(&sidecar_content(&solution)).unwrap();
+    assert!(value["DataBindings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|b| b["SourceId"] == "details"));
+}
+
+#[test]
+fn label_pairs_refuses_zero_columns_duplicate_fields_and_empty_captions() {
+    let (_dir, solution, mut args) = label_pairs_fixture();
+    args.label_columns = Some(0);
+    assert!(label_pairs_plan(&solution, &args)
+        .unwrap_err()
+        .to_string()
+        .contains("--columns"));
+    args.label_columns = None;
+    for fields in [vec!["id", "id:Again"], vec!["id:"]] {
+        args.fields = fields.into_iter().map(str::to_string).collect();
+        assert!(label_pairs_plan(&solution, &args)
+            .unwrap_err()
+            .to_string()
+            .contains("given once"));
+    }
+    assert!(Recipe::from_args("picker", &args)
+        .unwrap_err()
+        .to_string()
+        .contains("--field"));
+}
+
+#[test]
+fn label_pairs_refuses_missing_or_empty_shape_and_non_result_addresses() {
+    let (dir, solution, mut args) = label_pairs_fixture();
+    for data in [
+        "mashup:Id",
+        "data:Acme.Orders.Manager.GetOrders.id",
+        "data:Acme.Orders.Manager.GetOrders[SelectedRows]",
+    ] {
+        args.data = Some(data.into());
+        assert!(label_pairs_plan(&solution, &args)
+            .unwrap_err()
+            .to_string()
+            .contains("whole existing data call"));
+    }
+    args.data = Some("data:Acme.Orders.Manager.GetOrders".into());
+    let shape = dir.path().join("acme/DataShapes/Acme.Orders.Order_DS.xml");
+    std::fs::remove_file(&shape).unwrap();
+    assert!(label_pairs_plan(&solution, &args)
+        .unwrap_err()
+        .to_string()
+        .contains("DataShape is unavailable"));
+    write(
+        dir.path(),
+        "acme/DataShapes/Acme.Orders.Order_DS.xml",
+        r#"<Entities><DataShapes><DataShape name="Acme.Orders.Order_DS" projectName="Acme"><FieldDefinitions/></DataShape></DataShapes></Entities>"#,
+    );
+    assert!(label_pairs_plan(&solution, &args)
+        .unwrap_err()
+        .to_string()
+        .contains("no fields"));
+}
+
+#[test]
+fn label_pairs_replace_cascades_descendants_and_events_but_refuses_unknown_references() {
+    let (dir, solution, mut args) = label_pairs_fixture();
+    let mut replacement = String::new();
+    let mut child = String::new();
+    rewrite_content(dir.path(), |value| {
+        let mut document = mashup::edit::parse(&value.to_string()).unwrap();
+        let target = document.find("Details").unwrap();
+        let number = document.allocate();
+        let group = mashup::edit::new_widget(
+            widgets::catalog().by_type("flexcontainer").unwrap(),
+            number,
+            false,
+        );
+        replacement = group["Properties"]["Id"].as_str().unwrap().to_string();
+        document.push_child(&target.path, group);
+        let number = document.allocate();
+        let button = mashup::edit::new_widget(
+            widgets::catalog().by_type("ptcsbutton").unwrap(),
+            number,
+            false,
+        );
+        child = button["Properties"]["Id"].as_str().unwrap().to_string();
+        document.push_child(&document.find(&replacement).unwrap().path, button);
+        *value = document.value().clone();
+    });
+    let handler = on(
+        &solution,
+        &format!("ui:{child}.Clicked"),
+        "data:Acme.Orders.Manager.GetOrders",
+    )
+    .unwrap();
+    apply_edit(&solution, &handler.edit, &lock(&solution)).unwrap();
+    args.replace = Some(replacement.clone());
+    rewrite_content(dir.path(), |value| {
+        value["ExtensionConfig"] = json!({"widget":child})
+    });
+    let before = sidecar_content(&solution);
+    assert!(label_pairs_plan(&solution, &args)
+        .unwrap_err()
+        .to_string()
+        .contains("unknown references"));
+    assert_eq!(sidecar_content(&solution), before);
+    rewrite_content(dir.path(), |value| {
+        value.as_object_mut().unwrap().remove("ExtensionConfig");
+    });
+    let plan = recipe(&solution, "label-pairs", args).unwrap();
+    assert!(plan.removed.contains(&replacement) && plan.removed.contains(&child));
+    let value: Value = serde_json::from_str(&sidecar_content(&solution)).unwrap();
+    assert!(value["Events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|event| event["EventTriggerId"] != child));
+    assert!(problems(&solution).is_empty());
 }

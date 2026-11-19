@@ -192,7 +192,21 @@ pub(crate) fn config_table_tool(
         .as_ref()
         .map(|e| e.info.name.clone())
         .unwrap_or_else(|| thing_arg.to_string());
-    let request = if arguments.action == TableAction::List {
+    let request = if arguments.action == TableAction::Set {
+        commands::config_table::ConfigTableRequest {
+            thing: thing.clone(),
+            table: table.into(),
+            profile: arguments.profile.clone(),
+            action: commands::config_table::ConfigTableAction::Set {
+                rows: arguments.rows.clone(),
+                mode: if arguments.dry_run {
+                    Mode::Plan
+                } else {
+                    Mode::Apply
+                },
+            },
+        }
+    } else if arguments.action == TableAction::List {
         commands::config_table::ConfigTableRequest {
             thing: thing.clone(),
             table: String::new(),
@@ -256,6 +270,7 @@ pub(crate) fn config_table_tool(
         commands::config_table::execute(solution, &request, server::Client::new, &mut notices)
             .map_err(ToolError::coded)?;
     let mut result = match outcome {
+        commands::config_table::ConfigTableOutcome::Set { report, .. } => report,
         commands::config_table::ConfigTableOutcome::Listed { tables, .. } => json!({
             "thing": thing,
             "tables": tables

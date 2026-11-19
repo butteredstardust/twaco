@@ -517,6 +517,30 @@ fn plan_copy(solution: &Solution, request: &NewRequest) -> Result<NewPlan, Autho
     entity = mashup::sync(&entity, &assets)
         .map_err(AuthoringError::Mashup)?
         .0;
+    // The sidecars are read back normalised the way the next command reads them; settle the
+    // entity against that, so the copy is in step in this run and not only after a `sync`.
+    let read_back = mashup::Assets {
+        content: assets.content.replace("\r\n", "\n"),
+        css: assets
+            .css
+            .trim_start_matches('\u{feff}')
+            .replace("\r\n", "\n"),
+    };
+    for _ in 0..2 {
+        let (settled, changes) =
+            mashup::sync(&entity, &read_back).map_err(AuthoringError::Mashup)?;
+        if changes.is_empty() {
+            break;
+        }
+        entity = settled;
+    }
+    let (_, changes) = mashup::sync(&entity, &read_back).map_err(AuthoringError::Mashup)?;
+    if !changes.is_empty() {
+        return Err(AuthoringError::Refused(format!(
+            "{from}: the copy's entity file and sidecars would disagree on {}; nothing was written",
+            changes.join(", ")
+        )));
+    }
     let document = mashup::edit::parse(&assets.content).map_err(AuthoringError::Edit)?;
     let content = document.value();
     let copy_summary = CopySummary {

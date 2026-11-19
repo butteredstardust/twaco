@@ -936,6 +936,25 @@ impl Coded for WorkspaceError {
     }
 }
 
+/// Imported names can contain commas: an exact address wins over list syntax.
+pub(crate) fn entity_selectors<'a>(pool: &[EntityFile], selectors: &'a [String]) -> Vec<&'a str> {
+    selectors
+        .iter()
+        .flat_map(|selector| {
+            if pool.iter().any(|entity| {
+                entity.info.name == *selector
+                    || format!("{}/{}", entity.info.collection, entity.info.name) == *selector
+            }) {
+                vec![selector.as_str()]
+            } else if selector.contains(',') {
+                selector.split(',').map(str::trim).collect()
+            } else {
+                vec![selector.as_str()]
+            }
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

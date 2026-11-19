@@ -1261,6 +1261,7 @@ pub(crate) fn permissions_cmd(
             twaco::core::permissions::Status::Pushed,
             twaco::core::permissions::Status::NotOnServer,
             twaco::core::permissions::Status::Unmanaged,
+            twaco::core::permissions::Status::NotChecked,
             twaco::core::permissions::Status::Failed,
         ] {
             let count = report.count(status);
@@ -1279,7 +1280,7 @@ pub(crate) fn permissions_cmd(
             counts.join(", ")
         );
         for entity in &report.entities {
-            if entity.differences.is_empty() && entity.error.is_none() {
+            if entity.differences.is_empty() && entity.error.is_none() && entity.notes.is_empty() {
                 continue;
             }
             println!(
@@ -1290,6 +1291,9 @@ pub(crate) fn permissions_cmd(
             );
             for difference in &entity.differences {
                 println!("  {difference}");
+            }
+            for note in &entity.notes {
+                println!("  note: {note}");
             }
             if let Some(error) = &entity.error {
                 println!("  failed: {error}");
@@ -1305,7 +1309,7 @@ pub(crate) fn permissions_cmd(
         if !push && differs > 0 {
             println!(
                 "an import never removes a grant or changes the server's allow/deny; \
-                 `twaco permissions push` makes these the repository's"
+                 `twaco permissions push` reconciles target XML grants; deploy the named PermissionGroup for derived grants"
             );
         } else if push && !report.applied && differs > 0 {
             println!("dry run: nothing was written; pass --apply to push");

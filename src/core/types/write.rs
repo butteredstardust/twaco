@@ -18,6 +18,8 @@ pub(super) const PLAIN_COLLECTIONS: &[&str] = &[
     "Mashups",
     "Users",
     "Groups",
+    "Roles",
+    "PermissionGroups",
     "Projects",
     "Networks",
     "Organizations",

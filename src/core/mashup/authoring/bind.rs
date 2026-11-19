@@ -235,23 +235,18 @@ pub(super) fn bind_in(
         }
     ) {
         warnings.extend(enable_selection_of_grids_showing(document, &sources));
-        if matches!(
-            &from,
-            End::Data {
-                member: Some(_),
-                ..
-            }
-        ) {
-            if let End::Ui { id, .. } = &to {
-                let target = document.find_exact(id).map_err(AuthoringError::Edit)?;
-                if target.type_id != "ptcsgrid" {
-                    let first_row = from_raw.replace("[SelectedRows]", "");
-                    warnings.push(format!(
-                        "{from_raw} fills {to_raw} only after a row is selected, even for a one-row result; for a record form fed by a one-record service such as GetRecord(id), bind {first_row} instead to take the first row of the result (ThingWorx All Data)"
-                    ));
-                }
-            }
-        }
+    }
+    let binding_index = document.value()["DataBindings"]
+        .as_array()
+        .map_or(0, |bindings| bindings.len().saturating_sub(1));
+    for (_, message) in bindings::selected_rows_hints(document.value())
+        .into_iter()
+        .filter(|(index, _)| *index == binding_index)
+    {
+        let first_row = from_raw.replace("[SelectedRows]", "");
+        warnings.push(format!(
+            "{from_raw} -> {to_raw}: {message}; All Data address: {first_row}"
+        ));
     }
     let new_source = source_added.or(target_added);
     Ok(BindIn {

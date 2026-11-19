@@ -344,3 +344,178 @@ fn a_comparison_reports_one_step_per_entity() {
         .events()
         .contains(&Event::Message("ZZ.Perm".to_string())));
 }
+
+fn group_target_fixture() -> (tempfile::TempDir, EntityFile, derived::Derived, Fake) {
+    let xml = r#"<Entities><Things><Thing name="Acme.Target"><DesignTimePermissions/><RunTimePermissions/><VisibilityPermissions/></Thing></Things></Entities>"#;
+    let (dir, mut file, _) = entity_file(xml);
+    file.info.name = "Acme.Target".into();
+    let mut derived = derived::Derived::default();
+    derived.add(br#"<PermissionGroup name="Acme.Access"><EntityPermissions>
+        <EntityPermission entityType="Thing" entityName="Acme.Target" permissionCategory="RunTime" permissionName="PropertyRead" resourceName="*" isPermitted="true" onInstances="false"/>
+        <EntityPermission entityType="Thing" entityName="Acme.Target" permissionCategory="RunTime" permissionName="ServiceInvoke" resourceName="GetPropertyValues" isPermitted="true" onInstances="false"/>
+        <EntityPermission entityType="Thing" entityName="Acme.Target" permissionCategory="DesignTime" permissionName="Read" resourceName="" isPermitted="true" onInstances="false"/>
+        <EntityPermission entityType="Thing" entityName="Acme.Target" permissionCategory="Visibility" permissionName="Visibility" resourceName="" isPermitted="true" onInstances="false"/>
+    </EntityPermissions></PermissionGroup>"#);
+    let sets = derived
+        .target("Things", "Acme.Target")
+        .iter()
+        .map(|(key, grants)| (key.kind().label(), to_json(key.kind(), grants)))
+        .collect();
+    let fake = Fake {
+        exists: true,
+        sets: Mutex::new(sets),
+        ..Fake::default()
+    };
+    (dir, file, derived, fake)
+}
+
+#[test]
+fn group_target_grants_are_same_and_unexplained_principals_are_server_only() {
+    let (_dir, file, derived, remote) = group_target_fixture();
+    let report = run_expected(
+        &remote,
+        std::slice::from_ref(&file),
+        false,
+        &progress::NONE,
+        &derived,
+        true,
+    );
+    assert_eq!(report.count(Status::Same), 1);
+    let mut sets = remote.sets.lock().unwrap();
+    sets.get_mut("visibility").unwrap()["Visibility"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"name":"Acme.Other", "type":"PermissionGroup", "isPermitted":true}));
+    drop(sets);
+    let report = run_expected(&remote, &[file], false, &progress::NONE, &derived, true);
+    assert_eq!(report.entities[0].differences.len(), 1);
+    assert_eq!(report.entities[0].differences[0].change, Change::ServerOnly);
+}
+
+#[test]
+fn missing_derived_grants_hint_deploy_without_target_writes() {
+    let (_dir, file, derived, remote) = group_target_fixture();
+    remote
+        .sets
+        .lock()
+        .unwrap()
+        .insert("visibility", json!({"Visibility":[]}));
+    let report = run_expected(&remote, &[file], true, &progress::NONE, &derived, true);
+    assert_eq!(report.entities[0].status, Status::Differs);
+    assert!(report.entities[0].differences[0]
+        .to_string()
+        .contains("missing: deploy PermissionGroups/Acme.Access"));
+    assert!(report.entities[0].sets.is_empty());
+    assert!(remote.writes.lock().unwrap().is_empty());
+}
+
+#[test]
+fn permission_push_writes_only_target_xml_even_with_derived_grants() {
+    let (_dir, file, derived, remote) = group_target_fixture();
+    remote.sets.lock().unwrap().get_mut("visibility").unwrap()["Visibility"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"name":"Acme.Other", "type":"PermissionGroup", "isPermitted":true}));
+    let report = run_expected(&remote, &[file], true, &progress::NONE, &derived, true);
+    assert_eq!(report.entities[0].status, Status::Differs);
+    assert!(report.entities[0].differences.iter().any(|d| d
+        .to_string()
+        .contains("missing: deploy PermissionGroups/Acme.Access")));
+    assert_eq!(
+        remote.sets.lock().unwrap()["visibility"],
+        json!({"Visibility":[]})
+    );
+}
+
+#[test]
+fn external_subsystem_checks_only_derived_principals_and_never_writes() {
+    let (_dir, _file, mut derived, remote) = group_target_fixture();
+    let target = derived
+        .targets
+        .remove(&("Things".into(), "Acme.Target".into()))
+        .unwrap();
+    derived
+        .targets
+        .insert(("Subsystems".into(), "PlatformSubsystem".into()), target);
+    remote.sets.lock().unwrap().get_mut("visibility").unwrap()["Visibility"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"name":"Acme.Other", "type":"PermissionGroup", "isPermitted":true}));
+    let report = run_expected(&remote, &[], true, &progress::NONE, &derived, true);
+    let external = report
+        .entities
+        .iter()
+        .find(|e| e.collection == "Subsystems")
+        .unwrap();
+    assert_eq!(external.status, Status::Same);
+    assert!(external.differences.is_empty());
+    assert!(remote.writes.lock().unwrap().is_empty());
+}
+
+#[test]
+fn a_set_the_entity_does_not_manage_compares_only_derived_grants() {
+    let (_dir, mut file, derived, remote) = group_target_fixture();
+    std::fs::write(
+        &file.path,
+        r#"<Entities><Things><Thing name="Acme.Target"></Thing></Things></Entities>"#,
+    )
+    .unwrap();
+    file.info.name = "Acme.Target".into();
+    remote.sets.lock().unwrap().get_mut("visibility").unwrap()["Visibility"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"name":"Administrators", "type":"Group", "isPermitted":true}));
+    let report = run_expected(
+        &remote,
+        std::slice::from_ref(&file),
+        true,
+        &progress::NONE,
+        &derived,
+        true,
+    );
+    assert_eq!(report.entities[0].status, Status::Unmanaged);
+    assert!(report.entities[0].differences.is_empty());
+    remote.sets.lock().unwrap().insert(
+        "visibility",
+        json!({"Visibility":[{"name":"Administrators", "type":"Group", "isPermitted":true}]}),
+    );
+    let report = run_expected(&remote, &[file], true, &progress::NONE, &derived, true);
+    assert_eq!(report.entities[0].differences.len(), 1);
+    assert!(report.entities[0].differences[0]
+        .to_string()
+        .contains("missing: deploy PermissionGroups/Acme.Access"));
+    assert!(remote.writes.lock().unwrap().is_empty());
+}
+
+#[test]
+fn a_push_names_the_group_principals_it_removed() {
+    let (_dir, file, derived, remote) = group_target_fixture();
+    remote.sets.lock().unwrap().get_mut("visibility").unwrap()["Visibility"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"name":"Acme.Other", "type":"PermissionGroup", "isPermitted":true}));
+    let report = run_expected(&remote, &[file], true, &progress::NONE, &derived, true);
+    let notes = &report.entities[0].notes;
+    assert_eq!(notes.len(), 1, "{notes:?}");
+    assert!(notes[0].contains("Acme.Other") && notes[0].contains("deploying the PermissionGroup"));
+}
+
+#[test]
+fn external_targets_are_read_only_for_an_unscoped_selection() {
+    let (_dir, file, mut derived, remote) = group_target_fixture();
+    let target = derived.target("Things", "Acme.Target");
+    derived
+        .targets
+        .insert(("Subsystems".into(), "PlatformSubsystem".into()), target);
+    let scoped = run_expected(
+        &remote,
+        std::slice::from_ref(&file),
+        false,
+        &progress::NONE,
+        &derived,
+        false,
+    );
+    assert!(scoped.entities.iter().all(|e| e.collection != "Subsystems"));
+    let all = run_expected(&remote, &[file], false, &progress::NONE, &derived, true);
+    assert!(all.entities.iter().any(|e| e.collection == "Subsystems"));
+}

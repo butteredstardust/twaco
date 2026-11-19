@@ -26,6 +26,8 @@ fn member_collection(kind: &str) -> Option<&'static str> {
     match kind {
         "User" => Some("Users"),
         "Group" => Some("Groups"),
+        "Role" => Some("Roles"),
+        "PermissionGroup" => Some("PermissionGroups"),
         "Thing" => Some("Things"),
         "ThingGroup" => Some("ThingGroups"),
         _ => None,
@@ -45,6 +47,8 @@ impl Builder<'_> {
                         | "Networks"
                         | "Menus"
                         | "Groups"
+                        | "Roles"
+                        | "PermissionGroups"
                         | "Organizations"
                         | "ThingGroups"
                 )
