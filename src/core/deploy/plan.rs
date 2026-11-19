@@ -157,6 +157,7 @@ pub(crate) fn plan_bundles(
             unknown.join(", ")
         ));
     }
+    let only = super::workspace::entity_selectors(&found.entities, options.only);
     let backend_only = options.backend_only;
     let selection = if backend_only {
         super::bundle::Selection::backend(solution)
@@ -190,7 +191,7 @@ pub(crate) fn plan_bundles(
     if !options.only.is_empty() {
         let mut narrowed = Vec::new();
         let mut seen = BTreeSet::new();
-        for name in options.only {
+        for name in only {
             let entity = match super::workspace::resolve(&pool, name) {
                 Ok(entity) => entity.clone(),
                 Err(error) => {

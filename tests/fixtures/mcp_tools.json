@@ -1333,6 +1333,7 @@
     },
     "outputSchema": {
       "required": [
+        "synced",
         "ok",
         "check",
         "scripts",
@@ -1341,6 +1342,10 @@
         "errors"
       ],
       "properties": {
+        "synced": {
+          "type": "integer",
+          "minimum": 0
+        },
         "ok": {
           "type": "boolean"
         },
@@ -11966,6 +11971,46 @@
               "detail"
             ]
           }
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "url",
+    "description": "Composer deep link for a solution entity using the selected profile. Read-only, no network. attributes is the default tab; other tabs depend on the entity type.",
+    "inputSchema": {
+      "required": [
+        "entity"
+      ],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "entity": {
+          "description": "Solution entity name or Collection/Name.",
+          "type": "string"
+        },
+        "tab": {
+          "description": "Composer tab: attributes by default; design for Mashup, fields for DataShape, services for Thing, ThingTemplate or ThingShape.",
+          "type": "string"
+        },
+        "profile": {
+          "type": "string",
+          "default": "default"
+        }
+      }
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "url"
+      ],
+      "properties": {
+        "url": {
+          "type": "string"
         }
       },
       "type": "object"

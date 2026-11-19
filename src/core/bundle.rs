@@ -542,7 +542,7 @@ pub(crate) fn select_included(
     }
     let mut selected = Vec::new();
     let mut seen = BTreeSet::new();
-    for selector in selectors {
+    for selector in workspace::entity_selectors(&candidates, selectors) {
         let matches: Vec<_> = candidates
             .iter()
             .filter(|entity| matches_selector(entity, selector))
@@ -907,5 +907,37 @@ mod selector_diagnostic_tests {
             super::select_included(Vec::new(), &["ApplicationKeys/Acme\r".into()]).unwrap_err();
         assert!(error.contains(r#""ApplicationKeys/Acme\r""#), "{error}");
         assert!(error.contains("trailing carriage return"), "{error}");
+    }
+}
+
+#[cfg(test)]
+mod comma_selector_tests {
+    use super::*;
+    fn entity(name: &str) -> workspace::EntityFile {
+        workspace::EntityFile {
+            path: PathBuf::from(format!("{name}.xml")),
+            info: crate::core::entity::EntityInfo {
+                collection: "Things".into(),
+                name: name.into(),
+                project: "Acme.App".into(),
+            },
+            found_under: "Acme.App".into(),
+        }
+    }
+    #[test]
+    fn commas_spaces_repeated_selectors_and_exact_comma_names() {
+        let pool = vec![entity("Acme.A"), entity("Acme.B")];
+        let selected =
+            select_included(pool.clone(), &[" Acme.A , Acme.B ".into(), "Acme.A".into()]).unwrap();
+        assert_eq!(selected.len(), 2);
+        let mut pool = pool;
+        pool.push(entity("Acme.A,Acme.B"));
+        assert_eq!(
+            select_included(pool, &["Acme.A,Acme.B".into()]).unwrap()[0]
+                .info
+                .name,
+            "Acme.A,Acme.B"
+        );
+        assert!(select_included(vec![entity("Acme.A")], &["Acme.A,Missing".into()]).is_err());
     }
 }

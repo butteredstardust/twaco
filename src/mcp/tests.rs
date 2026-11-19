@@ -1311,7 +1311,9 @@ fn annotations_say_what_each_tool_may_reach_and_discard() {
     // patches from twaco.toml.
     for tool in &tools {
         let name = tool["name"].as_str().unwrap();
-        if name != "bundle" && tool["inputSchema"]["properties"].get("profile").is_some() {
+        if !matches!(name, "bundle" | "url")
+            && tool["inputSchema"]["properties"].get("profile").is_some()
+        {
             assert_eq!(
                 tool["annotations"]["openWorldHint"], true,
                 "{name} takes a profile"
@@ -1442,6 +1444,7 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
             "unused",
             "docs",
             "doctor",
+            "url",
             "guide",
             "help_search",
             "help_page",
@@ -4707,4 +4710,98 @@ fn rbac_creation_and_typed_members_plan_then_apply_over_mcp() {
             assert_eq!(before, std::fs::read(&path).unwrap());
         }
     }
+}
+
+#[test]
+fn url_is_listed_read_only_and_builds_from_a_named_profile_without_network() {
+    let (_dir, root) = solution_dir();
+    std::fs::create_dir_all(root.join(".twaco/profiles")).unwrap();
+    std::fs::write(
+        root.join(".twaco/profiles/field.toml"),
+        "url='https://example.invalid/Thingworx/'\nusername='user'\npassword='secret'\n",
+    )
+    .unwrap();
+    let responses = converse(
+        &root,
+        &[json!({"jsonrpc":"2.0","id":1,"method":"tools/list"})],
+    );
+    let tools = responses[0]["result"]["tools"].as_array().unwrap();
+    let tool = tools.iter().find(|tool| tool["name"] == "url").unwrap();
+    assert_eq!(tool["annotations"]["readOnlyHint"], true);
+    assert_eq!(tool["annotations"]["openWorldHint"], false);
+    let (failed, result) = call_tool(
+        &root,
+        "url",
+        json!({"entity":"P.T", "profile":"field", "tab":"services"}),
+    );
+    assert!(!failed, "{result}");
+    assert_eq!(
+        result["url"],
+        "https://example.invalid/Thingworx/Composer/index.html#/modeler/details/Thing~P.T/services"
+    );
+    assert!(jsonschema::draft202012::is_valid(
+        &output_schema_of("url"),
+        &result
+    ));
+    let (failed, result) = call_tool(
+        &root,
+        "url",
+        json!({"entity":"P.T", "profile":"field", "tab":"design"}),
+    );
+    assert!(failed);
+    assert!(result.to_string().contains("attributes, services"));
+}
+
+#[test]
+fn deploy_excluded_comma_name_does_not_become_two_targets() {
+    let (_dir, root) = solution_dir();
+    for name in ["A", "B", "A,B"] {
+        std::fs::write(
+            root.join(format!("Things/{name}.xml")),
+            format!(
+                r#"<Entities><Things><Thing name="{name}" projectName="P"/></Things></Entities>"#
+            ),
+        )
+        .unwrap();
+    }
+    for only in [json!(["A,B"]), json!(["Things/A,B"])] {
+        let (failed, body) = call_tool(
+            &root,
+            "deploy",
+            json!({"only": only, "exclude": ["Things/A,B"]}),
+        );
+        assert!(failed, "{body}");
+        let error = body.to_string();
+        assert!(
+            error.contains("no entity named") && error.contains("A,B"),
+            "{body}"
+        );
+    }
+}
+
+#[test]
+fn fmt_changed_includes_synced_xml_once_alongside_scripts() {
+    let (_dir, root) = solution_dir();
+    let xml = root.join("Things/P.T.xml");
+    std::fs::write(&xml, r#"<Entities><Things><Thing name="P.T" projectName="P"><ThingShape><ServiceDefinitions><ServiceDefinition name="Run"/></ServiceDefinitions><ServiceImplementations><ServiceImplementation name="Run" handlerName="Script"><ConfigurationTables><ConfigurationTable name="Script"><Rows><Row><code><![CDATA[old();]]></code></Row></Rows></ConfigurationTable></ConfigurationTables></ServiceImplementation></ServiceImplementations></ThingShape><Subscriptions><Subscription><Events><Event alias="Z"/><Event alias="A"/></Events></Subscription></Subscriptions></Thing></Things></Entities>"#).unwrap();
+    let service = root.join("src/P.T/services/Run");
+    std::fs::create_dir_all(&service).unwrap();
+    std::fs::write(
+        service.join("definition.xml"),
+        "<ServiceDefinition name=\"Run\"/>",
+    )
+    .unwrap();
+    std::fs::write(service.join("script.js"), "if(true){old();}").unwrap();
+    let (failed, result) = call_tool(&root, "fmt", json!({}));
+    assert!(!failed, "{result}");
+    assert_eq!(result["failed"], 0, "{result}");
+    assert_eq!(result["synced"], 1);
+    assert_eq!(
+        result["changed"],
+        json!(["Things/P.T.xml", "src/P.T/services/Run/script.js"])
+    );
+    let (failed, repeated) = call_tool(&root, "fmt", json!({}));
+    assert!(!failed, "{repeated}");
+    assert_eq!(repeated["changed"], json!([]));
+    assert_eq!(repeated["synced"], 0);
 }

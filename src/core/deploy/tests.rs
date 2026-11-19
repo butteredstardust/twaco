@@ -1905,3 +1905,33 @@ fn role_warnings_precede_import_and_survive_read_back_and_later_import_failure()
         });
     }
 }
+
+#[test]
+fn deploy_only_accepts_comma_lists_and_repeated_names() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::fs::create_dir(root.join("Things")).unwrap();
+    std::fs::write(root.join("twaco.toml"), "[[project]]\nname='P'\n").unwrap();
+    for name in ["Acme.A", "Acme.B", "Acme.C"] {
+        std::fs::write(root.join(format!("Things/{name}.xml")), entity(name, "")).unwrap();
+    }
+    let solution = super::super::config::Solution::load(&root.join("twaco.toml")).unwrap();
+    let (bundles, _) = plan_bundles(
+        &solution,
+        "default",
+        PlanOptions {
+            only_projects: &[],
+            only: &[" Acme.A , Acme.B ".into(), "Acme.A".into()],
+            backend_only: false,
+            changed_since: None,
+            exclude: &[],
+        },
+    )
+    .unwrap();
+    let names: Vec<_> = bundles
+        .iter()
+        .flat_map(|bundle| &bundle.entities)
+        .map(|entity| entity.name.as_str())
+        .collect();
+    assert_eq!(names, ["Acme.A", "Acme.B"]);
+}

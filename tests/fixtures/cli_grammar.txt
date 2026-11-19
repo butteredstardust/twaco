@@ -1,7 +1,7 @@
 == twaco
 usage: twaco <command>
 settings: version disable-help-subcommand subcommand-required arg-required-else-help
-subcommands: access adopt agent appkey block bundle call catalog check completions config-table contract copy datatable db deploy docs doctor entity export ext extract fmt group guide handoff help impact import init javadoc lint localization logs mashup mcp mcp-namespace media menu model move network new package permissions projects rename repo reproject requirements retemplate role scheduler search settings state style sync test thing timer trace types unused update users widgets
+subcommands: access adopt agent appkey block bundle call catalog check completions config-table contract copy datatable db deploy docs doctor entity export ext extract fmt group guide handoff help impact import init javadoc lint localization logs mashup mcp mcp-namespace media menu model move network new package permissions projects rename repo reproject requirements retemplate role scheduler search settings state style sync test thing timer trace types unused update url users widgets
 arg --help
     action: Help
     value_name: -
@@ -54,7 +54,7 @@ help:
 |   Run and observe: call, model, access, logs, settings
 |   Server content: repo, localization, users, appkey, test, ext, search, export, import
 |   Release: package
-|   Knowledge: guide, help, javadoc
+|   Knowledge: url, guide, help, javadoc
 | twaco <command> --help shows one command; the full listing follows.
 | 
 |   init [--write]              propose a twaco.toml from the repository's own entities; --write
@@ -94,8 +94,9 @@ help:
 |       --allow-add-remove      add and remove services and fields as the sidecars do
 |       --relayout              rewrite scripts in the configured CDATA layout
 |       --json                  print the report as JSON
-|   fmt [--check] [--entity <name>] [--changed-since <git-rev>]
-|                               format service scripts; order subscription Events and RBAC permission/member sets
+|   fmt [--check] [--apply] [--entity <name>] [--changed-since <git-rev>]
+|                               format scripts and sync their entity XML; order subscription Events and RBAC sets
+|       --apply                 apply formatting (the default); incompatible with --check
 |       --check                 report which files would change, write nothing
 |       --entity <name>         an entity name or Collection/Name glob to format (repeatable)
 |       --changed-since <git-rev>  format entity files and sidecars changed since this revision
@@ -748,7 +749,7 @@ help:
 |                               check, bundle, live-parse, conflict-check, import; a blocking gate
 |                               stops it before anything is sent (exit 2)
 |       --backend-only          exclude configured UI collections
-|       --only <entity>         include only this entity (repeatable)
+|       --only <entity>         include only these entities (comma-separated or repeatable)
 |       --changed-since <git-rev>  include entities changed since this revision
 |       --exclude <entity-or-glob> leave out this Collection/Name selector (repeatable)
 |       --only-projects <a,b>   include only these projects
@@ -909,12 +910,20 @@ help:
 |   package extension [--project P] [--editable] --out <file.zip>  an extension package: one project's,
 |                               or the solution's as a zip of its projects' ([package] in twaco.toml)
 |       --force                 replace the --out file if it exists
+|   url <entity> [--tab <tab>] [--profile <name>] [--json]
+|                               print a Composer link; no network request
+|       --tab <tab>             attributes (default); design for Mashup, fields for DataShape,
+|                               services for Thing, ThingTemplate or ThingShape
+|       --profile <name>        server profile (default: default)
+|       --json                  print {url}
 |   guide                       the knowledge topics: twaco's workflow, the platform's verified quirks,
 |                               the service-code reference, and the solution's own markdown
 |   guide <topic> [--section <heading>]  read one (a long one gives its outline)
 |   guide --search <words>      the sections that best match; extra operands extend the search
+|                               common English stopwords are ignored unless they are the whole query
 |                               --limit <n>; --json
 |   help search <words>         search the ThingWorx Platform help (the server's version)
+|                               common English stopwords are ignored unless they are the whole query
 |   help page <page>            read a help page as Markdown; --section <heading>
 |       --version <10.1>        another release; --limit <n>; --refresh; --json
 |       --profile <name>        the server whose version to read (default: default)
@@ -3911,7 +3920,7 @@ help:
 |                               check, bundle, live-parse, conflict-check, import; a blocking gate
 |                               stops it before anything is sent (exit 2)
 |       --backend-only          exclude configured UI collections
-|       --only <entity>         include only this entity (repeatable)
+|       --only <entity>         include only these entities (comma-separated or repeatable)
 |       --changed-since <git-rev>  include entities changed since this revision
 |       --exclude <entity-or-glob> leave out this Collection/Name selector (repeatable)
 |       --only-projects <a,b>   include only these projects
@@ -5837,9 +5846,20 @@ help:
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
 
 == twaco fmt
-usage: twaco fmt [--check] [--entity <name>] [--changed-since <git-rev>]
+usage: twaco fmt [--check] [--apply] [--entity <name>] [--changed-since <git-rev>]
 settings: disable-version-flag disable-help-subcommand
 subcommands: 
+arg --apply
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
 arg --changed-since
     action: Set
     value_name: git-rev
@@ -5910,8 +5930,9 @@ arg --log-file
     given twice: ArgumentConflict
     given bare: InvalidValue
 help:
-|   fmt [--check] [--entity <name>] [--changed-since <git-rev>]
-|                               format service scripts; order subscription Events and RBAC permission/member sets
+|   fmt [--check] [--apply] [--entity <name>] [--changed-since <git-rev>]
+|                               format scripts and sync their entity XML; order subscription Events and RBAC sets
+|       --apply                 apply formatting (the default); incompatible with --check
 |       --check                 report which files would change, write nothing
 |       --entity <name>         an entity name or Collection/Name glob to format (repeatable)
 |       --changed-since <git-rev>  format entity files and sidecars changed since this revision
@@ -6145,6 +6166,7 @@ help:
 |                               the service-code reference, and the solution's own markdown
 |   guide <topic> [--section <heading>]  read one (a long one gives its outline)
 |   guide --search <words>      the sections that best match; extra operands extend the search
+|                               common English stopwords are ignored unless they are the whole query
 |                               --limit <n>; --json
 | 
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
@@ -6358,6 +6380,7 @@ arg <operands>
     other: -
 help:
 |   help search <words>         search the ThingWorx Platform help (the server's version)
+|                               common English stopwords are ignored unless they are the whole query
 |   help page <page>            read a help page as Markdown; --section <heading>
 |       --version <10.1>        another release; --limit <n>; --refresh; --json
 |       --profile <name>        the server whose version to read (default: default)
@@ -21798,6 +21821,101 @@ help:
 |   update [--apply]            compare with the latest release; --apply verifies its signature
 |                               and replaces this binary (TWACO_NO_UPDATE_CHECK=1: no daily notice)
 | 
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
+== twaco url
+usage: twaco url <entity> [--tab <tab>] [--profile <name>] [--json]
+settings: disable-version-flag disable-help-subcommand
+subcommands: 
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+arg --json
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --profile
+    action: Set
+    value_name: name
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --tab
+    action: Set
+    value_name: tab
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg <operands>
+    action: Append
+    value_name: operand
+    num_args: 0..
+    allow_hyphen_values: no
+    allow_negative_numbers: yes
+    required: no
+    default: -
+    index: 1
+    other: -
+help:
+|   url <entity> [--tab <tab>] [--profile <name>] [--json]
+|                               print a Composer link; no network request
+|       --tab <tab>             attributes (default); design for Mashup, fields for DataShape,
+|                               services for Thing, ThingTemplate or ThingShape
+|       --profile <name>        server profile (default: default)
+|       --json                  print {url}
+| 
+|   --profile <name>            the server profile (default: default)
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
 

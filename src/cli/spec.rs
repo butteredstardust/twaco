@@ -476,8 +476,9 @@ pub(crate) const USAGE: &[Usage] = &[
     Usage {
         path: "fmt",
         group: 1,
-        text: r#"  fmt [--check] [--entity <name>] [--changed-since <git-rev>]
-                              format service scripts; order subscription Events and RBAC permission/member sets
+        text: r#"  fmt [--check] [--apply] [--entity <name>] [--changed-since <git-rev>]
+                              format scripts and sync their entity XML; order subscription Events and RBAC sets
+      --apply                 apply formatting (the default); incompatible with --check
       --check                 report which files would change, write nothing
       --entity <name>         an entity name or Collection/Name glob to format (repeatable)
       --changed-since <git-rev>  format entity files and sidecars changed since this revision"#,
@@ -1614,7 +1615,7 @@ pub(crate) const USAGE: &[Usage] = &[
                               check, bundle, live-parse, conflict-check, import; a blocking gate
                               stops it before anything is sent (exit 2)
       --backend-only          exclude configured UI collections
-      --only <entity>         include only this entity (repeatable)
+      --only <entity>         include only these entities (comma-separated or repeatable)
       --changed-since <git-rev>  include entities changed since this revision
       --exclude <entity-or-glob> leave out this Collection/Name selector (repeatable)
       --only-projects <a,b>   include only these projects
@@ -1857,18 +1858,30 @@ pub(crate) const USAGE: &[Usage] = &[
       --force                 replace the --out file if it exists"#,
     },
     Usage {
+        path: "url",
+        group: 6,
+        text: r#"  url <entity> [--tab <tab>] [--profile <name>] [--json]
+                              print a Composer link; no network request
+      --tab <tab>             attributes (default); design for Mashup, fields for DataShape,
+                              services for Thing, ThingTemplate or ThingShape
+      --profile <name>        server profile (default: default)
+      --json                  print {url}"#,
+    },
+    Usage {
         path: "guide",
         group: 6,
         text: r#"  guide                       the knowledge topics: twaco's workflow, the platform's verified quirks,
                               the service-code reference, and the solution's own markdown
   guide <topic> [--section <heading>]  read one (a long one gives its outline)
   guide --search <words>      the sections that best match; extra operands extend the search
+                              common English stopwords are ignored unless they are the whole query
                               --limit <n>; --json"#,
     },
     Usage {
         path: "help",
         group: 6,
         text: r#"  help search <words>         search the ThingWorx Platform help (the server's version)
+                              common English stopwords are ignored unless they are the whole query
   help page <page>            read a help page as Markdown; --section <heading>
       --version <10.1>        another release; --limit <n>; --refresh; --json
       --profile <name>        the server whose version to read (default: default)"#,

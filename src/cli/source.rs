@@ -263,6 +263,8 @@ fn print_log(log: &workflow::Log) {
 #[derive(Debug, clap::Args)]
 #[group(skip)]
 pub(crate) struct Fmt {
+    #[command(flatten)]
+    pub(crate) apply: Apply,
     #[arg(long = "check")]
     pub(crate) check: bool,
     #[arg(long = "entity", value_name = "name")]

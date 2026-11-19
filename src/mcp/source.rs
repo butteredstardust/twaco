@@ -380,6 +380,7 @@ pub(crate) fn fmt_tool(solution: &Solution, arguments: FmtRequest) -> Result<Val
         "ok": outcome.failed == 0 && (!check || outcome.changed.is_empty()),
         "check": check,
         "scripts": outcome.files,
+        "synced": outcome.synced,
         "changed": outcome.changed.iter().map(|p| relative(solution, p)).collect::<Vec<_>>(),
         "failed": outcome.failed,
         "errors": outcome.log.errors().collect::<Vec<_>>(),

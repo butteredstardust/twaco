@@ -524,3 +524,21 @@ fn javadoc_source(
     )
     .map_err(ToolError::invalid)
 }
+
+pub(crate) fn url_tool(
+    solution: &Solution,
+    arguments: tool::UrlRequest,
+) -> Result<Value, ToolError> {
+    let url = crate::core::composer::entity_url(
+        solution,
+        &arguments.entity,
+        arguments.tab.as_deref(),
+        &arguments.profile,
+    )
+    .map_err(|error| match error {
+        crate::core::composer::Error::Profile(error) => ToolError::coded(error),
+        crate::core::composer::Error::Entity(error) => ToolError::coded(error),
+        crate::core::composer::Error::Invalid(message) => ToolError::invalid(message),
+    })?;
+    Ok(json!({"url": url}))
+}

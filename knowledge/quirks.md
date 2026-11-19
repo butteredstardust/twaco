@@ -928,3 +928,21 @@ at run time, use `[[server_owned]] entities = ["Roles/Acme.Operator"]` with
 `parts = ["members:User,Group"]`; plain `members` preserves all types. Field-verified on
 10.2.1-b148. Role services `AddMembers`, `DeleteMembers` and `UpdateMembers` use EntityReference
 infotables (`name`, `type`); UpdateMembers takes membersToAdd and membersToDelete.
+
+## Read-only ptcsrte drops links combined with code
+
+Verified on ThingWorx 10.2.1: the read-only `ptcsrte` sanitizer drops an `<a href>`
+combined with `<code>`, in either nesting order. A plain `<a>` survives. Use a plain
+link when its destination must remain available in read-only content.
+
+## Mashup Builder filter subproperties setting resets
+
+Verified on ThingWorx 10.2.1: with **Include Subproperties in Filter** OFF, matching
+INFOTABLE parameters still appear in Mashup Builder, collapsed. The setting is
+re-checked on every Builder load; it does not persist as OFF.
+
+## Mashup Builder splitter saves a per-user Custom workspace
+
+Verified on ThingWorx 10.2.1: dragging a Mashup Builder splitter saves a per-user
+**Custom** workspace on the server. A changed pane layout can therefore follow the
+user into another session.

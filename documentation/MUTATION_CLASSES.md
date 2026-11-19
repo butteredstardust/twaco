@@ -32,6 +32,7 @@ when the command is asked to write. A local output named by an option is include
 
 | Command | Default | Applied | Writes | After a failure | Evidence |
 | --- | --- | --- | --- | --- | --- |
+| `url` | read-only | read-only | none | Retry freely. | `core/composer.rs: entity_url` |
 | `projects` | read-only | read-only | none | Retry freely. | `main.rs: projects` |
 | `types` | best-effort batch | best-effort batch | generated declarations | Inspect files already regenerated; retry failed generation. | `core/commands/types.rs: execute` |
 | `types --check` | best-effort batch | best-effort batch | generated declarations, check project | Inspect generated files and retry the compiler after fixing its failure. | `core/commands/types.rs: execute` |
@@ -40,7 +41,7 @@ when the command is asked to write. A local output named by an option is include
 | `extract --all` | best-effort batch | best-effort batch | sidecars, declarations | Each entity's sidecars are written together or not at all, and the next command that takes the workspace lock finishes or undoes one a crash interrupted; earlier entities remain extracted. Retry failed entities. | `core/commands/extract.rs: execute` |
 | `sync` | best-effort batch | best-effort batch | entity XML, declarations, `datatable.json` of a DataTable whose DataShape changed | Each entity file is written once, atomically, with every kind of sidecar that synced (a kind that is refused is reported, and the others are still written); a DataTable's `datatable.json` is written after its XML, and a crash between the two is put right by the next sync. Earlier entities remain synced. Retry failed entities. | `core/commands/sync.rs: execute` |
 | `sync --all` | best-effort batch | best-effort batch | entity XML, declarations, `datatable.json` of a DataTable whose DataShape changed | Each entity file is written once, atomically, with every kind of sidecar that synced (a kind that is refused is reported, and the others are still written); a DataTable's `datatable.json` is written after its XML, and a crash between the two is put right by the next sync. Earlier entities remain synced. Retry failed entities. | `core/commands/sync.rs: execute` |
-| `fmt` | best-effort batch | best-effort batch | script sidecars, subscription Events and RBAC XML sets | Earlier files remain formatted; retry reported files. | `core/commands/fmt.rs: execute` |
+| `fmt` | best-effort batch | best-effort batch | script sidecars, synced entity XML, subscription Events and RBAC XML sets | Each entity's scripts and XML commit together or roll back; earlier entities remain formatted. Retry reported entities. | `core/commands/fmt.rs: execute` |
 | `check` | read-only | read-only | none | Retry freely. | `core/check.rs: run` |
 | `lint` | read-only | read-only | none | Retry freely. | `core/lint_report.rs: run` |
 | `lint fix-headers` | read-only | best-effort batch | script sidecars | Each script is written atomically; earlier scripts remain fixed. Retry reported scripts. | `core/commands/lint_fix.rs: execute` |
@@ -237,7 +238,8 @@ when the command is asked to write. A local output named by an option is include
 | `entity_pull` | read-only | multi-file atomic | entity XML, sidecars, baseline | An applied pull takes one workspace lock; rerun after resolving a reported sidecar failure. | `core/commands/pull.rs: execute` |
 | `sync` | best-effort batch | best-effort batch | entity XML, declarations | Each entity file is written once, atomically, with every kind of sidecar that synced (a kind that is refused is reported, and the others are still written); earlier entities remain synced. Retry failed entities. | `core/commands/sync.rs: execute` |
 | `extract` | best-effort batch | best-effort batch | sidecars, declarations | Each entity's sidecars are written together or not at all, and the next command that takes the workspace lock finishes or undoes one a crash interrupted; earlier entities remain extracted. Retry failed entities. | `core/commands/extract.rs: execute` |
-| `fmt` | best-effort batch | best-effort batch | script sidecars, subscription Events and RBAC XML sets | Earlier files remain formatted; retry reported files. | `core/commands/fmt.rs: execute` |
+| `url` | read-only | read-only | none | Retry freely. | `core/composer.rs: entity_url` |
+| `fmt` | best-effort batch | best-effort batch | script sidecars, synced entity XML, subscription Events and RBAC XML sets | Each entity's scripts and XML commit together or roll back; earlier entities remain formatted. Retry reported entities. | `core/commands/fmt.rs: execute` |
 | `push` | read-only | server-partial | server entity, baseline, backup | Read the entity and baseline before retrying. | `core/commands/push.rs: execute` |
 | `entity_delete` | read-only | server-partial | server entities, ledger, backups | Inspect confirmed deletions and ledger entries before retrying. | `core/commands/delete.rs: execute` |
 | `entity_restore` | read-only | server-partial | server entities | Read restored entities back before retrying. | `core/commands/restore.rs: execute` |

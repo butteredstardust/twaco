@@ -8,12 +8,18 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- `url <entity>` (also MCP `url`) prints a Composer deep link from the selected profile without contacting the server, with type-specific tabs and JSON output; routes checked live on 10.2, and types without a Composer details page are refused.
+- Three ThingWorx 10.2.1 field quirks cover read-only ptcsrte links, Builder filter subproperties, and per-user Custom workspaces.
 - Roles and PermissionGroups participate in status, pull baselines, deploy, delete, references and script globals; `new role`, `new permission-group`, and `group member` / `role member` add/remove repository members (also MCP entity tools).
 - `server_owned` accepts `members:User,Group` alongside `members`, preserving selected member types on Groups, Roles and PermissionGroups. Deploy warns when a Role import removes unowned server members.
 - RBAC field notes from ThingWorx 10.2.1 cover grants, visibility, mashup bootstrap services, permission checks and import membership behaviour.
 
 ### Fixed
 
+- Entity inclusion selectors accept comma-separated names with surrounding spaces, preserving exact names containing commas and repeated flags; excluded literal names fail rather than becoming lists.
+- `fmt` stages formatted scripts and synced XML together per entity, rolls back failed writes, and reports every changed path. Sidecar repair commands quote collection-qualified addresses and permit structural changes when required.
+- Composer links preserve explicit profile application contexts; origin-only profiles use `/Thingworx`.
+- Help and guide searches ignore common English stopwords, retaining them when they are the entire query.
 - PermissionGroup EntityPermissions and Role/PermissionGroup Members compare as sets; `fmt` orders these rows through byte spans. Comparison hashes are v13; repositories need `twaco entity status --all --record` once.
 - Re-running `mashup recipe columns` preserves state formatting and unrelated column options, and refreshes renderer, format and editor defaults when a field's base type changes.
 - Deploy lists Role member removals as intended changes when the server matches the baseline; uncertain removals warn before import, suggest extending existing typed ownership, and remain visible after import or read-back failures.

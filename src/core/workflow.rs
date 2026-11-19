@@ -67,6 +67,8 @@ pub struct SyncOutcome {
     pub checked: usize,
     /// Entity files that changed, or would with `check`.
     pub changed: usize,
+    /// XML paths changed, or that would change with `check`.
+    pub(crate) changed_paths: Vec<std::path::PathBuf>,
     pub failed: usize,
     pub types: super::types::Refresh,
 }
@@ -106,6 +108,18 @@ pub(crate) fn sync(
     chosen: &[EntityFile],
     unreadable: &[String],
     options: SyncOptions,
+) -> SyncOutcome {
+    sync_with(solution, chosen, unreadable, options, None, None)
+}
+
+/// The same sync plan, optionally using formatted scripts and staging writes in memory.
+fn sync_with(
+    solution: &Solution,
+    chosen: &[EntityFile],
+    unreadable: &[String],
+    options: SyncOptions,
+    formatted: Option<&BTreeMap<std::path::PathBuf, String>>,
+    mut staged: Option<&mut BTreeMap<std::path::PathBuf, Vec<u8>>>,
 ) -> SyncOutcome {
     let mut outcome = SyncOutcome::default();
     let log = &mut outcome.log;
@@ -223,7 +237,14 @@ pub(crate) fn sync(
         }
 
         let dir = super::workspace::services_dir(solution, entity);
-        let sidecars = super::workspace::read_sidecars(&dir);
+        let mut sidecars = super::workspace::read_sidecars(&dir);
+        if let Some(formatted) = formatted {
+            for (name, sidecar) in &mut sidecars {
+                if let Some(text) = formatted.get(&dir.join(name).join("script.js")) {
+                    *sidecar.script_mut() = super::workspace::lf(text);
+                }
+            }
+        }
         // An existing empty services directory is deliberate management of zero services. This
         // matters before Git drops the empty directory: it lets sync report (or, when allowed,
         // remove) the last script service instead of silently treating the entity as unmanaged.
@@ -251,7 +272,13 @@ pub(crate) fn sync(
         // write that fails leaves the file as it was, so nothing counts as changed.
         let mut entity_written = current == src;
         if !options.check && current != src {
-            if let Err(e) = super::workspace::write_entity(&entity.path, &current) {
+            let written = if let Some(staged) = staged.as_deref_mut() {
+                staged.insert(entity.path.clone(), current.clone());
+                Ok(())
+            } else {
+                super::workspace::write_entity(&entity.path, &current)
+            };
+            if let Err(e) = written {
                 log.error(format!("{e}"));
                 tally.changed = false;
                 tally.failed += 1;
@@ -261,7 +288,15 @@ pub(crate) fn sync(
         }
         if !options.check && entity_written {
             if let Some((path, text)) = accumulated_sidecar {
-                if let Err(e) = super::workspace::write_sidecar_if_changed(&path, &text) {
+                if let Some(staged) = staged.as_deref_mut() {
+                    let bytes = super::workspace::keeping_bom(
+                        &path,
+                        text.replace("\r\n", "\n").replace('\r', "\n").into_bytes(),
+                    );
+                    if std::fs::read(&path).ok().as_deref() != Some(bytes.as_slice()) {
+                        staged.insert(path, bytes);
+                    }
+                } else if let Err(e) = super::workspace::write_sidecar_if_changed(&path, &text) {
                     log.error(format!("{e}"));
                     tally.failed += 1;
                 }
@@ -273,6 +308,7 @@ pub(crate) fn sync(
         }
         if tally.changed {
             outcome.changed += 1;
+            outcome.changed_paths.push(entity.path.clone());
         }
         failed += tally.failed;
     }
@@ -825,22 +861,31 @@ fn skipped_lines(lines: &mut Vec<String>, extraction: &super::sidecar::Extractio
 #[derive(Debug, Default)]
 pub struct FmtOutcome {
     pub log: Log,
+    pub synced: usize,
     /// Service scripts looked at.
     pub files: usize,
-    /// Scripts or entity files reformatted, or that would be with `check`.
+    /// Files reformatted or synced, or that would be reformatted with `check`.
     pub changed: Vec<std::path::PathBuf>,
     pub failed: usize,
 }
 
-/// Format service script sidecars and order subscription Events and RBAC sets.
-///
-/// A reformatted script is written through the workspace's atomic write, as every other file
-/// twaco writes is. Until this moved here it used a plain `fs::write`, so an interrupted run
-/// could leave a script truncated.
+/// Format scripts and their owning XML in one transaction per entity. A refused sync
+/// or failed write leaves that entity's scripts and XML unchanged and safe to retry.
 pub(crate) fn fmt(
     solution: &Solution,
     check: bool,
-    entities: Option<&[super::workspace::EntityFile]>,
+    entities: Option<&[EntityFile]>,
+    lock: Option<&WorkspaceLock>,
+) -> FmtOutcome {
+    fmt_with(solution, check, entities, lock, &mut |_, _| Ok(()))
+}
+
+fn fmt_with(
+    solution: &Solution,
+    check: bool,
+    entities: Option<&[EntityFile]>,
+    lock: Option<&WorkspaceLock>,
+    before_step: &mut dyn FnMut(usize, &super::transaction::Step) -> std::io::Result<()>,
 ) -> FmtOutcome {
     let mut outcome = FmtOutcome::default();
     let discovered;
@@ -851,28 +896,6 @@ pub(crate) fn fmt(
             &discovered
         }
     };
-    for entity in selected {
-        let result = std::fs::read(&entity.path)
-            .map_err(|error| error.to_string())
-            .and_then(|before| {
-                let after = super::layout::subscription_events(&before)
-                    .map_err(|error| error.to_string())?;
-                if before != after {
-                    if !check {
-                        super::workspace::write_entity(&entity.path, &after)
-                            .map_err(|error| error.to_string())?;
-                    }
-                    outcome.changed.push(entity.path.clone());
-                }
-                Ok(())
-            });
-        if let Err(error) = result {
-            outcome
-                .log
-                .error(format!("{}: {error}", entity.path.display()));
-            outcome.failed += 1;
-        }
-    }
     let style = super::fmt::Style::from(&solution.format.script);
     let tree = super::workspace::script_files(solution);
     for why in &tree.unreadable {
@@ -881,46 +904,135 @@ pub(crate) fn fmt(
             .error(format!("not formatted, could not be read: {why}"));
         outcome.failed += 1;
     }
-    let files = tree
-        .files
-        .into_iter()
-        .filter(|path| {
-            entities.is_none_or(|entities| {
-                entities
-                    .iter()
-                    .any(|entity| path.starts_with(solution.src_root().join(&entity.info.name)))
-            })
+    let mut formatted = BTreeMap::new();
+    let mut synced_paths = BTreeSet::new();
+    let mut refused = BTreeSet::new();
+    for path in tree.files.into_iter().filter(|path| {
+        entities.is_none_or(|entities| {
+            entities
+                .iter()
+                .any(|entity| path.starts_with(solution.src_root().join(&entity.info.name)))
         })
-        .collect::<Vec<_>>();
-    outcome.files = files.len();
-    for path in &files {
-        let source = match std::fs::read_to_string(path) {
-            Ok(s) => s.replace("\r\n", "\n"),
-            Err(e) => {
-                outcome.log.error(format!("{}: {e}", path.display()));
-                outcome.failed += 1;
-                continue;
+    }) {
+        outcome.files += 1;
+        let result = std::fs::read_to_string(&path)
+            .map_err(|error| error.to_string())
+            .and_then(|source| {
+                super::fmt::format(&source.replace("\r\n", "\n"), &style)
+                    .map_err(|error| error.to_string())
+            });
+        match result {
+            Ok(Some(text)) => {
+                formatted.insert(path, text);
             }
-        };
-        match super::fmt::format(&source, &style) {
             Ok(None) => {}
-            Ok(Some(formatted)) => {
-                if check {
-                    outcome.changed.push(path.clone());
-                } else if let Err(e) = super::workspace::write_entity(path, formatted.as_bytes()) {
-                    outcome.log.error(e.to_string());
-                    outcome.failed += 1;
-                } else {
-                    // Only counted once the write succeeded, so nothing claims to have
-                    // reformatted a file it could not touch.
-                    outcome.changed.push(path.clone());
+            Err(error) => {
+                outcome.log.error(format!("{}: {error}", path.display()));
+                outcome.failed += 1;
+                for entity in selected {
+                    if path.starts_with(solution.src_root().join(&entity.info.name)) {
+                        refused.insert(entity.path.clone());
+                    }
                 }
             }
-            Err(e) => {
-                outcome.log.error(format!("{}: {e}", path.display()));
+        }
+    }
+    for entity in selected {
+        let root = solution.src_root().join(&entity.info.name);
+        let scripts: Vec<_> = formatted
+            .keys()
+            .filter(|path| path.starts_with(&root))
+            .cloned()
+            .collect();
+        let planned = (|| -> Result<_, String> {
+            if refused.contains(&entity.path) {
+                return Err(
+                    "scripts could not be formatted; none of its files were written".into(),
+                );
+            }
+            let before = std::fs::read(&entity.path).map_err(|error| error.to_string())?;
+            let mut staged = BTreeMap::new();
+            let mut synced = Vec::new();
+            if !check && !scripts.is_empty() {
+                let report = sync_with(
+                    solution,
+                    std::slice::from_ref(entity),
+                    &[],
+                    SyncOptions::default(),
+                    Some(&formatted),
+                    Some(&mut staged),
+                );
+                if report.failed > 0 {
+                    return Err(report.log.errors().collect::<Vec<_>>().join("; "));
+                }
+                synced = report.changed_paths;
+            }
+            let after =
+                super::layout::subscription_events(staged.get(&entity.path).unwrap_or(&before))
+                    .map_err(|error| error.to_string())?;
+            if after != before {
+                staged.insert(entity.path.clone(), after);
+            }
+            let mut changed = scripts.clone();
+            changed.extend(staged.keys().cloned());
+            if !check && !changed.is_empty() {
+                let mut transaction = Transaction::new(&solution.root, "fmt");
+                for path in &scripts {
+                    let bytes =
+                        super::workspace::keeping_bom(path, formatted[path].as_bytes().to_vec());
+                    transaction
+                        .write_file(path, bytes)
+                        .map_err(|error| error.to_string())?;
+                }
+                for (path, bytes) in staged {
+                    transaction
+                        .write_file(&path, bytes)
+                        .map_err(|error| error.to_string())?;
+                }
+                transaction
+                    .apply_with(
+                        lock.expect("format writes hold the workspace lock"),
+                        before_step,
+                    )
+                    .map_err(|error| error.to_string())?;
+            }
+            Ok((changed, synced))
+        })();
+        match planned {
+            Ok((changed, synced)) => {
+                outcome.changed.extend(changed);
+                synced_paths.extend(synced);
+            }
+            Err(error) => {
+                outcome
+                    .log
+                    .error(format!("{}: {error}", entity.path.display()));
                 outcome.failed += 1;
             }
         }
+        for path in scripts {
+            formatted.remove(&path);
+        }
+    }
+    // Unscoped fmt also covers scripts whose owning entity has not been imported yet.
+    for (path, text) in formatted {
+        if !check {
+            if let Err(error) = super::workspace::write_entity(&path, text.as_bytes()) {
+                outcome.log.error(error.to_string());
+                outcome.failed += 1;
+                continue;
+            }
+        }
+        outcome.changed.push(path);
+    }
+    outcome.changed.sort();
+    outcome.changed.dedup();
+    outcome.synced = synced_paths.len();
+    if !check && outcome.synced > 0 {
+        outcome.log.change(format!(
+            "synced {} entity XML file(s) from sidecars",
+            outcome.synced
+        ));
     }
     outcome
 }
@@ -930,6 +1042,12 @@ mod tests {
     use super::*;
     use crate::core::{config::Solution, types, workspace};
     use std::path::PathBuf;
+
+    fn fmt(solution: &Solution, check: bool, entities: Option<&[EntityFile]>) -> FmtOutcome {
+        let lock =
+            (!check).then(|| crate::core::lock::acquire(&solution.root, "fmt test", &[]).unwrap());
+        super::fmt(solution, check, entities, lock.as_ref())
+    }
 
     #[test]
     fn fmt_orders_subscription_events_and_is_idempotent() {
@@ -1059,6 +1177,111 @@ mod tests {
     }
 
     #[test]
+    fn formatting_syncs_xml_and_leaves_the_sidecar_gate_clean() {
+        let (_dir, root, solution) = service_fixture("fmt-sync");
+        std::fs::write(
+            root.join("src/T/services/Run/script.js"),
+            "if(true){old();}",
+        )
+        .unwrap();
+        let before = crate::core::check::run(&solution);
+        assert!(before
+            .gates
+            .iter()
+            .flat_map(|gate| &gate.findings)
+            .any(|finding| finding.rule == "out-of-sync"
+                && finding.message.ends_with("run: twaco sync 'Things/T'")));
+        let formatted = fmt(&solution, false, None);
+        assert_eq!(formatted.failed, 0, "{:?}", formatted.log);
+        assert_eq!(formatted.synced, 1);
+        let after = crate::core::check::run(&solution);
+        let sidecars = after
+            .gates
+            .iter()
+            .find(|gate| gate.name == "sidecars")
+            .unwrap();
+        assert!(sidecars.findings.is_empty(), "{sidecars:?}");
+        assert!(!after.blocks(), "{:?}", after.blocking(10));
+        assert_eq!(fmt(&solution, false, None).synced, 0);
+    }
+
+    #[test]
+    fn formatting_refuses_service_additions_and_removals_before_any_write() {
+        for addition in [true, false] {
+            let (_dir, root, solution) = service_fixture("fmt-structural");
+            let script = root.join("src/T/services/Run/script.js");
+            std::fs::write(&script, "if(true){old();}").unwrap();
+            if addition {
+                let added = root.join("src/T/services/Added");
+                std::fs::create_dir(&added).unwrap();
+                std::fs::write(added.join("script.js"), "if(true){added();}").unwrap();
+                std::fs::write(
+                    added.join("definition.xml"),
+                    "<ServiceDefinition name=\"Added\"/>",
+                )
+                .unwrap();
+            } else {
+                let xml = root.join("Things/T.xml");
+                let before = std::fs::read_to_string(&xml).unwrap();
+                std::fs::write(&xml, before.replace("</ServiceDefinitions>", "<ServiceDefinition name=\"Removed\"/></ServiceDefinitions>").replace("</ServiceImplementations>", "<ServiceImplementation name=\"Removed\" handlerName=\"Script\"><ConfigurationTables><ConfigurationTable name=\"Script\"><Rows><Row><code><![CDATA[removed();]]></code></Row></Rows></ConfigurationTable></ConfigurationTables></ServiceImplementation></ServiceImplementations>")).unwrap();
+            }
+            let xml = root.join("Things/T.xml");
+            let before_xml = std::fs::read(&xml).unwrap();
+            let before_script = std::fs::read(&script).unwrap();
+            for _ in 0..2 {
+                let result = fmt(&solution, false, None);
+                assert_eq!(result.failed, 1, "{:?}", result.log);
+                assert!(result.changed.is_empty());
+                assert_eq!(result.synced, 0);
+                assert_eq!(std::fs::read(&xml).unwrap(), before_xml);
+                assert_eq!(std::fs::read(&script).unwrap(), before_script);
+                assert!(result
+                    .log
+                    .errors()
+                    .any(|error| error.contains("--allow-add-remove")));
+            }
+        }
+    }
+
+    #[test]
+    fn failed_format_xml_write_restores_scripts_and_retry_syncs() {
+        let (_dir, root, solution) = service_fixture("fmt-write-failure");
+        let script = root.join("src/T/services/Run/script.js");
+        let xml = root.join("Things/T.xml");
+        std::fs::write(&script, "if(true){old();}").unwrap();
+        let before_script = std::fs::read(&script).unwrap();
+        let before_xml = std::fs::read(&xml).unwrap();
+        let lock = crate::core::lock::acquire(&root, "fmt test", &[]).unwrap();
+        let mut failed_xml = false;
+        let result = fmt_with(&solution, false, None, Some(&lock), &mut |_, step| {
+            if step.path.ends_with("T.xml") {
+                assert_ne!(std::fs::read(&script).unwrap(), before_script);
+                failed_xml = true;
+                return Err(std::io::Error::other("injected XML write failure"));
+            }
+            Ok(())
+        });
+        assert!(failed_xml);
+        assert_eq!(result.failed, 1, "{:?}", result.log);
+        assert!(result.changed.is_empty());
+        assert_eq!(result.synced, 0);
+        assert_eq!(std::fs::read(&script).unwrap(), before_script);
+        assert_eq!(std::fs::read(&xml).unwrap(), before_xml);
+        let retry = super::fmt(&solution, false, None, Some(&lock));
+        assert_eq!(retry.failed, 0, "{:?}", retry.log);
+        assert_eq!(retry.synced, 1);
+        assert_eq!(retry.changed, vec![xml, script]);
+        let report = crate::core::check::run(&solution);
+        assert!(report
+            .gates
+            .iter()
+            .find(|gate| gate.name == "sidecars")
+            .unwrap()
+            .findings
+            .is_empty());
+    }
+
+    #[test]
     fn fmt_uses_the_configured_indent_width() {
         let (_dir, root, _) = service_fixture("configured-fmt");
         std::fs::write(
@@ -1074,7 +1297,7 @@ mod tests {
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
 
         let formatted = fmt(&solution, false, None);
-        assert_eq!(formatted.changed.len(), 1, "{:?}", formatted.log);
+        assert_eq!(formatted.changed.len(), 2, "{:?}", formatted.log);
         assert_eq!(
             std::fs::read_to_string(root.join("src/T/services/Run/script.js")).unwrap(),
             "if (true) {\n  result = 1;\n}"

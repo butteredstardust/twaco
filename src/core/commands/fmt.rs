@@ -85,6 +85,7 @@ pub fn execute(
         solution,
         matches!(request.mode, Mode::Plan),
         selected.as_deref(),
+        _lock.as_ref(),
     );
     let workspace = match request.mode {
         Mode::Plan => Access::Read,
@@ -112,7 +113,15 @@ mod tests {
 
     fn entity(name: &str) -> String {
         format!(
-            "<Entities><Things><Thing name=\"{name}\" projectName=\"Acme.App\"/></Things></Entities>"
+            concat!(
+                "<Entities><Things><Thing name=\"{}\" projectName=\"Acme.App\"><ThingShape>",
+                "<ServiceDefinitions><ServiceDefinition name=\"Run\"/></ServiceDefinitions>",
+                "<ServiceImplementations><ServiceImplementation name=\"Run\" handlerName=\"Script\">",
+                "<ConfigurationTables><ConfigurationTable name=\"Script\"><Rows><Row>",
+                "<code><![CDATA[if(true){{\nresult=1;\n}}]]></code>",
+                "</Row></Rows></ConfigurationTable></ConfigurationTables>",
+                "</ServiceImplementation></ServiceImplementations></ThingShape></Thing></Things></Entities>"
+            ), name
         )
     }
 
@@ -130,6 +139,11 @@ mod tests {
             let service = root.join(format!("src/{name}/services/Run"));
             std::fs::create_dir_all(&service).unwrap();
             std::fs::write(service.join("script.js"), "if(true){\nresult=1;\n}").unwrap();
+            std::fs::write(
+                service.join("definition.xml"),
+                "<ServiceDefinition name=\"Run\"/>\n",
+            )
+            .unwrap();
         }
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
         (root_guard, solution)
@@ -204,7 +218,12 @@ mod tests {
         )
         .unwrap();
         assert_eq!(outcome.report.files, 1);
-        assert_eq!(outcome.report.changed, vec![one.clone()]);
+        assert_eq!(outcome.report.failed, 0, "{:?}", outcome.report.log);
+        assert_eq!(outcome.report.synced, 1);
+        assert_eq!(
+            outcome.report.changed,
+            vec![root.join("Things/Acme.One.xml"), one.clone()]
+        );
         assert_ne!(std::fs::read(&one).unwrap(), std::fs::read(&two).unwrap());
         assert_eq!(std::fs::read(&two).unwrap(), two_before);
 
@@ -256,7 +275,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(outcome.report.files, 1);
-        assert_eq!(outcome.report.changed, vec![two]);
+        assert_eq!(
+            outcome.report.changed,
+            vec![root.join("Things/Acme.Two.xml"), two]
+        );
         assert_eq!(std::fs::read(&one).unwrap(), one_before);
 
         let outcome = execute(

@@ -983,6 +983,12 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             info::doctor_tool,
         )
         .with_output::<outputs::DoctorResult>(),
+        solution_tool::<info_requests::UrlRequest>(
+            "url",
+            "Composer deep link for a solution entity using the selected profile. Read-only, no network. attributes is the default tab; other tabs depend on the entity type.",
+            true,
+            info::url_tool,
+        ).with_output::<outputs::UrlResult>(),
         root_tool::<info_requests::GuideRequest>(
             "guide",
             "Knowledge for working on this solution: twaco's workflow, the ThingWorx platform's verified-live quirks, the service-code reference, and the solution's own AGENTS.md, CLAUDE.md and docs/. Search before a live import, a hand-written mashup binding, a configuration-table change, or a service that introspects metadata or touches JSON. list: the topics; search: the best-matching sections; read: a topic (a long one gives its outline) or one section by heading.",
@@ -1065,6 +1071,7 @@ pub(crate) const GROUPS: &[(&str, &[&str])] = &[
             "docs",
             "doctor",
             "guide",
+            "url",
         ],
     ),
     (

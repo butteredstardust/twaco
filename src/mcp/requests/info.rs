@@ -321,3 +321,15 @@ pub(crate) struct JavadocRequest {
 fn default_javadoc_limit() -> u64 {
     10
 }
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct UrlRequest {
+    /// Solution entity name or Collection/Name.
+    pub(crate) entity: String,
+    /// Composer tab: attributes by default; design for Mashup, fields for DataShape, services for Thing, ThingTemplate or ThingShape.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) tab: Absent<String>,
+    #[serde(default = "default_profile")]
+    pub(crate) profile: String,
+}

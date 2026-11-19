@@ -742,6 +742,20 @@ fn unreadable(gate: &str, file: String, why: impl fmt::Display) -> Finding {
     }
 }
 
+/// Quote one qualified operand for the field workflow's POSIX shell.
+fn sync_repair(entity: &workspace::EntityFile, structural: bool) -> String {
+    let address = format!("{}/{}", entity.info.collection, entity.info.name);
+    let address = address.replace('\'', "'\"'\"'");
+    format!(
+        "twaco sync '{address}'{}",
+        if structural {
+            " --allow-add-remove"
+        } else {
+            ""
+        }
+    )
+}
+
 /// Entity documents that disagree with their sidecars.
 fn sidecars_in_sync(solution: &Solution, found: &workspace::Discovery) -> GateResult {
     let mut result = GateResult::passed("sidecars", 0);
@@ -808,9 +822,10 @@ fn sidecars_in_sync(solution: &Solution, found: &workspace::Discovery) -> GateRe
                 line: 0,
                 rule: "out-of-sync".to_string(),
                 message: format!(
-                    "{} service(s) differ: {}",
+                    "{} service(s) differ: {}; run: {}",
                     report.changed.len(),
-                    report.changed.join(", ")
+                    report.changed.join(", "),
+                    sync_repair(entity, report.has_structural_change())
                 ),
             }),
             Ok(_) => {}
@@ -855,13 +870,24 @@ fn sidecars_in_sync(solution: &Solution, found: &workspace::Discovery) -> GateRe
         match super::datashape::from_sidecar(&workspace::lf(&text))
             .and_then(|desired| super::datashape::sync(&src, &desired, true))
         {
-            Ok((out, changes)) if out != src => result.findings.push(Finding {
-                gate: "sidecars".to_string(),
-                file: relative(solution, &entity.path),
-                line: 0,
-                rule: "fields-out-of-sync".to_string(),
-                message: format!("{} field change(s): {}", changes.len(), changes.join(", ")),
-            }),
+            Ok((out, changes)) if out != src => {
+                result.findings.push(Finding {
+                    gate: "sidecars".to_string(),
+                    file: relative(solution, &entity.path),
+                    line: 0,
+                    rule: "fields-out-of-sync".to_string(),
+                    message: format!(
+                        "{} field change(s): {}; run: {}",
+                        changes.len(),
+                        changes.join(", "),
+                        sync_repair(
+                            entity,
+                            changes.iter().any(|change| change.starts_with("added ")
+                                || change.starts_with("removed "))
+                        )
+                    ),
+                })
+            }
             Ok(_) => {}
             Err(e) => result.findings.push(Finding {
                 gate: "sidecars".to_string(),
@@ -905,7 +931,12 @@ fn sidecars_in_sync(solution: &Solution, found: &workspace::Discovery) -> GateRe
                         file: relative(solution, &entity.path),
                         line: 0,
                         rule: "mashup-out-of-sync".to_string(),
-                        message: format!("{} differ: {}", changes.len(), changes.join(", ")),
+                        message: format!(
+                            "{} differ: {}; run: {}",
+                            changes.len(),
+                            changes.join(", "),
+                            sync_repair(entity, false)
+                        ),
                     }),
                     Ok(_) => {}
                     Err(e) => result.findings.push(Finding {
@@ -946,9 +977,10 @@ fn sidecars_in_sync(solution: &Solution, found: &workspace::Discovery) -> GateRe
                     line: 0,
                     rule: "datatable-out-of-sync".to_string(),
                     message: format!(
-                        "{} configuration change(s): {}",
+                        "{} configuration change(s): {}; run: {}",
                         changes.len(),
-                        changes.join(", ")
+                        changes.join(", "),
+                        sync_repair(entity, false)
                     ),
                 }),
                 Ok(_) => {}
@@ -2249,6 +2281,201 @@ mod tests {
                 .collect();
         assert!(!content.is_empty(), "the label has no property Nope");
         assert_eq!(content, expected_content);
+    }
+
+    fn repair_solution() -> (tempfile::TempDir, Solution) {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::write(root.join("twaco.toml"), "[[project]]\nname='Acme'\n").unwrap();
+        for (collection, xml) in [
+            (
+                "Things",
+                r#"<Entities><Things><Thing name="Acme.My Thing" projectName="Acme" thingTemplate="DataTable"><ThingShape><ServiceDefinitions><ServiceDefinition name="Run"/></ServiceDefinitions><ServiceImplementations><ServiceImplementation name="Run" handlerName="Script"><ConfigurationTables><ConfigurationTable name="Script"><Rows><Row><code><![CDATA[old();]]></code></Row></Rows></ConfigurationTable></ConfigurationTables></ServiceImplementation></ServiceImplementations></ThingShape><ConfigurationTables><ConfigurationTable name="Settings"><Rows><Row><dataShape><![CDATA[Acme.Shape]]></dataShape><accumulatedDataShape><json><![CDATA[{}]]></json></accumulatedDataShape></Row></Rows></ConfigurationTable><ConfigurationTable name="Indexes"><Rows/></ConfigurationTable></ConfigurationTables></Thing></Things></Entities>"#,
+            ),
+            (
+                "DataShapes",
+                r#"<Entities><DataShapes><DataShape name="Acme.My Thing" projectName="Acme"><FieldDefinitions><FieldDefinition name="id" baseType="STRING" ordinal="1" description=""/></FieldDefinitions></DataShape></DataShapes></Entities>"#,
+            ),
+            (
+                "Mashups",
+                r#"<Entities><Mashups><Mashup name="Acme.My Thing" projectName="Acme"><mashupContent><![CDATA[{"CustomMashupCss":"","UI":{}}]]></mashupContent></Mashup></Mashups></Entities>"#,
+            ),
+        ] {
+            std::fs::create_dir(root.join(collection)).unwrap();
+            std::fs::write(root.join(format!("{collection}/Acme.My Thing.xml")), xml).unwrap();
+        }
+        let solution = Solution::load(&root.join("twaco.toml")).unwrap();
+        let found = workspace::discover(&solution);
+        assert!(found.unreadable.is_empty(), "{:?}", found.unreadable);
+        let lock = super::super::lock::acquire(root, "test", &[]).unwrap();
+        let extracted =
+            super::super::workflow::extract(&solution, &found.entities, &[], false, &lock);
+        assert_eq!(extracted.failed, 0, "{:?}", extracted.log);
+        (dir, solution)
+    }
+
+    #[test]
+    fn all_four_repair_hints_quote_collection_qualified_addresses() {
+        let (dir, solution) = repair_solution();
+        let root = dir.path();
+        let sidecars = root.join("src/Acme.My Thing");
+        std::fs::write(sidecars.join("services/Run/script.js"), "changed();").unwrap();
+        let fields = sidecars.join("fields.json");
+        let text = std::fs::read_to_string(&fields).unwrap();
+        std::fs::write(fields, text.replace("STRING", "INTEGER")).unwrap();
+        std::fs::write(sidecars.join("mashup/custom.css"), "body { color: red; }\n").unwrap();
+        let table = sidecars.join("datatable.json");
+        let text = std::fs::read_to_string(&table).unwrap();
+        std::fs::write(table, text.replace("Acme.Shape", "Acme.OtherShape")).unwrap();
+        let discovery = workspace::discover(&solution);
+        assert!(workspace::resolve(&discovery.entities, "Acme.My Thing").is_err());
+        let report = sidecars_in_sync(&solution, &discovery);
+        for (rule, collection) in [
+            ("out-of-sync", "Things"),
+            ("fields-out-of-sync", "DataShapes"),
+            ("mashup-out-of-sync", "Mashups"),
+            ("datatable-out-of-sync", "Things"),
+        ] {
+            let finding = report
+                .findings
+                .iter()
+                .find(|finding| finding.rule == rule && finding.file.starts_with(collection))
+                .unwrap_or_else(|| panic!("{rule}: {:?}", report.findings));
+            let expected = format!("run: twaco sync '{collection}/Acme.My Thing'");
+            assert!(finding.message.ends_with(&expected), "{}", finding.message);
+        }
+        for collection in ["Things", "DataShapes", "Mashups"] {
+            if collection == "DataShapes" {
+                // Sidecars share the bare-name folder; only one colliding service tree can be managed.
+                std::fs::remove_dir_all(sidecars.join("services")).unwrap();
+            }
+            let entity =
+                workspace::resolve(&discovery.entities, &format!("{collection}/Acme.My Thing"))
+                    .unwrap();
+            let synced = super::super::workflow::sync(
+                &solution,
+                std::slice::from_ref(entity),
+                &[],
+                Default::default(),
+            );
+            assert_eq!(synced.failed, 0, "{:?}", synced.log);
+            let report = sidecars_in_sync(&solution, &workspace::discover(&solution));
+            let rules: &[&str] = match collection {
+                "Things" => &["out-of-sync", "datatable-out-of-sync"],
+                "DataShapes" => &["fields-out-of-sync"],
+                _ => &["mashup-out-of-sync"],
+            };
+            assert!(
+                !report
+                    .findings
+                    .iter()
+                    .any(|finding| finding.file.starts_with(collection)
+                        && rules.contains(&finding.rule.as_str())),
+                "{:?}",
+                report.findings
+            );
+        }
+    }
+
+    #[test]
+    fn structural_repair_hints_allow_service_and_field_additions_and_removals() {
+        for services in [true, false] {
+            for addition in [true, false] {
+                let (dir, solution) = repair_solution();
+                let root = dir.path();
+                let sidecars = root.join("src/Acme.My Thing");
+                if services {
+                    if addition {
+                        let added = sidecars.join("services/Added");
+                        std::fs::create_dir(&added).unwrap();
+                        std::fs::write(added.join("script.js"), "added();").unwrap();
+                        std::fs::write(
+                            added.join("definition.xml"),
+                            "<ServiceDefinition name=\"Added\"/>",
+                        )
+                        .unwrap();
+                    } else {
+                        std::fs::remove_dir_all(sidecars.join("services/Run")).unwrap();
+                    }
+                } else {
+                    std::fs::remove_dir_all(sidecars.join("services")).unwrap();
+                    let path = sidecars.join("fields.json");
+                    let xml = std::fs::read(root.join("DataShapes/Acme.My Thing.xml")).unwrap();
+                    let mut fields = super::super::datashape::extract(&xml).unwrap();
+                    if addition {
+                        let mut extra = fields[0].clone();
+                        extra.name = "extra".into();
+                        extra.ordinal = "2".into();
+                        fields.push(extra);
+                    } else {
+                        fields.clear();
+                    }
+                    std::fs::write(path, super::super::datashape::to_sidecar(&fields)).unwrap();
+                }
+                let discovery = workspace::discover(&solution);
+                let report = sidecars_in_sync(&solution, &discovery);
+                let (rule, collection) = if services {
+                    ("out-of-sync", "Things")
+                } else {
+                    ("fields-out-of-sync", "DataShapes")
+                };
+                let finding = report
+                    .findings
+                    .iter()
+                    .find(|finding| finding.rule == rule && finding.file.starts_with(collection))
+                    .unwrap_or_else(|| panic!("{rule}: {:?}", report.findings));
+                assert!(
+                    finding.message.ends_with(&format!(
+                        "run: twaco sync '{collection}/Acme.My Thing' --allow-add-remove"
+                    )),
+                    "{}",
+                    finding.message
+                );
+                let entity =
+                    workspace::resolve(&discovery.entities, &format!("{collection}/Acme.My Thing"))
+                        .unwrap();
+                let refused = super::super::workflow::sync(
+                    &solution,
+                    std::slice::from_ref(entity),
+                    &[],
+                    Default::default(),
+                );
+                assert_eq!(refused.failed, 1, "{:?}", refused.log);
+                let repaired = super::super::workflow::sync(
+                    &solution,
+                    std::slice::from_ref(entity),
+                    &[],
+                    super::super::workflow::SyncOptions {
+                        allow_structural: true,
+                        ..Default::default()
+                    },
+                );
+                assert_eq!(repaired.failed, 0, "{:?}", repaired.log);
+                let report = sidecars_in_sync(&solution, &workspace::discover(&solution));
+                assert!(
+                    !report.findings.iter().any(|finding| finding.rule == rule && finding.file.starts_with(collection)),
+                    "{:?}",
+                    report.findings
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn repair_hint_escapes_apostrophes_and_shell_metacharacters() {
+        let entity = workspace::EntityFile {
+            path: "unused.xml".into(),
+            info: super::super::entity::EntityInfo {
+                collection: "Things".into(),
+                name: "Acme.O'Brien $HOME; `id`".into(),
+                project: "Acme".into(),
+            },
+            found_under: "Acme".into(),
+        };
+        assert_eq!(
+            sync_repair(&entity, false),
+            "twaco sync 'Things/Acme.O'\"'\"'Brien $HOME; `id`'"
+        );
     }
 
     #[test]

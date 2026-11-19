@@ -330,6 +330,7 @@ struct FixedHeader {
 
 #[derive(Serialize, JsonSchema)]
 pub(crate) struct FmtResult {
+    synced: usize,
     ok: bool,
     check: bool,
     scripts: u64,
@@ -1697,4 +1698,9 @@ pub(crate) struct MashupGapResult {
     px: i32,
     spacers: usize,
     notices: Notices,
+}
+
+#[derive(Serialize, JsonSchema)]
+pub(crate) struct UrlResult {
+    url: String,
 }

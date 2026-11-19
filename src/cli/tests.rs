@@ -299,10 +299,11 @@ fn mutation_classes_hold_cli_plans_and_workspace_writes() {
             // `export` has one routed flag list, but only its source-control form uses
             // --apply; entity, collection and project write their requested local output.
             // `ext build` shares `ext`'s flags but refuses --apply: it runs the project's build.
+            // fmt keeps its historical write default; --apply is an explicit alias.
             if flags.iter().any(|flag| flag == "--apply")
                 && !matches!(
                     command,
-                    "export entity" | "export collection" | "export project" | "ext build"
+                    "export entity" | "export collection" | "export project" | "ext build" | "fmt"
                 )
             {
                 assert_eq!(
@@ -524,6 +525,12 @@ fn every_flag_means_the_same_in_every_command() {
                     assert_eq!(value_names, [value]);
                     continue;
                 }
+            }
+            // Composer selects one existing tab; mashup new declares labelled tabs.
+            if command.path == "url" && name == "--tab" {
+                assert_eq!(kind, "value");
+                assert_eq!(value_names, ["tab"]);
+                continue;
             }
             // The collapsible recipe selects a native-tab position; new declares labelled tabs.
             if command.path == "mashup recipe" && name == "--tab" {

@@ -190,6 +190,7 @@ fn dispatch(command: Command) -> u8 {
         Command::Javadoc(javadoc) => javadoc_cmd(&javadoc),
         // So does the guide: its built-in topics are the same everywhere.
         Command::Guide(guide) => guide_cmd(&guide),
+        Command::Url(args) => run(|solution| cli::info::url_cmd(solution, &args)),
         Command::Package(package) => run(|solution| package_cmd(solution, &package)),
         Command::Widgets(widgets) => widgets_cmd(&widgets),
         Command::Catalog(catalog) => run(|solution| catalog_cmd(solution, &catalog)),

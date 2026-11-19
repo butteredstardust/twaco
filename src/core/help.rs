@@ -385,7 +385,7 @@ pub struct Found {
 /// `Resources.InfoTableFunctions`, is looked for as its parts instead.
 pub fn search(index: &Index, version: &str, query: &str, limit: usize) -> Found {
     let mut terms: Vec<String> = Vec::new();
-    for word in words(query) {
+    for word in query_words(query) {
         if index.words.contains_key(&word) || !word.contains('.') {
             terms.push(word);
         } else {
@@ -735,6 +735,21 @@ impl Coded for HelpError {
     }
 }
 
+/// Ignore question scaffolding unless it is the entire query.
+pub(crate) fn query_words(query: &str) -> Vec<String> {
+    let words = words(query);
+    let meaningful: Vec<_> = words
+        .iter()
+        .filter(|word| !super::guide::STOPWORDS.contains(&word.as_str()))
+        .cloned()
+        .collect();
+    if meaningful.is_empty() {
+        words
+    } else {
+        meaningful
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1054,5 +1069,20 @@ mod tests {
         );
         cached(&web, &cache, "r10.1", "ThingWorx/Welcome.html", true).unwrap();
         assert_eq!(web.calls.borrow().len(), 2, "refresh fetches again");
+    }
+}
+
+#[cfg(test)]
+mod stopword_tests {
+    use super::*;
+    #[test]
+    fn help_ignores_stopwords_and_falls_back_for_only_stopwords() {
+        let index = Index::parse(r#"var info = { "pages": [["a.html","Menu title","",""],["b.html","By","",""]], "words": { "menu": [0,1], "title": [0,1], "by": [1,1] } };"#).unwrap();
+        assert_eq!(search(&index, "r10.2", "menu by title", 10).matched, 1);
+        assert_eq!(search(&index, "r10.2", "by", 10).hits[0].page.title, "By");
+        assert_eq!(
+            query_words("a an the by of to in on for with and or how do i is"),
+            words("a an the by of to in on for with and or how do i is")
+        );
     }
 }
