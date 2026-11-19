@@ -3889,6 +3889,8 @@
     },
     "outputSchema": {
       "required": [
+        "scope",
+        "deploy_command",
         "ok",
         "name",
         "type",
@@ -3898,6 +3900,12 @@
         "notes"
       ],
       "properties": {
+        "scope": {
+          "type": "string"
+        },
+        "deploy_command": {
+          "type": "string"
+        },
         "ok": {
           "type": "boolean"
         },
@@ -4220,6 +4228,9 @@
     },
     "outputSchema": {
       "required": [
+        "scope",
+        "deploy_command",
+        "note",
         "applied",
         "dry_run",
         "kind",
@@ -4228,6 +4239,15 @@
         "files"
       ],
       "properties": {
+        "scope": {
+          "type": "string"
+        },
+        "deploy_command": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        },
         "applied": {
           "type": "boolean"
         },
@@ -8334,7 +8354,7 @@
   },
   {
     "name": "config_table",
-    "description": "List a Thing's configuration tables, read one on the server, diff it against the entity XML in the repository, compare it with a backup, back it up to a new file in the solution (a backup is never overwritten), or restore it from such a backup. restore is a dry run unless dry_run is false; it refuses a backup of another Thing or table, and reads the table back.",
+    "description": "List a Thing's configuration tables, read one on the server, diff it against the entity XML in the repository, compare it with a backup, back it up to a new file in the solution (a backup is never overwritten), or restore it from such a backup. restore is a dry run unless dry_run is false; it refuses a backup of another Thing or table, and reads the table back. set replaces all rows using the live definition, refuses PASSWORD cells and reads back; it plans unless dry_run is false. Server only; entity pull updates the repository.",
     "inputSchema": {
       "required": [
         "thing"
@@ -8342,6 +8362,14 @@
       "additionalProperties": false,
       "type": "object",
       "properties": {
+        "rows": {
+          "description": "set: each string is k=v[,k=v...]; all rows replace the table. PASSWORD cells are refused.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
         "thing": {
           "type": "string"
         },
@@ -8353,6 +8381,7 @@
         "action": {
           "type": "string",
           "enum": [
+            "set",
             "list",
             "read",
             "diff",

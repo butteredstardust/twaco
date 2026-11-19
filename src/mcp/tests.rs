@@ -532,6 +532,16 @@ fn hand_written_tools() -> Vec<Value> {
         .unwrap();
     new["inputSchema"]["properties"]["replacements"] =
         json!({"type": "array", "items": {"type": "string"}});
+    let config_table = tools
+        .iter_mut()
+        .find(|tool| tool["name"] == "config_table")
+        .unwrap();
+    config_table["description"] = json!(format!("{} set replaces all rows using the live definition, refuses PASSWORD cells and reads back; it plans unless dry_run is false. Server only; entity pull updates the repository.", config_table["description"].as_str().unwrap()));
+    config_table["inputSchema"]["properties"]["action"]["enum"]
+        .as_array_mut()
+        .unwrap()
+        .insert(0, json!("set"));
+    config_table["inputSchema"]["properties"]["rows"] = json!({"description":"set: each string is k=v[,k=v...]; all rows replace the table. PASSWORD cells are refused.","type":"array","items":{"type":"string"},"default":[]});
     let describe = tools
         .iter_mut()
         .find(|tool| tool["name"] == "mashup_describe")

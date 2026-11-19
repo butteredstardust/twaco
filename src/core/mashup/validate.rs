@@ -421,7 +421,7 @@ pub(crate) fn check_content(content: &str, problems: &mut Vec<Problem>) {
             problems.push(problem(
                 "wrapped-row-clipping",
                 format!(
-                    "{}: a wrapped second line is clipped; use flex-size range with no max height",
+                    "{}: a wrapped second line is clipped; use flex-size range with no max height; on 10.2.1 set height:auto, min-height:0, max-height:none (!important) on the row bounding box, inner .widget-flexcontainer and parents up to the panel, including rows populated after layout",
                     widget.id
                 ),
             ));
@@ -1190,7 +1190,7 @@ mod tests {
             assert_eq!(warnings.len(), usize::from(warn), "{value}");
             if let Some(warning) = warnings.first() {
                 assert_eq!(warning.severity, Severity::Advisory);
-                assert_eq!(warning.message, "row-1: a wrapped second line is clipped; use flex-size range with no max height");
+                assert_eq!(warning.message, "row-1: a wrapped second line is clipped; use flex-size range with no max height; on 10.2.1 set height:auto, min-height:0, max-height:none (!important) on the row bounding box, inner .widget-flexcontainer and parents up to the panel, including rows populated after layout");
             }
         }
     }

@@ -52,7 +52,7 @@ when the command is asked to write. A local output named by an option is include
 | `call` | server-partial | server-partial | service effects | Inspect the service's effects and logs before retrying. | `core/commands/call.rs: execute` |
 | `logs` | read-only | read-only | none | Retry freely. | `cli/data.rs: logs_cmd` |
 | `logs level` | read-only | server-partial | server log level | Read the current level and use the printed undo before retrying. | `core/commands/logs.rs: execute` |
-| `config-table` | read-only | server-partial | server table, optional backup | Read the table back and use the backup before retrying a restore. | `core/commands/config_table.rs: execute` |
+| `config-table` | read-only | server-partial | server table, optional backup | Set replaces all rows and reads back; pull to update the repository. Read back and use a backup before retrying set or restore. | `core/commands/config_table.rs: execute` |
 | `entity diff` | read-only | read-only | none | Retry freely. | `cli/entity.rs: entity_diff` |
 | `entity set` | read-only | multi-file atomic | entity XML | Transaction preserves the old or new metadata; retry freely. | `core/commands/entity_edit.rs: execute` |
 | `group member` | read-only | multi-file atomic | entity XML | Transaction preserves the old or new metadata; retry freely. | `core/commands/entity_edit.rs: execute` |
@@ -300,7 +300,7 @@ when the command is asked to write. A local output named by an option is include
 | `mashup_param` | read-only | multi-file atomic | affected mashup entity files, content sidecars | Every child and parent container is replaced through one journaled transaction, or none is; a file edited since planning is refused. Retry. | `core/commands/mashup.rs: parameter` |
 | `mashup_event` | read-only | multi-file atomic | affected mashup entity files, content sidecars | Every child and parent container is replaced through one journaled transaction, or none is; a file edited since planning is refused. Retry. | `core/commands/mashup.rs: event` |
 | `reproject` | read-only | multi-file atomic | entity files | Every moved file is rewritten and moved in one journaled transaction, or none is; a file edited since the plan read it is refused. Retry. | `core/commands/reproject.rs: execute` |
-| `config_table` | read-only | server-partial | server table, a named backup file | A backup is old or new; read the table back before retrying restore. | `core/commands/config_table.rs: execute` |
+| `config_table` | read-only | server-partial | server table, a named backup file | A backup is old or new; set replaces all rows. Read back before retrying set or restore; pull to update the repository. | `core/commands/config_table.rs: execute` |
 | `logs` | read-only | read-only | none | Retry freely. | `mcp/data.rs: logs_tool` |
 | `log_level` | read-only | server-partial | server log level | Read the current level and use the undo before retrying. | `core/commands/logs.rs: execute` |
 | `repo` | read-only | read-only | none | Retry freely. | `mcp/content.rs: repo_tool` |

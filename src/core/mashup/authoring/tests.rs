@@ -11156,6 +11156,26 @@ fn mashup_set_checks_cds_icons_and_leaves_other_images_alone() {
 }
 
 #[test]
+fn textfield_icon_is_accepted_and_checked() {
+    let (_dir, solution) = recipe_fixture();
+    let placed = plan_add(&solution, &add_request("Acme.Orders_MU", "ptcstextfield")).unwrap();
+    apply_edit(&solution, &placed.edit, &lock(&solution)).unwrap();
+    for (icon, valid) in [("cds:icon_search", true), ("cds:icon_nope_x", false)] {
+        let result = plan_set(
+            &solution,
+            &SetRequest {
+                mashup: "Acme.Orders_MU".into(),
+                widget: placed.placed.id.clone(),
+                properties: vec![("Icon".into(), json!(icon))],
+                style_from: None,
+                styles: vec![],
+            },
+        );
+        assert_eq!(result.is_ok(), valid, "{result:?}");
+    }
+}
+
+#[test]
 fn only_image_properties_are_checked_for_cds_icons() {
     let (_dir, solution) = recipe_fixture();
     let placed = plan_add(&solution, &add_request("Acme.Orders_MU", "label")).unwrap();

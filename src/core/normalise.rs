@@ -72,6 +72,9 @@
 //! - a leaf holding only an empty or whitespace-only CDATA is the same as an empty element, as
 //!   the server stores an empty service script as `<code/>` (observed 2026-10-29; version 8).
 //!
+//! `effectiveThingPackage` is derived from the template; version 13 omits it while retaining
+//! the declared `thingPackage`.
+//!
 //! No generated id, default attribute, or other exception is included without a live/committed
 //! observation. Apart from the rules above, CDATA bytes are never decoded, re-indented, or joined.
 //!
@@ -857,7 +860,7 @@ fn strip_live_only(element: &mut Element) {
 fn strip_live_only_attributes(element: &mut Element) {
     element
         .attributes
-        .retain(|(name, _)| name != LIVE_ONLY_ATTRIBUTE);
+        .retain(|(name, _)| name != LIVE_ONLY_ATTRIBUTE && name != b"effectiveThingPackage");
     for child in &mut element.children {
         if let Node::Element(child) = child {
             strip_live_only_attributes(child);
@@ -2091,6 +2094,19 @@ mod tests {
                 hash(xml.replace(r#" aspect.defaultValue="""#, "").as_bytes()).unwrap()
             );
         }
+    }
+
+    #[test]
+    fn effective_package_is_derived_but_declared_package_is_compared() {
+        let base = br#"<Thing name="Acme.Broker"/>"#;
+        assert_eq!(
+            hash(base).unwrap(),
+            hash(br#"<Thing name="Acme.Broker" effectiveThingPackage="Acme.Package"/>"#).unwrap()
+        );
+        assert_ne!(
+            hash(base).unwrap(),
+            hash(br#"<Thing name="Acme.Broker" thingPackage="Acme.Package"/>"#).unwrap()
+        );
     }
 
     #[test]

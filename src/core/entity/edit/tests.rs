@@ -3816,3 +3816,64 @@ fn membership_edits_keep_types_distinct_and_are_idempotent() {
         assert!(run(&solution, &entity, action()).changes.is_empty());
     }
 }
+
+#[test]
+fn subscription_uses_package_events_from_platform_cache_and_refuses_plain_unknowns() {
+    let (_dir, solution) = fixture();
+    new(
+        &solution,
+        Kind::ThingTemplate,
+        "Acme.Orders.Template",
+        |_| {},
+    );
+    new(&solution, Kind::Thing, "Acme.Orders.Broker", |r| {
+        r.template = Some("Acme.Orders.Template".into())
+    });
+    let action = || Action::SubscriptionAdd {
+        name: "OnMessage".into(),
+        event: "MqttMessage".into(),
+        source: None,
+        source_property: None,
+        code: "".into(),
+    };
+    assert!(plan_of(&solution, "Acme.Orders.Broker", action()).is_err());
+    std::fs::create_dir_all(solution.root.join(".twaco")).unwrap();
+    std::fs::write(solution.root.join(".twaco/platform.json"), r#"{"templates":{"Acme.Orders.Template":{"events":{"MqttMessage":{"sourceType":"ThingPackage"}}}}}"#).unwrap();
+    // Cached effective metadata also completes a repository template.
+    let plan = plan_of(&solution, "Acme.Orders.Broker", action()).unwrap();
+    assert!(plan.warnings.is_empty());
+    std::fs::write(solution.root.join(".twaco/platform.json"),r#"{"things":{"Acme.Orders.Broker":{"events":{"MqttMessage":{"sourceType":"ThingPackage"}}}}}"#).unwrap();
+    assert!(plan_of(&solution, "Acme.Orders.Broker", action())
+        .unwrap()
+        .warnings
+        .is_empty());
+}
+
+#[test]
+fn subscription_warns_for_extension_java_events_unknown_offline() {
+    let (_dir, solution) = fixture();
+    let config = solution.root.join("twaco.toml");
+    let mut text = std::fs::read_to_string(&config).unwrap();
+    text.push_str("\n[[extension]]\nroot = 'extension'\nname = 'Acme Java'\n");
+    std::fs::write(&config, text).unwrap();
+    std::fs::create_dir_all(solution.root.join("extension/configfiles")).unwrap();
+    std::fs::write(solution.root.join("extension/configfiles/metadata.xml"),r#"<Entities><ThingPackages><ThingPackage name="Acme.Package" className="com.acme.Broker"/></ThingPackages><ThingTemplates><ThingTemplate name="Acme.Template" thingPackage="Acme.Package"/></ThingTemplates></Entities>"#).unwrap();
+    let solution = Solution::load(&config).unwrap();
+    new(&solution, Kind::Thing, "Acme.Orders.Broker", |r| {
+        r.template = Some("Acme.Template".into())
+    });
+    let plan = plan_of(
+        &solution,
+        "Acme.Orders.Broker",
+        Action::SubscriptionAdd {
+            name: "OnMessage".into(),
+            event: "MqttMessage".into(),
+            source: None,
+            source_property: None,
+            code: "".into(),
+        },
+    )
+    .unwrap();
+    assert_eq!(plan.warnings.len(), 1);
+    assert!(plan.warnings[0].contains("Java package"));
+}

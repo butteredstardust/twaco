@@ -989,3 +989,13 @@ user into another session.
 Verified on ThingWorx 10.2.1: once a Rich Text Editor holds text that repeats a button label,
 Playwright `get_by_text(label).first` matches the hidden editor text instead of the button. Filter
 with `locator("visible=true")`, as in `get_by_text(label).locator("visible=true").first`.
+
+## Wrapping responsive rows keep their first-line height (10.2.1)
+
+Field-verified on ThingWorx 10.2.1: a responsive flexcontainer row with
+`flex-wrap: wrap` can measure 88px high while its content has a 188px
+`scrollHeight`. Later lines overflow the panel and their values disappear.
+Set `height: auto !important; min-height: 0 !important; max-height: none !important;`
+on the row's bounding box, its inner `.widget-flexcontainer`, and every parent
+up to the panel. This also applies when wrapping content arrives after layout,
+such as labels filled by a service in `Acme.Search_MU`.

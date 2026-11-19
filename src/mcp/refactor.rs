@@ -85,6 +85,7 @@ pub(crate) fn new_building_block_tool(
         .collect();
     let mut result = json!({
         "ok": true, "name": result_name, "type": result_kind.word(), "root": plan.root,
+        "scope": "repository", "deploy_command": format!("twaco deploy --project {} --apply", plan.request.name),
         "files": files, "twaco_toml": plan.config_addition, "notes": plan.notes,
     });
     result[outcome_key(dry_run)] = json!(true);

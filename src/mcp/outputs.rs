@@ -1212,6 +1212,8 @@ pub(crate) struct MoveMemberResult {
 
 #[derive(Serialize, JsonSchema)]
 pub(crate) struct NewBuildingBlockResult {
+    scope: String,
+    deploy_command: String,
     ok: bool,
     name: String,
     #[serde(rename = "type")]
@@ -1227,6 +1229,9 @@ pub(crate) struct NewBuildingBlockResult {
 
 #[derive(Serialize, JsonSchema)]
 pub(crate) struct EntityNewResult {
+    scope: String,
+    deploy_command: String,
+    note: String,
     applied: bool,
     dry_run: bool,
     kind: String,

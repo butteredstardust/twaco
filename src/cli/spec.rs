@@ -1637,6 +1637,11 @@ pub(crate) const USAGE: &[Usage] = &[
         group: 2,
         text: r#"  config-table <thing> [<table>]  one Thing's configuration table on the server; without a
                               table, the Thing's tables
+      set <thing> <table> --row <k=v>... [--apply] [--json]
+                              replace all rows (repeat --row k=v[,k=v...]); plan by default.
+                              Live definition types cells and selects single/multi-row service.
+                              PASSWORD cells need entity XML / deploy or Composer.
+                              Server only; run entity pull afterwards for the repository.
       --backup <file>         save it (never overwrites a file)
       --restore <file>        put a backup back; a plan unless --apply
       --compare <file>        compare with a backup

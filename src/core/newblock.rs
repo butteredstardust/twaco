@@ -601,6 +601,7 @@ pub(crate) fn plan(solution: &Solution, request: &Request) -> Result<Plan, NewBl
     let eol = super::workspace::line_ending(&before);
     let separator = if before.ends_with('\n') { "" } else { eol };
     let after = format!("{before}{separator}{}", addition.replace('\n', eol));
+    notes.push(format!("Repository only; deploy with `twaco deploy --project {} --apply` to create the building block on the server.", request.name));
     notes.push("The component permission helper is not created: the framework builds it on the server; run `GetComponentPermissionsHelper` there when the block is deployed.".to_string());
     Ok(Plan {
         request: request.clone(),

@@ -816,6 +816,54 @@ fn fetches_solution_platform_dependencies_and_all_resources() {
 }
 
 #[test]
+fn platform_refresh_fetches_package_events_even_when_extension_metadata_knows_the_template() {
+    let (_dir, root, _) = fixture_solution(
+        "extension-events",
+        &[(
+            "Things",
+            "Acme.Broker",
+            r#"<Entities><Things><Thing name="Acme.Broker" thingTemplate="Acme.Template" projectName="Acme"><ThingShape/></Thing></Things></Entities>"#,
+        )],
+    );
+    std::fs::write(root.join("twaco.toml"), "[[project]]\nname = 'Acme'\ncollections = ['Things', 'ThingTemplates', 'ThingShapes']\n[[extension]]\nroot = 'extension'\nname = 'Acme.Extension'\n").unwrap();
+    std::fs::create_dir_all(root.join("extension/configfiles")).unwrap();
+    std::fs::write(root.join("extension/configfiles/metadata.xml"), r#"<Entities><ThingPackages><ThingPackage name="Acme.Package" className="com.acme.Broker"/></ThingPackages><ThingTemplates><ThingTemplate name="Acme.Template" thingPackage="Acme.Package"/></ThingTemplates></Entities>"#).unwrap();
+    let solution = Solution::discover(&root).unwrap();
+    let remote = FakeRemote::new(BTreeMap::from([
+        (
+            (
+                "ThingTemplates/GenericThing".into(),
+                "GetInstanceMetadataAsJSON".into(),
+            ),
+            ok(json!({})),
+        ),
+        (
+            (
+                "ThingTemplates/Acme.Template".into(),
+                "GetInstanceMetadataAsJSON".into(),
+            ),
+            ok(json!({
+                "thingPackage":"Acme.Package", "eventDefinitions":{"MqttMessage":{"sourceType":"ThingPackage"}}
+            })),
+        ),
+        (
+            ("Resources/EntityServices".into(), "GetEntityList".into()),
+            ok(json!({"rows":[]})),
+        ),
+    ]));
+    fetch_platform(&remote, &solution, &held(&solution)).unwrap();
+    let cache = super::platform::cached(&solution).unwrap();
+    assert_eq!(
+        cache.templates["Acme.Template"].events["MqttMessage"]["sourceType"],
+        "ThingPackage"
+    );
+    assert_eq!(
+        cache.templates["Acme.Template"].thing_package.as_deref(),
+        Some("Acme.Package")
+    );
+}
+
+#[test]
 fn a_not_found_entity_is_skipped_but_an_auth_failure_writes_nothing() {
     let (_dir, root, solution) = fixture_solution(
         "failures",

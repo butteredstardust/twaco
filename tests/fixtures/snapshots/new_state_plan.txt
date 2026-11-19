@@ -2,6 +2,7 @@ $ twaco new state Acme.Orders.NewSpeed_SD --type numeric --state <2000=Normal;ba
 exit: 0
 
 --- stdout
+repository only; deploy with: twaco deploy --project Acme.Orders --apply
 would create state Acme.Orders.NewSpeed_SD in project Acme.Orders
   files: StateDefinitions/Acme.Orders.NewSpeed_SD.xml
 run again with --apply to write it

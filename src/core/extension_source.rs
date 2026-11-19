@@ -7,6 +7,45 @@ use super::types::{DataShape, Entity, Member, Parameter, Property, Service, Type
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
+/// Template identities from metadata.xml remain available without the extension's Java sources.
+pub(crate) fn templates(solution: &Solution) -> BTreeMap<String, String> {
+    let mut templates = BTreeMap::new();
+    for extension in &solution.extensions {
+        let root = solution.root.join(&extension.root);
+        let path = [
+            root.join("configfiles/metadata.xml"),
+            root.join("metadata.xml"),
+        ]
+        .into_iter()
+        .find(|path| path.is_file());
+        let Some(bytes) = path.and_then(|path| std::fs::read(path).ok()) else {
+            continue;
+        };
+        let Ok(tokens) = scan::tokenize(&bytes) else {
+            continue;
+        };
+        for token in &tokens {
+            if !matches!(token.kind, Kind::Start | Kind::Empty)
+                || token.name.of(&bytes) != b"ThingTemplate"
+            {
+                continue;
+            }
+            let attr = |name| {
+                scan::attribute(&bytes, token, name)
+                    .ok()
+                    .flatten()
+                    .map(|span| scan::decode_entities(&String::from_utf8_lossy(span.of(&bytes))))
+            };
+            if let Some(name) = attr("name") {
+                templates
+                    .entry(name)
+                    .or_insert_with(|| attr("thingPackage").unwrap_or_default());
+            }
+        }
+    }
+    templates
+}
+
 pub(crate) fn load(solution: &Solution) -> (Vec<Entity>, Vec<DataShape>, Vec<String>) {
     let mut entities = Vec::new();
     let mut shapes = Vec::new();
@@ -105,7 +144,11 @@ fn load_class(
     if classes.contains_key(class) {
         return Ok(());
     }
-    let file = java_path(root, class).ok_or_else(|| format!("{class}: Java source not found"))?;
+    let Some(file) = java_path(root, class) else {
+        // Installed extensions can ship only bytecode; metadata still establishes their identity.
+        classes.insert(class.to_string(), JavaClass::default());
+        return Ok(());
+    };
     let text = std::fs::read_to_string(&file).map_err(|e| format!("{}: {e}", file.display()))?;
     let parsed = parse_java(&text).map_err(|e| format!("{}: {e}", file.display()))?;
     let parent = parsed.parent.as_ref().map(|parent| {

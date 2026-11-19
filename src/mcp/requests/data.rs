@@ -107,6 +107,8 @@ fn default_datatable_copy_max_rows() -> u64 {
 
 #[derive(Clone, Copy, Debug, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
 pub(crate) enum ConfigTableAction {
+    #[serde(rename = "set")]
+    Set,
     #[serde(rename = "list")]
     List,
     #[serde(rename = "read")]
@@ -124,6 +126,9 @@ pub(crate) enum ConfigTableAction {
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ConfigTableRequest {
+    /// set: each string is k=v[,k=v...]; all rows replace the table. PASSWORD cells are refused.
+    #[serde(default)]
+    pub rows: Vec<String>,
     pub thing: String,
     /// The table; list (the Thing's tables) needs none.
     #[serde(default)]

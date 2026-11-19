@@ -875,6 +875,13 @@ a block the framework configured stays configured and its entry point is not rep
 given. Every kind accepts `--project`, one-line `--description`, and repeated
 `--visibility Organization/name` or `OrganizationalUnit/org:unit`.
 
+All `new` kinds write the repository only, including with `--apply`; the output names
+the deploy command that imports them. Things use the template's known package and
+cached configuration-table definitions. An unknown effective package is omitted and
+ignored in comparisons because the server derives it.
+When table metadata is unavailable, the server adds the inherited tables;
+after the first deploy read-back, use `twaco entity pull` to take them into source control.
+
 Create a project before deploying entities assigned to it; `new project` also appends its
 `[[project]]` entry when it is not already declared. In a folder with no `twaco.toml` above it,
 `new project` creates the file with that one entry, so a solution can start from an empty folder. `new group` creates an empty Group in a
@@ -2100,6 +2107,12 @@ keep a `jar:file:` URL and report the SDK version.
   time. `--grep`, `--user` and `--thread` narrow it.
 - **`twaco logs level ScriptLog DEBUG --apply`** changes a log's level for the whole server.
   The command prints the undo; run it afterwards.
+- **`twaco config-table set Acme.Broker Settings --row Enabled=true --apply --json`**
+  replaces the live table's rows and reads them back. Omit `--apply` for a plan; repeat
+  `--row k=v[,k=v...]` for a multi-row table (commas inside JSON values are kept). The live definition supplies cell types
+  and selects `SetConfigurationTable` or `SetMultiRowConfigurationTable`. PASSWORD
+  cells must be set through entity XML / deploy or Composer because REST silently
+  drops them. This edits the server only; run `twaco entity pull` afterwards.
 - **`twaco config-table <Thing> <Table> --backup before.json`** saves a configuration table
   before a test that writes it. `--diff` compares it with the repository, and
   `--restore before.json --apply` puts it back. `SetConfigurationTableRows` replaces whole

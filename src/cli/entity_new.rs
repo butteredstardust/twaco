@@ -548,6 +548,13 @@ pub(crate) fn entity_new_cmd(solution: &Solution, new: &NewEntity) -> u8 {
         return OK;
     }
     let plan = &outcome.plan;
+    println!(
+        "repository only; deploy with: {}",
+        report["deploy_command"].as_str().unwrap()
+    );
+    if plan.request.kind == Kind::Thing {
+        println!("{}", report["note"].as_str().unwrap());
+    }
     match plan.request.kind {
         Kind::Timer => println!(
             "{} timer {} in project {} (every {} as {})",

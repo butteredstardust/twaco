@@ -171,6 +171,7 @@ for (const [type, extra] of Object.entries(overlay.widgets)) {
     for (const [name, definition] of Object.entries(contract.properties ?? {})) {
       if (definition && typeof definition === "object") properties[name] = property(definition);
     }
+    for (const [name, definition] of Object.entries(extra.properties ?? {})) properties[name] = property(definition);
     refuseCaseClash(Object.keys(properties), type);
     entry.properties = properties;
     if (extra.function !== true) entry.auto_resize = contract.flags?.supportsAutoResize === true;

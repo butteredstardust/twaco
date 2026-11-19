@@ -47,6 +47,8 @@ impl Remote for Client {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct Platform {
     #[serde(default)]
+    pub(crate) things: BTreeMap<String, PlatformMeta>,
+    #[serde(default)]
     pub(crate) templates: BTreeMap<String, PlatformMeta>,
     #[serde(default)]
     pub(crate) shapes: BTreeMap<String, PlatformMeta>,
@@ -60,6 +62,12 @@ pub(crate) struct Platform {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct PlatformMeta {
+    #[serde(default)]
+    pub(crate) events: BTreeMap<String, Value>,
+    #[serde(default)]
+    pub(crate) thing_package: Option<String>,
+    #[serde(default)]
+    pub(crate) configuration_tables: BTreeMap<String, Value>,
     #[serde(default)]
     pub(crate) services: BTreeMap<String, PlatformService>,
     #[serde(default)]
@@ -118,6 +126,7 @@ pub(crate) fn cache_one(
     lock::reject_unlocked_write_links(solution)?;
     let mut platform = cached(solution).unwrap_or_default();
     let (destination, service) = match collection {
+        "Things" => (&mut platform.things, "GetMetadataAsJSON"),
         "ThingTemplates" => (&mut platform.templates, "GetInstanceMetadataAsJSON"),
         "ThingShapes" => (&mut platform.shapes, "GetInstanceMetadataAsJSON"),
         _ => return Ok(false),
@@ -174,13 +183,13 @@ pub(crate) fn fetch_platform_with_progress(
     let local_templates: BTreeSet<&str> = model
         .entities
         .iter()
-        .filter(|entity| entity.collection == "ThingTemplates")
+        .filter(|entity| entity.collection == "ThingTemplates" && entity.extension.is_none())
         .map(|entity| entity.name.as_str())
         .collect();
     let local_shapes: BTreeSet<&str> = model
         .entities
         .iter()
-        .filter(|entity| entity.collection == "ThingShapes")
+        .filter(|entity| entity.collection == "ThingShapes" && entity.extension.is_none())
         .map(|entity| entity.name.as_str())
         .collect();
     let mut templates = BTreeSet::from(["GenericThing".to_string()]);
@@ -441,6 +450,17 @@ pub(super) fn trim_metadata(value: &Value) -> Result<PlatformMeta, TypesError> {
         );
     }
     Ok(PlatformMeta {
+        events: object(value.get("eventDefinitions"), "eventDefinitions")?
+            .into_iter()
+            .collect(),
+        thing_package: optional_string(value.get("effectiveThingPackage"))
+            .or_else(|| optional_string(value.get("thingPackage"))),
+        configuration_tables: object(
+            value.get("configurationTableDefinitions"),
+            "configurationTableDefinitions",
+        )?
+        .into_iter()
+        .collect(),
         services,
         properties,
     })
@@ -522,5 +542,30 @@ mod name_tests {
         ] {
             assert!(!super::is_bundle_name(bad), "{bad}");
         }
+    }
+}
+
+#[cfg(test)]
+mod metadata_tests {
+    use super::*;
+    #[test]
+    fn package_events_and_template_creation_metadata_survive_cache_round_trip() {
+        let raw = json!({"eventDefinitions":{"MqttMessage":{"sourceType":"ThingPackage"}},
+        "thingPackage":"Acme.Package", "configurationTableDefinitions":{"Settings":{
+            "isMultiRow":false,"dataShape":{"fieldDefinitions":{"Enabled":{"baseType":"BOOLEAN"}}}
+        }}});
+        let meta = trim_metadata(&raw).unwrap();
+        assert_eq!(meta.events["MqttMessage"]["sourceType"], "ThingPackage");
+        assert_eq!(meta.thing_package.as_deref(), Some("Acme.Package"));
+        assert!(meta.configuration_tables.contains_key("Settings"));
+        let encoded = serde_json::to_vec(&meta).unwrap();
+        assert_eq!(
+            serde_json::from_slice::<PlatformMeta>(&encoded).unwrap(),
+            meta
+        );
+        assert!(serde_json::from_str::<PlatformMeta>("{}")
+            .unwrap()
+            .events
+            .is_empty());
     }
 }

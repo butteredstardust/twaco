@@ -2062,8 +2062,20 @@ impl Edit2<'_> {
             }
         };
         let target = source_doc.as_ref().unwrap_or(doc);
-        let (events, properties) = events_and_properties(&model, target)?;
-        if !events.contains(event) {
+        let (mut events, properties) = events_and_properties(&model, target)?;
+        let (source_model, _) = types::load_model(self.solution);
+        for entity in &source_model.entities {
+            if model.inherited_names(target).contains(&entity.name) {
+                events.extend(entity.events.iter().map(|(name, _)| name.clone()));
+            }
+        }
+        let extension_templates = crate::core::extension_source::templates(self.solution);
+        let extension_template = model.inherited_names(target).iter().any(|name| {
+            extension_templates.contains_key(name) && model.file("ThingTemplates", name).is_none()
+        });
+        if !events.contains(event) && extension_template {
+            plan.warnings.push(format!("{}: {event}: event not known offline; it may come from the extension's Java package; check with `twaco model resolve` / deploy read-back", target.label()));
+        } else if !events.contains(event) {
             let known = events.into_iter().collect::<Vec<_>>().join(", ");
             return Err(EditError::Unknown(format!(
                 "{} has no event {event}; it has {known}",
@@ -2992,6 +3004,17 @@ fn events_and_properties(
     if model.is_a(target, "Scheduler") {
         events.insert("ScheduledEvent".into());
     }
+    let own_meta = if target.collection() == "Things" {
+        model
+            .platform
+            .as_ref()
+            .and_then(|p| p.things.get(target.name()))
+    } else {
+        model.platform_meta(target.name())
+    };
+    if let Some(meta) = own_meta {
+        events.extend(meta.events.keys().cloned());
+    }
     let host = target.members()?;
     events.extend(target.names_in(host, "EventDefinitions", "EventDefinition"));
     let mut properties: BTreeSet<String> = target
@@ -3004,7 +3027,9 @@ fn events_and_properties(
             let host = ancestor.members()?;
             events.extend(ancestor.names_in(host, "EventDefinitions", "EventDefinition"));
             properties.extend(ancestor.names_in(host, "PropertyDefinitions", "PropertyDefinition"));
-        } else if let Some(meta) = model.platform_meta(&name) {
+        }
+        if let Some(meta) = model.platform_meta(&name) {
+            events.extend(meta.events.keys().cloned());
             properties.extend(meta.properties.keys().cloned());
         }
     }

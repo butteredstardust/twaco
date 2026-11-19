@@ -16,6 +16,7 @@ new building-block Acme.Payments (standard): a plan, nothing was written (pass -
     [[project]]
     name = "Acme.Payments"
     root = "Acme.Payments"
+  note: Repository only; deploy with `twaco deploy --project Acme.Payments --apply` to create the building block on the server.
   note: The component permission helper is not created: the framework builds it on the server; run `GetComponentPermissionsHelper` there when the block is deployed.
 --- stderr
 
