@@ -1648,6 +1648,32 @@ twaco mashup recipe tracker Acme.App.Wizard_MU new --data data:Acme.App.Wizard.M
 twaco mashup recipe set-on-click Acme.App.Wizard_MU ptcsbutton-6 --param CurrentStep --expr "CurrentStep + 1" --input CurrentStep=mashup:CurrentStep --apply
 ```
 
+`mashup recipe label-pairs` fills an empty responsive container with caption/value labels
+from an existing data call's result DataShape. By default it uses all fields in DataShape order,
+splits field names into captions, and gives each pair its own column in a wrapping row, matching
+the measured detail-panel pattern. Repeat `--field name[:Caption]` to pick, order and rename
+fields. With `--columns n` (above zero), pairs go across the n columns in order, then continue in
+the first column; there are never more columns than pairs. `--title` adds a sub-header above the
+wrapping row. Captions use `LabelType=label`; values use `body`.
+
+```sh
+twaco mashup recipe label-pairs Acme.App.Asset_MU details --data data:Acme.App.Manager.GetAssets --field assetName:Name --field status:Status --title Details --columns 3 --replace ptcspropertydisplay-8 --apply
+```
+
+`--replace` removes a widget inside or beside the destination, its descendants, and their
+bindings and event handlers in the same edit. Unknown references refuse. A non-empty destination
+refuses unless the replacement is its only child; there is no append mode. Plans list added
+widgets with properties, bindings and removals. No files change without `--apply`.
+
+Values bind to the call's `SelectedRows` fields. Result cardinality cannot be known offline, so
+this also applies to a one-row result: select a row or enable the call's `Properties.AutoSelectFirstRow`.
+The existing selection hints explain missing selection and the All Data alternative for reading
+the first row. The wrapping row uses range sizing with no maximum height; on 10.2.1 the plan
+also names the CSS height overrides needed on its bounding box, inner flexcontainer and ancestors
+(see `twaco guide quirks`). MCP uses `mashup_recipe` with `recipe: "label-pairs"`, `widget` for the
+container, `data`, `fields` (array), `title`, `label_columns` and `replace`; `columns` remains the
+grid-column array. MCP plans by default with `dry_run: true`.
+
 `mashup recipe` writes, in one edit, the wiring real mashups repeat, from the same pieces `mashup add`,
 `bind` and `on` use:
 

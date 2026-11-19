@@ -360,6 +360,11 @@ mashup recipe <recipe> <mashup> [<widget>] [recipe flags] [--apply] [--json]
                             --editable-column makes a listed column (and so the grid) editable
                             --column-editor <field=editor> chooses a typed cell editor (repeatable)
                             --preserve-whitespace <field> keeps newlines and spaces when shown (repeatable)
+    label-pairs <container> --data <data call> [--field <field>]... [--title <text>]
+        [--columns <n>] [--replace <widget>]
+                            caption/value labels from an existing call's DataShape; field[:Caption]
+                            picks/orders/renames; default all fields, a column each; SelectedRows
+                            bindings; empty responsive container unless --replace removes its only child
     picker <dropdown|list> --data <data call> --x <display field> [--value <field>]
         [--selected <address>] [--no-none-row] [--auto-select-first]
                             fill a dropdown or list from a service result; without the "(None)" row,

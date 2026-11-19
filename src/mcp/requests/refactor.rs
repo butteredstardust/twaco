@@ -1010,6 +1010,15 @@ pub(crate) struct MashupParameterRequest {
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct MashupRecipeRequest {
+    /// label-pairs: ordered field[:Caption] entries; omitted means all DataShape fields.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) fields: Absent<Vec<String>>,
+    /// label-pairs: number of columns, one per field by default, above zero.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) label_columns: Absent<u32>,
+    /// label-pairs: widget inside or beside the destination to remove with its bindings.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) replace: Absent<String>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) toggle: Absent<String>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
@@ -1020,7 +1029,7 @@ pub(crate) struct MashupRecipeRequest {
     pub(crate) tab: Absent<String>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) start: Absent<String>,
-    /// enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, picker, tracker, set-on-click, nested-menu, navigate-on-click or collapsible.
+    /// enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, picker, tracker, set-on-click, nested-menu, navigate-on-click or collapsible; label-pairs uses widget as the responsive container, data, fields, title, label_columns and replace.
     pub(crate) recipe: String,
     /// The mashup to write it in.
     pub(crate) mashup: String,

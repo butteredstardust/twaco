@@ -478,8 +478,11 @@ fn hand_written_tools() -> Vec<Value> {
         }
         recipe["inputSchema"]["properties"][name] = property;
     }
+    recipe["inputSchema"]["properties"]["fields"] = json!({"description": "label-pairs: ordered field[:Caption] entries; omitted means all DataShape fields.", "type": "array", "items": {"type": "string"}});
+    recipe["inputSchema"]["properties"]["label_columns"] = json!({"description": "label-pairs: number of columns, one per field by default, above zero.", "type": "integer", "minimum": 0});
+    recipe["inputSchema"]["properties"]["replace"] = json!({"description": "label-pairs: widget inside or beside the destination to remove with its bindings.", "type": "string"});
     recipe["inputSchema"]["properties"]["width"] = json!({"description": "nested-menu: the column's width in pixels (300 by default).", "type": "integer", "minimum": 0});
-    recipe["inputSchema"]["properties"]["recipe"]["description"] = json!("enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, picker, tracker, set-on-click, nested-menu, navigate-on-click or collapsible.");
+    recipe["inputSchema"]["properties"]["recipe"]["description"] = json!("enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, picker, tracker, set-on-click, nested-menu, navigate-on-click or collapsible; label-pairs uses widget as the responsive container, data, fields, title, label_columns and replace.");
     let edit = tools
         .iter_mut()
         .find(|tool| tool["name"] == "entity_edit")
@@ -4814,4 +4817,60 @@ fn fmt_changed_includes_synced_xml_once_alongside_scripts() {
     assert!(!failed, "{repeated}");
     assert_eq!(repeated["changed"], json!([]));
     assert_eq!(repeated["synced"], 0);
+}
+
+#[test]
+fn label_pairs_mcp_plans_then_applies_with_schema_options() {
+    let definitions = tool_definitions();
+    let tool = definitions
+        .iter()
+        .find(|tool| tool["name"] == "mashup_recipe")
+        .unwrap();
+    assert_eq!(tool["inputSchema"]["properties"]["fields"]["type"], "array");
+    assert_eq!(
+        tool["inputSchema"]["properties"]["label_columns"]["type"],
+        "integer"
+    );
+    assert!(tool["outputSchema"]["properties"]["removed"].is_object());
+    assert!(tool["outputSchema"]["properties"]["notes"].is_object());
+    let (_dir, root) = solution_dir();
+    std::fs::create_dir_all(root.join("DataShapes")).unwrap();
+    std::fs::write(root.join("Things/Acme.Manager.xml"), r#"<Entities><Things><Thing name="Acme.Manager" projectName="P"><ThingShape><ServiceDefinitions><ServiceDefinition name="GetAssets"><ResultType baseType="INFOTABLE" aspect.dataShape="Acme.Asset_DS"/></ServiceDefinition></ServiceDefinitions><ServiceImplementations/></ThingShape></Thing></Things></Entities>"#).unwrap();
+    std::fs::write(root.join("DataShapes/Acme.Asset_DS.xml"), r#"<Entities><DataShapes><DataShape name="Acme.Asset_DS" projectName="P"><FieldDefinitions><FieldDefinition name="assetName" baseType="STRING"/><FieldDefinition name="id" baseType="LONG"/></FieldDefinitions></DataShape></DataShapes></Entities>"#).unwrap();
+    for (name, args) in [
+        (
+            "mashup_new",
+            json!({"name":"Acme.Asset_MU", "dry_run":false}),
+        ),
+        (
+            "mashup_source_add",
+            json!({"mashup":"Acme.Asset_MU", "entity":"Acme.Manager", "service":"GetAssets", "dry_run":false}),
+        ),
+    ] {
+        let (failed, body) = call_tool(&root, name, args);
+        assert!(!failed, "{body}");
+    }
+    let path = root.join("Mashups/Acme.Asset_MU.xml");
+    let before = std::fs::read(&path).unwrap();
+    let mut args = json!({"recipe":"label-pairs", "mashup":"Acme.Asset_MU", "widget":"center", "data":"data:Acme.Manager.GetAssets", "fields":["id:Identifier", "assetName:Name"], "title":"Details", "label_columns":3});
+    let (failed, planned) = call_tool(&root, "mashup_recipe", args.clone());
+    assert!(!failed, "{planned}");
+    assert_eq!(planned["dry_run"], true);
+    assert_eq!(planned["applied"], false);
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    assert!(planned["notes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|n| n.as_str().unwrap().contains("SelectedRows")));
+    args["dry_run"] = json!(false);
+    let (failed, applied) = call_tool(&root, "mashup_recipe", args);
+    assert!(!failed, "{applied}");
+    assert_eq!(applied["applied"], true);
+    assert_eq!(applied["added"].as_array().unwrap().len(), 9);
+    assert_ne!(std::fs::read(path).unwrap(), before);
+    let (failed, validated) =
+        call_tool(&root, "mashup_validate", json!({"mashup":"Acme.Asset_MU"}));
+    assert!(!failed, "{validated}");
+    assert_eq!(validated["errors"], 0, "{validated}");
 }

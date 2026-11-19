@@ -7509,7 +7509,7 @@
   },
   {
     "name": "mashup_recipe",
-    "description": "Write one recipe: the wiring real mashups repeat, in one edit. enable-when/show-when (widget, condition, inputs name=address: an expression into Disabled/Visible), text (widget, expression, inputs: a label's computed text), message (after a data call: success say or from, kind info|warning|error; on_failure text shows a separate error on Data_Error and may be used alone), confirm (widget, then, title, say, action_label, cancel_label), popup (widget or on, target mashup, window modal-popup|popup|replace|new, size WxH, title, pass name=address, reload handler on close), close-after (after a data call succeeds the popup closes itself; failure leaves it open), auto-refresh (then data call, every seconds or interval address), validate (widget or on, condition, inputs, then, else_say), chart (widget, data, x, value for a pie, kind), columns (widget, columns field[:Title[:width]], data or existing binding; only listed fields visible, readable DATETIME), picker (widget, data, x display field, value, selected), tracker (widget or new, data; interactive large tracker with five DataShape field maps inferred, field_maps Property=field overrides required for missing or ambiguous maps), set-on-click (widget, param, expression, inputs; evaluate only on click and write the mashup parameter). collapsible (widget container with siblings; toggle existing button or add_toggle with in_container outside it; tab inside|outside|none, start collapsed). A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
+    "description": "Write one recipe: the wiring real mashups repeat, in one edit. label-pairs (widget responsive container, data existing call, fields field[:Caption], title, label_columns default one per field, replace inside or beside; caption/value labels bound to SelectedRows, empty destination required). enable-when/show-when (widget, condition, inputs name=address: an expression into Disabled/Visible), text (widget, expression, inputs: a label's computed text), message (after a data call: success say or from, kind info|warning|error; on_failure text shows a separate error on Data_Error and may be used alone), confirm (widget, then, title, say, action_label, cancel_label), popup (widget or on, target mashup, window modal-popup|popup|replace|new, size WxH, title, pass name=address, reload handler on close), close-after (after a data call succeeds the popup closes itself; failure leaves it open), auto-refresh (then data call, every seconds or interval address), validate (widget or on, condition, inputs, then, else_say), chart (widget, data, x, value for a pie, kind), columns (widget, columns field[:Title[:width]], data or existing binding; only listed fields visible, readable DATETIME), picker (widget, data, x display field, value, selected), tracker (widget or new, data; interactive large tracker with five DataShape field maps inferred, field_maps Property=field overrides required for missing or ambiguous maps), set-on-click (widget, param, expression, inputs; evaluate only on click and write the mashup parameter). collapsible (widget container with siblings; toggle existing button or add_toggle with in_container outside it; tab inside|outside|none, start collapsed). A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
     "inputSchema": {
       "required": [
         "recipe",
@@ -7518,6 +7518,22 @@
       "additionalProperties": false,
       "type": "object",
       "properties": {
+        "fields": {
+          "description": "label-pairs: ordered field[:Caption] entries; omitted means all DataShape fields.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "label_columns": {
+          "description": "label-pairs: number of columns, one per field by default, above zero.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "replace": {
+          "description": "label-pairs: widget inside or beside the destination to remove with its bindings.",
+          "type": "string"
+        },
         "toggle": {
           "type": "string"
         },
@@ -7534,7 +7550,7 @@
           "type": "string"
         },
         "recipe": {
-          "description": "enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, picker, tracker, set-on-click, nested-menu, navigate-on-click or collapsible.",
+          "description": "enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, picker, tracker, set-on-click, nested-menu, navigate-on-click or collapsible; label-pairs uses widget as the responsive container, data, fields, title, label_columns and replace.",
           "type": "string"
         },
         "mashup": {
@@ -7715,6 +7731,8 @@
     },
     "outputSchema": {
       "required": [
+        "removed",
+        "notes",
         "applied",
         "unchanged",
         "dry_run",
@@ -7725,6 +7743,18 @@
         "files"
       ],
       "properties": {
+        "removed": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "applied": {
           "type": "boolean"
         },

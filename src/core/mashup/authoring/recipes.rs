@@ -19,6 +19,14 @@ const MAX_COMBO_SERIES: usize = 24;
 /// One recipe and what it needs. Addresses are those `mashup bind` and `mashup on` take.
 #[derive(Clone, Debug)]
 pub enum Recipe {
+    LabelPairs {
+        container: String,
+        data: String,
+        fields: Vec<String>,
+        title: Option<String>,
+        columns: Option<u32>,
+        replace: Option<String>,
+    },
     Collapsible {
         container: String,
         toggle: Option<String>,
@@ -158,6 +166,7 @@ pub struct RecipePlan {
     pub name: &'static str,
     /// The widgets the recipe added.
     pub added: Vec<String>,
+    pub removed: Vec<String>,
     /// What it wired, one line each, in `mashup describe` address form.
     pub wired: Vec<String>,
     /// What the wiring changed besides, such as a grid's selection turned on.
@@ -167,6 +176,7 @@ pub struct RecipePlan {
 impl Recipe {
     pub(crate) fn name(&self) -> &'static str {
         match self {
+            Self::LabelPairs { .. } => "label-pairs",
             Self::Collapsible { .. } => "collapsible",
             Self::EnableWhen { .. } => "enable-when",
             Self::ShowWhen { .. } => "show-when",
@@ -193,11 +203,321 @@ struct Work<'a> {
     solution: &'a Solution,
     context: AuthoringContext<'a>,
     added: Vec<String>,
+    removed: Vec<String>,
     wired: Vec<String>,
     notes: Vec<String>,
 }
 
 impl Work<'_> {
+    fn add_in(&mut self, parent: &[usize], type_id: &str, properties: &[(&str, Value)]) -> String {
+        let definition = widgets::catalog().by_type(type_id).expect("recipe widget");
+        let number = self.document.allocate();
+        let mut widget = mashup::edit::new_widget(definition, number, false);
+        for (key, value) in properties {
+            mashup::edit::insert_sorted(
+                widget["Properties"].as_object_mut().unwrap(),
+                key,
+                value.clone(),
+            );
+        }
+        let id = widget["Properties"]["Id"].as_str().unwrap().to_string();
+        self.wired.push(format!(
+            "add {id}: {}",
+            properties
+                .iter()
+                .map(|(key, _)| (*key, &widget["Properties"][*key]))
+                .collect::<std::collections::BTreeMap<_, _>>()
+                .iter()
+                .map(|(key, value)| format!("{key}={value}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+        self.document.push_child(parent, widget);
+        self.added.push(id.clone());
+        id
+    }
+
+    fn label_pairs(
+        &mut self,
+        container: &str,
+        data: &str,
+        fields: &[String],
+        title: Option<&str>,
+        columns: Option<u32>,
+        replace: Option<&str>,
+    ) -> Result<(), AuthoringError> {
+        if columns == Some(0) {
+            return Err(AuthoringError::Invalid(
+                "label-pairs: --columns must be above 0".into(),
+            ));
+        }
+        let target = widget_id(&self.document, container)?;
+        if target.type_id != "flexcontainer"
+            || self.document.at(&target.path)["Properties"]["ResponsiveLayout"] != true
+            || self.document.at(&target.path)["Properties"]["positioning"] == "static"
+        {
+            return Err(AuthoringError::Invalid(format!(
+                "{container} must be a responsive flexcontainer"
+            )));
+        }
+        let address = parse_address(data).map_err(|e| AuthoringError::Invalid(e.to_string()))?;
+        if !matches!(
+            &address,
+            mashup::address::Address::Data {
+                member: None,
+                selected_rows: false,
+                entity_name: false,
+                ..
+            }
+        ) {
+            return Err(AuthoringError::Invalid(
+                "label-pairs: --data must name a whole existing data call".into(),
+            ));
+        }
+        let end = super::resolve_end(
+            &mut self.document,
+            Some(self.solution),
+            &self.context,
+            address,
+            true,
+            &mut Vec::new(),
+        )?;
+        if !matches!(&end, super::end::End::Data { member: None, base, .. } if base == "INFOTABLE")
+        {
+            return Err(AuthoringError::Invalid(
+                "label-pairs: --data must name a whole existing data call".into(),
+            ));
+        }
+        let (section_name, call_name) = super::bind::existing_data_call(&self.document, &end)?
+            .ok_or_else(|| {
+                AuthoringError::Unknown(format!(
+                    "{data} is not in the mashup; add the data call first"
+                ))
+            })?;
+        let sections = bindings::data_sections(self.document.value());
+        let (section, call) = bindings::service_at(&sections, &section_name, &call_name)
+            .ok_or_else(|| AuthoringError::Unknown(format!("{data} is not in the mashup")))?;
+        let resolver = bindings::Resolver::new(self.context.model, self.context.platform);
+        let service = resolver
+            .service(section, &call.target)
+            .service
+            .ok_or_else(|| {
+                AuthoringError::Unknown(format!("{data}: service definition is unavailable"))
+            })?;
+        let shape = service
+            .result
+            .data_shape
+            .as_deref()
+            .and_then(|name| resolver.checkable_shape(name))
+            .ok_or_else(|| {
+                AuthoringError::Unknown(format!(
+                    "{data}: result DataShape is unavailable; add it to the solution"
+                ))
+            })?;
+        let known = Some(
+            shape
+                .fields
+                .iter()
+                .map(|f| (f.name.clone(), f.base_type.clone()))
+                .collect::<Vec<_>>(),
+        );
+        let requested = if fields.is_empty() {
+            shape
+                .fields
+                .iter()
+                .map(|f| f.name.clone())
+                .collect::<Vec<_>>()
+        } else {
+            fields.to_vec()
+        };
+        let mut picked = Vec::new();
+        for field in requested {
+            let (name, caption) = field
+                .split_once(':')
+                .map_or((field.as_str(), None), |(n, c)| (n, Some(c)));
+            self.field(&known, name)?;
+            if caption.is_some_and(str::is_empty) || picked.iter().any(|(n, _)| n == name) {
+                return Err(AuthoringError::Invalid(format!(
+                    "label-pairs: field {name} needs a non-empty caption and must be given once"
+                )));
+            }
+            picked.push((
+                name.to_string(),
+                caption
+                    .map(str::to_string)
+                    .unwrap_or_else(|| field_caption(name)),
+            ));
+        }
+        if picked.is_empty() {
+            return Err(AuthoringError::Invalid(format!(
+                "{data}: result DataShape has no fields"
+            )));
+        }
+        let replacement = replace
+            .map(|name| widget_id(&self.document, name))
+            .transpose()?;
+        if let Some(found) = &replacement {
+            let beside = found.path.len() == target.path.len()
+                && found.path.split_last().map(|(_, p)| p)
+                    == target.path.split_last().map(|(_, p)| p);
+            if found.path == target.path || !(found.path.starts_with(&target.path) || beside) {
+                return Err(AuthoringError::Refused(format!(
+                    "{} must be inside or beside {container}",
+                    found.id
+                )));
+            }
+        }
+        let children = self.document.at(&target.path)["Widgets"]
+            .as_array()
+            .map(Vec::as_slice)
+            .unwrap_or_default();
+        if !children.is_empty()
+            && !replacement.as_ref().is_some_and(|r| {
+                r.path.len() == target.path.len() + 1
+                    && r.path.starts_with(&target.path)
+                    && children.len() == 1
+            })
+        {
+            return Err(AuthoringError::Refused(format!(
+                "{container} is not empty; --replace must remove its only child"
+            )));
+        }
+        if let Some(found) = replacement {
+            let ids = self
+                .document
+                .widgets()
+                .into_iter()
+                .filter(|w| w.path.starts_with(&found.path))
+                .map(|w| w.id)
+                .collect();
+            let unknown = super::remove::unknown_references(self.document.value(), &ids);
+            if !unknown.is_empty() {
+                return Err(AuthoringError::Refused(format!(
+                    "{} has unknown references at {}; remove them in Composer first",
+                    found.id,
+                    unknown.join(", ")
+                )));
+            }
+            let (bindings, events) = super::remove::dependencies(&self.document, &ids);
+            super::remove::remove_indexes(self.document.bindings_mut(), &bindings);
+            super::remove::remove_indexes(self.document.events_mut(), &events);
+            // Keep the destination even when its only child was removed.
+            let (&index, parent) = found.path.split_last().unwrap();
+            self.document.at_mut(parent)["Widgets"]
+                .as_array_mut()
+                .unwrap()
+                .remove(index);
+            self.removed.extend(ids);
+            self.wired.push(format!(
+                "remove {} binding(s), {} event(s)",
+                bindings.len(),
+                events.len()
+            ));
+        }
+        let target = widget_id(&self.document, &target.id)?;
+        self.set(
+            &target,
+            &[
+                ("flex-direction", json!("column")),
+                ("flex-wrap", json!("nowrap")),
+            ],
+        );
+        let row_properties = [
+            ("Margin", json!("")),
+            ("UseTheme", json!(true)),
+            ("ExpandCollapseTabLocation", json!("inside")),
+            ("ShowVerticalScrollbar", json!(false)),
+            ("flex-direction", json!("row")),
+            ("align-items", json!("flex-start")),
+            ("align-content", json!("flex-start")),
+            ("flex-wrap", json!("wrap")),
+            ("flex-size", json!("range")),
+            ("flex-min-height", json!("0px")),
+            ("flex-max-height", json!("")),
+            ("flex-grow", json!(0)),
+            ("flex-shrink", json!(0)),
+        ];
+        if let Some(title) = title {
+            let mut header_properties = row_properties.to_vec();
+            header_properties.extend([("Margin", json!("6 12 0")), ("flex-wrap", json!("nowrap"))]);
+            let header = self.add_in(&target.path, "flexcontainer", &header_properties);
+            let path = widget_id(&self.document, &header)?.path;
+            self.add_in(
+                &path,
+                "ptcslabel",
+                &[
+                    ("LabelText", json!(title)),
+                    ("LabelType", json!("sub-header")),
+                    ("Margin", json!("5 0 5 5")),
+                    ("UseTheme", json!(true)),
+                ],
+            );
+        }
+        let row = self.add_in(&target.path, "flexcontainer", &row_properties);
+        let row_path = widget_id(&self.document, &row)?.path;
+        let mut paths = Vec::new();
+        // Like the kit, one column per pair by default; never more columns than pairs.
+        let count = columns.map_or(picked.len(), |n| picked.len().min(n as usize));
+        for _ in 0..count {
+            let id = self.add_in(
+                &row_path,
+                "flexcontainer",
+                &[
+                    ("Margin", json!("0 12 12")),
+                    ("flex-direction", json!("column")),
+                    ("flex-wrap", json!("nowrap")),
+                    ("UseTheme", json!(true)),
+                    ("ExpandCollapseTabLocation", json!("inside")),
+                    ("ShowVerticalScrollbar", json!(false)),
+                ],
+            );
+            paths.push(widget_id(&self.document, &id)?.path);
+        }
+        let alias = if call.instance == call.target {
+            String::new()
+        } else {
+            format!("[as {}]", call.instance)
+        };
+        let source = format!(
+            "data:{}.{}{alias}[SelectedRows]",
+            section.entity, call.target
+        );
+        for (index, (field, caption)) in picked.iter().enumerate() {
+            let path = &paths[index % paths.len()];
+            self.add_in(
+                path,
+                "ptcslabel",
+                &[
+                    ("LabelText", json!(caption)),
+                    ("LabelType", json!("label")),
+                    ("Margin", json!("5")),
+                    ("UseTheme", json!(true)),
+                ],
+            );
+            let value = self.add_in(
+                path,
+                "ptcslabel",
+                &[
+                    ("LabelText", json!("[[Label]]")),
+                    ("LabelType", json!("body")),
+                    ("Margin", json!("0 5 5")),
+                    ("UseTheme", json!(true)),
+                ],
+            );
+            self.bind(
+                &format!("{source}.{field}"),
+                &format!("ui:{value}.LabelText"),
+            )?;
+        }
+        self.notes.push(format!("{source}: uses the selected row for multi-row results; result cardinality is unknown offline"));
+        for (_, message) in bindings::selected_rows_hints(self.document.value()) {
+            self.notes
+                .push(format!("{}: {message}", bindings::SELECTED_ROWS_RULE));
+        }
+        self.notes.push(format!("{row}: wrapping uses range sizing with no maximum height. On 10.2.1 set height:auto !important; min-height:0 !important; max-height:none !important on the row bounding box, inner .widget-flexcontainer and every parent up to the panel (guide quirks: wrapping responsive rows)"));
+        Ok(())
+    }
+
     // Address resolution can refresh contained parameters or add data calls. Probe a copy so
     // detecting existing wiring cannot change the document, and reuse bind/on's address rules.
     fn has_binding(&self, from: &str, to: &str) -> bool {
@@ -569,10 +889,28 @@ pub(crate) fn plan_recipe(
             platform: platform.as_ref(),
         },
         added: Vec::new(),
+        removed: Vec::new(),
         wired: Vec::new(),
         notes: Vec::new(),
     };
     match &request.recipe {
+        Recipe::LabelPairs {
+            container,
+            data,
+            fields,
+            title,
+            columns,
+            replace,
+        } => {
+            work.label_pairs(
+                container,
+                data,
+                fields,
+                title.as_deref(),
+                *columns,
+                replace.as_deref(),
+            )?;
+        }
         Recipe::Collapsible {
             container,
             toggle,
@@ -1545,6 +1883,7 @@ pub(crate) fn plan_recipe(
     let Work {
         document,
         added,
+        removed,
         wired,
         mut notes,
         ..
@@ -1556,6 +1895,7 @@ pub(crate) fn plan_recipe(
         edit: finish_edit(loaded, document, "mashup recipe")?,
         name: request.recipe.name(),
         added,
+        removed,
         wired,
         notes,
     })
@@ -1564,6 +1904,9 @@ pub(crate) fn plan_recipe(
 /// What a recipe can be given, as the command line and MCP both pass it.
 #[derive(Clone, Debug, Default)]
 pub struct RecipeArgs {
+    pub fields: Vec<String>,
+    pub label_columns: Option<u32>,
+    pub replace: Option<String>,
     pub toggle: Option<String>,
     pub add_toggle: bool,
     pub in_container: Option<String>,
@@ -1630,6 +1973,7 @@ pub struct RecipeArgs {
 
 /// The recipe names, for help and errors.
 pub const RECIPES: &[&str] = &[
+    "label-pairs",
     "collapsible",
     "enable-when",
     "show-when",
@@ -1648,6 +1992,32 @@ pub const RECIPES: &[&str] = &[
     "nested-menu",
     "navigate-on-click",
 ];
+
+fn field_caption(name: &str) -> String {
+    let chars: Vec<_> = name.chars().collect();
+    let mut words = String::new();
+    for (i, &c) in chars.iter().enumerate() {
+        if c == '_' || c == '-' {
+            words.push(' ');
+        } else {
+            if i > 0
+                && c.is_uppercase()
+                && (chars[i - 1].is_lowercase()
+                    || chars[i - 1].is_numeric()
+                    || (chars[i - 1].is_uppercase()
+                        && chars.get(i + 1).is_some_and(|c| c.is_lowercase())))
+            {
+                words.push(' ');
+            }
+            words.push(c);
+        }
+    }
+    let words = words.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut chars = words.chars();
+    chars.next().map_or_else(String::new, |c| {
+        c.to_uppercase().collect::<String>() + chars.as_str()
+    })
+}
 
 fn pairs(flag: &str, values: &[String]) -> Result<Vec<(String, String)>, AuthoringError> {
     values
@@ -1678,6 +2048,9 @@ impl Recipe {
             ));
         }
         for (given, flag, recipe) in [
+            (!args.fields.is_empty(), "--field", "label-pairs"),
+            (args.label_columns.is_some(), "--columns", "label-pairs"),
+            (args.replace.is_some(), "--replace", "label-pairs"),
             (args.toggle.is_some(), "--toggle", "collapsible"),
             (args.add_toggle, "--add-toggle", "collapsible"),
             (args.in_container.is_some(), "--in", "collapsible"),
@@ -1714,6 +2087,14 @@ impl Recipe {
         let inputs = pairs("--input", &args.inputs)?;
         let widget = |what: &str| required(&args.widget, what, name);
         Ok(match name {
+            "label-pairs" => Recipe::LabelPairs {
+                container: widget("the responsive container")?,
+                data: required(&args.data, "--data <existing data call>", name)?,
+                fields: args.fields.clone(),
+                title: args.title.clone(),
+                columns: args.label_columns,
+                replace: args.replace.clone(),
+            },
             "collapsible" => {
                 if args.toggle.is_some() && args.add_toggle {
                     return Err(AuthoringError::Invalid(
@@ -1922,6 +2303,8 @@ pub fn recipe_plan_json(solution: &Solution, plan: &RecipePlan, applied: bool) -
         "mashup": plan.edit.mashup,
         "recipe": plan.name,
         "added": plan.added,
+        "removed": plan.removed,
+        "notes": plan.notes,
         "wired": plan.wired,
         "files": files,
     })

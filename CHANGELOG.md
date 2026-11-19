@@ -8,6 +8,7 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- `mashup recipe label-pairs` (also MCP `mashup_recipe`) builds caption/value detail panels from an existing call's DataShape, with selected-row field bindings, optional title, ordered captions, column count and property-display replacement. Plans include properties, removals, selection hints and wrapping guidance.
 - `config-table set` (also MCP `config_table` action `set`) types cells from the live definition, plans by default, replaces single/multi-row tables with the correct service, refuses PASSWORD cells, and verifies read-back. Pull afterwards to update the repository.
 - `traps.event-data` lint rule (warns by default, in `check` and `lint`): a bare `eventData` in a version 2 subscription script is a ReferenceError at run time; the finding names `events["<alias>"].eventData`.
 - `mashup add --right-of/--left-of` prints `next: --right-of <id> keeps order` (in `notes` for `--json` and MCP) so a series can be chained in order; the usage text and guide explain it.

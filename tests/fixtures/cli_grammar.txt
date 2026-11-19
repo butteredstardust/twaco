@@ -400,6 +400,11 @@ help:
 |                               --editable-column makes a listed column (and so the grid) editable
 |                               --column-editor <field=editor> chooses a typed cell editor (repeatable)
 |                               --preserve-whitespace <field> keeps newlines and spaces when shown (repeatable)
+|       label-pairs <container> --data <data call> [--field <field>]... [--title <text>]
+|           [--columns <n>] [--replace <widget>]
+|                               caption/value labels from an existing call's DataShape; field[:Caption]
+|                               picks/orders/renames; default all fields, a column each; SelectedRows
+|                               bindings; empty responsive container unless --replace removes its only child
 |       picker <dropdown|list> --data <data call> --x <display field> [--value <field>]
 |           [--selected <address>] [--no-none-row] [--auto-select-first]
 |                               fill a dropdown or list from a service result; without the "(None)" row,
@@ -7982,6 +7987,11 @@ help:
 |                               --editable-column makes a listed column (and so the grid) editable
 |                               --column-editor <field=editor> chooses a typed cell editor (repeatable)
 |                               --preserve-whitespace <field> keeps newlines and spaces when shown (repeatable)
+|       label-pairs <container> --data <data call> [--field <field>]... [--title <text>]
+|           [--columns <n>] [--replace <widget>]
+|                               caption/value labels from an existing call's DataShape; field[:Caption]
+|                               picks/orders/renames; default all fields, a column each; SelectedRows
+|                               bindings; empty responsive container unless --replace removes its only child
 |       picker <dropdown|list> --data <data call> --x <display field> [--value <field>]
 |           [--selected <address>] [--no-none-row] [--auto-select-first]
 |                               fill a dropdown or list from a service result; without the "(None)" row,
@@ -10057,6 +10067,18 @@ arg --column-editor
     other: -
     given twice: accepted
     given bare: InvalidValue
+arg --columns
+    action: Set
+    value_name: n
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 arg --data
     action: Set
     value_name: address
@@ -10118,7 +10140,7 @@ arg --expr
     given twice: ArgumentConflict
     given bare: InvalidValue
 arg --field
-    action: Set
+    action: Append
     value_name: field
     num_args: 1
     allow_hyphen_values: yes
@@ -10127,7 +10149,7 @@ arg --field
     default: -
     index: -
     other: -
-    given twice: ArgumentConflict
+    given twice: accepted
     given bare: InvalidValue
 arg --field-map
     action: Append
@@ -10376,6 +10398,18 @@ arg --reload
     other: -
     given twice: ArgumentConflict
     given bare: InvalidValue
+arg --replace
+    action: Set
+    value_name: widget
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 arg --say
     action: Set
     value_name: text
@@ -10561,6 +10595,11 @@ help:
 |                               --editable-column makes a listed column (and so the grid) editable
 |                               --column-editor <field=editor> chooses a typed cell editor (repeatable)
 |                               --preserve-whitespace <field> keeps newlines and spaces when shown (repeatable)
+|       label-pairs <container> --data <data call> [--field <field>]... [--title <text>]
+|           [--columns <n>] [--replace <widget>]
+|                               caption/value labels from an existing call's DataShape; field[:Caption]
+|                               picks/orders/renames; default all fields, a column each; SelectedRows
+|                               bindings; empty responsive container unless --replace removes its only child
 |       picker <dropdown|list> --data <data call> --x <display field> [--value <field>]
 |           [--selected <address>] [--no-none-row] [--auto-select-first]
 |                               fill a dropdown or list from a service result; without the "(None)" row,

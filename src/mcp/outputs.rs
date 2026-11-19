@@ -1616,6 +1616,8 @@ pub(crate) struct MashupParameterResult {
 
 #[derive(Serialize, JsonSchema)]
 pub(crate) struct MashupRecipeResult {
+    removed: Vec<String>,
+    notes: Vec<String>,
     applied: bool,
     unchanged: bool,
     dry_run: bool,

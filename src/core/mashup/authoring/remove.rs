@@ -395,7 +395,10 @@ fn one(matches: Vec<usize>, absent: String) -> Result<usize, AuthoringError> {
     }
 }
 
-fn dependencies(document: &MashupDocument, ids: &BTreeSet<String>) -> (Vec<usize>, Vec<usize>) {
+pub(super) fn dependencies(
+    document: &MashupDocument,
+    ids: &BTreeSet<String>,
+) -> (Vec<usize>, Vec<usize>) {
     let bindings = document.value()["DataBindings"]
         .as_array()
         .into_iter()
@@ -420,7 +423,7 @@ fn dependencies(document: &MashupDocument, ids: &BTreeSet<String>) -> (Vec<usize
 fn named(value: &Value, key: &str, ids: &BTreeSet<String>) -> bool {
     value[key].as_str().is_some_and(|text| ids.contains(text))
 }
-fn remove_indexes(values: &mut Vec<Value>, indexes: &[usize]) {
+pub(super) fn remove_indexes(values: &mut Vec<Value>, indexes: &[usize]) {
     for &index in indexes.iter().rev() {
         values.remove(index);
     }
@@ -488,7 +491,7 @@ fn data_call_referenced(document: &MashupDocument, call: &(String, String)) -> b
 }
 
 /// Any non-standard location that names a removed widget is unsafe to rewrite automatically.
-fn unknown_references(root: &Value, ids: &BTreeSet<String>) -> Vec<String> {
+pub(super) fn unknown_references(root: &Value, ids: &BTreeSet<String>) -> Vec<String> {
     let mut found = Vec::new();
     if let Some(data) = root.get("Data") {
         scan(data, ids, "Data", &mut found);
