@@ -92,6 +92,10 @@ impl Notices {
     pub(crate) fn push(&mut self, line: String) {
         self.0.push(line);
     }
+
+    pub(crate) fn extend(&mut self, lines: impl IntoIterator<Item = String>) {
+        self.0.extend(lines);
+    }
 }
 
 /// Take the workspace lock for a command that changes the workspace, recording what taking it

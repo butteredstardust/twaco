@@ -305,8 +305,16 @@ where
         ),
     };
     let remote = open(profile);
-    let (mut statuses, failures) =
-        status::compute_with_progress(&remote, &baseline, &chosen, &rules, patches, progress);
+    let (mut statuses, failures) = status::compute_with_expected(
+        &remote,
+        &baseline,
+        &chosen,
+        &rules,
+        patches,
+        progress,
+        &crate::core::permissions::derived::Derived::load(solution)
+            .map_err(|e| StatusCommandError::Unreadable(vec![e.to_string()]))?,
+    );
     let (server_only, server_notes) = if matches!(request.target, StatusTarget::All) {
         server_only(
             &remote,

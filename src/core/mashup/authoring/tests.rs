@@ -11807,3 +11807,58 @@ fn columns_recipe_rebinding_refreshes_types_but_keeps_state_and_unrelated_option
         }
     }
 }
+
+#[test]
+fn selected_rows_authoring_hints_follow_automatic_selection() {
+    let (dir, solution) = bind_fixture();
+    let planned = bind(
+        &solution,
+        "data:Acme.Orders.Manager.GetOrders[SelectedRows].note",
+        "ui:ptcstextfield-3.Text",
+    )
+    .unwrap();
+    assert!(planned
+        .warnings
+        .iter()
+        .any(|w| w.contains("AutoSelectFirstRow")));
+    apply_edit(&solution, &planned.edit, &lock(&solution)).unwrap();
+    let event = "data:Acme.Orders.Manager.GetOrders.ServiceInvokeCompleted";
+    let invoke = "data:Acme.Orders.Manager.GetOrders";
+    let planned = on(&solution, event, invoke).unwrap();
+    assert!(planned.warnings.is_empty(), "{:?}", planned.warnings);
+    rewrite_content(dir.path(), |content| {
+        content["Data"]["Things_Acme.Orders.Manager"]["Services"][0]["Properties"]
+            ["AutoSelectFirstRow"] = json!(true);
+    });
+    let planned = bind(
+        &solution,
+        "data:Acme.Orders.Manager.GetOrders[SelectedRows].note",
+        "ui:ptcslabel-4.LabelText",
+    )
+    .unwrap();
+    assert!(!planned
+        .warnings
+        .iter()
+        .any(|w| w.contains("AutoSelectFirstRow")));
+    assert!(on(&solution, event, invoke).unwrap().warnings.is_empty());
+}
+
+#[test]
+fn on_hints_only_for_bindings_it_added_not_earlier_selected_rows_bindings() {
+    let (_dir, solution) = bind_fixture();
+    let bound = bind(
+        &solution,
+        "data:Acme.Orders.Manager.GetOrders[SelectedRows].note",
+        "ui:ptcslabel-4.LabelText",
+    )
+    .unwrap();
+    assert!(!bound.warnings.is_empty());
+    apply_edit(&solution, &bound.edit, &lock(&solution)).unwrap();
+    let plan = on(
+        &solution,
+        "mashup:Loaded",
+        "data:Acme.Orders.Manager.GetOrders",
+    )
+    .unwrap();
+    assert!(plan.warnings.is_empty(), "{:?}", plan.warnings);
+}

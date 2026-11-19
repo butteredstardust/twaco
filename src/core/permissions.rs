@@ -16,6 +16,7 @@
 
 pub(crate) mod apply;
 pub mod audit;
+pub(crate) mod derived;
 pub(crate) mod helper;
 pub(crate) mod init;
 mod model;
@@ -336,6 +337,8 @@ pub struct Difference {
     pub(crate) repository: Option<bool>,
     /// Whether the server allows it; absent when only the repository has it.
     pub(crate) server: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) deploy: Option<String>,
 }
 
 fn serialize_kind<S: serde::Serializer>(kind: &Kind, serializer: S) -> Result<S::Ok, S::Error> {
@@ -359,6 +362,17 @@ impl fmt::Display for Difference {
             self.change.label(),
             self.grant
         )?;
+        if let Some(group) = &self.deploy {
+            write!(
+                f,
+                " ({}deploy PermissionGroups/{group})",
+                if self.server.is_none() {
+                    "missing: "
+                } else {
+                    ""
+                }
+            )?;
+        }
         match (self.repository, self.server) {
             (Some(repository), Some(server)) => write!(
                 f,
@@ -380,6 +394,7 @@ pub(crate) fn differences(kind: Kind, repository: &Grants, server: &Grants) -> V
     for (grant, &permitted) in repository {
         match server.get(grant) {
             None => found.push(Difference {
+                deploy: None,
                 set: kind,
                 change: Change::RepositoryOnly,
                 grant: grant.clone(),
@@ -387,6 +402,7 @@ pub(crate) fn differences(kind: Kind, repository: &Grants, server: &Grants) -> V
                 server: None,
             }),
             Some(&other) if other != permitted => found.push(Difference {
+                deploy: None,
                 set: kind,
                 change: Change::Flipped,
                 grant: grant.clone(),
@@ -399,6 +415,7 @@ pub(crate) fn differences(kind: Kind, repository: &Grants, server: &Grants) -> V
     for (grant, &permitted) in server {
         if !repository.contains_key(grant) {
             found.push(Difference {
+                deploy: None,
                 set: kind,
                 change: Change::ServerOnly,
                 grant: grant.clone(),
@@ -408,6 +425,23 @@ pub(crate) fn differences(kind: Kind, repository: &Grants, server: &Grants) -> V
         }
     }
     found.sort_by(|a, b| a.grant.cmp(&b.grant));
+    found
+}
+
+fn expected_differences(
+    kind: Kind,
+    owned: &Grants,
+    derived: &Grants,
+    server: &Grants,
+) -> Vec<Difference> {
+    let mut expected = derived.clone();
+    expected.extend(owned.clone());
+    let mut found = differences(kind, &expected, server);
+    for difference in &mut found {
+        if !owned.contains_key(&difference.grant) && derived.contains_key(&difference.grant) {
+            difference.deploy = Some(difference.grant.principal.clone());
+        }
+    }
     found
 }
 
@@ -425,6 +459,7 @@ pub enum Status {
     NotOnServer,
     /// The entity XML declares no permission set.
     Unmanaged,
+    NotChecked,
     Failed,
 }
 
@@ -437,6 +472,7 @@ impl Status {
             Status::NotOnServer => "not on server",
             Status::Unmanaged => "no permissions in the XML",
             Status::Failed => "failed",
+            Status::NotChecked => "not checked",
         }
     }
 }
@@ -453,6 +489,9 @@ pub struct EntityReport {
     pub(crate) sets: Vec<Kind>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// Plain remarks, such as what a push removed that another command restores.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub notes: Vec<String>,
 }
 
 fn serialize_kinds<S: serde::Serializer>(kinds: &[Kind], serializer: S) -> Result<S::Ok, S::Error> {
@@ -497,6 +536,37 @@ pub(crate) fn run_with_progress(
     apply: bool,
     progress: &dyn Progress,
 ) -> Report {
+    let derived = match derived::Derived::read(entities) {
+        Ok(derived) => derived,
+        Err(error) => {
+            return Report {
+                applied: apply,
+                entities: entities
+                    .iter()
+                    .map(|entity| EntityReport {
+                        collection: entity.info.collection.clone(),
+                        name: entity.info.name.clone(),
+                        status: Status::Failed,
+                        differences: vec![],
+                        sets: vec![],
+                        error: Some(error.to_string()),
+                        notes: vec![],
+                    })
+                    .collect(),
+            }
+        }
+    };
+    run_expected(remote, entities, apply, progress, &derived, true)
+}
+
+pub(crate) fn run_expected(
+    remote: &(dyn Remote + Sync),
+    entities: &[EntityFile],
+    apply: bool,
+    progress: &dyn Progress,
+    derived: &derived::Derived,
+    external: bool,
+) -> Report {
     let _phase = progress::phase(
         progress,
         if apply {
@@ -506,17 +576,75 @@ pub(crate) fn run_with_progress(
         },
         Some(entities.len() as u64),
     );
-    let entities = parallel::map_progress(entities, progress, |entity| {
+    let mut reports = parallel::map_progress(entities, progress, |entity| {
         progress.message(&entity.info.name);
-        one(remote, entity, apply)
+        one(
+            remote,
+            entity,
+            apply,
+            &derived.target(&entity.info.collection, &entity.info.name),
+        )
     });
+    for ((collection, name), expected) in &derived.targets {
+        // Targets outside the repository are only read when the whole repository is compared.
+        if !external
+            || derived
+                .repository
+                .contains(&(collection.clone(), name.clone()))
+            || entities
+                .iter()
+                .any(|e| &e.info.collection == collection && &e.info.name == name)
+        {
+            continue;
+        }
+        let mut report = EntityReport {
+            collection: collection.clone(),
+            name: name.clone(),
+            status: Status::Same,
+            differences: vec![],
+            sets: vec![],
+            error: None,
+            notes: vec![],
+        };
+        for (key, wanted) in expected {
+            match remote
+                .get(collection, name, key.kind())
+                .map_err(|e| e.to_string())
+                .and_then(|v| from_json(key.kind(), &v).map_err(|e| e.to_string()))
+            {
+                Ok(mut server) => {
+                    server.retain(|grant, _| wanted.contains_key(grant));
+                    report.differences.extend(expected_differences(
+                        key.kind(),
+                        &Grants::new(),
+                        wanted,
+                        &server,
+                    ));
+                }
+                Err(error) => {
+                    report.status = Status::NotChecked;
+                    report.error = Some(format!("not checked: {error}"));
+                    break;
+                }
+            }
+        }
+        if report.status == Status::Same && !report.differences.is_empty() {
+            report.status = Status::Differs;
+        }
+        reports.push(report);
+    }
     Report {
         applied: apply,
-        entities,
+        entities: reports,
     }
 }
 
-fn one(remote: &(dyn Remote + Sync), entity: &EntityFile, apply: bool) -> EntityReport {
+fn one(
+    remote: &(dyn Remote + Sync),
+    entity: &EntityFile,
+    apply: bool,
+    derived: &Sets,
+) -> EntityReport {
     let collection = entity.info.collection.clone();
     let name = entity.info.name.clone();
     let mut report = EntityReport {
@@ -526,6 +654,7 @@ fn one(remote: &(dyn Remote + Sync), entity: &EntityFile, apply: bool) -> Entity
         differences: Vec::new(),
         sets: Vec::new(),
         error: None,
+        notes: Vec::new(),
     };
     let failed = |mut report: EntityReport, message: String| {
         report.status = Status::Failed;
@@ -539,7 +668,7 @@ fn one(remote: &(dyn Remote + Sync), entity: &EntityFile, apply: bool) -> Entity
         Ok(sets) => sets,
         Err(e) => return failed(report, format!("{}: {e}", entity.path.display())),
     };
-    if sets.is_empty() {
+    if sets.is_empty() && derived.is_empty() {
         report.status = Status::Unmanaged;
         return report;
     }
@@ -551,9 +680,14 @@ fn one(remote: &(dyn Remote + Sync), entity: &EntityFile, apply: bool) -> Entity
         }
         Err(e) => return failed(report, e.to_string()),
     }
-    for (key, wanted) in &sets {
+    let mut expected = sets.clone();
+    for (key, grants) in derived {
+        expected.entry(*key).or_default().extend(grants.clone());
+    }
+    let mut removed: BTreeMap<KindKey, std::collections::BTreeSet<String>> = BTreeMap::new();
+    for key in expected.keys() {
         let kind = key.kind();
-        let server = match remote
+        let mut server = match remote
             .get(&collection, &name, kind)
             .map_err(|e| e.to_string())
             .and_then(|value| from_json(kind, &value).map_err(|e| e.to_string()))
@@ -561,13 +695,37 @@ fn one(remote: &(dyn Remote + Sync), entity: &EntityFile, apply: bool) -> Entity
             Ok(grants) => grants,
             Err(e) => return failed(report, format!("reading {} permissions: {e}", kind.label())),
         };
-        let found = differences(kind, wanted, &server);
+        let owned = sets.get(key).cloned().unwrap_or_default();
+        let derived_grants = derived.get(key).cloned().unwrap_or_default();
+        if !sets.contains_key(key) {
+            // The entity does not manage this set: only the grants a group explains are compared.
+            server.retain(|grant, _| derived_grants.contains_key(grant));
+        } else {
+            let groups: std::collections::BTreeSet<_> = server
+                .keys()
+                .filter(|g| g.principal_type == "PermissionGroup" && !owned.contains_key(g))
+                .map(|g| g.principal.clone())
+                .collect();
+            if !groups.is_empty() {
+                removed.insert(*key, groups);
+            }
+        }
+        let found = expected_differences(kind, &owned, &derived_grants, &server);
         if !found.is_empty() {
-            report.sets.push(kind);
+            let mut owned_server = server.clone();
+            owned_server.retain(|grant, _| {
+                !derived_grants.contains_key(grant) || owned.contains_key(grant)
+            });
+            if sets.contains_key(key) && !differences(kind, &owned, &owned_server).is_empty() {
+                report.sets.push(kind);
+            }
             report.differences.extend(found);
         }
     }
     if report.differences.is_empty() {
+        if sets.is_empty() {
+            report.status = Status::Unmanaged;
+        }
         return report;
     }
     report.status = Status::Differs;
@@ -599,12 +757,40 @@ fn one(remote: &(dyn Remote + Sync), entity: &EntityFile, apply: bool) -> Entity
         }
         // Sent: whatever the read-back finds, the server has this set now.
         written.push(kind.label());
+        if let Some(groups) = removed.get(&KindKey::of(kind)) {
+            report.notes.push(format!(
+                "{} permissions: the push removed PermissionGroup principal(s) {}; deploying the PermissionGroup restores them",
+                kind.label(),
+                groups.iter().cloned().collect::<Vec<_>>().join(", ")
+            ));
+        }
         let back = remote
             .get(&collection, &name, kind)
             .map_err(|e| e.to_string())
             .and_then(|value| from_json(kind, &value).map_err(|e| e.to_string()));
         match back {
-            Ok(back) if back == *wanted => {}
+            Ok(back)
+                if {
+                    let mut own_back = back.clone();
+                    if let Some(grants) = derived.get(&KindKey::of(kind)) {
+                        own_back.retain(|grant, _| {
+                            !grants.contains_key(grant) || wanted.contains_key(grant)
+                        });
+                    }
+                    own_back == *wanted
+                } =>
+            {
+                if let Some(grants) = derived.get(&KindKey::of(kind)) {
+                    report
+                        .differences
+                        .retain(|difference| difference.set != kind || difference.deploy.is_none());
+                    report.differences.extend(
+                        expected_differences(kind, wanted, grants, &back)
+                            .into_iter()
+                            .filter(|difference| difference.deploy.is_some()),
+                    );
+                }
+            }
             Ok(back) => {
                 let left = differences(kind, wanted, &back);
                 return failed(
@@ -631,7 +817,14 @@ fn one(remote: &(dyn Remote + Sync), entity: &EntityFile, apply: bool) -> Entity
             }
         }
     }
-    report.status = Status::Pushed;
+    if !report.sets.is_empty()
+        && !report
+            .differences
+            .iter()
+            .any(|difference| difference.deploy.is_some())
+    {
+        report.status = Status::Pushed;
+    }
     report
 }
 

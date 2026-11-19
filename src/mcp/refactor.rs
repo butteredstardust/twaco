@@ -1229,7 +1229,7 @@ pub(crate) fn mashup_on_tool(
     let mut result = json!({
         "applied": outcome.applied, "dry_run": dry_run, "mashup": outcome.plan.edit.mashup,
         "event": outcome.plan.event, "invoke": outcome.plan.invoke,
-        "new_source": outcome.plan.new_source, "files": files,
+        "new_source": outcome.plan.new_source, "warnings": outcome.plan.warnings, "files": files,
     });
     add_notices(&mut result, &notices);
     Ok(result)

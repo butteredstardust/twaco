@@ -211,6 +211,9 @@ where
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_else(|| format!("{}.xml", entity.info.name));
     let target = push::Target {
+        derived: crate::core::permissions::derived::Derived::read(&found.entities)
+            .map_err(|e| PushCommandError::Unreadable(vec![e.to_string()]))?
+            .target(&entity.info.collection, &entity.info.name),
         key: key.clone(),
         document: push::EntityDocument {
             file_name: &file_name,

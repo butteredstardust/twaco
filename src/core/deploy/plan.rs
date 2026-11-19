@@ -33,13 +33,12 @@ pub(crate) fn decide_all_with_progress(
     let plans = parallel::map_progress(&entities, progress, |(project, entity)| {
         progress.message(&entity.name);
         let working =
-            normalise::hash_with_parts(&entity.bytes, &entity.server_owned).map_err(|error| {
-                DeployError::Working {
+            normalise::hash_with_grants(&entity.bytes, &entity.server_owned, &entity.derived)
+                .map_err(|error| DeployError::Working {
                     collection: entity.collection.clone(),
                     name: entity.name.clone(),
                     why: error.to_string(),
-                }
-            })?;
+                })?;
         let server_error = |why: String| DeployError::Server {
             collection: entity.collection.clone(),
             name: entity.name.clone(),
@@ -50,7 +49,7 @@ pub(crate) fn decide_all_with_progress(
             .map_err(|error| server_error(error.to_string()))?;
         let server = fetched
             .as_deref()
-            .map(|bytes| normalise::hash_with_parts(bytes, &entity.server_owned))
+            .map(|bytes| normalise::hash_with_grants(bytes, &entity.server_owned, &entity.derived))
             .transpose()
             .map_err(|error| server_error(error.to_string()))?;
         // The live copy supplies the definitions of encrypted fields.
@@ -150,6 +149,8 @@ pub(crate) fn plan_bundles(
     if !found.unreadable.is_empty() {
         return Err(found.unreadable.join("; "));
     }
+    let derived = crate::core::permissions::derived::Derived::read(&found.entities)
+        .map_err(|e| e.to_string())?;
     let unknown = solution.unknown_patches(profile, &found.entities);
     if !unknown.is_empty() {
         return Err(format!(
@@ -304,6 +305,7 @@ pub(crate) fn plan_bundles(
                 }
             }
             entities.push(Entity {
+                derived: derived.target(&entity.info.collection, &entity.info.name),
                 server_owned: super::super::server_owned::parts(
                     &solution.server_owned_for(profile),
                     &entity.info.collection,
@@ -386,8 +388,8 @@ fn property_values_hint(
     parts.push(super::super::server_owned::Part::Properties(
         Default::default(),
     ));
-    let local = normalise::hash_with_parts(&entity.bytes, &parts).ok()?;
-    let server = normalise::hash_with_parts(fetched?, &parts).ok()?;
+    let local = normalise::hash_with_grants(&entity.bytes, &parts, &entity.derived).ok()?;
+    let server = normalise::hash_with_grants(fetched?, &parts, &entity.derived).ok()?;
     (local == server).then(|| {
         let name = serde_json::to_string(&format!("{}/{}", entity.collection, entity.name)).expect("entity name");
         format!("only property values differ; declare their server ownership in twaco.toml:\n[[server_owned]]\nentities = [{name}]\nparts = [\"property-values\"]")

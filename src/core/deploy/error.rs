@@ -166,6 +166,15 @@ impl fmt::Display for DeployError {
 impl std::error::Error for DeployError {}
 
 impl DeployError {
+    /// Projects the server already holds when this failure came; their baselines may be recorded.
+    pub fn imported(&self) -> &[String] {
+        match self {
+            Self::Call { imported, .. } | Self::AfterImport { imported, .. } => imported,
+            Self::NotKept(report) => &report.imported,
+            _ => &[],
+        }
+    }
+
     /// Warnings survive partial imports and failures while recording their baseline.
     pub fn warnings(&self) -> Vec<&str> {
         let plans = match self {

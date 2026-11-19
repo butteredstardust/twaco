@@ -163,6 +163,7 @@ impl Remote for Client {
 
 /// The entity being pushed.
 pub(crate) struct Target<'a> {
+    pub(crate) derived: super::permissions::Sets,
     pub(crate) key: EntityKey,
     pub(crate) document: EntityDocument<'a>,
 }
@@ -254,12 +255,13 @@ pub(crate) fn push_with_parts(
     force: bool,
     parts: &[super::server_owned::Part],
 ) -> Result<Outcome, PushError> {
-    let working =
-        normalise::hash_with_parts(target.document.bytes, parts).map_err(PushError::Working)?;
+    let grants = &target.derived;
+    let working = normalise::hash_with_grants(target.document.bytes, parts, grants)
+        .map_err(PushError::Working)?;
     let fetched = remote.fetch(&target.key).map_err(PushError::Remote)?;
     let server = fetched
         .as_deref()
-        .map(|bytes| normalise::hash_with_parts(bytes, parts))
+        .map(|bytes| normalise::hash_with_grants(bytes, parts, grants))
         .transpose()
         .map_err(PushError::Server)?;
     let baseline = Baseline::load(root, profile).map_err(PushError::Baseline)?;
@@ -328,7 +330,7 @@ pub(crate) fn push_with_parts(
     let fetched = remote.fetch(&target.key).map_err(PushError::Unverified)?;
     let read_back = fetched
         .as_deref()
-        .map(|bytes| normalise::hash_with_parts(bytes, parts))
+        .map(|bytes| normalise::hash_with_grants(bytes, parts, grants))
         .transpose()
         .map_err(PushError::Server)?;
     if read_back.as_deref() != Some(working.as_str()) {
@@ -336,7 +338,9 @@ pub(crate) fn push_with_parts(
             sent: working,
             read_back,
             differences: fetched
-                .map(|bytes| normalise::read_back_differences(target.document.bytes, &bytes, parts))
+                .map(|bytes| {
+                    normalise::read_back_with_grants(target.document.bytes, &bytes, parts, grants)
+                })
                 .unwrap_or_default(),
         });
     }
@@ -438,6 +442,7 @@ mod tests {
 
     fn target(bytes: &[u8]) -> Target<'_> {
         Target {
+            derived: Default::default(),
             key: EntityKey::new("Things", "T").unwrap(),
             document: EntityDocument {
                 file_name: "T.xml",

@@ -3,6 +3,31 @@
 These are behaviours measured on live ThingWorx servers from 9.5 through 10.2. They are not a
 substitute for testing the target server. Examples use Acme.Orders names.
 
+## PermissionGroup rows also become target principals (verified on 10.2.0-b75, 2026-11-19)
+
+Importing `Acme.Access` with `EntityPermissions/EntityPermission` rows also stores principals
+of `type="PermissionGroup" name="Acme.Access"` in the targets' permission blocks. The observed
+Thing received Visibility/Visibility (`resourceName=""`), RunTime/PropertyRead (`resourceName="*"`),
+RunTime/ServiceInvoke (`resourceName="GetPropertyValues"`) and DesignTime/Read (`resourceName=""`),
+all allowing and with `onInstances=false`. These are expected target grants derived from the
+repository PermissionGroup, including rows naming platform targets such as
+`Subsystems/PlatformSubsystem`. An unexplained principal remains server-only. Missing derived
+grants require deploying the PermissionGroup; twaco never adds them to a target's XML or push.
+Status, diff and deploy compare exact explained target principals without treating them as drift.
+Affected hashes carry `pg1`; older raw permission baselines need recording once. A PermissionGroup
+deploy also records matching repository targets outside its selection, without importing them.
+Pull, adopt and `init --from-server` leave the explained principals out of the files they write.
+Known gap: targets that only the old bytes of a changed PermissionGroup covered (a removed row) are
+not re-recorded by its deploy; run `twaco entity status --record` for them.
+
+The derivation assumes singular entity types map to their collection (or accepts a collection
+name directly), empty run-time resources mean `*`, and non-run-time resources are empty.
+Visibility rows use the Visibility action. `isPermitted=false` is a deny; absent values follow
+the existing permission reader's allow default. The instance mapping is inferred from twaco's
+existing permission model, not verified by this probe: on ThingTemplates and ThingShapes,
+`onInstances=true` selects the corresponding `Instance...Permissions` block; false selects the
+entity's own block. Other target types use their own blocks.
+
 ## Validators can save a form on load (verified on 10.2 Runtime)
 
 A `validator2` with `AutoEvaluate=true` evaluates as soon as loaded values reach its inputs.
@@ -12,6 +37,18 @@ For example, `Acme.Records.GetRecord` loading a title into a popup field can tri
 and wire the Save button's `Clicked` event to `Evaluate` so validation runs only when asked.
 For a one-record form, `data:Acme.Records.GetRecord.title` reads the first row through All Data;
 `data:Acme.Records.GetRecord[SelectedRows].title` stays empty until a row is selected.
+
+SelectedRows field diagnostics read `Data.<section>.Services[]` by `Name` (the call alias), with
+`Properties.AutoSelectFirstRow=true` enabling automatic service selection. Missing/false is off.
+`DataBindings` identifies fields with `SourceArea="Data"`, `SourceDetails="SelectedRows"` and
+`PropertyMaps[].SourcePropertyType="Field"`; `SourceSection` and `SourceId` identify the call.
+All Data reads the first row. Selecting widgets must receive that same call's whole AllData
+through an InfoTable map to their Data property: ptcsgrid with RowSelection single/multiple,
+ptcscollection with SelectionMode single/multiple and HandleSelectionUpdates enabled, or an
+enabled ptcslist/ptcsdropdown. Composer propagates their selection through the shared Data
+binding; there is no extra two-way flag in twaco's binding shape. Other widgets, extension
+selectors and script-driven selection are conservatively not inferred. Bind/on hints and the
+bindings gate/mashup validation share this advisory; the service option is never changed.
 
 ## Networks are declarative forests (verified on 10.1)
 

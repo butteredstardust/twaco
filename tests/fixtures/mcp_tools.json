@@ -6684,7 +6684,8 @@
         "mashup",
         "event",
         "invoke",
-        "files"
+        "files",
+        "warnings"
       ],
       "properties": {
         "applied": {
@@ -6719,6 +6720,12 @@
             "array",
             "null"
           ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "warnings": {
+          "type": "array",
           "items": {
             "type": "string"
           }

@@ -250,6 +250,7 @@ fn push_uses_exporter_parts_verifies_readback_and_sends_new_entities_unchanged()
             ..Fake::default()
         };
         let target = push::Target {
+            derived: Default::default(),
             key: EntityKey::new(format!("{kind}s"), "Acme.Entity").unwrap(),
             document: push::EntityDocument {
                 file_name: "Acme.Entity.xml",
@@ -391,6 +392,7 @@ fn deploy_plans_allow_owned_drift_refuse_source_drift_and_preserve_bundle_values
         file_name: "Acme.Project.xml".into(),
         bytes: local.clone(),
         entities: vec![deploy::Entity {
+            derived: Default::default(),
             collection: "Things".into(),
             name: "Acme.Entity".into(),
             bytes: local.clone(),
@@ -538,6 +540,7 @@ fn exporter_failure_refuses_before_any_import_and_keeps_the_baseline_absent() {
     let dir = tempfile::tempdir().unwrap();
     let bytes = document("Group", "<Members/>");
     let target = push::Target {
+        derived: Default::default(),
         key: EntityKey::new("Groups", "Acme.Entity").unwrap(),
         document: push::EntityDocument {
             file_name: "Acme.Entity.xml",
@@ -620,6 +623,7 @@ fn column_preservation_refuses_unmatched_rows_before_sending_anything() {
     };
     let dir = tempfile::tempdir().unwrap();
     let target = push::Target {
+        derived: Default::default(),
         key: EntityKey::new("Things", "Acme.Entity").unwrap(),
         document: push::EntityDocument {
             file_name: "Acme.Entity.xml",
@@ -660,6 +664,7 @@ fn an_encrypted_owned_value_is_never_carried_and_push_refuses_to_clear_it_withou
         ["configuration-table:ConnectionInfo.password"]
     );
     let target = push::Target {
+        derived: Default::default(),
         key: EntityKey::new("Things", "Acme.Entity").unwrap(),
         document: push::EntityDocument {
             file_name: "Acme.Entity.xml",
@@ -682,6 +687,7 @@ fn an_encrypted_owned_value_is_never_carried_and_push_refuses_to_clear_it_withou
         .replace("Acme.Host", "Acme.NewHost")
         .into_bytes();
     let target = push::Target {
+        derived: Default::default(),
         document: push::EntityDocument {
             file_name: "Acme.Entity.xml",
             bytes: &changed,
@@ -1099,6 +1105,7 @@ fn rbac_member_ownership_is_typed_in_diff_status_and_deploy() {
                 file_name: "Acme.Project.xml".into(),
                 bytes: local.clone(),
                 entities: vec![deploy::Entity {
+                    derived: Default::default(),
                     collection: format!("{kind}s"),
                     name: "Acme.Entity".into(),
                     bytes: local.clone(),

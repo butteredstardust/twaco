@@ -80,9 +80,16 @@ pub fn diff(
             crate::core::patch::apply(&bytes, collection, name, solution.patches_for(profile))
                 .map_err(unreadable)
         })?;
+    let derived = crate::core::permissions::derived::Derived::read(&found.entities)
+        .map_err(|e| DiffError::Unreadable(e.to_string()))?;
+    let grants = derived.target(collection, name);
+    let working = crate::core::permissions::derived::comparison(&working, &grants)
+        .map_err(|e| unreadable(e.to_string()))?;
     let key = EntityKey::new(collection.as_str(), name.as_str())
         .map_err(|why| DiffError::Unreadable(why.to_string()))?;
     let server = get::fetch(remote, &key, get::View::Rest).map_err(DiffError::Get)?;
+    let server = crate::core::permissions::derived::comparison(&server, &grants)
+        .map_err(|e| unreadable(e.to_string()))?;
     let parts =
         crate::core::server_owned::parts(&solution.server_owned_for(profile), collection, name);
     let hash = |bytes: &[u8], side: &str| {
@@ -214,5 +221,17 @@ mod tests {
                 }]
             );
         }
+    }
+    #[test]
+    fn repository_permission_group_explains_target_permission_diff() {
+        let (dir, solution) = solution();
+        std::fs::create_dir_all(dir.path().join("PermissionGroups")).unwrap();
+        std::fs::write(dir.path().join("PermissionGroups/Acme.Access.xml"), br#"<Entities><PermissionGroups><PermissionGroup name="Acme.Access" projectName="P"><EntityPermissions><EntityPermission entityType="Thing" entityName="P.T" permissionCategory="Visibility" permissionName="Visibility" resourceName="" isPermitted="true" onInstances="false"/></EntityPermissions></PermissionGroup></PermissionGroups></Entities>"#).unwrap();
+        let local = r#"<Entities><Things><Thing name="P.T" projectName="P"><VisibilityPermissions/></Thing></Things></Entities>"#;
+        std::fs::write(dir.path().join("Things/P.T.xml"), local).unwrap();
+        let server = r#"<Thing name="P.T" projectName="P"><VisibilityPermissions><Visibility><Principal type="PermissionGroup" name="Acme.Access" isPermitted="true"/></Visibility></VisibilityPermissions></Thing>"#;
+        let report = diff(&Fake(Some(server)), &solution, "T", "default").unwrap();
+        assert!(report.identical);
+        assert!(report.differences.is_empty());
     }
 }

@@ -16,6 +16,8 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Fixed
 
+- Repository PermissionGroups explain their target principals in permission comparisons, entity status/diff and deploy read-back. Targets explained by PermissionGroups hash with a `pg1:` marker, so adding or removing a PermissionGroup grant re-baselines those targets. Pull, adopt and `init --from-server` never write the explained principals into target XML, and a permission push names the PermissionGroup principals it removed. Missing derived grants name the PermissionGroup to deploy; target permission pushes never synthesize them. External targets are checked only for derived grants or listed as not checked.
+- SelectedRows field bindings with no selecting widget or automatic first-row selection produce a non-blocking bindings/validation advisory and authoring hints suggesting All Data or automatic selection.
 - Entity inclusion selectors accept comma-separated names with surrounding spaces, preserving exact names containing commas and repeated flags; excluded literal names fail rather than becoming lists.
 - `fmt` stages formatted scripts and synced XML together per entity, rolls back failed writes, and reports every changed path. Sidecar repair commands quote collection-qualified addresses and permit structural changes when required.
 - Composer links preserve explicit profile application contexts; origin-only profiles use `/Thingworx`.

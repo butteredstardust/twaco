@@ -130,8 +130,12 @@ where
     let patches = solution.patches_for(&request.profile);
     let remote = open(profile);
     let baseline = Baseline::load(&solution.root, &request.profile).map_err(PullError::Baseline)?;
-    let (statuses, failures) =
-        status::compute_with_progress(&remote, &baseline, &chosen, &rules, patches, progress);
+    let derived = crate::core::permissions::derived::Derived::load(solution)
+        .map_err(|e| PullError::Unreadable(vec![e.to_string()]))?;
+    notices.extend(derived.notice());
+    let (statuses, failures) = status::compute_with_expected(
+        &remote, &baseline, &chosen, &rules, patches, progress, &derived,
+    );
     if !failures.is_empty() {
         return Err(PullError::Remote(failures.join("; ")));
     }
@@ -195,6 +199,14 @@ where
         };
         let raw = adopt::raw_entity_bytes(&exported, &wanted)
             .map_err(|e| PullError::Layout(format!("{key}: {e:?}")))?;
+        // A PermissionGroup's grants on this entity are the group's to write, not the file's.
+        let raw = crate::core::permissions::derived::without_explained(
+            &raw,
+            &derived,
+            &entry.collection,
+            &entry.name,
+        )
+        .map_err(|e| PullError::Layout(format!("{key}: {e}")))?;
         let old = std::fs::read(&file.path)
             .map_err(|e| PullError::Remote(format!("{}: {e}", file.path.display())))?;
         // The entity goes into the file's own envelope, in the file's line endings.
@@ -240,8 +252,9 @@ where
     }
     let mut after =
         Baseline::load(&solution.root, &request.profile).map_err(PullError::Baseline)?;
-    let (mut fresh, failures) =
-        status::compute_with_progress(&remote, &after, &pulled, &rules, patches, progress);
+    let (mut fresh, failures) = status::compute_with_expected(
+        &remote, &after, &pulled, &rules, patches, progress, &derived,
+    );
     if !failures.is_empty() {
         return Err(finish(format!(
             "the baseline was not recorded: {}",
@@ -411,5 +424,47 @@ mod tests {
         assert_eq!(applied.entities, ["Things/P.T"]);
         let after = std::fs::read_to_string(dir.path().join("Things/P.T.xml")).unwrap();
         assert!(after.contains("description=\"server\""));
+    }
+
+    #[test]
+    fn explained_group_principals_are_not_written_and_the_next_status_is_in_sync() {
+        use crate::core::permissions::derived::Derived;
+        let base = thing(
+            "", "
+",
+        );
+        let (dir, solution) = setup(&base, &base);
+        std::fs::create_dir_all(dir.path().join("PermissionGroups")).unwrap();
+        std::fs::write(
+            dir.path().join("PermissionGroups/P.G.xml"),
+            r#"<Entities><PermissionGroups><PermissionGroup name="P.G" projectName="P"><EntityPermissions><EntityPermission entityType="Thing" entityName="P.T" permissionCategory="Visibility" permissionName="Visibility" resourceName="" isPermitted="true" onInstances="false"/></EntityPermissions></PermissionGroup></PermissionGroups></Entities>"#,
+        )
+        .unwrap();
+        let grants = Derived::load(&solution).unwrap().target("Things", "P.T");
+        let hash = normalise::hash_with_grants(&base, &[], &grants).unwrap();
+        let mut baseline = Baseline::load(dir.path(), "default").unwrap();
+        baseline.set("Things", "P.T", hash.clone(), hash);
+        baseline.write(dir.path(), "default").unwrap();
+        let server = b"<Entities><Things><Thing description=\"server\" name=\"P.T\" projectName=\"P\"><VisibilityPermissions><Visibility><Principal isPermitted=\"true\" name=\"P.G\" type=\"PermissionGroup\"/><Principal isPermitted=\"true\" name=\"P.Other\" type=\"PermissionGroup\"/><Principal isPermitted=\"true\" name=\"Users\" type=\"Group\"/></Visibility></VisibilityPermissions></Thing></Things></Entities>";
+        let applied = pull(&solution, server, Mode::Apply).unwrap();
+        assert_eq!(applied.recorded, 1);
+        let after = std::fs::read_to_string(dir.path().join("Things/P.T.xml")).unwrap();
+        assert!(!after.contains("name=\"P.G\""), "{after}");
+        assert!(after.contains("P.Other") && after.contains("Users"));
+        let (statuses, failures) = status::compute_with_expected(
+            &Fake(server.to_vec()),
+            &Baseline::load(dir.path(), "default").unwrap(),
+            &workspace::discover(&solution)
+                .entities
+                .into_iter()
+                .filter(|f| f.info.collection == "Things")
+                .collect::<Vec<_>>(),
+            &solution.server_owned_for("default"),
+            solution.patches_for("default"),
+            &crate::core::progress::NONE,
+            &Derived::load(&solution).unwrap(),
+        );
+        assert!(failures.is_empty(), "{failures:?}");
+        assert!(matches!(statuses[0].verdict, status::Verdict::InSync));
     }
 }

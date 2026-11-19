@@ -2288,7 +2288,7 @@ pub(crate) fn mashup_on_cmd(solution: &Solution, args: &MashupOn) -> u8 {
                 .replace('\\', "/"),
         );
     }
-    let report = serde_json::json!({ "applied": outcome.applied, "mashup": outcome.plan.edit.mashup, "event": outcome.plan.event, "invoke": outcome.plan.invoke, "new_source": outcome.plan.new_source, "files": files });
+    let report = serde_json::json!({ "applied": outcome.applied, "mashup": outcome.plan.edit.mashup, "event": outcome.plan.event, "invoke": outcome.plan.invoke, "new_source": outcome.plan.new_source, "warnings": outcome.plan.warnings, "files": files });
     if args.json.json {
         println!(
             "{}",
@@ -2303,6 +2303,9 @@ pub(crate) fn mashup_on_cmd(solution: &Solution, args: &MashupOn) -> u8 {
         outcome.plan.event,
         outcome.plan.edit.mashup
     );
+    for warning in &outcome.plan.warnings {
+        println!("  hint: {warning}");
+    }
     if let Some(source) = &outcome.plan.new_source {
         println!("  new data source {source}");
     }

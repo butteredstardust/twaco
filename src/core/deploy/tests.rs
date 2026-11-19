@@ -67,6 +67,7 @@ fn run_test(
 
 fn target(name: &str, script: &str) -> Entity {
     Entity {
+        derived: Default::default(),
         server_owned: Vec::new(),
         collection: "Things".to_string(),
         name: name.to_string(),
@@ -1145,6 +1146,7 @@ fn namespace_entity(tools: &[&str], resources: &[&str]) -> Entity {
         })
         .collect();
     Entity {
+            derived: Default::default(),
         server_owned: Vec::new(),
         collection: "MCPNamespaces".to_string(),
         name: "N".to_string(),
@@ -1165,6 +1167,7 @@ fn agent_named(name: &str, tools: &[&str], resources: &[&str]) -> Entity {
         .map(|resource| format!("<Resource name=\"{resource}\"></Resource>"))
         .collect();
     Entity {
+            derived: Default::default(),
         server_owned: Vec::new(),
         collection: "AIAgents".to_string(),
         name: name.to_string(),
@@ -1642,6 +1645,7 @@ fn encrypted_owned_fields_report_and_send_the_repository_value() {
         let supplied = cell.contains("repository-secret");
         for apply in [false, true] {
             let entity = Entity {
+                derived: Default::default(),
                 collection: "Things".into(),
                 name: "Acme.Queue".into(),
                 bytes: value(cell),
@@ -1649,6 +1653,7 @@ fn encrypted_owned_fields_report_and_send_the_repository_value() {
             };
             let remote = Fake {
                 held: holding(&[Entity {
+                    derived: Default::default(),
                     bytes: String::from_utf8(value("<password>ciphertext</password>"))
                         .unwrap()
                         .replace(
@@ -1742,6 +1747,7 @@ fn role_deploy_warns_only_about_removed_unowned_members_in_plan_and_apply() {
             let mut bundle = project(
                 "Acme.Project",
                 vec![Entity {
+                    derived: Default::default(),
                     collection: "Roles".into(),
                     name: "Acme.Access".into(),
                     bytes: local.clone(),
@@ -1790,6 +1796,7 @@ fn role_removals_are_intended_only_when_the_server_matches_the_baseline() {
         .into_bytes();
     for selector in [None, Some("members:User,Group")] {
         let role = Entity {
+            derived: Default::default(),
             collection: "Roles".into(),
             name: "Acme.Access".into(),
             bytes: local.clone(),
@@ -1852,6 +1859,7 @@ fn role_warnings_precede_import_and_survive_read_back_and_later_import_failure()
             b"<Entities><Roles><Role name='Acme.Access'><Members/></Role></Roles></Entities>"
                 .to_vec();
         let role = Entity {
+            derived: Default::default(),
             collection: "Roles".into(),
             name: "Acme.Access".into(),
             bytes: local.clone(),
@@ -1934,4 +1942,141 @@ fn deploy_only_accepts_comma_lists_and_repeated_names() {
         .map(|entity| entity.name.as_str())
         .collect();
     assert_eq!(names, ["Acme.A", "Acme.B"]);
+}
+
+#[test]
+fn importing_a_permission_group_updates_target_readback_and_baselines_without_target_grants() {
+    use crate::core::permissions::derived::Derived;
+    let group_bytes = br#"<Entities><PermissionGroups><PermissionGroup name="Acme.Access" projectName="R"><EntityPermissions><EntityPermission entityType="Thing" entityName="Acme.Target" permissionCategory="DesignTime" permissionName="Read" resourceName="" isPermitted="true" onInstances="false"/></EntityPermissions></PermissionGroup></PermissionGroups></Entities>"#.to_vec();
+    let mut derived = Derived::default();
+    derived.add(&group_bytes);
+    let local = Entity {
+        derived: derived.target("Things", "Acme.Target"), server_owned: vec![], collection: "Things".into(), name: "Acme.Target".into(),
+        bytes: br#"<Entities><Things><Thing name="Acme.Target" projectName="P"><DesignTimePermissions/></Thing></Things></Entities>"#.to_vec(),
+    };
+    let group = Entity {
+        derived: Default::default(),
+        server_owned: vec![],
+        collection: "PermissionGroups".into(),
+        name: "Acme.Access".into(),
+        bytes: group_bytes,
+    };
+    let mut server_target = local.clone();
+    server_target.bytes = br#"<Entities><Things><Thing name="Acme.Target" projectName="P"><DesignTimePermissions><Read><Principal type="PermissionGroup" name="Acme.Access" isPermitted="true"/></Read></DesignTimePermissions></Thing></Things></Entities>"#.to_vec();
+    let mut target_project = project("P", vec![local.clone()], vec![]);
+    target_project.bytes = local.bytes.clone();
+    let mut group_project = project("R", vec![group.clone()], vec![]);
+    group_project.bytes = group.bytes.clone();
+    let remote = Fake {
+        import_values: BTreeMap::from([
+            ("P.xml".into(), vec![local.clone()]),
+            ("R.xml".into(), vec![group, server_target]),
+        ]),
+        ..Fake::default()
+    };
+    let baseline = MemoryBaseline::default();
+    run_test(
+        &remote,
+        &baseline,
+        &[target_project, group_project],
+        true,
+        false,
+    )
+    .unwrap();
+    let recorded = baseline.value.borrow();
+    let entry = recorded.get("Things", "Acme.Target").unwrap();
+    assert_eq!(entry.local, entry.server);
+    assert!(!remote
+        .sent
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|(_, bytes)| String::from_utf8_lossy(bytes).contains("<Principal")));
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("target.xml");
+    std::fs::write(&path, &local.bytes).unwrap();
+    let file = crate::core::workspace::EntityFile {
+        path,
+        info: crate::core::entity::EntityInfo {
+            collection: "Things".into(),
+            name: "Acme.Target".into(),
+            project: "P".into(),
+        },
+        found_under: "P".into(),
+    };
+    let (statuses, errors) = crate::core::status::compute_with_expected(
+        &remote,
+        &recorded,
+        &[file],
+        &[],
+        &[],
+        &crate::core::progress::NONE,
+        &derived,
+    );
+    assert!(errors.is_empty());
+    assert_eq!(statuses[0].verdict, crate::core::status::Verdict::InSync);
+}
+
+#[test]
+fn permission_group_only_deploy_records_matching_targets_outside_selection() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("twaco.toml"), "[[project]]\nname = 'P'\n").unwrap();
+    std::fs::create_dir_all(dir.path().join("Things")).unwrap();
+    std::fs::create_dir_all(dir.path().join("PermissionGroups")).unwrap();
+    let local = br#"<Entities><Things><Thing name="Acme.Target" projectName="P"><VisibilityPermissions/></Thing></Things></Entities>"#;
+    let group = Entity { derived: Default::default(), server_owned: vec![], collection:"PermissionGroups".into(), name:"Acme.Access".into(), bytes:br#"<Entities><PermissionGroups><PermissionGroup name="Acme.Access" projectName="P"><EntityPermissions><EntityPermission entityType="Thing" entityName="Acme.Target" permissionCategory="Visibility" permissionName="Visibility" resourceName="" isPermitted="true" onInstances="false"/></EntityPermissions></PermissionGroup></PermissionGroups></Entities>"#.to_vec() };
+    std::fs::write(dir.path().join("Things/Acme.Target.xml"), local).unwrap();
+    std::fs::write(
+        dir.path().join("PermissionGroups/Acme.Access.xml"),
+        &group.bytes,
+    )
+    .unwrap();
+    let server = br#"<Entities><Things><Thing name="Acme.Target" projectName="P"><VisibilityPermissions><Visibility><Principal type="PermissionGroup" name="Acme.Access" isPermitted="true"/></Visibility></VisibilityPermissions></Thing></Things></Entities>"#.to_vec();
+    let remote = Fake {
+        held: Mutex::new(BTreeMap::from([(
+            ("Things".into(), "Acme.Target".into()),
+            server,
+        )])),
+        ..Fake::default()
+    };
+    let solution = config::Solution::load(&dir.path().join("twaco.toml")).unwrap();
+    let projects = [project("P", vec![group], vec![])];
+    let report = Report {
+        imported: vec!["P".into()],
+        ..Report::default()
+    };
+    let (recorded, notes) = record_permission_group_targets(
+        &remote,
+        &solution,
+        "default",
+        &projects,
+        &report.imported,
+        &crate::core::progress::NONE,
+    )
+    .unwrap();
+    assert_eq!(recorded, 1);
+    assert!(notes.is_empty());
+    assert!(remote.imports.lock().unwrap().is_empty());
+    assert_eq!(
+        std::fs::read(dir.path().join("Things/Acme.Target.xml")).unwrap(),
+        local
+    );
+    let baseline = Baseline::load(dir.path(), "default").unwrap();
+    let entry = baseline.get("Things", "Acme.Target").unwrap();
+    assert_eq!(entry.local, entry.server);
+    assert!(entry.local.contains(":pg1:"));
+}
+
+#[test]
+fn a_failure_after_an_import_names_the_projects_the_server_holds() {
+    let after = DeployError::AfterImport {
+        imported: vec!["P".into()],
+        source: Box::new(DeployError::Server {
+            collection: "Things".into(),
+            name: "T".into(),
+            why: "gone".into(),
+        }),
+    };
+    assert_eq!(after.imported(), ["P"]);
+    assert!(DeployError::Conflicts(vec![]).imported().is_empty());
 }

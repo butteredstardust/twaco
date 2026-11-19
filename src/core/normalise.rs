@@ -299,6 +299,36 @@ pub(crate) fn hash(src: &[u8]) -> Result<String, NormaliseError> {
     Ok(format!("{HASH_VERSION}:{}", hex(&sha256(&canonical))))
 }
 
+/// Matching derived principals affect comparisons only; pg1 invalidates older raw baselines.
+pub(crate) fn hash_with_grants(
+    src: &[u8],
+    parts: &[super::server_owned::Part],
+    grants: &super::permissions::Sets,
+) -> Result<String, NormaliseError> {
+    let bytes = super::permissions::derived::comparison(src, grants)?;
+    let hash = hash_with_parts(&bytes, parts)?;
+    if grants.is_empty() {
+        return Ok(hash);
+    }
+    let (scope, content) = hash.rsplit_once(':').expect("versioned hash");
+    Ok(format!("{scope}:pg1:{content}"))
+}
+
+pub(crate) fn read_back_with_grants(
+    sent: &[u8],
+    back: &[u8],
+    parts: &[super::server_owned::Part],
+    grants: &super::permissions::Sets,
+) -> Vec<String> {
+    match (
+        super::permissions::derived::comparison(sent, grants),
+        super::permissions::derived::comparison(back, grants),
+    ) {
+        (Ok(sent), Ok(back)) => read_back_differences(&sent, &back, parts),
+        _ => read_back_differences(sent, back, parts),
+    }
+}
+
 pub(crate) fn hash_with_parts(
     src: &[u8],
     parts: &[super::server_owned::Part],

@@ -11,6 +11,7 @@ pub(crate) struct Script {
 
 #[derive(Clone, Debug)]
 pub(crate) struct Entity {
+    pub(crate) derived: crate::core::permissions::Sets,
     pub(crate) server_owned: Vec<super::super::server_owned::Part>,
     pub(crate) collection: String,
     pub(crate) name: String,

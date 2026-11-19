@@ -299,7 +299,8 @@ fn problem(rule: &str, message: String) -> Problem {
 /// Rules that describe tolerated Composer state rather than a broken mashup.
 fn severity(rule: &str) -> Severity {
     match rule {
-        "chart-axis-type"
+        "selected-rows-without-selection"
+        | "chart-axis-type"
         | "unknown-cell-parameter"
         | "mixed-label-alignment"
         | "responsive-leaf-size"

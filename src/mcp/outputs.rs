@@ -1516,6 +1516,7 @@ pub(crate) struct MashupOnResult {
     new_source: Option<String>,
     files: Vec<String>,
     notices: Notices,
+    warnings: Vec<String>,
 }
 
 #[derive(Serialize, JsonSchema)]

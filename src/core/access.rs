@@ -107,6 +107,14 @@ pub fn explain(
         &json!({ "user": user, "permissionName": "ServiceInvoke", "name": service }),
     ) {
         for row in rows(&found) {
+            let principal = row.get("principal").unwrap_or(row);
+            if principal["type"] == "PermissionGroup" {
+                if let Some(group) = principal["name"].as_str() {
+                    reasons.push(format!(
+                        "run time: the server reports a grant from PermissionGroup {group}"
+                    ));
+                }
+            }
             if let (Some(feature), Some(permitted)) =
                 (row["name"].as_str(), row["isPermitted"].as_bool())
             {
@@ -169,6 +177,13 @@ pub fn explain(
                 .iter()
                 .any(|organization| organization == name)
         });
+    for grant in &grants {
+        if grant["type"] == "PermissionGroup" {
+            if let Some(group) = grant["name"].as_str() {
+                reasons.push(format!("visibility: a grant comes from PermissionGroup {group}; its membership is not resolved here"));
+            }
+        }
+    }
     let unresolved = grants
         .iter()
         .any(|grant| grant["type"].as_str() != Some("Organization"));
@@ -435,5 +450,25 @@ mod tests {
             (inherited.verdict, inherited.visibility),
             (Verdict::Unknown, Verdict::Unknown)
         );
+    }
+    #[test]
+    fn permission_group_provenance_is_named_without_guessing_membership() {
+        let mut fake = server(
+            true,
+            &[],
+            &[],
+            json!([{"type":"PermissionGroup", "name":"Acme.Access", "isPermitted":true}]),
+        );
+        fake.0.insert("Things/Acme.T.GetPermissionsForUser".into(), table(json!([{"name":"Run", "isPermitted":true, "principal":{"type":"PermissionGroup", "name":"Acme.Access"}}])));
+        let explanation = explained(&fake);
+        assert!(explanation
+            .reasons
+            .iter()
+            .any(|r| r.contains("run time:") && r.contains("PermissionGroup Acme.Access")));
+        assert!(explanation
+            .reasons
+            .iter()
+            .any(|r| r.contains("visibility:") && r.contains("PermissionGroup Acme.Access")));
+        assert_eq!(explanation.visibility, Verdict::Unknown);
     }
 }

@@ -1840,6 +1840,12 @@ fn mashup_bindings(
             message: problem.message,
         })
         .collect();
+    let (advisories, errors) = result
+        .findings
+        .into_iter()
+        .partition(|finding| finding.rule == bindings::SELECTED_ROWS_RULE);
+    result.findings = errors;
+    result.warnings = advisories;
     let checked_count = result.examined;
     let mut prose = format!("{checked_count} checked in {} mashups; {} not checked (entity, service or DataShape outside the repository)", checked.mashups, checked.not_checked);
     if checked.platform_hint {

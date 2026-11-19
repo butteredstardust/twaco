@@ -709,7 +709,7 @@ pub(crate) const USAGE: &[Usage] = &[
                               what in a mashup ThingWorx would load but not honour, or the next edit would
                               trip over: structure, ids, bindings and events that name what is not there,
                               catalogue contracts, several property maps, contained-mashup drift;
-                              exit 1 when it finds any"#,
+                              SelectedRows fields without selection are advisory; exit 1 for errors"#,
     },
     Usage {
         path: "mashup describe",
@@ -867,13 +867,15 @@ pub(crate) const USAGE: &[Usage] = &[
                               add one data binding to a mashup; plan unless --apply
       --from <address>        source address from mashup describe
       --to <address>          target address from mashup describe
-                              selected row example: data:Acme.Manager.Load[SelectedRows].name"#,
+                              selected row example: data:Acme.Manager.Load[SelectedRows].name
+                              hints when a selected-row field has no row selector or automatic selection"#,
     },
     Usage {
         path: "mashup on",
         group: 1,
         text: r#"  mashup on <mashup> --event <address> --invoke <address> [--apply] [--json]
                               run a service or widget service when a mashup event fires; plan unless --apply
+                              hints when selected-row fields have no row selector or automatic selection
       --event <address>       widget/mashup event or data call event (Data_Error on failure)
       --invoke <address>      data call or widget service to run"#,
     },
@@ -1575,7 +1577,9 @@ pub(crate) const USAGE: &[Usage] = &[
                               shape's or template's instance permissions) against the server's:
                               grants only the server has (an import never removes one), grants only
                               the repository has, and allow/deny that differs (an import keeps the
-                              server's); exit 1 when any differs"#,
+                              server's); repository PermissionGroups explain target grants; missing derived
+                              grants need their PermissionGroup deployed; external targets check only derived
+                              grants, or report not checked; exit 1 when any differs"#,
     },
     Usage {
         path: "permissions push",
@@ -1583,7 +1587,8 @@ pub(crate) const USAGE: &[Usage] = &[
         text: r#"  permissions push <entity>...|--all|--platform [--apply] [--json]
                               make the server's permission sets exactly the repository's, set by set,
                               reading each back; plan unless --apply; records the baseline of pushed
-                              entities that then match the server
+                              entities that then match the server; derived PermissionGroup grants are never
+                              pushed to targets: deploy their PermissionGroup instead
       --platform              instead, add the policies' [[platform]] grants and memberships the
                               server lacks (what DeployComponent does); never removes anything"#,
     },
