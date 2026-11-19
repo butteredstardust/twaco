@@ -74,7 +74,24 @@ pub(crate) fn decide_all_with_progress(
                 .map(|entry| (entry.local.as_str(), entry.server.as_str())),
         );
         let hint = property_values_hint(entity, &working, fetched.as_deref(), baseline, &decision);
+        let (warnings, removed_members) = if entity.collection == "Roles" {
+            fetched
+                .as_deref()
+                .map(|bytes| {
+                    let unchanged = baseline
+                        .get_for(&entity.collection, &entity.name, &working)
+                        .is_some_and(|entry| server.as_deref() == Some(entry.server.as_str()));
+                    role_member_changes(entity, bytes, unchanged)
+                })
+                .transpose()
+                .map_err(|error| server_error(error.to_string()))?
+                .unwrap_or_default()
+        } else {
+            (Vec::new(), Vec::new())
+        };
         Ok(EntityPlan {
+            warnings,
+            removed_members,
             hint,
             server_owned: if server.is_some() {
                 super::super::server_owned::labels(&super::super::server_owned::carried(
@@ -373,5 +390,89 @@ fn property_values_hint(
     (local == server).then(|| {
         let name = serde_json::to_string(&format!("{}/{}", entity.collection, entity.name)).expect("entity name");
         format!("only property values differ; declare their server ownership in twaco.toml:\n[[server_owned]]\nentities = [{name}]\nparts = [\"property-values\"]")
+    })
+}
+
+fn role_member_changes(
+    entity: &Entity,
+    server: &[u8],
+    unchanged: bool,
+) -> Result<(Vec<String>, Vec<String>), normalise::NormaliseError> {
+    use super::super::server_owned::{self, Part};
+    use std::collections::BTreeSet;
+    if entity
+        .server_owned
+        .iter()
+        .any(|p| matches!(p, Part::Members))
+    {
+        return Ok((Vec::new(), Vec::new()));
+    }
+    let members = |bytes: &[u8]| -> Result<BTreeSet<(String, String)>, normalise::NormaliseError> {
+        let mut tree = normalise::entity_of(bytes)?;
+        server_owned::omit(&mut tree, &entity.server_owned);
+        let mut out = BTreeSet::new();
+        for node in tree.children {
+            let normalise::Node::Element(list) = node else {
+                continue;
+            };
+            if list.name != b"Members" {
+                continue;
+            }
+            for node in list.children {
+                let normalise::Node::Element(row) = node else {
+                    continue;
+                };
+                if row.name != b"Member" {
+                    continue;
+                }
+                let attr = |key: &[u8]| {
+                    row.attributes
+                        .iter()
+                        .find(|(k, _)| k == key)
+                        .map(|(_, v)| String::from_utf8_lossy(v).into_owned())
+                        .unwrap_or_default()
+                };
+                out.insert((attr(b"type"), attr(b"name")));
+            }
+        }
+        Ok(out)
+    };
+    let local = members(&entity.bytes)?;
+    let remote = members(server)?;
+    let removed: Vec<_> = remote
+        .difference(&local)
+        .map(|(kind, name)| format!("{kind}/{name}"))
+        .collect();
+    Ok(if unchanged {
+        (Vec::new(), removed)
+    } else if removed.is_empty() {
+        (Vec::new(), Vec::new())
+    } else {
+        let key = serde_json::to_string(&format!("Roles/{}", entity.name)).expect("entity name");
+        let mut types = BTreeSet::new();
+        for part in &entity.server_owned {
+            if let Part::MemberTypes(owned) = part {
+                types.extend(owned.iter().cloned());
+            }
+        }
+        let suggestion = if types.is_empty() {
+            format!("keep run-time membership in twaco.toml:\n[[server_owned]]\nentities = [{key}]\nparts = [\"members\"]\nUse members:User,Group to keep only those types.")
+        } else {
+            types.extend(remote.difference(&local).map(|(kind, _)| kind.clone()));
+            let types = ["User", "Group", "PermissionGroup"]
+                .into_iter()
+                .filter(|kind| types.contains(*kind))
+                .collect::<Vec<_>>()
+                .join(",");
+            format!("extend the existing typed members policy in twaco.toml to keep run-time membership:\n[[server_owned]]\nentities = [{key}]\nparts = [\"members:{types}\"]")
+        };
+        (
+            vec![format!(
+                "Roles/{}: importing replaces Members and removes {}; {suggestion}",
+                entity.name,
+                removed.join(", ")
+            )],
+            Vec::new(),
+        )
     })
 }

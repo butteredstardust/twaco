@@ -368,6 +368,8 @@ const ENTITY_COLLECTIONS: &[(&str, &str)] = &[
     ("DirectoryServices", "DirectoryService"),
     ("ExtensionPackages", "ExtensionPackage"),
     ("Groups", "Group"),
+    ("Roles", "Role"),
+    ("PermissionGroups", "PermissionGroup"),
     ("LocalizationTables", "LocalizationTable"),
     ("Logs", "Log"),
     ("Mashups", "Mashup"),
@@ -655,6 +657,147 @@ mod tests {
         assert!(!crate::core::search::TYPES
             .iter()
             .any(|(_, kind)| *kind == "QueueProvider"));
+    }
+
+    #[test]
+    fn role_inventory_and_pull_record_a_baseline() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("Roles")).unwrap();
+        std::fs::create_dir_all(root.join(".twaco/profiles")).unwrap();
+        std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"Acme\"\n").unwrap();
+        std::fs::write(
+            root.join(".twaco/profiles/default.toml"),
+            "url = \"http://example.invalid/Thingworx/\"\nusername = \"u\"\npassword = \"p\"\n",
+        )
+        .unwrap();
+        let xml = |description| {
+            format!("<Entities><Roles><Role name=\"Acme.Access\" projectName=\"Acme\" description=\"{description}\"></Role></Roles></Entities>")
+        };
+        let path = root.join("Roles/Acme.Access.xml");
+        std::fs::write(&path, xml("local")).unwrap();
+        let solution = Solution::load(&root.join("twaco.toml")).unwrap();
+        let inventory = serde_json::json!({"rows": [{"name":"Acme.Access", "type":"Role"}]});
+        let outcome = execute(
+            &solution,
+            &StatusRequest {
+                target: StatusTarget::All,
+                project: None,
+                record: false,
+                profile: "default".into(),
+                lock_label: "status",
+                refuse_unreadable: true,
+                refuse_record_failures: false,
+                ancestor: None,
+            },
+            |_| InventoryFake {
+                entity: xml("server").into_bytes(),
+                inventory,
+                fails: false,
+            },
+            &mut Notices::default(),
+            &crate::core::progress::NONE,
+        )
+        .unwrap();
+        assert!(outcome.server_only.is_empty(), "{:?}", outcome.server_only);
+        assert!(outcome.server_notes.is_empty());
+        assert!(outcome.failures.is_empty());
+        assert_eq!(outcome.statuses.len(), 1);
+        assert_eq!(outcome.statuses[0].collection, "Roles");
+        let pulled = super::super::pull::execute(
+            &solution,
+            &super::super::pull::PullRequest {
+                target: super::super::pull::Target::Names(vec!["Acme.Access".into()]),
+                mode: super::super::Mode::Apply,
+                profile: "default".into(),
+                lock_label: "entity pull",
+            },
+            |_| Fake(xml("server").into_bytes()),
+            &mut Notices::default(),
+            &crate::core::progress::NONE,
+        )
+        .unwrap();
+        assert!(pulled.applied);
+        assert_eq!(pulled.entities, ["Roles/Acme.Access"]);
+        assert!(std::fs::read_to_string(path)
+            .unwrap()
+            .contains("description=\"server\""));
+        assert_eq!(pulled.recorded, 1);
+        assert!(Baseline::load(root, "default")
+            .unwrap()
+            .get("Roles", "Acme.Access")
+            .is_some());
+    }
+
+    #[test]
+    fn permissiongroup_inventory_and_pull_record_a_baseline() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("PermissionGroups")).unwrap();
+        std::fs::create_dir_all(root.join(".twaco/profiles")).unwrap();
+        std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"Acme\"\n").unwrap();
+        std::fs::write(
+            root.join(".twaco/profiles/default.toml"),
+            "url = \"http://example.invalid/Thingworx/\"\nusername = \"u\"\npassword = \"p\"\n",
+        )
+        .unwrap();
+        let xml = |description| {
+            format!("<Entities><PermissionGroups><PermissionGroup name=\"Acme.Access\" projectName=\"Acme\" description=\"{description}\"></PermissionGroup></PermissionGroups></Entities>")
+        };
+        let path = root.join("PermissionGroups/Acme.Access.xml");
+        std::fs::write(&path, xml("local")).unwrap();
+        let solution = Solution::load(&root.join("twaco.toml")).unwrap();
+        let inventory =
+            serde_json::json!({"rows": [{"name":"Acme.Access", "type":"PermissionGroup"}]});
+        let outcome = execute(
+            &solution,
+            &StatusRequest {
+                target: StatusTarget::All,
+                project: None,
+                record: false,
+                profile: "default".into(),
+                lock_label: "status",
+                refuse_unreadable: true,
+                refuse_record_failures: false,
+                ancestor: None,
+            },
+            |_| InventoryFake {
+                entity: xml("server").into_bytes(),
+                inventory,
+                fails: false,
+            },
+            &mut Notices::default(),
+            &crate::core::progress::NONE,
+        )
+        .unwrap();
+        assert!(outcome.server_only.is_empty(), "{:?}", outcome.server_only);
+        assert!(outcome.server_notes.is_empty());
+        assert!(outcome.failures.is_empty());
+        assert_eq!(outcome.statuses.len(), 1);
+        assert_eq!(outcome.statuses[0].collection, "PermissionGroups");
+        let pulled = super::super::pull::execute(
+            &solution,
+            &super::super::pull::PullRequest {
+                target: super::super::pull::Target::Names(vec!["Acme.Access".into()]),
+                mode: super::super::Mode::Apply,
+                profile: "default".into(),
+                lock_label: "entity pull",
+            },
+            |_| Fake(xml("server").into_bytes()),
+            &mut Notices::default(),
+            &crate::core::progress::NONE,
+        )
+        .unwrap();
+        assert!(pulled.applied);
+        assert_eq!(pulled.entities, ["PermissionGroups/Acme.Access"]);
+        assert!(std::fs::read_to_string(path)
+            .unwrap()
+            .contains("description=\"server\""));
+        assert_eq!(pulled.recorded, 1);
+        assert!(Baseline::load(root, "default")
+            .unwrap()
+            .get("PermissionGroups", "Acme.Access")
+            .is_some());
     }
 
     #[test]

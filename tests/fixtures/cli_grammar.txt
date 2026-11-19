@@ -1,7 +1,7 @@
 == twaco
 usage: twaco <command>
 settings: version disable-help-subcommand subcommand-required arg-required-else-help
-subcommands: access adopt agent appkey block bundle call catalog check completions config-table contract copy datatable db deploy docs doctor entity export ext extract fmt guide handoff help impact import init javadoc lint localization logs mashup mcp mcp-namespace media menu model move network new package permissions projects rename repo reproject requirements retemplate scheduler search settings state style sync test thing timer trace types unused update users widgets
+subcommands: access adopt agent appkey block bundle call catalog check completions config-table contract copy datatable db deploy docs doctor entity export ext extract fmt group guide handoff help impact import init javadoc lint localization logs mashup mcp mcp-namespace media menu model move network new package permissions projects rename repo reproject requirements retemplate role scheduler search settings state style sync test thing timer trace types unused update users widgets
 arg --help
     action: Help
     value_name: -
@@ -48,7 +48,7 @@ help:
 |   Set up: init, doctor, projects, mcp, update, completions
 |   Work on the repository: extract, sync, fmt, check, lint, types, catalog, contract, impact, trace,
 |     unused, docs, adopt, handoff, rename, move, copy, retemplate, reproject, widgets, mashup, new,
-|     thing, timer, scheduler, style, media, menu, mcp-namespace, agent, state, entity
+|     group, role, thing, timer, scheduler, style, media, menu, mcp-namespace, agent, state, entity
 |   Deploy and compare: block, network, entity, permissions, requirements, datatable, bundle, deploy,
 |     config-table, db
 |   Run and observe: call, model, access, logs, settings
@@ -95,7 +95,7 @@ help:
 |       --relayout              rewrite scripts in the configured CDATA layout
 |       --json                  print the report as JSON
 |   fmt [--check] [--entity <name>] [--changed-since <git-rev>]
-|                               format service scripts and order subscription Events by alias
+|                               format service scripts; order subscription Events and RBAC permission/member sets
 |       --check                 report which files would change, write nothing
 |       --entity <name>         an entity name or Collection/Name glob to format (repeatable)
 |       --changed-since <git-rev>  format entity files and sidecars changed since this revision
@@ -448,6 +448,14 @@ help:
 |                               create a ThingWorx Project and add it to twaco.toml when needed; plan unless --apply
 |   new group <name> [--project <name>] [--description <text>] [--apply] [--json]
 |                               create a ThingWorx Group without members as a repository file; plan unless --apply
+|   group member <add|remove> <Entity> <User/name|Group/name|PermissionGroup/name> [--apply] [--json]
+|                               edit repository membership; plan unless --apply
+|   role member <add|remove> <Entity> <User/name|Group/name|PermissionGroup/name> [--apply] [--json]
+|                               edit repository membership; plan unless --apply
+|   new role <name> [--project <name>] [--description <text>] [--apply] [--json]
+|                               create a ThingWorx Role without members as a repository file; plan unless --apply
+|   new permission-group <name> [--project <name>] [--description <text>] [--apply] [--json]
+|                               create a ThingWorx PermissionGroup without members as a repository file; plan unless --apply
 |   thing property add <Entity> <name>:<TYPE> [--default <value>] [--persistent] [--logged]
 |       [--read-only] [--category <text>] [--units <text>] [--data-shape <DataShape>]
 |       [--description <text>] [--apply] [--json]
@@ -5903,10 +5911,136 @@ arg --log-file
     given bare: InvalidValue
 help:
 |   fmt [--check] [--entity <name>] [--changed-since <git-rev>]
-|                               format service scripts and order subscription Events by alias
+|                               format service scripts; order subscription Events and RBAC permission/member sets
 |       --check                 report which files would change, write nothing
 |       --entity <name>         an entity name or Collection/Name glob to format (repeatable)
 |       --changed-since <git-rev>  format entity files and sidecars changed since this revision
+| 
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
+== twaco group
+usage: twaco group <command>
+settings: disable-version-flag disable-help-subcommand subcommand-required arg-required-else-help
+subcommands: member
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+help:
+| usage: twaco group <command>
+| 
+|   group member <add|remove> <Entity> <User/name|Group/name|PermissionGroup/name> [--apply] [--json]
+|                               edit repository membership; plan unless --apply
+| 
+|   --project <name>            narrow to one project of the solution
+|   --profile <name>            the server profile (default: default)
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
+== twaco group member
+usage: twaco group member <add|remove> <Entity> <User/name|Group/name|PermissionGroup/name> [--apply] [--json]
+settings: disable-version-flag disable-help-subcommand
+subcommands: 
+arg --apply
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+arg --json
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg <operands>
+    action: Append
+    value_name: operand
+    num_args: 0..
+    allow_hyphen_values: no
+    allow_negative_numbers: yes
+    required: no
+    default: -
+    index: 1
+    other: -
+help:
+|   group member <add|remove> <Entity> <User/name|Group/name|PermissionGroup/name> [--apply] [--json]
+|                               edit repository membership; plan unless --apply
 | 
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
@@ -13626,7 +13760,7 @@ help:
 == twaco new
 usage: twaco new <command>
 settings: disable-version-flag disable-help-subcommand subcommand-required arg-required-else-help
-subcommands: ai-agent building-block data-shape data-table group mcp-namespace media menu network project scheduler state stream style theme thing thing-shape thing-template timer value-stream
+subcommands: ai-agent building-block data-shape data-table group mcp-namespace media menu network permission-group project role scheduler state stream style theme thing thing-shape thing-template timer value-stream
 arg --help
     action: Help
     value_name: -
@@ -13679,6 +13813,10 @@ help:
 |                               create a ThingWorx Project and add it to twaco.toml when needed; plan unless --apply
 |   new group <name> [--project <name>] [--description <text>] [--apply] [--json]
 |                               create a ThingWorx Group without members as a repository file; plan unless --apply
+|   new role <name> [--project <name>] [--description <text>] [--apply] [--json]
+|                               create a ThingWorx Role without members as a repository file; plan unless --apply
+|   new permission-group <name> [--project <name>] [--description <text>] [--apply] [--json]
+|                               create a ThingWorx PermissionGroup without members as a repository file; plan unless --apply
 |   new thing <name> [--project <name>] [--description <text>] [--template <ThingTemplate>] [--shape <ThingShape>]...
 |       [--value-stream <ValueStream>] [--visibility <principal>]... [--apply] [--json]
 |                               create a ThingWorx Thing as a repository file; plan unless --apply
@@ -15041,6 +15179,108 @@ help:
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
 
+== twaco new permission-group
+usage: twaco new permission-group <name> [--project <name>] [--description <text>] [--apply] [--json]
+settings: disable-version-flag disable-help-subcommand
+subcommands: 
+arg --apply
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --description
+    action: Set
+    value_name: text
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+arg --json
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --project
+    action: Set
+    value_name: name
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg <operands>
+    action: Append
+    value_name: operand
+    num_args: 0..
+    allow_hyphen_values: no
+    allow_negative_numbers: yes
+    required: no
+    default: -
+    index: 1
+    other: -
+help:
+|   new permission-group <name> [--project <name>] [--description <text>] [--apply] [--json]
+|                               create a ThingWorx PermissionGroup without members as a repository file; plan unless --apply
+| 
+|   --project <name>            narrow to one project of the solution
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
 == twaco new project
 usage: twaco new project <name> [--description <text>] [--depends-on <P>]... [--apply] [--json]
 settings: disable-version-flag disable-help-subcommand
@@ -15139,6 +15379,108 @@ help:
 |   new project <name> [--description <text>] [--depends-on <P>]... [--apply] [--json]
 |                               create a ThingWorx Project and add it to twaco.toml when needed; plan unless --apply
 | 
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
+== twaco new role
+usage: twaco new role <name> [--project <name>] [--description <text>] [--apply] [--json]
+settings: disable-version-flag disable-help-subcommand
+subcommands: 
+arg --apply
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --description
+    action: Set
+    value_name: text
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+arg --json
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --project
+    action: Set
+    value_name: name
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg <operands>
+    action: Append
+    value_name: operand
+    num_args: 0..
+    allow_hyphen_values: no
+    allow_negative_numbers: yes
+    required: no
+    default: -
+    index: 1
+    other: -
+help:
+|   new role <name> [--project <name>] [--description <text>] [--apply] [--json]
+|                               create a ThingWorx Role without members as a repository file; plan unless --apply
+| 
+|   --project <name>            narrow to one project of the solution
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
 
@@ -18964,6 +19306,132 @@ help:
 |       --add-shapes a,b        implement these shapes too
 |       --remove-shapes a,b     stop implementing these shapes
 |       --accept-loss           go ahead although stored values or references would lose their definition
+| 
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
+== twaco role
+usage: twaco role <command>
+settings: disable-version-flag disable-help-subcommand subcommand-required arg-required-else-help
+subcommands: member
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+help:
+| usage: twaco role <command>
+| 
+|   role member <add|remove> <Entity> <User/name|Group/name|PermissionGroup/name> [--apply] [--json]
+|                               edit repository membership; plan unless --apply
+| 
+|   --project <name>            narrow to one project of the solution
+|   --profile <name>            the server profile (default: default)
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
+== twaco role member
+usage: twaco role member <add|remove> <Entity> <User/name|Group/name|PermissionGroup/name> [--apply] [--json]
+settings: disable-version-flag disable-help-subcommand
+subcommands: 
+arg --apply
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+arg --json
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg <operands>
+    action: Append
+    value_name: operand
+    num_args: 0..
+    allow_hyphen_values: no
+    allow_negative_numbers: yes
+    required: no
+    default: -
+    index: 1
+    other: -
+help:
+|   role member <add|remove> <Entity> <User/name|Group/name|PermissionGroup/name> [--apply] [--json]
+|                               edit repository membership; plan unless --apply
 | 
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)

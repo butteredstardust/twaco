@@ -28,7 +28,8 @@ use serde_json::{json, Value};
 use std::time::Duration;
 
 /// Every entity collection the search knows, with the singular type name it takes. Each was
-/// checked on a live server: the singular name narrows the search, and only these do.
+/// checked on a live server, except Role and PermissionGroup whose singular names follow
+/// the 10.2.1 export field report.
 pub(crate) const TYPES: &[(&str, &str)] = &[
     ("AIAgents", "AIAgent"),
     ("ApplicationKeys", "ApplicationKey"),
@@ -38,6 +39,8 @@ pub(crate) const TYPES: &[(&str, &str)] = &[
     ("DirectoryServices", "DirectoryService"),
     ("ExtensionPackages", "ExtensionPackage"),
     ("Groups", "Group"),
+    ("Roles", "Role"),
+    ("PermissionGroups", "PermissionGroup"),
     ("LocalizationTables", "LocalizationTable"),
     ("Logs", "Log"),
     ("Mashups", "Mashup"),

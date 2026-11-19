@@ -277,6 +277,9 @@ pub(crate) fn run_with_progress(
     // A failed import stops the projects after it, but the ones before it are on the server by
     // then. They are still read back and recorded, so a partial deploy does not later look like
     // someone else's change to entities this deploy wrote.
+    for warning in report.plans.iter().flat_map(|plan| &plan.warnings) {
+        progress.warning(warning);
+    }
     let mut narrowed = Vec::new();
     for interim in &interim {
         if let Err(source) = remote.import(&interim.file_name(), &interim.narrowed) {
@@ -328,9 +331,10 @@ pub(crate) fn run_with_progress(
                 ));
                 import_failure = Some(DeployError::Import {
                     project: project.project.clone(),
-                    source,
+                    source: Box::new(source),
                     imported: report.imported.clone(),
                     notes: notes.into(),
+                    plans: report.plans.clone(),
                 });
                 break;
             }

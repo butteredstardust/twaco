@@ -800,6 +800,9 @@ pub(crate) fn deploy_cmd(solution: &Solution, args: &Deploy) -> u8 {
                     }
                     deploy::DeployError::Conflicts(plans) => {
                         print_network_changes(&network_changes);
+                        for warning in plans.iter().flat_map(|p| &p.warnings) {
+                            eprintln!("warning: {warning}");
+                        }
                         // What the rest would do, as a dry run says it, then the refusals.
                         for plan in plans
                             .iter()
@@ -811,6 +814,12 @@ pub(crate) fn deploy_cmd(solution: &Solution, args: &Deploy) -> u8 {
                                 _ => "would update; server unchanged since baseline",
                             };
                             println!("  {}/{}: {would}", plan.collection, plan.name);
+                            for member in &plan.removed_members {
+                                println!(
+                                    "  {}/{}: removes member {member}",
+                                    plan.collection, plan.name
+                                );
+                            }
                         }
                         for conflict in deploy::refused(&plans) {
                             let deploy::EntityPlan {
@@ -946,9 +955,10 @@ fn deploy_json(
             localization,
             ..
         }) => {
-            let plans: Vec<_> = report.plans.iter().map(|p| json!({"entity": format!("{}/{}", p.collection, p.name), "decision": format!("{:?}", p.decision), "server_owned": p.server_owned, "cleared": p.cleared, "repository_values": p.repository_values})).collect();
+            let plans: Vec<_> = report.plans.iter().map(|p| json!({"entity": format!("{}/{}", p.collection, p.name), "decision": format!("{:?}", p.decision), "warnings": p.warnings, "removed_members": p.removed_members, "server_owned": p.server_owned, "cleared": p.cleared, "repository_values": p.repository_values})).collect();
             (
                 json!({"ok": true, "dry_run": !apply, "projects": notes, "scripts_parsed": report.scripts_checked, "plans": plans,
+                "warnings": report.plans.iter().flat_map(|p| p.warnings.clone()).collect::<Vec<_>>(),
                 "server_owned": report.plans.iter().filter(|p| !p.server_owned.is_empty() || !p.cleared.is_empty() || !p.repository_values.is_empty()).map(|p| json!({"entity": format!("{}/{}", p.collection, p.name), "parts": p.server_owned, "clears": p.cleared, "repository_values": p.repository_values})).collect::<Vec<_>>(),
                 "imported": report.imported, "unchanged_projects": report.unchanged, "kept": report.kept.len(), "backup": backup,
                 "calls": report.calls.iter().map(|c| json!({"project": c.project, "call": c.call.to_string(), "skipped": c.skipped})).collect::<Vec<_>>(),
@@ -966,8 +976,9 @@ fn deploy_json(
         Err(error) => {
             let mut value = json!({"ok":false,"error":error.to_string(),"backup":error.backup()});
             let code = if let commands::deploy::DeployCommandError::Deploy { why, .. } = &error {
+                value["warnings"] = json!(why.warnings());
                 if let deploy::DeployError::Conflicts(plans) = why.as_ref() {
-                    value["refused"] = json!(deploy::refused(plans).map(|p| json!({"entity":format!("{}/{}",p.collection,p.name),"decision":format!("{:?}",p.decision),"hint":p.hint,"server_owned":p.server_owned,"cleared":p.cleared,"repository_values":p.repository_values})).collect::<Vec<_>>());
+                    value["refused"] = json!(deploy::refused(plans).map(|p| json!({"entity":format!("{}/{}",p.collection,p.name),"decision":format!("{:?}",p.decision),"hint":p.hint,"warnings":p.warnings,"server_owned":p.server_owned,"cleared":p.cleared,"repository_values":p.repository_values})).collect::<Vec<_>>());
                     DRIFT
                 } else {
                     FAILED
@@ -1088,6 +1099,14 @@ fn print_deploy_report(report: &deploy::Report, apply: bool, force: bool) {
     print_agent_narrowings(&report.agents_narrowed, apply);
     for plan in &report.plans {
         let label = format!("{}/{}", plan.collection, plan.name);
+        for warning in &plan.warnings {
+            if !apply {
+                eprintln!("warning: {warning}");
+            }
+        }
+        for member in &plan.removed_members {
+            println!("  {label}: removes member {member}");
+        }
         if !plan.server_owned.is_empty() {
             println!(
                 "  {label}: keeps the server's {}",

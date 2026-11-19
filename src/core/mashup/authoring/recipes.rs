@@ -1113,12 +1113,16 @@ pub(crate) fn plan_recipe(
                     "columns needs at least one --column".into(),
                 ));
             }
+            let previous_fields = work.bound_fields(&target.id);
             if let Some(data) = data {
                 work.bind(data, &format!("ui:{}.Data", target.id))?;
             }
             // Without a known DataShape the listed columns are written as given and the grid
             // keeps showing the fields it is not told about.
-            let fields = work.bound_fields(&target.id);
+            let fields = data
+                .as_deref()
+                .and_then(|address| work.result_fields(address))
+                .or_else(|| work.bound_fields(&target.id));
             if fields.is_none()
                 && !bindings::whole_data_bindings(work.document.value())
                     .iter()
@@ -1129,6 +1133,8 @@ pub(crate) fn plan_recipe(
                     target.id
                 )));
             }
+            let existing = work.document.at(&target.path)["Properties"]["ColumnFormat"].clone();
+            let existing_columns = existing["formatInfo"].as_array();
             let known = fields.clone();
             let mut format = Vec::new();
             for text in columns {
@@ -1164,7 +1170,16 @@ pub(crate) fn plan_recipe(
                     )));
                 }
                 let base = work.field(&known, &name)?;
-                format.push(column_format(&name, &title, width, &base));
+                let mut column = existing_columns
+                    .and_then(|columns| columns.iter().find(|c| c["FieldName"] == name))
+                    .cloned()
+                    .unwrap_or_else(|| column_format(&name, &title, width.clone(), &base));
+                refresh_column_type(&mut column, previous_fields.as_deref(), &name, &base);
+                column["Title"] = json!(title);
+                column["Width"] = width;
+                column["inLayout"] = json!(true);
+                column["hidden"] = json!(false);
+                format.push(column);
             }
             for name in editable {
                 let column = format
@@ -1231,16 +1246,30 @@ pub(crate) fn plan_recipe(
             // Composer keeps all fields in the configuration, even those outside the layout.
             for (name, base) in fields.iter().flatten() {
                 if !format.iter().any(|column| column["FieldName"] == *name) {
-                    let mut column = column_format(name, name, json!("auto"), base);
+                    let mut column = existing_columns
+                        .and_then(|columns| columns.iter().find(|c| c["FieldName"] == *name))
+                        .cloned()
+                        .unwrap_or_else(|| column_format(name, name, json!("auto"), base));
+                    refresh_column_type(&mut column, previous_fields.as_deref(), name, base);
                     column["inLayout"] = json!(false);
                     column["hidden"] = json!(true);
                     format.push(column);
                 }
             }
-            work.set(
-                &target,
-                &[("ColumnFormat", json!({ "formatInfo": format }))],
-            );
+            if fields.is_none() {
+                for column in existing_columns.into_iter().flatten() {
+                    if !format.iter().any(|c| c["FieldName"] == column["FieldName"]) {
+                        format.push(column.clone());
+                    }
+                }
+            }
+            let mut configuration = if existing.is_object() {
+                existing
+            } else {
+                json!({})
+            };
+            configuration["formatInfo"] = json!(format);
+            work.set(&target, &[("ColumnFormat", configuration)]);
             // A column is only editable in Runtime when its grid is.
             if !editable.is_empty() {
                 work.set(&target, &[("IsEditable", json!(true))]);
@@ -1906,6 +1935,28 @@ fn column_editors_for(base: &str) -> &'static [&'static str] {
         "STRING" => &["textfield", "textarea", "dropdown"],
         "XML" => &["textarea"],
         _ => &["textfield", "textarea"],
+    }
+}
+
+fn refresh_column_type(
+    column: &mut Value,
+    previous: Option<&[(String, String)]>,
+    name: &str,
+    base: &str,
+) {
+    let Some((_, old_base)) = previous
+        .into_iter()
+        .flatten()
+        .find(|(field, _)| field == name)
+    else {
+        return;
+    };
+    if old_base != base {
+        let defaults = column_format(name, name, json!("auto"), base);
+        column["cellEditor"] = defaults["cellEditor"].clone();
+        for key in ["renderer", "FormatString"] {
+            column["FormatOptions"][key] = defaults["FormatOptions"][key].clone();
+        }
     }
 }
 

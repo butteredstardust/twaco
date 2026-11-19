@@ -832,7 +832,7 @@ pub struct FmtOutcome {
     pub failed: usize,
 }
 
-/// Format service script sidecars and order subscription Events by alias.
+/// Format service script sidecars and order subscription Events and RBAC sets.
 ///
 /// A reformatted script is written through the workspace's atomic write, as every other file
 /// twaco writes is. Until this moved here it used a plain `fs::write`, so an interrupted run

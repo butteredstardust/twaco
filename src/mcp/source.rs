@@ -501,6 +501,7 @@ pub(crate) fn deploy_tool(
                 "projects": notes,
                 "scripts_parsed": report.scripts_checked,
                 "entities": plans(&report),
+                "warnings": report.plans.iter().flat_map(|p| p.warnings.clone()).collect::<Vec<_>>(),
                 "unchanged_projects": report.unchanged,
                 "calls": calls(&report),
                 "network_connections": network_changes(&report.network_changes),
@@ -537,11 +538,11 @@ pub(crate) fn deploy_tool(
                     .map(|(c, n)| format!("{c}/{n}"))
                     .collect::<Vec<_>>());
             }
-            if detail {
+            if detail || report.plans.iter().any(|p| !p.removed_members.is_empty()) {
                 value["plans"] = json!(report
                     .plans
                     .iter()
-                    .map(|p| json!({ "entity": format!("{}/{}", p.collection, p.name), "decision": format!("{:?}", p.decision), "server_owned": p.server_owned, "cleared": p.cleared, "repository_values": p.repository_values }))
+                    .map(|p| json!({ "entity": format!("{}/{}", p.collection, p.name), "decision": format!("{:?}", p.decision), "warnings": p.warnings, "removed_members": p.removed_members, "server_owned": p.server_owned, "cleared": p.cleared, "repository_values": p.repository_values }))
                     .collect::<Vec<_>>());
             }
             value
@@ -559,6 +560,7 @@ pub(crate) fn deploy_tool(
             "ok": false,
             "stage": "conflict check",
             "network_connections": network_changes(&networks),
+            "warnings": conflicts.iter().flat_map(|p| p.warnings.clone()).collect::<Vec<_>>(),
             // A short reason per entity; the full sentence, with hashes, is detail.
             "refused": deploy::refused(&conflicts)
                 .map(|c| {
@@ -566,7 +568,7 @@ pub(crate) fn deploy_tool(
                         push::Decision::Refuse(reason) => (refusal_code(reason), reason.to_string()),
                         other => ("unexpected", format!("{other:?}")),
                     };
-                    let mut entry = json!({ "entity": format!("{}/{}", c.collection, c.name), "reason": code, "server_owned": c.server_owned, "cleared": c.cleared, "repository_values": c.repository_values });
+                    let mut entry = json!({ "entity": format!("{}/{}", c.collection, c.name), "reason": code, "warnings": c.warnings, "server_owned": c.server_owned, "cleared": c.cleared, "repository_values": c.repository_values });
                     if let Some(hint) = &c.hint {
                         entry["hint"] = json!(hint);
                     }
@@ -582,6 +584,7 @@ pub(crate) fn deploy_tool(
         }),
         Err((deploy::DeployError::NotKept(report), _)) => json!({
             "ok": false,
+            "warnings": report.plans.iter().flat_map(|p| &p.warnings).collect::<Vec<_>>(),
             "stage": "read-back",
             "imported": report.imported,
             "not_kept": report
@@ -589,6 +592,17 @@ pub(crate) fn deploy_tool(
                 .iter()
                 .map(|n| json!({ "entity": format!("{}/{}", n.collection, n.name), "sent": n.sent, "read_back": n.read_back, "error": n.error, "only_permissions": n.only_permissions, "added_dependencies": n.added_dependencies, "differences": n.differences }))
                 .collect::<Vec<_>>(),
+        }),
+        Err((error @ deploy::DeployError::Import { .. }, _)) => {
+            let deploy::DeployError::Import { imported, .. } = &error else {
+                unreachable!()
+            };
+            json!({"ok": false, "stage": "import", "note": error.to_string(), "imported": imported, "warnings": error.warnings()})
+        }
+        Err((error, _)) if !error.warnings().is_empty() => json!({
+            "ok": false,
+            "note": error.to_string(),
+            "warnings": error.warnings(),
         }),
         Err((error, _)) => return Err(ToolError::coded(error)),
     };

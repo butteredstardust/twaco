@@ -555,7 +555,7 @@ pub(crate) fn follow_up(plan: &Plan, outside_included: bool) -> Vec<String> {
     if plan.moves.iter().any(|item| {
         matches!(
             item.collection.as_str(),
-            "Groups" | "Organizations" | "Users"
+            "Groups" | "Roles" | "PermissionGroups" | "Organizations" | "Users"
         )
     }) {
         items.push("Memberships are server state; add them again on the new entity.".to_string());

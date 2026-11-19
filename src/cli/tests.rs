@@ -170,6 +170,8 @@ fn usage_paths() -> std::collections::BTreeSet<String> {
         "contract",
         "mashup",
         "thing",
+        "group",
+        "role",
         "timer",
         "scheduler",
         "style",

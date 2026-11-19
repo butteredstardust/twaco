@@ -44,9 +44,8 @@ impl Coded for DeployError {
             | Self::Server { .. }
             | Self::UnknownPlaceholder { .. }
             | Self::PlaceholderNotText { .. } => ErrorCode::InvalidData,
-            Self::ParseUnavailable { source, .. }
-            | Self::Import { source, .. }
-            | Self::Narrowing { source, .. } => source.code(),
+            Self::ParseUnavailable { source, .. } | Self::Narrowing { source, .. } => source.code(),
+            Self::Import { source, .. } => source.code(),
             Self::ParseFailed(_) => ErrorCode::GateFailed,
             Self::Conflicts(_) | Self::AgentsOutside(_) => ErrorCode::ServerConflict,
             Self::Call { .. } => ErrorCode::ServerError,

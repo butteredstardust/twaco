@@ -506,6 +506,8 @@ fn is_entity_collection_index(value: &str, start: usize) -> bool {
             | b"DataShapes"
             | b"Mashups"
             | b"Groups"
+            | b"Roles"
+            | b"PermissionGroups"
             | b"Users"
             | b"Organizations"
             | b"Projects"

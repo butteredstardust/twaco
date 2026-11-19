@@ -892,3 +892,39 @@ clear `::part(property-group)` too. Values are capped by ValueMaxWidth (250px by
 raise it for long values. A fixed-height container clips a property display whose values
 wrap (a 220px panel did at 1280px width): use `flex-size` range with no max height. A
 ptcstextarea styles its text through `::part(text-value)`. Field-verified on 10.2.1.
+
+## PermissionGroup grants require onInstances (10.2.1)
+
+`PermissionGroup.UpdateEntityPermissions` fails with "Field [onInstances] is missing or null"
+unless every row sets `onInstances`, including Visibility and DesignTime rows. Its inputs
+`entityPermissionsToSet` and `entityPermissionsToDelete` are EntityPermission infotables.
+Exports put EntityPermission rows directly under EntityPermissions, with entityName,
+entityType, permissionCategory, permissionName and resourceName identifying a grant;
+isPermitted and onInstances are values. Visibility and DesignTime exports use resourceName=""
+where QueryEntityPermissions returns null. Field-verified on 10.2.1-b148.
+
+## RBAC RunTime grants also need Visibility (10.2.1)
+
+A RunTime grant without Visibility still answers 404. Give the caller Visibility as well as
+the RunTime permission needed for the operation. Field-verified on 10.2.1-b148.
+
+## RBAC-only users need mashup bootstrap services (10.2.1)
+
+A user whose access comes only through RBAC sees an empty mashup until permitted to call
+PlatformSubsystem's `GetMashupConfiguration`, `GetAllStyleDefinitions`,
+`GetAllStateDefinitions` and `GetAllStyleThemes`. Field-verified on 10.2.1-b148.
+
+## Permission checks include roles (10.2.1)
+
+`CheckPermissionForUser` and `CheckDesignTimePermissionForUser` include roles. There is no
+per-user visibility check. Field-verified on 10.2.1-b148.
+
+## Role imports replace Members; Group imports keep them (10.2.1)
+
+Importing a Role replaces its Members; importing a Group keeps them. Role and PermissionGroup
+exports have direct `Members/Member` rows with name and type (User, Group or PermissionGroup).
+For a Role whose PermissionGroup members belong in source and User/Group members are assigned
+at run time, use `[[server_owned]] entities = ["Roles/Acme.Operator"]` with
+`parts = ["members:User,Group"]`; plain `members` preserves all types. Field-verified on
+10.2.1-b148. Role services `AddMembers`, `DeleteMembers` and `UpdateMembers` use EntityReference
+infotables (`name`, `type`); UpdateMembers takes membersToAdd and membersToDelete.

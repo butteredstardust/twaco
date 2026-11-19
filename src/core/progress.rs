@@ -19,6 +19,8 @@ pub trait Progress: Sync {
     fn message(&self, text: &str);
     /// End the current phase.
     fn finish(&self);
+    /// Emit a warning before a mutation. Only policy text and entity names, never server values.
+    fn warning(&self, _text: &str) {}
 }
 
 /// Reports nothing. The default for callers that do not show progress.
@@ -63,6 +65,7 @@ pub(crate) enum Event {
     Advance(u64),
     Message(String),
     Finish,
+    Warning(String),
 }
 
 #[cfg(test)]
@@ -96,6 +99,12 @@ impl Recorder {
 
 #[cfg(test)]
 impl Progress for Recorder {
+    fn warning(&self, text: &str) {
+        self.0
+            .lock()
+            .unwrap()
+            .push(Event::Warning(text.to_string()));
+    }
     fn start(&self, phase: &str, total: Option<u64>) {
         self.0
             .lock()

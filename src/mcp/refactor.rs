@@ -237,6 +237,11 @@ pub(crate) fn entity_edit_tool(
         ));
     }
     let action = match arguments.action {
+        EntityEditAction::MemberAdd | EntityEditAction::MemberRemove => Action::MemberSet {
+            name: need(&arguments.name, "name")?,
+            member_type: need(&arguments.base_type, "type")?,
+            remove: arguments.action == EntityEditAction::MemberRemove,
+        },
         EntityEditAction::EntitySet => Action::EntitySet {
             description: text(&arguments.description),
             icon: text(&arguments.icon),

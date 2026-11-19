@@ -2395,3 +2395,98 @@ fn fmt_checks_and_orders_subscription_events_without_script_sidecars() {
     assert!(run(&["fmt"]).status.success());
     assert_eq!(std::fs::read(path).unwrap(), once);
 }
+
+#[test]
+fn rbac_cli_creation_and_members_are_offline_and_plan_by_default() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("twaco.toml"), "[[project]]\nname='Acme'\n").unwrap();
+    let run = |args: &[&str]| {
+        let output = Command::new(env!("CARGO_BIN_EXE_twaco"))
+            .current_dir(dir.path())
+            .args(args)
+            .env_clear()
+            .env(
+                "SystemRoot",
+                std::env::var_os("SystemRoot").unwrap_or_default(),
+            )
+            .env("TEMP", std::env::temp_dir())
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{args:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap()
+    };
+    for (kind, collection) in [
+        ("role", "Roles"),
+        ("permission-group", "PermissionGroups"),
+        ("group", "Groups"),
+    ] {
+        let path = dir.path().join(format!("{collection}/Acme.Access.xml"));
+        assert_eq!(
+            run(&["new", kind, "Acme.Access", "--json"])["applied"],
+            false
+        );
+        assert!(!path.exists());
+        assert_eq!(
+            run(&[
+                "new",
+                kind,
+                "Acme.Access",
+                "--description",
+                "Access",
+                "--project",
+                "Acme",
+                "--apply",
+                "--json"
+            ])["applied"],
+            true
+        );
+        if kind == "permission-group" {
+            continue;
+        }
+        let before = std::fs::read(&path).unwrap();
+        assert_eq!(
+            run(&[
+                kind,
+                "member",
+                "add",
+                "Acme.Access",
+                "User/Acme.Runtime",
+                "--json"
+            ])["applied"],
+            false
+        );
+        assert_eq!(before, std::fs::read(&path).unwrap());
+        assert_eq!(
+            run(&[
+                kind,
+                "member",
+                "add",
+                "Acme.Access",
+                "User/Acme.Runtime",
+                "--apply",
+                "--json"
+            ])["applied"],
+            true
+        );
+        assert!(std::fs::read_to_string(&path)
+            .unwrap()
+            .contains("Acme.Runtime"));
+        assert_eq!(
+            run(&[
+                kind,
+                "member",
+                "remove",
+                "Acme.Access",
+                "User/Acme.Runtime",
+                "--apply",
+                "--json"
+            ])["applied"],
+            true
+        );
+        assert_eq!(before, std::fs::read(&path).unwrap());
+    }
+}

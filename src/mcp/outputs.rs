@@ -385,6 +385,8 @@ pub(crate) struct PushResult {
 /// differently; `ok` and the stage it reached tell them apart.
 #[derive(Serialize, JsonSchema)]
 pub(crate) struct DeployResult {
+    /// Role members an import removes, with server ownership guidance.
+    warnings: Option<Vec<String>>,
     /// False when gates stopped the deploy before sending anything.
     deployed: Option<bool>,
     /// Each existing entity whose import preserves server-owned parts, with its part labels.

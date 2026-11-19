@@ -27,6 +27,8 @@ pub(crate) mod ai;
 pub enum Kind {
     Project,
     Group,
+    Role,
+    PermissionGroup,
     Thing,
     ThingTemplate,
     ThingShape,
@@ -51,6 +53,8 @@ impl Kind {
         Some(match word {
             "project" => Self::Project,
             "group" => Self::Group,
+            "role" => Self::Role,
+            "permission-group" => Self::PermissionGroup,
             "thing" => Self::Thing,
             "thing-template" => Self::ThingTemplate,
             "thing-shape" => Self::ThingShape,
@@ -76,6 +80,8 @@ impl Kind {
         match self {
             Self::Project => "project",
             Self::Group => "group",
+            Self::Role => "role",
+            Self::PermissionGroup => "permission-group",
             Self::Thing => "thing",
             Self::ThingTemplate => "thing-template",
             Self::ThingShape => "thing-shape",
@@ -100,6 +106,8 @@ impl Kind {
         match self {
             Self::Project => "Projects",
             Self::Group => "Groups",
+            Self::Role => "Roles",
+            Self::PermissionGroup => "PermissionGroups",
             Self::Thing
             | Self::Timer
             | Self::Scheduler
@@ -1148,6 +1156,11 @@ fn make_xml(
             ))?;
             format!("{}        <Project\n         artifactId=\"\"\n         aspect.projectType=\"Component\"\n         dependsOn=\"{depends_on}\"\n         description=\"{desc}\"\n         documentationContent=\"\"\n         groupId=\"\"\n         homeMashup=\"\"\n         minPlatformVersion=\"\"\n         name=\"{name}\"\n         packageVersion=\"1.0.0\"\n         projectName=\"{project}\"\n         publishResult=\"\"\n         state=\"DRAFT\"\n         tags=\"\">\n            <avatar></avatar>\n            <DesignTimePermissions>\n                <Create></Create>\n                <Read></Read>\n                <Update></Update>\n                <Delete></Delete>\n                <Metadata></Metadata>\n            </DesignTimePermissions>\n            <RunTimePermissions></RunTimePermissions>\n            <VisibilityPermissions>\n                <Visibility></Visibility>\n            </VisibilityPermissions>\n            <ConfigurationTableDefinitions></ConfigurationTableDefinitions>\n            <ConfigurationTables></ConfigurationTables>\n        </Project>\n{}", header("Projects"), footer("Projects"))
         }
+        Kind::Role | Kind::PermissionGroup => {
+            let (tag, collection) = if request.kind == Kind::Role { ("Role", "Roles") } else { ("PermissionGroup", "PermissionGroups") };
+            let permissions = if request.kind == Kind::PermissionGroup { "\n            <EntityPermissions></EntityPermissions>" } else { "" };
+            format!("{}        <{tag} description=\"{desc}\" documentationContent=\"\" homeMashup=\"\" name=\"{name}\" projectName=\"{project}\" tags=\"\">\n{common}\n            <Members></Members>{permissions}\n        </{tag}>\n{}", header(collection), footer(collection))
+        }
         Kind::Group => format!("{}        <Group\n         description=\"{desc}\"\n         documentationContent=\"\"\n         homeMashup=\"\"\n         name=\"{name}\"\n         projectName=\"{project}\"\n         scimDisplayName=\"\"\n         scimExternalId=\"\"\n         scimId=\"\"\n         tags=\"\">\n{common}\n            <Members>\n                <Members></Members>\n            </Members>\n        </Group>\n{}", header("Groups"), footer("Groups")),
         Kind::DataTable => data_thing(
             request,
@@ -2025,6 +2038,29 @@ mod tests {
             ("network", network),
         ] {
             assert_golden(name, &plan(&solution, &request).unwrap().entity);
+        }
+    }
+
+    #[test]
+    fn rbac_kinds_have_1021_export_goldens() {
+        let (_dir, solution) = fixture();
+        for (kind, tag, name) in [
+            (Kind::Role, "Role", "role"),
+            (Kind::PermissionGroup, "PermissionGroup", "permission-group"),
+        ] {
+            let request = request(kind, "Acme.Orders.Access");
+            let planned = plan(&solution, &request).unwrap();
+            assert_golden(name, &planned.entity);
+            let tokens = scan::tokenize(&planned.entity).unwrap();
+            let entity = crate::core::sidecar::entity_element(&tokens, &planned.entity).unwrap();
+            assert_eq!(tokens[entity].name.of(&planned.entity), tag.as_bytes());
+            let members = scan::child_tags(&tokens, &planned.entity, "Members", entity);
+            assert_eq!(members.len(), 1);
+            assert!(scan::child_tags(&tokens, &planned.entity, "Members", members[0]).is_empty());
+            assert_eq!(
+                scan::child_tags(&tokens, &planned.entity, "EntityPermissions", entity).len(),
+                usize::from(kind == Kind::PermissionGroup)
+            );
         }
     }
 

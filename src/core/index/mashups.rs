@@ -16,6 +16,8 @@ pub(crate) fn collection_of(entity_type: &str) -> String {
         "ThingShape" | "DynamicThingShapes" => "ThingShapes",
         "DynamicThingTemplates" => "ThingTemplates",
         "DataShape" => "DataShapes",
+        "Role" => "Roles",
+        "PermissionGroup" => "PermissionGroups",
         other => other,
     }
     .to_string()

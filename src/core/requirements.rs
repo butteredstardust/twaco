@@ -372,10 +372,14 @@ pub(crate) fn collect_in(
             if tag == b"Thing" {
                 out.add("Things", &attr("valueStream")?, &from);
             }
-            if tag == b"Principal" {
+            if tag == b"Principal" || tag == b"Member" {
                 let name = attr("name")?;
                 match attr("type")?.as_str() {
                     "Group" => out.add("Groups", &name, &from),
+                    "Role" if tag == b"Member" => out.add("Roles", &name, &from),
+                    "PermissionGroup" if tag == b"Member" => {
+                        out.add("PermissionGroups", &name, &from)
+                    }
                     "Organization" => out.add("Organizations", &name, &from),
                     "OrganizationalUnit" => {
                         out.add("Organizations", name.split(':').next().unwrap_or(""), &from)
@@ -402,7 +406,13 @@ pub(crate) fn collect_in(
                         if let script::Receiver::Variable(collection) = &member.receiver {
                             if matches!(
                                 collection.as_str(),
-                                "Things" | "ThingTemplates" | "ThingShapes" | "DataShapes"
+                                "Things"
+                                    | "ThingTemplates"
+                                    | "ThingShapes"
+                                    | "DataShapes"
+                                    | "Groups"
+                                    | "Roles"
+                                    | "PermissionGroups"
                             ) {
                                 out.add(
                                     collection,
@@ -519,6 +529,8 @@ pub(crate) fn draft(collected: &Collected) -> String {
         "Things",
         "Organizations",
         "Groups",
+        "Roles",
+        "PermissionGroups",
         "Widgets",
     ];
     let mut collections: Vec<_> = collected.references.keys().collect();

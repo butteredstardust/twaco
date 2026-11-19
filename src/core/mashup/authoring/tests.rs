@@ -11702,3 +11702,108 @@ fn a_move_next_to_its_own_wrapper_is_refused_and_from_names_a_surviving_parent()
     assert_eq!(plan.removed, ["flexcontainer-90"]);
     assert_eq!(plan.from, "flexcontainer-2");
 }
+
+#[test]
+fn columns_recipe_keeps_existing_state_formats_and_other_options() {
+    let (dir, solution) = collection_fixture();
+    state_format_definition(dir.path(), "string");
+    state_format_grid_columns(&solution);
+    let mut request = state_format_request("ptcsgrid-5");
+    request.property = None;
+    request.column = Some("note".into());
+    request.icon_only = true;
+    let plan = plan_state_format_set(&solution, &request).unwrap();
+    apply_edit(&solution, plan.edit.as_ref().unwrap(), &lock(&solution)).unwrap();
+    let before = collection_properties(&solution, "ptcsgrid-5")["ColumnFormat"].clone();
+    recipe(
+        &solution,
+        "columns",
+        RecipeArgs {
+            widget: Some("ptcsgrid-5".into()),
+            data: Some("data:Acme.Orders.Manager.GetOrders".into()),
+            columns: vec!["note:Notes:240".into(), "id:Order:80".into()],
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let after = collection_properties(&solution, "ptcsgrid-5")["ColumnFormat"].clone();
+    for old in before["formatInfo"].as_array().unwrap() {
+        let column = after["formatInfo"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["FieldName"] == old["FieldName"])
+            .unwrap();
+        for (key, value) in old.as_object().unwrap() {
+            if !["Title", "Width", "hidden", "inLayout"].contains(&key.as_str()) {
+                assert_eq!(&column[key], value, "{key}");
+            }
+        }
+    }
+    assert_eq!(after["formatInfo"][0]["Width"], 240);
+}
+
+#[test]
+fn columns_recipe_rebinding_refreshes_types_but_keeps_state_and_unrelated_options() {
+    for (base, renderer, editor) in [
+        ("BOOLEAN", "BOOLEAN", "checkbox"),
+        ("DATETIME", "DATETIME", "datepicker"),
+    ] {
+        let (dir, solution) = collection_fixture();
+        state_format_definition(dir.path(), "string");
+        state_format_grid_columns(&solution);
+        let mut request = state_format_request("ptcsgrid-5");
+        request.property = None;
+        request.column = Some("note".into());
+        request.icon_only = true;
+        let plan = plan_state_format_set(&solution, &request).unwrap();
+        apply_edit(&solution, plan.edit.as_ref().unwrap(), &lock(&solution)).unwrap();
+        let before = collection_properties(&solution, "ptcsgrid-5")["ColumnFormat"].clone();
+        // Both a displayed and a hidden column change type on the new service's DataShape.
+        write(dir.path(), "acme/DataShapes/Acme.Rebound.xml", format!("<Entities><DataShapes><DataShape name='Acme.Rebound' projectName='Acme'><FieldDefinitions><FieldDefinition name='note' baseType='{base}'/><FieldDefinition name='id' baseType='{base}'/></FieldDefinitions></DataShape></DataShapes></Entities>").as_str());
+        write(dir.path(), "acme/Things/Acme.Rebound.xml", "<Entities><Things><Thing name='Acme.Rebound' projectName='Acme'><ThingShape><ServiceDefinitions><ServiceDefinition name='Load'><ResultType baseType='INFOTABLE' aspect.dataShape='Acme.Rebound'/></ServiceDefinition></ServiceDefinitions></ThingShape></Thing></Things></Entities>");
+        recipe(
+            &solution,
+            "columns",
+            RecipeArgs {
+                widget: Some("ptcsgrid-5".into()),
+                data: Some("data:Acme.Rebound.Load".into()),
+                columns: vec!["note:Notes:240".into()],
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let after = collection_properties(&solution, "ptcsgrid-5")["ColumnFormat"].clone();
+        for old in before["formatInfo"].as_array().unwrap() {
+            let column = after["formatInfo"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|c| c["FieldName"] == old["FieldName"])
+                .unwrap();
+            assert_eq!(column["FormatOptions"]["renderer"], renderer);
+            assert_eq!(column["cellEditor"], editor);
+            assert_eq!(
+                column["FormatOptions"]["FormatString"],
+                if base == "BOOLEAN" {
+                    "checkbox"
+                } else {
+                    "[[dateTimeFormat_Default]]"
+                }
+            );
+            for (key, value) in old.as_object().unwrap() {
+                if key == "FormatOptions" {
+                    for (option, value) in value.as_object().unwrap() {
+                        if !["renderer", "FormatString"].contains(&option.as_str()) {
+                            assert_eq!(&column[key][option], value, "{option}");
+                        }
+                    }
+                } else if !["Title", "Width", "hidden", "inLayout", "cellEditor"]
+                    .contains(&key.as_str())
+                {
+                    assert_eq!(&column[key], value, "{key}");
+                }
+            }
+        }
+    }
+}

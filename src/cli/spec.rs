@@ -477,7 +477,7 @@ pub(crate) const USAGE: &[Usage] = &[
         path: "fmt",
         group: 1,
         text: r#"  fmt [--check] [--entity <name>] [--changed-since <git-rev>]
-                              format service scripts and order subscription Events by alias
+                              format service scripts; order subscription Events and RBAC permission/member sets
       --check                 report which files would change, write nothing
       --entity <name>         an entity name or Collection/Name glob to format (repeatable)
       --changed-since <git-rev>  format entity files and sidecars changed since this revision"#,
@@ -1042,6 +1042,30 @@ pub(crate) const USAGE: &[Usage] = &[
         group: 1,
         text: r#"  new group <name> [--project <name>] [--description <text>] [--apply] [--json]
                               create a ThingWorx Group without members as a repository file; plan unless --apply"#,
+    },
+    Usage {
+        path: "group member",
+        group: 1,
+        text: r#"  group member <add|remove> <Entity> <User/name|Group/name|PermissionGroup/name> [--apply] [--json]
+                              edit repository membership; plan unless --apply"#,
+    },
+    Usage {
+        path: "role member",
+        group: 1,
+        text: r#"  role member <add|remove> <Entity> <User/name|Group/name|PermissionGroup/name> [--apply] [--json]
+                              edit repository membership; plan unless --apply"#,
+    },
+    Usage {
+        path: "new role",
+        group: 1,
+        text: r#"  new role <name> [--project <name>] [--description <text>] [--apply] [--json]
+                              create a ThingWorx Role without members as a repository file; plan unless --apply"#,
+    },
+    Usage {
+        path: "new permission-group",
+        group: 1,
+        text: r#"  new permission-group <name> [--project <name>] [--description <text>] [--apply] [--json]
+                              create a ThingWorx PermissionGroup without members as a repository file; plan unless --apply"#,
     },
     Usage {
         path: "thing property",

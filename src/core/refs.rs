@@ -276,6 +276,8 @@ const RESERVED_IDENTIFIERS: &[&str] = &[
     "Resources",
     "Mashups",
     "Groups",
+    "Roles",
+    "PermissionGroups",
     "Users",
     "Organizations",
     "Projects",

@@ -357,7 +357,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         .with_output::<outputs::ExtractResult>(),
         solution_tool::<source_requests::FmtRequest>(
             "fmt",
-            "Format selected service script sidecars with the built-in formatter and order subscription Events by alias. Without a selector, formats every entity and script. check: true reports which files would change and writes nothing.",
+            "Format selected service script sidecars with the built-in formatter and order subscription Events by alias plus RBAC permission/member sets. Without a selector, formats every entity and script. check: true reports which files would change and writes nothing.",
             false,
             source::fmt_tool,
         )
@@ -516,7 +516,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         .with_output::<outputs::NewBuildingBlockResult>(),
         root_tool::<refactor_requests::EntityNewRequest>(
             "entity_new",
-            "Create a ThingWorx entity as a repository XML file: Projects, Groups, common Things, data Things, media, styles, states, menus, themes, and Networks. A new Project also appends its project declaration to twaco.toml, or creates twaco.toml in a root without one. DataShape and DataTable creation also writes their managed sidecar. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
+            "Create a ThingWorx entity as a repository XML file: Projects, Groups, Roles, PermissionGroups, common Things, data Things, media, styles, states, menus, themes, and Networks. A new Project also appends its project declaration to twaco.toml, or creates twaco.toml in a root without one. DataShape and DataTable creation also writes their managed sidecar. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
             false,
             refactor::entity_new_root_tool,
         )
@@ -549,7 +549,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         ).with_output::<outputs::NetworkWriteResult>(),
         solution_tool::<refactor_requests::EntityEditRequest>(
             "entity_edit",
-            "Change an existing entity in the repository, as Composer would: add, change or remove a property of a Thing, ThingTemplate or ThingShape (a persistent one also writes the stored value of every Thing that has it), add or remove a local script service and its sidecars, or override or revert an inherited service with its script-only sidecar while keeping its run-time permissions; add or remove a script subscription, implement or stop implementing a ThingShape, change a timer's or scheduler's settings, given keys of a style, a MediaEntity's image, entity descriptions, Menu-level icons, a menu's items (including sub-Menus, titles, destinations, icons and defaults), menu_nest (a root Menu of sub-Menu links plus one leaf Menu per group, written together), or a StateDefinition's states. Removing or retyping a property, or removing a service, something still uses is refused unless force. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
+            "Change an existing entity in the repository, as Composer would: add, change or remove a property of a Thing, ThingTemplate or ThingShape (a persistent one also writes the stored value of every Thing that has it), add or remove a local script service and its sidecars, or override or revert an inherited service with its script-only sidecar while keeping its run-time permissions; add or remove a script subscription, implement or stop implementing a ThingShape, change a timer's or scheduler's settings, given keys of a style, a MediaEntity's image, Group/Role/PermissionGroup members (member_add/member_remove with name and type), entity descriptions, Menu-level icons, a menu's items (including sub-Menus, titles, destinations, icons and defaults), menu_nest (a root Menu of sub-Menu links plus one leaf Menu per group, written together), or a StateDefinition's states. Removing or retyping a property, or removing a service, something still uses is refused unless force. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
             false,
             refactor::entity_edit_tool,
         )

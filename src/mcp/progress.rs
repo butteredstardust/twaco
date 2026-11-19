@@ -123,6 +123,12 @@ impl<'a> Notifier<'a> {
 }
 
 impl Progress for Notifier<'_> {
+    fn warning(&self, text: &str) {
+        let mut state = self.state();
+        state.message = Some(format!("warning: {text}"));
+        self.emit(&mut state);
+        state.message = None;
+    }
     fn start(&self, phase: &str, total: Option<u64>) {
         let mut state = self.state();
         state.phase = phase.to_string();

@@ -186,4 +186,33 @@ mod tests {
         let error = diff(&Fake(None), &solution, "T", "default").unwrap_err();
         assert_eq!(error.code(), ErrorCode::UnknownEntity);
     }
+    #[test]
+    fn role_diff_honours_all_and_typed_member_ownership() {
+        for selector in ["members", "members:User,Group"] {
+            let dir = tempfile::tempdir().unwrap();
+            std::fs::write(dir.path().join("twaco.toml"), format!("[[project]]\nname='Acme'\n[[server_owned]]\nentities=['Roles/Acme.Operator']\nparts=['{selector}']\n")).unwrap();
+            std::fs::create_dir(dir.path().join("Roles")).unwrap();
+            let local = "<Entities><Roles><Role name='Acme.Operator' projectName='Acme'><Members><Member type='PermissionGroup' name='Acme.Access'/></Members></Role></Roles></Entities>";
+            std::fs::write(dir.path().join("Roles/Acme.Operator.xml"), local).unwrap();
+            let solution = Solution::load(&dir.path().join("twaco.toml")).unwrap();
+            let remote = "<Role name='Acme.Operator' projectName='Acme'><Members><Member type='User' name='Acme.Runtime'/><Member type='PermissionGroup' name='Acme.Access'/></Members></Role>";
+            let outcome = diff(
+                &Fake(Some(remote)),
+                &solution,
+                "Roles/Acme.Operator",
+                "default",
+            )
+            .unwrap();
+            assert!(outcome.identical);
+            assert!(outcome.differences.is_empty(), "{:?}", outcome.differences);
+            assert_eq!(
+                outcome.server_owned,
+                [if selector == "members" {
+                    "members"
+                } else {
+                    "members:Group,User"
+                }]
+            );
+        }
+    }
 }

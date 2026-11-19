@@ -86,6 +86,8 @@ const PRESENT: &[&str] = &[
     "AIAgents",
     "MCPNamespaces",
     "Groups",
+    "Roles",
+    "PermissionGroups",
     "Organizations",
     "ThingGroups",
 ];

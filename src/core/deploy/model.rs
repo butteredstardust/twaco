@@ -49,6 +49,9 @@ impl fmt::Display for ServiceCall {
 
 #[derive(Clone, Debug)]
 pub struct EntityPlan {
+    pub warnings: Vec<String>,
+    /// Unowned members deliberately removed while the server still matches its baseline.
+    pub removed_members: Vec<String>,
     pub hint: Option<String>,
     /// Owned parts the import carries from the server.
     pub server_owned: Vec<String>,

@@ -2255,3 +2255,28 @@ twaco completions bash > ~/.local/share/bash-completion/completions/twaco
 twaco completions zsh > "${fpath[1]}/_twaco"
 twaco completions fish > ~/.config/fish/completions/twaco.fish
 ```
+
+## Roles and PermissionGroups
+
+`twaco new role Acme.Operator --project Acme --apply` and
+`twaco new permission-group Acme.Operate --project Acme --apply` create repository XML.
+`twaco role member add Acme.Operator PermissionGroup/Acme.Operate --apply` adds a typed
+member; `remove` removes only that type/name pair. `group member` follows the same grammar.
+MCP uses `entity_new` kinds `role` / `permission-group` and `entity_edit` actions
+`member_add` / `member_remove` with `name` and `type`.
+
+To keep run-time users and groups while deploying a Role's repository-defined permission
+groups, configure:
+
+```toml
+[[server_owned]]
+entities = ["Roles/Acme.Operator"]
+parts = ["members:User,Group"]
+```
+
+Plain `members` owns all membership. Typed selectors work on Groups, Roles and PermissionGroups;
+Organization membership continues to use plain `members`. An unprotected Role deploy names
+members its import would remove. Role and PermissionGroup Members compare as sets by type/name;
+PermissionGroup EntityPermissions compare by entity, permission category/name and resource.
+Changing isPermitted or onInstances remains a real change. `twaco fmt` writes these sets in
+comparison order without rewriting the enclosing XML.

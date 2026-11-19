@@ -1444,3 +1444,13 @@ fn one_platform_template_is_added_to_the_cache_and_the_rest_kept() {
     )
     .unwrap());
 }
+
+#[test]
+fn rbac_script_globals_are_generated_like_users_and_groups() {
+    let generated = rendered(Model::default());
+    for collection in ["Users", "Groups", "Roles", "PermissionGroups"] {
+        assert!(generated.collections.contains(&format!(
+            "declare const {collection}: {{ [name: string]: any }};"
+        )));
+    }
+}

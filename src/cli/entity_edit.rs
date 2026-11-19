@@ -980,3 +980,53 @@ impl Agent {
         }
     }
 }
+
+#[derive(Debug, clap::Subcommand)]
+pub(crate) enum Membership {
+    Member(MemberArgs),
+}
+
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct MemberArgs {
+    #[command(flatten)]
+    apply: Apply,
+    #[command(flatten)]
+    json: Json,
+    #[arg(id = "operands", value_name = "operand")]
+    operands: Vec<String>,
+}
+
+impl Membership {
+    pub(crate) fn edit(&self, collection: &str) -> Edit {
+        let Self::Member(args) = self;
+        let found = (|| {
+            let [action, entity, member] = args.operands.as_slice() else {
+                return Err("member needs <add|remove> <Entity> <User/name|Group/name|PermissionGroup/name>".into());
+            };
+            let remove = match action.as_str() {
+                "add" => false,
+                "remove" => true,
+                _ => return Err("member action must be add or remove".into()),
+            };
+            let (member_type, name) = member.split_once('/').ok_or("member needs Type/name")?;
+            let entity = if entity.contains('/') {
+                entity.clone()
+            } else {
+                format!("{collection}/{entity}")
+            };
+            if !entity.starts_with(&format!("{collection}/")) {
+                return Err(format!("member expects {collection}/Name"));
+            }
+            Ok((
+                entity,
+                Action::MemberSet {
+                    name: name.into(),
+                    member_type: member_type.into(),
+                    remove,
+                },
+            ))
+        })();
+        Edit::new(found, &args.apply, &args.json)
+    }
+}

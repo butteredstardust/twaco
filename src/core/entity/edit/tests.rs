@@ -3767,3 +3767,52 @@ fn a_cds_icon_that_does_not_exist_is_refused_with_the_closest_names() {
         .to_string();
     assert!(error.contains("not a CDS icon"), "{error}");
 }
+
+#[test]
+fn membership_edits_keep_types_distinct_and_are_idempotent() {
+    let (_dir, solution) = fixture();
+    for (kind, collection) in [
+        (Kind::Group, "Groups"),
+        (Kind::Role, "Roles"),
+        (Kind::PermissionGroup, "PermissionGroups"),
+    ] {
+        new(&solution, kind, "Acme.Access", |_| {});
+        run(
+            &solution,
+            &format!("{collection}/Acme.Access"),
+            Action::EntitySet {
+                description: Some("Access".into()),
+                icon: None,
+            },
+        );
+        assert!(file(&solution, collection, "Acme.Access").contains("description=\"Access\""));
+        for member_type in ["User", "Group", "PermissionGroup"] {
+            let action = || Action::MemberSet {
+                name: "Acme.Same".into(),
+                member_type: member_type.into(),
+                remove: false,
+            };
+            let entity = format!("{collection}/Acme.Access");
+            let before = file(&solution, collection, "Acme.Access");
+            assert_eq!(
+                plan_of(&solution, &entity, action()).unwrap().changes.len(),
+                1
+            );
+            assert_eq!(file(&solution, collection, "Acme.Access"), before);
+            run(&solution, &entity, action());
+            assert!(run(&solution, &entity, action()).changes.is_empty());
+        }
+        let entity = format!("{collection}/Acme.Access");
+        let action = || Action::MemberSet {
+            name: "Acme.Same".into(),
+            member_type: "User".into(),
+            remove: true,
+        };
+        run(&solution, &entity, action());
+        let xml = file(&solution, collection, "Acme.Access");
+        assert!(!xml.contains("type=\"User\""));
+        assert!(xml.contains("type=\"Group\""));
+        assert!(xml.contains("type=\"PermissionGroup\""));
+        assert!(run(&solution, &entity, action()).changes.is_empty());
+    }
+}

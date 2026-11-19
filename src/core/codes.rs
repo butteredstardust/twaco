@@ -1096,9 +1096,10 @@ mod tests {
         is(
             DeployError::Import {
                 project: text(),
-                source: http(),
+                source: Box::new(http()),
                 imported: vec![],
                 notes: Box::default(),
+                plans: vec![],
             },
             ErrorCode::ServerError,
         );

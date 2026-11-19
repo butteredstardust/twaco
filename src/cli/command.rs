@@ -55,6 +55,10 @@ pub(crate) enum Command {
     #[command(subcommand)]
     Thing(super::entity_edit::Thing),
     #[command(subcommand)]
+    Group(super::entity_edit::Membership),
+    #[command(subcommand)]
+    Role(super::entity_edit::Membership),
+    #[command(subcommand)]
     Timer(super::entity_edit::Timer),
     #[command(subcommand)]
     Scheduler(super::entity_edit::Scheduler),
@@ -159,6 +163,8 @@ impl Command {
                 super::entity_edit::Thing::Subscription(_) => "thing subscription",
                 super::entity_edit::Thing::Shape(_) => "thing shape",
             },
+            Command::Group(_) => "group member",
+            Command::Role(_) => "role member",
             Command::Timer(_) => "timer set",
             Command::Scheduler(_) => "scheduler set",
             Command::Style(_) => "style set",
@@ -293,6 +299,8 @@ impl Command {
             | Command::Datatable(_)
             | Command::Call(_)
             | Command::Deploy(_)
+            | Command::Group(_)
+            | Command::Role(_)
             | Command::Db(_) => Ok(()),
         }
     }

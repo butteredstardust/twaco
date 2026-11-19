@@ -264,11 +264,26 @@ fn fnv1a(bytes: &[u8]) -> u32 {
 /// is the resource it grants on.
 fn identity(element: &Element) -> Option<String> {
     let name = attribute(element, "name").filter(|n| !n.is_empty());
-    if is_named(element, "Principal") {
+    if is_named(element, "Principal") || is_named(element, "Member") {
         return name.map(|name| match attribute(element, "type") {
             Some(kind) if !kind.is_empty() => format!("{kind}:{name}"),
             _ => name,
         });
+    }
+    if is_named(element, "EntityPermission") {
+        return Some(
+            [
+                "entityName",
+                "entityType",
+                "permissionCategory",
+                "permissionName",
+                "resourceName",
+            ]
+            .iter()
+            .map(|key| attribute(element, key).unwrap_or_default())
+            .collect::<Vec<_>>()
+            .join(":"),
+        );
     }
     if is_named(element, "Permissions") {
         if let Some(resource) = attribute(element, "resourceName").filter(|r| !r.is_empty()) {

@@ -490,11 +490,15 @@ fn hand_written_tools() -> Vec<Value> {
     actions.splice(
         0..0,
         [
+            json!("member_add"),
+            json!("member_remove"),
             json!("entity_set"),
             json!("menu_item_set"),
             json!("menu_nest"),
         ],
     );
+    edit["inputSchema"]["properties"]["type"]["description"] =
+        json!("Property base type, or member_add/member_remove: User, Group or PermissionGroup.");
     for name in ["new_title", "submenu", "icon"] {
         edit["inputSchema"]["properties"][name] = json!({"type": "string"});
     }
@@ -504,6 +508,22 @@ fn hand_written_tools() -> Vec<Value> {
         .iter_mut()
         .find(|tool| tool["name"] == "entity_new")
         .unwrap();
+    new["description"] = json!(new["description"].as_str().unwrap().replace(
+        "repository XML file: Projects, Groups, common Things",
+        "repository XML file: Projects, Groups, Roles, PermissionGroups, common Things"
+    ));
+    new["inputSchema"]["properties"]["kind"]["description"] = json!(new["inputSchema"]
+        ["properties"]["kind"]["description"]
+        .as_str()
+        .unwrap()
+        .replace(
+            "`project`, `group`, `thing`",
+            "`project`, `group`, `role`, `permission-group`, `thing`"
+        ));
+    new["inputSchema"]["properties"]["kind"]["enum"]
+        .as_array_mut()
+        .unwrap()
+        .splice(2..2, [json!("role"), json!("permission-group")]);
     new["inputSchema"]["properties"]["icon"] =
         json!({"description": "Menu-level image URL or MediaEntity.", "type": "string"});
     let new = tools
@@ -2919,7 +2939,7 @@ fn status_record_returns_matching_entities_in_sync_and_keeps_differing_verdicts(
     )
     .unwrap();
     std::fs::create_dir_all(root.join(".twaco/baselines")).unwrap();
-    std::fs::write(root.join(".twaco/baselines/default.json"),r#"{"entities":{"Things":{"Acme.Same":{"local":"v12:old","server":"v12:old"},"Acme.Different":{"local":"v12:old","server":"v12:old"}}}}"#).unwrap();
+    std::fs::write(root.join(".twaco/baselines/default.json"),r#"{"entities":{"Things":{"Acme.Same":{"local":"v13:old","server":"v13:old"},"Acme.Different":{"local":"v13:old","server":"v13:old"}}}}"#).unwrap();
     let before = call(root, "status", json!({"all":true,"detail":true}));
     assert_eq!(body(&before)["counts"]["converged"], 1);
     assert_eq!(body(&before)["counts"]["both-changed"], 1);
@@ -4654,4 +4674,37 @@ fn mashup_move_defaults_to_plan_applies_and_is_a_no_op_when_repeated() {
     let refused = call(&root, "mashup_move", arguments);
     assert_eq!(refused["isError"], true);
     assert_eq!(std::fs::read(&path).unwrap(), written);
+}
+
+#[test]
+fn rbac_creation_and_typed_members_plan_then_apply_over_mcp() {
+    let (_dir, root) = solution_dir();
+    for (kind, collection) in [("role", "Roles"), ("permission-group", "PermissionGroups")] {
+        let args = json!({"kind":kind,"name":"Acme.Access"});
+        let planned = call(&root, "entity_new", args.clone());
+        assert_eq!(planned["isError"], false, "{planned}");
+        let path = root.join(format!("{collection}/Acme.Access.xml"));
+        assert!(!path.exists());
+        let mut apply = args;
+        apply["dry_run"] = json!(false);
+        let applied = call(&root, "entity_new", apply);
+        assert_eq!(applied["isError"], false, "{applied}");
+        for member_type in ["User", "Group", "PermissionGroup"] {
+            let mut args = json!({"action":"member_add","entity":format!("{collection}/Acme.Access"),"name":"Acme.Member","type":member_type});
+            let before = std::fs::read(&path).unwrap();
+            let planned = call(&root, "entity_edit", args.clone());
+            assert_eq!(planned["isError"], false, "{planned}");
+            assert_eq!(before, std::fs::read(&path).unwrap());
+            args["dry_run"] = json!(false);
+            let applied = call(&root, "entity_edit", args.clone());
+            assert_eq!(applied["isError"], false, "{applied}");
+            assert!(std::fs::read_to_string(&path)
+                .unwrap()
+                .contains(&format!("type=\"{member_type}\"")));
+            args["action"] = json!("member_remove");
+            let removed = call(&root, "entity_edit", args);
+            assert_eq!(removed["isError"], false, "{removed}");
+            assert_eq!(before, std::fs::read(&path).unwrap());
+        }
+    }
 }

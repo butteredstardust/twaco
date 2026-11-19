@@ -240,6 +240,8 @@ fn dispatch(command: Command) -> u8 {
         Command::Call(command) => run(|solution| call(solution, &command)),
         Command::Logs(logs) => run(|solution| logs_cmd(solution, &logs)),
         Command::Settings(settings) => run(|solution| settings_cmd(solution, &settings)),
+        Command::Group(member) => run(|solution| entity_edit_cmd(solution, member.edit("Groups"))),
+        Command::Role(member) => run(|solution| entity_edit_cmd(solution, member.edit("Roles"))),
         Command::Thing(thing) => run(|solution| entity_edit_cmd(solution, thing.edit())),
         Command::Timer(timer) => run(|solution| entity_edit_cmd(solution, timer.edit())),
         Command::Scheduler(scheduler) => {

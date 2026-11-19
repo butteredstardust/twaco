@@ -29,11 +29,12 @@ pub enum DeployError {
     /// `imported` are the projects that imported before this one; the baseline records them.
     Import {
         project: String,
-        source: ServerError,
+        source: Box<ServerError>,
         imported: Vec<String>,
         /// The Importer's reason from the server log (or why it could not be read), then what
         /// happened to each agent narrowed before the imports and put back after this one.
         notes: Box<[String]>,
+        plans: Vec<EntityPlan>,
     },
     /// An agent's import without the allowances the deploy's namespaces drop failed, before any
     /// project imported.
@@ -111,7 +112,7 @@ impl fmt::Display for DeployError {
                     agents.join(", ")
                 )
             }
-            DeployError::Import { project, source, imported, notes } => {
+            DeployError::Import { project, source, imported, notes, .. } => {
                 write!(f, "project {project} import failed: {source}")?;
                 if !imported.is_empty() {
                     write!(f, "; already imported and recorded: {}", imported.join(", "))?;
@@ -163,3 +164,20 @@ impl fmt::Display for DeployError {
 }
 
 impl std::error::Error for DeployError {}
+
+impl DeployError {
+    /// Warnings survive partial imports and failures while recording their baseline.
+    pub fn warnings(&self) -> Vec<&str> {
+        let plans = match self {
+            Self::Conflicts(plans) | Self::Import { plans, .. } => plans,
+            Self::NotKept(report) => &report.plans,
+            Self::Unrecorded { failure, .. } => return failure.warnings(),
+            Self::AfterImport { source, .. } => return source.warnings(),
+            _ => return Vec::new(),
+        };
+        plans
+            .iter()
+            .flat_map(|p| p.warnings.iter().map(String::as_str))
+            .collect()
+    }
+}

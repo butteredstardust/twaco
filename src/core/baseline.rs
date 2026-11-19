@@ -318,20 +318,20 @@ mod tests {
         baseline.set(
             "Things",
             "Z",
-            "v12:two-local".to_string(),
-            "v12:two-server".to_string(),
+            "v13:two-local".to_string(),
+            "v13:two-server".to_string(),
         );
         baseline.set(
             "DataShapes",
             "A",
-            "v12:one".to_string(),
-            "v12:one".to_string(),
+            "v13:one".to_string(),
+            "v13:one".to_string(),
         );
         baseline.set(
             "Things",
             "A",
-            "v12:three".to_string(),
-            "v12:three".to_string(),
+            "v13:three".to_string(),
+            "v13:three".to_string(),
         );
         baseline.write(&root, "default").unwrap();
         let first = std::fs::read(Baseline::path(&root, "default")).unwrap();
@@ -344,8 +344,8 @@ mod tests {
         assert_eq!(
             Baseline::load(&root, "default").unwrap().get("Things", "Z"),
             Some(&Entry {
-                local: "v12:two-local".into(),
-                server: "v12:two-server".into()
+                local: "v13:two-local".into(),
+                server: "v13:two-server".into()
             })
         );
         assert!(
@@ -360,7 +360,7 @@ mod tests {
     #[test]
     fn an_entry_from_another_hash_version_counts_as_no_baseline() {
         let baseline: Baseline = serde_json::from_slice(
-            br#"{"entities":{"Things":{"Old":"v11:old","Half":{"local":"v12:a","server":"v4:b"},"New":"v12:new"}}}"#,
+            br#"{"entities":{"Things":{"Old":"v12:old","Half":{"local":"v13:a","server":"v4:b"},"New":"v13:new"}}}"#,
         )
         .unwrap();
         assert_eq!(baseline.get("Things", "Old"), None);
@@ -375,7 +375,7 @@ mod tests {
         std::fs::create_dir_all(root.join(".twaco")).unwrap();
         std::fs::write(
             root.join(LEGACY_RELATIVE_PATH),
-            br#"{"entities":{"Things":{"T":"v12:old"}}}"#,
+            br#"{"entities":{"Things":{"T":"v13:old"}}}"#,
         )
         .unwrap();
 
@@ -383,15 +383,15 @@ mod tests {
         assert_eq!(
             baseline.get("Things", "T"),
             Some(&Entry {
-                local: "v12:old".into(),
-                server: "v12:old".into()
+                local: "v13:old".into(),
+                server: "v13:old".into()
             })
         );
         baseline.write(&root, "default").unwrap();
         assert!(!root.join(LEGACY_RELATIVE_PATH).exists());
         assert_eq!(
             std::fs::read_to_string(Baseline::path(&root, "default")).unwrap(),
-            "{\n  \"entities\": {\n    \"Things\": {\n      \"T\": {\n        \"local\": \"v12:old\",\n        \"server\": \"v12:old\"\n      }\n    }\n  }\n}\n"
+            "{\n  \"entities\": {\n    \"Things\": {\n      \"T\": {\n        \"local\": \"v13:old\",\n        \"server\": \"v13:old\"\n      }\n    }\n  }\n}\n"
         );
     }
 
@@ -401,23 +401,23 @@ mod tests {
         std::fs::create_dir_all(root.join(".twaco")).unwrap();
         std::fs::write(
             root.join(LEGACY_RELATIVE_PATH),
-            br#"{"entities":{"Things":{"T":{"local":"v12:local","server":"v12:server"}}}}"#,
+            br#"{"entities":{"Things":{"T":{"local":"v13:local","server":"v13:server"}}}}"#,
         )
         .unwrap();
 
         let mut baseline = Baseline::load(&root, "default").unwrap();
         baseline
-            .set_server("Things", "T", "v12:after-deploy".into())
+            .set_server("Things", "T", "v13:after-deploy".into())
             .unwrap();
         assert_eq!(
             baseline.get("Things", "T"),
             Some(&Entry {
-                local: "v12:local".into(),
-                server: "v12:after-deploy".into()
+                local: "v13:local".into(),
+                server: "v13:after-deploy".into()
             })
         );
         assert!(matches!(
-            baseline.set_server("Things", "Missing", "v12:x".into()),
+            baseline.set_server("Things", "Missing", "v13:x".into()),
             Err(BaselineError::Missing { .. })
         ));
         baseline.write(&root, "default").unwrap();
@@ -433,7 +433,7 @@ mod tests {
         std::fs::create_dir_all(root.join(".twaco")).unwrap();
         std::fs::write(
             root.join(LEGACY_RELATIVE_PATH),
-            br#"{"entities":{"Things":{"T":"v12:old"}}}"#,
+            br#"{"entities":{"Things":{"T":"v13:old"}}}"#,
         )
         .unwrap();
 
@@ -450,8 +450,8 @@ mod tests {
         development.set(
             "Things",
             "T",
-            "v12:development".into(),
-            "v12:development".into(),
+            "v13:development".into(),
+            "v13:development".into(),
         );
         development.write(&root, "development").unwrap();
         assert_eq!(
@@ -468,14 +468,14 @@ mod tests {
     fn profiles_keep_independent_baselines() {
         let (_dir, root) = temp();
         let mut first = Baseline::default();
-        first.set("Things", "T", "v12:first".into(), "v12:first".into());
+        first.set("Things", "T", "v13:first".into(), "v13:first".into());
         first.write(&root, "first").unwrap();
         let mut second = Baseline::default();
-        second.set("Things", "T", "v12:second".into(), "v12:second".into());
+        second.set("Things", "T", "v13:second".into(), "v13:second".into());
         second.write(&root, "second").unwrap();
 
         let mut first = Baseline::load(&root, "first").unwrap();
-        first.set("Things", "T", "v12:recorded".into(), "v12:recorded".into());
+        first.set("Things", "T", "v13:recorded".into(), "v13:recorded".into());
         first.write(&root, "first").unwrap();
         assert_eq!(
             Baseline::load(&root, "second")
@@ -483,15 +483,15 @@ mod tests {
                 .get("Things", "T")
                 .unwrap()
                 .local,
-            "v12:second"
+            "v13:second"
         );
     }
 
     #[test]
     fn remove_reports_presence_and_prunes_an_empty_collection() {
         let mut baseline = Baseline::default();
-        baseline.set("Things", "A", "v12:a".into(), "v12:a".into());
-        baseline.set("Things", "B", "v12:b".into(), "v12:b".into());
+        baseline.set("Things", "A", "v13:a".into(), "v13:a".into());
+        baseline.set("Things", "B", "v13:b".into(), "v13:b".into());
         assert!(baseline.remove("Things", "A"));
         assert!(!baseline.remove("Things", "A"));
         assert!(baseline.get("Things", "B").is_some());

@@ -112,6 +112,7 @@ struct Fake {
     fail_import: Option<String>,
     fail_service: Option<String>,
     fetch_failures: BTreeSet<(String, String)>,
+    read_back_failures: BTreeSet<(String, String)>,
     mismatch: BTreeSet<(String, String)>,
     parse_unreachable: bool,
     checks: Mutex<usize>,
@@ -132,7 +133,9 @@ impl push::Remote for Fake {
             .unwrap()
             .push(format!("fetch:{collection}/{name}"));
         let key = (collection.to_string(), name.to_string());
-        if self.fetch_failures.contains(&key) {
+        if self.fetch_failures.contains(&key)
+            || (!self.imports.lock().unwrap().is_empty() && self.read_back_failures.contains(&key))
+        {
             return Err(ServerError::Transport {
                 method: super::super::server::Method::Get,
                 url: format!("http://server/{collection}/{name}"),
@@ -1720,4 +1723,185 @@ fn property_values_conflict_hint_requires_a_proven_common_ancestor() {
             .hint
             .is_none()
     );
+}
+
+#[test]
+fn role_deploy_warns_only_about_removed_unowned_members_in_plan_and_apply() {
+    let xml = |members| {
+        format!("<Entities><Roles><Role name='Acme.Access' projectName='Acme.Project'><Members>{members}</Members></Role></Roles></Entities>").into_bytes()
+    };
+    let local = xml("<Member type='PermissionGroup' name='Acme.Keep'/>");
+    let server = xml("<Member type='PermissionGroup' name='Acme.Keep'/><Member type='PermissionGroup' name='Acme.Remove'/><Member type='User' name='Acme.Runtime'/><Member type='Group' name='Acme.Users'/>");
+    for selector in [None, Some("members"), Some("members:User,Group")] {
+        for apply in [false, true] {
+            let fake = Fake::default();
+            fake.held
+                .lock()
+                .unwrap()
+                .insert(("Roles".into(), "Acme.Access".into()), server.clone());
+            let mut bundle = project(
+                "Acme.Project",
+                vec![Entity {
+                    collection: "Roles".into(),
+                    name: "Acme.Access".into(),
+                    bytes: local.clone(),
+                    server_owned: selector
+                        .map(|s| vec![s.to_string().try_into().unwrap()])
+                        .unwrap_or_default(),
+                }],
+                vec![],
+            );
+            bundle.bytes = local.clone();
+            let report =
+                run_test(&fake, &MemoryBaseline::default(), &[bundle], apply, true).unwrap();
+            let warnings = &report.plans[0].warnings;
+            if selector == Some("members") {
+                assert!(warnings.is_empty());
+            } else {
+                assert_eq!(warnings.len(), 1);
+                assert!(warnings[0].contains("PermissionGroup/Acme.Remove"));
+                assert!(warnings[0].contains("[[server_owned]]"));
+                assert_eq!(
+                    warnings[0].contains("User/Acme.Runtime"),
+                    selector.is_none()
+                );
+                assert_eq!(warnings[0].contains("Group/Acme.Users"), selector.is_none());
+                assert!(!warnings[0].contains("PermissionGroup/Acme.Keep"));
+                if selector == Some("members:User,Group") {
+                    assert!(warnings[0].contains("extend the existing typed members policy"));
+                    assert!(warnings[0].contains("members:User,Group,PermissionGroup"));
+                    assert!(!warnings[0].contains("parts = [\"members\"]"));
+                }
+            }
+            assert_eq!(
+                fake.imports.lock().unwrap().len(),
+                usize::from(apply && selector != Some("members"))
+            );
+        }
+    }
+}
+
+#[test]
+fn role_removals_are_intended_only_when_the_server_matches_the_baseline() {
+    let server = b"<Entities><Roles><Role name='Acme.Access'><Members><Member type='PermissionGroup' name='PG'/><Member type='Group' name='UG'/></Members></Role></Roles></Entities>".to_vec();
+    let local = String::from_utf8(server.clone())
+        .unwrap()
+        .replace("<Member type='PermissionGroup' name='PG'/>", "")
+        .into_bytes();
+    for selector in [None, Some("members:User,Group")] {
+        let role = Entity {
+            collection: "Roles".into(),
+            name: "Acme.Access".into(),
+            bytes: local.clone(),
+            server_owned: selector
+                .map(|s| vec![s.to_string().try_into().unwrap()])
+                .unwrap_or_default(),
+        };
+        let fake = Fake::default();
+        fake.held
+            .lock()
+            .unwrap()
+            .insert((role.collection.clone(), role.name.clone()), server.clone());
+        let projects = [project("P", vec![role.clone()], vec![])];
+        for baseline_matches in [true, false] {
+            let mut baseline = Baseline::default();
+            let hash = normalise::hash_with_parts(&server, &role.server_owned).unwrap();
+            baseline.set(
+                "Roles",
+                "Acme.Access",
+                hash.clone(),
+                if baseline_matches {
+                    hash
+                } else {
+                    "changed".into()
+                },
+            );
+            let plans = plan::decide_all(&fake, &baseline, &projects).unwrap();
+            assert_eq!(plans[0].warnings.is_empty(), baseline_matches);
+            assert_eq!(
+                plans[0].removed_members,
+                if baseline_matches {
+                    vec!["PermissionGroup/PG"]
+                } else {
+                    vec![]
+                }
+            );
+        }
+    }
+}
+
+#[test]
+fn role_warnings_precede_import_and_survive_read_back_and_later_import_failure() {
+    use crate::core::progress::Progress;
+    struct BeforeImport<'a> {
+        fake: &'a Fake,
+        warnings: Mutex<Vec<String>>,
+    }
+    impl Progress for BeforeImport<'_> {
+        fn start(&self, _: &str, _: Option<u64>) {}
+        fn advance(&self, _: u64) {}
+        fn message(&self, _: &str) {}
+        fn finish(&self) {}
+        fn warning(&self, text: &str) {
+            assert!(self.fake.imports.lock().unwrap().is_empty());
+            self.warnings.lock().unwrap().push(text.to_string());
+        }
+    }
+    for later_import in [false, true] {
+        let local =
+            b"<Entities><Roles><Role name='Acme.Access'><Members/></Role></Roles></Entities>"
+                .to_vec();
+        let role = Entity {
+            collection: "Roles".into(),
+            name: "Acme.Access".into(),
+            bytes: local.clone(),
+            server_owned: vec![],
+        };
+        let fake = Fake {
+            fail_import: later_import.then(|| "B.xml".into()),
+            read_back_failures: if later_import {
+                BTreeSet::new()
+            } else {
+                BTreeSet::from([("Roles".into(), "Acme.Access".into())])
+            },
+            import_values: BTreeMap::from([("A.xml".into(), vec![role.clone()])]),
+            ..Fake::default()
+        };
+        fake.held.lock().unwrap().insert(("Roles".into(), "Acme.Access".into()), b"<Entities><Roles><Role name='Acme.Access'><Members><Member type='PermissionGroup' name='PG'/></Members></Role></Roles></Entities>".to_vec());
+        let mut projects = vec![project("A", vec![role], vec![])];
+        projects[0].bytes = local;
+        if later_import {
+            projects.push(project("B", vec![target("B", "b();")], vec![]));
+        }
+        let progress = BeforeImport {
+            fake: &fake,
+            warnings: Mutex::new(vec![]),
+        };
+        let error = run_with_progress(
+            &fake,
+            &MemoryBaseline::default(),
+            &profile(BTreeMap::new()),
+            &projects,
+            RunOptions {
+                apply: true,
+                force: true,
+                only: false,
+                redeploy_blocks: false,
+            },
+            &progress,
+        )
+        .unwrap_err();
+        let warnings = progress.warnings.lock().unwrap();
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("PermissionGroup/PG"));
+        assert_eq!(
+            error.warnings(),
+            warnings.iter().map(String::as_str).collect::<Vec<_>>()
+        );
+        assert!(if later_import {
+            matches!(error, DeployError::Import { .. })
+        } else {
+            matches!(error, DeployError::NotKept(_))
+        });
+    }
 }

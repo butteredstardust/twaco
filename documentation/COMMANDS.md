@@ -55,7 +55,7 @@ sync <entity>|--all         sidecars -> entity XML
     --relayout              rewrite scripts in the configured CDATA layout
     --json                  print the report as JSON
 fmt [--check] [--entity <name>] [--changed-since <git-rev>]
-                            format service scripts and order subscription Events by alias
+                            format service scripts; order subscription Events and RBAC permission/member sets
     --check                 report which files would change, write nothing
     --entity <name>         an entity name or Collection/Name glob to format (repeatable)
     --changed-since <git-rev>  format entity files and sidecars changed since this revision
@@ -408,6 +408,14 @@ new project <name> [--description <text>] [--depends-on <P>]... [--apply] [--jso
                             create a ThingWorx Project and add it to twaco.toml when needed; plan unless --apply
 new group <name> [--project <name>] [--description <text>] [--apply] [--json]
                             create a ThingWorx Group without members as a repository file; plan unless --apply
+group member <add|remove> <Entity> <User/name|Group/name|PermissionGroup/name> [--apply] [--json]
+                            edit repository membership; plan unless --apply
+role member <add|remove> <Entity> <User/name|Group/name|PermissionGroup/name> [--apply] [--json]
+                            edit repository membership; plan unless --apply
+new role <name> [--project <name>] [--description <text>] [--apply] [--json]
+                            create a ThingWorx Role without members as a repository file; plan unless --apply
+new permission-group <name> [--project <name>] [--description <text>] [--apply] [--json]
+                            create a ThingWorx PermissionGroup without members as a repository file; plan unless --apply
 thing property add <Entity> <name>:<TYPE> [--default <value>] [--persistent] [--logged]
     [--read-only] [--category <text>] [--units <text>] [--data-shape <DataShape>]
     [--description <text>] [--apply] [--json]
