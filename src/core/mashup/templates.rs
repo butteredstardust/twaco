@@ -22,6 +22,7 @@ const LAYOUTS: &[&str] = &[
     include_str!("templates/layouts/header-sidebar.json"),
     include_str!("templates/layouts/sidebar-header.json"),
     include_str!("templates/layouts/form-dialog.json"),
+    include_str!("templates/layouts/form-2col.json"),
     include_str!("templates/layouts/confirm-dialog.json"),
     include_str!("templates/layouts/list-page.json"),
     include_str!("templates/layouts/card.json"),

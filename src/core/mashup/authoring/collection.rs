@@ -434,6 +434,9 @@ pub(crate) fn plan_collection_add(
             ));
         }
     }
+    if request.preset == Some(CollectionPreset::Cards) && request.menu.is_none() {
+        notes.push("cards: add a per-card action menu with mashup collection add --preset cards --menu <StateDefinition>".into());
+    }
     Ok(CollectionAddPlan {
         edit: finish_edit(parent, document, "mashup collection add")?,
         id: added.placed.id,

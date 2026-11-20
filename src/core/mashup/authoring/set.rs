@@ -413,6 +413,19 @@ pub(crate) fn plan_set(
             );
         }
     }
+    if found.type_id == "flexcontainer"
+        && !changed.is_empty()
+        && request
+            .properties
+            .iter()
+            .any(|(key, _)| key.starts_with("flex-") || matches!(key.as_str(), "Width" | "Height"))
+    {
+        document
+            .at_mut(&found.path)
+            .as_object_mut()
+            .expect("widget")
+            .insert("twacoLayoutAuthored".into(), Value::Bool(true));
+    }
     if !changed.is_empty() {
         document.reflow_for(&found.id);
         if widget.is_some_and(|widget| !widget.container) {

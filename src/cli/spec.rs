@@ -747,7 +747,7 @@ pub(crate) const USAGE: &[Usage] = &[
       --end                   with --right-of: at the far end of the row, which splits into a start
                               and an end group (a label and its value, as the kits lay them out)
       --in-column             with --below: stack within that widget's column of a split row;
-                              by default --below adds a row beneath the whole control row
+                              by default --below adds a row beneath the whole control or panel row
       separator               as <widget>: the kits' 1px rule between rows, --below or --above one
       --label <text>          set the widget's LabelText, Label, Text or Title property
       --prop <name=value>     set one simple default property, repeatable; an extension widget's
@@ -871,14 +871,14 @@ pub(crate) const USAGE: &[Usage] = &[
       --from <address>        source address from mashup describe
       --to <address>          target address from mashup describe
                               selected row example: data:Acme.Manager.Load[SelectedRows].name
-                              hints when a selected-row field has no row selector or automatic selection"#,
+                              hints when a selected-row field has no selecting widget"#,
     },
     Usage {
         path: "mashup on",
         group: 1,
         text: r#"  mashup on <mashup> --event <address> --invoke <address> [--apply] [--json]
                               run a service or widget service when a mashup event fires; plan unless --apply
-                              hints when selected-row fields have no row selector or automatic selection
+                              hints when selected-row fields have no selecting widget
       --event <address>       widget/mashup event or data call event (Data_Error on failure)
       --invoke <address>      data call or widget service to run"#,
     },
@@ -943,8 +943,8 @@ pub(crate) const USAGE: &[Usage] = &[
         group: 1,
         text: r#"  mashup recipe <recipe> <mashup> [<widget>] [<button>] [recipe flags] [--apply] [--json] [--detail]
                               write the wiring real mashups repeat, in one edit; plan unless --apply
-      panel <container> [--compact <768|960>]
-                              grey growing column with managed CSS; optional compact viewport gutters
+      panel <container> [--compact <768|960>] [--style <style>]
+                              grey growing column with managed CSS; --style grey (default) or white bordered card; optional compact viewport gutters
       slider-action <slider> <button>
                               align the button centre to the horizontal slider track (default 34px button)
       collapsible <container> [--toggle <button> | --add-toggle --in <container>]
@@ -969,11 +969,15 @@ pub(crate) const USAGE: &[Usage] = &[
       validate <widget>|--on <event> --if <condition> [--input name=<address>]... --then <handler>
           [--else-say <text>]   run the handler when the condition holds, else show the text
       chart <chart> --data <data call> --x <field> [--value <field>] [--kind <chart type>]
+          [--title <text>] [--x-title <text>] [--y-title <text>]
+      --x-title <text>        explicit X-axis name; catalogue placeholders are cleared
+      --y-title <text>        explicit Y-axis name; authored names are preserved
                               draw a service result: the category field (a pie: label and value)
-      columns <grid> --column field[:Title[:width]]... [--data <data call>] [--editable-column <field>]...
+      columns <grid> --column field[:Title[:width[:format]]]... [--date-format <pattern>] [--data <data call>] [--editable-column <field>]...
                               only these columns in order, with readable dates; --data or existing binding;
                               --editable-column makes a listed column (and so the grid) editable
                               --column-editor <field=editor> chooses a typed cell editor (repeatable)
+                              --date-format <pattern> formats DATETIME columns (default yyyy-MM-dd HH:mm:ss for new columns)
                               --preserve-whitespace <field> keeps newlines and spaces when shown (repeatable)
       toolbar <container> --then <data call> --search-param <param>
           [--hint <text>] [--width <px>] [--run-on change|enter|both] [--button Label=<handler>]...
@@ -981,16 +985,25 @@ pub(crate) const USAGE: &[Usage] = &[
                               hint Search..., width 240; both events by default; change/both runs on
                               each keystroke; the clear button fires Changed once
       label-pairs <container> --data <data call> [--field <field>]... [--title <text>]
-          [--columns <n>] [--replace <widget>]
+          [--columns <n>] [--replace <widget>] [--row <first|selected>] [--layout <inline|stacked>]
+          [--status <field> --status-state <name>]
+      --row <first|selected>            first or selected; default selected with a selecting widget on this call, first otherwise
+      --layout <inline|stacked>         inline (default) or stacked caption/value pairs
+      --status <field>         result field driving a 12px circle per pair
+      --status-state <name>   repository StateDefinition mapping the status field to colors
                               caption/value labels from an existing call's DataShape; field[:Caption]
-                              picks/orders/renames; default all fields, a column each; SelectedRows
-                              bindings; empty responsive container unless --replace removes its only child
+                              picks/orders/renames; default all fields, a column each; first row unless
+                              a selecting widget is bound to this call; empty responsive container unless --replace removes its only child
       picker <dropdown|list> --data <data call> --x <display field> [--value <field>]
           [--selected <address>] [--no-none-row] [--auto-select-first]
                               fill a dropdown or list from a service result; without the "(None)" row,
                               or selecting the first row
       tracker <widget|new> --data <data call> [--field-map Property=field]...
-                              interactive large tracker; infer all five maps from the result DataShape
+          [--initial-step <n>] [--step-size <size>] [--host <widget>]
+                              interactive tracker; initial step 1, step-size small|medium|large (default large), minimum spacing 24
+                              --host wires mashupcontainer Name/stepNumber round trip before Data; runtime verification required
+      tree <treeselector> --data <data call> [--field-map Property=field]...
+                              infer IDField/NameField/ParentIDField and optional ColorField; override ambiguous or missing maps
       set-on-click <button> --param <name> --expr <expression> [--input name=<address>]...
                               set a mashup parameter on click; no automatic evaluation
       nested-menu <menubar> --menu <Root> [--no-auto-collapse] [--width <px>]
@@ -1025,7 +1038,7 @@ pub(crate) const USAGE: &[Usage] = &[
                               create a ThingWorx 10.2 responsive mashup as Composer would: its entity file
                               and its content sidecars; plan unless --apply
       --from <address>        copy a repository mashup exactly, except identity and permissions
-      --template              layout template name or alias (default: blank); see mashup templates
+      --template              layout template name or alias (default: blank); form-2col has full-width fields and left/right columns; see mashup templates
       --gadget                fixed dashboard gadget; default 1x1, 240px per cell
       --layout                gadget columns x rows: 1x1, 2x1, 4x1, 1x2, 2x2, 4x2, 1x4, 2x4, 4x4; otherwise alias for --template
       --primary-menu          an INFOTABLE service result for a template's menu bar
@@ -1048,7 +1061,7 @@ pub(crate) const USAGE: &[Usage] = &[
                               create a ThingWorx 10.2 responsive mashup as Composer would: its entity file
                               and its content sidecars; plan unless --apply
       --from <address>        copy a repository mashup exactly, except identity and permissions
-      --template              layout template name or alias (default: blank); see mashup templates
+      --template              layout template name or alias (default: blank); form-2col has full-width fields and left/right columns; see mashup templates
       --gadget                fixed dashboard gadget; default 1x1, 240px per cell
       --layout                gadget columns x rows: 1x1, 2x1, 4x1, 1x2, 2x2, 4x2, 1x4, 2x4, 4x4; otherwise alias for --template
       --primary-menu          an INFOTABLE service result for a template's menu bar

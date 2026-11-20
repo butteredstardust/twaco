@@ -337,7 +337,10 @@ pub(crate) const BUILT_IN_GATES: &[&str] = &[
 /// A built-in gate as the solution wants it: blocking, or advisory when `[gates] advisory`
 /// names it.
 fn as_configured(solution: &Solution, mut gate: GateResult) -> GateResult {
-    if solution.gates.advisory.contains(&gate.name) {
+    if solution.gates.strict.contains(&gate.name) {
+        gate.findings.append(&mut gate.warnings);
+        gate.gates_the_run = true;
+    } else if solution.gates.advisory.contains(&gate.name) {
         gate.gates_the_run = false;
     }
     gate
@@ -1889,16 +1892,21 @@ fn mashup_content(solution: &Solution, discovered: &workspace::Discovery) -> Gat
     use super::mashup::validate;
     let (mashups, problems) = validate::content_problems_in(solution, discovered);
     let mut result = GateResult::passed(validate::GATE, mashups);
-    result.findings = problems
-        .into_iter()
-        .map(|(file, problem)| Finding {
+    for (file, problem) in problems {
+        let advisory = problem.severity == validate::Severity::Advisory;
+        let finding = Finding {
             gate: validate::GATE.to_string(),
             file,
             line: 0,
             rule: problem.rule,
             message: problem.message,
-        })
-        .collect();
+        };
+        if advisory {
+            result.warnings.push(finding);
+        } else {
+            result.findings.push(finding);
+        }
+    }
     result.prose.push(format!(
         "{mashups} mashups checked; widgets outside the catalogue (extensions) are not judged"
     ));

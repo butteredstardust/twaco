@@ -5324,6 +5324,7 @@
     },
     "outputSchema": {
       "required": [
+        "notes",
         "applied",
         "dry_run",
         "mashup",
@@ -5338,6 +5339,12 @@
         "menus"
       ],
       "properties": {
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "replacements": {
           "type": [
             "array",
@@ -7570,7 +7577,7 @@
   },
   {
     "name": "mashup_recipe",
-    "description": "Write one recipe: the wiring real mashups repeat, in one edit. panel (widget responsive column, compact optional 768|960 inclusive viewport breakpoint; grey growing panel, inherited wrapper backgrounds, managed CSS). slider-action (widget horizontal slider, button; exactly two flow-sized controls in an existing responsive row; measured track-centre alignment assumes the default 34px button; 18px bottom margin with min/max labels, otherwise 0px, and 12px gap). toolbar (widget empty responsive container, then existing call, search_param STRING input, hint default Search..., width default 240, run_on change|enter|both default both, buttons ordered Label=handler; 48px search row, change/both runs on each keystroke, the clear button fires Changed once). label-pairs (widget responsive container, data existing call, fields field[:Caption], title, label_columns default one per field, replace inside or beside; caption/value labels bound to SelectedRows, empty destination required). enable-when/show-when (widget, condition, inputs name=address: an expression into Disabled/Visible), text (widget, expression, inputs: a label's computed text), message (after a data call: success say or from, kind info|warning|error; on_failure text shows a separate error on Data_Error and may be used alone), confirm (widget, then, title, say, action_label, cancel_label), popup (widget or on, target mashup, window modal-popup|popup|replace|new, size WxH, title, pass name=address, reload handler on close), close-after (after a data call succeeds the popup closes itself; failure leaves it open), auto-refresh (then data call, every seconds or interval address), validate (widget or on, condition, inputs, then, else_say), chart (widget, data, x, value for a pie, kind), columns (widget, columns field[:Title[:width]], data or existing binding; only listed fields visible, readable DATETIME), picker (widget, data, x display field, value, selected), tracker (widget or new, data; interactive large tracker with five DataShape field maps inferred, field_maps Property=field overrides required for missing or ambiguous maps), set-on-click (widget, param, expression, inputs; evaluate only on click and write the mashup parameter). collapsible (widget container with siblings; toggle existing button or add_toggle with in_container outside it; tab inside|outside|none, start collapsed). A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content/CSS sidecars together.",
+    "description": "Write one recipe: the wiring real mashups repeat, in one edit. panel (widget responsive column, compact optional 768|960 inclusive viewport breakpoint; style grey (default) or white bordered card, inherited wrapper backgrounds, managed CSS). slider-action (widget horizontal slider, button; exactly two flow-sized controls in an existing responsive row; measured track-centre alignment assumes the default 34px button; 18px bottom margin with min/max labels, otherwise 0px, and 12px gap). toolbar (widget empty responsive container, then existing call, search_param STRING input, hint default Search..., width default 240, run_on change|enter|both default both, buttons ordered Label=handler; 48px search row, change/both runs on each keystroke, the clear button fires Changed once). label-pairs (widget responsive container, data existing call, fields field[:Caption], title, label_columns default one per field, replace inside or beside; caption/value labels bound to SelectedRows, empty destination required). enable-when/show-when (widget, condition, inputs name=address: an expression into Disabled/Visible), text (widget, expression, inputs: a label's computed text), message (after a data call: success say or from, kind info|warning|error; on_failure text shows a separate error on Data_Error and may be used alone), confirm (widget, then, title, say, action_label, cancel_label), popup (widget or on, target mashup, window modal-popup|popup|replace|new, size WxH, title, pass name=address, reload handler on close), close-after (after a data call succeeds the popup closes itself; failure leaves it open), auto-refresh (then data call, every seconds or interval address), validate (widget or on, condition, inputs, then, else_say), chart (widget, data, x, value for a pie, kind), columns (widget, columns field[:Title[:width[:format]]], date_format optional DATETIME pattern, data or existing binding; only listed fields visible, readable DATETIME), picker (widget, data, x display field, value, selected), tracker (widget or new, data; initial_step defaults to 1, step_size small|medium|large defaults to large, MinStepSpacing 24; host optionally wires mashupcontainer stepNumber round trip and Name before Data; runtime verification required; five DataShape field maps inferred, field_maps Property=field overrides for missing or ambiguous maps), tree (widget tree selector, data; infer IDField/NameField/ParentIDField and optional ColorField; field_maps overrides for missing or ambiguous maps), set-on-click (widget, param, expression, inputs; evaluate only on click and write the mashup parameter). collapsible (widget container with siblings; toggle existing button or add_toggle with in_container outside it; tab inside|outside|none, start collapsed). A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content/CSS sidecars together.",
     "inputSchema": {
       "required": [
         "recipe",
@@ -7579,6 +7586,23 @@
       "additionalProperties": false,
       "type": "object",
       "properties": {
+        "style": {
+          "description": "panel: grey (default) or white bordered card.",
+          "type": "string"
+        },
+        "initial_step": {
+          "description": "tracker: initial CurrentStepNumber (default 1); runtime verification required.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "step_size": {
+          "description": "tracker: small, medium or large (default).",
+          "type": "string"
+        },
+        "host": {
+          "description": "tracker: mashupcontainer with a bindable NUMBER stepNumber parameter; wires round trip before Data.",
+          "type": "string"
+        },
         "compact": {
           "description": "panel: inclusive viewport breakpoint for 12px gutters; 768 or 960.",
           "type": "integer",
@@ -7624,6 +7648,42 @@
           "type": "integer",
           "minimum": 0
         },
+        "date_format": {
+          "description": "columns: DATETIME display pattern, e.g. dd-MM-yyyy.",
+          "type": "string"
+        },
+        "row": {
+          "description": "label-pairs: first or selected; default selected only with a selecting widget on this call.",
+          "type": "string",
+          "enum": [
+            "first",
+            "selected"
+          ]
+        },
+        "layout": {
+          "description": "label-pairs: inline (default) or stacked caption/value presentation.",
+          "type": "string",
+          "enum": [
+            "inline",
+            "stacked"
+          ]
+        },
+        "status": {
+          "description": "label-pairs: field bound to each status circle; needs status_state.",
+          "type": "string"
+        },
+        "status_state": {
+          "description": "label-pairs: repository StateDefinition mapping status values to colors.",
+          "type": "string"
+        },
+        "x_title": {
+          "description": "chart: explicit X-axis label; omitted clears only catalogue placeholders.",
+          "type": "string"
+        },
+        "y_title": {
+          "description": "chart: explicit Y-axis label (all combo Y axes); omitted preserves authored names.",
+          "type": "string"
+        },
         "replace": {
           "description": "label-pairs: widget inside or beside the destination to remove with its bindings.",
           "type": "string"
@@ -7666,7 +7726,7 @@
           "type": "string"
         },
         "field_maps": {
-          "description": "Tracker overrides as `Property=field`, using catalogue field-map property names.",
+          "description": "Tracker/tree overrides as `Property=field`, using catalogue field-map property names.",
           "type": "array",
           "items": {
             "type": "string"
@@ -7755,7 +7815,7 @@
           "type": "string"
         },
         "columns": {
-          "description": "`field[:Title[:width]]` grid columns.",
+          "description": "`field[:Title[:width[:format]]]` grid columns; format overrides date_format for DATETIME.",
           "type": "array",
           "items": {
             "type": "string"

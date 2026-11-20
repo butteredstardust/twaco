@@ -1045,6 +1045,19 @@ pub(crate) struct MashupParameterRequest {
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct MashupRecipeRequest {
+    /// panel: grey (default) or white bordered card.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) style: Absent<String>,
+    /// tracker: initial CurrentStepNumber (default 1); runtime verification required.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) initial_step: Absent<u32>,
+    /// tracker: small, medium or large (default).
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) step_size: Absent<String>,
+    /// tracker: mashupcontainer with a bindable NUMBER stepNumber parameter; wires round trip before Data.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) host: Absent<String>,
+
     /// panel: inclusive viewport breakpoint for 12px gutters; 768 or 960.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) compact: Absent<u32>,
@@ -1070,6 +1083,30 @@ pub(crate) struct MashupRecipeRequest {
     /// label-pairs: number of columns, one per field by default, above zero.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) label_columns: Absent<u32>,
+    /// columns: DATETIME display pattern, e.g. dd-MM-yyyy.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) date_format: Absent<String>,
+    /// label-pairs: first or selected; default selected only with a selecting widget on this call.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    #[schemars(extend("enum" = ["first", "selected"]))]
+    pub(crate) row: Absent<String>,
+    /// label-pairs: inline (default) or stacked caption/value presentation.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    #[schemars(extend("enum" = ["inline", "stacked"]))]
+    pub(crate) layout: Absent<String>,
+    /// label-pairs: field bound to each status circle; needs status_state.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) status: Absent<String>,
+    /// label-pairs: repository StateDefinition mapping status values to colors.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) status_state: Absent<String>,
+    /// chart: explicit X-axis label; omitted clears only catalogue placeholders.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) x_title: Absent<String>,
+    /// chart: explicit Y-axis label (all combo Y axes); omitted preserves authored names.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) y_title: Absent<String>,
+
     /// label-pairs: widget inside or beside the destination to remove with its bindings.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) replace: Absent<String>,
@@ -1097,7 +1134,7 @@ pub(crate) struct MashupRecipeRequest {
     /// Destination mashup parameter for set-on-click.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) param: Absent<String>,
-    /// Tracker overrides as `Property=field`, using catalogue field-map property names.
+    /// Tracker/tree overrides as `Property=field`, using catalogue field-map property names.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) field_maps: Absent<Vec<String>>,
     /// Confirmation action button text.
@@ -1153,7 +1190,7 @@ pub(crate) struct MashupRecipeRequest {
     /// A pie's or picker's value field.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) value: Absent<String>,
-    /// `field[:Title[:width]]` grid columns.
+    /// `field[:Title[:width[:format]]]` grid columns; format overrides date_format for DATETIME.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) columns: Absent<Vec<String>>,
     /// What a picker's selection is bound from.

@@ -580,6 +580,29 @@ fn every_flag_means_the_same_in_every_command() {
                 assert_eq!(value_names, ["old=new"]);
                 continue;
             }
+            // Tracker host selects a container; directory services take a network host.
+            if command.path == "mashup recipe" && name == "--host" {
+                assert_eq!(kind, "value");
+                assert_eq!(value_names, ["widget"]);
+                continue;
+            }
+            // Panel style selects a preset; mashup set --style assigns style properties.
+            if command.path == "mashup recipe" && name == "--style" {
+                assert_eq!(kind, "value");
+                assert_eq!(value_names, ["style"]);
+                continue;
+            }
+            // Recipe layout selects presentation; gadget creation declares dimensions.
+            if command.path == "mashup recipe" && name == "--layout" {
+                assert_eq!(kind, "value");
+                assert_eq!(value_names, ["inline|stacked"]);
+                continue;
+            }
+            if command.path == "mashup recipe" && name == "--row" {
+                assert_eq!(kind, "value");
+                assert_eq!(value_names, ["first|selected"]);
+                continue;
+            }
             // Calls assign values; the other --param flags declare or select parameters.
             if command.path == "call" && name == "--param" {
                 assert_eq!(kind, "repeated");
@@ -1432,4 +1455,61 @@ fn label_pairs_cli_accepts_repeated_fields_and_panel_options() {
     assert_eq!(args.label_columns, Some(3));
     assert_eq!(args.replace.as_deref(), Some("ptcspropertydisplay-8"));
     assert_eq!(args.title.as_deref(), Some("Details"));
+}
+
+#[test]
+fn detail_recipe_flags_parse() {
+    let Command::Mashup(Mashup::Recipe(args)) = parse(&[
+        "mashup",
+        "recipe",
+        "label-pairs",
+        "Acme.Detail_MU",
+        "details",
+        "--data",
+        "data:Acme.Records.GetRecord",
+        "--row",
+        "first",
+        "--layout",
+        "inline",
+        "--status",
+        "status",
+        "--status-state",
+        "Acme.Status",
+        "--x-title",
+        "Category",
+        "--y-title",
+        "Count",
+    ])
+    .unwrap() else {
+        panic!("recipe");
+    };
+    assert_eq!(args.row.as_deref(), Some("first"));
+    assert_eq!(args.layout.as_deref(), Some("inline"));
+    assert_eq!(args.status.as_deref(), Some("status"));
+    assert_eq!(args.status_state.as_deref(), Some("Acme.Status"));
+    assert_eq!(args.x_title.as_deref(), Some("Category"));
+    assert_eq!(args.y_title.as_deref(), Some("Count"));
+}
+
+#[test]
+fn source_add_accepts_service_without_selection_options() {
+    let Command::Mashup(Mashup::Source(source)) = parse(&[
+        "mashup",
+        "source",
+        "add",
+        "Acme.Detail_MU",
+        "Acme.Records",
+        "GetRecord",
+    ])
+    .unwrap() else {
+        panic!("source command");
+    };
+    let super::mashup::MashupSourceCommand::Add(args) = source.command else {
+        panic!("source add");
+    };
+    assert_eq!(
+        args.operands,
+        ["Acme.Detail_MU", "Acme.Records", "GetRecord"]
+    );
+    assert!(!args.apply.apply);
 }

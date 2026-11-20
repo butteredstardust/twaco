@@ -827,6 +827,8 @@ fn recipe_options_plan_and_apply_through_cli_and_mcp() {
                     "data:Acme.Manager.GetSteps",
                     "--column",
                     "start:Started:180",
+                    "--date-format",
+                    "dd-MM-yyyy",
                     "--column",
                     "caption:Step",
                     "--column",
@@ -838,7 +840,7 @@ fn recipe_options_plan_and_apply_through_cli_and_mcp() {
                     "--preserve-whitespace",
                     "Notes",
                 ],
-                json!({"data":"data:Acme.Manager.GetSteps", "columns":["start:Started:180", "caption:Step", "Notes"], "editable_columns":["Notes"], "column_editors":["Notes=textarea"], "preserve_whitespace":["Notes"]}),
+                json!({"date_format":"dd-MM-yyyy", "data":"data:Acme.Manager.GetSteps", "columns":["start:Started:180", "caption:Step", "Notes"], "editable_columns":["Notes"], "column_editors":["Notes=textarea"], "preserve_whitespace":["Notes"]}),
             ),
             (
                 "tracker",
@@ -921,10 +923,7 @@ fn recipe_options_plan_and_apply_through_cli_and_mcp() {
                     assert_eq!(columns.len(), 8);
                     assert_eq!(columns[0]["FieldName"], "start");
                     assert_eq!(columns[0]["FormatOptions"]["renderer"], "DATETIME");
-                    assert_eq!(
-                        columns[0]["FormatOptions"]["FormatString"],
-                        "[[dateTimeFormat_Default]]"
-                    );
+                    assert_eq!(columns[0]["FormatOptions"]["FormatString"], "dd-MM-yyyy");
                     assert_eq!(columns[2]["FieldName"], "Notes");
                     assert_eq!(columns[2]["cellEditor"], "textarea");
                     assert_eq!(columns[2]["preserveWhiteSpaces"], true);
@@ -942,7 +941,7 @@ fn recipe_options_plan_and_apply_through_cli_and_mcp() {
                 "tracker" => {
                     let props = properties(&content["UI"], "ptcsprogresstracker").unwrap();
                     assert!(props.get("CurrentStepMashup").is_none());
-                    assert!(props.get("CurrentStepNumber").is_none());
+                    assert_eq!(props["CurrentStepNumber"], 1);
                     assert_eq!(props["IsInteractive"], true);
                     assert_eq!(props["StepSize"], "large");
                     assert_eq!(props["StepLabelField"], "caption");
@@ -950,7 +949,7 @@ fn recipe_options_plan_and_apply_through_cli_and_mcp() {
                     let id = props["Id"].as_str().unwrap();
                     let stored = std::fs::read_to_string(&sidecar).unwrap().replace(
                         "\"Type\": \"ptcsprogresstracker\"",
-                        "\"CurrentStepMashup\": \"\", \"CurrentStepNumber\": 1, \"Type\": \"ptcsprogresstracker\"",
+                        "\"CurrentStepMashup\": \"\", \"Type\": \"ptcsprogresstracker\"",
                     );
                     std::fs::write(&sidecar, &stored).unwrap();
                     let synced = twaco::core::mashup::sync(
@@ -983,7 +982,7 @@ fn recipe_options_plan_and_apply_through_cli_and_mcp() {
                         .unwrap();
                     assert!(text_plan.status.success());
                     assert!(String::from_utf8_lossy(&text_plan.stderr).contains(
-                        "removed stored CurrentStepMashup/CurrentStepNumber: a stored value blanks the step container at load"
+                        "removed stored CurrentStepMashup output; initialise selection through CurrentStepNumber"
                     ));
                     assert_eq!(std::fs::read_to_string(&sidecar).unwrap(), stored);
                     repair_args["dry_run"] = json!(false);
@@ -993,7 +992,7 @@ fn recipe_options_plan_and_apply_through_cli_and_mcp() {
                     let repaired_props =
                         properties(&repaired_content["UI"], "ptcsprogresstracker").unwrap();
                     assert!(repaired_props.get("CurrentStepMashup").is_none());
-                    assert!(repaired_props.get("CurrentStepNumber").is_none());
+                    assert_eq!(repaired_props["CurrentStepNumber"], 1);
                     let entity_before = std::fs::read(&entity).unwrap();
                     let repeated = invoke(root, mcp, &cli, "mashup_recipe", repair_args);
                     assert_eq!(repeated["unchanged"], true);
@@ -1514,4 +1513,212 @@ fn panel_stops_at_contained_mashups_and_accepts_exact_prefixed_display_names() {
     assert!(result["UI"]["Properties"]["StyleProperties"]["data"]
         .get("flexcontainer-8")
         .is_none());
+}
+
+#[test]
+fn card_preset_plans_and_applies_identically_through_cli_and_mcp() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    layout_fixture(root, false, |_| {});
+    let cli = [
+        "mashup",
+        "recipe",
+        "panel",
+        "Acme.Layout_MU",
+        "flexcontainer-2",
+        "--style",
+        "card",
+    ];
+    let args = json!({"recipe":"panel", "mashup":"Acme.Layout_MU", "widget":"flexcontainer-2", "style":"card"});
+    let before = layout_bytes(root);
+    let planned = invoke(root, false, &cli, "mashup_recipe", args.clone());
+    let mut mcp_plan = invoke(root, true, &cli, "mashup_recipe", args.clone());
+    for key in ["dry_run", "notices", "duration_ms"] {
+        mcp_plan.as_object_mut().unwrap().remove(key);
+    }
+    assert_eq!(planned, mcp_plan);
+    assert_eq!(layout_bytes(root), before);
+    let mut apply = args;
+    apply["dry_run"] = json!(false);
+    invoke(root, true, &cli, "mashup_recipe", apply);
+    let after = layout_bytes(root);
+    let mut cli = cli.to_vec();
+    cli.push("--apply");
+    assert_eq!(
+        invoke(root, false, &cli, "mashup_recipe", json!({}))["unchanged"],
+        true
+    );
+    assert_eq!(layout_bytes(root), after);
+    let result = layout_result(root);
+    assert_eq!(
+        result["UI"]["Properties"]["StyleProperties"]["data"]["flexcontainer-2"]["parts"]["$"]["$"]
+            ["background"],
+        "#ffffff"
+    );
+}
+
+#[test]
+fn tree_and_tracker_options_plan_and_apply_through_cli_and_mcp() {
+    for mcp in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::write(root.join("twaco.toml"), "[[project]]\nname = 'Acme'\n").unwrap();
+        std::fs::create_dir_all(root.join("Things")).unwrap();
+        std::fs::create_dir_all(root.join("DataShapes")).unwrap();
+        std::fs::write(root.join("Things/Acme.Manager.xml"), r#"<Entities><Things><Thing name="Acme.Manager" projectName="Acme"><ThingShape><ServiceDefinitions><ServiceDefinition name="GetNodes"><ResultType baseType="INFOTABLE" aspect.dataShape="Acme.Nodes_DS"/></ServiceDefinition></ServiceDefinitions></ThingShape></Thing></Things></Entities>"#).unwrap();
+        std::fs::write(root.join("DataShapes/Acme.Nodes_DS.xml"), r#"<Entities><DataShapes><DataShape name="Acme.Nodes_DS" projectName="Acme"><FieldDefinitions><FieldDefinition name="id" baseType="STRING"/><FieldDefinition name="caption" baseType="STRING"/><FieldDefinition name="parentId" baseType="STRING"/><FieldDefinition name="stepNumber" baseType="NUMBER"/></FieldDefinitions></DataShape></DataShapes></Entities>"#).unwrap();
+        invoke(
+            root,
+            mcp,
+            &["mashup", "new", "Acme.Wizard_MU", "--apply"],
+            "mashup_new",
+            json!({"name":"Acme.Wizard_MU", "dry_run":false}),
+        );
+        invoke(
+            root,
+            mcp,
+            &[
+                "mashup",
+                "new",
+                "Acme.Step_MU",
+                "--param",
+                "stepNumber:NUMBER:BOTH",
+                "--apply",
+            ],
+            "mashup_new",
+            json!({"name":"Acme.Step_MU", "params":["stepNumber:NUMBER:BOTH"], "dry_run":false}),
+        );
+        let host = invoke(
+            root,
+            mcp,
+            &[
+                "mashup",
+                "add-contained",
+                "Acme.Wizard_MU",
+                "Acme.Step_MU",
+                "--apply",
+            ],
+            "mashup_add_contained",
+            json!({"mashup":"Acme.Wizard_MU", "child":"Acme.Step_MU", "dry_run":false}),
+        );
+        let host = host["id"].as_str().unwrap();
+        let tree = invoke(
+            root,
+            mcp,
+            &[
+                "mashup",
+                "add",
+                "Acme.Wizard_MU",
+                "tree",
+                "--below",
+                host,
+                "--apply",
+            ],
+            "mashup_add",
+            json!({"mashup":"Acme.Wizard_MU", "widget":"tree", "below":host, "dry_run":false}),
+        );
+        let tree = tree["id"].as_str().unwrap();
+        let tracker = invoke(
+            root,
+            mcp,
+            &[
+                "mashup",
+                "add",
+                "Acme.Wizard_MU",
+                "progress-tracker",
+                "--below",
+                tree,
+                "--apply",
+            ],
+            "mashup_add",
+            json!({"mashup":"Acme.Wizard_MU", "widget":"progress-tracker", "below":tree, "dry_run":false}),
+        );
+        let tracker_id = tracker["id"].as_str().unwrap();
+        for (name, widget, flags, options) in [
+            (
+                "tree",
+                tree,
+                vec!["--field-map", "NameField=caption"],
+                json!({"field_maps":["NameField=caption"]}),
+            ),
+            (
+                "tracker",
+                tracker_id,
+                vec![
+                    "--field-map",
+                    "StepLabelField=caption",
+                    "--initial-step",
+                    "2",
+                    "--step-size",
+                    "small",
+                    "--host",
+                    host,
+                ],
+                json!({"field_maps":["StepLabelField=caption"], "initial_step":2, "step_size":"small", "host":host}),
+            ),
+        ] {
+            let mut cli = vec![
+                "mashup",
+                "recipe",
+                name,
+                "Acme.Wizard_MU",
+                widget,
+                "--data",
+                "data:Acme.Manager.GetNodes",
+            ];
+            cli.extend(flags);
+            let mut args = options;
+            for (key, value) in [
+                ("mashup", "Acme.Wizard_MU"),
+                ("recipe", name),
+                ("widget", widget),
+                ("data", "data:Acme.Manager.GetNodes"),
+            ] {
+                args[key] = json!(value);
+            }
+            let before = std::fs::read(root.join("Mashups/Acme.Wizard_MU.xml")).unwrap();
+            invoke(root, mcp, &cli, "mashup_recipe", args.clone());
+            assert_eq!(
+                std::fs::read(root.join("Mashups/Acme.Wizard_MU.xml")).unwrap(),
+                before
+            );
+            cli.push("--apply");
+            args["dry_run"] = json!(false);
+            invoke(root, mcp, &cli, "mashup_recipe", args);
+        }
+        let content: Value = serde_json::from_slice(
+            &std::fs::read(root.join("src/Acme.Wizard_MU/mashup/content.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            properties(&content["UI"], "ptcstreeselector").unwrap()["NameField"],
+            "caption"
+        );
+        let tracker = properties(&content["UI"], "ptcsprogresstracker").unwrap();
+        assert_eq!(tracker["CurrentStepNumber"], 2);
+        assert_eq!(tracker["StepSize"], "small");
+        let edges: Vec<_> = content["DataBindings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|binding| binding["TargetId"] == tracker_id || binding["TargetId"] == host)
+            .map(|binding| {
+                (
+                    binding["SourceId"].as_str().unwrap(),
+                    binding["PropertyMaps"][0]["TargetProperty"]
+                        .as_str()
+                        .unwrap(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            edges,
+            vec![
+                (host, "CurrentStepNumber"),
+                (tracker_id, "stepNumber"),
+                (tracker_id, "Name"),
+                ("GetNodes", "Data")
+            ]
+        );
+    }
 }

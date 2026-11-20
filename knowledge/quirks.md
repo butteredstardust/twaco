@@ -38,8 +38,17 @@ and wire the Save button's `Clicked` event to `Evaluate` so validation runs only
 For a one-record form, `data:Acme.Records.GetRecord.title` reads the first row through All Data;
 `data:Acme.Records.GetRecord[SelectedRows].title` stays empty until a row is selected.
 
-SelectedRows field diagnostics read `Data.<section>.Services[]` by `Name` (the call alias), with
-`Properties.AutoSelectFirstRow=true` enabling automatic service selection. Missing/false is off.
+## AutoSelectFirstRow belongs to widgets, not data services (verified on 10.2, 2026-11-20)
+
+A one-row `Acme.Records.GetRecord` result bound from `[SelectedRows].title` stays empty
+even with `Services[].Properties.AutoSelectFirstRow=true`. Import and read-back preserve
+that property, but Runtime ignores it. Runtime scripts expose AutoSelectFirstRow only on
+widgets (collection, dropdown and list/dhxlist), with an `autoSelectFirstRow` setter on
+the collection component; there is no data-service option. Bind the scalar field from
+All Data to read the first row, or bind the result to a selecting widget and enable that
+widget's AutoSelectFirstRow.
+
+`recipe label-pairs` defaults to All Data when no selecting widget receives that same call.
 `DataBindings` identifies fields with `SourceArea="Data"`, `SourceDetails="SelectedRows"` and
 `PropertyMaps[].SourcePropertyType="Field"`; `SourceSection` and `SourceId` identify the call.
 All Data reads the first row. Selecting widgets must receive that same call's whole AllData
@@ -48,7 +57,7 @@ ptcscollection with SelectionMode single/multiple and HandleSelectionUpdates ena
 enabled ptcslist/ptcsdropdown. Composer propagates their selection through the shared Data
 binding; there is no extra two-way flag in twaco's binding shape. Other widgets, extension
 selectors and script-driven selection are conservatively not inferred. Bind/on hints and the
-bindings gate/mashup validation share this advisory; the service option is never changed.
+bindings gate/mashup validation share this advisory.
 
 ## Networks are declarative forests (verified on 10.1)
 
@@ -492,6 +501,16 @@ content rows and a `range` floor on rows holding a filler leave one scroll, on t
 flow by it will not shrink below its title, legend and plot (about 370px): a shorter row overflows
 by the controls above the chart.
 
+The A/G panel sequences reproduced on 10.2 also expose this through nested layout: measuring a
+shared row from its panels' titles can leave it fixed at 161px after filling widgets are added.
+Generated rows must inspect descendants through panel and wrapper layers before measuring controls,
+and re-evaluate their enclosing rows when later additions introduce fillers. Keep a range floor
+on the data row and stop sibling content rows from sharing its spare height. Equal card widths
+require equal grow factors and a zero flex basis; `auto` lets unequal content bias the widths.
+`--below` a panel in a generated split row adds beneath that whole row; `--in-column` requests
+stacking inside its column. A generated singleton wrapper left by removal can be unwrapped only
+when it has no authored geometry, properties, styling or references.
+
 ## Composer clears responsive-container margins
 
 Although the default Margin is 5, Composer normally clears it. Retaining 5 makes fixed bands
@@ -620,15 +639,20 @@ Both properties are needed; changing the parent container's responsive layout
 or flex-grow did not fix the truncation. `mashup new` sets both to `true` for
 template menu bars.
 
-## Progress tracker stored outputs blank the step container at load
+## Progress tracker initial container can be empty
 
-Verified on ThingWorx 10.2 Runtime: a `ptcsprogresstracker` must not store
-`CurrentStepMashup` or `CurrentStepNumber` in its properties. With `CurrentStepMashup`
-bound to a contained mashup's `Name` in `Acme.Steps_MU`, a stored value blanks the
-step container until a step is clicked. Even `"CurrentStepMashup": ""` alone causes
-this. Remove both stored properties so the tracker computes its initial step;
-step 1 then loads immediately and Next advances to step 2 with step 1 checked.
-`mashup recipe tracker` removes these stored values from an existing tracker.
+Verified on ThingWorx 10.2 Runtime: storing `CurrentStepMashup` (including an empty
+string) can blank the step container at load. Removing stored outputs was insufficient
+in a later 10.2 reproduction: binding CurrentStepMashup to a container's Name replaced
+its default first-step mashup with an empty value until a step was clicked. Clicking
+then loaded the child and the step-number round trip worked.
+
+The catalogue declares CurrentStepMashup as output-only, but CurrentStepNumber as
+both input and output. `recipe tracker` now removes only the stored mashup output,
+seeds CurrentStepNumber to 1 and offers `--initial-step` plus optional `--host` wiring
+for comparison. These initialisation candidates still require live verification.
+Five large steps also scrolled at 617px with the default MinStepSpacing of 90; the
+recipe tries 24 and exposes `--step-size`. The catalogue has no explicit fit option.
 
 ## Additional mashup binding and widget observations
 

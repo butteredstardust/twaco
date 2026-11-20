@@ -118,6 +118,8 @@ pub struct Placed {
     pub containers: Vec<String>,
     /// A container whose direction changed to make a sibling insertion possible.
     pub flipped: Option<String>,
+    /// The split row used instead of the requested panel anchor.
+    pub below_row: Option<String>,
     /// Existing leaf widgets that moved into wrappers.
     pub wrapped: Vec<String>,
 }
@@ -667,6 +669,7 @@ impl MashupDocument {
         self.keep_remainders_last(&placed);
         self.keep_footers_last();
         self.release_moved_rows(&placed);
+        self.equal_panel_widths(&placed);
         self.fix_rows(&placed);
         self.inherit_backgrounds(&placed);
         Ok(placed)
@@ -827,7 +830,10 @@ impl MashupDocument {
             for index in 0..count {
                 let path = [found.path.as_slice(), &[index]].concat();
                 let child = self.at(&path);
-                if is_spacer(child) || !(is_generated_container(child) || is_panel(child)) {
+                if is_spacer(child)
+                    || authored_layout(child)
+                    || !(is_generated_container(child) || is_panel(child))
+                {
                     continue;
                 }
                 if self.at(&path)["Properties"]["flex-shrink"].as_f64() != Some(0.0) {
@@ -839,6 +845,43 @@ impl MashupDocument {
                     }
                 }
             }
+        }
+    }
+
+    fn equal_panel_widths(&mut self, placed: &Placed) {
+        let Ok(found) = self.find(&placed.id) else {
+            return;
+        };
+        let Some((_, parent)) = found.path.split_last() else {
+            return;
+        };
+        let row = self.at(parent);
+        if !is_generated_container(row)
+            || row["Properties"]["flex-direction"] != "row"
+            || children(row).len() < 2
+            || !children(row).iter().all(is_panel)
+        {
+            return;
+        }
+        let members = children(row).to_vec();
+        for (index, member) in members.iter().enumerate() {
+            let p = &member["Properties"];
+            if authored_layout(member)
+                || p["flex-size"] == "fixed"
+                || p.get("Width").is_some()
+                || p["flex-basis"]
+                    .as_str()
+                    .is_some_and(|basis| !matches!(basis, "" | "auto" | "0" | "0px"))
+                || ["flex-min-width", "flex-max-width"]
+                    .iter()
+                    .any(|key| p[*key].as_str().is_some_and(|s| !s.is_empty()))
+            {
+                continue;
+            }
+            let path = [parent, &[index]].concat();
+            self.set_flex_factor(&path, "flex-grow", 1);
+            self.set_flex_factor(&path, "flex-shrink", 1);
+            self.set_property(&path, "flex-basis", Value::from("0px"));
         }
     }
 
@@ -980,6 +1023,7 @@ impl MashupDocument {
         // widget is its sole content and it has no authored range (a range with a maximum).
         let size = &row["Properties"]["flex-size"];
         if !is_generated_container(row)
+            || authored_layout(row)
             || !sole
             || row["Properties"]["flex-wrap"] == "wrap"
             || !(size.is_null()
@@ -1038,6 +1082,7 @@ impl MashupDocument {
             let row = self.at(&found.path);
             let size = &row["Properties"]["flex-size"];
             if is_generated_container(row)
+                && !authored_layout(row)
                 && (size.is_null() || size == "default" || size == "range")
             {
                 if let Some(floor) = filler_floor(
@@ -1085,7 +1130,7 @@ impl MashupDocument {
                 columns.push(widget_id(node).to_string());
             }
         }
-        for column in columns {
+        for column in columns.into_iter().rev() {
             self.reflow_column(&column, scope);
         }
         let styles = self.value["UI"]["Properties"]["StyleProperties"]["data"].clone();
@@ -1099,7 +1144,10 @@ impl MashupDocument {
                 && node["Properties"]["flex-max-height"] == node["Properties"]["flex-min-height"];
             // A cap twaco set is released once the column is no longer a compact form: a
             // growing filler joined it, or its textarea left.
-            if capped && (holds_growing_filler(node, false, &styles) || !holds_filler(node)) {
+            if capped
+                && !authored_layout(node)
+                && (holds_growing_filler(node, false, &styles) || !holds_filler(node))
+            {
                 self.set_property(candidate, "flex-max-height", Value::from(""));
             }
             let node = self.at(candidate);
@@ -1109,6 +1157,7 @@ impl MashupDocument {
                 || matches!(scope, Reflow::Placement { touched, .. }
                     if touched.iter().any(|id| id == widget_id(node)));
             if ours
+                && !authored_layout(node)
                 && is_generated_container(node)
                 && is_control_stack(node, &styles)
                 && holds_filler(node)
@@ -1162,6 +1211,11 @@ impl MashupDocument {
         let is_filler = |widget: &Value| filler == Some(widget_id(widget)) && can_fill(widget);
         let candidate = rows.iter().position(|row| {
             type_of(row) == Some("flexcontainer")
+                && !authored_layout(row)
+                && (row["Properties"]["flex-max-height"]
+                    .as_str()
+                    .is_none_or(str::is_empty)
+                    || has_measured_height(row))
                 && children(row).len() == 1
                 && is_filler(&children(row)[0])
         });
@@ -1191,6 +1245,29 @@ impl MashupDocument {
         });
         for (index, row) in rows.iter().enumerate() {
             if type_of(row) != Some("flexcontainer") || is_spacer(row) {
+                continue;
+            }
+            let row_path = [column_path.as_slice(), &[index]].concat();
+            if holds_growing_filler(row, control_stack, &styles)
+                && (holds_panel(row) || row.get("twacoLayoutHeight").is_some())
+                && (is_generated_container(row) || is_panel(row))
+                && !authored_layout(row)
+                && (row["Properties"]["flex-max-height"]
+                    .as_str()
+                    .is_none_or(str::is_empty)
+                    || has_measured_height(row))
+                && matches!(scope, Reflow::Placement { .. })
+                && (owns(row) || row["Properties"]["flex-shrink"] == 0)
+            {
+                // A measured title must not keep a later nested data panel fixed.
+                let floor = wrapper_floor_from(self.at(&row_path), &styles, false).unwrap_or(0.0);
+                self.unfix_row(&row_path);
+                self.floor_row(&row_path, floor);
+                self.set_flex_factor(&row_path, "flex-grow", 1);
+                self.set_flex_factor(&row_path, "flex-shrink", 0);
+                continue;
+            }
+            if authored_layout(row) {
                 continue;
             }
             // A footer keeps its controls at the column's foot: in a column of controls it is
@@ -1333,7 +1410,9 @@ impl MashupDocument {
             if is_spacer(row)
                 || !(is_generated_container(row) || is_panel(row))
                 || !(made.iter().any(|id| id == widget_id(row))
-                    || ((compact || navigation) && row["Properties"]["flex-shrink"] == 0))
+                    || ((compact || navigation || holds_panel(row))
+                        && row["Properties"]["flex-shrink"] == 0))
+                || authored_layout(row)
             {
                 continue;
             }
@@ -1396,6 +1475,7 @@ impl MashupDocument {
         };
         let row = self.at(row_path);
         if !is_generated_container(row)
+            || authored_layout(row)
             || !made.iter().any(|made| made == widget_id(row))
             || children(row).len() != 1
             || row["Properties"]["flex-size"] == "fixed"
@@ -1409,16 +1489,15 @@ impl MashupDocument {
         );
         self.floor_row(row_path, height + margin);
         // A horizontal placement can reuse the existing row around several contained mashups.
-        // Measure that shared row again too, taking the tallest child's floor, but only when its
-        // floor is one twaco measured (no maximum): an authored range keeps its limits.
+        // Propagate the measured floor through owned ancestors; authored limits stay intact.
         let styles = self.value["UI"]["Properties"]["StyleProperties"]["data"].clone();
         let mut path = row_path.to_vec();
         while path.pop().is_some() && !path.is_empty() {
             let node = self.at(&path);
-            let shared_measured_row = path.len() + 1 == row_path.len()
-                && node["Properties"]["flex-shrink"] == 0
-                && is_measured_floor(node);
-            if !is_generated_container(node)
+            let shared_measured_row =
+                node["Properties"]["flex-shrink"] == 0 && is_measured_floor(node);
+            if !(is_generated_container(node) || is_panel(node))
+                || authored_layout(node)
                 || !(made.iter().any(|made| made == widget_id(node)) || shared_measured_row)
                 || node["Properties"]["flex-size"] != "range"
             {
@@ -1557,6 +1636,9 @@ impl MashupDocument {
     }
 
     fn fix_row(&mut self, path: &[usize], tallest: f64, owned: bool) {
+        if authored_layout(self.at(path)) {
+            return;
+        }
         let node = self.at(path).clone();
         // Natural text/rule sizing belongs to generated wrappers. A placement in an authored
         // row may still grow an existing fixed size, but never gives that row a new size mode.
@@ -1599,6 +1681,13 @@ impl MashupDocument {
             "iconClass",
             Value::from("widgets-flexcontainer-fixed"),
         );
+        if owned {
+            let height = self.at(path)["Properties"]["flex-min-height"].clone();
+            self.at_mut(path)
+                .as_object_mut()
+                .expect("widget")
+                .insert("twacoLayoutHeight".into(), height);
+        }
         // A fixed row has no spare height to take.
         self.set_flex_factor(path, "flex-grow", 0);
     }
@@ -1607,9 +1696,23 @@ impl MashupDocument {
     /// is not an empty wrapper to tidy away, whatever its name.
     fn is_named_outside_layout(&self, id: &str) -> bool {
         let quoted = Value::from(id).to_string();
-        ["Data", "DataBindings", "Events"]
-            .iter()
-            .any(|section| self.value()[*section].to_string().contains(&quoted))
+        if self.widgets().iter().any(|widget| {
+            widget.id != id
+                && self.at(&widget.path)["Properties"]
+                    .to_string()
+                    .contains(&quoted)
+        }) {
+            return true;
+        }
+        self.value().as_object().is_some_and(|sections| {
+            sections
+                .iter()
+                .any(|(key, value)| key != "UI" && value.to_string().contains(&quoted))
+        }) || self
+            .root_properties()
+            .get("StyleProperties")
+            .and_then(|styles| styles.get("data"))
+            .is_some_and(|data| data.get(id).is_some())
     }
 
     fn remove_empty_generated_wrappers(
@@ -1617,15 +1720,59 @@ impl MashupDocument {
         mut path: WidgetPath,
     ) -> (WidgetPath, Vec<String>) {
         let mut tidied = Vec::new();
-        while !path.is_empty()
-            && children(self.at(&path)).is_empty()
-            && is_generated_container(self.at(&path))
-            && !is_spacer(self.at(&path))
-            && !self.is_named_outside_layout(widget_id(self.at(&path)))
-        {
-            tidied.push(widget_id(self.at(&path)).to_string());
+        while !path.is_empty() {
+            let node = self.at(&path);
+            let id = widget_id(node).to_string();
+            let single = children(node).len() == 1
+                && (is_generated_container(&children(node)[0]) || is_panel(&children(node)[0]));
+            let defaults = new_widget(
+                widgets::catalog()
+                    .by_type("flexcontainer")
+                    .expect("container"),
+                0,
+                true,
+            );
+            let plain = node.as_object().is_some_and(|object| {
+                object.keys().all(|key| {
+                    matches!(key.as_str(), "Properties" | "Widgets" | "twacoLayoutHeight")
+                })
+            }) && node["Properties"].as_object().is_some_and(|properties| {
+                properties.iter().all(|(key, value)| {
+                    matches!(
+                        key.as_str(),
+                        "Id" | "DisplayName"
+                            | "flex-direction"
+                            | "flex-size"
+                            | "flex-min-height"
+                            | "flex-max-height"
+                            | "flex-grow"
+                            | "flex-shrink"
+                            | "iconClass"
+                    ) || defaults["Properties"].get(key) == Some(value)
+                })
+            });
+            if !is_generated_container(node)
+                || is_spacer(node)
+                || (is_footer(node) && single)
+                || authored_layout(node)
+                || (single
+                    && (!plain
+                        || (node["Properties"]["flex-size"] == "fixed"
+                            && !has_measured_height(node))))
+                || self.is_named_outside_layout(&id)
+                || self.style_background(&id).is_some()
+                || !(children(node).is_empty() || single)
+            {
+                break;
+            }
+            tidied.push(id);
             let (index, parent) = path.split_last().expect("non-root has a parent");
-            children_mut(self.at_mut(parent)).remove(*index);
+            if single {
+                let child = children_mut(self.at_mut(&path)).remove(0);
+                self.replace_child(parent, *index, child);
+            } else {
+                children_mut(self.at_mut(parent)).remove(*index);
+            }
             path = parent.to_vec();
         }
         (path, tidied)
@@ -1879,6 +2026,21 @@ impl MashupDocument {
                 anchor.id
             )));
         }
+        let mut below_row = None;
+        if !in_column && side == Side::Below && is_panel(self.at(&anchor.path)) {
+            let parent = &anchor.path[..anchor.path.len() - 1];
+            let row = self.at(parent);
+            if is_generated_container(row)
+                && row["Properties"]["flex-direction"] == "row"
+                && children(row).len() > 1
+                && children(row)
+                    .iter()
+                    .all(|child| is_panel(child) || is_generated_container(child))
+            {
+                below_row = Some(widget_id(row).to_string());
+                anchor = self.find(below_row.as_ref().expect("row anchor"))?;
+            }
+        }
         if !in_column && side.axis() == "column" {
             let styles = &self.value["UI"]["Properties"]["StyleProperties"]["data"];
             let form = (1..anchor.path.len())
@@ -2001,10 +2163,13 @@ impl MashupDocument {
                 anchor_index + 1
             };
             self.insert_child(&parent_path, index, inserted);
+            placed.below_row = below_row;
             return Ok(placed);
         }
 
-        Ok(self.split_beside(widget, &anchor, &parent_path, anchor_index, side))
+        let mut placed = self.split_beside(widget, &anchor, &parent_path, anchor_index, side);
+        placed.below_row = below_row;
+        Ok(placed)
     }
 
     /// Turn a container just placed between rows into the kits' separator: a 1px fixed row with
@@ -2706,7 +2871,13 @@ pub(crate) fn is_footer(widget: &Value) -> bool {
 
 /// Whether a widget that fills sits anywhere inside `widget`, or is it.
 fn holds_filler(widget: &Value) -> bool {
-    fills(widget) || children(widget).iter().any(holds_filler)
+    fills(widget)
+        || (is_panel(widget) && holds_tracker(widget))
+        || children(widget).iter().any(holds_filler)
+}
+
+fn holds_tracker(widget: &Value) -> bool {
+    type_of(widget) == Some("ptcsprogresstracker") || children(widget).iter().any(holds_tracker)
 }
 
 /// A menubar, or wrappers whose only content is one: a header row that also holds a logo or a
@@ -2751,7 +2922,8 @@ fn is_control_stack(widget: &Value, styles: &Value) -> bool {
 /// row whose contents stay at the top (a footer's stay at the bottom).
 fn holds_growing_filler(widget: &Value, control_stack: bool, styles: &Value) -> bool {
     let control_stack = control_stack || is_control_stack(widget, styles);
-    (fills(widget) && !(control_stack && type_of(widget) == Some("ptcstextarea")))
+    (is_panel(widget) && holds_tracker(widget))
+        || (fills(widget) && !(control_stack && type_of(widget) == Some("ptcstextarea")))
         || children(widget)
             .iter()
             .any(|child| holds_growing_filler(child, control_stack, styles))
@@ -2805,8 +2977,10 @@ fn wrapper_floor_from(widget: &Value, styles: &Value, own_minimum: bool) -> Opti
     if type_of(widget) != Some("flexcontainer") {
         return content_height(widget, styles);
     }
-    if let Some(height) = fixed_row_px(widget) {
-        return Some(height);
+    if !holds_growing_filler(widget, false, styles) || authored_layout(widget) {
+        if let Some(height) = fixed_row_px(widget) {
+            return Some(height);
+        }
     }
     // A range row around a filler already says how much it keeps (a contained mashup's floor
     // is measured from the child); the filler's drop height would overstate it.
@@ -2848,6 +3022,9 @@ fn wrapper_floor_from(widget: &Value, styles: &Value, own_minimum: bool) -> Opti
 /// `stack` measures a nested column of several rows as their sum; without it such a column is
 /// left unmeasured.
 fn fixed_row_height(row: &Value, stack: bool, styles: &Value) -> Option<f64> {
+    if holds_growing_filler(row, false, styles) {
+        return None;
+    }
     if is_label_value_row(row) {
         return natural_height(row, styles);
     }
@@ -3108,6 +3285,23 @@ pub(crate) fn has_own_look(widget: &Value) -> bool {
 }
 
 /// Containers twaco created have Composer's generated display name, unlike named template slots.
+fn holds_panel(widget: &Value) -> bool {
+    is_panel(widget) || children(widget).iter().any(holds_panel)
+}
+
+fn has_measured_height(widget: &Value) -> bool {
+    let p = &widget["Properties"];
+    p["flex-size"] == "fixed"
+        && widget.get("twacoLayoutHeight").is_some_and(|height| {
+            p.get("flex-min-height") == Some(height) && p.get("flex-max-height") == Some(height)
+        })
+}
+
+// Explicit `set`/`add --prop` geometry relinquishes automatic layout ownership.
+fn authored_layout(widget: &Value) -> bool {
+    widget["twacoLayoutAuthored"] == true
+}
+
 fn is_generated_container(widget: &Value) -> bool {
     type_of(widget) == Some("flexcontainer")
         && widget["Properties"]["DisplayName"]
@@ -3148,6 +3342,207 @@ mod tests {
     use serde_json::json;
 
     const BLANK: &str = include_str!("templates/blank.content.json");
+
+    fn b1_place(document: &mut MashupDocument, kind: &str, placement: Placement) -> String {
+        document
+            .place(widgets::catalog().resolve(kind).unwrap(), &placement)
+            .unwrap()
+            .id
+    }
+
+    fn b1_beside(anchor: &str, side: Side) -> Placement {
+        Placement::Beside {
+            anchor: anchor.into(),
+            side,
+        }
+    }
+
+    fn b1_panels() -> (MashupDocument, String, String, String) {
+        let mut doc = parse(crate::core::mashup::templates::BLANK).unwrap();
+        let title = b1_place(&mut doc, "label", Placement::In("center".into()));
+        let left = b1_place(&mut doc, "container", b1_beside(&title, Side::Below));
+        let right = b1_place(&mut doc, "container", b1_beside(&left, Side::Right));
+        let path = doc.find(&left).unwrap().path;
+        let row = widget_id(doc.at(&path[..path.len() - 1])).to_string();
+        (doc, left, right, row)
+    }
+
+    #[test]
+    fn b1_nested_wizard_fillers_release_the_existing_shared_row() {
+        for filler in [
+            "progress-tracker",
+            "tree",
+            "grid",
+            "line-chart",
+            "mashupcontainer",
+            "collection",
+            "textarea",
+        ] {
+            let (mut doc, left, right, row) = b1_panels();
+            b1_place(&mut doc, "label", Placement::In(left.clone()));
+            b1_place(&mut doc, "label", Placement::In(right.clone()));
+            if filler == "tree" {
+                for id in [&left, &right] {
+                    let path = doc.find(id).unwrap().path;
+                    let name = doc.at(&path)["Properties"]["DisplayName"]
+                        .as_str()
+                        .unwrap()
+                        .replace("panel-", "container-");
+                    doc.set_property(&path, "DisplayName", json!(name));
+                }
+            }
+            b1_place(&mut doc, filler, Placement::In(left));
+            b1_place(&mut doc, "tree", Placement::In(right));
+            let p = &doc.at(&doc.find(&row).unwrap().path)["Properties"];
+            assert_eq!(p["flex-size"], "range", "{filler}: {p}");
+            assert_eq!(p["flex-grow"], 1, "{filler}");
+            assert_eq!(p["flex-shrink"], 0, "{filler}");
+            assert_eq!(p["flex-max-height"], "", "{filler}");
+            assert!(css_px(&p["flex-min-height"]).unwrap() >= 100.0);
+        }
+    }
+
+    #[test]
+    fn b1_two_and_three_cards_share_width_and_below_promotes_the_row() {
+        let (mut doc, left, right, row) = b1_panels();
+        for card in [&left, &right] {
+            let p = &doc.at(&doc.find(card).unwrap().path)["Properties"];
+            assert_eq!(p["flex-grow"], 1);
+            assert_eq!(p["flex-basis"], "0px");
+        }
+        let third = b1_place(&mut doc, "container", b1_beside(&right, Side::Right));
+        for card in [&left, &right, &third] {
+            let p = &doc.at(&doc.find(card).unwrap().path)["Properties"];
+            assert_eq!(p["flex-grow"], 1);
+            assert_eq!(p["flex-basis"], "0px");
+        }
+        let placed = doc
+            .place(
+                widgets::catalog().resolve("container").unwrap(),
+                &b1_beside(&left, Side::Below),
+            )
+            .unwrap();
+        assert_eq!(placed.below_row.as_deref(), Some(row.as_str()));
+        let path = doc.find(&placed.id).unwrap().path;
+        let row_path = doc.find(&row).unwrap().path;
+        assert_eq!(&path[..path.len() - 1], &row_path[..row_path.len() - 1]);
+        assert_eq!(path.last().unwrap(), &(row_path.last().unwrap() + 1));
+    }
+
+    #[test]
+    fn b1_in_column_add_remove_restores_the_panel_row_structure() {
+        let (mut doc, left, _, row) = b1_panels();
+        let original = children(doc.at(&doc.find(&row).unwrap().path))
+            .iter()
+            .map(|v| widget_id(v).to_string())
+            .collect::<Vec<_>>();
+        let added = b1_place(
+            &mut doc,
+            "container",
+            Placement::BelowInColumn(left.clone()),
+        );
+        let left_path = doc.find(&left).unwrap().path;
+        let added_path = doc.find(&added).unwrap().path;
+        assert_eq!(
+            &left_path[..left_path.len() - 1],
+            &added_path[..added_path.len() - 1]
+        );
+        doc.remove_widget(&added_path).unwrap();
+        let after = children(doc.at(&doc.find(&row).unwrap().path))
+            .iter()
+            .map(|v| widget_id(v).to_string())
+            .collect::<Vec<_>>();
+        assert_eq!(after, original);
+    }
+
+    #[test]
+    fn b1_tracker_panel_grows_without_stretching_the_tracker() {
+        let (mut doc, left, _, row) = b1_panels();
+        b1_place(&mut doc, "label", Placement::In(left.clone()));
+        let tracker = b1_place(&mut doc, "progress-tracker", Placement::In(left));
+        assert_eq!(
+            doc.at(&doc.find(&row).unwrap().path)["Properties"]["flex-size"],
+            "range"
+        );
+        let path = doc.find(&tracker).unwrap().path;
+        assert_ne!(
+            doc.at(&path[..path.len() - 1])["Properties"]["flex-size"],
+            "range"
+        );
+    }
+
+    #[test]
+    fn b1_cleanup_preserves_referenced_styled_and_authored_wrappers() {
+        for guard in [
+            "binding",
+            "extension",
+            "style",
+            "property",
+            "geometry",
+            "layout-reference",
+        ] {
+            let (mut doc, left, _, _) = b1_panels();
+            let added = b1_place(
+                &mut doc,
+                "container",
+                Placement::BelowInColumn(left.clone()),
+            );
+            let path = doc.find(&left).unwrap().path;
+            let wrapper = path[..path.len() - 1].to_vec();
+            let id = widget_id(doc.at(&wrapper)).to_string();
+            match guard {
+                "binding" => doc.value["DataBindings"] = json!([{"TargetId": id}]),
+                "extension" => doc.value["ExtensionConfig"] = json!({"widget": id}),
+                "layout-reference" => doc.value["UI"]["Properties"]["AcmeReference"] = json!(id),
+                "style" => {
+                    doc.value["UI"]["Properties"]["StyleProperties"] =
+                        json!({"data": {id.clone(): {"parts": {}}}})
+                }
+                "property" => doc.set_property(&wrapper, "CustomClass", json!("acme-card")),
+                _ => {
+                    doc.at_mut(&wrapper)["twacoLayoutAuthored"] = json!(true);
+                }
+            }
+            let added_path = doc.find(&added).unwrap().path;
+            doc.remove_widget(&added_path).unwrap();
+            assert!(doc.find(&id).is_ok(), "{guard}");
+        }
+    }
+
+    #[test]
+    fn b1_explicit_card_width_survives_a_third_sibling() {
+        let (mut doc, left, right, _) = b1_panels();
+        let path = doc.find(&left).unwrap().path;
+        doc.set_property(&path, "flex-basis", json!("240px"));
+        b1_place(&mut doc, "container", b1_beside(&right, Side::Right));
+        let p = &doc.at(&doc.find(&left).unwrap().path)["Properties"];
+        assert_eq!(p["flex-basis"], "240px");
+        assert_eq!(p["flex-min-width"], "");
+        assert_eq!(p["flex-max-width"], "");
+    }
+
+    #[test]
+    fn b1_content_cards_yield_height_to_a_nested_chart_row() {
+        let (mut doc, left, right, row) = b1_panels();
+        for panel in [&left, &right] {
+            b1_place(&mut doc, "label", Placement::In(panel.clone()));
+            b1_place(&mut doc, "label", Placement::In(panel.clone()));
+        }
+        let bottom = b1_place(&mut doc, "container", b1_beside(&row, Side::Below));
+        let bottom_right = b1_place(&mut doc, "container", b1_beside(&bottom, Side::Right));
+        for panel in [bottom, bottom_right] {
+            b1_place(&mut doc, "datepicker", Placement::In(panel.clone()));
+            b1_place(&mut doc, "line-chart", Placement::In(panel));
+        }
+        let card_row = &doc.at(&doc.find(&row).unwrap().path)["Properties"];
+        assert_eq!(card_row["flex-grow"], 0, "{card_row}");
+        assert_eq!(card_row["flex-shrink"], 0);
+        let center = doc.find("center").unwrap();
+        let chart_row = children(doc.at(&center.path)).last().unwrap();
+        assert_eq!(chart_row["Properties"]["flex-size"], "range");
+        assert_eq!(chart_row["Properties"]["flex-grow"], 1);
+        assert!(css_px(&chart_row["Properties"]["flex-min-height"]).unwrap() >= 334.0);
+    }
 
     #[test]
     fn fitting_a_sized_leaf_preserves_authored_and_wrapping_rows() {

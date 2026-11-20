@@ -6,6 +6,24 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Add `form-2col` with full-width fields and named equal left/right columns; add grid `--date-format` and per-column date patterns, with new DATETIME columns omitting milliseconds.
+- Add shared CLI/JSON/MCP next-step notes for status icons, date formats, card menus and master attachment.
+- Add `mashup recipe tree` with checked DataShape inference for ID, name, parent and optional color maps, explicit overrides and CLI/MCP parity.
+- Add `mashup recipe panel --style card`: measured white focus-card surface, thin border and padding, inherited wrapper backgrounds and managed CSS; grey remains the default.
+
+### Fixed
+
+- Match the list-page kit content margin across its title, toolbar and body; avoid wrapped-content warnings for short labels, and report mashup advisories as check warnings unless `[gates] strict = ["mashup content"]`.
+- Explain `recipe columns --columns <list>` with the repeatable `--column` grammar before numeric parsing.
+- Tracker recipes seed `CurrentStepNumber=1`, support `--initial-step`, `--step-size` and optional `--host` round-trip wiring before Data, and reduce `MinStepSpacing` to 24. Initial load and 617px fit await live verification; plans state the chosen values and wiring order.
+- Detail label recipes use All Data for first-load values unless a selecting widget is bound to that call; `--row first|selected` overrides the choice. Inline caption/value rows are now the default, with right-aligned values, thin dividers and optional state-formatted status circles (`--status` with `--status-state`); `--layout stacked` keeps the older presentation. Identical reruns preserve bytes.
+- Chart recipes clear catalogue chart-title and axis-name placeholders, preserve authored names, and accept `--title`, `--x-title` and `--y-title`.
+- Keep generated panel rows growing when filling widgets are added inside nested panels, share card widths evenly, and give spare page height to data rows while content rows retain their natural height and page scrolling.
+- Place `mashup add --below <panel>` below its generated split row; `--in-column` keeps explicit stacking. Removing a stacked panel also unwraps an unreferenced, unstyled generated singleton wrapper. Explicit container geometry set with `mashup set` is preserved during later layout changes.
+- `mashup recipe panel` subtracts its 36px of vertical margins from the panel height; before, every row holding panels scrolled by 36px inside a page that already scrolled (live 10.2).
+
 ## [0.1.69] - 2026-11-20
 
 ### Added
@@ -48,7 +66,7 @@ All notable changes to twaco are recorded here. The format follows
 - `mashup unbind` removes a binding whose widget no longer exists, by the id the binding names, and `mashup validate` prints the exact `unbind` command in its `unknown-widget` finding.
 - Adding the first `[[server_owned]]` rule to an entity no longer makes its next deploy refuse for lack of a baseline: while the server still matches the plain baseline, only the repository counts as changed, and the baseline is re-recorded under the new policy. When the baseline cannot be restated, the refusal advises `entity status <entity> --record` instead of `--force`.
 - Repository PermissionGroups explain their target principals in permission comparisons, entity status/diff and deploy read-back. Targets explained by PermissionGroups hash with a `pg1:` marker, so adding or removing a PermissionGroup grant re-baselines those targets. Pull, adopt and `init --from-server` never write the explained principals into target XML, and a permission push names the PermissionGroup principals it removed. Missing derived grants name the PermissionGroup to deploy; target permission pushes never synthesize them. External targets are checked only for derived grants or listed as not checked.
-- SelectedRows field bindings with no selecting widget or automatic first-row selection produce a non-blocking bindings/validation advisory and authoring hints suggesting All Data or automatic selection.
+- SelectedRows field bindings with no selecting widget produce a non-blocking bindings/validation advisory and authoring hints suggesting All Data or widget selection.
 - Entity inclusion selectors accept comma-separated names with surrounding spaces, preserving exact names containing commas and repeated flags; excluded literal names fail rather than becoming lists.
 - `fmt` stages formatted scripts and synced XML together per entity, rolls back failed writes, and reports every changed path. Sidecar repair commands quote collection-qualified addresses and permit structural changes when required.
 - Composer links preserve explicit profile application contexts; origin-only profiles use `/Thingworx`.

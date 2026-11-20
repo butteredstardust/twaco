@@ -25,6 +25,7 @@ pub enum Recipe {
     Panel {
         container: String,
         compact: Option<u32>,
+        style: String,
     },
     SliderAction {
         slider: String,
@@ -46,6 +47,10 @@ pub enum Recipe {
         title: Option<String>,
         columns: Option<u32>,
         replace: Option<String>,
+        row: Option<String>,
+        layout: String,
+        status: Option<String>,
+        status_state: Option<String>,
     },
     Collapsible {
         container: String,
@@ -81,6 +86,14 @@ pub enum Recipe {
     },
     /// An interactive progress tracker whose field maps follow the result DataShape.
     Tracker {
+        widget: String,
+        data: String,
+        field_maps: Vec<(String, String)>,
+        initial_step: u32,
+        step_size: String,
+        host: Option<String>,
+    },
+    Tree {
         widget: String,
         data: String,
         field_maps: Vec<(String, String)>,
@@ -130,12 +143,16 @@ pub enum Recipe {
         x: String,
         value: Option<String>,
         kind: Option<String>,
+        title: Option<String>,
+        x_title: Option<String>,
+        y_title: Option<String>,
     },
     /// A grid's columns, in order, with titles and widths, rendered by each field's base type.
     Columns {
         widget: String,
         data: Option<String>,
         columns: Vec<String>,
+        date_format: Option<String>,
         /// Listed columns made editable; the grid is made editable with them.
         editable: Vec<String>,
         column_editors: Vec<(String, String)>,
@@ -208,6 +225,7 @@ impl Recipe {
             Self::Text { .. } => "text",
             Self::SetOnClick { .. } => "set-on-click",
             Self::Tracker { .. } => "tracker",
+            Self::Tree { .. } => "tree",
             Self::Message { .. } => "message",
             Self::Confirm { .. } => "confirm",
             Self::Popup { .. } => "popup",
@@ -434,10 +452,12 @@ impl Work<'_> {
         container: &str,
         data: &str,
         fields: &[String],
-        title: Option<&str>,
-        columns: Option<u32>,
-        replace: Option<&str>,
+        options: (Option<&str>, Option<u32>, Option<&str>),
+        presentation: (Option<&str>, &str, Option<&str>, Option<&str>),
     ) -> Result<(), AuthoringError> {
+        let (title, columns, replace) = options;
+        let (row_mode, layout, status, status_state) = presentation;
+        let inline = layout == "inline";
         if columns == Some(0) {
             return Err(AuthoringError::Invalid(
                 "label-pairs: --columns must be above 0".into(),
@@ -506,6 +526,18 @@ impl Work<'_> {
                     "{data}: result DataShape is unavailable; add it to the solution"
                 ))
             })?;
+        if let Some(status) = status {
+            self.field(
+                &Some(
+                    shape
+                        .fields
+                        .iter()
+                        .map(|f| (f.name.clone(), f.base_type.clone()))
+                        .collect(),
+                ),
+                status,
+            )?;
+        }
         let known = Some(
             shape
                 .fields
@@ -545,9 +577,72 @@ impl Work<'_> {
                 "{data}: result DataShape has no fields"
             )));
         }
+        if inline {
+            if let Some(styles) = self.document.root_properties().get("StyleProperties") {
+                if !styles.is_object() || !styles.get("data").is_some_and(Value::is_object) {
+                    return Err(AuthoringError::Refused(
+                        "mashup-root.StyleProperties.data must be an object; repair it in Composer"
+                            .into(),
+                    ));
+                }
+            }
+        }
         let replacement = replace
             .map(|name| widget_id(&self.document, name))
-            .transpose()?;
+            .transpose();
+        let children = self.document.at(&target.path)["Widgets"]
+            .as_array()
+            .map(Vec::as_slice)
+            .unwrap_or_default();
+        let missing_replacement = matches!(
+            &replacement,
+            Err(AuthoringError::Edit(mashup::edit::EditError::NoWidget(_)))
+        );
+        if !children.is_empty() && (replace.is_none() || missing_replacement) {
+            let mut document = self.document.clone();
+            let ids = document
+                .widgets()
+                .into_iter()
+                .filter(|w| w.path.starts_with(&target.path) && w.path != target.path)
+                .map(|w| w.id)
+                .collect();
+            let (bindings, events) = super::remove::dependencies(&document, &ids);
+            if events.is_empty()
+                && super::remove::unknown_references(document.value(), &ids).is_empty()
+            {
+                super::remove::remove_indexes(document.bindings_mut(), &bindings);
+                document.at_mut(&target.path)["Widgets"] = json!([]);
+                let mut probe = Work {
+                    document,
+                    solution: self.solution,
+                    context: AuthoringContext {
+                        parameters: self.context.parameters,
+                        model: self.context.model,
+                        platform: self.context.platform,
+                    },
+                    added: Vec::new(),
+                    removed: Vec::new(),
+                    wired: Vec::new(),
+                    notes: Vec::new(),
+                };
+                probe.label_pairs(
+                    container,
+                    data,
+                    fields,
+                    (title, columns, None),
+                    presentation,
+                )?;
+                if detail_output(&self.document, &target.path)
+                    == detail_output(&probe.document, &target.path)
+                {
+                    self.notes.extend(probe.notes);
+                    self.notes
+                        .push(format!("{}: label-pairs already matches", target.id));
+                    return Ok(());
+                }
+            }
+        }
+        let replacement = replacement?;
         if let Some(found) = &replacement {
             let beside = found.path.len() == target.path.len()
                 && found.path.split_last().map(|(_, p)| p)
@@ -559,10 +654,6 @@ impl Work<'_> {
                 )));
             }
         }
-        let children = self.document.at(&target.path)["Widgets"]
-            .as_array()
-            .map(Vec::as_slice)
-            .unwrap_or_default();
         if !children.is_empty()
             && !replacement.as_ref().is_some_and(|r| {
                 r.path.len() == target.path.len() + 1
@@ -639,8 +730,11 @@ impl Work<'_> {
                 "ptcslabel",
                 &[
                     ("LabelText", json!(title)),
-                    ("LabelType", json!("sub-header")),
-                    ("Margin", json!("5 0 5 5")),
+                    (
+                        "LabelType",
+                        json!(if inline { "title" } else { "sub-header" }),
+                    ),
+                    ("Margin", json!(if inline { "0" } else { "5 0 5 5" })),
                     ("UseTheme", json!(true)),
                 ],
             );
@@ -670,29 +764,148 @@ impl Work<'_> {
         } else {
             format!("[as {}]", call.instance)
         };
+        let selecting =
+            bindings::has_row_selector(self.document.value(), &section_name, &call_name);
+        let selected = row_mode.map_or(selecting, |mode| mode == "selected");
         let source = format!(
-            "data:{}.{}{alias}[SelectedRows]",
-            section.entity, call.target
+            "data:{}.{}{alias}{}",
+            section.entity,
+            call.target,
+            if selected { "[SelectedRows]" } else { "" }
         );
+        self.notes.push(format!(
+            "{source}: row {} ({})",
+            if selected { "selected" } else { "first" },
+            if row_mode.is_some() {
+                "explicit --row"
+            } else if selecting {
+                "a selecting widget is bound to this call's All Data"
+            } else {
+                "no selecting widget is bound to this call's All Data"
+            }
+        ));
+        let status_format = status_state
+            .map(|name| {
+                let file = crate::core::workspace::entities(self.solution)
+                    .into_iter()
+                    .find(|file| {
+                        file.info.collection == "StateDefinitions" && file.info.name == name
+                    })
+                    .ok_or_else(|| {
+                        AuthoringError::Unknown(format!(
+                            "no StateDefinition {name}; add it to the solution first"
+                        ))
+                    })?;
+                let bytes = std::fs::read(&file.path)
+                    .map_err(|e| AuthoringError::Unreadable(e.to_string()))?;
+                super::state_format::inline(
+                    &super::state_format::read_definition(&bytes)?,
+                    name,
+                    "Data",
+                )
+            })
+            .transpose()?;
         for (index, (field, caption)) in picked.iter().enumerate() {
-            let path = &paths[index % paths.len()];
+            let column = &paths[index % paths.len()];
+            let mut left = column.clone();
+            let mut right = column.clone();
+            if inline {
+                if index >= paths.len() {
+                    let divider = self.add_in(
+                        column,
+                        "flexcontainer",
+                        &[
+                            ("flex-size", json!("fixed")),
+                            ("flex-min-height", json!("1px")),
+                            ("flex-max-height", json!("1px")),
+                            ("flex-grow", json!(0)),
+                            ("Margin", json!("")),
+                            ("CustomClass", json!("twaco-detail-divider")),
+                        ],
+                    );
+                    super::set::copy_style_entry(
+                        &mut self.document,
+                        &divider,
+                        json!({"widget":"flex-container","parts":{"$":{"$":{"background":"#C2C7CE","border-color":"inherit","border-radius":"initial","border-style":"none","border-width":"0px","padding-bottom":"","padding-left":"","padding-right":"","padding-top":""}}}}),
+                        None,
+                        &mut Vec::new(),
+                    );
+                    self.notes.push(format!("{divider}: 1px divider"));
+                }
+                let pair = self.add_in(
+                    column,
+                    "flexcontainer",
+                    &[
+                        ("flex-direction", json!("row")),
+                        ("flex-wrap", json!("nowrap")),
+                        ("align-items", json!("center")),
+                        ("justify-content", json!("space-between")),
+                        ("flex-grow", json!(0)),
+                        ("Margin", json!("")),
+                    ],
+                );
+                let path = widget_id(&self.document, &pair)?.path;
+                let caption_box = self.add_in(
+                    &path,
+                    "flexcontainer",
+                    &[
+                        ("flex-direction", json!("row")),
+                        ("align-items", json!("center")),
+                        ("Margin", json!("")),
+                    ],
+                );
+                left = widget_id(&self.document, &caption_box)?.path;
+                let value_box = self.add_in(
+                    &path,
+                    "flexcontainer",
+                    &[
+                        ("flex-direction", json!("row")),
+                        ("align-items", json!("center")),
+                        ("justify-content", json!("flex-end")),
+                        ("Margin", json!("")),
+                    ],
+                );
+                right = widget_id(&self.document, &value_box)?.path;
+            }
+            if let Some(status) = status {
+                let dot = self.add_in(
+                    &left,
+                    "shape",
+                    &[
+                        ("ShapeType", json!("circle")),
+                        ("Width", json!(12)),
+                        ("Height", json!(12)),
+                        ("Margin", json!("0 5")),
+                        (
+                            "ShapeFormatter",
+                            status_format.clone().expect("status needs a state"),
+                        ),
+                    ],
+                );
+                self.bind(&format!("{source}.{status}"), &format!("ui:{dot}.Data"))?;
+            }
             self.add_in(
-                path,
+                &left,
                 "ptcslabel",
                 &[
                     ("LabelText", json!(caption)),
-                    ("LabelType", json!("label")),
-                    ("Margin", json!("5")),
+                    ("LabelType", json!(if inline { "body" } else { "label" })),
+                    ("HorizontalAlignment", json!("left")),
+                    ("Margin", json!(if inline { "0 5" } else { "5" })),
                     ("UseTheme", json!(true)),
                 ],
             );
             let value = self.add_in(
-                path,
+                &right,
                 "ptcslabel",
                 &[
-                    ("LabelText", json!("[[Label]]")),
+                    ("LabelText", json!("")),
                     ("LabelType", json!("body")),
-                    ("Margin", json!("0 5 5")),
+                    (
+                        "HorizontalAlignment",
+                        json!(if inline { "right" } else { "left" }),
+                    ),
+                    ("Margin", json!(if inline { "0 18 0 5" } else { "0 5 5" })),
                     ("UseTheme", json!(true)),
                 ],
             );
@@ -701,7 +914,6 @@ impl Work<'_> {
                 &format!("ui:{value}.LabelText"),
             )?;
         }
-        self.notes.push(format!("{source}: uses the selected row for multi-row results; result cardinality is unknown offline"));
         for (_, message) in bindings::selected_rows_hints(self.document.value()) {
             self.notes
                 .push(format!("{}: {message}", bindings::SELECTED_ROWS_RULE));
@@ -1052,6 +1264,63 @@ fn widget_event(trigger: &str) -> String {
     }
 }
 
+fn detail_output(document: &MashupDocument, path: &[usize]) -> Value {
+    let ids: std::collections::BTreeMap<_, _> = document
+        .widgets()
+        .into_iter()
+        .filter(|w| w.path.starts_with(path))
+        .enumerate()
+        .map(|(index, w)| (w.id, format!("widget-{index}")))
+        .collect();
+    fn normalize(value: &mut Value, ids: &std::collections::BTreeMap<String, String>) {
+        match value {
+            Value::Object(map) => {
+                map.remove("Id");
+                map.remove("DisplayName");
+                for value in map.values_mut() {
+                    normalize(value, ids);
+                }
+            }
+            Value::Array(values) => {
+                for value in values {
+                    normalize(value, ids);
+                }
+            }
+            Value::String(text) => {
+                if let Some(id) = ids.get(text) {
+                    *text = id.clone();
+                }
+            }
+            _ => {}
+        }
+    }
+    let bindings: Vec<_> = document.value()["DataBindings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|b| {
+            b["TargetId"]
+                .as_str()
+                .is_some_and(|id| ids.contains_key(id))
+        })
+        .cloned()
+        .collect();
+    let styles: std::collections::BTreeMap<_, _> = ids
+        .iter()
+        .filter_map(|(id, normalized)| {
+            document
+                .root_properties()
+                .get("StyleProperties")
+                .and_then(|s| s.get("data"))
+                .and_then(|s| s.get(id))
+                .map(|style| (normalized, style))
+        })
+        .collect();
+    let mut output = json!({"tree":document.at(path),"bindings":bindings,"styles":styles});
+    normalize(&mut output, &ids);
+    output
+}
+
 fn widget_id(
     document: &MashupDocument,
     word: &str,
@@ -1087,8 +1356,12 @@ pub(crate) fn plan_recipe(
     };
     let mut css = None;
     match &request.recipe {
-        Recipe::Panel { container, compact } => {
-            css = Some(work.panel(container, *compact, &loaded.assets.css)?);
+        Recipe::Panel {
+            container,
+            compact,
+            style,
+        } => {
+            css = Some(work.panel(container, *compact, style, &loaded.assets.css)?);
         }
         Recipe::SliderAction { slider, button } => work.slider_action(slider, button)?,
         Recipe::Toolbar {
@@ -1115,14 +1388,22 @@ pub(crate) fn plan_recipe(
             title,
             columns,
             replace,
+            row,
+            layout,
+            status,
+            status_state,
         } => {
             work.label_pairs(
                 container,
                 data,
                 fields,
-                title.as_deref(),
-                *columns,
-                replace.as_deref(),
+                (title.as_deref(), *columns, replace.as_deref()),
+                (
+                    row.as_deref(),
+                    layout,
+                    status.as_deref(),
+                    status_state.as_deref(),
+                ),
             )?;
         }
         Recipe::Collapsible {
@@ -1365,6 +1646,9 @@ pub(crate) fn plan_recipe(
             widget,
             data,
             field_maps,
+            initial_step,
+            step_size,
+            host,
         } => {
             // Resolve and validate every map before creating a visual widget.
             let fields = work.result_fields(data).ok_or_else(|| AuthoringError::Invalid(
@@ -1390,26 +1674,76 @@ pub(crate) fn plan_recipe(
                     target.id, target.type_id
                 )));
             }
-            let stored = work.document.at_mut(&target.path)["Properties"]
-                .as_object_mut()
-                .expect("a widget has properties");
-            let mut removed = Vec::new();
-            for name in ["CurrentStepMashup", "CurrentStepNumber"] {
-                if stored.remove(name).is_some() {
-                    removed.push(name);
-                }
-            }
-            if !removed.is_empty() {
-                work.notes.push(format!(
-                    "{}: removed stored {}: a stored value blanks the step container at load",
-                    target.id,
-                    removed.join("/")
+            if !["small", "medium", "large"].contains(&step_size.as_str()) {
+                return Err(AuthoringError::Invalid(
+                    "tracker: --step-size is small, medium or large".into(),
                 ));
             }
-            let mut properties = vec![("IsInteractive", json!(true)), ("StepSize", json!("large"))];
+            if work.document.at_mut(&target.path)["Properties"]
+                .as_object_mut()
+                .unwrap()
+                .remove("CurrentStepMashup")
+                .is_some()
+            {
+                work.notes.push(format!("{}: removed stored CurrentStepMashup output; initialise selection through CurrentStepNumber", target.id));
+            }
+            let mut properties = vec![
+                ("IsInteractive", json!(true)),
+                ("StepSize", json!(step_size)),
+                ("MinStepSpacing", json!(24)),
+                ("CurrentStepNumber", json!(initial_step)),
+            ];
             properties.extend(maps.iter().map(|(name, field)| (*name, json!(field))));
             work.set(&target, &properties);
+            work.notes.push(format!("tracker initial CurrentStepNumber={initial_step}; StepSize={step_size}; MinStepSpacing=24; initial selection and narrow-width fit require runtime verification"));
+            if let Some(host) = host {
+                let container = widget_id(&work.document, host)?;
+                if container.type_id != "mashupcontainer" {
+                    return Err(AuthoringError::Invalid(format!(
+                        "{}: --host needs a mashupcontainer",
+                        container.id
+                    )));
+                }
+                work.set(&container, &[("stepNumber", json!(initial_step))]);
+                work.bind(
+                    &format!("ui:{}.stepNumber", container.id),
+                    &format!("ui:{}.CurrentStepNumber", target.id),
+                )?;
+                work.bind(
+                    &format!("ui:{}.CurrentStepNumber", target.id),
+                    &format!("ui:{}.stepNumber", container.id),
+                )?;
+                work.bind(
+                    &format!("ui:{}.CurrentStepMashup", target.id),
+                    &format!("ui:{}.Name", container.id),
+                )?;
+                work.notes.push("host binding order: host.stepNumber -> tracker.CurrentStepNumber; tracker.CurrentStepNumber -> host.stepNumber; tracker.CurrentStepMashup -> host.Name; Data last. Keep the host's default first-step Name; child stepNumber must be a bindable NUMBER parameter".into());
+            }
             work.bind(data, &format!("ui:{}.Data", target.id))?;
+        }
+        Recipe::Tree {
+            widget,
+            data,
+            field_maps,
+        } => {
+            let fields = work.result_fields(data).ok_or_else(|| AuthoringError::Invalid(format!("tree needs {data} to return a DataShape available in the repository; add its DataShape before mapping fields")))?;
+            let maps = field_maps_for("tree", TREE_MAPS, TREE_REQUIRED, &fields, field_maps)?;
+            let target = widget_id(&work.document, widget)?;
+            if target.type_id != "ptcstreeselector" {
+                return Err(AuthoringError::Invalid(format!(
+                    "{} is a {}, not a tree selector",
+                    target.id, target.type_id
+                )));
+            }
+            work.set(
+                &target,
+                &maps
+                    .iter()
+                    .map(|(name, field)| (*name, json!(field)))
+                    .collect::<Vec<_>>(),
+            );
+            work.bind(data, &format!("ui:{}.Data", target.id))?;
+            work.notes.push(format!("tree: bind ui:{}.SelectedItem to an ID parameter, or SelectedData fields to detail widgets; run the data call on load. Empty results show the widget's NoData state", target.id));
         }
         Recipe::Message {
             after,
@@ -1555,6 +1889,9 @@ pub(crate) fn plan_recipe(
             x,
             value,
             kind,
+            title,
+            x_title,
+            y_title,
         } => {
             let target = widget_id(&work.document, widget)?;
             let pie = matches!(target.type_id.as_str(), "ptcschartpie");
@@ -1642,6 +1979,30 @@ pub(crate) fn plan_recipe(
                 }
                 properties.push(("ChartType", json!(kind)));
             }
+            let catalog = widgets::catalog()
+                .by_type(&target.type_id)
+                .expect("catalogue chart");
+            for (key, default) in &catalog.defaults {
+                let y_axis =
+                    key == "YAxisLabel" || (key.starts_with("YAxis") && key.ends_with("Label"));
+                let explicit = if key == "Label" {
+                    title.as_ref()
+                } else if key == "XAxisLabel" {
+                    x_title.as_ref()
+                } else if y_axis {
+                    y_title.as_ref()
+                } else {
+                    None
+                };
+                if key == "Label" || key == "XAxisLabel" || y_axis || key == "SecondYAxisLabel" {
+                    let current = &work.document.at(&target.path)["Properties"][key];
+                    if let Some(text) = explicit {
+                        properties.push((key.as_str(), json!(text)));
+                    } else if current == default {
+                        properties.push((key.as_str(), json!("")));
+                    }
+                }
+            }
             work.set(&target, &properties);
             work.bind(data, &format!("ui:{}.Data", target.id))?;
         }
@@ -1649,6 +2010,7 @@ pub(crate) fn plan_recipe(
             widget,
             data,
             columns,
+            date_format,
             editable,
             column_editors,
             preserve_whitespace,
@@ -1690,11 +2052,11 @@ pub(crate) fn plan_recipe(
             let known = fields.clone();
             let mut format = Vec::new();
             for text in columns {
-                let mut parts = text.splitn(3, ':');
+                let mut parts = text.splitn(4, ':');
                 let name = parts.next().unwrap_or_default().trim().to_string();
                 if name.is_empty() {
                     return Err(AuthoringError::Invalid(format!(
-                        "--column {text:?} must be field[:Title[:width]]"
+                        "--column {text:?} must be field[:Title[:width[:format]]]"
                     )));
                 }
                 let title = parts
@@ -1731,6 +2093,29 @@ pub(crate) fn plan_recipe(
                 column["Width"] = width;
                 column["inLayout"] = json!(true);
                 column["hidden"] = json!(false);
+                let per_column_format = parts.next().filter(|pattern| !pattern.is_empty());
+                if let Some(pattern) =
+                    per_column_format.or(date_format.as_deref().filter(|_| base == "DATETIME"))
+                {
+                    if base != "DATETIME" || pattern.trim().is_empty() {
+                        return Err(AuthoringError::Invalid(format!("--column {name}: date format needs a DATETIME field and a non-empty pattern")));
+                    }
+                    column["FormatOptions"]["FormatString"] = json!(pattern);
+                }
+                if base == "DATETIME" && date_format.is_none() && per_column_format.is_none() {
+                    work.notes.push(format!("{name}: choose a date presentation with twaco mashup recipe columns {} {} --column {name} --date-format dd-MM-yyyy", request.mashup, target.id));
+                }
+                let normalized = name.to_ascii_lowercase();
+                if (normalized.contains("status") || normalized.contains("state"))
+                    && column["FormatOptions"]["formatInfo"]["StateDefinition"]
+                        .as_str()
+                        .is_none_or(str::is_empty)
+                    && column["FormatOptions"]["formatInfo"]["StateFormats"]
+                        .as_array()
+                        .is_none_or(Vec::is_empty)
+                {
+                    work.notes.push(format!("{name}: add status icons with twaco mashup state-format set {} {} --column {name} --state <StateDefinition> --icon-only", request.mashup, target.id));
+                }
                 format.push(column);
             }
             for name in editable {
@@ -2129,6 +2514,10 @@ pub(crate) fn plan_recipe(
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct RecipeArgs {
     pub compact: Option<u32>,
+    pub style: Option<String>,
+    pub initial_step: Option<u32>,
+    pub step_size: Option<String>,
+    pub host: Option<String>,
     pub button: Option<String>,
     pub search_param: Option<String>,
     pub hint: Option<String>,
@@ -2137,6 +2526,12 @@ pub struct RecipeArgs {
     pub fields: Vec<String>,
     pub label_columns: Option<u32>,
     pub replace: Option<String>,
+    pub row: Option<String>,
+    pub layout: Option<String>,
+    pub status: Option<String>,
+    pub status_state: Option<String>,
+    pub x_title: Option<String>,
+    pub y_title: Option<String>,
     pub toggle: Option<String>,
     pub add_toggle: bool,
     pub in_container: Option<String>,
@@ -2177,8 +2572,9 @@ pub struct RecipeArgs {
     pub x: Option<String>,
     /// A pie's value field, a picker's value field.
     pub value: Option<String>,
-    /// `field[:Title[:width]]`, repeatable.
+    /// `field[:Title[:width[:format]]]`, repeatable.
     pub columns: Vec<String>,
+    pub date_format: Option<String>,
     /// What a picker's selection is bound from.
     pub selected: Option<String>,
     /// Columns a grid's users may edit, each one of `columns`.
@@ -2221,6 +2617,7 @@ pub const RECIPES: &[&str] = &[
     "columns",
     "picker",
     "tracker",
+    "tree",
     "set-on-click",
     "nested-menu",
     "navigate-on-click",
@@ -2290,6 +2687,9 @@ impl Recipe {
             rest.widget = None;
             rest.button = None;
             rest.compact = None;
+            if name == "panel" {
+                rest.style = None;
+            }
             if rest != RecipeArgs::default() {
                 return Err(AuthoringError::Invalid(format!(
                     "{name}: unrelated recipe flags are not accepted"
@@ -2306,13 +2706,36 @@ impl Recipe {
                 "--width is for recipe nested-menu or toolbar".into(),
             ));
         }
+        if args
+            .row
+            .as_deref()
+            .is_some_and(|v| !["first", "selected"].contains(&v))
+            || args
+                .layout
+                .as_deref()
+                .is_some_and(|v| !["inline", "stacked"].contains(&v))
+        {
+            return Err(AuthoringError::Invalid(
+                "label-pairs: --row is first or selected; --layout is inline or stacked".into(),
+            ));
+        }
+        if args.status.is_some() != args.status_state.is_some() {
+            return Err(AuthoringError::Invalid("label-pairs: --status <field> and --status-state <StateDefinition> are required together".into()));
+        }
         for (given, flag, recipe) in [
+            (args.row.is_some(), "--row", "label-pairs"),
+            (args.layout.is_some(), "--layout", "label-pairs"),
+            (args.status.is_some(), "--status", "label-pairs"),
+            (args.status_state.is_some(), "--status-state", "label-pairs"),
+            (args.x_title.is_some(), "--x-title", "chart"),
+            (args.y_title.is_some(), "--y-title", "chart"),
             (args.search_param.is_some(), "--search-param", "toolbar"),
             (args.hint.is_some(), "--hint", "toolbar"),
             (args.run_on.is_some(), "--run-on", "toolbar"),
             (!args.buttons.is_empty(), "--button", "toolbar"),
             (!args.fields.is_empty(), "--field", "label-pairs"),
             (args.label_columns.is_some(), "--columns", "label-pairs"),
+            (args.date_format.is_some(), "--date-format", "columns"),
             (args.replace.is_some(), "--replace", "label-pairs"),
             (args.toggle.is_some(), "--toggle", "collapsible"),
             (args.add_toggle, "--add-toggle", "collapsible"),
@@ -2322,7 +2745,15 @@ impl Recipe {
             (args.action_label.is_some(), "--action-label", "confirm"),
             (args.cancel_label.is_some(), "--cancel-label", "confirm"),
             (args.param.is_some(), "--param", "set-on-click"),
-            (!args.field_maps.is_empty(), "--field-map", "tracker"),
+            (args.style.is_some(), "--style", "panel"),
+            (args.initial_step.is_some(), "--initial-step", "tracker"),
+            (args.step_size.is_some(), "--step-size", "tracker"),
+            (args.host.is_some(), "--host", "tracker"),
+            (
+                !args.field_maps.is_empty() && name != "tree",
+                "--field-map",
+                "tracker",
+            ),
             (!args.editable.is_empty(), "--editable-column", "columns"),
             (
                 !args.column_editors.is_empty(),
@@ -2358,6 +2789,7 @@ impl Recipe {
                 Recipe::Panel {
                     container: widget("a responsive column")?,
                     compact: args.compact,
+                    style: args.style.clone().unwrap_or_else(|| "grey".into()),
                 }
             }
             "slider-action" => Recipe::SliderAction {
@@ -2394,6 +2826,10 @@ impl Recipe {
                 title: args.title.clone(),
                 columns: args.label_columns,
                 replace: args.replace.clone(),
+                row: args.row.clone(),
+                layout: args.layout.clone().unwrap_or_else(|| "inline".into()),
+                status: args.status.clone(),
+                status_state: args.status_state.clone(),
             },
             "collapsible" => {
                 if args.toggle.is_some() && args.add_toggle {
@@ -2463,6 +2899,14 @@ impl Recipe {
             },
             "tracker" => Recipe::Tracker {
                 widget: widget("the progress tracker, or new")?,
+                data: required(&args.data, "--data <service result>", name)?,
+                field_maps: pairs("--field-map", &args.field_maps)?,
+                initial_step: args.initial_step.unwrap_or(1),
+                step_size: args.step_size.clone().unwrap_or_else(|| "large".into()),
+                host: args.host.clone(),
+            },
+            "tree" => Recipe::Tree {
+                widget: widget("a tree selector")?,
                 data: required(&args.data, "--data <service result>", name)?,
                 field_maps: pairs("--field-map", &args.field_maps)?,
             },
@@ -2544,11 +2988,15 @@ impl Recipe {
                 x: required(&args.x, "--x <field>", name)?,
                 value: args.value.clone(),
                 kind: args.kind.clone(),
+                title: args.title.clone(),
+                x_title: args.x_title.clone(),
+                y_title: args.y_title.clone(),
             },
             "columns" => Recipe::Columns {
                 widget: widget("the grid")?,
                 data: args.data.clone(),
                 columns: args.columns.clone(),
+                date_format: args.date_format.clone(),
                 editable: args.editable.clone(),
                 column_editors: pairs("--column-editor", &args.column_editors)?,
                 preserve_whitespace: args.preserve_whitespace.clone(),
@@ -2655,7 +3103,7 @@ fn column_format(name: &str, title: &str, width: Value, base: &str) -> Value {
         "NUMBER" => ("NUMBER", "0.00", "textfield"),
         "INTEGER" | "LONG" => ("NUMBER", "0", "textfield"),
         "BOOLEAN" => ("BOOLEAN", "checkbox", "checkbox"),
-        "DATETIME" => ("DATETIME", "[[dateTimeFormat_Default]]", "datepicker"),
+        "DATETIME" => ("DATETIME", "yyyy-MM-dd HH:mm:ss", "datepicker"),
         "IMAGELINK" => ("IMAGELINK", "", ""),
         _ => ("DEFAULT", "", ""),
     };
@@ -2737,16 +3185,63 @@ const TRACKER_MAPS: &[(&str, &[&str], &[&str])] = &[
     ),
 ];
 
+const TREE_REQUIRED: &[&str] = &["IDField", "NameField", "ParentIDField"];
+const TREE_MAPS: &[FieldMapSpec] = &[
+    (
+        "IDField",
+        &["id", "nodeid", "itemid", "identifier"],
+        &["STRING", "TEXT", "INTEGER", "LONG", "NUMBER", "GUID"],
+    ),
+    (
+        "NameField",
+        &[
+            "name",
+            "nodename",
+            "itemname",
+            "label",
+            "title",
+            "displayname",
+        ],
+        &["STRING", "TEXT"],
+    ),
+    (
+        "ParentIDField",
+        &["parentid", "parent", "parentnodeid", "parentitemid"],
+        &["STRING", "TEXT", "INTEGER", "LONG", "NUMBER", "GUID"],
+    ),
+    (
+        "ColorField",
+        &["color", "colour", "nodecolor", "nodecolour"],
+        &["STRING", "TEXT"],
+    ),
+];
+
 fn tracker_maps(
+    fields: &[(String, String)],
+    overrides: &[(String, String)],
+) -> Result<Vec<(&'static str, String)>, AuthoringError> {
+    field_maps_for("tracker", TRACKER_MAPS, TRACKER_REQUIRED, fields, overrides)
+}
+
+type FieldMapSpec = (
+    &'static str,
+    &'static [&'static str],
+    &'static [&'static str],
+);
+
+fn field_maps_for(
+    recipe: &str,
+    specs: &[FieldMapSpec],
+    required: &[&str],
     fields: &[(String, String)],
     overrides: &[(String, String)],
 ) -> Result<Vec<(&'static str, String)>, AuthoringError> {
     let mut explicit = std::collections::BTreeMap::new();
     for (property, field) in overrides {
-        if !TRACKER_MAPS.iter().any(|(name, _, _)| property == name) {
+        if !specs.iter().any(|(name, _, _)| property == name) {
             return Err(AuthoringError::Invalid(format!(
-                "unknown tracker map {property}; use {}",
-                TRACKER_MAPS
+                "unknown {recipe} map {property}; use {}",
+                specs
                     .iter()
                     .map(|(name, _, _)| *name)
                     .collect::<Vec<_>>()
@@ -2755,7 +3250,7 @@ fn tracker_maps(
         }
         if explicit.insert(property.as_str(), field.as_str()).is_some() {
             return Err(AuthoringError::Invalid(format!(
-                "tracker map {property} is given twice"
+                "{recipe} map {property} is given twice"
             )));
         }
     }
@@ -2767,14 +3262,14 @@ fn tracker_maps(
     };
     let mut maps = Vec::new();
     let mut unmatched = Vec::new();
-    for &(property, aliases, bases) in TRACKER_MAPS {
+    for &(property, aliases, bases) in specs {
         let field = if let Some(field) = explicit.get(property) {
             fields
                 .iter()
                 .find(|(name, _)| name == field)
                 .ok_or_else(|| {
                     AuthoringError::Invalid(format!(
-                        "tracker map {property} names missing field {field}; available fields: {}",
+                        "{recipe} map {property} names missing field {field}; available fields: {}",
                         fields
                             .iter()
                             .map(|(name, _)| name.as_str())
@@ -2791,7 +3286,7 @@ fn tracker_maps(
                 .collect();
             match candidates.as_slice() {
                 [field] => *field,
-                [] if !TRACKER_REQUIRED.contains(&property) => continue,
+                [] if !required.contains(&property) => continue,
                 _ => {
                     unmatched.push(if candidates.is_empty() {
                         property.to_string()
@@ -2811,7 +3306,7 @@ fn tracker_maps(
         };
         if !bases.contains(&field.1.as_str()) {
             return Err(AuthoringError::Invalid(format!(
-                "tracker map {property} field {} is {}; use a {} field",
+                "{recipe} map {property} field {} is {}; use a {} field",
                 field.0,
                 field.1,
                 bases.join("/")
@@ -2820,7 +3315,7 @@ fn tracker_maps(
         maps.push((property, field.0.clone()));
     }
     if !unmatched.is_empty() {
-        return Err(AuthoringError::Invalid(format!("tracker has unmatched field maps: {}; give --field-map Property=field for each (MCP field_maps); available fields: {}", unmatched.join("; "), fields.iter().map(|(name, _)| name.as_str()).collect::<Vec<_>>().join(", "))));
+        return Err(AuthoringError::Invalid(format!("{recipe} has unmatched field maps: {}; give --field-map Property=field for each (MCP field_maps); available fields: {}", unmatched.join("; "), fields.iter().map(|(name, _)| name.as_str()).collect::<Vec<_>>().join(", "))));
     }
     Ok(maps)
 }
@@ -2828,6 +3323,81 @@ fn tracker_maps(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tree_maps_cover_catalogue_and_require_parent_and_unambiguous_optional_color() {
+        let catalog = widgets::catalog().by_type("ptcstreeselector").unwrap();
+        let mut catalogue_fields: Vec<_> = catalog
+            .properties
+            .as_ref()
+            .unwrap()
+            .iter()
+            .filter(|(_, p)| p.base_type.as_deref() == Some("FIELDNAME"))
+            .map(|(name, _)| name.as_str())
+            .collect();
+        catalogue_fields.sort();
+        let mut mapped: Vec<_> = TREE_MAPS.iter().map(|(name, _, _)| *name).collect();
+        mapped.sort();
+        assert_eq!(catalogue_fields, mapped);
+        let fields = vec![
+            ("id".into(), "STRING".into()),
+            ("name".into(), "STRING".into()),
+        ];
+        let error = field_maps_for("tree", TREE_MAPS, TREE_REQUIRED, &fields, &[])
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("ParentIDField") && error.contains("available fields: id, name"),
+            "{error}"
+        );
+        let fields = vec![
+            ("id".into(), "STRING".into()),
+            ("name".into(), "STRING".into()),
+            ("parentId".into(), "STRING".into()),
+            ("color".into(), "STRING".into()),
+            ("colour".into(), "STRING".into()),
+        ];
+        assert!(
+            field_maps_for("tree", TREE_MAPS, TREE_REQUIRED, &fields, &[])
+                .unwrap_err()
+                .to_string()
+                .contains("ColorField (ambiguous: color, colour)")
+        );
+        let maps = field_maps_for("tree", TREE_MAPS, TREE_REQUIRED, &fields[..3], &[]).unwrap();
+        assert_eq!(maps.len(), 3);
+        for (name, args) in [
+            (
+                "tree",
+                RecipeArgs {
+                    initial_step: Some(1),
+                    ..Default::default()
+                },
+            ),
+            (
+                "tree",
+                RecipeArgs {
+                    step_size: Some("small".into()),
+                    ..Default::default()
+                },
+            ),
+            (
+                "tree",
+                RecipeArgs {
+                    host: Some("host".into()),
+                    ..Default::default()
+                },
+            ),
+            (
+                "tracker",
+                RecipeArgs {
+                    style: Some("card".into()),
+                    ..Default::default()
+                },
+            ),
+        ] {
+            assert!(Recipe::from_args(name, &args).is_err());
+        }
+    }
 
     #[test]
     fn tracker_maps_require_complete_unambiguous_typed_fields_and_valid_overrides() {

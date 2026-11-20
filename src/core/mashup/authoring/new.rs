@@ -51,6 +51,7 @@ pub struct NewRequest {
 #[derive(Debug)]
 pub struct NewPlan {
     pub name: String,
+    pub notes: Vec<String>,
     /// The copied mashup, if this plan came from `--from`.
     pub from: Option<String>,
     /// Counts for the concise text report of a copied mashup.
@@ -407,6 +408,7 @@ pub(crate) fn plan_new(
     }
     Ok(NewPlan {
         name: request.name.clone(),
+        notes: page_notes(solution, request),
         from: None,
         copy_summary: None,
         project: project.name.clone(),
@@ -423,6 +425,21 @@ pub(crate) fn plan_new(
         menus,
         tabs,
     })
+}
+
+fn page_notes(solution: &Solution, request: &NewRequest) -> Vec<String> {
+    if request.master || request.gadget || request.from.is_some() {
+        return Vec::new();
+    }
+    workspace::entities(solution).iter()
+        .filter(|entity| entity.info.collection == "Mashups")
+        .filter_map(|entity| {
+            let loaded = super::load_existing(solution, &entity.info.name).ok()?;
+            let document = super::parse_loaded(&loaded).ok()?;
+            (document.value()["mashupType"] == "targetmashup").then(|| format!(
+                "attach this page to a master with twaco mashup set {} mashup-root --prop Master={}",
+                request.name, entity.info.name))
+        }).collect()
 }
 
 /// Refuse themes Composer cannot resolve without creating an entity.
@@ -629,6 +646,7 @@ fn plan_copy(solution: &Solution, request: &NewRequest) -> Result<NewPlan, Autho
     };
     Ok(NewPlan {
         name: request.name.clone(),
+        notes: page_notes(solution, request),
         from: Some(from.to_string()),
         copy_summary: Some(copy_summary),
         project: project.name.clone(),
@@ -1027,6 +1045,7 @@ pub fn new_plan_json(solution: &Solution, plan: &NewPlan, applied: bool) -> Valu
     let relative = |path: &Path| solution.relative(path);
     json!({
         "applied": applied,
+        "notes": plan.notes,
         "mashup": plan.name,
         "project": plan.project,
         "template": plan.template.name,

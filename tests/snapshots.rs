@@ -408,6 +408,20 @@ const SCENARIOS: &[(&str, &[&str])] = &[
         ],
     ),
     (
+        "mashup_new_form_2col_plan",
+        &[
+            "mashup",
+            "new",
+            "Acme.Orders.Edit_MU",
+            "--template",
+            "form-2col",
+        ],
+    ),
+    (
+        "mashup_templates_list_page_json",
+        &["mashup", "templates", "list-page", "--json"],
+    ),
+    (
         "mashup_new_header_footer_plan",
         &[
             "mashup",

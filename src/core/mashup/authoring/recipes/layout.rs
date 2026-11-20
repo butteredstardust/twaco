@@ -8,12 +8,36 @@ fn refuse(id: &str, reason: &str) -> AuthoringError {
 
 fn panel_css(id: &str, compact: Option<u32>) -> String {
     let class = format!(".twaco-panel-{id}");
-    let mut css = format!("/* twaco:panel:{id}:start */\n{class} {{\n  box-sizing: border-box;\n  flex: 1 1 auto !important;\n  min-height: 0 !important;\n  margin: 24px 24px 12px !important;\n  width: calc(100% - 48px) !important;\n}}\n");
+    let mut css = format!("/* twaco:panel:{id}:start */\n{class} {{\n  box-sizing: border-box;\n  flex: 1 1 auto !important;\n  min-height: 0 !important;\n  margin: 24px 24px 12px !important;\n  width: calc(100% - 48px) !important;\n  height: calc(100% - 36px) !important;\n}}\n");
     if let Some(width) = compact {
-        css.push_str(&format!("@media (max-width: {width}px) {{\n  {class} {{\n    margin: 12px !important;\n    width: calc(100% - 24px) !important;\n  }}\n}}\n"));
+        css.push_str(&format!("@media (max-width: {width}px) {{\n  {class} {{\n    margin: 12px !important;\n    width: calc(100% - 24px) !important;\n    height: calc(100% - 24px) !important;\n  }}\n}}\n"));
     }
     css.push_str(&format!("/* twaco:panel:{id}:end */\n"));
     css
+}
+
+const CARD_STYLES: &[(&str, &str)] = &[
+    ("background", "#ffffff"),
+    ("border-color", "#BEC6CA"),
+    ("border-radius", "initial"),
+    ("border-style", "solid"),
+    ("border-width", "1px"),
+    ("padding-bottom", "12px"),
+    ("padding-left", "24px"),
+    ("padding-right", "24px"),
+    ("padding-top", "12px"),
+];
+
+fn panel_css_for(id: &str, compact: Option<u32>, style: &str) -> String {
+    let css = panel_css(id, compact);
+    if style == "card" {
+        // 8px on every side: 16px between cards and 8px at the page edge (kit cards sit ~16px apart).
+        css.replace("margin: 24px 24px 12px", "margin: 8px")
+            .replace("width: calc(100% - 48px)", "width: calc(100% - 16px)")
+            .replace("height: calc(100% - 36px)", "height: calc(100% - 16px)")
+    } else {
+        css
+    }
 }
 
 fn managed_css(css: &str, id: &str, block: &str) -> Result<String, AuthoringError> {
@@ -179,7 +203,7 @@ impl Work<'_> {
     fn background(
         &mut self,
         target: &WidgetRef,
-        panel: bool,
+        panel: Option<&str>,
         allow_named: bool,
     ) -> Result<bool, AuthoringError> {
         let p = &self.document.at(&target.path)["Properties"];
@@ -210,7 +234,7 @@ impl Work<'_> {
             .clone()
             .unwrap_or_else(|| json!({"widget": "flex-container", "parts": {"$": {"$": {}}}}));
         let explicit = entry["parts"]["$"]["$"].get("background").is_some();
-        if !panel && explicit {
+        if panel.is_none() && explicit {
             self.wired
                 .push(format!("{}.style: preserve {entry}", target.id));
             return Ok(false);
@@ -231,9 +255,13 @@ impl Work<'_> {
         insert_sorted(
             styles,
             "background",
-            json!(if panel { "#F7F7F7" } else { "inherit" }),
+            json!(if panel.is_some() {
+                "#F7F7F7"
+            } else {
+                "inherit"
+            }),
         );
-        if panel {
+        if panel.is_some() {
             for (key, value) in [
                 ("border-color", "inherit"),
                 ("border-radius", "initial"),
@@ -244,6 +272,11 @@ impl Work<'_> {
                 ("padding-right", ""),
                 ("padding-top", ""),
             ] {
+                insert_sorted(styles, key, json!(value));
+            }
+        }
+        if panel == Some("card") {
+            for (key, value) in CARD_STYLES {
                 insert_sorted(styles, key, json!(value));
             }
         }
@@ -266,8 +299,12 @@ impl Work<'_> {
         &mut self,
         container: &str,
         compact: Option<u32>,
+        style: &str,
         css: &str,
     ) -> Result<String, AuthoringError> {
+        if !["grey", "card"].contains(&style) {
+            return Err(refuse(container, "--style is grey or card"));
+        }
         if compact.is_some_and(|n| ![768, 960].contains(&n)) {
             return Err(refuse(container, "--compact must be 768 or 960"));
         }
@@ -318,14 +355,17 @@ impl Work<'_> {
         } else {
             format!("{classes} {token}")
         };
-        let block = panel_css(&target.id, compact);
+        let block = panel_css_for(&target.id, compact, style);
         let css = managed_css(css, &target.id, &block)?;
         self.layout_set(
             &target,
             &[
                 ("Style", json!("DefaultContainerStyle")),
                 ("UseTheme", json!(true)),
-                ("Margin", json!("24 24 12")),
+                (
+                    "Margin",
+                    json!(if style == "card" { "" } else { "24 24 12" }),
+                ),
                 ("flex-direction", json!("column")),
                 ("flex-wrap", json!("nowrap")),
                 ("align-items", json!("flex-start")),
@@ -341,7 +381,7 @@ impl Work<'_> {
                 ("CustomClass", json!(classes)),
             ],
         )?;
-        self.background(&target, true, false)?;
+        self.background(&target, Some(style), false)?;
         let mut paths = vec![target.path.clone()];
         let mut inherited = 0;
         let mut preserved = 0;
@@ -361,7 +401,7 @@ impl Work<'_> {
                     && node["Properties"]["positioning"] != "static"
                 {
                     let wrapper = widget_id(&self.document, &id)?;
-                    if self.background(&wrapper, false, false)? {
+                    if self.background(&wrapper, None, false)? {
                         inherited += 1;
                     } else {
                         preserved += 1;
@@ -370,12 +410,19 @@ impl Work<'_> {
                 paths.push(child);
             }
         }
-        self.notes.push(format!("grey growing panel; inherited backgrounds on {inherited} wrappers; preserve {preserved} explicit backgrounds; widgets added: 0; bindings changed: 0; events changed: 0"));
+        self.notes.push(format!("{style} growing panel; inherited backgrounds on {inherited} wrappers; preserve {preserved} explicit backgrounds; widgets added: 0; bindings changed: 0; events changed: 0"));
+        if style == "card" {
+            self.notes.push("card: white #ffffff, solid 1px #BEC6CA border, radius initial, padding 12px 24px; 8px margins keep 16px between cards".into());
+        }
         self.notes.push(match compact {
             Some(width) => format!(
-                "panel gutters 24/24/12; compact gutters 12px at viewport width <= {width}px"
+                "panel gutters {}; compact gutters 12px at viewport width <= {width}px",
+                if style == "card" { "8" } else { "24/24/12" }
             ),
-            None => "panel gutters 24/24/12; no compact media query".into(),
+            None => format!(
+                "panel gutters {}; no compact media query",
+                if style == "card" { "8" } else { "24/24/12" }
+            ),
         });
         self.wired.push(block);
         Ok(css)
@@ -454,7 +501,7 @@ impl Work<'_> {
                 ("iconClass", json!("widgets-flexcontainer")),
             ],
         )?;
-        self.background(&parent, false, true)?;
+        self.background(&parent, None, true)?;
         self.notes.push(format!("button Margin {margin:?}: {}px for the min/max label row, 12px horizontal gap; track-centre alignment assumes the default 34px button", if labels {18} else {0}));
         self.notes.push(
             "preserve slider values, labels, dimensions, button type and existing wiring; no CSS"
@@ -471,10 +518,10 @@ mod tests {
     #[test]
     fn panel_css_has_exact_rules_and_replaces_only_the_owned_block() {
         let plain = panel_css("flexcontainer-2", None);
-        assert_eq!(plain, "/* twaco:panel:flexcontainer-2:start */\n.twaco-panel-flexcontainer-2 {\n  box-sizing: border-box;\n  flex: 1 1 auto !important;\n  min-height: 0 !important;\n  margin: 24px 24px 12px !important;\n  width: calc(100% - 48px) !important;\n}\n/* twaco:panel:flexcontainer-2:end */\n");
+        assert_eq!(plain, "/* twaco:panel:flexcontainer-2:start */\n.twaco-panel-flexcontainer-2 {\n  box-sizing: border-box;\n  flex: 1 1 auto !important;\n  min-height: 0 !important;\n  margin: 24px 24px 12px !important;\n  width: calc(100% - 48px) !important;\n  height: calc(100% - 36px) !important;\n}\n/* twaco:panel:flexcontainer-2:end */\n");
         for width in [768, 960] {
             let compact = panel_css("flexcontainer-2", Some(width));
-            assert!(compact.contains(&format!("@media (max-width: {width}px) {{\n  .twaco-panel-flexcontainer-2 {{\n    margin: 12px !important;\n    width: calc(100% - 24px) !important;\n  }}\n}}\n")));
+            assert!(compact.contains(&format!("@media (max-width: {width}px) {{\n  .twaco-panel-flexcontainer-2 {{\n    margin: 12px !important;\n    width: calc(100% - 24px) !important;\n    height: calc(100% - 24px) !important;\n  }}\n}}\n")));
             let other = panel_css("flexcontainer-9", None);
             let original = format!("/* user CSS */\n{plain}{other}.after {{ color: red; }}");
             let expected = format!("/* user CSS */\n{compact}{other}.after {{ color: red; }}");

@@ -384,12 +384,59 @@ pub(crate) const SELECTED_ROWS_RULE: &str = "selected-rows-without-selection";
 
 /// Composer's AllData binding shares selection with these built-in selecting widgets.
 /// Extensions and script-driven selection are deliberately not inferred.
+pub(crate) fn has_row_selector(content: &Value, section: &str, call: &str) -> bool {
+    let bindings = content["DataBindings"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    let Ok(document) = mashup::edit::parse(&mashup::to_sidecar(content)) else {
+        return false;
+    };
+    bindings.iter().any(|other| {
+        if other["SourceArea"] != "Data"
+            || other["SourceSection"] != section
+            || other["SourceId"] != call
+            || other["SourceDetails"] != "AllData"
+            || other["TargetArea"] != "UI"
+        {
+            return false;
+        }
+        let Some(id) = other["TargetId"].as_str() else {
+            return false;
+        };
+        let Ok(widget) = document.find_exact(id) else {
+            return false;
+        };
+        let properties = &document.at(&widget.path)["Properties"];
+        let selection = match widget.type_id.as_str() {
+            "ptcsgrid" => properties["RowSelection"]
+                .as_str()
+                .is_some_and(|s| matches!(s, "single" | "multiple")),
+            "ptcscollection" => {
+                properties["SelectionMode"]
+                    .as_str()
+                    .is_some_and(|s| matches!(s, "single" | "multiple"))
+                    && properties["HandleSelectionUpdates"] != false
+            }
+            "ptcslist" | "ptcsdropdown" => properties["Disabled"] != true,
+            _ => false,
+        };
+        selection
+            && other["PropertyMaps"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .any(|map| {
+                    map["TargetProperty"] == "Data" && map["SourcePropertyType"] == "InfoTable"
+                })
+    })
+}
+
 pub(crate) fn selected_rows_hints(content: &Value) -> Vec<(usize, String)> {
     let bindings = content["DataBindings"]
         .as_array()
         .map(Vec::as_slice)
         .unwrap_or_default();
-    let document = mashup::edit::parse(&mashup::to_sidecar(content)).ok();
     let mut hints = Vec::new();
     for (index, binding) in bindings.iter().enumerate() {
         if binding["SourceArea"] != "Data" || binding["SourceDetails"] != "SelectedRows" {
@@ -397,56 +444,25 @@ pub(crate) fn selected_rows_hints(content: &Value) -> Vec<(usize, String)> {
         }
         let section = binding["SourceSection"].as_str().unwrap_or_default();
         let call = binding["SourceId"].as_str().unwrap_or_default();
-        let automatic = content["Data"][section]["Services"]
+        let selecting = has_row_selector(content, section, call);
+        if selecting {
+            continue;
+        }
+        let entity = content["Data"][section]["EntityName"]
+            .as_str()
+            .unwrap_or(section);
+        let service = content["Data"][section]["Services"]
             .as_array()
             .into_iter()
             .flatten()
-            .filter(|service| service["Name"] == call)
-            .any(|service| service["Properties"]["AutoSelectFirstRow"] == true);
-        let selecting = document.as_ref().is_some_and(|document| {
-            bindings.iter().any(|other| {
-                if other["SourceArea"] != "Data"
-                    || other["SourceSection"] != section
-                    || other["SourceId"] != call
-                    || other["SourceDetails"] != "AllData"
-                    || other["TargetArea"] != "UI"
-                {
-                    return false;
-                }
-                let Some(id) = other["TargetId"].as_str() else {
-                    return false;
-                };
-                let Ok(widget) = document.find_exact(id) else {
-                    return false;
-                };
-                let properties = &document.at(&widget.path)["Properties"];
-                let selection = match widget.type_id.as_str() {
-                    "ptcsgrid" => properties["RowSelection"]
-                        .as_str()
-                        .is_some_and(|s| matches!(s, "single" | "multiple")),
-                    "ptcscollection" => {
-                        properties["SelectionMode"]
-                            .as_str()
-                            .is_some_and(|s| matches!(s, "single" | "multiple"))
-                            && properties["HandleSelectionUpdates"] != false
-                    }
-                    "ptcslist" | "ptcsdropdown" => properties["Disabled"] != true,
-                    _ => false,
-                };
-                selection
-                    && other["PropertyMaps"]
-                        .as_array()
-                        .into_iter()
-                        .flatten()
-                        .any(|map| {
-                            map["TargetProperty"] == "Data"
-                                && map["SourcePropertyType"] == "InfoTable"
-                        })
-            })
-        });
-        if automatic || selecting {
-            continue;
-        }
+            .find(|s| s["Name"] == call);
+        let target = service.and_then(|s| s["Target"].as_str()).unwrap_or(call);
+        let alias = if call == target {
+            String::new()
+        } else {
+            format!("[as {call}]")
+        };
+        let address = format!("data:{entity}.{target}{alias}");
         for map in binding["PropertyMaps"].as_array().into_iter().flatten() {
             if map["SourcePropertyType"] != "Field" {
                 continue;
@@ -454,7 +470,7 @@ pub(crate) fn selected_rows_hints(content: &Value) -> Vec<(usize, String)> {
             let field = map["SourceProperty"].as_str().unwrap_or_default();
             let target = binding["TargetId"].as_str().unwrap_or_default();
             let property = map["TargetProperty"].as_str().unwrap_or_default();
-            hints.push((index, format!("{section}.{call}[SelectedRows].{field} -> {target}.{property} fills only after a row is selected, even for a one-row result; no selecting widget is bound to All Data and automatic first-row selection is off; bind the field from All Data to read the first row, or turn on the service's Properties.AutoSelectFirstRow")));
+            hints.push((index, format!("{section}.{call}[SelectedRows].{field} -> {target}.{property} fills only after a row is selected, even for a one-row result; no selecting widget is bound to All Data; bind the field from All Data to read the first row ({address}.{field}), or bind the result to a grid/list/collection/dropdown and turn on that widget's AutoSelectFirstRow")));
         }
     }
     hints
@@ -1325,7 +1341,7 @@ mod tests {
     }
 
     #[test]
-    fn selected_rows_hint_respects_service_automatic_selection_and_field_selector() {
+    fn selected_rows_hint_ignores_service_auto_select_first_row_and_respects_field_selector() {
         let mut content = selected_content();
         let hints = selected_rows_hints(&content);
         assert_eq!(hints.len(), 1);
@@ -1338,9 +1354,10 @@ mod tests {
         ] {
             assert!(hints[0].1.contains(name));
         }
+        assert!(hints[0].1.contains("bind the field from All Data to read the first row (data:P.Shape.Svc[as Svc1].good), or bind the result to a grid/list/collection/dropdown and turn on that widget's AutoSelectFirstRow"));
         content["Data"]["Shape"]["Services"][0]["Properties"]["AutoSelectFirstRow"] =
             Value::Bool(true);
-        assert!(selected_rows_hints(&content).is_empty());
+        assert_eq!(selected_rows_hints(&content), hints);
         content["Data"]["Shape"]["Services"][0]["Properties"]["AutoSelectFirstRow"] =
             Value::Bool(false);
         content["DataBindings"][0]["SourceDetails"] = Value::from("AllData");

@@ -15,6 +15,8 @@ Mashup templates
                   slots: sidebar, main, header, center
   form-dialog     Title bar, fields, and a right-aligned action bar (also form, dialog)
                   slots: title, fields, actions
+  form-2col       Title, full-width fields, and two equal form columns above actions
+                  slots: title, fields, form-columns, left, right, actions
   confirm-dialog  Confirmation message with close and action areas (also confirm)
                   slots: close, message, actions
   list-page       Title and toolbar above a list body (also list)

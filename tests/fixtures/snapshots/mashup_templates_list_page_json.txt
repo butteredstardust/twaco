@@ -1,0 +1,57 @@
+$ twaco mashup templates list-page --json
+exit: 0
+
+--- stdout
+{
+  "name": "list-page",
+  "aliases": [
+    "list"
+  ],
+  "summary": "Title and toolbar above a list body",
+  "slots": [
+    "title",
+    "toolbar",
+    "body"
+  ],
+  "page": {
+    "flex-direction": "column",
+    "align-items": "stretch",
+    "Margin": "24"
+  },
+  "master_slot": "body",
+  "children": [
+    {
+      "slot": "title",
+      "children": [],
+      "widget": null,
+      "fixed": "70px",
+      "divider": false,
+      "flex-direction": "row",
+      "align-items": "center"
+    },
+    {
+      "slot": "toolbar",
+      "children": [],
+      "widget": null,
+      "fixed": "50px",
+      "divider": false,
+      "style": {
+        "background": "#F7F7F7"
+      },
+      "flex-direction": "row",
+      "align-items": "center"
+    },
+    {
+      "slot": "body",
+      "children": [],
+      "widget": null,
+      "fixed": null,
+      "divider": false,
+      "flex-direction": "column",
+      "flex-grow": 1,
+      "align-items": "stretch"
+    }
+  ]
+}
+--- stderr
+

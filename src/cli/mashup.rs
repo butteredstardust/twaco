@@ -510,6 +510,14 @@ pub(crate) struct MashupRecipe {
     pub(crate) params: Vec<String>,
     #[arg(long = "field-map", value_name = "Property=field")]
     pub(crate) field_maps: Vec<String>,
+    #[arg(long = "style", value_name = "style")]
+    pub(crate) style: Option<String>,
+    #[arg(long = "initial-step", value_name = "n")]
+    pub(crate) initial_step: Option<u32>,
+    #[arg(long = "step-size", value_name = "size")]
+    pub(crate) step_size: Option<String>,
+    #[arg(long = "host", value_name = "widget")]
+    pub(crate) host: Option<String>,
     #[arg(long = "action-label", value_name = "text")]
     pub(crate) action_label: Option<String>,
     #[arg(long = "cancel-label", value_name = "text")]
@@ -582,6 +590,21 @@ pub(crate) struct MashupRecipe {
     pub(crate) operands: Vec<String>,
     #[arg(long = "columns", value_name = "n")]
     pub(crate) label_columns: Option<u32>,
+    #[arg(long = "date-format", value_name = "pattern")]
+    pub(crate) date_format: Option<String>,
+    #[arg(long = "row", value_name = "first|selected")]
+    pub(crate) row: Option<String>,
+    #[arg(long = "layout", value_name = "inline|stacked")]
+    pub(crate) layout: Option<String>,
+    #[arg(long = "status", value_name = "field")]
+    pub(crate) status: Option<String>,
+    #[arg(long = "status-state", value_name = "name")]
+    pub(crate) status_state: Option<String>,
+    #[arg(long = "x-title", value_name = "text")]
+    pub(crate) x_title: Option<String>,
+    #[arg(long = "y-title", value_name = "text")]
+    pub(crate) y_title: Option<String>,
+
     #[arg(long = "replace", value_name = "widget")]
     pub(crate) replace: Option<String>,
 }
@@ -796,6 +819,9 @@ pub(crate) fn mashup_new_cmd(solution: &Solution, args: &MashupNew) -> u8 {
             None => println!("  tab {}: {label} (empty)", index + 1),
         }
     }
+    for note in &plan.notes {
+        println!("  note: {note}");
+    }
     for (source, property) in &plan.menus {
         if property == "PrimaryNavMenu" {
             println!("  menu: Menu {source} -> {property} (DataSource menuentity)");
@@ -866,6 +892,10 @@ pub(crate) fn mashup_recipe_cmd(solution: &Solution, args: &MashupRecipe) -> u8 
         widget,
         param: args.params.first().cloned(),
         field_maps: args.field_maps.clone(),
+        style: args.style.clone(),
+        initial_step: args.initial_step,
+        step_size: args.step_size.clone(),
+        host: args.host.clone(),
         action_label: args.action_label.clone(),
         cancel_label: args.cancel_label.clone(),
         condition: args.condition.clone(),
@@ -911,7 +941,14 @@ pub(crate) fn mashup_recipe_cmd(solution: &Solution, args: &MashupRecipe) -> u8 
             Vec::new()
         },
         label_columns: args.label_columns,
+        date_format: args.date_format.clone(),
         replace: args.replace.clone(),
+        row: args.row.clone(),
+        layout: args.layout.clone(),
+        status: args.status.clone(),
+        status_state: args.status_state.clone(),
+        x_title: args.x_title.clone(),
+        y_title: args.y_title.clone(),
     };
     let recipe = match mashup::authoring::Recipe::from_args(name, &recipe_args) {
         Ok(recipe) => recipe,
@@ -2902,4 +2939,20 @@ pub(crate) fn mashup_gap_cmd(solution: &Solution, args: &MashupGap) -> u8 {
             FAILED
         }
     }
+}
+
+/// Diagnose the shared numeric flag before clap discards the recipe context.
+pub(crate) fn recipe_columns_hint(args: &[String]) -> Option<&'static str> {
+    if !args.starts_with(&["mashup".into(), "recipe".into(), "columns".into()]) {
+        return None;
+    }
+    let bad = args.iter().enumerate().any(|(index, arg)| {
+        let value = arg.strip_prefix("--columns=").or_else(|| {
+            (arg == "--columns")
+                .then(|| args.get(index + 1).map(String::as_str))
+                .flatten()
+        });
+        value.is_some_and(|value| value.parse::<u32>().is_err())
+    });
+    bad.then_some("recipe columns takes --column field[:Title[:width]] (repeatable); --columns <n> is label-pairs' column count")
 }

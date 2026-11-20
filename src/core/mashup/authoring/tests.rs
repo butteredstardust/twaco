@@ -8875,7 +8875,12 @@ fn columns_hide_unlisted_fields_and_format_dates_from_an_existing_named_binding(
         columns: vec!["start:Started:180".into(), "note:Note".into()],
         ..Default::default()
     };
-    recipe(&solution, "columns", args.clone()).unwrap();
+    let plan = recipe(&solution, "columns", args.clone()).unwrap();
+    assert!(plan.notes.iter().any(|note| note.contains("--date-format")));
+    assert_eq!(
+        recipe_plan_json(&solution, &plan, true)["notes"],
+        json!(plan.notes)
+    );
     let document = mashup::edit::parse(&sidecar_content(&solution)).unwrap();
     let columns = document.at(&document.find("ptcsgrid-5").unwrap().path)["Properties"]
         ["ColumnFormat"]["formatInfo"]
@@ -8886,7 +8891,7 @@ fn columns_hide_unlisted_fields_and_format_dates_from_an_existing_named_binding(
     assert_eq!(columns[0]["FormatOptions"]["renderer"], "DATETIME");
     assert_eq!(
         columns[0]["FormatOptions"]["FormatString"],
-        "[[dateTimeFormat_Default]]"
+        "yyyy-MM-dd HH:mm:ss"
     );
     assert_eq!(columns[0]["Width"], 180);
     assert_eq!(columns[1]["FieldName"], "note");
@@ -9290,6 +9295,7 @@ fn collection_add_cards_preset_writes_the_kit_card_collection() {
     request.columns = Some(4);
     request.preset = Some(CollectionPreset::Cards);
     let plan = plan_collection_add(&solution, &request).unwrap();
+    assert!(plan.notes.iter().any(|note| note.contains("--menu")));
     assert_eq!((plan.cell_width, plan.cell_height), (Some(285), Some(270)));
     apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
 
@@ -11810,7 +11816,7 @@ fn columns_recipe_rebinding_refreshes_types_but_keeps_state_and_unrelated_option
                 if base == "BOOLEAN" {
                     "checkbox"
                 } else {
-                    "[[dateTimeFormat_Default]]"
+                    "yyyy-MM-dd HH:mm:ss"
                 }
             );
             for (key, value) in old.as_object().unwrap() {
@@ -11831,7 +11837,7 @@ fn columns_recipe_rebinding_refreshes_types_but_keeps_state_and_unrelated_option
 }
 
 #[test]
-fn selected_rows_authoring_hints_follow_automatic_selection() {
+fn selected_rows_authoring_hints_ignore_service_auto_select_first_row() {
     let (dir, solution) = bind_fixture();
     let planned = bind(
         &solution,
@@ -11858,10 +11864,10 @@ fn selected_rows_authoring_hints_follow_automatic_selection() {
         "ui:ptcslabel-4.LabelText",
     )
     .unwrap();
-    assert!(!planned
+    assert!(planned
         .warnings
         .iter()
-        .any(|w| w.contains("AutoSelectFirstRow")));
+        .any(|w| w.contains("that widget's AutoSelectFirstRow")));
     assert!(on(&solution, event, invoke).unwrap().warnings.is_empty());
 }
 
@@ -12059,7 +12065,8 @@ fn label_pairs_plan(solution: &Solution, args: &RecipeArgs) -> Result<RecipePlan
 
 #[test]
 fn label_pairs_all_fields_follow_shape_order_and_measured_styles() {
-    let (_dir, solution, args) = label_pairs_fixture();
+    let (_dir, solution, mut args) = label_pairs_fixture();
+    args.layout = Some("stacked".into());
     let before = sidecar_content(&solution);
     let plan = label_pairs_plan(&solution, &args).unwrap();
     assert_eq!(
@@ -12119,7 +12126,7 @@ fn label_pairs_all_fields_follow_shape_order_and_measured_styles() {
             .iter()
             .any(|binding| {
                 binding["TargetId"] == value["Id"]
-                    && binding["SourceDetails"] == "SelectedRows"
+                    && binding["SourceDetails"] == "AllData"
                     && binding["PropertyMaps"][0]["SourceProperty"] == *field
                     && binding["PropertyMaps"][0]["SourcePropertyType"] == "Field"
                     && binding["PropertyMaps"][0]["TargetProperty"] == "LabelText"
@@ -12138,6 +12145,7 @@ fn label_pairs_all_fields_follow_shape_order_and_measured_styles() {
 #[test]
 fn label_pairs_picks_captions_title_and_three_columns() {
     let (_dir, solution, mut args) = label_pairs_fixture();
+    args.layout = Some("stacked".into());
     args.fields = vec![
         "active:Enabled?".into(),
         "id:Asset identifier".into(),
@@ -12213,7 +12221,7 @@ fn label_pairs_replace_removes_property_display_and_binding_inside_or_beside() {
         .unwrap();
         apply_edit(&solution, &bound.edit, &lock(&solution)).unwrap();
         args.replace = Some(display_id.clone());
-        let plan = recipe(&solution, "label-pairs", args).unwrap();
+        let plan = recipe(&solution, "label-pairs", args.clone()).unwrap();
         assert_eq!(plan.removed, [display_id.clone()]);
         assert_eq!(
             recipe_plan_json(&solution, &plan, true)["removed"],
@@ -12227,6 +12235,11 @@ fn label_pairs_replace_removes_property_display_and_binding_inside_or_beside() {
             .iter()
             .all(|b| b["TargetId"] != display_id && b["SourceId"] != display_id));
         assert!(problems(&solution).is_empty());
+        let before = sidecar_content(&solution);
+        let rerun = recipe(&solution, "label-pairs", args).unwrap();
+        assert!(rerun.added.is_empty());
+        assert!(rerun.removed.is_empty());
+        assert_eq!(sidecar_content(&solution), before);
     }
 }
 
@@ -12284,11 +12297,11 @@ fn label_pairs_notes_selected_rows_and_wrapping_guidance_in_json() {
     assert!(plan
         .notes
         .iter()
-        .any(|n| n.contains("multi-row") && n.contains("SelectedRows")));
+        .any(|n| n.contains("row first") && n.contains("no selecting widget")));
     assert!(plan
         .notes
         .iter()
-        .any(|n| n.contains(crate::core::bindings::SELECTED_ROWS_RULE) && n.contains("first row")));
+        .all(|n| !n.contains(crate::core::bindings::SELECTED_ROWS_RULE)));
     assert!(plan
         .notes
         .iter()
@@ -12315,10 +12328,7 @@ fn label_pairs_resolves_named_calls_and_requires_an_existing_call() {
     });
     args.data = Some("data:Acme.Orders.Manager.GetOrders[as details]".into());
     let plan = recipe(&solution, "label-pairs", args).unwrap();
-    assert!(plan
-        .wired
-        .iter()
-        .any(|n| n.contains("[as details][SelectedRows]")));
+    assert!(plan.wired.iter().any(|n| n.contains("[as details].")));
     let value: Value = serde_json::from_str(&sidecar_content(&solution)).unwrap();
     assert!(value["DataBindings"]
         .as_array()
@@ -13102,4 +13112,788 @@ fn moving_a_menubar_into_a_column_keeps_its_zero_floor() {
     assert_eq!(row["Properties"]["flex-min-height"], "0px");
     assert_eq!(row["Properties"]["flex-grow"], 1);
     assert!(plan_move(&solution, &request).unwrap().edit.is_none());
+}
+
+#[test]
+fn b1_wizard_and_dashboard_command_sequences_keep_shared_rows_growing() {
+    use mashup::edit::Side;
+    for wizard in [true, false] {
+        let (_dir, solution) = contained_fixture();
+        let name = "Acme.Board_MU";
+        let title = add_one(
+            &solution,
+            name,
+            "label",
+            Placement::In("center".into()),
+            &[
+                (
+                    "LabelText",
+                    if wizard { "New Widgets" } else { "Asset KPI" },
+                ),
+                ("LabelType", if wizard { "large-header" } else { "label" }),
+            ],
+        );
+        let left = add_at(&solution, name, "container", beside_of(&title, Side::Below));
+        let right = add_at(&solution, name, "container", beside_of(&left, Side::Right));
+        let mut shared = String::new();
+        for (index, panel) in [&left, &right].into_iter().enumerate() {
+            add_one(
+                &solution,
+                name,
+                "label",
+                Placement::In(panel.clone()),
+                &[(
+                    "LabelText",
+                    if index == 0 {
+                        "Progress Tracker"
+                    } else {
+                        "Tree Selector"
+                    },
+                )],
+            );
+            let anchor = if wizard {
+                add_at(
+                    &solution,
+                    name,
+                    if index == 0 {
+                        "progress-tracker"
+                    } else {
+                        "tree"
+                    },
+                    Placement::In(panel.clone()),
+                )
+            } else {
+                panel.clone()
+            };
+            if !wizard || index == 0 {
+                let plan = plan_add_contained(
+                    &solution,
+                    &AddContainedRequest {
+                        mashup: name.into(),
+                        child: "Acme.Card_MU".into(),
+                        placement: Some(if wizard {
+                            beside_of(&anchor, Side::Below)
+                        } else {
+                            Placement::In(panel.clone())
+                        }),
+                        settings: vec![],
+                    },
+                )
+                .unwrap();
+                apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+            }
+            let content = content_of(&solution, name);
+            shared = parent_id(&content["UI"], &left).unwrap();
+            let p = &find_widget(&content["UI"], &shared).unwrap()["Properties"];
+            assert_eq!(p["flex-size"], "range", "{p}");
+            assert_eq!(p["flex-grow"], 1);
+            assert_eq!(p["flex-max-height"], "");
+        }
+        if !wizard {
+            let mut request = add_request(name, "container");
+            request.placement = Some(beside_of(&left, Side::Below));
+            let plan = plan_add(&solution, &request).unwrap();
+            assert!(plan
+                .notes
+                .iter()
+                .any(|note| note.contains("below row container-") && note.contains(&shared)));
+            apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+            let second = plan.placed.id;
+            let third = add_at(
+                &solution,
+                name,
+                "container",
+                beside_of(&second, Side::Right),
+            );
+            let fourth = add_at(&solution, name, "container", beside_of(&third, Side::Right));
+            for card in [&second, &third, &fourth] {
+                for _ in 0..2 {
+                    let caption = add_at(&solution, name, "label", Placement::In(card.clone()));
+                    add_at(&solution, name, "label", beside_of(&caption, Side::End));
+                }
+            }
+            let chart_panel = add_at(
+                &solution,
+                name,
+                "container",
+                beside_of(&fourth, Side::Below),
+            );
+            let chart_right = add_at(
+                &solution,
+                name,
+                "container",
+                beside_of(&chart_panel, Side::Right),
+            );
+            for panel in [chart_panel, chart_right] {
+                add_at(&solution, name, "datepicker", Placement::In(panel.clone()));
+                add_at(&solution, name, "line-chart", Placement::In(panel));
+            }
+            let content = content_of(&solution, name);
+            let cards = parent_of(&content["UI"], &second).unwrap();
+            assert_eq!(cards["Properties"]["flex-grow"], 0);
+            for card in [&second, &third, &fourth] {
+                assert_eq!(
+                    find_widget(&content["UI"], card).unwrap()["Properties"]["flex-basis"],
+                    "0px"
+                );
+            }
+            let set = plan_set(
+                &solution,
+                &SetRequest {
+                    mashup: name.into(),
+                    widget: shared.clone(),
+                    properties: vec![
+                        ("flex-size".into(), json!("fixed")),
+                        ("flex-min-height".into(), json!("180px")),
+                        ("flex-max-height".into(), json!("180px")),
+                    ],
+                    style_from: None,
+                    styles: vec![],
+                },
+            )
+            .unwrap();
+            apply_edit(&solution, set.edit.as_ref().unwrap(), &lock(&solution)).unwrap();
+            add_at(&solution, name, "label", Placement::In(left));
+            let content = content_of(&solution, name);
+            let p = &find_widget(&content["UI"], &shared).unwrap()["Properties"];
+            assert_eq!(p["flex-size"], "fixed");
+            assert_eq!(p["flex-max-height"], "180px");
+        }
+    }
+}
+
+#[test]
+fn detail_row_choice_uses_only_selectors_on_the_same_call_and_respects_overrides() {
+    for (selector, other_call, explicit, expected) in [
+        (false, false, None, "AllData"),
+        (true, false, None, "SelectedRows"),
+        (true, true, None, "AllData"),
+        (true, false, Some("first"), "AllData"),
+        (false, false, Some("selected"), "SelectedRows"),
+    ] {
+        let (dir, solution, mut args) = label_pairs_fixture();
+        args.row = explicit.map(str::to_string);
+        if selector {
+            rewrite_content(dir.path(), |value| {
+                let mut document = mashup::edit::parse(&value.to_string()).unwrap();
+                let grid = document
+                    .widgets()
+                    .into_iter()
+                    .find(|w| w.type_id == "ptcsgrid")
+                    .unwrap();
+                document.set_property(&grid.path, "RowSelection", json!("single"));
+                document.bindings_mut().push(json!({"SourceArea":"Data","SourceSection":"Things_Acme.Orders.Manager","SourceId":if other_call { "another" } else { "GetOrders" },"SourceDetails":"AllData","TargetArea":"UI","TargetId":grid.id,"PropertyMaps":[{"SourcePropertyType":"InfoTable","TargetProperty":"Data"}]}));
+                *value = document.value().clone();
+            });
+        }
+        let plan = recipe(&solution, "label-pairs", args).unwrap();
+        let value = content_value(&solution);
+        let fields: Vec<_> = value["DataBindings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|b| b["PropertyMaps"][0]["TargetProperty"] == "LabelText")
+            .collect();
+        assert_eq!(fields.len(), 7);
+        assert!(fields.iter().all(|b| b["SourceDetails"] == expected));
+        assert!(plan
+            .notes
+            .iter()
+            .any(|note| note.contains(if explicit.is_some() {
+                "explicit --row"
+            } else if expected == "SelectedRows" {
+                "a selecting widget is bound"
+            } else {
+                "no selecting widget is bound"
+            })));
+        assert_eq!(
+            plan.notes
+                .iter()
+                .any(|n| n.contains("selected-rows-without-selection")),
+            explicit == Some("selected") && !selector
+        );
+    }
+}
+
+#[test]
+fn detail_inline_matches_kit_geometry_and_reruns_without_changing_bytes() {
+    let (_dir, solution, mut args) = label_pairs_fixture();
+    args.label_columns = Some(1);
+    recipe(&solution, "label-pairs", args.clone()).unwrap();
+    let before = sidecar_content(&solution);
+    let document = mashup::edit::parse(&before).unwrap();
+    let panel = document.find("Details").unwrap();
+    let column = &document.at(&panel.path)["Widgets"][0]["Widgets"][0];
+    let rows = column["Widgets"].as_array().unwrap();
+    assert_eq!(rows.len(), 13);
+    for (index, row) in rows.iter().enumerate() {
+        let p = &row["Properties"];
+        if index % 2 == 1 {
+            assert_eq!(p["flex-size"], "fixed");
+            assert_eq!(p["flex-min-height"], "1px");
+            assert_eq!(p["flex-max-height"], "1px");
+            assert_eq!(
+                document.root_properties()["StyleProperties"]["data"][p["Id"].as_str().unwrap()]
+                    ["parts"]["$"]["$"]["background"],
+                "#C2C7CE"
+            );
+        } else {
+            assert_eq!(p["flex-direction"], "row");
+            assert_eq!(p["align-items"], "center");
+            assert_eq!(p["justify-content"], "space-between");
+            assert_eq!(p["flex-min-height"], "");
+            let caption = &row["Widgets"][0]["Widgets"][0]["Properties"];
+            let value = &row["Widgets"][1]["Widgets"][0]["Properties"];
+            assert_eq!(caption["HorizontalAlignment"], "left");
+            assert_eq!(caption["LabelType"], "body");
+            assert_eq!(caption["Margin"], "0 5");
+            assert_eq!(value["HorizontalAlignment"], "right");
+            assert_eq!(value["Margin"], "0 18 0 5");
+            assert_eq!(value["LabelText"], "");
+        }
+    }
+    let rerun = recipe(&solution, "label-pairs", args).unwrap();
+    assert!(rerun.added.is_empty());
+    assert_eq!(sidecar_content(&solution), before);
+}
+
+#[test]
+fn detail_status_uses_shape_data_and_existing_state_snapshot() {
+    let (dir, solution, mut args) = label_pairs_fixture();
+    write(
+        dir.path(),
+        "acme/StateDefinitions/Acme.Status.xml",
+        r##"<Entities><StateDefinitions><StateDefinition name="Acme.Status" projectName="Acme"><content><![CDATA[{"stateType":"string","stateDefinitions":[{"displayString":"Ready","defaultValue":"ready","defaultStyleDefinition":{"backgroundColor":"#00aa00"}},{"displayString":"Other","defaultStyleDefinition":{"backgroundColor":"#aaaaaa"}}]}]]></content></StateDefinition></StateDefinitions></Entities>"##,
+    );
+    args.status = Some("assetName".into());
+    args.status_state = Some("Acme.Status".into());
+    recipe(&solution, "label-pairs", args.clone()).unwrap();
+    let before = sidecar_content(&solution);
+    let document = mashup::edit::parse(&before).unwrap();
+    let dots: Vec<_> = document
+        .widgets()
+        .into_iter()
+        .filter(|w| w.type_id == "shape")
+        .collect();
+    assert_eq!(dots.len(), 7);
+    for dot in dots {
+        let p = &document.at(&dot.path)["Properties"];
+        assert_eq!(p["ShapeType"], "circle");
+        assert_eq!(p["Width"], 12);
+        assert_eq!(p["Height"], 12);
+        assert_eq!(p["Margin"], "0 5");
+        assert_eq!(p["ShapeFormatter"]["FieldName"], "Data");
+        assert_eq!(p["ShapeFormatter"]["StateDefinition"], "Acme.Status");
+        assert!(document.value()["DataBindings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|b| b["TargetId"] == dot.id
+                && b["PropertyMaps"][0]["TargetProperty"] == "Data"
+                && b["PropertyMaps"][0]["SourceProperty"] == "assetName"));
+    }
+    recipe(&solution, "label-pairs", args).unwrap();
+    assert_eq!(sidecar_content(&solution), before);
+}
+
+#[test]
+fn chart_recipes_clear_catalogue_titles_and_keep_explicit_or_authored_names() {
+    for kind in [
+        "ptcschartpie",
+        "ptcschartcombo",
+        "ptcschartline",
+        "ptcschartbar",
+    ] {
+        let (_dir, solution) = bind_fixture();
+        let plan = plan_add(&solution, &add_request("Acme.Orders_MU", kind)).unwrap();
+        apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+        let mut args = RecipeArgs {
+            widget: Some(plan.placed.id.clone()),
+            data: Some("data:Acme.Orders.Manager.GetOrders".into()),
+            x: Some("note".into()),
+            value: (kind == "ptcschartpie").then(|| "id".into()),
+            ..Default::default()
+        };
+        recipe(&solution, "chart", args.clone()).unwrap();
+        let before = sidecar_content(&solution);
+        let document = mashup::edit::parse(&before).unwrap();
+        let p = &document.at(&document.find_exact(&plan.placed.id).unwrap().path)["Properties"];
+        for (key, _) in widgets::catalog()
+            .by_type(kind)
+            .unwrap()
+            .defaults
+            .iter()
+            .filter(|(key, _)| {
+                key.as_str() == "Label"
+                    || key.as_str() == "XAxisLabel"
+                    || key.as_str() == "YAxisLabel"
+                    || key.as_str() == "SecondYAxisLabel"
+                    || (key.starts_with("YAxis") && key.ends_with("Label"))
+            })
+        {
+            assert_eq!(p[key], "", "{kind}.{key}");
+        }
+        recipe(&solution, "chart", args.clone()).unwrap();
+        assert_eq!(sidecar_content(&solution), before);
+        args.title = Some("Trend".into());
+        args.x_title = Some("Category".into());
+        args.y_title = Some("Count".into());
+        recipe(&solution, "chart", args.clone()).unwrap();
+        let titled = sidecar_content(&solution);
+        let document = mashup::edit::parse(&titled).unwrap();
+        let p = &document.at(&document.find_exact(&plan.placed.id).unwrap().path)["Properties"];
+        assert_eq!(p["Label"], "Trend");
+        if kind != "ptcschartpie" {
+            assert_eq!(p["XAxisLabel"], "Category");
+            assert_eq!(
+                p[if kind == "ptcschartcombo" {
+                    "YAxis1Label"
+                } else {
+                    "YAxisLabel"
+                }],
+                "Count"
+            );
+        }
+        args.title = None;
+        args.x_title = None;
+        args.y_title = None;
+        recipe(&solution, "chart", args).unwrap();
+        assert_eq!(sidecar_content(&solution), titled);
+    }
+}
+
+#[test]
+fn detail_options_refuse_invalid_modes_and_incomplete_status_without_writing() {
+    let (_dir, solution, args) = label_pairs_fixture();
+    let before = sidecar_content(&solution);
+    for changed in [
+        RecipeArgs {
+            row: Some("guess".into()),
+            ..args.clone()
+        },
+        RecipeArgs {
+            layout: Some("guess".into()),
+            ..args.clone()
+        },
+        RecipeArgs {
+            status: Some("active".into()),
+            ..args.clone()
+        },
+        RecipeArgs {
+            status_state: Some("Acme.Status".into()),
+            ..args.clone()
+        },
+        RecipeArgs {
+            status: Some("missing".into()),
+            status_state: Some("Acme.Status".into()),
+            ..args.clone()
+        },
+    ] {
+        assert!(label_pairs_plan(&solution, &changed).is_err());
+        assert_eq!(sidecar_content(&solution), before);
+    }
+}
+
+#[test]
+fn tracker_initial_step_host_order_and_rerun_identity() {
+    let (dir, solution) = recipe_fixture();
+    write(
+        dir.path(),
+        "acme/DataShapes/Acme.Orders.Order_DS.xml",
+        r#"<Entities><DataShapes><DataShape name="Acme.Orders.Order_DS" projectName="Acme"><FieldDefinitions><FieldDefinition name="stepNumber" baseType="INTEGER"/><FieldDefinition name="label" baseType="STRING"/><FieldDefinition name="mashupName" baseType="MASHUPNAME"/></FieldDefinitions></DataShape></DataShapes></Entities>"#,
+    );
+    let child = NewRequest {
+        params: vec!["stepNumber:NUMBER:BOTH".into()],
+        ..request("Acme.Step_MU")
+    };
+    apply_new(
+        &solution,
+        &plan_new(&solution, &child).unwrap(),
+        &lock(&solution),
+    )
+    .unwrap();
+    let host = plan_add_contained(
+        &solution,
+        &AddContainedRequest {
+            mashup: "Acme.Orders_MU".into(),
+            child: "Acme.Step_MU".into(),
+            placement: None,
+            settings: vec![],
+        },
+    )
+    .unwrap();
+    apply_edit(&solution, &host.edit, &lock(&solution)).unwrap();
+    let args = RecipeArgs {
+        widget: Some("new".into()),
+        data: Some("data:Acme.Orders.Manager.GetOrders[as steps]".into()),
+        ..Default::default()
+    };
+    let first = recipe(&solution, "tracker", args.clone()).unwrap();
+    let id = first.added[0].clone();
+    let doc = mashup::edit::parse(&sidecar_content(&solution)).unwrap();
+    let target = doc.find(&id).unwrap();
+    assert_eq!(doc.at(&target.path)["Properties"]["CurrentStepNumber"], 1);
+    assert_eq!(doc.at(&target.path)["Properties"]["MinStepSpacing"], 24);
+    let before = sidecar_content(&solution);
+    recipe(
+        &solution,
+        "tracker",
+        RecipeArgs {
+            widget: Some(id.clone()),
+            ..args.clone()
+        },
+    )
+    .unwrap();
+    assert_eq!(sidecar_content(&solution), before);
+    let args = RecipeArgs {
+        widget: Some(id.clone()),
+        initial_step: Some(0),
+        step_size: Some("small".into()),
+        host: Some(host.placed.id.clone()),
+        ..args
+    };
+    let plan = recipe(&solution, "tracker", args.clone()).unwrap();
+    let edges: Vec<_> = plan
+        .wired
+        .iter()
+        .filter(|line| line.contains(" -> ") && line.starts_with("ui:"))
+        .collect();
+    assert_eq!(
+        edges,
+        vec![
+            &format!(
+                "ui:{}.stepNumber -> ui:{id}.CurrentStepNumber",
+                host.placed.id
+            ),
+            &format!(
+                "ui:{id}.CurrentStepNumber -> ui:{}.stepNumber",
+                host.placed.id
+            ),
+            &format!("ui:{id}.CurrentStepMashup -> ui:{}.Name", host.placed.id),
+        ]
+    );
+    let doc = mashup::edit::parse(&sidecar_content(&solution)).unwrap();
+    assert_eq!(
+        doc.at(&doc.find(&id).unwrap().path)["Properties"]["CurrentStepNumber"],
+        0
+    );
+    assert_eq!(
+        doc.at(&doc.find(&id).unwrap().path)["Properties"]["StepSize"],
+        "small"
+    );
+    assert_eq!(
+        doc.at(&doc.find(&host.placed.id).unwrap().path)["Properties"]["Name"],
+        "Acme.Step_MU"
+    );
+    let before = sidecar_content(&solution);
+    recipe(&solution, "tracker", args).unwrap();
+    assert_eq!(sidecar_content(&solution), before);
+}
+
+#[test]
+fn tree_recipe_infers_overrides_refuses_and_repeats_without_changes() {
+    let (dir, solution) = recipe_fixture();
+    let shape = |extra: &str| {
+        write(
+            dir.path(),
+            "acme/DataShapes/Acme.Orders.Order_DS.xml",
+            &format!(
+                r#"<Entities><DataShapes><DataShape name="Acme.Orders.Order_DS" projectName="Acme"><FieldDefinitions><FieldDefinition name="node_id" baseType="STRING"/><FieldDefinition name="name" baseType="STRING"/><FieldDefinition name="parentId" baseType="STRING"/><FieldDefinition name="color" baseType="STRING"/>{extra}</FieldDefinitions></DataShape></DataShapes></Entities>"#
+            ),
+        )
+    };
+    shape("");
+    let tree = plan_add(&solution, &add_request("Acme.Orders_MU", "tree")).unwrap();
+    apply_edit(&solution, &tree.edit, &lock(&solution)).unwrap();
+    let args = RecipeArgs {
+        widget: Some(tree.placed.id.clone()),
+        data: Some("data:Acme.Orders.Manager.GetOrders[as nodes]".into()),
+        ..Default::default()
+    };
+    recipe(&solution, "tree", args.clone()).unwrap();
+    let before = sidecar_content(&solution);
+    let doc = mashup::edit::parse(&before).unwrap();
+    let p = &doc.at(&doc.find(&tree.placed.id).unwrap().path)["Properties"];
+    for (key, value) in [
+        ("IDField", "node_id"),
+        ("NameField", "name"),
+        ("ParentIDField", "parentId"),
+        ("ColorField", "color"),
+    ] {
+        assert_eq!(p[key], value);
+    }
+    assert!(has_binding(
+        doc.value(),
+        "nodes",
+        "",
+        &tree.placed.id,
+        "Data"
+    ));
+    recipe(&solution, "tree", args.clone()).unwrap();
+    assert_eq!(sidecar_content(&solution), before);
+    shape(r#"<FieldDefinition name="title" baseType="STRING"/>"#);
+    let error = recipe(&solution, "tree", args.clone())
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("NameField (ambiguous: name, title)") && error.contains("available fields:"),
+        "{error}"
+    );
+    assert_eq!(sidecar_content(&solution), before);
+    recipe(
+        &solution,
+        "tree",
+        RecipeArgs {
+            field_maps: vec!["NameField=title".into()],
+            ..args.clone()
+        },
+    )
+    .unwrap();
+    for field in [
+        "NameField=absent",
+        "Bogus=name",
+        "NameField=node_id;NameField=name",
+    ] {
+        let before = sidecar_content(&solution);
+        assert!(recipe(
+            &solution,
+            "tree",
+            RecipeArgs {
+                field_maps: field.split(';').map(str::to_string).collect(),
+                ..args.clone()
+            }
+        )
+        .is_err());
+        assert_eq!(sidecar_content(&solution), before);
+    }
+}
+
+#[test]
+fn panel_card_matches_focus_export_and_inherits_on_wrappers() {
+    let (dir, solution, _) = label_pairs_fixture();
+    let panel = mashup::edit::parse(&sidecar_content(&solution))
+        .unwrap()
+        .find("Details")
+        .unwrap()
+        .id;
+    set_and_apply(
+        &solution,
+        "Acme.Orders_MU",
+        &panel,
+        vec![("flex-direction".into(), json!("column"))],
+        None,
+    )
+    .unwrap();
+    let wrapper = add_at(
+        &solution,
+        "Acme.Orders_MU",
+        "container",
+        Placement::In(panel.clone()),
+    );
+    let args = RecipeArgs {
+        widget: Some(panel.clone()),
+        style: Some("card".into()),
+        ..Default::default()
+    };
+    recipe(&solution, "panel", args.clone()).unwrap();
+    let before = sidecar_content(&solution);
+    let doc = mashup::edit::parse(&before).unwrap();
+    let styles = &doc.root_properties()["StyleProperties"]["data"];
+    assert_eq!(
+        styles[&panel]["parts"]["$"]["$"],
+        json!({
+            "background":"#ffffff", "border-color":"#BEC6CA", "border-radius":"initial", "border-style":"solid", "border-width":"1px",
+            "padding-bottom":"12px", "padding-left":"24px", "padding-right":"24px", "padding-top":"12px"
+        })
+    );
+    assert_eq!(styles[&wrapper]["parts"]["$"]["$"]["background"], "inherit");
+    let props = &doc.at(&doc.find(&panel).unwrap().path)["Properties"];
+    assert_eq!(props["Margin"], "");
+    assert_eq!(props["flex-min-height"], "0px");
+    let css_path = dir.path().join("src/Acme.Orders_MU/mashup/custom.css");
+    let css = std::fs::read_to_string(&css_path).unwrap();
+    assert!(
+        css.contains("height: calc(100% - 16px) !important;")
+            && css.contains("margin: 8px !important;")
+            && css.contains("min-height: 0 !important;")
+    );
+    recipe(&solution, "panel", args).unwrap();
+    assert_eq!(sidecar_content(&solution), before);
+    assert_eq!(std::fs::read_to_string(css_path).unwrap(), css);
+}
+
+#[test]
+fn date_formats_round_trip_and_column_patterns_override_the_default() {
+    let (dir, solution) = recipe_fixture();
+    write(
+        dir.path(),
+        "acme/DataShapes/Acme.Orders.Order_DS.xml",
+        r#"<Entities><DataShapes><DataShape name="Acme.Orders.Order_DS" projectName="Acme"><FieldDefinitions><FieldDefinition name="start" baseType="DATETIME"/><FieldDefinition name="end" baseType="DATETIME"/><FieldDefinition name="status" baseType="STRING"/></FieldDefinitions></DataShape></DataShapes></Entities>"#,
+    );
+    let mut args = RecipeArgs {
+        widget: Some("ptcsgrid-5".into()),
+        data: Some("data:Acme.Orders.Manager.GetOrders".into()),
+        columns: vec![
+            "start:Started:180:dd-MM-yyyy".into(),
+            "end".into(),
+            "status".into(),
+        ],
+        date_format: Some("yyyy-MM-dd HH:mm".into()),
+        ..Default::default()
+    };
+    let plan = recipe(&solution, "columns", args.clone()).unwrap();
+    assert!(!plan.notes.iter().any(|note| note.contains("--date-format")));
+    assert!(plan
+        .notes
+        .iter()
+        .any(|note| note.contains("mashup state-format set") && note.contains("--column status")));
+    let content = sidecar_content(&solution);
+    let doc = mashup::edit::parse(&content).unwrap();
+    let columns =
+        &doc.at(&doc.find("ptcsgrid-5").unwrap().path)["Properties"]["ColumnFormat"]["formatInfo"];
+    assert_eq!(columns[0]["FormatOptions"]["FormatString"], "dd-MM-yyyy");
+    assert_eq!(
+        columns[1]["FormatOptions"]["FormatString"],
+        "yyyy-MM-dd HH:mm"
+    );
+    recipe(&solution, "columns", args.clone()).unwrap();
+    assert_eq!(sidecar_content(&solution), content);
+    args.date_format = None;
+    args.columns = vec!["start".into()];
+    recipe(&solution, "columns", args).unwrap();
+    let doc = mashup::edit::parse(&sidecar_content(&solution)).unwrap();
+    assert_eq!(
+        doc.at(&doc.find("ptcsgrid-5").unwrap().path)["Properties"]["ColumnFormat"]["formatInfo"]
+            [0]["FormatOptions"]["FormatString"],
+        "dd-MM-yyyy"
+    );
+    state_format_definition(dir.path(), "string");
+    let mut state = state_format_request("ptcsgrid-5");
+    state.property = None;
+    state.column = Some("status".into());
+    let formatted = plan_state_format_set(&solution, &state).unwrap();
+    apply_edit(
+        &solution,
+        formatted.edit.as_ref().unwrap(),
+        &lock(&solution),
+    )
+    .unwrap();
+    let status = RecipeArgs {
+        widget: Some("ptcsgrid-5".into()),
+        columns: vec!["status".into()],
+        ..Default::default()
+    };
+    let plan = recipe(&solution, "columns", status.clone()).unwrap();
+    assert!(!plan
+        .notes
+        .iter()
+        .any(|note| note.contains("mashup state-format set")));
+    let before = sidecar_content(&solution);
+    for columns in [
+        vec!["status:::dd-MM-yyyy".into()],
+        vec!["start:::   ".into()],
+    ] {
+        let error = recipe(
+            &solution,
+            "columns",
+            RecipeArgs {
+                columns,
+                ..status.clone()
+            },
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("date format needs"), "{error}");
+        assert_eq!(sidecar_content(&solution), before);
+    }
+}
+
+#[test]
+fn page_creation_suggests_available_masters_in_shared_notes() {
+    let (_dir, solution) = one_project();
+    let mut master = request("Acme.Master_MU");
+    master.master = true;
+    let plan = plan_new(&solution, &master).unwrap();
+    assert!(plan.notes.is_empty());
+    apply_new(&solution, &plan, &lock(&solution)).unwrap();
+    let page = plan_new(&solution, &request("Acme.Page_MU")).unwrap();
+    assert_eq!(page.notes, vec!["attach this page to a master with twaco mashup set Acme.Page_MU mashup-root --prop Master=Acme.Master_MU"]);
+    assert_eq!(
+        new_plan_json(&solution, &page, false)["notes"],
+        json!(page.notes)
+    );
+}
+
+#[test]
+fn list_page_matches_the_kit_shared_content_gutter() {
+    let template = mashup::templates::layout("list-page").unwrap().unwrap();
+    let doc = new_document(&template, false, DEFAULT_THEME).unwrap();
+    assert_eq!(
+        doc.at(&doc.find("page").unwrap().path)["Properties"]["Margin"],
+        "24"
+    );
+    for slot in ["title", "toolbar", "body"] {
+        assert!(doc
+            .find(slot)
+            .unwrap()
+            .path
+            .starts_with(&doc.find("page").unwrap().path));
+    }
+}
+
+#[test]
+fn two_column_form_keeps_upper_textarea_and_divider_above_stacked_fields() {
+    let (_dir, solution) = one_project();
+    let name = "Acme.Orders_MU";
+    let mut req = request(name);
+    req.template = "form-2col".into();
+    let plan = plan_new(&solution, &req).unwrap();
+    let report = new_plan_json(&solution, &plan, false);
+    for slot in ["left", "right"] {
+        assert!(report["widgets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|w| w["display_name"] == slot));
+    }
+    apply_new(&solution, &plan, &lock(&solution)).unwrap();
+    let mut previous = None;
+    for (slot, kind) in [
+        ("fields", "textarea"),
+        ("fields", "divider"),
+        ("left", "dropdown"),
+        ("left", "textfield"),
+        ("left", "textfield"),
+        ("left", "radio"),
+        ("right", "textfield"),
+        ("right", "datepicker"),
+        ("right", "datepicker"),
+        ("right", "checkbox"),
+    ] {
+        let mut req = add_request(name, kind);
+        req.placement = Some(if kind == "divider" {
+            Placement::Beside {
+                anchor: previous.clone().unwrap(),
+                side: mashup::edit::Side::Below,
+            }
+        } else {
+            Placement::In(slot.into())
+        });
+        let plan = plan_add(&solution, &req).unwrap();
+        previous = Some(plan.placed.id.clone());
+        apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    }
+    let loaded = load_existing(&solution, name).unwrap();
+    let doc = parse_loaded(&loaded).unwrap();
+    for slot in ["left", "right"] {
+        let found = doc.find(slot).unwrap();
+        let props = &doc.at(&found.path)["Properties"];
+        assert_eq!(props["flex-direction"], "column");
+        assert_eq!(props["flex-grow"], 1);
+        assert_eq!(props["flex-basis"], "0px");
+        assert_eq!(mashup::edit::children(doc.at(&found.path)).len(), 4);
+    }
+    assert!(doc.find("fields").unwrap().path < doc.find("form-columns").unwrap().path);
+    assert!(!problems(&solution)
+        .iter()
+        .any(|rule| rule == "wrapped-row-clipping"));
 }

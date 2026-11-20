@@ -362,7 +362,7 @@ A solution without `[lint]` keeps today's gates (`checks-v1`). To take up the fu
 | project dependencies | a Thing or ThingTemplate uses a ThingTemplate or ThingShape of another of the solution's projects (as its template, base template or an implemented shape) that its Project file's `dependsOn` does not name. The server adds that project to `dependsOn` when it imports the entity, so the Project reads back not kept; the finding gives the `<project>:<version>` entry to add |
 | configuration tables | for a multi-row configuration table whose definition names a DataShape and lists no fields of its own (the export form): blocks when the DataShape marks no primary key (the import fails), when the table has rows but no DataShape fields (the import drops every row), or when a row holds a cell the DataShape does not define (the import drops it); warns when the table's own fields differ from the DataShape's in name, base type, ordinal, description or key, because the server replaces them with the DataShape's and the entity reads back not kept. A definition with inline fields is the `project` gate's, and a table whose definition is inherited is not checked. Rows without fields are found whatever the DataShape; the key, cell and field comparisons need the DataShape in the repository or a configured extension source, and skip one that derives from another |
 | mashup bindings | a repository-resolved mashup service, result field or parameter is not declared, or a grid, chart or field-setting property names a field the result bound to its `Data` does not have; unresolved platform and inherited DataShape details are left unchecked |
-| mashup content | what `twaco mashup validate` finds in a mashup's content: a binding to a property, event or service its widget or data source does not have, a binding in the wrong direction, mixed container layouts. Widgets outside the catalogue (extensions) are not judged |
+| mashup content | errors from `twaco mashup validate` block; its advisories are shown and counted as warnings (exit 0 when there are no errors). Set `[gates] strict = ["mashup content"]` to block on advisories too. Checks include a binding to a property, event or service its widget or data source does not have, a binding in the wrong direction, mixed container layouts. Widgets outside the catalogue (extensions) are not judged |
 | contained mashups | a binding to a contained mashup's or navigation function's parameter that its copy of the parameters lacks (the value is dropped) or that the mashup it shows no longer declares; `twaco mashup param set <mashup> <parameter>` refreshes every copy; a stale copy nothing binds is only counted |
 | localization tokens | an entity names a `[[token]]` under one of the solution's token prefixes that no Default table file holds (the label would show the raw text), a language table holds a token Default lacks, a token is in one table twice, or a table file cannot be read. Tokens outside the prefixes are the platform's or an extension's and are not checked. Notes, which never fail it: per language table, the solution's tokens it lacks (they show the Default text), and Default tokens no entity names as `[[token]]` or as a bare name |
 | result shapes | a service's script builds its result with `CreateInfoTableFromDataShape` from another DataShape than its definition declares, named by a literal or a `const` holding one (a mashup bound to the declared shape finds other fields), or adds a row to the result with `AddRow({...})` setting a field the declared DataShape does not have (ThingWorx drops it). A name computed at run time, a spread or a computed key, and a DataShape deriving from another are not checked |
@@ -1168,6 +1168,7 @@ items' `imageURL` (e.g. `cds:icon_*`) and fits its labels when expanded.
 | header-sidebar | header, body, sidebar, center | Navigation page with a header |
 | sidebar-header | sidebar, main, header, center | Application shell: the menu the full height, a header above the page (the shape of the stock ThingWorx master templates) |
 | form-dialog | title, fields, actions | Form editing dialog |
+| form-2col | title, fields, form-columns, left, right, actions | Full-width fields above two equal form columns |
 | confirm-dialog | close, message, actions | Confirmation dialog |
 | list-page | title, toolbar, body | List and toolbar page |
 | card | header, title, actions, body | Card content |
@@ -1185,7 +1186,7 @@ scrollbars. Existing `--in filters` commands target this inner slot, including
 `--in filters --bottom` for Apply and `--right-of <apply>` for Clear: their footer stays at the
 bottom while later filters go above it. Footer buttons get `Width` 110 and `Margin` 0;
 the footer row gets `Margin` `0 5`. The inner column and generated rows inherit the grey
-background. Content is white with a 24px margin. `list-page` gives its toolbar the same grey band. The colours are ordinary widget styles
+background. Content is white with a 24px margin. `list-page` gives its toolbar the same grey band. Its shared content container (including title, toolbar and body) has a 24px margin on every side, like the kit's content (the kit stores `24 24 24 0` beside a sibling that supplies the left 24px). The colours are ordinary widget styles
 in the root's StyleProperties, so `mashup set <mashup> <slot> --style background=...` changes them.
 `dashboard` keeps the kits' 24px page margin around everything; `blank` has none, since it also serves
 contained mashups and collection cells.
@@ -1288,10 +1289,20 @@ reversed. To add a series in order, chain from the widget just added: the add pr
 `next: --right-of <id> keeps order` (in `notes` with `--json`, and in MCP), and `--end` appends
 at the far end of the row instead.
 
+Generated panels placed `--right-of` each other share the row's width equally, unless a panel
+has an explicit width. A filling chart, grid, tree, collection or contained mashup inside a panel
+keeps its enclosing generated rows growing, even when added after the split row was created.
+Rows of controls and cards use their content height beside a filling row; the filling row takes
+the remaining height and keeps its measured floor. On a short page the enclosing page scrolls,
+rather than shrinking every generated row into a separate scroller. Explicit container geometry
+set with `mashup set` is retained. Removing a stacked panel unwraps a generated column left with
+one generated child, provided the wrapper has no authored properties, styling or references.
+
 For a two-column form, use `--right-of` for the second field, then
 `--below <widget> --in-column` to stack within either field's column. Repeat it beneath each
-new field to keep that column flat. Without `--in-column`, `--below` keeps its existing rule:
-a control row twaco made is placed above the new row as a whole. The explicit option uses
+new field to keep that column flat. Without `--in-column`, `--below` places the new row beneath
+the whole generated control row. Targeting a panel directly inside a generated split row also
+places the new row beneath that whole row; the plan says `below row <id>`. The explicit option uses
 the same natural row heights and short-page scrolling rules as other placements. A textarea in
 a stack of controls keeps its floor (normally 100px), taking no spare page height; the form's
 enclosing rows keep that compact height too, so a following Save button sits beneath the fields.
@@ -1688,6 +1699,57 @@ twaco mashup recipe tracker Acme.App.Wizard_MU new --data data:Acme.App.Wizard.M
 twaco mashup recipe set-on-click Acme.App.Wizard_MU ptcsbutton-6 --param CurrentStep --expr "CurrentStep + 1" --input CurrentStep=mashup:CurrentStep --apply
 ```
 
+`columns` accepts repeatable `--column field[:Title[:width[:format]]]` entries.
+New DATETIME columns use `yyyy-MM-dd HH:mm:ss`, without milliseconds; existing
+column formats are preserved. `--date-format dd-MM-yyyy` sets the format for listed
+DATETIME fields, with a fourth column component taking precedence (the remainder
+may contain colons, for example `start:Started:180:yyyy-MM-dd HH:mm`). The pattern
+is stored as `ColumnFormat.FormatOptions.FormatString`; 10.2 rendering remains a
+live verification step. `--columns <n>` belongs to label-pairs; a non-number value
+on the columns recipe explains the repeatable `--column` flag.
+
+Plans, applies, JSON and MCP notes suggest status/state column icon formatting,
+explicit date formatting, `--menu` for cards without a menu, and attaching a new
+page when the solution contains a master. Review the suggested StateDefinition or
+master before applying it.
+
+For two-column dialogs, use `mashup new Acme.Form_MU --template form-2col`.
+The plan names both column widget ids; add controls with `--in left` or `--in right`
+(or those ids). Controls stack using the existing compact form placement rules.
+Use `--in fields` for the full-width textarea, then add its divider with
+`--below <textarea-id>` as in form-dialog. The two columns follow that area;
+`title` and `actions` retain the existing fixed dialog rows.
+
+`tracker` now seeds `CurrentStepNumber=1` (override with `--initial-step <n>`, including
+0 for comparison) and removes stored `CurrentStepMashup`, which is an output.
+The catalogue has no initial-selection flag or explicit fit option. `MinStepSpacing=24`
+reduces the default 90px spacing; `--step-size small|medium|large` defaults to large.
+Five large steps were reported to scroll horizontally at 617px with the old spacing.
+Initial selection and the tighter layout are candidates awaiting live verification;
+empty or delayed data is left to the widget, with no fabricated initial mashup output.
+
+Optional `--host <mashupcontainer>` seeds host.stepNumber to the same initial step and wires host.stepNumber to tracker.CurrentStepNumber,
+then tracker.CurrentStepNumber to host.stepNumber, then tracker.CurrentStepMashup to
+host.Name, before binding Data. Keep the host's default first-step Name and declare a
+bindable NUMBER `stepNumber` parameter on each child. Next/Back in the child update it.
+This is an alternative wiring sequence for runtime comparison; stored binding order
+alone cannot guarantee asynchronous event order.
+
+```sh
+twaco mashup recipe tracker Acme.Wizard_MU tracker --data data:Acme.Manager.GetSteps --initial-step 1 --step-size small --host host --apply
+twaco mashup recipe tree Acme.Wizard_MU tree --data data:Acme.Manager.GetNodes --field-map NameField=caption --apply
+```
+
+`tree` binds Data and infers all four catalogue FIELDNAME properties. IDField,
+NameField and ParentIDField are required; ColorField is optional. Common aliases include
+id/nodeId/itemId/identifier, name/nodeName/label/title/displayName, parentId/parent,
+and color/colour/nodeColor. Matching ignores case and separators. Missing required or
+ambiguous maps list available fields and require `--field-map Property=field` overrides.
+IDs and parents accept STRING/TEXT/GUID or numeric fields; names and colors accept
+STRING/TEXT. Bind SelectedItem to an ID parameter, or SelectedData fields to detail
+widgets, and run the data call on load. MCP uses recipe `tree` with `field_maps`;
+tracker also accepts `initial_step`, `step_size`, and `host`. Plans remain the default.
+
 `mashup recipe toolbar` fills an empty responsive flexcontainer with a fixed 48px row,
 a search field in the left group and optional buttons in the right group. The groups center
 their children vertically; the right group uses `flex-end`. The field has a search icon,
@@ -1724,12 +1786,23 @@ twaco mashup recipe panel Acme.Detail_MU details --compact 768 --apply
 twaco mashup recipe slider-action Acme.Controls_MU ptcsslider-8 ptcsbutton-9 --apply
 ```
 
+`--style card` uses the measured padded focus-card surface: `#ffffff`, solid `1px #BEC6CA`
+border, radius `initial`, `12px` top/bottom and `24px` left/right padding and an 8px margin on every side (16px between cards, like the kit).
+The managed box is 16px narrower and shorter than its slot (the margins), with border-box sizing,
+flex growth and min-height 0, so rows do not scroll. Default inner wrappers inherit its white
+background. The export also has two unpadded focus cards; this preset chooses the three padded
+focus-card variants. The reference trend cards share the surface but leave padding empty and
+use asymmetric sibling margins (`0 16 0 0` and `0 0 0 8`); those page-specific offsets
+are not applied by this reusable preset. `--style grey` keeps the existing defaults.
+MCP uses `style: "card"`.
+
 Panel appends a `twaco-panel-<widget-id>` class token and owns one delimited CSS
 block in `custom.css`. Existing classes and other CSS survive. `--compact 768|960`
 is an inclusive viewport breakpoint for 12px gutters; omitting it removes the
 owned media query. It does not stack children or inset absolutely positioned leaves.
 Checked live on 10.2: the class lands on the panel's bounding box, which computes to
-`flex: 1 1 auto` with 24/24/12 margins and a width of its parent minus 48px; with
+`flex: 1 1 auto` with 24/24/12 margins, a width of its parent minus 48px and a height
+minus 36px (without it the margins made every row scroll by 36px); with
 `--compact 768` the gutters are 12px at 768px and below and 24px at 769px.
 Panel refuses roots, static containers, non-column targets, named non-default
 styles, width constraints, malformed styles/markers and bindings to overwritten
@@ -1756,8 +1829,8 @@ from an existing data call's result DataShape. By default it uses all fields in 
 splits field names into captions, and gives each pair its own column in a wrapping row, matching
 the measured detail-panel pattern. Repeat `--field name[:Caption]` to pick, order and rename
 fields. With `--columns n` (above zero), pairs go across the n columns in order, then continue in
-the first column; there are never more columns than pairs. `--title` adds a sub-header above the
-wrapping row. Captions use `LabelType=label`; values use `body`.
+the first column; there are never more columns than pairs. `--title` adds a heading above the
+wrapping row. Inline captions and values use `LabelType=body`; stacked captions use `label`.
 
 ```sh
 twaco mashup recipe label-pairs Acme.App.Asset_MU details --data data:Acme.App.Manager.GetAssets --field assetName:Name --field status:Status --title Details --columns 3 --replace ptcspropertydisplay-8 --apply
@@ -1765,17 +1838,38 @@ twaco mashup recipe label-pairs Acme.App.Asset_MU details --data data:Acme.App.M
 
 `--replace` removes a widget inside or beside the destination, its descendants, and their
 bindings and event handlers in the same edit. Unknown references refuse. A non-empty destination
-refuses unless the replacement is its only child; there is no append mode. Plans list added
+refuses unless it already matches the recipe or the replacement is its only child; there is no append mode. Plans list added
 widgets with properties, bindings and removals. No files change without `--apply`.
 
-Values bind to the call's `SelectedRows` fields. Result cardinality cannot be known offline, so
-this also applies to a one-row result: select a row or enable the call's `Properties.AutoSelectFirstRow`.
-The existing selection hints explain missing selection and the All Data alternative for reading
-the first row. The wrapping row uses range sizing with no maximum height; on 10.2.1 the plan
-also names the CSS height overrides needed on its bounding box, inner flexcontainer and ancestors
-(see `twaco guide quirks`). MCP uses `mashup_recipe` with `recipe: "label-pairs"`, `widget` for the
-container, `data`, `fields` (array), `title`, `label_columns` and `replace`; `columns` remains the
-grid-column array. MCP plans by default with `dry_run: true`.
+`--row first` binds scalar fields through All Data (`data:Acme.Records.GetRecord.title`).
+`--row selected` binds `[SelectedRows]` and follows selection. By default the recipe uses selected
+when a selecting grid, list, dropdown or collection receives this exact call's All Data; otherwise
+it uses first. The plan names the choice and reason. Service names and offline signatures do not
+establish cardinality. Named calls keep `[as alias]`. Empty results have no first row; generated
+value labels start empty rather than displaying a placeholder.
+
+`--layout inline` is the default: captions left, values right, one line per pair, with a 1px divider
+between lines in each column (kit color `#C2C7CE`). `--layout stacked` retains captions above values. The kit export's
+inline margins are caption `0 5`, value `0 18 0 5`, circle `0 5`; circles are 12 by 12 and rows have
+no fixed height. `--status field --status-state Acme.Status` adds a circle per pair, binding the
+status field to the shape's `Data` and using the repository StateDefinition's inline snapshot in
+`ShapeFormatter`. Supply both options so the color meaning is explicit; the kit's dots themselves
+use static colors. Columns keep the same distribution in either layout. Repeating an identical
+recipe preserves bytes; a different recipe still requires an empty destination or `--replace`.
+
+A manually requested `[SelectedRows]` binding remains a warning when no selecting widget receives
+the same call's All Data. Bind the field from All Data to read the first row, or bind the result to
+a grid/list/collection/dropdown and turn on that widget's AutoSelectFirstRow.
+
+The wrapping row uses range sizing with no maximum height; on 10.2.1 the plan also names CSS height
+overrides (see `twaco guide quirks`). MCP `mashup_recipe` uses `row`, `layout`, `status`, `status_state`,
+`fields` (array), `title`, `label_columns` and `replace`; `columns` remains the grid-column array.
+MCP plans by default with `dry_run: true`.
+
+The chart recipe clears catalogue chart names (`Label`) and axis placeholders, including combo
+`YAxis1Label` through `YAxis100Label`. Existing authored names survive. `--title`, `--x-title` and
+`--y-title` override these labels (MCP `title`, `x_title`, `y_title`); the combo Y title applies to
+all its Y axes. Pie charts have no axis labels.
 
 `mashup recipe` writes, in one edit, the wiring real mashups repeat, from the same pieces `mashup add`,
 `bind` and `on` use:
@@ -1793,7 +1887,7 @@ grid-column array. MCP plans by default with `dry_run: true`.
 | chart | `--data` bound into the chart and its category field `--x` named (a pie: `--x` label and `--value` fields); every other numeric column of the result becomes a series; `--kind` bar/column or linechart/areachart |
 | columns | only the listed `--column field[:Title[:width]]` fields visible, in order; unlisted DataShape fields excluded from the layout; DATETIME fields use the localized default date/time format. Uses `--data` or the grid's existing binding; without a known DataShape only the listed columns are written and unlisted fields stay visible |
 | picker | a dropdown or list filled from `--data`, showing `--x`, valued by `--value`, its selection bound from `--selected` |
-| tracker | a progress tracker (existing widget or `new` in `center`) bound to `--data`, with `IsInteractive=true`, `StepSize=large` and field maps inferred from its result DataShape (number and label required); `--field-map Property=field` overrides any map |
+| tracker | a progress tracker (existing widget or `new` in `center`) bound to `--data`, with `IsInteractive=true`, `CurrentStepNumber=1`, `MinStepSpacing=24`, `StepSize=large` and field maps inferred from its result DataShape (number and label required); `--field-map Property=field` overrides any map |
 | set-on-click | an expression of `--expr`, fed by `--input name=address`, evaluated by the button's click and bound into the existing `--param` mashup parameter, using that parameter's type; no evaluation on load or input changes |
 
 For `columns`, repeat `--editable-column <field>` to make listed columns and the grid editable.
