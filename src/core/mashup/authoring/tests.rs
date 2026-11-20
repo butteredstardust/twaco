@@ -13103,3 +13103,151 @@ fn moving_a_menubar_into_a_column_keeps_its_zero_floor() {
     assert_eq!(row["Properties"]["flex-grow"], 1);
     assert!(plan_move(&solution, &request).unwrap().edit.is_none());
 }
+
+#[test]
+fn b1_wizard_and_dashboard_command_sequences_keep_shared_rows_growing() {
+    use mashup::edit::Side;
+    for wizard in [true, false] {
+        let (_dir, solution) = contained_fixture();
+        let name = "Acme.Board_MU";
+        let title = add_one(
+            &solution,
+            name,
+            "label",
+            Placement::In("center".into()),
+            &[
+                (
+                    "LabelText",
+                    if wizard { "New Widgets" } else { "Asset KPI" },
+                ),
+                ("LabelType", if wizard { "large-header" } else { "label" }),
+            ],
+        );
+        let left = add_at(&solution, name, "container", beside_of(&title, Side::Below));
+        let right = add_at(&solution, name, "container", beside_of(&left, Side::Right));
+        let mut shared = String::new();
+        for (index, panel) in [&left, &right].into_iter().enumerate() {
+            add_one(
+                &solution,
+                name,
+                "label",
+                Placement::In(panel.clone()),
+                &[(
+                    "LabelText",
+                    if index == 0 {
+                        "Progress Tracker"
+                    } else {
+                        "Tree Selector"
+                    },
+                )],
+            );
+            let anchor = if wizard {
+                add_at(
+                    &solution,
+                    name,
+                    if index == 0 {
+                        "progress-tracker"
+                    } else {
+                        "tree"
+                    },
+                    Placement::In(panel.clone()),
+                )
+            } else {
+                panel.clone()
+            };
+            if !wizard || index == 0 {
+                let plan = plan_add_contained(
+                    &solution,
+                    &AddContainedRequest {
+                        mashup: name.into(),
+                        child: "Acme.Card_MU".into(),
+                        placement: Some(if wizard {
+                            beside_of(&anchor, Side::Below)
+                        } else {
+                            Placement::In(panel.clone())
+                        }),
+                        settings: vec![],
+                    },
+                )
+                .unwrap();
+                apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+            }
+            let content = content_of(&solution, name);
+            shared = parent_id(&content["UI"], &left).unwrap();
+            let p = &find_widget(&content["UI"], &shared).unwrap()["Properties"];
+            assert_eq!(p["flex-size"], "range", "{p}");
+            assert_eq!(p["flex-grow"], 1);
+            assert_eq!(p["flex-max-height"], "");
+        }
+        if !wizard {
+            let mut request = add_request(name, "container");
+            request.placement = Some(beside_of(&left, Side::Below));
+            let plan = plan_add(&solution, &request).unwrap();
+            assert!(plan
+                .notes
+                .iter()
+                .any(|note| note.contains("below row container-") && note.contains(&shared)));
+            apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+            let second = plan.placed.id;
+            let third = add_at(
+                &solution,
+                name,
+                "container",
+                beside_of(&second, Side::Right),
+            );
+            let fourth = add_at(&solution, name, "container", beside_of(&third, Side::Right));
+            for card in [&second, &third, &fourth] {
+                for _ in 0..2 {
+                    let caption = add_at(&solution, name, "label", Placement::In(card.clone()));
+                    add_at(&solution, name, "label", beside_of(&caption, Side::End));
+                }
+            }
+            let chart_panel = add_at(
+                &solution,
+                name,
+                "container",
+                beside_of(&fourth, Side::Below),
+            );
+            let chart_right = add_at(
+                &solution,
+                name,
+                "container",
+                beside_of(&chart_panel, Side::Right),
+            );
+            for panel in [chart_panel, chart_right] {
+                add_at(&solution, name, "datepicker", Placement::In(panel.clone()));
+                add_at(&solution, name, "line-chart", Placement::In(panel));
+            }
+            let content = content_of(&solution, name);
+            let cards = parent_of(&content["UI"], &second).unwrap();
+            assert_eq!(cards["Properties"]["flex-grow"], 0);
+            for card in [&second, &third, &fourth] {
+                assert_eq!(
+                    find_widget(&content["UI"], card).unwrap()["Properties"]["flex-basis"],
+                    "0px"
+                );
+            }
+            let set = plan_set(
+                &solution,
+                &SetRequest {
+                    mashup: name.into(),
+                    widget: shared.clone(),
+                    properties: vec![
+                        ("flex-size".into(), json!("fixed")),
+                        ("flex-min-height".into(), json!("180px")),
+                        ("flex-max-height".into(), json!("180px")),
+                    ],
+                    style_from: None,
+                    styles: vec![],
+                },
+            )
+            .unwrap();
+            apply_edit(&solution, set.edit.as_ref().unwrap(), &lock(&solution)).unwrap();
+            add_at(&solution, name, "label", Placement::In(left));
+            let content = content_of(&solution, name);
+            let p = &find_widget(&content["UI"], &shared).unwrap()["Properties"];
+            assert_eq!(p["flex-size"], "fixed");
+            assert_eq!(p["flex-max-height"], "180px");
+        }
+    }
+}

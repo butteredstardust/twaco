@@ -1288,10 +1288,20 @@ reversed. To add a series in order, chain from the widget just added: the add pr
 `next: --right-of <id> keeps order` (in `notes` with `--json`, and in MCP), and `--end` appends
 at the far end of the row instead.
 
+Generated panels placed `--right-of` each other share the row's width equally, unless a panel
+has an explicit width. A filling chart, grid, tree, collection or contained mashup inside a panel
+keeps its enclosing generated rows growing, even when added after the split row was created.
+Rows of controls and cards use their content height beside a filling row; the filling row takes
+the remaining height and keeps its measured floor. On a short page the enclosing page scrolls,
+rather than shrinking every generated row into a separate scroller. Explicit container geometry
+set with `mashup set` is retained. Removing a stacked panel unwraps a generated column left with
+one generated child, provided the wrapper has no authored properties, styling or references.
+
 For a two-column form, use `--right-of` for the second field, then
 `--below <widget> --in-column` to stack within either field's column. Repeat it beneath each
-new field to keep that column flat. Without `--in-column`, `--below` keeps its existing rule:
-a control row twaco made is placed above the new row as a whole. The explicit option uses
+new field to keep that column flat. Without `--in-column`, `--below` places the new row beneath
+the whole generated control row. Targeting a panel directly inside a generated split row also
+places the new row beneath that whole row; the plan says `below row <id>`. The explicit option uses
 the same natural row heights and short-page scrolling rules as other placements. A textarea in
 a stack of controls keeps its floor (normally 100px), taking no spare page height; the form's
 enclosing rows keep that compact height too, so a following Save button sits beneath the fields.
@@ -1729,7 +1739,8 @@ block in `custom.css`. Existing classes and other CSS survive. `--compact 768|96
 is an inclusive viewport breakpoint for 12px gutters; omitting it removes the
 owned media query. It does not stack children or inset absolutely positioned leaves.
 Checked live on 10.2: the class lands on the panel's bounding box, which computes to
-`flex: 1 1 auto` with 24/24/12 margins and a width of its parent minus 48px; with
+`flex: 1 1 auto` with 24/24/12 margins, a width of its parent minus 48px and a height
+minus 36px (without it the margins made every row scroll by 36px); with
 `--compact 768` the gutters are 12px at 768px and below and 24px at 769px.
 Panel refuses roots, static containers, non-column targets, named non-default
 styles, width constraints, malformed styles/markers and bindings to overwritten

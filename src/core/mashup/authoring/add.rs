@@ -465,6 +465,22 @@ pub(crate) fn plan_add(
             .path;
         document.set_property(&path, "DataSource", json!("menuentity"));
     }
+    if widget.type_id == "flexcontainer"
+        && request
+            .properties
+            .iter()
+            .any(|(key, _)| key.starts_with("flex-") || matches!(key.as_str(), "Width" | "Height"))
+    {
+        let path = document
+            .find_exact(&placed.id)
+            .map_err(AuthoringError::Edit)?
+            .path;
+        document
+            .at_mut(&path)
+            .as_object_mut()
+            .expect("widget")
+            .insert("twacoLayoutAuthored".into(), Value::Bool(true));
+    }
     let mut notes = notes;
     let path = document
         .find_exact(&placed.id)
@@ -500,6 +516,13 @@ pub(crate) fn plan_add(
             "{} tab container(s): {}; add a tab's content with --in <container>",
             tabs.len(),
             tabs.join(", ")
+        ));
+    }
+    if let Some(row) = &placed.below_row {
+        let found = document.find_exact(row).map_err(AuthoringError::Edit)?;
+        notes.push(format!(
+            "below row {} ({row}); use --in-column to stack within the panel",
+            found.display_name
         ));
     }
     // Each add beside the same anchor lands immediately next to it, so a series reverses unless

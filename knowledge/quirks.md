@@ -492,6 +492,16 @@ content rows and a `range` floor on rows holding a filler leave one scroll, on t
 flow by it will not shrink below its title, legend and plot (about 370px): a shorter row overflows
 by the controls above the chart.
 
+The A/G panel sequences reproduced on 10.2 also expose this through nested layout: measuring a
+shared row from its panels' titles can leave it fixed at 161px after filling widgets are added.
+Generated rows must inspect descendants through panel and wrapper layers before measuring controls,
+and re-evaluate their enclosing rows when later additions introduce fillers. Keep a range floor
+on the data row and stop sibling content rows from sharing its spare height. Equal card widths
+require equal grow factors and a zero flex basis; `auto` lets unequal content bias the widths.
+`--below` a panel in a generated split row adds beneath that whole row; `--in-column` requests
+stacking inside its column. A generated singleton wrapper left by removal can be unwrapped only
+when it has no authored geometry, properties, styling or references.
+
 ## Composer clears responsive-container margins
 
 Although the default Margin is 5, Composer normally clears it. Retaining 5 makes fixed bands

@@ -6,6 +6,12 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Keep generated panel rows growing when filling widgets are added inside nested panels, share card widths evenly, and give spare page height to data rows while content rows retain their natural height and page scrolling.
+- Place `mashup add --below <panel>` below its generated split row; `--in-column` keeps explicit stacking. Removing a stacked panel also unwraps an unreferenced, unstyled generated singleton wrapper. Explicit container geometry set with `mashup set` is preserved during later layout changes.
+- `mashup recipe panel` subtracts its 36px of vertical margins from the panel height; before, every row holding panels scrolled by 36px inside a page that already scrolled (live 10.2).
+
 ## [0.1.69] - 2026-11-20
 
 ### Added

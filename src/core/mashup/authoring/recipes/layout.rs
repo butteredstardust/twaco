@@ -8,9 +8,9 @@ fn refuse(id: &str, reason: &str) -> AuthoringError {
 
 fn panel_css(id: &str, compact: Option<u32>) -> String {
     let class = format!(".twaco-panel-{id}");
-    let mut css = format!("/* twaco:panel:{id}:start */\n{class} {{\n  box-sizing: border-box;\n  flex: 1 1 auto !important;\n  min-height: 0 !important;\n  margin: 24px 24px 12px !important;\n  width: calc(100% - 48px) !important;\n}}\n");
+    let mut css = format!("/* twaco:panel:{id}:start */\n{class} {{\n  box-sizing: border-box;\n  flex: 1 1 auto !important;\n  min-height: 0 !important;\n  margin: 24px 24px 12px !important;\n  width: calc(100% - 48px) !important;\n  height: calc(100% - 36px) !important;\n}}\n");
     if let Some(width) = compact {
-        css.push_str(&format!("@media (max-width: {width}px) {{\n  {class} {{\n    margin: 12px !important;\n    width: calc(100% - 24px) !important;\n  }}\n}}\n"));
+        css.push_str(&format!("@media (max-width: {width}px) {{\n  {class} {{\n    margin: 12px !important;\n    width: calc(100% - 24px) !important;\n    height: calc(100% - 24px) !important;\n  }}\n}}\n"));
     }
     css.push_str(&format!("/* twaco:panel:{id}:end */\n"));
     css
@@ -471,10 +471,10 @@ mod tests {
     #[test]
     fn panel_css_has_exact_rules_and_replaces_only_the_owned_block() {
         let plain = panel_css("flexcontainer-2", None);
-        assert_eq!(plain, "/* twaco:panel:flexcontainer-2:start */\n.twaco-panel-flexcontainer-2 {\n  box-sizing: border-box;\n  flex: 1 1 auto !important;\n  min-height: 0 !important;\n  margin: 24px 24px 12px !important;\n  width: calc(100% - 48px) !important;\n}\n/* twaco:panel:flexcontainer-2:end */\n");
+        assert_eq!(plain, "/* twaco:panel:flexcontainer-2:start */\n.twaco-panel-flexcontainer-2 {\n  box-sizing: border-box;\n  flex: 1 1 auto !important;\n  min-height: 0 !important;\n  margin: 24px 24px 12px !important;\n  width: calc(100% - 48px) !important;\n  height: calc(100% - 36px) !important;\n}\n/* twaco:panel:flexcontainer-2:end */\n");
         for width in [768, 960] {
             let compact = panel_css("flexcontainer-2", Some(width));
-            assert!(compact.contains(&format!("@media (max-width: {width}px) {{\n  .twaco-panel-flexcontainer-2 {{\n    margin: 12px !important;\n    width: calc(100% - 24px) !important;\n  }}\n}}\n")));
+            assert!(compact.contains(&format!("@media (max-width: {width}px) {{\n  .twaco-panel-flexcontainer-2 {{\n    margin: 12px !important;\n    width: calc(100% - 24px) !important;\n    height: calc(100% - 24px) !important;\n  }}\n}}\n")));
             let other = panel_css("flexcontainer-9", None);
             let original = format!("/* user CSS */\n{plain}{other}.after {{ color: red; }}");
             let expected = format!("/* user CSS */\n{compact}{other}.after {{ color: red; }}");
