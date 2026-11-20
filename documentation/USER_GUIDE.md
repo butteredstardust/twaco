@@ -1648,6 +1648,31 @@ twaco mashup recipe tracker Acme.App.Wizard_MU new --data data:Acme.App.Wizard.M
 twaco mashup recipe set-on-click Acme.App.Wizard_MU ptcsbutton-6 --param CurrentStep --expr "CurrentStep + 1" --input CurrentStep=mashup:CurrentStep --apply
 ```
 
+`mashup recipe toolbar` fills an empty responsive flexcontainer with a fixed 48px row,
+a search field in the left group and optional buttons in the right group. The groups center
+their children vertically; the right group uses `flex-end`. The field has a search icon,
+clear button, `Search...` hint, width 240 and margin `5 12 5 5`. Override the hint and width
+with `--hint` and `--width`.
+
+```sh
+twaco mashup recipe toolbar Acme.App.Assets_MU toolbar --then data:Acme.App.Manager.SearchAssets --search-param query --button "Reload=mashup:Refresh" --apply
+```
+
+Add the data call to the mashup first. `--search-param` must name one of its STRING input
+parameters; refusals list those parameters. The field's Text feeds that parameter.
+`--run-on change|enter|both` defaults to both: Changed runs the call on each keystroke,
+without debounce, and EnterKeyPressed runs it on Enter. Clearing with the clear button
+fires Changed once (checked on 10.2; Enter does not fire Changed again). In enter mode, clearing
+does not run the call until Enter is pressed.
+
+Repeat `--button "Label=<handler>"` to add transparent buttons in order, with centered
+labels and zero margin as in the reference export. Handlers use the `mashup on` grammar.
+With no buttons, the right group stays empty. The export's extra controls are omitted.
+Plans include the properties, bindings, events and keystroke/clear notes. Use `--json` for
+structured output and `--apply` to write. MCP uses `mashup_recipe`, `recipe: "toolbar"`,
+`widget` for the container, `then`, `search_param`, optional `hint`, `width`, `run_on`,
+and `buttons` (an array of `Label=handler`); `dry_run` defaults to true.
+
 `mashup recipe label-pairs` fills an empty responsive container with caption/value labels
 from an existing data call's result DataShape. By default it uses all fields in DataShape order,
 splits field names into captions, and gives each pair its own column in a wrapping row, matching

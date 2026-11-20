@@ -12435,3 +12435,305 @@ fn label_pairs_replace_cascades_descendants_and_events_but_refuses_unknown_refer
         .all(|event| event["EventTriggerId"] != child));
     assert!(problems(&solution).is_empty());
 }
+
+fn toolbar_fixture() -> (tempfile::TempDir, Solution, RecipeArgs) {
+    let (dir, solution, _) = label_pairs_fixture();
+    let call = on(
+        &solution,
+        "mashup:Loaded",
+        "data:Acme.Orders.Manager.SaveOrder[as search]",
+    )
+    .unwrap();
+    apply_edit(&solution, &call.edit, &lock(&solution)).unwrap();
+    (
+        dir,
+        solution,
+        RecipeArgs {
+            widget: Some("Details".into()),
+            then: Some("data:Acme.Orders.Manager.SaveOrder[as search]".into()),
+            search_param: Some("note".into()),
+            ..Default::default()
+        },
+    )
+}
+
+fn toolbar_plan(solution: &Solution, args: &RecipeArgs) -> Result<RecipePlan, AuthoringError> {
+    plan_recipe(
+        solution,
+        &RecipeRequest {
+            mashup: "Acme.Orders_MU".into(),
+            recipe: Recipe::from_args("toolbar", args)?,
+        },
+    )
+}
+
+#[test]
+fn toolbar_measured_layout_binding_and_plan_apply_parity() {
+    let (_dir, solution, args) = toolbar_fixture();
+    let before = sidecar_content(&solution);
+    let plan = toolbar_plan(&solution, &args).unwrap();
+    assert_eq!(sidecar_content(&solution), before);
+    assert_eq!(plan.added.len(), 4);
+    assert!(plan.notes.iter().any(|n| n.contains("each keystroke")));
+    assert!(plan
+        .notes
+        .iter()
+        .any(|n| n.contains("clear button fires Changed")));
+    let planned = recipe_plan_json(&solution, &plan, false);
+    let applied = recipe(&solution, "toolbar", args).unwrap();
+    let actual = recipe_plan_json(&solution, &applied, true);
+    for key in ["added", "removed", "wired", "notes"] {
+        assert_eq!(planned[key], actual[key], "{key}");
+    }
+    let document = mashup::edit::parse(&sidecar_content(&solution)).unwrap();
+    let target = document.find("Details").unwrap();
+    let row = &document.at(&target.path)["Widgets"][0];
+    let props = &row["Properties"];
+    for (key, expected) in [
+        ("flex-size", json!("fixed")),
+        ("flex-min-height", json!("48px")),
+        ("flex-max-height", json!("48px")),
+        ("flex-direction", json!("row")),
+        ("align-items", json!("center")),
+        ("flex-wrap", json!("nowrap")),
+        ("Margin", json!("")),
+        ("UseTheme", json!(true)),
+        ("flex-grow", json!(1)),
+        ("flex-shrink", json!(1)),
+    ] {
+        assert_eq!(props[key], expected, "{key}");
+    }
+    assert_eq!(row["Widgets"].as_array().unwrap().len(), 2);
+    let left = &row["Widgets"][0];
+    let right = &row["Widgets"][1];
+    assert_eq!(left["Properties"]["justify-content"], "flex-start");
+    assert_eq!(right["Properties"]["justify-content"], "flex-end");
+    for group in [left, right] {
+        assert_eq!(group["Properties"]["align-items"], "center");
+        assert_eq!(group["Properties"]["flex-direction"], "row");
+        assert_eq!(group["Properties"]["Margin"], "");
+        assert_eq!(group["Properties"]["flex-grow"], 1);
+    }
+    assert!(right["Widgets"].as_array().unwrap().is_empty());
+    let field = &left["Widgets"][0]["Properties"];
+    for (key, expected) in [
+        ("Type", json!("ptcstextfield")),
+        ("Icon", json!("cds:icon_search")),
+        ("HintText", json!("Search...")),
+        ("Width", json!(240)),
+        ("ShowClearText", json!(true)),
+        ("Margin", json!("5 12 5 5")),
+    ] {
+        assert_eq!(field[key], expected, "{key}");
+    }
+    assert!(document.value()["DataBindings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|b| b["SourceId"] == field["Id"]
+            && b["TargetId"] == "search"
+            && b["PropertyMaps"][0]["SourceProperty"] == "Text"
+            && b["PropertyMaps"][0]["TargetProperty"] == "note"
+            && b["PropertyMaps"][0]["TargetPropertyBaseType"] == "STRING"));
+    assert!(problems(&solution).is_empty(), "{:?}", problems(&solution));
+    let report =
+        crate::core::mashup::validate::validate(&solution, Some("Acme.Orders_MU")).unwrap();
+    assert_eq!(
+        crate::core::mashup::validate::problem_counts(&report).errors,
+        0,
+        "{report:?}"
+    );
+}
+
+#[test]
+fn toolbar_run_modes_and_overrides_wire_only_requested_events() {
+    for mode in ["change", "enter", "both"] {
+        let (_dir, solution, mut args) = toolbar_fixture();
+        args.run_on = Some(mode.into());
+        args.hint = Some("Find assets".into());
+        args.width = Some(320);
+        let plan = recipe(&solution, "toolbar", args).unwrap();
+        let value: Value = serde_json::from_str(&sidecar_content(&solution)).unwrap();
+        let document = mashup::edit::parse(&sidecar_content(&solution)).unwrap();
+        let field = document
+            .widgets()
+            .into_iter()
+            .find(|w| plan.added.contains(&w.id) && w.type_id == "ptcstextfield")
+            .unwrap();
+        assert_eq!(
+            document.at(&field.path)["Properties"]["HintText"],
+            "Find assets"
+        );
+        assert_eq!(document.at(&field.path)["Properties"]["Width"], 320);
+        let events = value["Events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|e| e["EventTriggerId"] == field.id)
+            .collect::<Vec<_>>();
+        assert_eq!(events.len(), if mode == "both" { 2 } else { 1 });
+        for (event, expected) in [
+            ("Changed", mode != "enter"),
+            ("EnterKeyPressed", mode != "change"),
+        ] {
+            assert_eq!(
+                events.iter().any(
+                    |e| e["EventTriggerEvent"] == event && e["EventHandlerService"] == "search"
+                ),
+                expected
+            );
+        }
+        assert_eq!(
+            plan.notes.iter().any(|n| n.contains("each keystroke")),
+            mode != "enter"
+        );
+    }
+}
+
+#[test]
+fn toolbar_buttons_follow_order_and_existing_handler_grammar() {
+    let (_dir, solution, mut args) = toolbar_fixture();
+    args.buttons = vec![
+        "Reload=mashup:Refresh".into(),
+        "Save=data:Acme.Orders.Manager.SaveOrder[as search]".into(),
+        "Validate=ui:ptcstextfield-3.ShowValidationState".into(),
+    ];
+    recipe(&solution, "toolbar", args).unwrap();
+    let document = mashup::edit::parse(&sidecar_content(&solution)).unwrap();
+    let target = document.find("Details").unwrap();
+    let buttons = document.at(&target.path)["Widgets"][0]["Widgets"][1]["Widgets"]
+        .as_array()
+        .unwrap();
+    assert_eq!(buttons.len(), 3);
+    for (button, (label, handler)) in buttons.iter().zip([
+        ("Reload", "Refresh"),
+        ("Save", "search"),
+        ("Validate", "ShowValidationState"),
+    ]) {
+        let props = &button["Properties"];
+        assert_eq!(props["Label"], label);
+        assert_eq!(props["LabelAlignment"], "center");
+        assert_eq!(props["ButtonType"], "transparent");
+        assert_eq!(props["Margin"], "0");
+        assert!(document.value()["Events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|e| e["EventTriggerId"] == props["Id"]
+                && e["EventTriggerEvent"] == "Clicked"
+                && e["EventHandlerService"] == handler));
+    }
+    assert!(problems(&solution).is_empty());
+}
+
+#[test]
+fn toolbar_refuses_bad_parameters_calls_buttons_and_containers_without_writes() {
+    let (dir, solution, args) = toolbar_fixture();
+    let before = sidecar_content(&solution);
+    for parameter in ["missing", "id", ""] {
+        let mut bad = args.clone();
+        bad.search_param = Some(parameter.into());
+        let error = toolbar_plan(&solution, &bad).unwrap_err().to_string();
+        assert!(error.contains("STRING parameters: note"), "{error}");
+    }
+    for call in [
+        "data:Acme.Orders.Manager.Unknown",
+        "data:Acme.Orders.Manager.GetOrder",
+        "mashup:Refresh",
+        "data:Acme.Orders.Manager.SaveOrder.note",
+        "data:Acme.Orders.Manager.SaveOrder[as absent]",
+    ] {
+        let mut bad = args.clone();
+        bad.then = Some(call.into());
+        assert!(toolbar_plan(&solution, &bad).is_err(), "{call}");
+    }
+    for button in [
+        "broken",
+        "=mashup:Refresh",
+        "Reload=",
+        "Reload=bad",
+        "Reload=mashup:Unknown",
+        "Reload=ui:ptcstextfield-3.Unknown",
+    ] {
+        let mut bad = args.clone();
+        bad.buttons = vec![button.into()];
+        assert!(toolbar_plan(&solution, &bad).is_err(), "{button}");
+    }
+    assert_eq!(sidecar_content(&solution), before);
+    rewrite_content(dir.path(), |value| {
+        let mut doc = mashup::edit::parse(&value.to_string()).unwrap();
+        let target = doc.find("Details").unwrap();
+        let number = doc.allocate();
+        doc.push_child(
+            &target.path,
+            mashup::edit::new_widget(
+                widgets::catalog().by_type("ptcslabel").unwrap(),
+                number,
+                false,
+            ),
+        );
+        *value = doc.value().clone();
+    });
+    let before = sidecar_content(&solution);
+    assert!(toolbar_plan(&solution, &args)
+        .unwrap_err()
+        .to_string()
+        .contains("not empty"));
+    assert_eq!(sidecar_content(&solution), before);
+    rewrite_content(dir.path(), |value| {
+        let mut doc = mashup::edit::parse(&value.to_string()).unwrap();
+        let target = doc.find("Details").unwrap();
+        doc.at_mut(&target.path)["Widgets"] = json!([]);
+        doc.at_mut(&target.path)["Properties"]["positioning"] = json!("static");
+        *value = doc.value().clone();
+    });
+    assert!(toolbar_plan(&solution, &args)
+        .unwrap_err()
+        .to_string()
+        .contains("responsive flexcontainer"));
+}
+
+#[test]
+fn toolbar_shared_validation_requires_arguments_and_rejects_invalid_options() {
+    let args = RecipeArgs {
+        widget: Some("toolbar".into()),
+        then: Some("data:Acme.Manager.Search".into()),
+        search_param: Some("query".into()),
+        ..Default::default()
+    };
+    for key in ["widget", "then", "search_param", "width", "run_on"] {
+        let mut bad = args.clone();
+        match key {
+            "widget" => bad.widget = None,
+            "then" => bad.then = None,
+            "search_param" => bad.search_param = None,
+            "width" => bad.width = Some(0),
+            _ => bad.run_on = Some("invalid".into()),
+        }
+        assert!(Recipe::from_args("toolbar", &bad).is_err(), "{key}");
+    }
+    for mut bad in [
+        RecipeArgs {
+            hint: Some("Find".into()),
+            ..Default::default()
+        },
+        RecipeArgs {
+            run_on: Some("enter".into()),
+            ..Default::default()
+        },
+        RecipeArgs {
+            buttons: vec!["Reload=mashup:Refresh".into()],
+            ..Default::default()
+        },
+        RecipeArgs {
+            search_param: Some("query".into()),
+            ..Default::default()
+        },
+    ] {
+        bad.widget = Some("label".into());
+        assert!(Recipe::from_args("text", &bad)
+            .unwrap_err()
+            .to_string()
+            .contains("for recipe toolbar"));
+    }
+}

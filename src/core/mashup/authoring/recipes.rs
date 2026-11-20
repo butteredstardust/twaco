@@ -19,6 +19,15 @@ const MAX_COMBO_SERIES: usize = 24;
 /// One recipe and what it needs. Addresses are those `mashup bind` and `mashup on` take.
 #[derive(Clone, Debug)]
 pub enum Recipe {
+    Toolbar {
+        container: String,
+        then: String,
+        search_param: String,
+        hint: String,
+        width: u32,
+        run_on: String,
+        buttons: Vec<(String, String)>,
+    },
     LabelPairs {
         container: String,
         data: String,
@@ -176,6 +185,7 @@ pub struct RecipePlan {
 impl Recipe {
     pub(crate) fn name(&self) -> &'static str {
         match self {
+            Self::Toolbar { .. } => "toolbar",
             Self::LabelPairs { .. } => "label-pairs",
             Self::Collapsible { .. } => "collapsible",
             Self::EnableWhen { .. } => "enable-when",
@@ -235,6 +245,173 @@ impl Work<'_> {
         self.document.push_child(parent, widget);
         self.added.push(id.clone());
         id
+    }
+
+    fn toolbar(
+        &mut self,
+        container: &str,
+        then: &str,
+        search_param: &str,
+        options: (&str, u32, &str),
+        buttons: &[(String, String)],
+    ) -> Result<(), AuthoringError> {
+        let (hint, width, run_on) = options;
+        if width == 0 || !["change", "enter", "both"].contains(&run_on) {
+            return Err(AuthoringError::Invalid(
+                "toolbar: --width must be above 0; --run-on must be change, enter or both".into(),
+            ));
+        }
+        let target = widget_id(&self.document, container)?;
+        if target.type_id != "flexcontainer"
+            || self.document.at(&target.path)["Properties"]["ResponsiveLayout"] != true
+            || self.document.at(&target.path)["Properties"]["positioning"] == "static"
+        {
+            return Err(AuthoringError::Invalid(format!(
+                "{container} must be a responsive flexcontainer"
+            )));
+        }
+        if self.document.at(&target.path)["Widgets"]
+            .as_array()
+            .is_some_and(|children| !children.is_empty())
+        {
+            return Err(AuthoringError::Refused(format!(
+                "{container} is not empty; toolbar needs an empty container"
+            )));
+        }
+        let end = super::on::resolve_handler(
+            &self.document,
+            self.context.model,
+            self.context.platform,
+            then,
+        )?;
+        let whole_call = match (&end, parse_address(then)) {
+            (
+                super::end::End::Data {
+                    entity, service, ..
+                },
+                Ok(mashup::address::Address::Data { entity_service, .. }),
+            ) => entity_service == format!("{entity}.{service}"),
+            _ => false,
+        };
+        if !whole_call {
+            return Err(AuthoringError::Invalid(
+                "toolbar: --then must name a whole existing data call".into(),
+            ));
+        }
+        let (section_name, call_name) = super::bind::existing_data_call(&self.document, &end)?
+            .ok_or_else(|| {
+                AuthoringError::Unknown(format!(
+                    "{then} is not in the mashup; add the data call first"
+                ))
+            })?;
+        let sections = bindings::data_sections(self.document.value());
+        let (section, call) = bindings::service_at(&sections, &section_name, &call_name)
+            .ok_or_else(|| AuthoringError::Unknown(format!("{then} is not in the mashup")))?;
+        let resolver = bindings::Resolver::new(self.context.model, self.context.platform);
+        let service = resolver
+            .service(section, &call.target)
+            .service
+            .ok_or_else(|| {
+                AuthoringError::Unknown(format!("{then}: service definition is unavailable"))
+            })?;
+        let strings = service
+            .parameters
+            .iter()
+            .filter(|p| p.value.base_type == "STRING")
+            .map(|p| p.name.as_str())
+            .collect::<Vec<_>>();
+        if !strings.contains(&search_param) {
+            return Err(AuthoringError::Invalid(format!(
+                "{then}: --search-param {search_param} must name a STRING input parameter; STRING parameters: {}",
+                if strings.is_empty() { "none".into() } else { strings.join(", ") }
+            )));
+        }
+        for (label, handler) in buttons {
+            if label.trim().is_empty() {
+                return Err(AuthoringError::Invalid(
+                    "toolbar: --button needs Label=<handler>".into(),
+                ));
+            }
+            super::on::resolve_handler(
+                &self.document,
+                self.context.model,
+                self.context.platform,
+                handler,
+            )?;
+        }
+        let alias = if call.instance == call.target {
+            String::new()
+        } else {
+            format!("[as {}]", call.instance)
+        };
+        let parameter = format!(
+            "data:{}.{}{alias}.{search_param}",
+            section.entity, call.target
+        );
+        let common = [
+            ("Margin", json!("")),
+            ("UseTheme", json!(true)),
+            ("ExpandCollapseTabLocation", json!("inside")),
+            ("ShowVerticalScrollbar", json!(false)),
+            ("flex-direction", json!("row")),
+            ("align-items", json!("center")),
+            ("align-content", json!("flex-start")),
+            ("flex-wrap", json!("nowrap")),
+            ("justify-content", json!("flex-start")),
+        ];
+        let mut row_properties = common.to_vec();
+        row_properties.extend([
+            ("flex-size", json!("fixed")),
+            ("flex-min-height", json!("48px")),
+            ("flex-max-height", json!("48px")),
+            ("iconClass", json!("widgets-flexcontainer-fixed")),
+        ]);
+        let row = self.add_in(&target.path, "flexcontainer", &row_properties);
+        let row_path = widget_id(&self.document, &row)?.path;
+        let left = self.add_in(&row_path, "flexcontainer", &common);
+        let left_path = widget_id(&self.document, &left)?.path;
+        let field = self.add_in(
+            &left_path,
+            "ptcstextfield",
+            &[
+                ("Icon", json!("cds:icon_search")),
+                ("HintText", json!(hint)),
+                ("Width", json!(width)),
+                ("ShowClearText", json!(true)),
+                ("Margin", json!("5 12 5 5")),
+                ("TextAlignment", json!("left")),
+                ("UseTheme", json!(true)),
+            ],
+        );
+        let mut right_properties = common.to_vec();
+        right_properties.push(("justify-content", json!("flex-end")));
+        let right = self.add_in(&row_path, "flexcontainer", &right_properties);
+        let right_path = widget_id(&self.document, &right)?.path;
+        self.bind(&format!("ui:{field}.Text"), &parameter)?;
+        if run_on != "enter" {
+            self.on(&format!("ui:{field}.Changed"), then)?;
+            self.notes.push(format!(
+                "{then} runs on each keystroke (Changed); no debounce; the clear button fires Changed, so clearing reruns it"
+            ));
+        }
+        if run_on != "change" {
+            self.on(&format!("ui:{field}.EnterKeyPressed"), then)?;
+        }
+        for (label, handler) in buttons {
+            let button = self.add_in(
+                &right_path,
+                "ptcsbutton",
+                &[
+                    ("Label", json!(label)),
+                    ("LabelAlignment", json!("center")),
+                    ("ButtonType", json!("transparent")),
+                    ("Margin", json!("0")),
+                    ("UseTheme", json!(true)),
+                ],
+            );
+            self.on(&format!("ui:{button}.Clicked"), handler)?;
+        }
+        Ok(())
     }
 
     fn label_pairs(
@@ -894,6 +1071,23 @@ pub(crate) fn plan_recipe(
         notes: Vec::new(),
     };
     match &request.recipe {
+        Recipe::Toolbar {
+            container,
+            then,
+            search_param,
+            hint,
+            width,
+            run_on,
+            buttons,
+        } => {
+            work.toolbar(
+                container,
+                then,
+                search_param,
+                (hint, *width, run_on),
+                buttons,
+            )?;
+        }
         Recipe::LabelPairs {
             container,
             data,
@@ -1904,6 +2098,10 @@ pub(crate) fn plan_recipe(
 /// What a recipe can be given, as the command line and MCP both pass it.
 #[derive(Clone, Debug, Default)]
 pub struct RecipeArgs {
+    pub search_param: Option<String>,
+    pub hint: Option<String>,
+    pub run_on: Option<String>,
+    pub buttons: Vec<String>,
     pub fields: Vec<String>,
     pub label_columns: Option<u32>,
     pub replace: Option<String>,
@@ -1973,6 +2171,7 @@ pub struct RecipeArgs {
 
 /// The recipe names, for help and errors.
 pub const RECIPES: &[&str] = &[
+    "toolbar",
     "label-pairs",
     "collapsible",
     "enable-when",
@@ -2047,7 +2246,16 @@ impl Recipe {
                 "--on-failure is for recipe message; close-after closes only on success".into(),
             ));
         }
+        if args.width.is_some() && !["toolbar", "nested-menu"].contains(&name) {
+            return Err(AuthoringError::Invalid(
+                "--width is for recipe nested-menu or toolbar".into(),
+            ));
+        }
         for (given, flag, recipe) in [
+            (args.search_param.is_some(), "--search-param", "toolbar"),
+            (args.hint.is_some(), "--hint", "toolbar"),
+            (args.run_on.is_some(), "--run-on", "toolbar"),
+            (!args.buttons.is_empty(), "--button", "toolbar"),
             (!args.fields.is_empty(), "--field", "label-pairs"),
             (args.label_columns.is_some(), "--columns", "label-pairs"),
             (args.replace.is_some(), "--replace", "label-pairs"),
@@ -2075,7 +2283,6 @@ impl Recipe {
             (args.auto_select_first, "--auto-select-first", "picker"),
             (args.menu.is_some(), "--menu", "nested-menu"),
             (args.no_auto_collapse, "--no-auto-collapse", "nested-menu"),
-            (args.width.is_some(), "--width", "nested-menu"),
             (args.field.is_some(), "--field", "navigate-on-click"),
         ] {
             if given && name != recipe {
@@ -2087,6 +2294,29 @@ impl Recipe {
         let inputs = pairs("--input", &args.inputs)?;
         let widget = |what: &str| required(&args.widget, what, name);
         Ok(match name {
+            "toolbar" => {
+                let run_on = args.run_on.clone().unwrap_or_else(|| "both".into());
+                let width = args.width.unwrap_or(240);
+                if width == 0 || !["change", "enter", "both"].contains(&run_on.as_str()) {
+                    return Err(AuthoringError::Invalid(
+                        "toolbar: --width must be above 0; --run-on must be change, enter or both"
+                            .into(),
+                    ));
+                }
+                Recipe::Toolbar {
+                    container: widget("the responsive container")?,
+                    then: required(&args.then, "--then <existing data call>", name)?,
+                    search_param: required(
+                        &args.search_param,
+                        "--search-param <STRING param>",
+                        name,
+                    )?,
+                    hint: args.hint.clone().unwrap_or_else(|| "Search...".into()),
+                    width,
+                    run_on,
+                    buttons: pairs("--button", &args.buttons)?,
+                }
+            }
             "label-pairs" => Recipe::LabelPairs {
                 container: widget("the responsive container")?,
                 data: required(&args.data, "--data <existing data call>", name)?,

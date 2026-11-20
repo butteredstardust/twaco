@@ -1010,6 +1010,19 @@ pub(crate) struct MashupParameterRequest {
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct MashupRecipeRequest {
+    /// toolbar: STRING input parameter of the existing call named by then.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) search_param: Absent<String>,
+    /// toolbar: search hint (Search... by default).
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) hint: Absent<String>,
+    /// toolbar: change, enter or both (default); change/both runs on each keystroke.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    #[schemars(extend("enum" = ["change", "enter", "both"]))]
+    pub(crate) run_on: Absent<String>,
+    /// toolbar: ordered Label=handler buttons; handlers use mashup on grammar.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) buttons: Absent<Vec<String>>,
     /// label-pairs: ordered field[:Caption] entries; omitted means all DataShape fields.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) fields: Absent<Vec<String>>,
@@ -1029,7 +1042,7 @@ pub(crate) struct MashupRecipeRequest {
     pub(crate) tab: Absent<String>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) start: Absent<String>,
-    /// enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, picker, tracker, set-on-click, nested-menu, navigate-on-click or collapsible; label-pairs uses widget as the responsive container, data, fields, title, label_columns and replace.
+    /// toolbar uses widget as the empty responsive container, then, search_param, hint, width, run_on and buttons. enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, picker, tracker, set-on-click, nested-menu, navigate-on-click or collapsible; label-pairs uses widget as the responsive container, data, fields, title, label_columns and replace.
     pub(crate) recipe: String,
     /// The mashup to write it in.
     pub(crate) mashup: String,
@@ -1126,7 +1139,7 @@ pub(crate) struct MashupRecipeRequest {
     /// nested-menu: leave several groups open at once.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) no_auto_collapse: Absent<bool>,
-    /// nested-menu: the column's width in pixels (300 by default).
+    /// nested-menu: column width (300); toolbar: search field width (240), in pixels.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) width: Absent<u32>,
     /// navigate-on-click: the selected row's field that names the mashup to open.

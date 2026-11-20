@@ -478,11 +478,42 @@ fn hand_written_tools() -> Vec<Value> {
         }
         recipe["inputSchema"]["properties"][name] = property;
     }
+    for (name, description, kind) in [
+        (
+            "search_param",
+            "toolbar: STRING input parameter of the existing call named by then.",
+            "string",
+        ),
+        (
+            "hint",
+            "toolbar: search hint (Search... by default).",
+            "string",
+        ),
+        (
+            "run_on",
+            "toolbar: change, enter or both (default); change/both runs on each keystroke.",
+            "string",
+        ),
+        (
+            "buttons",
+            "toolbar: ordered Label=handler buttons; handlers use mashup on grammar.",
+            "array",
+        ),
+    ] {
+        let mut property = json!({"description": description, "type": kind});
+        if kind == "array" {
+            property["items"] = json!({"type":"string"});
+        }
+        if name == "run_on" {
+            property["enum"] = json!(["change", "enter", "both"]);
+        }
+        recipe["inputSchema"]["properties"][name] = property;
+    }
     recipe["inputSchema"]["properties"]["fields"] = json!({"description": "label-pairs: ordered field[:Caption] entries; omitted means all DataShape fields.", "type": "array", "items": {"type": "string"}});
     recipe["inputSchema"]["properties"]["label_columns"] = json!({"description": "label-pairs: number of columns, one per field by default, above zero.", "type": "integer", "minimum": 0});
     recipe["inputSchema"]["properties"]["replace"] = json!({"description": "label-pairs: widget inside or beside the destination to remove with its bindings.", "type": "string"});
-    recipe["inputSchema"]["properties"]["width"] = json!({"description": "nested-menu: the column's width in pixels (300 by default).", "type": "integer", "minimum": 0});
-    recipe["inputSchema"]["properties"]["recipe"]["description"] = json!("enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, picker, tracker, set-on-click, nested-menu, navigate-on-click or collapsible; label-pairs uses widget as the responsive container, data, fields, title, label_columns and replace.");
+    recipe["inputSchema"]["properties"]["width"] = json!({"description": "nested-menu: column width (300); toolbar: search field width (240), in pixels.", "type": "integer", "minimum": 0});
+    recipe["inputSchema"]["properties"]["recipe"]["description"] = json!("toolbar uses widget as the empty responsive container, then, search_param, hint, width, run_on and buttons. enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, picker, tracker, set-on-click, nested-menu, navigate-on-click or collapsible; label-pairs uses widget as the responsive container, data, fields, title, label_columns and replace.");
     let edit = tools
         .iter_mut()
         .find(|tool| tool["name"] == "entity_edit")
@@ -4871,6 +4902,71 @@ fn label_pairs_mcp_plans_then_applies_with_schema_options() {
     assert_ne!(std::fs::read(path).unwrap(), before);
     let (failed, validated) =
         call_tool(&root, "mashup_validate", json!({"mashup":"Acme.Asset_MU"}));
+    assert!(!failed, "{validated}");
+    assert_eq!(validated["errors"], 0, "{validated}");
+}
+
+#[test]
+fn toolbar_mcp_schema_planning_apply_and_refusals() {
+    let definitions = tool_definitions();
+    let tool = definitions
+        .iter()
+        .find(|t| t["name"] == "mashup_recipe")
+        .unwrap();
+    let schema = &tool["inputSchema"];
+    for name in ["search_param", "hint", "run_on"] {
+        assert_eq!(schema["properties"][name]["type"], "string");
+    }
+    assert_eq!(schema["properties"]["buttons"]["items"]["type"], "string");
+    assert_eq!(
+        schema["properties"]["run_on"]["enum"],
+        json!(["change", "enter", "both"])
+    );
+    assert_eq!(schema["properties"]["dry_run"]["default"], true);
+    let (_dir, root) = solution_dir();
+    std::fs::write(root.join("Things/Acme.Manager.xml"), r#"<Entities><Things><Thing name="Acme.Manager" projectName="P"><ThingShape><ServiceDefinitions><ServiceDefinition name="Search"><ParameterDefinitions><FieldDefinition name="query" baseType="STRING"/><FieldDefinition name="count" baseType="INTEGER"/></ParameterDefinitions><ResultType baseType="NOTHING"/></ServiceDefinition></ServiceDefinitions><ServiceImplementations/></ThingShape></Thing></Things></Entities>"#).unwrap();
+    for (name, args) in [
+        (
+            "mashup_new",
+            json!({"name":"Acme.Assets_MU", "dry_run":false}),
+        ),
+        (
+            "mashup_source_add",
+            json!({"mashup":"Acme.Assets_MU", "entity":"Acme.Manager", "service":"Search", "dry_run":false}),
+        ),
+    ] {
+        let (failed, body) = call_tool(&root, name, args);
+        assert!(!failed, "{body}");
+    }
+    let path = root.join("Mashups/Acme.Assets_MU.xml");
+    let before = std::fs::read(&path).unwrap();
+    let mut args = json!({"recipe":"toolbar", "mashup":"Acme.Assets_MU", "widget":"center", "then":"data:Acme.Manager.Search", "search_param":"query", "hint":"Find", "width":320, "run_on":"enter", "buttons":["Reload=mashup:Refresh"]});
+    assert!(jsonschema::draft202012::is_valid(schema, &args));
+    for (key, value) in [
+        ("search_param", json!("count")),
+        ("run_on", json!("invalid")),
+        ("buttons", json!(["bad"])),
+    ] {
+        let mut bad = args.clone();
+        bad[key] = value;
+        let (failed, body) = call_tool(&root, "mashup_recipe", bad);
+        assert!(failed, "{key}: {body}");
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+    }
+    let (failed, planned) = call_tool(&root, "mashup_recipe", args.clone());
+    assert!(!failed, "{planned}");
+    assert_eq!(planned["dry_run"], true);
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    args["dry_run"] = json!(false);
+    let (failed, applied) = call_tool(&root, "mashup_recipe", args);
+    assert!(!failed, "{applied}");
+    assert_eq!(applied["applied"], true);
+    for key in ["added", "removed", "wired", "notes"] {
+        assert_eq!(planned[key], applied[key], "{key}");
+    }
+    assert_eq!(applied["added"].as_array().unwrap().len(), 5);
+    let (failed, validated) =
+        call_tool(&root, "mashup_validate", json!({"mashup":"Acme.Assets_MU"}));
     assert!(!failed, "{validated}");
     assert_eq!(validated["errors"], 0, "{validated}");
 }

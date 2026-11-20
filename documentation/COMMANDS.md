@@ -360,6 +360,11 @@ mashup recipe <recipe> <mashup> [<widget>] [recipe flags] [--apply] [--json]
                             --editable-column makes a listed column (and so the grid) editable
                             --column-editor <field=editor> chooses a typed cell editor (repeatable)
                             --preserve-whitespace <field> keeps newlines and spaces when shown (repeatable)
+    toolbar <container> --then <data call> --search-param <param>
+        [--hint <text>] [--width <px>] [--run-on change|enter|both] [--button Label=<handler>]...
+                            fill an empty responsive container with a 48px search row; STRING input;
+                            hint Search..., width 240; both events by default; change/both runs on
+                            each keystroke; the clear button fires Changed once
     label-pairs <container> --data <data call> [--field <field>]... [--title <text>]
         [--columns <n>] [--replace <widget>]
                             caption/value labels from an existing call's DataShape; field[:Caption]
