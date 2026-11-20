@@ -610,6 +610,8 @@ pub(crate) struct MashupTemplates {
 #[derive(Debug, clap::Args)]
 #[group(skip)]
 pub(crate) struct MashupNew {
+    #[arg(long = "gadget")]
+    pub(crate) gadget: bool,
     #[command(flatten)]
     pub(crate) project: Project,
     #[arg(long = "template", value_name = "name")]
@@ -650,6 +652,13 @@ pub(crate) fn mashup_new_cmd(solution: &Solution, args: &MashupNew) -> u8 {
         eprintln!("{} mashup new needs one <name>", style::prefix());
         return FAILED;
     };
+    if args.gadget && args.template.is_some() {
+        eprintln!(
+            "{} --gadget cannot be used with --template",
+            style::prefix()
+        );
+        return FAILED;
+    }
     if args.template.is_some() && args.layout.is_some() {
         eprintln!("{} give --template or --layout, not both", style::prefix());
         return FAILED;
@@ -675,7 +684,7 @@ pub(crate) fn mashup_new_cmd(solution: &Solution, args: &MashupNew) -> u8 {
     let template = args
         .template
         .as_ref()
-        .or(args.layout.as_ref())
+        .or(args.layout.as_ref().filter(|_| !args.gadget))
         .cloned()
         .unwrap_or_else(|| "blank".into());
     let apply = args.apply.apply;
@@ -684,6 +693,8 @@ pub(crate) fn mashup_new_cmd(solution: &Solution, args: &MashupNew) -> u8 {
             name: name.clone(),
             project: args.project.project.clone(),
             template,
+            gadget: args.gadget,
+            layout: args.layout.clone().filter(|_| args.gadget),
             primary_menu: args.primary_menu.clone(),
             menu_entity: args.menu_entity.clone(),
             secondary_menu: args.secondary_menu.clone(),

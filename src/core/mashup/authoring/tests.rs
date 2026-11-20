@@ -36,6 +36,8 @@ fn request(name: &str) -> NewRequest {
         name: name.to_string(),
         project: None,
         template: "blank".into(),
+        gadget: false,
+        layout: None,
         primary_menu: None,
         menu_entity: None,
         secondary_menu: None,
@@ -12736,4 +12738,262 @@ fn toolbar_shared_validation_requires_arguments_and_rejects_invalid_options() {
             .to_string()
             .contains("for recipe toolbar"));
     }
+}
+
+#[test]
+fn gadget_sizes_match_xml_and_export_content() {
+    let (_dir, solution) = one_project();
+    let golden = include_bytes!("../../../../tests/fixtures/gadget.xml");
+    let exported: serde_json::Value =
+        serde_json::from_str(&mashup::extract(golden).unwrap().content).unwrap();
+    for columns in [1, 2, 4] {
+        for rows in [1, 2, 4] {
+            let mut request = request("Acme.Gadget");
+            request.gadget = true;
+            request.layout = Some(format!("{columns}x{rows}"));
+            let plan = plan_new(&solution, &request).unwrap();
+            let xml = std::str::from_utf8(&plan.entity).unwrap();
+            assert!(xml.contains(&format!("columns=\"{columns}.0\"")));
+            assert!(xml.contains(&format!("rows=\"{rows}.0\"")));
+            assert!(xml.contains("aspect.isResponsive=\"false\" aspect.mashupType=\"gadget\""));
+            let actual: serde_json::Value = serde_json::from_str(&plan.assets.content).unwrap();
+            let mut expected = exported.clone();
+            for (key, value) in [
+                ("Columns", columns),
+                ("Rows", rows),
+                ("Width", columns * 240 + (columns - 1) * 10),
+                ("Height", rows * 240 + (rows - 1) * 10),
+            ] {
+                expected["UI"]["Properties"][key] = json!(value);
+            }
+            assert_eq!(actual, expected);
+            let (_, changes) = mashup::sync(&plan.entity, &plan.assets).unwrap();
+            assert!(changes.is_empty(), "{changes:?}");
+        }
+    }
+    let mut request = request("Acme.Gadget");
+    request.gadget = true;
+    let plan = plan_new(&solution, &request).unwrap();
+    let mask_content = |bytes: &[u8]| {
+        let text = std::str::from_utf8(bytes).unwrap();
+        let start = text.find("<mashupContent>").unwrap();
+        let end = text.find("</mashupContent>").unwrap() + "</mashupContent>".len();
+        format!("{}{}", &text[..start], &text[end..])
+    };
+    assert_eq!(mask_content(&plan.entity), mask_content(golden));
+    assert_eq!(
+        plan.assets.content,
+        mashup::extract(&plan.entity).unwrap().content
+    );
+    apply_new(&solution, &plan, &lock(&solution)).unwrap();
+    let copied = plan_new(
+        &solution,
+        &NewRequest {
+            from: Some("Acme.Gadget".into()),
+            ..super::tests::request("Acme.Copy")
+        },
+    )
+    .unwrap();
+    let mut expected: serde_json::Value = serde_json::from_str(&plan.assets.content).unwrap();
+    expected.as_object_mut().unwrap().remove("CustomMashupCss");
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&copied.assets.content).unwrap(),
+        expected
+    );
+    let copied_xml = std::str::from_utf8(&copied.entity).unwrap();
+    assert!(copied_xml.contains("aspect.mashupType=\"gadget\""));
+    assert!(copied_xml.contains("columns=\"1.0\""));
+}
+
+#[test]
+fn gadget_refuses_incompatible_options_and_invalid_sizes() {
+    let (_dir, solution) = one_project();
+    let base = NewRequest {
+        gadget: true,
+        ..request("Acme.Gadget")
+    };
+    for (request, flag) in [
+        (
+            NewRequest {
+                master: true,
+                ..base.clone()
+            },
+            "--master",
+        ),
+        (
+            NewRequest {
+                template: "sidebar".into(),
+                ..base.clone()
+            },
+            "--template",
+        ),
+        (
+            NewRequest {
+                from: Some("Acme.Page".into()),
+                ..base.clone()
+            },
+            "--from",
+        ),
+        (
+            NewRequest {
+                tabs: vec!["Tab".into()],
+                ..base.clone()
+            },
+            "--tab",
+        ),
+        (
+            NewRequest {
+                primary_menu: Some("Acme.Menu".into()),
+                ..base.clone()
+            },
+            "--primary-menu",
+        ),
+        (
+            NewRequest {
+                secondary_menu: Some("Acme.Menu".into()),
+                ..base.clone()
+            },
+            "--secondary-menu",
+        ),
+        (
+            NewRequest {
+                menu_entity: Some("Acme.Menu".into()),
+                ..base.clone()
+            },
+            "--menu-entity",
+        ),
+        (
+            NewRequest {
+                replacements: vec!["a=b".into()],
+                ..base.clone()
+            },
+            "--replace",
+        ),
+    ] {
+        assert!(plan_new(&solution, &request)
+            .unwrap_err()
+            .to_string()
+            .contains(flag));
+    }
+    for size in ["blank", "3x1", "1X1", "0x0", "", "1x8"] {
+        let error = plan_new(
+            &solution,
+            &NewRequest {
+                layout: Some(size.into()),
+                ..base.clone()
+            },
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("1x1, 2x1, 4x1, 1x2, 2x2, 4x2, 1x4, 2x4, 4x4"));
+    }
+}
+
+#[test]
+fn exact_mashup_lookup_suggests_but_never_resolves_short_names() {
+    let (_dir, solution) = one_project();
+    for name in ["Acme.Page", "Acme.Other.Page"] {
+        let plan = plan_new(&solution, &request(name)).unwrap();
+        apply_new(&solution, &plan, &lock(&solution)).unwrap();
+        let error = load_existing(&solution, "Page").err().unwrap().to_string();
+        assert!(error.contains(name), "{error}");
+        if name == "Acme.Page" {
+            assert!(error.contains("did you mean Acme.Page?"));
+        } else {
+            assert!(error.contains("possible full names: Acme.Other.Page, Acme.Page"));
+        }
+    }
+    assert_eq!(
+        load_existing(&solution, "Missing")
+            .err()
+            .unwrap()
+            .to_string(),
+        "no mashup Missing in the solution"
+    );
+    assert!(load_existing(&solution, "Acme.Page").is_ok());
+}
+
+#[test]
+fn legacy_gadget_folder_and_wrapper_are_distinct_and_diagnosed() {
+    let (dir, solution) = one_project();
+    let plan = plan_new(
+        &solution,
+        &NewRequest {
+            gadget: true,
+            ..request("Acme.Gadget")
+        },
+    )
+    .unwrap();
+    let mut content: serde_json::Value = serde_json::from_str(&plan.assets.content).unwrap();
+    content["Data"]["External"] = json!({"EntityType":"Thing", "EntityName":"Acme.External"});
+    let mut assets = plan.assets.clone();
+    assets.content = content.to_string();
+    let entity = mashup::sync(&plan.entity, &assets).unwrap().0;
+    let xml = std::str::from_utf8(&entity).unwrap();
+    write(dir.path(), "acme/MashupGadgets/Acme.Gadget.xml", xml);
+    let wrapper = xml
+        .replace("<Mashups>", "<MashupGadgets>")
+        .replace("</Mashups>", "</MashupGadgets>")
+        .replace("Acme.Gadget", "Acme.Legacy");
+    write(dir.path(), "acme/Mashups/Acme.Legacy.xml", &wrapper);
+    let found = workspace::discover(&solution);
+    assert_eq!(found.entities.len(), 2);
+    assert_eq!(
+        found
+            .entities
+            .iter()
+            .find(|file| file.info.name == "Acme.Gadget")
+            .unwrap()
+            .info
+            .collection,
+        "Mashups"
+    );
+    assert_eq!(
+        found
+            .entities
+            .iter()
+            .find(|file| file.info.name == "Acme.Legacy")
+            .unwrap()
+            .info
+            .collection,
+        "MashupGadgets"
+    );
+    assert_eq!(found.unreadable.len(), 2);
+    let requirements = crate::core::requirements::collect_in(&solution, &found).unwrap();
+    assert!(crate::core::requirements::draft(&requirements).contains("Acme.External"));
+    let report = crate::core::check::run(&solution);
+    assert!(report
+        .gates
+        .iter()
+        .flat_map(|gate| &gate.findings)
+        .any(|finding| finding.message.contains("move the file under Mashups")));
+    assert!(
+        workspace::resolve(&found.entities, "MashupGadgets/Acme.Legacy")
+            .unwrap_err()
+            .to_string()
+            .contains("<Mashups>")
+    );
+    assert!(found
+        .unreadable
+        .iter()
+        .all(|message| message.contains("move the file under Mashups with a <Mashups> wrapper")));
+}
+
+#[test]
+fn exact_theme_lookup_suggests_its_full_name() {
+    let (dir, solution) = one_project();
+    write(dir.path(), "acme/StyleThemes/Acme.Theme.xml", "<Entities><StyleThemes><StyleTheme name=\"Acme.Theme\" projectName=\"Acme\"/></StyleThemes></Entities>");
+    let error = plan_new(
+        &solution,
+        &NewRequest {
+            theme: Some("Theme".into()),
+            ..request("Acme.Page")
+        },
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("did you mean Acme.Theme?"));
+    assert_eq!(
+        workspace::short_name_hint(["Acme.Part.Page"].into_iter(), "Part.Page"),
+        "; did you mean Acme.Part.Page?"
+    );
 }

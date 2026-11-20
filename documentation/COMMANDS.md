@@ -391,7 +391,7 @@ mashup event add <mashup> <name> --when <address> [--apply] [--json]
     --when <address>        the event in this mashup that fires it, as mashup on --event takes it
 mashup templates [<name>] [--json]
                             list the embedded responsive mashup templates and their slots
-mashup new <name> [--project <name>] [--from <address> | --template <name>]
+mashup new <name> [--project <name>] [--from <address> | --template <name> | --gadget [--layout <layout>]]
     [--primary-menu <address> | --menu-entity <Menu>] [--secondary-menu <address>] [--theme <StyleTheme>] [--master]
     [--visibility <principal>]... [--param <name:TYPE[:DIRECTION]|name:INFOTABLE:DataShape[:DIRECTION]>]... [--tab <Label=Mashup>]...
     [--apply] [--json]
@@ -399,7 +399,27 @@ mashup new <name> [--project <name>] [--from <address> | --template <name>]
                             and its content sidecars; plan unless --apply
     --from <address>        copy a repository mashup exactly, except identity and permissions
     --template              layout template name or alias (default: blank); see mashup templates
-    --layout                compatibility alias for --template
+    --gadget                fixed dashboard gadget; default 1x1, 240px per cell
+    --layout                gadget columns x rows: 1x1, 2x1, 4x1, 1x2, 2x2, 4x2, 1x4, 2x4, 4x4; otherwise alias for --template
+    --primary-menu          an INFOTABLE service result for a template's menu bar
+    --menu-entity <Menu>    a Menu in the solution for a template's menu bar instead (no service)
+    --secondary-menu        optional INFOTABLE service result for a template's menu bar
+    --theme <StyleTheme>    a StyleTheme in the solution (default: PTC Convergence Theme)
+    --master                a master mashup, with a page container filling the center
+    --visibility            Organization/<name> or OrganizationalUnit/<organization>:<unit>, repeatable;
+                            none unless given
+    --tab                   with --template tabs: a tab's label and the mashup it shows, repeatable
+    --replace <old=new>     replace whole tokens in copied content string values; repeatable, needs --from
+new mashup <name> [--project <name>] [--from <address> | --template <name> | --gadget [--layout <layout>]]
+    [--primary-menu <address> | --menu-entity <Menu>] [--secondary-menu <address>] [--theme <StyleTheme>] [--master]
+    [--visibility <principal>]... [--param <name:TYPE[:DIRECTION]|name:INFOTABLE:DataShape[:DIRECTION]>]... [--tab <Label=Mashup>]...
+    [--apply] [--json]
+                            create a ThingWorx 10.2 responsive mashup as Composer would: its entity file
+                            and its content sidecars; plan unless --apply
+    --from <address>        copy a repository mashup exactly, except identity and permissions
+    --template              layout template name or alias (default: blank); see mashup templates
+    --gadget                fixed dashboard gadget; default 1x1, 240px per cell
+    --layout                gadget columns x rows: 1x1, 2x1, 4x1, 1x2, 2x2, 4x2, 1x4, 2x4, 4x4; otherwise alias for --template
     --primary-menu          an INFOTABLE service result for a template's menu bar
     --menu-entity <Menu>    a Menu in the solution for a template's menu bar instead (no service)
     --secondary-menu        optional INFOTABLE service result for a template's menu bar

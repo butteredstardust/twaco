@@ -8,6 +8,7 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- `mashup new --gadget --layout <columns>x<rows>` creates fixed dashboard gadgets in all nine sizes; `new mashup` shares the same flags and executor. Legacy MashupGadgets folders/wrappers are diagnosed for explicit migration. Exact mashup authoring lookups suggest full names without resolving short names.
 - `mashup recipe toolbar` (also MCP `mashup_recipe`) builds a 48px search row in an empty responsive container, binds a STRING service input, wires change/Enter events and adds ordered action buttons. Plans explain per-keystroke execution; live-checked on 10.2: one call per keystroke, Enter adds one, the clear button fires Changed once.
 
 ## [0.1.68] - 2026-11-19

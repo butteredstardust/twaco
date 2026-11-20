@@ -546,6 +546,9 @@ pub(crate) fn mashup_new_tool(
     arguments: MashupNewRequest,
 ) -> Result<Value, ToolError> {
     let dry_run = arguments.dry_run;
+    if arguments.gadget && !arguments.template.is_absent() {
+        return Err(ToolError::invalid("gadget cannot be used with template"));
+    }
     if !arguments.template.is_absent() && !arguments.layout.is_absent() {
         return Err(ToolError::invalid("give template or layout, not both"));
     }
@@ -567,7 +570,7 @@ pub(crate) fn mashup_new_tool(
     let template = arguments
         .template
         .as_ref()
-        .or_else(|| arguments.layout.as_ref())
+        .or_else(|| arguments.layout.as_ref().filter(|_| !arguments.gadget))
         .cloned()
         .unwrap_or_else(|| "blank".into());
     let request = commands::mashup::MashupNewRequest {
@@ -575,6 +578,12 @@ pub(crate) fn mashup_new_tool(
             name: nonempty(&arguments.name, "name")?.to_string(),
             project: arguments.project.as_ref().cloned(),
             template,
+            gadget: arguments.gadget,
+            layout: arguments
+                .layout
+                .as_ref()
+                .cloned()
+                .filter(|_| arguments.gadget),
             primary_menu: arguments.primary_menu.as_ref().cloned(),
             menu_entity: arguments.menu_entity.as_ref().cloned(),
             secondary_menu: arguments.secondary_menu.as_ref().cloned(),

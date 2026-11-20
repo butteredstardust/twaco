@@ -21,6 +21,9 @@ pub fn entity_url(
 ) -> Result<String, Error> {
     let found = workspace::discover(solution);
     let entity = workspace::resolve(&found.entities, entity)?;
+    if entity.info.collection == "MashupGadgets" {
+        return Err(Error::Invalid("MashupGadgets is not a server collection; move the file under Mashups with a <Mashups> wrapper".into()));
+    }
     let bytes = std::fs::read(&entity.path).map_err(|_| {
         Error::Invalid(format!(
             "cannot read entity {}; check its XML file",
@@ -74,8 +77,6 @@ fn composer_type<'a>(collection: &str, element: &'a str) -> &'a str {
         "MCPNamespaces" => "MCPNamespace",
         "ModelTags" => "ModelTagVocabulary",
         "DataTags" => "DataTagVocabulary",
-        // Gadgets are Mashups with aspect.mashupType="gadget".
-        "MashupGadgets" => "Mashup",
         _ => element,
     }
 }
@@ -149,7 +150,7 @@ mod tests {
             ("Projects", "Project", "Project"),
             ("ModelTags", "ModelTag", "ModelTagVocabulary"),
             ("DataTags", "DataTag", "DataTagVocabulary"),
-            ("MashupGadgets", "MashupGadget", "Mashup"),
+            ("Mashups", "Mashup", "Mashup"),
             ("ThingGroups", "ThingGroup", "ThingGroup"),
             (
                 "NotificationDefinitions",

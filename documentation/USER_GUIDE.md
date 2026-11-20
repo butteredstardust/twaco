@@ -1112,6 +1112,16 @@ twaco mashup new Acme.App.Main_MM --master --visibility Organization/Acme.App.Or
 twaco mashup new Acme.App.Navigation_MU --template sidebar --primary-menu data:Acme.App.Nav.Manager.GetPrimaryMenu --apply
 ```
 
+`new mashup` is an alias for `mashup new`, with identical flags and plan/apply behavior.
+Use `twaco mashup new Acme.Gadget --gadget --layout 2x2 --apply` for a fixed dashboard gadget.
+The default is 1x1; supported sizes (columns x rows) are 1x1, 2x1, 4x1, 1x2, 2x2, 4x2,
+1x4, 2x4 and 4x4: 240px cells with a 10px gap between them (a 2x2 gadget is 490x490, as
+Composer makes it). Gadgets accept theme, visibility and parameters;
+template, master, copy, menus, tabs and replacements are refused. Gadgets belong under
+`Mashups` with a `<Mashups>` wrapper. Check/status diagnose legacy `MashupGadgets`
+folders or wrappers; move them explicitly. Dependency extraction remains available.
+Authoring requires exact mashup names; missing short names receive suggestions only.
+
 `mashup new` writes a ThingWorx 10.2 responsive mashup the way Composer makes one: the entity file
 under the project's `Mashups` folder, and its `content.json` and `custom.css` sidecars, written by the
 same sync as every other mashup, so a new mashup is already in sync. `--template` selects a named

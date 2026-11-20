@@ -49,7 +49,6 @@ pub(crate) const KNOWN_COLLECTIONS: &[&str] = &[
     "Localizations",
     "Logs",
     "MCPNamespaces",
-    "MashupGadgets",
     "Mashups",
     "MediaEntities",
     "Menus",
@@ -102,6 +101,7 @@ impl EntityFile {
 
 #[derive(Debug)]
 pub enum WorkspaceError {
+    LegacyGadgets,
     UnknownEntity { name: String },
     UnknownCollection { name: String, found: Vec<String> },
     Ambiguous { name: String, found: Vec<String> },
@@ -112,6 +112,7 @@ pub enum WorkspaceError {
 impl fmt::Display for WorkspaceError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            WorkspaceError::LegacyGadgets => f.write_str("MashupGadgets is not a server collection; move the file under Mashups with a <Mashups> wrapper"),
             WorkspaceError::UnknownEntity { name } => {
                 write!(
                     f,
@@ -180,6 +181,8 @@ pub(crate) fn collection_is_partial(
         })
 }
 
+pub(crate) const LEGACY_GADGET_DIAGNOSTIC: &str = "MashupGadgets is a legacy folder/wrapper, not a server collection; move the file under Mashups with a <Mashups> wrapper; dependency extraction is retained";
+
 /// Every entity file in a solution, in a stable order.
 pub fn discover(solution: &Solution) -> Discovery {
     let mut found = Discovery::default();
@@ -194,6 +197,15 @@ pub fn discover(solution: &Solution) -> Discovery {
                     continue;
                 }
             };
+            if path
+                .components()
+                .any(|part| part.as_os_str().eq_ignore_ascii_case("MashupGadgets"))
+                || entity::parse(&bytes).is_ok_and(|info| info.collection == "MashupGadgets")
+            {
+                found
+                    .unreadable
+                    .push(format!("{}: {LEGACY_GADGET_DIAGNOSTIC}", path.display()));
+            }
             match entity::parse(&bytes) {
                 Ok(info) => found
                     .entities
@@ -356,11 +368,14 @@ pub(crate) fn unread_folders(solution: &Solution) -> Vec<(String, usize)> {
 /// Candidate entity file paths for one project, and the folders that could not be read.
 fn entity_paths(solution: &Solution, project: &Project) -> (Vec<PathBuf>, Vec<String>) {
     let root = solution.project_root(project);
-    let wanted: Vec<&str> = if project.collections.is_empty() {
+    let mut wanted: Vec<&str> = if project.collections.is_empty() {
         KNOWN_COLLECTIONS.to_vec()
     } else {
         project.collections.iter().map(String::as_str).collect()
     };
+    if !wanted.contains(&"MashupGadgets") {
+        wanted.push("MashupGadgets");
+    }
     let mut out = Vec::new();
     let mut failures = Vec::new();
     for collection in wanted {
@@ -435,6 +450,9 @@ pub(crate) fn collect_xml(dir: &Path, out: &mut Vec<PathBuf>, failures: &mut Vec
 pub fn resolve<'a>(found: &'a [EntityFile], name: &str) -> Result<&'a EntityFile, WorkspaceError> {
     let (collection, entity_name) = match name.split_once('/') {
         Some((collection, entity_name)) => {
+            if collection.eq_ignore_ascii_case("MashupGadgets") {
+                return Err(WorkspaceError::LegacyGadgets);
+            }
             if !KNOWN_COLLECTIONS
                 .iter()
                 .any(|known| known.eq_ignore_ascii_case(collection))
@@ -479,13 +497,7 @@ pub fn resolve<'a>(found: &'a [EntityFile], name: &str) -> Result<&'a EntityFile
     let suffix: Vec<&EntityFile> = pool
         .iter()
         .copied()
-        .filter(|e| {
-            e.info
-                .name
-                .rsplit('.')
-                .next()
-                .is_some_and(|last| last.eq_ignore_ascii_case(entity_name))
-        })
+        .filter(|e| last_segment_matches(&e.info.name, entity_name))
         .collect();
     match suffix.len() {
         0 => Err(WorkspaceError::UnknownEntity {
@@ -496,6 +508,32 @@ pub fn resolve<'a>(found: &'a [EntityFile], name: &str) -> Result<&'a EntityFile
             name: name.to_string(),
             found: suffix.iter().map(|e| e.info.name.clone()).collect(),
         }),
+    }
+}
+
+pub(crate) fn last_segment_matches(full: &str, given: &str) -> bool {
+    full.rsplit('.')
+        .next()
+        .is_some_and(|last| last.eq_ignore_ascii_case(given))
+}
+
+/// Suggestions for an exact lookup; never selects a candidate.
+pub(crate) fn short_name_hint<'a>(names: impl Iterator<Item = &'a str>, given: &str) -> String {
+    let mut matches: Vec<_> = names
+        .filter(|name| {
+            name.contains('.')
+                && (last_segment_matches(name, given)
+                    || name
+                        .strip_suffix(given)
+                        .is_some_and(|prefix| prefix.ends_with('.')))
+        })
+        .collect();
+    matches.sort_unstable();
+    matches.dedup();
+    match matches.as_slice() {
+        [] => String::new(),
+        [only] => format!("; did you mean {only}?"),
+        _ => format!("; possible full names: {}", matches.join(", ")),
     }
 }
 
@@ -930,7 +968,7 @@ impl Coded for WorkspaceError {
         match self {
             Self::UnknownEntity { .. } | Self::UnknownCollection { .. } => ErrorCode::UnknownEntity,
             Self::Ambiguous { .. } => ErrorCode::Ambiguous,
-            Self::InvalidCallTarget { .. } => ErrorCode::InvalidArguments,
+            Self::InvalidCallTarget { .. } | Self::LegacyGadgets => ErrorCode::InvalidArguments,
             Self::Io { .. } => ErrorCode::IoError,
         }
     }

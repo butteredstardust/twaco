@@ -18,6 +18,7 @@ pub(crate) enum New {
 /// `twaco new <kind> <name>` for a common entity, one variant per kind.
 #[derive(Debug, clap::Subcommand)]
 pub(crate) enum NewEntity {
+    Mashup(super::mashup::MashupNew),
     Project(NewProject),
     Group(NewGroup),
     Role(NewGroup),
@@ -343,6 +344,7 @@ impl NewEntity {
     /// The command's [`USAGE`](super::spec::USAGE) path.
     pub(crate) fn path(&self) -> &'static str {
         match self {
+            NewEntity::Mashup(_) => "new mashup",
             NewEntity::Project(_) => "new project",
             NewEntity::Group(_) => "new group",
             NewEntity::Role(_) => "new role",
@@ -370,6 +372,7 @@ impl NewEntity {
     /// What every kind takes.
     pub(crate) fn base(&self) -> &Base {
         match self {
+            NewEntity::Mashup(_) => panic!("a mashup uses the mashup executor"),
             NewEntity::Project(_) => panic!("a project has no shared entity base"),
             NewEntity::Group(new) | NewEntity::Role(new) | NewEntity::PermissionGroup(new) => {
                 &new.base
@@ -405,6 +408,7 @@ impl NewEntity {
             request.description = base.description.clone().unwrap_or_default();
         }
         match self {
+            NewEntity::Mashup(_) => unreachable!("a mashup uses the mashup executor"),
             NewEntity::Project(new) => {
                 request.description = new.description.clone().unwrap_or_default();
                 request.depends_on.clone_from(&new.depends_on);
@@ -509,6 +513,9 @@ impl Event {
 
 /// `twaco new <kind> <name>`: plan a common entity, or create its XML and sidecars atomically.
 pub(crate) fn entity_new_cmd(solution: &Solution, new: &NewEntity) -> u8 {
+    if let NewEntity::Mashup(args) = new {
+        return super::mashup::mashup_new_cmd(solution, args);
+    }
     let (operands, apply, json) = match new {
         NewEntity::Project(new) => (&new.operands, new.apply.apply, new.json.json),
         _ => {

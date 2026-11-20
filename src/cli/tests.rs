@@ -556,7 +556,7 @@ fn every_flag_means_the_same_in_every_command() {
                 assert_eq!(value_names, ["widget"]);
                 continue;
             }
-            if command.path == "mashup new" && name == "--replace" {
+            if matches!(command.path, "mashup new" | "new mashup") && name == "--replace" {
                 assert_eq!(kind, "repeated");
                 assert_eq!(value_names, ["old=new"]);
                 continue;

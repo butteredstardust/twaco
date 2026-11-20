@@ -566,6 +566,11 @@ fn hand_written_tools() -> Vec<Value> {
         .unwrap();
     new["inputSchema"]["properties"]["replacements"] =
         json!({"type": "array", "items": {"type": "string"}});
+    new["inputSchema"]["properties"]["gadget"] = json!({
+        "description": "Create a fixed-size dashboard gadget; layout defaults to 1x1 (columns x rows).",
+        "type": "boolean", "default": false
+    });
+    new["inputSchema"]["properties"]["layout"]["description"] = json!("Gadget size: 1x1, 2x1, 4x1, 1x2, 2x2, 4x2, 1x4, 2x4, 4x4; otherwise an alias for template.");
     let config_table = tools
         .iter_mut()
         .find(|tool| tool["name"] == "config_table")
@@ -4969,4 +4974,32 @@ fn toolbar_mcp_schema_planning_apply_and_refusals() {
         call_tool(&root, "mashup_validate", json!({"mashup":"Acme.Assets_MU"}));
     assert!(!failed, "{validated}");
     assert_eq!(validated["errors"], 0, "{validated}");
+}
+
+#[test]
+fn mashup_new_gadget_plans_and_applies_export_dimensions() {
+    let (_dir, root) = solution_dir();
+    let mut args = json!({"name":"Acme.Gadget", "gadget":true, "layout":"2x4"});
+    let planned = call(&root, "mashup_new", args.clone());
+    assert_eq!(planned["isError"], false, "{planned}");
+    assert_eq!(planned["structuredContent"]["dry_run"], true);
+    assert!(!root.join("Mashups/Acme.Gadget.xml").exists());
+    args["dry_run"] = json!(false);
+    let applied = call(&root, "mashup_new", args);
+    assert_eq!(applied["isError"], false, "{applied}");
+    let xml = std::fs::read_to_string(root.join("Mashups/Acme.Gadget.xml")).unwrap();
+    assert!(xml.contains("columns=\"2.0\""));
+    assert!(xml.contains("rows=\"4.0\""));
+    let content: Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join("src/Acme.Gadget/mashup/content.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(content["UI"]["Properties"]["Width"], 490);
+    assert_eq!(content["UI"]["Properties"]["Height"], 990);
+    for bad in [
+        json!({"name":"Acme.Bad", "gadget":true, "template":"blank"}),
+        json!({"name":"Acme.Bad", "gadget":true, "layout":"3x3"}),
+    ] {
+        assert_eq!(call(&root, "mashup_new", bad)["isError"], true);
+    }
 }

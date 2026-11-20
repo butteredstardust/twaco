@@ -5181,6 +5181,11 @@
       "additionalProperties": false,
       "type": "object",
       "properties": {
+        "gadget": {
+          "description": "Create a fixed-size dashboard gadget; layout defaults to 1x1 (columns x rows).",
+          "type": "boolean",
+          "default": false
+        },
         "name": {
           "description": "The new mashup's name.",
           "type": "string"
@@ -5204,7 +5209,7 @@
           }
         },
         "layout": {
-          "description": "Compatibility alias for template.",
+          "description": "Gadget size: 1x1, 2x1, 4x1, 1x2, 2x2, 4x2, 1x4, 2x4, 4x4; otherwise an alias for template.",
           "type": "string"
         },
         "primary_menu": {

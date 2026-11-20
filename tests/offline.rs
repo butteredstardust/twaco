@@ -2558,3 +2558,72 @@ fn deploy_excluded_comma_name_does_not_become_two_targets() {
         "{error}"
     );
 }
+
+#[test]
+fn new_mashup_alias_has_plan_apply_and_file_parity() {
+    for extra in [vec![], vec!["--gadget", "--layout", "4x2"]] {
+        let dirs = [tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap()];
+        let run = |index: usize, apply: bool| {
+            let mut command = Command::new(env!("CARGO_BIN_EXE_twaco"));
+            command.current_dir(dirs[index].path()).env_clear();
+            command.args(if index == 0 {
+                ["mashup", "new"]
+            } else {
+                ["new", "mashup"]
+            });
+            command.args(["Acme.Gadget", "--json"]).args(&extra);
+            if apply {
+                command.arg("--apply");
+            }
+            let result = command.output().unwrap();
+            assert!(result.status.success(), "{result:?}");
+            serde_json::from_slice::<serde_json::Value>(&result.stdout).unwrap()
+        };
+        for dir in &dirs {
+            std::fs::write(dir.path().join("twaco.toml"), "[[project]]\nname='Acme'\n").unwrap();
+        }
+        assert_eq!(run(0, false), run(1, false));
+        assert!(!dirs[0].path().join("Mashups").exists());
+        assert_eq!(run(0, true), run(1, true));
+        for path in [
+            "Mashups/Acme.Gadget.xml",
+            "src/Acme.Gadget/mashup/content.json",
+            "src/Acme.Gadget/mashup/custom.css",
+        ] {
+            assert_eq!(
+                std::fs::read(dirs[0].path().join(path)).unwrap(),
+                std::fs::read(dirs[1].path().join(path)).unwrap()
+            );
+        }
+    }
+}
+
+#[test]
+fn legacy_gadget_files_are_reported_by_check_and_status_offline() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("twaco.toml"), "[[project]]\nname='Acme'\n").unwrap();
+    std::fs::create_dir(dir.path().join("MashupGadgets")).unwrap();
+    std::fs::write(
+        dir.path().join("MashupGadgets/Acme.Gadget.xml"),
+        include_bytes!("fixtures/gadget.xml"),
+    )
+    .unwrap();
+    for args in [vec!["check", "--detail"], vec!["entity", "status", "--all"]] {
+        let result = Command::new(env!("CARGO_BIN_EXE_twaco"))
+            .current_dir(dir.path())
+            .env_clear()
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(!result.status.success());
+        let output = format!(
+            "{}{}",
+            String::from_utf8_lossy(&result.stdout),
+            String::from_utf8_lossy(&result.stderr)
+        );
+        assert!(
+            output.contains("move the file under Mashups with a <Mashups> wrapper"),
+            "{output}"
+        );
+    }
+}

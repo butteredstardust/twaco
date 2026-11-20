@@ -316,6 +316,9 @@ pub(crate) struct MashupTemplatesRequest {
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct MashupNewRequest {
+    /// Create a fixed-size dashboard gadget; layout defaults to 1x1 (columns x rows).
+    #[serde(default)]
+    pub(crate) gadget: bool,
     /// The new mashup's name.
     pub(crate) name: String,
     /// The project it belongs to; may be left out when the solution has one project.
@@ -329,7 +332,7 @@ pub(crate) struct MashupNewRequest {
     pub(crate) from: Absent<String>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) replacements: Absent<Vec<String>>,
-    /// Compatibility alias for template.
+    /// Gadget size: 1x1, 2x1, 4x1, 1x2, 2x2, 4x2, 1x4, 2x4, 4x4; otherwise an alias for template.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) layout: Absent<String>,
     /// The INFOTABLE service result used as a sidebar's primary menu.
