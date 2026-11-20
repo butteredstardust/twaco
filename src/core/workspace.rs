@@ -197,7 +197,11 @@ pub fn discover(solution: &Solution) -> Discovery {
                     continue;
                 }
             };
+            // Only folders inside the project count: an ancestor of the checkout may be named so.
+            let root = solution.project_root(project);
             if path
+                .strip_prefix(&root)
+                .unwrap_or(&path)
                 .components()
                 .any(|part| part.as_os_str().eq_ignore_ascii_case("MashupGadgets"))
                 || entity::parse(&bytes).is_ok_and(|info| info.collection == "MashupGadgets")

@@ -1928,6 +1928,23 @@ mod tests {
     const HANDLER_ID: &str = "11111111-2222-4333-8444-555555555555";
 
     #[test]
+    fn notification_kinds_refuse_repeated_entries() {
+        let (_dir, solution) = fixture();
+        let mut group = request(Kind::ThingGroup, "Acme.Orders.Site");
+        group.members = vec!["Acme.Orders.Pump".into(), "Acme.Orders.Pump".into()];
+        assert!(plan(&solution, &group)
+            .unwrap_err()
+            .to_string()
+            .contains("--member Acme.Orders.Pump is given twice"));
+        let mut definition = request(Kind::Notification, "Acme.Orders.Started");
+        definition.events = vec!["Thing:Acme.Orders.Pump:ThingStart".into(); 2];
+        assert!(plan(&solution, &definition)
+            .unwrap_err()
+            .to_string()
+            .contains("--event"));
+    }
+
+    #[test]
     fn notification_kinds_match_export_structure_and_have_goldens() {
         let (_dir, solution) = fixture();
         let mut group = request(Kind::ThingGroup, "Acme.Orders.Site");

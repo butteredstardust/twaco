@@ -52,6 +52,17 @@ pub(super) fn xml(
     request: &NewRequest,
     project: &str,
 ) -> Result<String, NewError> {
+    for (flag, values) in [
+        ("--member", &request.members),
+        ("--content", &request.contents),
+        ("--event", &request.events),
+        ("--recipient", &request.recipients),
+    ] {
+        let mut seen = std::collections::BTreeSet::new();
+        if let Some(repeated) = values.iter().find(|value| !seen.insert(value.as_str())) {
+            return Err(invalid(&format!("{flag} {repeated} is given twice")));
+        }
+    }
     match request.kind {
         Kind::ThingGroup => {
             let mut members = String::new();

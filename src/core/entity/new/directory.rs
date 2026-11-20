@@ -55,10 +55,9 @@ pub(super) fn xml(request: &NewRequest, project: &str) -> Result<String, NewErro
         } else {
             port.to_string()
         };
-        tables = tables.replace(
-            &format!("<port>{default}</port>"),
-            &format!("<port>{value}</port>"),
-        );
+        let cell = format!("<port>{default}</port>");
+        assert!(tables.contains(&cell), "directory fixture default port");
+        tables = tables.replacen(&cell, &format!("<port>{value}</port>"), 1);
     }
     if let Some(server) = &request.server {
         let host_char = |c: char| c.is_ascii_alphanumeric() || ".-_:[]".contains(c);
@@ -68,10 +67,9 @@ pub(super) fn xml(request: &NewRequest, project: &str) -> Result<String, NewErro
             ));
         }
         // CDATA like the server's own export, so the read-back compares equal.
-        tables = tables.replace(
-            "<server><![CDATA[localhost]]></server>",
-            &format!("<server><![CDATA[{server}]]></server>"),
-        );
+        let cell = "<server><![CDATA[localhost]]></server>";
+        assert!(tables.contains(cell), "directory fixture default host");
+        tables = tables.replacen(cell, &format!("<server><![CDATA[{server}]]></server>"), 1);
     }
     Ok(format!("{}        <DirectoryService className=\"com.thingworx.security.directoryservices.{class}\" description=\"{}\" documentationContent=\"\" enabled=\"false\" homeMashup=\"\" name=\"{}\" priority=\"{priority}\" projectName=\"{}\" tags=\"\">\n{}\n            <ConfigurationTableDefinitions/>\n            {tables}\n        </DirectoryService>\n{}", header("DirectoryServices"), escape(&request.description)?, escape(&request.name)?, escape(project)?, common_tail(&[])?.replace("            <ConfigurationTableDefinitions></ConfigurationTableDefinitions>\n            <ConfigurationTables></ConfigurationTables>", ""), footer("DirectoryServices")))
 }

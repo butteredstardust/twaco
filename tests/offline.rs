@@ -2629,6 +2629,28 @@ fn legacy_gadget_files_are_reported_by_check_and_status_offline() {
 }
 
 #[test]
+fn a_checkout_under_a_folder_named_mashupgadgets_is_not_legacy() {
+    let outer = tempfile::tempdir().unwrap();
+    let root = outer.path().join("MashupGadgets").join("repo");
+    std::fs::create_dir_all(root.join("Mashups")).unwrap();
+    std::fs::write(root.join("twaco.toml"), "[[project]]\nname='Acme'\n").unwrap();
+    let gadget = String::from_utf8(include_bytes!("fixtures/gadget.xml").to_vec()).unwrap();
+    std::fs::write(root.join("Mashups/Acme.Gadget.xml"), gadget).unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_twaco"))
+        .current_dir(&root)
+        .env_clear()
+        .args(["check", "--detail"])
+        .output()
+        .unwrap();
+    let output = format!(
+        "{}{}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(!output.contains("legacy folder"), "{output}");
+}
+
+#[test]
 fn new_notification_kinds_plan_and_apply_offline_as_json() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("twaco.toml"), "[[project]]\nname='Acme'\n").unwrap();
