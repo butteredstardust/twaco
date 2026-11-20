@@ -2680,3 +2680,110 @@ fn new_notification_kinds_plan_and_apply_offline_as_json() {
         }
     }
 }
+
+#[test]
+fn sync_explicit_apply_matches_default_for_selected_and_all_targets() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::fs::write(root.join("twaco.toml"), "[[project]]\nname='Acme'\n").unwrap();
+    let run = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_twaco"))
+            .args(args)
+            .current_dir(root)
+            .env_clear()
+            .output()
+            .unwrap()
+    };
+    assert!(run(&["new", "thing", "Acme.Thing", "--apply"])
+        .status
+        .success());
+    assert!(
+        run(&["thing", "service", "add", "Acme.Thing", "Run", "--apply"])
+            .status
+            .success()
+    );
+    let path = root.join("Things/Acme.Thing.xml");
+    let script = root.join("src/Acme.Thing/services/Run/script.js");
+    let before = std::fs::read(&path).unwrap();
+    std::fs::write(script, "result = 42;\n").unwrap();
+    for target in ["Acme.Thing", "--all"] {
+        std::fs::write(&path, &before).unwrap();
+        let default = run(&["sync", target, "--json"]);
+        assert!(default.status.success(), "{default:?}");
+        let expected = std::fs::read(&path).unwrap();
+        assert_ne!(expected, before);
+        std::fs::write(&path, &before).unwrap();
+        let explicit = run(&["sync", target, "--apply", "--json"]);
+        assert!(explicit.status.success(), "{explicit:?}");
+        assert_eq!(explicit.stdout, default.stdout);
+        assert_eq!(std::fs::read(&path).unwrap(), expected);
+        let refused = run(&["sync", target, "--apply", "--check"]);
+        assert!(!refused.status.success());
+        assert_eq!(std::fs::read(&path).unwrap(), expected);
+    }
+}
+
+#[test]
+fn mashup_move_bottom_and_end_preserve_ids_and_repeat_without_edits() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::fs::write(root.join("twaco.toml"), "[[project]]\nname='Acme'\n").unwrap();
+    let run = |args: &[&str]| {
+        let output = Command::new(env!("CARGO_BIN_EXE_twaco"))
+            .args(args)
+            .current_dir(root)
+            .env_clear()
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{args:?}: {output:?}");
+        serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap()
+    };
+    run(&["mashup", "new", "Acme.Move", "--apply", "--json"]);
+    let first = run(&["mashup", "add", "Acme.Move", "label", "--apply", "--json"])["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let second = run(&[
+        "mashup",
+        "add",
+        "Acme.Move",
+        "label",
+        "--below",
+        &first,
+        "--apply",
+        "--json",
+    ])["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let third = run(&[
+        "mashup",
+        "add",
+        "Acme.Move",
+        "label",
+        "--below",
+        &second,
+        "--apply",
+        "--json",
+    ])["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    for flags in [
+        vec!["--right-of", first.as_str(), "--end"],
+        vec!["--in", "center", "--bottom"],
+    ] {
+        let mut args = vec!["mashup", "move", "Acme.Move", third.as_str()];
+        args.extend(flags);
+        args.extend(["--apply", "--json"]);
+        let moved = run(&args);
+        assert_eq!(moved["id"], third);
+        assert_eq!(moved["moved"], serde_json::json!([third]));
+        assert_eq!(moved["changed"], true);
+        let path = root.join("src/Acme.Move/mashup/content.json");
+        let before = std::fs::read(&path).unwrap();
+        let again = run(&args);
+        assert_eq!(again["changed"], false, "{again}");
+        assert_eq!(std::fs::read(path).unwrap(), before);
+    }
+}

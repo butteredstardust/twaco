@@ -55,6 +55,7 @@ pub(crate) fn method_for(collection: &str) -> Option<Method> {
     match collection {
         "ApplicationKeys"
         | "Dashboards"
+        | "DirectoryServices"
         | "DataShapes"
         | "DataTables"
         | "Localizations"
@@ -108,6 +109,7 @@ mod rbac_tests {
     #[test]
     fn notification_and_thing_group_deletes_use_rest() {
         for collection in [
+            "DirectoryServices",
             "ThingGroups",
             "NotificationDefinitions",
             "NotificationContents",

@@ -24,6 +24,7 @@ pub(crate) enum NewEntity {
     ThingGroup(NewThingGroup),
     Notification(NewNotification),
     NotificationContent(NewNotificationContent),
+    DirectoryService(NewDirectoryService),
     Role(NewGroup),
     PermissionGroup(NewGroup),
     Thing(NewThing),
@@ -102,6 +103,21 @@ pub(crate) struct NewNotificationContent {
     pub(crate) fields: Vec<String>,
     #[arg(long = "set", value_name = "field=value")]
     pub(crate) sets: Vec<String>,
+}
+
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct NewDirectoryService {
+    #[command(flatten)]
+    pub(crate) base: Base,
+    #[arg(long = "type", value_name = "value")]
+    pub(crate) directory_type: Option<String>,
+    #[arg(long = "host", value_name = "host")]
+    pub(crate) server: Option<String>,
+    #[arg(long = "port", value_name = "n")]
+    pub(crate) port: Option<String>,
+    #[arg(long = "priority", value_name = "n")]
+    pub(crate) priority: Option<String>,
 }
 
 /// What every `new <kind>` takes: the name, `--project`, `--description`, `--apply` and
@@ -390,6 +406,7 @@ impl NewEntity {
             NewEntity::ThingGroup(_) => "new thing-group",
             NewEntity::Notification(_) => "new notification",
             NewEntity::NotificationContent(_) => "new notification-content",
+            NewEntity::DirectoryService(_) => "new directory-service",
             NewEntity::Role(_) => "new role",
             NewEntity::PermissionGroup(_) => "new permission-group",
             NewEntity::Thing(_) => "new thing",
@@ -423,6 +440,7 @@ impl NewEntity {
             NewEntity::ThingGroup(new) => &new.base,
             NewEntity::Notification(new) => &new.base,
             NewEntity::NotificationContent(new) => &new.base,
+            NewEntity::DirectoryService(new) => &new.base,
             NewEntity::Thing(new) => &new.base,
             NewEntity::ThingTemplate(new) => &new.base,
             NewEntity::ThingShape(new) => &new.base,
@@ -465,6 +483,12 @@ impl NewEntity {
                 request.contents.clone_from(&new.contents);
                 request.events.clone_from(&new.events);
                 request.recipients.clone_from(&new.recipients);
+            }
+            NewEntity::DirectoryService(new) => {
+                request.directory_type.clone_from(&new.directory_type);
+                request.server.clone_from(&new.server);
+                request.port.clone_from(&new.port);
+                request.priority.clone_from(&new.priority);
             }
             NewEntity::NotificationContent(new) => {
                 request.handler.clone_from(&new.handler);

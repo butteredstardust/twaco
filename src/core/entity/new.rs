@@ -22,6 +22,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 pub(crate) mod ai;
+mod directory;
 mod notification;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -33,6 +34,7 @@ pub enum Kind {
     ThingGroup,
     Notification,
     NotificationContent,
+    DirectoryService,
     Thing,
     ThingTemplate,
     ThingShape,
@@ -62,6 +64,7 @@ impl Kind {
             "thing-group" => Self::ThingGroup,
             "notification" => Self::Notification,
             "notification-content" => Self::NotificationContent,
+            "directory-service" => Self::DirectoryService,
             "thing" => Self::Thing,
             "thing-template" => Self::ThingTemplate,
             "thing-shape" => Self::ThingShape,
@@ -92,6 +95,7 @@ impl Kind {
             Self::ThingGroup => "thing-group",
             Self::Notification => "notification",
             Self::NotificationContent => "notification-content",
+            Self::DirectoryService => "directory-service",
             Self::Thing => "thing",
             Self::ThingTemplate => "thing-template",
             Self::ThingShape => "thing-shape",
@@ -121,6 +125,7 @@ impl Kind {
             Self::ThingGroup => "ThingGroups",
             Self::Notification => "NotificationDefinitions",
             Self::NotificationContent => "NotificationContents",
+            Self::DirectoryService => "DirectoryServices",
             Self::Thing
             | Self::Timer
             | Self::Scheduler
@@ -161,6 +166,10 @@ pub struct NewRequest {
     pub handler: Option<String>,
     pub handler_id: Option<String>,
     pub sets: Vec<String>,
+    pub directory_type: Option<String>,
+    pub server: Option<String>,
+    pub port: Option<String>,
+    pub priority: Option<String>,
     pub every: Option<String>,
     pub cron: Option<String>,
     pub run_as: Option<String>,
@@ -231,6 +240,10 @@ impl NewRequest {
             handler: None,
             handler_id: None,
             sets: Vec::new(),
+            directory_type: None,
+            server: None,
+            port: None,
+            priority: None,
             every: None,
             cron: None,
             run_as: None,
@@ -1173,6 +1186,7 @@ fn make_xml(
     let name = escape(&request.name)?;
     let common = common_tail(visibility)?;
     Ok(match request.kind {
+        Kind::DirectoryService => unreachable!("written by entity::new::directory"),
         Kind::Project => {
             let dependencies = request
                 .depends_on
@@ -1623,6 +1637,7 @@ pub(crate) fn plan(solution: &Solution, request: &NewRequest) -> Result<Plan, Ne
         }
     }
     let entity = match request.kind {
+        Kind::DirectoryService => directory::xml(&rendered, &project_name)?,
         Kind::ThingGroup | Kind::Notification | Kind::NotificationContent => {
             notification::xml(solution, &rendered, &project_name)?
         }
@@ -1802,6 +1817,113 @@ pub fn plan_json(solution: &Solution, plan: &Plan, applied: bool) -> Value {
 mod tests {
     use super::*;
     use crate::core::commands::{self, Mode, Notices};
+
+    #[test]
+    fn directory_services_preserve_export_defaults_and_have_goldens() {
+        let (_dir, solution) = fixture();
+        for (kind, class, tables) in [
+            (
+                "ldap",
+                "LDAPDirectoryService",
+                vec!["LDAPProxyConfiguration"],
+            ),
+            (
+                "active-directory",
+                "ActiveDirectoryDirectoryService",
+                vec![
+                    "Connection",
+                    "SchemaMappings",
+                    "GroupMappings",
+                    "UserProvisioning",
+                    "UserDefaults",
+                    "UserProvisioningExclusionList",
+                    "UserExtensionPropertyMapping",
+                    "GroupComparisonExclusionList",
+                ],
+            ),
+        ] {
+            let mut request = request(Kind::DirectoryService, "Acme.Orders.Directory");
+            request.directory_type = Some(kind.into());
+            let planned = plan(&solution, &request).unwrap();
+            assert_golden(&format!("directory-{kind}"), &planned.entity);
+            let xml = String::from_utf8(planned.entity.clone()).unwrap();
+            assert!(xml.contains(&format!(
+                "className=\"com.thingworx.security.directoryservices.{class}\""
+            )));
+            assert!(xml.contains("enabled=\"false\""));
+            assert!(xml.contains("priority=\"1\""));
+            assert_eq!(xml.matches("<ConfigurationTables>").count(), 1);
+            assert_eq!(xml.matches("<ConfigurationTableDefinitions").count(), 1);
+            assert_eq!(xml.matches("<ConfigurationTable ").count(), tables.len());
+            assert_eq!(xml.matches("<adminPassword/>").count(), 1);
+            for table in tables {
+                assert!(xml.contains(&format!("name=\"{table}\"")));
+            }
+            let warning = plan_json(&solution, &planned, false)["warnings"].to_string();
+            assert!(warning.contains("disabled") && warning.contains("Composer"));
+            assert!(!planned.entity_path.exists());
+            request.server = Some("directory.example.invalid".into());
+            request.port = Some("636".into());
+            request.priority = Some("3".into());
+            let changed = String::from_utf8(plan(&solution, &request).unwrap().entity).unwrap();
+            let default_port = if kind == "ldap" { "10389.0" } else { "389" };
+            let port = if kind == "ldap" { "636.0" } else { "636" };
+            assert_eq!(
+                changed,
+                xml.replace("priority=\"1\"", "priority=\"3\"")
+                    .replace(
+                        "<server><![CDATA[localhost]]></server>",
+                        "<server><![CDATA[directory.example.invalid]]></server>"
+                    )
+                    .replace(
+                        &format!("<port>{default_port}</port>"),
+                        &format!("<port>{port}</port>")
+                    )
+            );
+            apply(&solution, planned.request.clone());
+            std::fs::remove_file(planned.entity_path).unwrap();
+        }
+    }
+
+    #[test]
+    fn directory_service_requires_type_and_valid_connection_numbers() {
+        let (_dir, solution) = fixture();
+        let mut request = request(Kind::DirectoryService, "Acme.Orders.Directory");
+        for kind in [None, Some("other")] {
+            request.directory_type = kind.map(str::to_string);
+            assert!(plan(&solution, &request)
+                .unwrap_err()
+                .to_string()
+                .contains("--type"));
+        }
+        request.directory_type = Some("ldap".into());
+        for port in ["0", "65536", "abc", "-1"] {
+            request.port = Some(port.into());
+            assert!(plan(&solution, &request)
+                .unwrap_err()
+                .to_string()
+                .contains("--port"));
+        }
+        request.port = None;
+        request.priority = Some("abc".into());
+        assert!(plan(&solution, &request)
+            .unwrap_err()
+            .to_string()
+            .contains("--priority"));
+        request.priority = None;
+        for host in ["", "a b", "x<y", "user@host", "a]]>b"] {
+            request.server = Some(host.into());
+            assert!(plan(&solution, &request)
+                .unwrap_err()
+                .to_string()
+                .contains("--host"));
+        }
+        // The server keeps the host as CDATA; writing it the same way keeps the read-back equal.
+        request.server = Some("ldap.example.invalid".into());
+        let planned = plan(&solution, &request).unwrap();
+        assert!(String::from_utf8_lossy(&planned.entity)
+            .contains("<server><![CDATA[ldap.example.invalid]]></server>"));
+    }
 
     const HANDLER_ID: &str = "11111111-2222-4333-8444-555555555555";
 
@@ -2063,6 +2185,10 @@ mod tests {
             handler: None,
             handler_id: None,
             sets: Vec::new(),
+            directory_type: None,
+            server: None,
+            port: None,
+            priority: None,
             every: None,
             cron: None,
             run_as: None,

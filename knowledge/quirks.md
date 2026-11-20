@@ -962,7 +962,9 @@ Importing a Role replaces its Members; importing a Group keeps them. Role and Pe
 exports have direct `Members/Member` rows with name and type (User, Group or PermissionGroup).
 For a Role whose PermissionGroup members belong in source and User/Group members are assigned
 at run time, use `[[server_owned]] entities = ["Roles/Acme.Operator"]` with
-`parts = ["members:User,Group"]`; plain `members` preserves all types. Field-verified on
+`parts = ["members:User,Group"]`. List only types assigned at run time: when a Role defines
+Group members in the repository (for example Acme.Contractors), use `members:User`.
+Plain `members` preserves all types. Field-verified on
 10.2.1-b148. Role services `AddMembers`, `DeleteMembers` and `UpdateMembers` use EntityReference
 infotables (`name`, `type`); UpdateMembers takes membersToAdd and membersToDelete.
 

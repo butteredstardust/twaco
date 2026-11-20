@@ -299,11 +299,16 @@ fn mutation_classes_hold_cli_plans_and_workspace_writes() {
             // `export` has one routed flag list, but only its source-control form uses
             // --apply; entity, collection and project write their requested local output.
             // `ext build` shares `ext`'s flags but refuses --apply: it runs the project's build.
-            // fmt keeps its historical write default; --apply is an explicit alias.
+            // fmt and sync keep their historical write default; --apply is an explicit alias.
             if flags.iter().any(|flag| flag == "--apply")
                 && !matches!(
                     command,
-                    "export entity" | "export collection" | "export project" | "ext build" | "fmt"
+                    "export entity"
+                        | "export collection"
+                        | "export project"
+                        | "ext build"
+                        | "fmt"
+                        | "sync"
                 )
             {
                 assert_eq!(

@@ -467,7 +467,8 @@ pub(crate) const USAGE: &[Usage] = &[
     Usage {
         path: "sync",
         group: 1,
-        text: r#"  sync <entity>|--all         sidecars -> entity XML
+        text: r#"  sync <entity>|--all [--apply|--check]  sidecars -> entity XML
+      --apply                 explicitly apply (the default); refuses --check
       --check                 report what would change, write nothing
       --allow-add-remove      add and remove services and fields as the sidecars do
       --relayout              rewrite scripts in the configured CDATA layout
@@ -1097,6 +1098,17 @@ pub(crate) const USAGE: &[Usage] = &[
       --content               attach content (warn if absent from the repository)
       --event                 applicable Type:Entity:Event
       --recipient             an event also listed with --event, handler GUID and User or Group"#,
+    },
+    Usage {
+        path: "new directory-service",
+        group: 1,
+        text: r#"  new directory-service <name> --type <value> [--project <name>] [--description <text>]
+                            [--host <host>] [--port <n>] [--priority <n>] [--apply] [--json]
+                              create disabled LDAP or Active Directory service; set admin password in Composer
+      --type <value>          ldap or active-directory (required)
+      --host <host>           server host (default localhost)
+      --port <n>              server port (default LDAP 10389, Active Directory 389)
+      --priority <n>          directory priority (default 1)"#,
     },
     Usage {
         path: "new notification-content",

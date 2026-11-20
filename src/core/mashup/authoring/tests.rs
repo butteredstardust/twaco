@@ -12997,3 +12997,109 @@ fn exact_theme_lookup_suggests_its_full_name() {
         "; did you mean Acme.Part.Page?"
     );
 }
+
+#[test]
+fn moving_a_contained_mashup_subtree_keeps_cache_bindings_and_measured_floor() {
+    let (_dir, solution) = contained_fixture();
+    let name = "Acme.Board_MU";
+    add_one(
+        &solution,
+        "Acme.Card_MU",
+        "label",
+        Placement::In("center".into()),
+        &[("LabelType", "header")],
+    );
+    let panel = add_at(&solution, name, "container", Placement::In("center".into()));
+    let child = plan_add_contained(
+        &solution,
+        &AddContainedRequest {
+            mashup: name.into(),
+            child: "Acme.Card_MU".into(),
+            placement: Some(Placement::In(panel.clone())),
+            settings: vec![("id".into(), "7".into())],
+        },
+    )
+    .unwrap();
+    apply_edit(&solution, &child.edit, &lock(&solution)).unwrap();
+    let anchor = add_at(
+        &solution,
+        name,
+        "ptcstextfield",
+        Placement::In("center".into()),
+    );
+    let bound = plan_bind(
+        &solution,
+        &BindRequest {
+            mashup: name.into(),
+            from: format!("ui:{anchor}.Text"),
+            to: format!("ui:{}.title", child.placed.id),
+        },
+    )
+    .unwrap();
+    apply_edit(&solution, &bound.edit, &lock(&solution)).unwrap();
+    let before = content_of(&solution, name);
+    let host = find_widget(&before["UI"], &child.placed.id)
+        .unwrap()
+        .clone();
+    let request = move_request(name, &panel, beside_of(&anchor, mashup::edit::Side::Below));
+    let moved = move_applied(&solution, &request);
+    assert!(moved.moved.contains(&panel) && moved.moved.contains(&child.placed.id));
+    let after = content_of(&solution, name);
+    assert_eq!(find_widget(&after["UI"], &child.placed.id).unwrap(), &host);
+    assert_eq!(after["DataBindings"], before["DataBindings"]);
+    assert_eq!(after["Events"], before["Events"]);
+    // The moved panel is floored at the contained mashup's measured height.
+    assert_eq!(
+        parent_of(&after["UI"], &child.placed.id).unwrap()["Properties"]["flex-min-height"],
+        "300px"
+    );
+    assert!(plan_move(&solution, &request).unwrap().edit.is_none());
+    assert_eq!(content_of(&solution, name), after);
+}
+
+#[test]
+fn moving_a_collection_keeps_its_cell_mashup_and_wiring() {
+    let (_dir, solution) = collection_fixture();
+    let plan = plan_collection_add(&solution, &collection_request(&[("id", "Id")])).unwrap();
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    let name = "Acme.Orders_MU";
+    let anchor = add_at(&solution, name, "label", Placement::In("center".into()));
+    let before = content_of(&solution, name);
+    let props = find_widget(&before["UI"], &plan.id).unwrap()["Properties"].clone();
+    let request = move_request(
+        name,
+        &plan.id,
+        beside_of(&anchor, mashup::edit::Side::Below),
+    );
+    let moved = move_applied(&solution, &request);
+    assert_eq!(moved.moved, std::slice::from_ref(&plan.id));
+    let after = content_of(&solution, name);
+    assert_eq!(
+        find_widget(&after["UI"], &plan.id).unwrap()["Properties"],
+        props
+    );
+    assert_eq!(after["DataBindings"], before["DataBindings"]);
+    assert_eq!(after["Data"], before["Data"]);
+    assert_eq!(after["Events"], before["Events"]);
+    assert!(plan_move(&solution, &request).unwrap().edit.is_none());
+}
+
+#[test]
+fn moving_a_menubar_into_a_column_keeps_its_zero_floor() {
+    let name = "Acme.Move_MU";
+    let (_dir, solution) = move_fixture(name);
+    let label = add_at(&solution, name, "label", Placement::In("center".into()));
+    let menu = add_at(
+        &solution,
+        name,
+        "ptcsmenubar",
+        beside_of(&label, mashup::edit::Side::Right),
+    );
+    let request = move_request(name, &menu, beside_of(&label, mashup::edit::Side::Below));
+    move_applied(&solution, &request);
+    let content = content_of(&solution, name);
+    let row = parent_of(&content["UI"], &menu).unwrap();
+    assert_eq!(row["Properties"]["flex-min-height"], "0px");
+    assert_eq!(row["Properties"]["flex-grow"], 1);
+    assert!(plan_move(&solution, &request).unwrap().edit.is_none());
+}

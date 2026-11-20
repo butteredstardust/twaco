@@ -8,6 +8,6 @@ twaco: unexpected argument '--cehck' found
 
   tip: a similar argument exists: '--check'
 
-Usage: twaco sync <entity>|--all
+Usage: twaco sync <entity>|--all [--apply|--check]
 
 For more information, try '--help'.

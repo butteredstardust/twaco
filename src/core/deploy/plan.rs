@@ -465,7 +465,7 @@ fn role_member_changes(
             }
         }
         let suggestion = if types.is_empty() {
-            format!("keep run-time membership in twaco.toml:\n[[server_owned]]\nentities = [{key}]\nparts = [\"members\"]\nUse members:User,Group to keep only those types.")
+            format!("keep run-time membership in twaco.toml:\n[[server_owned]]\nentities = [{key}]\nparts = [\"members\"]\nList only member types assigned at run time: use members:User when Group members (for example Acme.Contractors) are defined in the repository; use members:User,Group only when both are assigned at run time.")
         } else {
             types.extend(remote.difference(&local).map(|(kind, _)| kind.clone()));
             let types = ["User", "Group", "PermissionGroup"]

@@ -172,6 +172,8 @@ pub(crate) struct Sync {
     pub(crate) selection: Selection,
     #[arg(long = "check")]
     pub(crate) check: bool,
+    #[arg(long = "apply", conflicts_with = "check")]
+    pub(crate) apply: bool,
     #[arg(long = "allow-add-remove")]
     pub(crate) allow_add_remove: bool,
     #[arg(long = "relayout")]

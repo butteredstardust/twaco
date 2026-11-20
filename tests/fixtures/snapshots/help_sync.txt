@@ -2,7 +2,8 @@ $ twaco sync --help
 exit: 0
 
 --- stdout
-  sync <entity>|--all         sidecars -> entity XML
+  sync <entity>|--all [--apply|--check]  sidecars -> entity XML
+      --apply                 explicitly apply (the default); refuses --check
       --check                 report what would change, write nothing
       --allow-add-remove      add and remove services and fields as the sidecars do
       --relayout              rewrite scripts in the configured CDATA layout

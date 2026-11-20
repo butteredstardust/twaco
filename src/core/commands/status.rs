@@ -620,6 +620,7 @@ mod tests {
             }
             fn project_entities(&self, _: &str) -> Result<Value, ServerError> {
                 Ok(serde_json::json!({"rows": [
+                    {"name":"Acme.Directory", "type":"DirectoryService"},
                     {"name":"Acme.Site", "type":"ThingGroup"},
                     {"name":"Acme.Started", "type":"NotificationDefinition"}
                 ]}))
@@ -640,6 +641,7 @@ mod tests {
                 .map(|row| row.entity.as_str())
                 .collect::<Vec<_>>(),
             [
+                "DirectoryServices/Acme.Directory",
                 "ThingGroups/Acme.Site",
                 "NotificationDefinitions/Acme.Started",
                 "NotificationContents/Acme.Email"

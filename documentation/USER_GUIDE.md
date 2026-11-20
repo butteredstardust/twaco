@@ -256,7 +256,8 @@ that project's declared root; add `--apply` to create the files, sidecars and ba
 | A mashup's layout and CSS | a Mashup | `src/<Mashup>/mashup/content.json`, `custom.css` |
 | A DataTable's configuration | a DataTable Thing | `src/<DataTable>/datatable.json` |
 
-`twaco sync` writes them back into the XML. Commit the XML and its sidecars together; the
+`twaco sync` writes them back into the XML. `sync --apply` explicitly requests the same default
+behavior; `--check` plans without writing and cannot be combined with `--apply`. Commit the XML and its sidecars together; the
 `sidecars` gate fails when they disagree.
 
 An inherited service that a Thing, ThingTemplate or ThingShape implements locally is an
@@ -2416,18 +2417,36 @@ member; `remove` removes only that type/name pair. `group member` follows the sa
 MCP uses `entity_new` kinds `role` / `permission-group` and `entity_edit` actions
 `member_add` / `member_remove` with `name` and `type`.
 
-To keep run-time users and groups while deploying a Role's repository-defined permission
-groups, configure:
+List only member types assigned at run time. For a Role with repository-defined Group members
+(for example Acme.Contractors) and PermissionGroup members, preserve run-time users with:
 
 ```toml
 [[server_owned]]
 entities = ["Roles/Acme.Operator"]
-parts = ["members:User,Group"]
+parts = ["members:User"]
 ```
 
+Use `members:User,Group` only when both types are assigned at run time.
 Plain `members` owns all membership. Typed selectors work on Groups, Roles and PermissionGroups;
 Organization membership continues to use plain `members`. An unprotected Role deploy names
 members its import would remove. Role and PermissionGroup Members compare as sets by type/name;
 PermissionGroup EntityPermissions compare by entity, permission category/name and resource.
 Changing isPermitted or onInstances remains a real change. `twaco fmt` writes these sets in
 comparison order without rewriting the enclosing XML.
+
+## Directory services
+
+`twaco new directory-service Acme.Directory --type ldap --project Acme --apply` creates
+repository XML. Use `--type active-directory` for Active Directory. Both start disabled at
+priority 1, with the complete 10.2 exported configuration defaults and empty PASSWORD cells.
+Set the admin password in Composer before enabling the directory service; there are no
+credential flags. `--host <host>` and `--port <n>` override only their row cells, and
+`--priority <n>` changes the directory priority. Without `--apply`, creation only plans.
+MCP `entity_new` takes kind `directory-service`, `type`, and optional `host`, `port`, `priority`
+strings; it plans unless `dry_run` is false. Deploy imports the repository XML.
+`entity delete DirectoryServices/Acme.Directory --apply` uses REST DELETE with the usual
+dependency guards, backup and absence verification.
+
+`config-table set` replaces the table. Its plan lists live columns that currently contain a
+value but are absent from every supplied row, for example `would be cleared: runAsUser, schedule`.
+JSON and MCP results include a `warnings` array; applying still replaces the rows.

@@ -49,7 +49,8 @@ Offline: sidecars, gates, types, the service catalog, what a change reaches, a d
 
 ```text
 extract <entity>|--all      entity XML -> sidecars
-sync <entity>|--all         sidecars -> entity XML
+sync <entity>|--all [--apply|--check]  sidecars -> entity XML
+    --apply                 explicitly apply (the default); refuses --check
     --check                 report what would change, write nothing
     --allow-add-remove      add and remove services and fields as the sidecars do
     --relayout              rewrite scripts in the configured CDATA layout
@@ -455,6 +456,13 @@ new notification <name> [--project <name>] [--description <text>] [--content <No
     --content               attach content (warn if absent from the repository)
     --event                 applicable Type:Entity:Event
     --recipient             an event also listed with --event, handler GUID and User or Group
+new directory-service <name> --type <value> [--project <name>] [--description <text>]
+                          [--host <host>] [--port <n>] [--priority <n>] [--apply] [--json]
+                            create disabled LDAP or Active Directory service; set admin password in Composer
+    --type <value>          ldap or active-directory (required)
+    --host <host>           server host (default localhost)
+    --port <n>              server port (default LDAP 10389, Active Directory 389)
+    --priority <n>          directory priority (default 1)
 new notification-content <name> --handler <Thing> --handler-id <GUID> [--project <name>] [--description <text>]
     [--field <name:TYPE>]... [--set <field=value>]... [--apply] [--json]
                             create NotificationContent for a registered extension handler; plan unless --apply

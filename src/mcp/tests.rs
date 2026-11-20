@@ -586,6 +586,22 @@ fn hand_written_tools() -> Vec<Value> {
                 json!("notification-content"),
             ],
         );
+    new["description"] = json!(new["description"].as_str().unwrap().replace("and NotificationContents. Notifications", "and NotificationContents. DirectoryServices use type ldap or active-directory, optional server/port/priority; created disabled, with the admin password set in Composer. Notifications"));
+    new["inputSchema"]["properties"]["kind"]["description"] = json!(new["inputSchema"]
+        ["properties"]["kind"]["description"]
+        .as_str()
+        .unwrap()
+        .replace(
+            "`notification-content`, `role`,",
+            "`notification-content`, `directory-service`, `role`,"
+        ));
+    new["inputSchema"]["properties"]["kind"]["enum"]
+        .as_array_mut()
+        .unwrap()
+        .insert(5, json!("directory-service"));
+    for name in ["host", "port", "priority"] {
+        new["inputSchema"]["properties"][name] = json!({"type":"string"});
+    }
     for name in ["member", "content", "event", "recipient", "set"] {
         new["inputSchema"]["properties"][name] = json!({"type":"array", "items":{"type":"string"}});
     }
@@ -5087,5 +5103,29 @@ fn new_notification_kinds_have_mcp_plan_apply_parity() {
             &tool["outputSchema"],
             &applied["structuredContent"]
         ));
+    }
+}
+
+#[test]
+fn directory_services_have_mcp_plan_apply_parity_and_refuse_credentials() {
+    let (_dir, root) = solution_dir();
+    for kind in ["ldap", "active-directory"] {
+        let mut args = json!({"kind":"directory-service", "name":format!("Acme.{kind}"), "type":kind, "host":"directory.example.invalid", "port":"636", "priority":"2"});
+        let planned = call(&root, "entity_new", args.clone());
+        assert_eq!(planned["isError"], false, "{planned}");
+        assert_eq!(planned["structuredContent"]["applied"], false);
+        let path = root.join(format!("DirectoryServices/Acme.{kind}.xml"));
+        assert!(!path.exists());
+        assert!(planned["structuredContent"]["warnings"]
+            .to_string()
+            .contains("Composer"));
+        args["password"] = json!("unused");
+        assert_eq!(call(&root, "entity_new", args.clone())["isError"], true);
+        args.as_object_mut().unwrap().remove("password");
+        args["dry_run"] = json!(false);
+        let applied = call(&root, "entity_new", args);
+        assert_eq!(applied["isError"], false, "{applied}");
+        let xml = std::fs::read_to_string(path).unwrap();
+        assert!(xml.contains("enabled=\"false\"") && xml.contains("<adminPassword/>"));
     }
 }

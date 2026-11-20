@@ -36,6 +36,9 @@ fn event(value: &str) -> Result<String, NewError> {
 }
 
 pub(super) fn warnings(solution: &Solution, request: &NewRequest) -> Vec<String> {
+    if request.kind == Kind::DirectoryService {
+        return vec!["Directory service is created disabled; set the admin password in Composer before enabling it.".into()];
+    }
     if request.kind != Kind::Notification {
         return Vec::new();
     }

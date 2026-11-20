@@ -606,6 +606,7 @@ pub(crate) struct ConfigTableResult {
     service: Option<String>,
     dry_run: Option<bool>,
     rows_written: Option<Value>,
+    warnings: Option<Vec<String>>,
     rows_removed: Option<Value>,
     note: Option<String>,
     notices: Notices,

@@ -3954,7 +3954,7 @@
   },
   {
     "name": "entity_new",
-    "description": "Create a ThingWorx entity as a repository XML file: Projects, Groups, Roles, PermissionGroups, common Things, data Things, media, styles, states, menus, themes, Networks, ThingGroups, NotificationDefinitions and NotificationContents. Notifications take content, event (Type:Entity:Event) and recipient (event=GUID:User|Group:name) arrays; content needs handler, handler_id, optional field declarations and set cells. A new Project also appends its project declaration to twaco.toml, or creates twaco.toml in a root without one. DataShape and DataTable creation also writes their managed sidecar. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
+    "description": "Create a ThingWorx entity as a repository XML file: Projects, Groups, Roles, PermissionGroups, common Things, data Things, media, styles, states, menus, themes, Networks, ThingGroups, NotificationDefinitions and NotificationContents. DirectoryServices use type ldap or active-directory, optional server/port/priority; created disabled, with the admin password set in Composer. Notifications take content, event (Type:Entity:Event) and recipient (event=GUID:User|Group:name) arrays; content needs handler, handler_id, optional field declarations and set cells. A new Project also appends its project declaration to twaco.toml, or creates twaco.toml in a root without one. DataShape and DataTable creation also writes their managed sidecar. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
     "inputSchema": {
       "required": [
         "kind",
@@ -3964,7 +3964,7 @@
       "type": "object",
       "properties": {
         "kind": {
-          "description": "`project`, `group`, `thing-group`, `notification`, `notification-content`, `role`, `permission-group`, `thing`, `thing-template`, `thing-shape`, `data-shape`, `timer`, `scheduler`, `data-table`, `stream`, `value-stream`, `media`, `style`, `state`, `menu`, `theme`, `network`, `mcp-namespace` or `ai-agent`.",
+          "description": "`project`, `group`, `thing-group`, `notification`, `notification-content`, `directory-service`, `role`, `permission-group`, `thing`, `thing-template`, `thing-shape`, `data-shape`, `timer`, `scheduler`, `data-table`, `stream`, `value-stream`, `media`, `style`, `state`, `menu`, `theme`, `network`, `mcp-namespace` or `ai-agent`.",
           "type": "string",
           "enum": [
             "project",
@@ -3972,6 +3972,7 @@
             "thing-group",
             "notification",
             "notification-content",
+            "directory-service",
             "role",
             "permission-group",
             "thing",
@@ -4147,6 +4148,15 @@
           "type": "string"
         },
         "type": {
+          "type": "string"
+        },
+        "host": {
+          "type": "string"
+        },
+        "port": {
+          "type": "string"
+        },
+        "priority": {
           "type": "string"
         },
         "state": {
@@ -8622,6 +8632,15 @@
           ]
         },
         "rows_written": true,
+        "warnings": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
         "rows_removed": true,
         "note": {
           "type": [
