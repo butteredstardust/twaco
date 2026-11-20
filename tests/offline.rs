@@ -2809,3 +2809,83 @@ fn mashup_move_bottom_and_end_preserve_ids_and_repeat_without_edits() {
         assert_eq!(std::fs::read(path).unwrap(), before);
     }
 }
+
+#[test]
+fn mashup_content_advisories_warn_and_errors_and_strict_advisories_exit_one() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join("Mashups")).unwrap();
+    let content = serde_json::json!({"UI": {"Properties": {"Id":"mashup-root", "Type":"mashup", "ResponsiveLayout":true, "id_index":4},
+        "Widgets":[{"Properties":{"Id":"flexcontainer-2", "Type":"flexcontainer", "DisplayName":"title", "flex-direction":"row", "flex-size":"fixed"},
+            "Widgets":[{"Properties":{"Id":"ptcslabel-3", "Type":"ptcslabel", "MultiLine":true, "LabelText":"A sentence that needs room to wrap onto multiple lines"}}]}]},
+        "Data":{}, "DataBindings":[], "Events":[], "mashupType":"mashup"});
+    let xml = format!("<Entities><Mashups><Mashup name=\"Acme.Form_MU\" projectName=\"Acme\"><mashupContent><![CDATA[{content}]]></mashupContent></Mashup></Mashups></Entities>");
+    std::fs::write(dir.path().join("Mashups/Acme.Form_MU.xml"), &xml).unwrap();
+    for (gates, expected) in [
+        ("", 0),
+        ("[gates]\nstrict=['mashup content']\n", 1),
+        ("[gates]\nadvisory=['mashup content']\n", 0),
+    ] {
+        std::fs::write(
+            dir.path().join("twaco.toml"),
+            format!("{gates}[[project]]\nname='Acme'\n"),
+        )
+        .unwrap();
+        let output = Command::new(env!("CARGO_BIN_EXE_twaco"))
+            .current_dir(dir.path())
+            .env_clear()
+            .args(["check", "--detail"])
+            .output()
+            .unwrap();
+        let text = format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(output.status.code(), Some(expected), "{text}");
+        assert!(text.contains("wrapped-content-clipping"), "{text}");
+        if gates.is_empty() {
+            assert!(text.contains("warning"), "{text}");
+        }
+    }
+    std::fs::write(dir.path().join("twaco.toml"), "[[project]]\nname='Acme'\n").unwrap();
+    let mut invalid = content.clone();
+    invalid["DataBindings"] = serde_json::json!([{"Id":"binding-1", "SourceArea":"UI", "SourceId":"ptcslabel-3", "SourceSection":"", "TargetArea":"UI", "TargetSection":"", "TargetId":"ptcslabel-3", "PropertyMaps":[{"SourceProperty":"NoSuchProperty", "TargetProperty":"LabelText"}]}]);
+    std::fs::write(
+        dir.path().join("Mashups/Acme.Form_MU.xml"),
+        xml.replace(&content.to_string(), &invalid.to_string()),
+    )
+    .unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_twaco"))
+        .current_dir(dir.path())
+        .env_clear()
+        .args(["check", "--detail"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn recipe_columns_wrong_plural_flag_explains_the_repeatable_singular_flag() {
+    for flag in [vec!["--columns", "a,b"], vec!["--columns=a,b"]] {
+        let output = Command::new(env!("CARGO_BIN_EXE_twaco"))
+            .env_clear()
+            .args(["mashup", "recipe", "columns", "Acme.List_MU", "grid"])
+            .args(flag)
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(2));
+        let text = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            text.contains("--column field[:Title[:width]] (repeatable)")
+                && text.contains("label-pairs' column count"),
+            "{text}"
+        );
+        assert!(!text.contains("invalid digit"), "{text}");
+    }
+}

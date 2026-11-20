@@ -734,7 +734,10 @@ fn container_layout_problems(row: &Value, id: &str, problems: &mut Vec<Problem>)
         let authored = !props["DisplayName"]
             .as_str()
             .is_some_and(|name| name.starts_with("container-"));
-        if kids.iter().any(|kid| wraps_content(kid, authored)) {
+        if kids
+            .iter()
+            .any(|kid| wraps_content(kid, authored, props["Width"].as_f64()))
+        {
             problems.push(problem("wrapped-content-clipping", format!(
                 "{id}: a fixed or capped height clips wrapped text of a property display or multi-line label; use flex-size range with no max height"
             )));
@@ -744,15 +747,24 @@ fn container_layout_problems(row: &Value, id: &str, problems: &mut Vec<Problem>)
 
 /// Whether the widget, or one inside it, shows text that can wrap onto more lines. A label
 /// counts only in an authored container: generated rows are measured for their text.
-fn wraps_content(widget: &Value, authored: bool) -> bool {
+fn wraps_content(widget: &Value, authored: bool, width: Option<f64>) -> bool {
     let properties = &widget["Properties"];
     match properties["Type"].as_str() {
         // Generated rows are measured for what they hold; only an authored cap clips.
         Some("ptcspropertydisplay") => authored,
-        Some("ptcslabel") => authored && properties["MultiLine"] == true,
+        Some("ptcslabel") => {
+            let text = properties["LabelText"].as_str().unwrap_or("");
+            let dynamic = text.is_empty() || text.contains("[[");
+            let width = properties["Width"].as_f64().filter(|w| *w > 0.0).or(width);
+            authored
+                && properties["MultiLine"] == true
+                && (dynamic
+                    || (text.split_whitespace().count() > 1
+                        && !width.is_some_and(|w| text.chars().count() as f64 * 12.0 + 24.0 <= w)))
+        }
         _ => mashup::edit::children(widget)
             .iter()
-            .any(|kid| wraps_content(kid, authored)),
+            .any(|kid| wraps_content(kid, authored, width)),
     }
 }
 
@@ -1259,6 +1271,30 @@ mod tests {
                 "{found:?}"
             );
         }
+    }
+
+    #[test]
+    fn short_labels_do_not_need_wrapping_but_sentences_and_property_displays_do() {
+        for (text, width, expected) in [
+            ("Form", None, false),
+            ("Form", Some(20.0), false),
+            ("Edit record", Some(240.0), false),
+            (
+                "A long description needs more than one line in this form",
+                Some(180.0),
+                true,
+            ),
+            ("", Some(240.0), true),
+        ] {
+            let label =
+                json!({"Properties": {"Type": "ptcslabel", "MultiLine": true, "LabelText": text}});
+            assert_eq!(wraps_content(&label, true, width), expected, "{text}");
+        }
+        assert!(wraps_content(
+            &widget("ptcspropertydisplay", "display-1"),
+            true,
+            Some(1000.0)
+        ));
     }
 
     #[test]

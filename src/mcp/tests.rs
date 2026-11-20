@@ -537,6 +537,10 @@ fn hand_written_tools() -> Vec<Value> {
     recipe["inputSchema"]["properties"]["row"]["enum"] = json!(["first", "selected"]);
     recipe["inputSchema"]["properties"]["layout"]["enum"] = json!(["inline", "stacked"]);
     recipe["inputSchema"]["properties"]["fields"] = json!({"description": "label-pairs: ordered field[:Caption] entries; omitted means all DataShape fields.", "type": "array", "items": {"type": "string"}});
+    recipe["inputSchema"]["properties"]["columns"]["description"] = json!(
+        "`field[:Title[:width[:format]]]` grid columns; format overrides date_format for DATETIME."
+    );
+    recipe["inputSchema"]["properties"]["date_format"] = json!({"description": "columns: DATETIME display pattern, e.g. dd-MM-yyyy.", "type": "string"});
     recipe["inputSchema"]["properties"]["label_columns"] = json!({"description": "label-pairs: number of columns, one per field by default, above zero.", "type": "integer", "minimum": 0});
     recipe["inputSchema"]["properties"]["replace"] = json!({"description": "label-pairs: widget inside or beside the destination to remove with its bindings.", "type": "string"});
     recipe["inputSchema"]["properties"]["width"] = json!({"description": "nested-menu: column width (300); toolbar: search field width (240), in pixels.", "type": "integer", "minimum": 0});
@@ -4009,7 +4013,7 @@ fn mashup_templates_lists_every_template_and_new_uses_template() {
             .as_array()
             .unwrap()
             .len(),
-        14
+        15
     );
     let created = call(
         &root,
@@ -5147,4 +5151,69 @@ fn directory_services_have_mcp_plan_apply_parity_and_refuse_credentials() {
         let xml = std::fs::read_to_string(path).unwrap();
         assert!(xml.contains("enabled=\"false\"") && xml.contains("<adminPassword/>"));
     }
+}
+
+#[test]
+fn presentation_next_steps_are_returned_by_mcp_plans_and_applies() {
+    let (_dir, root) = solution_dir();
+    std::fs::create_dir_all(root.join("DataShapes")).unwrap();
+    std::fs::write(root.join("Things/Acme.Manager.xml"), r#"<Entities><Things><Thing name="Acme.Manager" projectName="P"><ThingShape><ServiceDefinitions><ServiceDefinition name="GetAssets"><ResultType baseType="INFOTABLE" aspect.dataShape="Acme.Asset_DS"/></ServiceDefinition></ServiceDefinitions></ThingShape></Thing></Things></Entities>"#).unwrap();
+    std::fs::write(root.join("DataShapes/Acme.Asset_DS.xml"), r#"<Entities><DataShapes><DataShape name="Acme.Asset_DS" projectName="P"><FieldDefinitions><FieldDefinition name="status" baseType="STRING"/><FieldDefinition name="start" baseType="DATETIME"/></FieldDefinitions></DataShape></DataShapes></Entities>"#).unwrap();
+    for (tool, args) in [
+        (
+            "mashup_new",
+            json!({"name":"Acme.Master_MU", "master":true, "dry_run":false}),
+        ),
+        (
+            "mashup_new",
+            json!({"name":"Acme.Cell_MU", "params":["status:STRING"], "dry_run":false}),
+        ),
+        (
+            "mashup_new",
+            json!({"name":"Acme.List_MU", "template":"list-page", "dry_run":false}),
+        ),
+        (
+            "mashup_source_add",
+            json!({"mashup":"Acme.List_MU", "entity":"Acme.Manager", "service":"GetAssets", "dry_run":false}),
+        ),
+        (
+            "mashup_add",
+            json!({"mashup":"Acme.List_MU", "widget":"grid", "in":"body", "dry_run":false}),
+        ),
+    ] {
+        let (failed, result) = call_tool(&root, tool, args);
+        assert!(!failed, "{tool}: {result}");
+        if tool == "mashup_new" && result["mashup"] != "Acme.Master_MU" {
+            assert!(result["notes"]
+                .to_string()
+                .contains("Master=Acme.Master_MU"));
+            assert!(jsonschema::draft202012::is_valid(
+                &output_schema_of(tool),
+                &result
+            ));
+        }
+    }
+    let args = json!({"mashup":"Acme.List_MU", "recipe":"columns", "widget":"grid", "data":"data:Acme.Manager.GetAssets", "columns":["status", "start"]});
+    let (failed, planned) = call_tool(&root, "mashup_recipe", args.clone());
+    assert!(!failed, "{planned}");
+    assert!(planned["notes"]
+        .to_string()
+        .contains("mashup state-format set"));
+    assert!(planned["notes"].to_string().contains("--date-format"));
+    let mut args = args;
+    args["dry_run"] = json!(false);
+    let (failed, applied) = call_tool(&root, "mashup_recipe", args.clone());
+    assert!(!failed, "{applied}");
+    assert_eq!(planned["notes"], applied["notes"]);
+    args["date_format"] = json!("dd-MM-yyyy");
+    let (failed, explicit) = call_tool(&root, "mashup_recipe", args);
+    assert!(!failed, "{explicit}");
+    assert!(!explicit["notes"].to_string().contains("--date-format"));
+    let (failed, cards) = call_tool(
+        &root,
+        "mashup_collection_add",
+        json!({"mashup":"Acme.List_MU", "cell_mashup":"Acme.Cell_MU", "data":"data:Acme.Manager.GetAssets", "map":{"status":"status"}, "preset":"cards", "in":"toolbar"}),
+    );
+    assert!(!failed, "{cards}");
+    assert!(cards["notes"].to_string().contains("--menu"));
 }

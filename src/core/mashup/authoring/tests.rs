@@ -8875,7 +8875,12 @@ fn columns_hide_unlisted_fields_and_format_dates_from_an_existing_named_binding(
         columns: vec!["start:Started:180".into(), "note:Note".into()],
         ..Default::default()
     };
-    recipe(&solution, "columns", args.clone()).unwrap();
+    let plan = recipe(&solution, "columns", args.clone()).unwrap();
+    assert!(plan.notes.iter().any(|note| note.contains("--date-format")));
+    assert_eq!(
+        recipe_plan_json(&solution, &plan, true)["notes"],
+        json!(plan.notes)
+    );
     let document = mashup::edit::parse(&sidecar_content(&solution)).unwrap();
     let columns = document.at(&document.find("ptcsgrid-5").unwrap().path)["Properties"]
         ["ColumnFormat"]["formatInfo"]
@@ -8886,7 +8891,7 @@ fn columns_hide_unlisted_fields_and_format_dates_from_an_existing_named_binding(
     assert_eq!(columns[0]["FormatOptions"]["renderer"], "DATETIME");
     assert_eq!(
         columns[0]["FormatOptions"]["FormatString"],
-        "[[dateTimeFormat_Default]]"
+        "yyyy-MM-dd HH:mm:ss"
     );
     assert_eq!(columns[0]["Width"], 180);
     assert_eq!(columns[1]["FieldName"], "note");
@@ -9290,6 +9295,7 @@ fn collection_add_cards_preset_writes_the_kit_card_collection() {
     request.columns = Some(4);
     request.preset = Some(CollectionPreset::Cards);
     let plan = plan_collection_add(&solution, &request).unwrap();
+    assert!(plan.notes.iter().any(|note| note.contains("--menu")));
     assert_eq!((plan.cell_width, plan.cell_height), (Some(285), Some(270)));
     apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
 
@@ -11810,7 +11816,7 @@ fn columns_recipe_rebinding_refreshes_types_but_keeps_state_and_unrelated_option
                 if base == "BOOLEAN" {
                     "checkbox"
                 } else {
-                    "[[dateTimeFormat_Default]]"
+                    "yyyy-MM-dd HH:mm:ss"
                 }
             );
             for (key, value) in old.as_object().unwrap() {
@@ -13714,4 +13720,180 @@ fn panel_card_matches_focus_export_and_inherits_on_wrappers() {
     recipe(&solution, "panel", args).unwrap();
     assert_eq!(sidecar_content(&solution), before);
     assert_eq!(std::fs::read_to_string(css_path).unwrap(), css);
+}
+
+#[test]
+fn date_formats_round_trip_and_column_patterns_override_the_default() {
+    let (dir, solution) = recipe_fixture();
+    write(
+        dir.path(),
+        "acme/DataShapes/Acme.Orders.Order_DS.xml",
+        r#"<Entities><DataShapes><DataShape name="Acme.Orders.Order_DS" projectName="Acme"><FieldDefinitions><FieldDefinition name="start" baseType="DATETIME"/><FieldDefinition name="end" baseType="DATETIME"/><FieldDefinition name="status" baseType="STRING"/></FieldDefinitions></DataShape></DataShapes></Entities>"#,
+    );
+    let mut args = RecipeArgs {
+        widget: Some("ptcsgrid-5".into()),
+        data: Some("data:Acme.Orders.Manager.GetOrders".into()),
+        columns: vec![
+            "start:Started:180:dd-MM-yyyy".into(),
+            "end".into(),
+            "status".into(),
+        ],
+        date_format: Some("yyyy-MM-dd HH:mm".into()),
+        ..Default::default()
+    };
+    let plan = recipe(&solution, "columns", args.clone()).unwrap();
+    assert!(!plan.notes.iter().any(|note| note.contains("--date-format")));
+    assert!(plan
+        .notes
+        .iter()
+        .any(|note| note.contains("mashup state-format set") && note.contains("--column status")));
+    let content = sidecar_content(&solution);
+    let doc = mashup::edit::parse(&content).unwrap();
+    let columns =
+        &doc.at(&doc.find("ptcsgrid-5").unwrap().path)["Properties"]["ColumnFormat"]["formatInfo"];
+    assert_eq!(columns[0]["FormatOptions"]["FormatString"], "dd-MM-yyyy");
+    assert_eq!(
+        columns[1]["FormatOptions"]["FormatString"],
+        "yyyy-MM-dd HH:mm"
+    );
+    recipe(&solution, "columns", args.clone()).unwrap();
+    assert_eq!(sidecar_content(&solution), content);
+    args.date_format = None;
+    args.columns = vec!["start".into()];
+    recipe(&solution, "columns", args).unwrap();
+    let doc = mashup::edit::parse(&sidecar_content(&solution)).unwrap();
+    assert_eq!(
+        doc.at(&doc.find("ptcsgrid-5").unwrap().path)["Properties"]["ColumnFormat"]["formatInfo"]
+            [0]["FormatOptions"]["FormatString"],
+        "dd-MM-yyyy"
+    );
+    state_format_definition(dir.path(), "string");
+    let mut state = state_format_request("ptcsgrid-5");
+    state.property = None;
+    state.column = Some("status".into());
+    let formatted = plan_state_format_set(&solution, &state).unwrap();
+    apply_edit(
+        &solution,
+        formatted.edit.as_ref().unwrap(),
+        &lock(&solution),
+    )
+    .unwrap();
+    let status = RecipeArgs {
+        widget: Some("ptcsgrid-5".into()),
+        columns: vec!["status".into()],
+        ..Default::default()
+    };
+    let plan = recipe(&solution, "columns", status.clone()).unwrap();
+    assert!(!plan
+        .notes
+        .iter()
+        .any(|note| note.contains("mashup state-format set")));
+    let before = sidecar_content(&solution);
+    for columns in [
+        vec!["status:::dd-MM-yyyy".into()],
+        vec!["start:::   ".into()],
+    ] {
+        let error = recipe(
+            &solution,
+            "columns",
+            RecipeArgs {
+                columns,
+                ..status.clone()
+            },
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("date format needs"), "{error}");
+        assert_eq!(sidecar_content(&solution), before);
+    }
+}
+
+#[test]
+fn page_creation_suggests_available_masters_in_shared_notes() {
+    let (_dir, solution) = one_project();
+    let mut master = request("Acme.Master_MU");
+    master.master = true;
+    let plan = plan_new(&solution, &master).unwrap();
+    assert!(plan.notes.is_empty());
+    apply_new(&solution, &plan, &lock(&solution)).unwrap();
+    let page = plan_new(&solution, &request("Acme.Page_MU")).unwrap();
+    assert_eq!(page.notes, vec!["attach this page to a master with twaco mashup set Acme.Page_MU mashup-root --prop Master=Acme.Master_MU"]);
+    assert_eq!(
+        new_plan_json(&solution, &page, false)["notes"],
+        json!(page.notes)
+    );
+}
+
+#[test]
+fn list_page_matches_the_kit_shared_content_gutter() {
+    let template = mashup::templates::layout("list-page").unwrap().unwrap();
+    let doc = new_document(&template, false, DEFAULT_THEME).unwrap();
+    assert_eq!(
+        doc.at(&doc.find("page").unwrap().path)["Properties"]["Margin"],
+        "24"
+    );
+    for slot in ["title", "toolbar", "body"] {
+        assert!(doc
+            .find(slot)
+            .unwrap()
+            .path
+            .starts_with(&doc.find("page").unwrap().path));
+    }
+}
+
+#[test]
+fn two_column_form_keeps_upper_textarea_and_divider_above_stacked_fields() {
+    let (_dir, solution) = one_project();
+    let name = "Acme.Orders_MU";
+    let mut req = request(name);
+    req.template = "form-2col".into();
+    let plan = plan_new(&solution, &req).unwrap();
+    let report = new_plan_json(&solution, &plan, false);
+    for slot in ["left", "right"] {
+        assert!(report["widgets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|w| w["display_name"] == slot));
+    }
+    apply_new(&solution, &plan, &lock(&solution)).unwrap();
+    let mut previous = None;
+    for (slot, kind) in [
+        ("fields", "textarea"),
+        ("fields", "divider"),
+        ("left", "dropdown"),
+        ("left", "textfield"),
+        ("left", "textfield"),
+        ("left", "radio"),
+        ("right", "textfield"),
+        ("right", "datepicker"),
+        ("right", "datepicker"),
+        ("right", "checkbox"),
+    ] {
+        let mut req = add_request(name, kind);
+        req.placement = Some(if kind == "divider" {
+            Placement::Beside {
+                anchor: previous.clone().unwrap(),
+                side: mashup::edit::Side::Below,
+            }
+        } else {
+            Placement::In(slot.into())
+        });
+        let plan = plan_add(&solution, &req).unwrap();
+        previous = Some(plan.placed.id.clone());
+        apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    }
+    let loaded = load_existing(&solution, name).unwrap();
+    let doc = parse_loaded(&loaded).unwrap();
+    for slot in ["left", "right"] {
+        let found = doc.find(slot).unwrap();
+        let props = &doc.at(&found.path)["Properties"];
+        assert_eq!(props["flex-direction"], "column");
+        assert_eq!(props["flex-grow"], 1);
+        assert_eq!(props["flex-basis"], "0px");
+        assert_eq!(mashup::edit::children(doc.at(&found.path)).len(), 4);
+    }
+    assert!(doc.find("fields").unwrap().path < doc.find("form-columns").unwrap().path);
+    assert!(!problems(&solution)
+        .iter()
+        .any(|rule| rule == "wrapped-row-clipping"));
 }

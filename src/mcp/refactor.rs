@@ -1015,6 +1015,7 @@ pub(crate) fn mashup_recipe_tool(
         buttons: arguments.buttons.items().to_vec(),
         fields: arguments.fields.items().to_vec(),
         label_columns: arguments.label_columns.as_ref().copied(),
+        date_format: arguments.date_format.as_ref().cloned(),
         replace: arguments.replace.as_ref().cloned(),
         row: arguments.row.as_ref().cloned(),
         layout: arguments.layout.as_ref().cloned(),

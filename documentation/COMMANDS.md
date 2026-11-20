@@ -363,10 +363,11 @@ mashup recipe <recipe> <mashup> [<widget>] [<button>] [recipe flags] [--apply] [
     --x-title <text>        explicit X-axis name; catalogue placeholders are cleared
     --y-title <text>        explicit Y-axis name; authored names are preserved
                             draw a service result: the category field (a pie: label and value)
-    columns <grid> --column field[:Title[:width]]... [--data <data call>] [--editable-column <field>]...
+    columns <grid> --column field[:Title[:width[:format]]]... [--date-format <pattern>] [--data <data call>] [--editable-column <field>]...
                             only these columns in order, with readable dates; --data or existing binding;
                             --editable-column makes a listed column (and so the grid) editable
                             --column-editor <field=editor> chooses a typed cell editor (repeatable)
+                            --date-format <pattern> formats DATETIME columns (default yyyy-MM-dd HH:mm:ss for new columns)
                             --preserve-whitespace <field> keeps newlines and spaces when shown (repeatable)
     toolbar <container> --then <data call> --search-param <param>
         [--hint <text>] [--width <px>] [--run-on change|enter|both] [--button Label=<handler>]...
@@ -415,7 +416,7 @@ mashup new <name> [--project <name>] [--from <address> | --template <name> | --g
                             create a ThingWorx 10.2 responsive mashup as Composer would: its entity file
                             and its content sidecars; plan unless --apply
     --from <address>        copy a repository mashup exactly, except identity and permissions
-    --template              layout template name or alias (default: blank); see mashup templates
+    --template              layout template name or alias (default: blank); form-2col has full-width fields and left/right columns; see mashup templates
     --gadget                fixed dashboard gadget; default 1x1, 240px per cell
     --layout                gadget columns x rows: 1x1, 2x1, 4x1, 1x2, 2x2, 4x2, 1x4, 2x4, 4x4; otherwise alias for --template
     --primary-menu          an INFOTABLE service result for a template's menu bar
@@ -434,7 +435,7 @@ new mashup <name> [--project <name>] [--from <address> | --template <name> | --g
                             create a ThingWorx 10.2 responsive mashup as Composer would: its entity file
                             and its content sidecars; plan unless --apply
     --from <address>        copy a repository mashup exactly, except identity and permissions
-    --template              layout template name or alias (default: blank); see mashup templates
+    --template              layout template name or alias (default: blank); form-2col has full-width fields and left/right columns; see mashup templates
     --gadget                fixed dashboard gadget; default 1x1, 240px per cell
     --layout                gadget columns x rows: 1x1, 2x1, 4x1, 1x2, 2x2, 4x2, 1x4, 2x4, 4x4; otherwise alias for --template
     --primary-menu          an INFOTABLE service result for a template's menu bar

@@ -362,7 +362,7 @@ A solution without `[lint]` keeps today's gates (`checks-v1`). To take up the fu
 | project dependencies | a Thing or ThingTemplate uses a ThingTemplate or ThingShape of another of the solution's projects (as its template, base template or an implemented shape) that its Project file's `dependsOn` does not name. The server adds that project to `dependsOn` when it imports the entity, so the Project reads back not kept; the finding gives the `<project>:<version>` entry to add |
 | configuration tables | for a multi-row configuration table whose definition names a DataShape and lists no fields of its own (the export form): blocks when the DataShape marks no primary key (the import fails), when the table has rows but no DataShape fields (the import drops every row), or when a row holds a cell the DataShape does not define (the import drops it); warns when the table's own fields differ from the DataShape's in name, base type, ordinal, description or key, because the server replaces them with the DataShape's and the entity reads back not kept. A definition with inline fields is the `project` gate's, and a table whose definition is inherited is not checked. Rows without fields are found whatever the DataShape; the key, cell and field comparisons need the DataShape in the repository or a configured extension source, and skip one that derives from another |
 | mashup bindings | a repository-resolved mashup service, result field or parameter is not declared, or a grid, chart or field-setting property names a field the result bound to its `Data` does not have; unresolved platform and inherited DataShape details are left unchecked |
-| mashup content | what `twaco mashup validate` finds in a mashup's content: a binding to a property, event or service its widget or data source does not have, a binding in the wrong direction, mixed container layouts. Widgets outside the catalogue (extensions) are not judged |
+| mashup content | errors from `twaco mashup validate` block; its advisories are shown and counted as warnings (exit 0 when there are no errors). Set `[gates] strict = ["mashup content"]` to block on advisories too. Checks include a binding to a property, event or service its widget or data source does not have, a binding in the wrong direction, mixed container layouts. Widgets outside the catalogue (extensions) are not judged |
 | contained mashups | a binding to a contained mashup's or navigation function's parameter that its copy of the parameters lacks (the value is dropped) or that the mashup it shows no longer declares; `twaco mashup param set <mashup> <parameter>` refreshes every copy; a stale copy nothing binds is only counted |
 | localization tokens | an entity names a `[[token]]` under one of the solution's token prefixes that no Default table file holds (the label would show the raw text), a language table holds a token Default lacks, a token is in one table twice, or a table file cannot be read. Tokens outside the prefixes are the platform's or an extension's and are not checked. Notes, which never fail it: per language table, the solution's tokens it lacks (they show the Default text), and Default tokens no entity names as `[[token]]` or as a bare name |
 | result shapes | a service's script builds its result with `CreateInfoTableFromDataShape` from another DataShape than its definition declares, named by a literal or a `const` holding one (a mashup bound to the declared shape finds other fields), or adds a row to the result with `AddRow({...})` setting a field the declared DataShape does not have (ThingWorx drops it). A name computed at run time, a spread or a computed key, and a DataShape deriving from another are not checked |
@@ -1168,6 +1168,7 @@ items' `imageURL` (e.g. `cds:icon_*`) and fits its labels when expanded.
 | header-sidebar | header, body, sidebar, center | Navigation page with a header |
 | sidebar-header | sidebar, main, header, center | Application shell: the menu the full height, a header above the page (the shape of the stock ThingWorx master templates) |
 | form-dialog | title, fields, actions | Form editing dialog |
+| form-2col | title, fields, form-columns, left, right, actions | Full-width fields above two equal form columns |
 | confirm-dialog | close, message, actions | Confirmation dialog |
 | list-page | title, toolbar, body | List and toolbar page |
 | card | header, title, actions, body | Card content |
@@ -1185,7 +1186,7 @@ scrollbars. Existing `--in filters` commands target this inner slot, including
 `--in filters --bottom` for Apply and `--right-of <apply>` for Clear: their footer stays at the
 bottom while later filters go above it. Footer buttons get `Width` 110 and `Margin` 0;
 the footer row gets `Margin` `0 5`. The inner column and generated rows inherit the grey
-background. Content is white with a 24px margin. `list-page` gives its toolbar the same grey band. The colours are ordinary widget styles
+background. Content is white with a 24px margin. `list-page` gives its toolbar the same grey band. Its shared content container (including title, toolbar and body) has a 24px margin on every side, like the kit's content (the kit stores `24 24 24 0` beside a sibling that supplies the left 24px). The colours are ordinary widget styles
 in the root's StyleProperties, so `mashup set <mashup> <slot> --style background=...` changes them.
 `dashboard` keeps the kits' 24px page margin around everything; `blank` has none, since it also serves
 contained mashups and collection cells.
@@ -1697,6 +1698,27 @@ twaco mashup recipe columns Acme.App.Orders_MU ptcsgrid-5 --data data:Acme.App.O
 twaco mashup recipe tracker Acme.App.Wizard_MU new --data data:Acme.App.Wizard.Manager.GetSteps --field-map StepLabelField=caption --apply
 twaco mashup recipe set-on-click Acme.App.Wizard_MU ptcsbutton-6 --param CurrentStep --expr "CurrentStep + 1" --input CurrentStep=mashup:CurrentStep --apply
 ```
+
+`columns` accepts repeatable `--column field[:Title[:width[:format]]]` entries.
+New DATETIME columns use `yyyy-MM-dd HH:mm:ss`, without milliseconds; existing
+column formats are preserved. `--date-format dd-MM-yyyy` sets the format for listed
+DATETIME fields, with a fourth column component taking precedence (the remainder
+may contain colons, for example `start:Started:180:yyyy-MM-dd HH:mm`). The pattern
+is stored as `ColumnFormat.FormatOptions.FormatString`; 10.2 rendering remains a
+live verification step. `--columns <n>` belongs to label-pairs; a non-number value
+on the columns recipe explains the repeatable `--column` flag.
+
+Plans, applies, JSON and MCP notes suggest status/state column icon formatting,
+explicit date formatting, `--menu` for cards without a menu, and attaching a new
+page when the solution contains a master. Review the suggested StateDefinition or
+master before applying it.
+
+For two-column dialogs, use `mashup new Acme.Form_MU --template form-2col`.
+The plan names both column widget ids; add controls with `--in left` or `--in right`
+(or those ids). Controls stack using the existing compact form placement rules.
+Use `--in fields` for the full-width textarea, then add its divider with
+`--below <textarea-id>` as in form-dialog. The two columns follow that area;
+`title` and `actions` retain the existing fixed dialog rows.
 
 `tracker` now seeds `CurrentStepNumber=1` (override with `--initial-step <n>`, including
 0 for comparison) and removes stored `CurrentStepMashup`, which is an output.

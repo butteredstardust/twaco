@@ -116,6 +116,10 @@ fn update_notice(command: &str) {
 fn run_command(args: &[String]) -> ExitCode {
     // clap refuses what no command takes, with a suggestion; it answers --help and --version
     // (exit 0) and a usage error (exit 2, FAILED) itself.
+    if let Some(hint) = cli::mashup::recipe_columns_hint(args) {
+        eprintln!("{} {hint}", cli::style::prefix());
+        return ExitCode::from(2);
+    }
     let words = std::iter::once("twaco".to_string()).chain(args.iter().cloned());
     let matches = match cli::spec::tree().try_get_matches_from(words) {
         Ok(matches) => matches,

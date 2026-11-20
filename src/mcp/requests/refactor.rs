@@ -1083,6 +1083,9 @@ pub(crate) struct MashupRecipeRequest {
     /// label-pairs: number of columns, one per field by default, above zero.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) label_columns: Absent<u32>,
+    /// columns: DATETIME display pattern, e.g. dd-MM-yyyy.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) date_format: Absent<String>,
     /// label-pairs: first or selected; default selected only with a selecting widget on this call.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     #[schemars(extend("enum" = ["first", "selected"]))]
@@ -1187,7 +1190,7 @@ pub(crate) struct MashupRecipeRequest {
     /// A pie's or picker's value field.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) value: Absent<String>,
-    /// `field[:Title[:width]]` grid columns.
+    /// `field[:Title[:width[:format]]]` grid columns; format overrides date_format for DATETIME.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) columns: Absent<Vec<String>>,
     /// What a picker's selection is bound from.

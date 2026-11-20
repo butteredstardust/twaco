@@ -590,6 +590,8 @@ pub(crate) struct MashupRecipe {
     pub(crate) operands: Vec<String>,
     #[arg(long = "columns", value_name = "n")]
     pub(crate) label_columns: Option<u32>,
+    #[arg(long = "date-format", value_name = "pattern")]
+    pub(crate) date_format: Option<String>,
     #[arg(long = "row", value_name = "first|selected")]
     pub(crate) row: Option<String>,
     #[arg(long = "layout", value_name = "inline|stacked")]
@@ -817,6 +819,9 @@ pub(crate) fn mashup_new_cmd(solution: &Solution, args: &MashupNew) -> u8 {
             None => println!("  tab {}: {label} (empty)", index + 1),
         }
     }
+    for note in &plan.notes {
+        println!("  note: {note}");
+    }
     for (source, property) in &plan.menus {
         if property == "PrimaryNavMenu" {
             println!("  menu: Menu {source} -> {property} (DataSource menuentity)");
@@ -936,6 +941,7 @@ pub(crate) fn mashup_recipe_cmd(solution: &Solution, args: &MashupRecipe) -> u8 
             Vec::new()
         },
         label_columns: args.label_columns,
+        date_format: args.date_format.clone(),
         replace: args.replace.clone(),
         row: args.row.clone(),
         layout: args.layout.clone(),
@@ -2933,4 +2939,20 @@ pub(crate) fn mashup_gap_cmd(solution: &Solution, args: &MashupGap) -> u8 {
             FAILED
         }
     }
+}
+
+/// Diagnose the shared numeric flag before clap discards the recipe context.
+pub(crate) fn recipe_columns_hint(args: &[String]) -> Option<&'static str> {
+    if !args.starts_with(&["mashup".into(), "recipe".into(), "columns".into()]) {
+        return None;
+    }
+    let bad = args.iter().enumerate().any(|(index, arg)| {
+        let value = arg.strip_prefix("--columns=").or_else(|| {
+            (arg == "--columns")
+                .then(|| args.get(index + 1).map(String::as_str))
+                .flatten()
+        });
+        value.is_some_and(|value| value.parse::<u32>().is_err())
+    });
+    bad.then_some("recipe columns takes --column field[:Title[:width]] (repeatable); --columns <n> is label-pairs' column count")
 }

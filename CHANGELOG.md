@@ -8,13 +8,16 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- Add `form-2col` with full-width fields and named equal left/right columns; add grid `--date-format` and per-column date patterns, with new DATETIME columns omitting milliseconds.
+- Add shared CLI/JSON/MCP next-step notes for status icons, date formats, card menus and master attachment.
 - Add `mashup recipe tree` with checked DataShape inference for ID, name, parent and optional color maps, explicit overrides and CLI/MCP parity.
 - Add `mashup recipe panel --style card`: measured white focus-card surface, thin border and padding, inherited wrapper backgrounds and managed CSS; grey remains the default.
 
 ### Fixed
 
+- Match the list-page kit content margin across its title, toolbar and body; avoid wrapped-content warnings for short labels, and report mashup advisories as check warnings unless `[gates] strict = ["mashup content"]`.
+- Explain `recipe columns --columns <list>` with the repeatable `--column` grammar before numeric parsing.
 - Tracker recipes seed `CurrentStepNumber=1`, support `--initial-step`, `--step-size` and optional `--host` round-trip wiring before Data, and reduce `MinStepSpacing` to 24. Initial load and 617px fit await live verification; plans state the chosen values and wiring order.
-
 - Detail label recipes use All Data for first-load values unless a selecting widget is bound to that call; `--row first|selected` overrides the choice. Inline caption/value rows are now the default, with right-aligned values, thin dividers and optional state-formatted status circles (`--status` with `--status-state`); `--layout stacked` keeps the older presentation. Identical reruns preserve bytes.
 - Chart recipes clear catalogue chart-title and axis-name placeholders, preserve authored names, and accept `--title`, `--x-title` and `--y-title`.
 - Keep generated panel rows growing when filling widgets are added inside nested panels, share card widths evenly, and give spare page height to data rows while content rows retain their natural height and page scrolling.

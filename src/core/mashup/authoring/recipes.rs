@@ -152,6 +152,7 @@ pub enum Recipe {
         widget: String,
         data: Option<String>,
         columns: Vec<String>,
+        date_format: Option<String>,
         /// Listed columns made editable; the grid is made editable with them.
         editable: Vec<String>,
         column_editors: Vec<(String, String)>,
@@ -2009,6 +2010,7 @@ pub(crate) fn plan_recipe(
             widget,
             data,
             columns,
+            date_format,
             editable,
             column_editors,
             preserve_whitespace,
@@ -2050,11 +2052,11 @@ pub(crate) fn plan_recipe(
             let known = fields.clone();
             let mut format = Vec::new();
             for text in columns {
-                let mut parts = text.splitn(3, ':');
+                let mut parts = text.splitn(4, ':');
                 let name = parts.next().unwrap_or_default().trim().to_string();
                 if name.is_empty() {
                     return Err(AuthoringError::Invalid(format!(
-                        "--column {text:?} must be field[:Title[:width]]"
+                        "--column {text:?} must be field[:Title[:width[:format]]]"
                     )));
                 }
                 let title = parts
@@ -2091,6 +2093,29 @@ pub(crate) fn plan_recipe(
                 column["Width"] = width;
                 column["inLayout"] = json!(true);
                 column["hidden"] = json!(false);
+                let per_column_format = parts.next().filter(|pattern| !pattern.is_empty());
+                if let Some(pattern) =
+                    per_column_format.or(date_format.as_deref().filter(|_| base == "DATETIME"))
+                {
+                    if base != "DATETIME" || pattern.trim().is_empty() {
+                        return Err(AuthoringError::Invalid(format!("--column {name}: date format needs a DATETIME field and a non-empty pattern")));
+                    }
+                    column["FormatOptions"]["FormatString"] = json!(pattern);
+                }
+                if base == "DATETIME" && date_format.is_none() && per_column_format.is_none() {
+                    work.notes.push(format!("{name}: choose a date presentation with twaco mashup recipe columns {} {} --column {name} --date-format dd-MM-yyyy", request.mashup, target.id));
+                }
+                let normalized = name.to_ascii_lowercase();
+                if (normalized.contains("status") || normalized.contains("state"))
+                    && column["FormatOptions"]["formatInfo"]["StateDefinition"]
+                        .as_str()
+                        .is_none_or(str::is_empty)
+                    && column["FormatOptions"]["formatInfo"]["StateFormats"]
+                        .as_array()
+                        .is_none_or(Vec::is_empty)
+                {
+                    work.notes.push(format!("{name}: add status icons with twaco mashup state-format set {} {} --column {name} --state <StateDefinition> --icon-only", request.mashup, target.id));
+                }
                 format.push(column);
             }
             for name in editable {
@@ -2547,8 +2572,9 @@ pub struct RecipeArgs {
     pub x: Option<String>,
     /// A pie's value field, a picker's value field.
     pub value: Option<String>,
-    /// `field[:Title[:width]]`, repeatable.
+    /// `field[:Title[:width[:format]]]`, repeatable.
     pub columns: Vec<String>,
+    pub date_format: Option<String>,
     /// What a picker's selection is bound from.
     pub selected: Option<String>,
     /// Columns a grid's users may edit, each one of `columns`.
@@ -2709,6 +2735,7 @@ impl Recipe {
             (!args.buttons.is_empty(), "--button", "toolbar"),
             (!args.fields.is_empty(), "--field", "label-pairs"),
             (args.label_columns.is_some(), "--columns", "label-pairs"),
+            (args.date_format.is_some(), "--date-format", "columns"),
             (args.replace.is_some(), "--replace", "label-pairs"),
             (args.toggle.is_some(), "--toggle", "collapsible"),
             (args.add_toggle, "--add-toggle", "collapsible"),
@@ -2969,6 +2996,7 @@ impl Recipe {
                 widget: widget("the grid")?,
                 data: args.data.clone(),
                 columns: args.columns.clone(),
+                date_format: args.date_format.clone(),
                 editable: args.editable.clone(),
                 column_editors: pairs("--column-editor", &args.column_editors)?,
                 preserve_whitespace: args.preserve_whitespace.clone(),
@@ -3075,7 +3103,7 @@ fn column_format(name: &str, title: &str, width: Value, base: &str) -> Value {
         "NUMBER" => ("NUMBER", "0.00", "textfield"),
         "INTEGER" | "LONG" => ("NUMBER", "0", "textfield"),
         "BOOLEAN" => ("BOOLEAN", "checkbox", "checkbox"),
-        "DATETIME" => ("DATETIME", "[[dateTimeFormat_Default]]", "datepicker"),
+        "DATETIME" => ("DATETIME", "yyyy-MM-dd HH:mm:ss", "datepicker"),
         "IMAGELINK" => ("IMAGELINK", "", ""),
         _ => ("DEFAULT", "", ""),
     };

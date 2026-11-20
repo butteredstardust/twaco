@@ -827,6 +827,8 @@ fn recipe_options_plan_and_apply_through_cli_and_mcp() {
                     "data:Acme.Manager.GetSteps",
                     "--column",
                     "start:Started:180",
+                    "--date-format",
+                    "dd-MM-yyyy",
                     "--column",
                     "caption:Step",
                     "--column",
@@ -838,7 +840,7 @@ fn recipe_options_plan_and_apply_through_cli_and_mcp() {
                     "--preserve-whitespace",
                     "Notes",
                 ],
-                json!({"data":"data:Acme.Manager.GetSteps", "columns":["start:Started:180", "caption:Step", "Notes"], "editable_columns":["Notes"], "column_editors":["Notes=textarea"], "preserve_whitespace":["Notes"]}),
+                json!({"date_format":"dd-MM-yyyy", "data":"data:Acme.Manager.GetSteps", "columns":["start:Started:180", "caption:Step", "Notes"], "editable_columns":["Notes"], "column_editors":["Notes=textarea"], "preserve_whitespace":["Notes"]}),
             ),
             (
                 "tracker",
@@ -921,10 +923,7 @@ fn recipe_options_plan_and_apply_through_cli_and_mcp() {
                     assert_eq!(columns.len(), 8);
                     assert_eq!(columns[0]["FieldName"], "start");
                     assert_eq!(columns[0]["FormatOptions"]["renderer"], "DATETIME");
-                    assert_eq!(
-                        columns[0]["FormatOptions"]["FormatString"],
-                        "[[dateTimeFormat_Default]]"
-                    );
+                    assert_eq!(columns[0]["FormatOptions"]["FormatString"], "dd-MM-yyyy");
                     assert_eq!(columns[2]["FieldName"], "Notes");
                     assert_eq!(columns[2]["cellEditor"], "textarea");
                     assert_eq!(columns[2]["preserveWhiteSpaces"], true);

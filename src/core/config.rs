@@ -185,6 +185,9 @@ pub struct Gates {
     /// code written before these gates existed. A gate that cannot run still fails.
     #[serde(default)]
     pub(crate) advisory: Vec<String>,
+    /// Gates whose presentation advisories also block the run.
+    #[serde(default)]
+    pub(crate) strict: Vec<String>,
     /// An export schema used by the offline structure check. It is deliberately a path: the
     /// vendor schema is not redistributed with a solution or with twaco.
     #[serde(default)]
@@ -753,12 +756,18 @@ impl Solution {
                 ),
             });
         }
-        for gate in &self.gates.advisory {
+        for (kind, gate) in self
+            .gates
+            .advisory
+            .iter()
+            .map(|gate| ("advisory", gate))
+            .chain(self.gates.strict.iter().map(|gate| ("strict", gate)))
+        {
             if !super::check::BUILT_IN_GATES.contains(&gate.as_str()) {
                 return Err(ConfigError::Invalid {
                     path: path.to_path_buf(),
                     why: format!(
-                        "gates.advisory names {gate:?}, which is not a gate; the gates are {}",
+                        "gates.{kind} names {gate:?}, which is not a gate; the gates are {}",
                         super::check::BUILT_IN_GATES.join(", ")
                     ),
                 });
