@@ -161,6 +161,10 @@ pub trait Remote {
         })
     }
     fn import(&self, file_name: &str, xml: &[u8]) -> Result<(), ServerError>;
+    /// REST inventory for collections unsupported by GetEntityList. Rows include projectName.
+    fn collection_entities(&self, _: &str) -> Result<Vec<Value>, ServerError> {
+        Ok(Vec::new())
+    }
     /// The members of one Project, used by status to notice server-only entities. Test remotes
     /// without an inventory deliberately behave as an empty project.
     fn project_entities(&self, _: &str) -> Result<Value, ServerError> {
@@ -182,6 +186,35 @@ impl Remote for Client {
 
     fn import(&self, file_name: &str, xml: &[u8]) -> Result<(), ServerError> {
         self.import_entity(file_name, xml)
+    }
+
+    fn collection_entities(&self, collection: &str) -> Result<Vec<Value>, ServerError> {
+        let mut rows = self.list_entity_rows(collection)?;
+        for row in &mut rows {
+            if !row.is_object()
+                || row
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .is_none_or(str::is_empty)
+            {
+                return Err(ServerError::InvalidResponse {
+                    url: collection.into(),
+                    why: "collection listing returned a row without a name".into(),
+                });
+            }
+            if row.get("projectName").and_then(Value::as_str).is_none() {
+                if let Some(name) = row.get("name").and_then(Value::as_str) {
+                    // One unreadable entity (deleted meanwhile, no permission) must not hide
+                    // the rest of the collection: leave its project unknown so it matches none.
+                    let project = EntityKey::new(collection, name)
+                        .ok()
+                        .and_then(|key| self.fetch_entity_json(&key).ok())
+                        .and_then(|entity| entity.get("projectName").cloned());
+                    row["projectName"] = project.unwrap_or(Value::Null);
+                }
+            }
+        }
+        Ok(rows)
     }
 
     fn project_entities(&self, project: &str) -> Result<Value, ServerError> {

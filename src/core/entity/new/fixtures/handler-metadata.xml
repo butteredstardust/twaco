@@ -1,0 +1,19 @@
+<Entities>
+  <ThingTemplates>
+    <ThingTemplate name="Acme.MailTemplate" baseThingTemplate="NotificationHandler">
+      <ConfigurationTables>
+        <ConfigurationTable name="Handlers" isMultiRow="true" aspect.isHidden="true">
+          <Rows><Row><handlerID>11111111-2222-4333-8444-555555555555</handlerID><localizedName>Acme Mail</localizedName><serviceName>SendNotification</serviceName><configuration>Acme.EmailContent</configuration></Row></Rows>
+        </ConfigurationTable>
+      </ConfigurationTables>
+    </ThingTemplate>
+  </ThingTemplates>
+  <DataShapes>
+    <DataShape name="Acme.EmailContent">
+      <FieldDefinitions>
+        <FieldDefinition name="body" baseType="TEXT" ordinal="2" description="The email body" aspect.friendlyName="Body"/>
+        <FieldDefinition name="subject" baseType="STRING" ordinal="1" description="The email subject" aspect.friendlyName="Subject"/>
+      </FieldDefinitions>
+    </DataShape>
+  </DataShapes>
+</Entities>

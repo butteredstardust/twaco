@@ -1179,3 +1179,92 @@ fn gateway_detection_follows_the_server_template_chain_in_bare_entity_responses(
         .iter()
         .any(|call| call == "QueryImplementingThingsWithData"));
 }
+
+#[test]
+fn directory_delete_plans_backs_up_checks_absence_and_keeps_dependency_guards() {
+    let (_dir, _, solution) = solution();
+    let mut blocked = Fake::new(&[("DirectoryServices", "Acme.Directory")]);
+    blocked.dependencies.insert(
+        ("DirectoryServices".into(), "Acme.Directory".into()),
+        vec![Dependent {
+            collection: "Things".into(),
+            name: "Acme.Consumer".into(),
+        }],
+    );
+    let report = execute(
+        &blocked,
+        &solution,
+        &["DirectoryServices/Acme.Directory"],
+        true,
+        false,
+    );
+    assert_eq!(report.entities[0].status, Status::Refused);
+    assert!(blocked
+        .calls
+        .borrow()
+        .iter()
+        .all(|call| !call.starts_with("DELETE")));
+
+    let key = (
+        "DirectoryServices".to_string(),
+        "Acme.Directory".to_string(),
+    );
+    for keep in [false, true] {
+        let mut fake = Fake::new(&[("DirectoryServices", "Acme.Directory")]);
+        if keep {
+            fake.keep_after_delete.insert(key.clone());
+        }
+        let names = vec!["DirectoryServices/Acme.Directory".to_string()];
+        let prepared = prepare(&solution, &names, false)
+            .unwrap()
+            .with_backup("test");
+        run(
+            &fake,
+            &solution,
+            prepared,
+            false,
+            Acknowledged::default(),
+            "d",
+        )
+        .unwrap();
+        assert!(fake
+            .calls
+            .borrow()
+            .iter()
+            .all(|call| !call.starts_with("BACKUP") && !call.starts_with("DELETE")));
+        fake.calls.borrow_mut().clear();
+        let prepared = prepare(&solution, &names, false)
+            .unwrap()
+            .with_backup("test");
+        let report = run(
+            &fake,
+            &solution,
+            prepared,
+            true,
+            Acknowledged::default(),
+            "d",
+        )
+        .unwrap();
+        let calls = fake.calls.borrow();
+        let backup = calls
+            .iter()
+            .position(|call| call.starts_with("BACKUP"))
+            .unwrap();
+        let delete = calls
+            .iter()
+            .position(|call| call == "DELETE DirectoryServices/Acme.Directory")
+            .unwrap();
+        assert!(backup < delete);
+        assert!(calls[delete + 1..]
+            .iter()
+            .any(|call| call == "GET DirectoryServices/Acme.Directory"));
+        assert_eq!(
+            report.entities[0].status,
+            if keep {
+                Status::Failed
+            } else {
+                Status::Deleted
+            }
+        );
+    }
+}

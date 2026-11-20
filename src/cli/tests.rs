@@ -299,11 +299,16 @@ fn mutation_classes_hold_cli_plans_and_workspace_writes() {
             // `export` has one routed flag list, but only its source-control form uses
             // --apply; entity, collection and project write their requested local output.
             // `ext build` shares `ext`'s flags but refuses --apply: it runs the project's build.
-            // fmt keeps its historical write default; --apply is an explicit alias.
+            // fmt and sync keep their historical write default; --apply is an explicit alias.
             if flags.iter().any(|flag| flag == "--apply")
                 && !matches!(
                     command,
-                    "export entity" | "export collection" | "export project" | "ext build" | "fmt"
+                    "export entity"
+                        | "export collection"
+                        | "export project"
+                        | "ext build"
+                        | "fmt"
+                        | "sync"
                 )
             {
                 assert_eq!(
@@ -512,6 +517,20 @@ fn every_flag_means_the_same_in_every_command() {
                 "{} {name}: a value is named, a switch is not",
                 command.path
             );
+            // Creation declares members, events and content cells; older flags select members
+            // or mashup events and parameters, and DataShape fields have extra syntax.
+            let declaration = match (command.path, name.as_str()) {
+                ("new thing-group", "--member") => Some("Thing"),
+                ("new notification", "--event") => Some("Type:Entity:Event"),
+                ("new notification-content", "--field") => Some("name:TYPE"),
+                ("new notification-content", "--set") => Some("field=value"),
+                _ => None,
+            };
+            if let Some(value) = declaration {
+                assert_eq!(kind, "repeated");
+                assert_eq!(value_names, [value]);
+                continue;
+            }
             // State-format's specified interface selects existing names. The older flags
             // declare repeated states, fields or columns, with their own declaration syntax.
             if command.path == "mashup state-format set" {
@@ -556,7 +575,7 @@ fn every_flag_means_the_same_in_every_command() {
                 assert_eq!(value_names, ["widget"]);
                 continue;
             }
-            if command.path == "mashup new" && name == "--replace" {
+            if matches!(command.path, "mashup new" | "new mashup") && name == "--replace" {
                 assert_eq!(kind, "repeated");
                 assert_eq!(value_names, ["old=new"]);
                 continue;

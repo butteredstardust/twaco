@@ -25,6 +25,8 @@ pub struct NewRequest {
     pub project: Option<String>,
     /// An embedded layout template name or alias.
     pub template: String,
+    pub gadget: bool,
+    pub layout: Option<String>,
     /// The primary menu service for a template with a menu bar; it or `menu_entity` is required.
     pub primary_menu: Option<String>,
     /// A Menu entity as the primary menu instead of a service.
@@ -110,13 +112,51 @@ pub(crate) fn plan_new(
     solution: &Solution,
     request: &NewRequest,
 ) -> Result<NewPlan, AuthoringError> {
+    let gadget_size = if request.gadget {
+        for (set, flag) in [
+            (request.template != "blank", "--template"),
+            (request.master, "--master"),
+            (request.from.is_some(), "--from"),
+            (!request.tabs.is_empty(), "--tab"),
+            (request.primary_menu.is_some(), "--primary-menu"),
+            (request.menu_entity.is_some(), "--menu-entity"),
+            (request.secondary_menu.is_some(), "--secondary-menu"),
+            (!request.replacements.is_empty(), "--replace"),
+        ] {
+            if set {
+                return Err(AuthoringError::Invalid(format!(
+                    "--gadget cannot be used with {flag}"
+                )));
+            }
+        }
+        let layout = request.layout.as_deref().unwrap_or("1x1");
+        if ![
+            "1x1", "2x1", "4x1", "1x2", "2x2", "4x2", "1x4", "2x4", "4x4",
+        ]
+        .contains(&layout)
+        {
+            return Err(AuthoringError::Invalid(format!("--layout {layout:?} for --gadget must be one of 1x1, 2x1, 4x1, 1x2, 2x2, 4x2, 1x4, 2x4, 4x4")));
+        }
+        let (columns, rows) = layout.split_once('x').expect("validated size");
+        Some((
+            columns.parse::<u32>().unwrap(),
+            rows.parse::<u32>().unwrap(),
+        ))
+    } else {
+        if request.layout.is_some() {
+            return Err(AuthoringError::Invalid(
+                "gadget layout needs --gadget; use template for an ordinary mashup".into(),
+            ));
+        }
+        None
+    };
     if request.from.is_none() && !request.replacements.is_empty() {
         return Err(AuthoringError::Invalid("--replace needs --from".into()));
     }
     if request.from.is_some() {
         return plan_copy(solution, request);
     }
-    let template = mashup::templates::layout(&request.template)
+    let mut template = mashup::templates::layout(&request.template)
         .map_err(AuthoringError::Invalid)?
         .ok_or_else(|| AuthoringError::Invalid(unknown_template(&request.template)))?;
     validate_template(&template)?;
@@ -215,7 +255,24 @@ pub(crate) fn plan_new(
             template.name
         )));
     }
-    let mut document = new_document(&template, request.master, &theme)?;
+    let mut document = if let Some((columns, rows)) = gadget_size {
+        template.name = format!("gadget {columns}x{rows}");
+        let mut document = mashup::edit::parse(include_str!("../templates/gadget.content.json"))
+            .map_err(AuthoringError::Edit)?;
+        let properties = document.root_properties_mut();
+        for (key, value) in [
+            ("Columns", columns),
+            ("Rows", rows),
+            ("Width", columns * 240 + (columns - 1) * 10),
+            ("Height", rows * 240 + (rows - 1) * 10),
+        ] {
+            properties.insert(key.into(), json!(value));
+        }
+        properties.insert("StyleTheme".into(), json!(theme));
+        document
+    } else {
+        new_document(&template, request.master, &theme)?
+    };
     let parameters: Vec<ParameterDefinition> = request
         .params
         .iter()
@@ -328,10 +385,21 @@ pub(crate) fn plan_new(
     };
     let mut assets =
         mashup::assets_from_payload(&document.to_content()).map_err(AuthoringError::Mashup)?;
-    remove_content_css(&mut assets);
-    let entity_template =
+    if !request.gadget {
+        remove_content_css(&mut assets);
+    }
+    let entity_template = if let Some((columns, rows)) = gadget_size {
+        mashup::templates::gadget_entity_xml(
+            &request.name,
+            &project.name,
+            &visibility,
+            columns,
+            rows,
+        )
+    } else {
         mashup::templates::entity_xml(&request.name, &project.name, kind, &visibility)
-            .map_err(|e| AuthoringError::Invalid(e.to_string()))?;
+    }
+    .map_err(|error| AuthoringError::Invalid(error.to_string()))?;
     let (mut entity, _) =
         mashup::sync(entity_template.as_bytes(), &assets).map_err(AuthoringError::Mashup)?;
     for parameter in &parameters {
@@ -367,7 +435,8 @@ pub(crate) fn validate_theme(solution: &Solution, theme: &str) -> Result<String,
         Ok(theme.to_string())
     } else {
         Err(AuthoringError::Unknown(format!(
-            "no StyleTheme {theme} in the solution; twaco does not create one (the default is {DEFAULT_THEME})"
+            "no StyleTheme {theme} in the solution; twaco does not create one (the default is {DEFAULT_THEME}){}",
+            workspace::short_name_hint(workspace::entities(solution).iter().filter(|entity| entity.info.collection == "StyleThemes").map(|entity| entity.info.name.as_str()), theme)
         )))
     }
 }

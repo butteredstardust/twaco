@@ -126,6 +126,34 @@ pub(crate) fn entity_xml(
     kind: MashupKind,
     visibility: &[Visibility],
 ) -> Result<String, IllegalXmlChar> {
+    entity_xml_template(ENTITY_XML, name, project, kind, visibility, &[])
+}
+
+pub(crate) fn gadget_entity_xml(
+    name: &str,
+    project: &str,
+    visibility: &[Visibility],
+    columns: u32,
+    rows: u32,
+) -> Result<String, IllegalXmlChar> {
+    entity_xml_template(
+        include_str!("templates/gadget.xml"),
+        name,
+        project,
+        MashupKind::Mashup,
+        visibility,
+        &[("COLUMNS", columns.to_string()), ("ROWS", rows.to_string())],
+    )
+}
+
+fn entity_xml_template(
+    template: &str,
+    name: &str,
+    project: &str,
+    kind: MashupKind,
+    visibility: &[Visibility],
+    extra: &[(&'static str, String)],
+) -> Result<String, IllegalXmlChar> {
     let principals: String = visibility
         .iter()
         .map(|principal| {
@@ -141,13 +169,14 @@ pub(crate) fn entity_xml(
     } else {
         format!("{principals}\n                ")
     };
-    let values = BTreeMap::from([
+    let mut values = BTreeMap::from([
         ("NAME", escape_attribute(name)?),
         ("PROJECT", escape_attribute(project)?),
         ("MASHUP_TYPE", kind.aspect().to_string()),
         ("VISIBILITY", visibility),
     ]);
-    Ok(crate::core::newblock::fill(ENTITY_XML, &values))
+    values.extend(extra.iter().cloned());
+    Ok(crate::core::newblock::fill(template, &values))
 }
 
 /// The root widget's properties for a master mashup.

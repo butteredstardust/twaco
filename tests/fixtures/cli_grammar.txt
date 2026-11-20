@@ -89,7 +89,8 @@ help:
 |   completions <shell>         a completion script on stdout for bash, elvish, fish, powershell
 |                               or zsh: commands and flags with descriptions; actions in bash and zsh
 |   extract <entity>|--all      entity XML -> sidecars
-|   sync <entity>|--all         sidecars -> entity XML
+|   sync <entity>|--all [--apply|--check]  sidecars -> entity XML
+|       --apply                 explicitly apply (the default); refuses --check
 |       --check                 report what would change, write nothing
 |       --allow-add-remove      add and remove services and fields as the sidecars do
 |       --relayout              rewrite scripts in the configured CDATA layout
@@ -370,8 +371,12 @@ help:
 |       --no-default             clear the default on set
 |       --data-shape             required for INFOTABLE
 |       --force                  remove bindings when removing a parameter
-|   mashup recipe <recipe> <mashup> [<widget>] [recipe flags] [--apply] [--json]
+|   mashup recipe <recipe> <mashup> [<widget>] [<button>] [recipe flags] [--apply] [--json] [--detail]
 |                               write the wiring real mashups repeat, in one edit; plan unless --apply
+|       panel <container> [--compact <768|960>]
+|                               grey growing column with managed CSS; optional compact viewport gutters
+|       slider-action <slider> <button>
+|                               align the button centre to the horizontal slider track (default 34px button)
 |       collapsible <container> [--toggle <button> | --add-toggle --in <container>]
 |           [--tab inside|outside|none] [--start collapsed]
 |                               collapse a container with siblings; keep its toggle outside it
@@ -400,6 +405,11 @@ help:
 |                               --editable-column makes a listed column (and so the grid) editable
 |                               --column-editor <field=editor> chooses a typed cell editor (repeatable)
 |                               --preserve-whitespace <field> keeps newlines and spaces when shown (repeatable)
+|       toolbar <container> --then <data call> --search-param <param>
+|           [--hint <text>] [--width <px>] [--run-on change|enter|both] [--button Label=<handler>]...
+|                               fill an empty responsive container with a 48px search row; STRING input;
+|                               hint Search..., width 240; both events by default; change/both runs on
+|                               each keystroke; the clear button fires Changed once
 |       label-pairs <container> --data <data call> [--field <field>]... [--title <text>]
 |           [--columns <n>] [--replace <widget>]
 |                               caption/value labels from an existing call's DataShape; field[:Caption]
@@ -426,7 +436,7 @@ help:
 |       --when <address>        the event in this mashup that fires it, as mashup on --event takes it
 |   mashup templates [<name>] [--json]
 |                               list the embedded responsive mashup templates and their slots
-|   mashup new <name> [--project <name>] [--from <address> | --template <name>]
+|   mashup new <name> [--project <name>] [--from <address> | --template <name> | --gadget [--layout <layout>]]
 |       [--primary-menu <address> | --menu-entity <Menu>] [--secondary-menu <address>] [--theme <StyleTheme>] [--master]
 |       [--visibility <principal>]... [--param <name:TYPE[:DIRECTION]|name:INFOTABLE:DataShape[:DIRECTION]>]... [--tab <Label=Mashup>]...
 |       [--apply] [--json]
@@ -434,7 +444,27 @@ help:
 |                               and its content sidecars; plan unless --apply
 |       --from <address>        copy a repository mashup exactly, except identity and permissions
 |       --template              layout template name or alias (default: blank); see mashup templates
-|       --layout                compatibility alias for --template
+|       --gadget                fixed dashboard gadget; default 1x1, 240px per cell
+|       --layout                gadget columns x rows: 1x1, 2x1, 4x1, 1x2, 2x2, 4x2, 1x4, 2x4, 4x4; otherwise alias for --template
+|       --primary-menu          an INFOTABLE service result for a template's menu bar
+|       --menu-entity <Menu>    a Menu in the solution for a template's menu bar instead (no service)
+|       --secondary-menu        optional INFOTABLE service result for a template's menu bar
+|       --theme <StyleTheme>    a StyleTheme in the solution (default: PTC Convergence Theme)
+|       --master                a master mashup, with a page container filling the center
+|       --visibility            Organization/<name> or OrganizationalUnit/<organization>:<unit>, repeatable;
+|                               none unless given
+|       --tab                   with --template tabs: a tab's label and the mashup it shows, repeatable
+|       --replace <old=new>     replace whole tokens in copied content string values; repeatable, needs --from
+|   new mashup <name> [--project <name>] [--from <address> | --template <name> | --gadget [--layout <layout>]]
+|       [--primary-menu <address> | --menu-entity <Menu>] [--secondary-menu <address>] [--theme <StyleTheme>] [--master]
+|       [--visibility <principal>]... [--param <name:TYPE[:DIRECTION]|name:INFOTABLE:DataShape[:DIRECTION]>]... [--tab <Label=Mashup>]...
+|       [--apply] [--json]
+|                               create a ThingWorx 10.2 responsive mashup as Composer would: its entity file
+|                               and its content sidecars; plan unless --apply
+|       --from <address>        copy a repository mashup exactly, except identity and permissions
+|       --template              layout template name or alias (default: blank); see mashup templates
+|       --gadget                fixed dashboard gadget; default 1x1, 240px per cell
+|       --layout                gadget columns x rows: 1x1, 2x1, 4x1, 1x2, 2x2, 4x2, 1x4, 2x4, 4x4; otherwise alias for --template
 |       --primary-menu          an INFOTABLE service result for a template's menu bar
 |       --menu-entity <Menu>    a Menu in the solution for a template's menu bar instead (no service)
 |       --secondary-menu        optional INFOTABLE service result for a template's menu bar
@@ -457,6 +487,29 @@ help:
 |       --base-extension        the PTC.Base extension version to depend on (default: what another project declares)
 |   new project <name> [--description <text>] [--depends-on <P>]... [--apply] [--json]
 |                               create a ThingWorx Project and add it to twaco.toml when needed; plan unless --apply
+|   new thing-group <name> [--project <name>] [--description <text>] [--member <Thing>]... [--apply] [--json]
+|                               create a ThingGroup as a repository file; plan unless --apply
+|       --member <Thing>        add a Thing member
+|   new notification <name> [--project <name>] [--description <text>] [--content <NotificationContent>]...
+|       [--event <Type:Entity:Event>]... [--recipient <event=handler:User|Group:name>]... [--apply] [--json]
+|                               create a NotificationDefinition as a repository file; plan unless --apply
+|       --content               attach content (warn if absent from the repository)
+|       --event                 applicable Type:Entity:Event
+|       --recipient             an event also listed with --event, handler GUID and User or Group
+|   new directory-service <name> --type <value> [--project <name>] [--description <text>]
+|                             [--host <host>] [--port <n>] [--priority <n>] [--apply] [--json]
+|                               create disabled LDAP or Active Directory service; set admin password in Composer
+|       --type <value>          ldap or active-directory (required)
+|       --host <host>           server host (default localhost)
+|       --port <n>              server port (default LDAP 10389, Active Directory 389)
+|       --priority <n>          directory priority (default 1)
+|   new notification-content <name> --handler <Thing> --handler-id <GUID> [--project <name>] [--description <text>]
+|       [--field <name:TYPE>]... [--set <field=value>]... [--apply] [--json]
+|                               create NotificationContent for a registered extension handler; plan unless --apply
+|       --handler               handler Thing whose template chain registers the handler
+|       --handler-id            GUID of its hidden Handlers table row
+|       --field                 fallback fields when the configuration DataShape cannot resolve offline
+|       --set                   set a declared content field; secrets are refused
 |   new group <name> [--project <name>] [--description <text>] [--apply] [--json]
 |                               create a ThingWorx Group without members as a repository file; plan unless --apply
 |   group member <add|remove> <Entity> <User/name|Group/name|PermissionGroup/name> [--apply] [--json]
@@ -7957,8 +8010,12 @@ help:
 |       --no-default             clear the default on set
 |       --data-shape             required for INFOTABLE
 |       --force                  remove bindings when removing a parameter
-|   mashup recipe <recipe> <mashup> [<widget>] [recipe flags] [--apply] [--json]
+|   mashup recipe <recipe> <mashup> [<widget>] [<button>] [recipe flags] [--apply] [--json] [--detail]
 |                               write the wiring real mashups repeat, in one edit; plan unless --apply
+|       panel <container> [--compact <768|960>]
+|                               grey growing column with managed CSS; optional compact viewport gutters
+|       slider-action <slider> <button>
+|                               align the button centre to the horizontal slider track (default 34px button)
 |       collapsible <container> [--toggle <button> | --add-toggle --in <container>]
 |           [--tab inside|outside|none] [--start collapsed]
 |                               collapse a container with siblings; keep its toggle outside it
@@ -7987,6 +8044,11 @@ help:
 |                               --editable-column makes a listed column (and so the grid) editable
 |                               --column-editor <field=editor> chooses a typed cell editor (repeatable)
 |                               --preserve-whitespace <field> keeps newlines and spaces when shown (repeatable)
+|       toolbar <container> --then <data call> --search-param <param>
+|           [--hint <text>] [--width <px>] [--run-on change|enter|both] [--button Label=<handler>]...
+|                               fill an empty responsive container with a 48px search row; STRING input;
+|                               hint Search..., width 240; both events by default; change/both runs on
+|                               each keystroke; the clear button fires Changed once
 |       label-pairs <container> --data <data call> [--field <field>]... [--title <text>]
 |           [--columns <n>] [--replace <widget>]
 |                               caption/value labels from an existing call's DataShape; field[:Caption]
@@ -8013,7 +8075,7 @@ help:
 |       --when <address>        the event in this mashup that fires it, as mashup on --event takes it
 |   mashup templates [<name>] [--json]
 |                               list the embedded responsive mashup templates and their slots
-|   mashup new <name> [--project <name>] [--from <address> | --template <name>]
+|   mashup new <name> [--project <name>] [--from <address> | --template <name> | --gadget [--layout <layout>]]
 |       [--primary-menu <address> | --menu-entity <Menu>] [--secondary-menu <address>] [--theme <StyleTheme>] [--master]
 |       [--visibility <principal>]... [--param <name:TYPE[:DIRECTION]|name:INFOTABLE:DataShape[:DIRECTION]>]... [--tab <Label=Mashup>]...
 |       [--apply] [--json]
@@ -8021,7 +8083,8 @@ help:
 |                               and its content sidecars; plan unless --apply
 |       --from <address>        copy a repository mashup exactly, except identity and permissions
 |       --template              layout template name or alias (default: blank); see mashup templates
-|       --layout                compatibility alias for --template
+|       --gadget                fixed dashboard gadget; default 1x1, 240px per cell
+|       --layout                gadget columns x rows: 1x1, 2x1, 4x1, 1x2, 2x2, 4x2, 1x4, 2x4, 4x4; otherwise alias for --template
 |       --primary-menu          an INFOTABLE service result for a template's menu bar
 |       --menu-entity <Menu>    a Menu in the solution for a template's menu bar instead (no service)
 |       --secondary-menu        optional INFOTABLE service result for a template's menu bar
@@ -9339,7 +9402,7 @@ help:
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
 
 == twaco mashup new
-usage: twaco mashup new <name> [--project <name>] [--from <address> | --template <name>]
+usage: twaco mashup new <name> [--project <name>] [--from <address> | --template <name> | --gadget [--layout <layout>]]
 settings: disable-version-flag disable-help-subcommand
 subcommands: 
 arg --apply
@@ -9365,6 +9428,17 @@ arg --from
     other: -
     given twice: ArgumentConflict
     given bare: InvalidValue
+arg --gadget
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
 arg --help
     action: Help
     value_name: -
@@ -9564,7 +9638,7 @@ arg <operands>
     index: 1
     other: -
 help:
-|   mashup new <name> [--project <name>] [--from <address> | --template <name>]
+|   mashup new <name> [--project <name>] [--from <address> | --template <name> | --gadget [--layout <layout>]]
 |       [--primary-menu <address> | --menu-entity <Menu>] [--secondary-menu <address>] [--theme <StyleTheme>] [--master]
 |       [--visibility <principal>]... [--param <name:TYPE[:DIRECTION]|name:INFOTABLE:DataShape[:DIRECTION]>]... [--tab <Label=Mashup>]...
 |       [--apply] [--json]
@@ -9572,7 +9646,8 @@ help:
 |                               and its content sidecars; plan unless --apply
 |       --from <address>        copy a repository mashup exactly, except identity and permissions
 |       --template              layout template name or alias (default: blank); see mashup templates
-|       --layout                compatibility alias for --template
+|       --gadget                fixed dashboard gadget; default 1x1, 240px per cell
+|       --layout                gadget columns x rows: 1x1, 2x1, 4x1, 1x2, 2x2, 4x2, 1x4, 2x4, 4x4; otherwise alias for --template
 |       --primary-menu          an INFOTABLE service result for a template's menu bar
 |       --menu-entity <Menu>    a Menu in the solution for a template's menu bar instead (no service)
 |       --secondary-menu        optional INFOTABLE service result for a template's menu bar
@@ -9971,7 +10046,7 @@ help:
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
 
 == twaco mashup recipe
-usage: twaco mashup recipe <recipe> <mashup> [<widget>] [recipe flags] [--apply] [--json]
+usage: twaco mashup recipe <recipe> <mashup> [<widget>] [<button>] [recipe flags] [--apply] [--json] [--detail]
 settings: disable-version-flag disable-help-subcommand
 subcommands: 
 arg --action-label
@@ -10031,6 +10106,18 @@ arg --auto-select-first
     index: -
     other: -
     given twice: accepted
+arg --button
+    action: Append
+    value_name: Label=handler
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: accepted
+    given bare: InvalidValue
 arg --cancel-label
     action: Set
     value_name: text
@@ -10079,6 +10166,18 @@ arg --columns
     other: -
     given twice: ArgumentConflict
     given bare: InvalidValue
+arg --compact
+    action: Set
+    value_name: 768|960
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 arg --data
     action: Set
     value_name: address
@@ -10091,6 +10190,17 @@ arg --data
     other: -
     given twice: ArgumentConflict
     given bare: InvalidValue
+arg --detail
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
 arg --editable-column
     action: Append
     value_name: field
@@ -10185,6 +10295,18 @@ arg --help
     default: -
     index: -
     other: -
+arg --hint
+    action: Set
+    value_name: text
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 arg --if
     action: Set
     value_name: condition
@@ -10410,9 +10532,33 @@ arg --replace
     other: -
     given twice: ArgumentConflict
     given bare: InvalidValue
+arg --run-on
+    action: Set
+    value_name: change|enter|both
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 arg --say
     action: Set
     value_name: text
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --search-param
+    action: Set
+    value_name: param
     num_args: 1
     allow_hyphen_values: yes
     allow_negative_numbers: no
@@ -10565,8 +10711,12 @@ arg <operands>
     index: 1
     other: -
 help:
-|   mashup recipe <recipe> <mashup> [<widget>] [recipe flags] [--apply] [--json]
+|   mashup recipe <recipe> <mashup> [<widget>] [<button>] [recipe flags] [--apply] [--json] [--detail]
 |                               write the wiring real mashups repeat, in one edit; plan unless --apply
+|       panel <container> [--compact <768|960>]
+|                               grey growing column with managed CSS; optional compact viewport gutters
+|       slider-action <slider> <button>
+|                               align the button centre to the horizontal slider track (default 34px button)
 |       collapsible <container> [--toggle <button> | --add-toggle --in <container>]
 |           [--tab inside|outside|none] [--start collapsed]
 |                               collapse a container with siblings; keep its toggle outside it
@@ -10595,6 +10745,11 @@ help:
 |                               --editable-column makes a listed column (and so the grid) editable
 |                               --column-editor <field=editor> chooses a typed cell editor (repeatable)
 |                               --preserve-whitespace <field> keeps newlines and spaces when shown (repeatable)
+|       toolbar <container> --then <data call> --search-param <param>
+|           [--hint <text>] [--width <px>] [--run-on change|enter|both] [--button Label=<handler>]...
+|                               fill an empty responsive container with a 48px search row; STRING input;
+|                               hint Search..., width 240; both events by default; change/both runs on
+|                               each keystroke; the clear button fires Changed once
 |       label-pairs <container> --data <data call> [--field <field>]... [--title <text>]
 |           [--columns <n>] [--replace <widget>]
 |                               caption/value labels from an existing call's DataShape; field[:Caption]
@@ -13873,7 +14028,7 @@ help:
 == twaco new
 usage: twaco new <command>
 settings: disable-version-flag disable-help-subcommand subcommand-required arg-required-else-help
-subcommands: ai-agent building-block data-shape data-table group mcp-namespace media menu network permission-group project role scheduler state stream style theme thing thing-shape thing-template timer value-stream
+subcommands: ai-agent building-block data-shape data-table directory-service group mashup mcp-namespace media menu network notification notification-content permission-group project role scheduler state stream style theme thing thing-group thing-shape thing-template timer value-stream
 arg --help
     action: Help
     value_name: -
@@ -13911,6 +14066,25 @@ arg --log-file
 help:
 | usage: twaco new <command>
 | 
+|   new mashup <name> [--project <name>] [--from <address> | --template <name> | --gadget [--layout <layout>]]
+|       [--primary-menu <address> | --menu-entity <Menu>] [--secondary-menu <address>] [--theme <StyleTheme>] [--master]
+|       [--visibility <principal>]... [--param <name:TYPE[:DIRECTION]|name:INFOTABLE:DataShape[:DIRECTION]>]... [--tab <Label=Mashup>]...
+|       [--apply] [--json]
+|                               create a ThingWorx 10.2 responsive mashup as Composer would: its entity file
+|                               and its content sidecars; plan unless --apply
+|       --from <address>        copy a repository mashup exactly, except identity and permissions
+|       --template              layout template name or alias (default: blank); see mashup templates
+|       --gadget                fixed dashboard gadget; default 1x1, 240px per cell
+|       --layout                gadget columns x rows: 1x1, 2x1, 4x1, 1x2, 2x2, 4x2, 1x4, 2x4, 4x4; otherwise alias for --template
+|       --primary-menu          an INFOTABLE service result for a template's menu bar
+|       --menu-entity <Menu>    a Menu in the solution for a template's menu bar instead (no service)
+|       --secondary-menu        optional INFOTABLE service result for a template's menu bar
+|       --theme <StyleTheme>    a StyleTheme in the solution (default: PTC Convergence Theme)
+|       --master                a master mashup, with a page container filling the center
+|       --visibility            Organization/<name> or OrganizationalUnit/<organization>:<unit>, repeatable;
+|                               none unless given
+|       --tab                   with --template tabs: a tab's label and the mashup it shows, repeatable
+|       --replace <old=new>     replace whole tokens in copied content string values; repeatable, needs --from
 |   new building-block <name> [--type standard|abstract|implementation] [--display-name <text>] [--description <text>]
 |       [--parent <block>] [--model-logic] [--no-management-shape] [--root <dir>] [--base-extension PTC.Base:<version>]
 |       [--apply] [--json]
@@ -13924,6 +14098,29 @@ help:
 |       --base-extension        the PTC.Base extension version to depend on (default: what another project declares)
 |   new project <name> [--description <text>] [--depends-on <P>]... [--apply] [--json]
 |                               create a ThingWorx Project and add it to twaco.toml when needed; plan unless --apply
+|   new thing-group <name> [--project <name>] [--description <text>] [--member <Thing>]... [--apply] [--json]
+|                               create a ThingGroup as a repository file; plan unless --apply
+|       --member <Thing>        add a Thing member
+|   new notification <name> [--project <name>] [--description <text>] [--content <NotificationContent>]...
+|       [--event <Type:Entity:Event>]... [--recipient <event=handler:User|Group:name>]... [--apply] [--json]
+|                               create a NotificationDefinition as a repository file; plan unless --apply
+|       --content               attach content (warn if absent from the repository)
+|       --event                 applicable Type:Entity:Event
+|       --recipient             an event also listed with --event, handler GUID and User or Group
+|   new directory-service <name> --type <value> [--project <name>] [--description <text>]
+|                             [--host <host>] [--port <n>] [--priority <n>] [--apply] [--json]
+|                               create disabled LDAP or Active Directory service; set admin password in Composer
+|       --type <value>          ldap or active-directory (required)
+|       --host <host>           server host (default localhost)
+|       --port <n>              server port (default LDAP 10389, Active Directory 389)
+|       --priority <n>          directory priority (default 1)
+|   new notification-content <name> --handler <Thing> --handler-id <GUID> [--project <name>] [--description <text>]
+|       [--field <name:TYPE>]... [--set <field=value>]... [--apply] [--json]
+|                               create NotificationContent for a registered extension handler; plan unless --apply
+|       --handler               handler Thing whose template chain registers the handler
+|       --handler-id            GUID of its hidden Handlers table row
+|       --field                 fallback fields when the configuration DataShape cannot resolve offline
+|       --set                   set a declared content field; secrets are refused
 |   new group <name> [--project <name>] [--description <text>] [--apply] [--json]
 |                               create a ThingWorx Group without members as a repository file; plan unless --apply
 |   new role <name> [--project <name>] [--description <text>] [--apply] [--json]
@@ -14653,6 +14850,161 @@ help:
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
 
+== twaco new directory-service
+usage: twaco new directory-service <name> --type <value> [--project <name>] [--description <text>]
+settings: disable-version-flag disable-help-subcommand
+subcommands: 
+arg --apply
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --description
+    action: Set
+    value_name: text
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+arg --host
+    action: Set
+    value_name: host
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --json
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --port
+    action: Set
+    value_name: n
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --priority
+    action: Set
+    value_name: n
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --project
+    action: Set
+    value_name: name
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --type
+    action: Set
+    value_name: value
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg <operands>
+    action: Append
+    value_name: operand
+    num_args: 0..
+    allow_hyphen_values: no
+    allow_negative_numbers: yes
+    required: no
+    default: -
+    index: 1
+    other: -
+help:
+|   new directory-service <name> --type <value> [--project <name>] [--description <text>]
+|                             [--host <host>] [--port <n>] [--priority <n>] [--apply] [--json]
+|                               create disabled LDAP or Active Directory service; set admin password in Composer
+|       --type <value>          ldap or active-directory (required)
+|       --host <host>           server host (default localhost)
+|       --port <n>              server port (default LDAP 10389, Active Directory 389)
+|       --priority <n>          directory priority (default 1)
+| 
+|   --project <name>            narrow to one project of the solution
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
 == twaco new group
 usage: twaco new group <name> [--project <name>] [--description <text>] [--apply] [--json]
 settings: disable-version-flag disable-help-subcommand
@@ -14750,6 +15102,267 @@ arg <operands>
 help:
 |   new group <name> [--project <name>] [--description <text>] [--apply] [--json]
 |                               create a ThingWorx Group without members as a repository file; plan unless --apply
+| 
+|   --project <name>            narrow to one project of the solution
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
+== twaco new mashup
+usage: twaco new mashup <name> [--project <name>] [--from <address> | --template <name> | --gadget [--layout <layout>]]
+settings: disable-version-flag disable-help-subcommand
+subcommands: 
+arg --apply
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --from
+    action: Set
+    value_name: address
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --gadget
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+arg --json
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --layout
+    action: Set
+    value_name: layout
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --master
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --menu-entity
+    action: Set
+    value_name: Menu
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --param
+    action: Append
+    value_name: name:TYPE[:...]
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: accepted
+    given bare: InvalidValue
+arg --primary-menu
+    action: Set
+    value_name: address
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --project
+    action: Set
+    value_name: name
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --replace
+    action: Append
+    value_name: old=new
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: accepted
+    given bare: InvalidValue
+arg --secondary-menu
+    action: Set
+    value_name: address
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --tab
+    action: Append
+    value_name: Label=Mashup
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: accepted
+    given bare: InvalidValue
+arg --template
+    action: Set
+    value_name: name
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --theme
+    action: Set
+    value_name: theme
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --visibility
+    action: Append
+    value_name: principal
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: accepted
+    given bare: InvalidValue
+arg <operands>
+    action: Append
+    value_name: operand
+    num_args: 0..
+    allow_hyphen_values: no
+    allow_negative_numbers: yes
+    required: no
+    default: -
+    index: 1
+    other: -
+help:
+|   new mashup <name> [--project <name>] [--from <address> | --template <name> | --gadget [--layout <layout>]]
+|       [--primary-menu <address> | --menu-entity <Menu>] [--secondary-menu <address>] [--theme <StyleTheme>] [--master]
+|       [--visibility <principal>]... [--param <name:TYPE[:DIRECTION]|name:INFOTABLE:DataShape[:DIRECTION]>]... [--tab <Label=Mashup>]...
+|       [--apply] [--json]
+|                               create a ThingWorx 10.2 responsive mashup as Composer would: its entity file
+|                               and its content sidecars; plan unless --apply
+|       --from <address>        copy a repository mashup exactly, except identity and permissions
+|       --template              layout template name or alias (default: blank); see mashup templates
+|       --gadget                fixed dashboard gadget; default 1x1, 240px per cell
+|       --layout                gadget columns x rows: 1x1, 2x1, 4x1, 1x2, 2x2, 4x2, 1x4, 2x4, 4x4; otherwise alias for --template
+|       --primary-menu          an INFOTABLE service result for a template's menu bar
+|       --menu-entity <Menu>    a Menu in the solution for a template's menu bar instead (no service)
+|       --secondary-menu        optional INFOTABLE service result for a template's menu bar
+|       --theme <StyleTheme>    a StyleTheme in the solution (default: PTC Convergence Theme)
+|       --master                a master mashup, with a page container filling the center
+|       --visibility            Organization/<name> or OrganizationalUnit/<organization>:<unit>, repeatable;
+|                               none unless given
+|       --tab                   with --template tabs: a tab's label and the mashup it shows, repeatable
+|       --replace <old=new>     replace whole tokens in copied content string values; repeatable, needs --from
 | 
 |   --project <name>            narrow to one project of the solution
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
@@ -15287,6 +15900,303 @@ arg <operands>
 help:
 |   new network <name> [--project <name>] [--description <text>] [--apply] [--json]
 |                               create an empty Network entity; plan unless --apply
+| 
+|   --project <name>            narrow to one project of the solution
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
+== twaco new notification
+usage: twaco new notification <name> [--project <name>] [--description <text>] [--content <NotificationContent>]...
+settings: disable-version-flag disable-help-subcommand
+subcommands: 
+arg --apply
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --content
+    action: Append
+    value_name: NotificationContent
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: accepted
+    given bare: InvalidValue
+arg --description
+    action: Set
+    value_name: text
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --event
+    action: Append
+    value_name: Type:Entity:Event
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: accepted
+    given bare: InvalidValue
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+arg --json
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --project
+    action: Set
+    value_name: name
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --recipient
+    action: Append
+    value_name: event=handler:User|Group:name
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: accepted
+    given bare: InvalidValue
+arg <operands>
+    action: Append
+    value_name: operand
+    num_args: 0..
+    allow_hyphen_values: no
+    allow_negative_numbers: yes
+    required: no
+    default: -
+    index: 1
+    other: -
+help:
+|   new notification <name> [--project <name>] [--description <text>] [--content <NotificationContent>]...
+|       [--event <Type:Entity:Event>]... [--recipient <event=handler:User|Group:name>]... [--apply] [--json]
+|                               create a NotificationDefinition as a repository file; plan unless --apply
+|       --content               attach content (warn if absent from the repository)
+|       --event                 applicable Type:Entity:Event
+|       --recipient             an event also listed with --event, handler GUID and User or Group
+| 
+|   --project <name>            narrow to one project of the solution
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
+== twaco new notification-content
+usage: twaco new notification-content <name> --handler <Thing> --handler-id <GUID> [--project <name>] [--description <text>]
+settings: disable-version-flag disable-help-subcommand
+subcommands: 
+arg --apply
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --description
+    action: Set
+    value_name: text
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --field
+    action: Append
+    value_name: name:TYPE
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: accepted
+    given bare: InvalidValue
+arg --handler
+    action: Set
+    value_name: Thing
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --handler-id
+    action: Set
+    value_name: GUID
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+arg --json
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --project
+    action: Set
+    value_name: name
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --set
+    action: Append
+    value_name: field=value
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: accepted
+    given bare: InvalidValue
+arg <operands>
+    action: Append
+    value_name: operand
+    num_args: 0..
+    allow_hyphen_values: no
+    allow_negative_numbers: yes
+    required: no
+    default: -
+    index: 1
+    other: -
+help:
+|   new notification-content <name> --handler <Thing> --handler-id <GUID> [--project <name>] [--description <text>]
+|       [--field <name:TYPE>]... [--set <field=value>]... [--apply] [--json]
+|                               create NotificationContent for a registered extension handler; plan unless --apply
+|       --handler               handler Thing whose template chain registers the handler
+|       --handler-id            GUID of its hidden Handlers table row
+|       --field                 fallback fields when the configuration DataShape cannot resolve offline
+|       --set                   set a declared content field; secrets are refused
 | 
 |   --project <name>            narrow to one project of the solution
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
@@ -16536,6 +17446,121 @@ help:
 |   new thing <name> [--project <name>] [--description <text>] [--template <ThingTemplate>] [--shape <ThingShape>]...
 |       [--value-stream <ValueStream>] [--visibility <principal>]... [--apply] [--json]
 |                               create a ThingWorx Thing as a repository file; plan unless --apply
+| 
+|   --project <name>            narrow to one project of the solution
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
+== twaco new thing-group
+usage: twaco new thing-group <name> [--project <name>] [--description <text>] [--member <Thing>]... [--apply] [--json]
+settings: disable-version-flag disable-help-subcommand
+subcommands: 
+arg --apply
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --description
+    action: Set
+    value_name: text
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+arg --json
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --member
+    action: Append
+    value_name: Thing
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: accepted
+    given bare: InvalidValue
+arg --project
+    action: Set
+    value_name: name
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg <operands>
+    action: Append
+    value_name: operand
+    num_args: 0..
+    allow_hyphen_values: no
+    allow_negative_numbers: yes
+    required: no
+    default: -
+    index: 1
+    other: -
+help:
+|   new thing-group <name> [--project <name>] [--description <text>] [--member <Thing>]... [--apply] [--json]
+|                               create a ThingGroup as a repository file; plan unless --apply
+|       --member <Thing>        add a Thing member
 | 
 |   --project <name>            narrow to one project of the solution
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
@@ -20427,7 +21452,7 @@ help:
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
 
 == twaco sync
-usage: twaco sync <entity>|--all
+usage: twaco sync <entity>|--all [--apply|--check]
 settings: disable-version-flag disable-help-subcommand
 subcommands: 
 arg --all
@@ -20442,6 +21467,17 @@ arg --all
     other: -
     given twice: accepted
 arg --allow-add-remove
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --apply
     action: SetTrue
     value_name: -
     num_args: 0
@@ -20542,7 +21578,8 @@ arg <operands>
     index: 1
     other: -
 help:
-|   sync <entity>|--all         sidecars -> entity XML
+|   sync <entity>|--all [--apply|--check]  sidecars -> entity XML
+|       --apply                 explicitly apply (the default); refuses --check
 |       --check                 report what would change, write nothing
 |       --allow-add-remove      add and remove services and fields as the sidecars do
 |       --relayout              rewrite scripts in the configured CDATA layout

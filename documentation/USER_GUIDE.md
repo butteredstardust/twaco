@@ -256,7 +256,8 @@ that project's declared root; add `--apply` to create the files, sidecars and ba
 | A mashup's layout and CSS | a Mashup | `src/<Mashup>/mashup/content.json`, `custom.css` |
 | A DataTable's configuration | a DataTable Thing | `src/<DataTable>/datatable.json` |
 
-`twaco sync` writes them back into the XML. Commit the XML and its sidecars together; the
+`twaco sync` writes them back into the XML. `sync --apply` explicitly requests the same default
+behavior; `--check` plans without writing and cannot be combined with `--apply`. Commit the XML and its sidecars together; the
 `sidecars` gate fails when they disagree.
 
 An inherited service that a Thing, ThingTemplate or ThingShape implements locally is an
@@ -892,6 +893,35 @@ twaco new project Acme.Orders --depends-on Acme.Base --apply
 twaco new group Acme.Orders.Viewers_UG --project Acme.Orders --apply
 ```
 
+`new thing-group` creates a ThingGroup with empty membership unless repeated `--member Thing`
+flags are given. `new notification` creates a NotificationDefinition; repeated `--content`
+flags attach NotificationContents and `--event Type:Entity:Event` flags declare applicable
+sources. A content absent from the repository produces a warning because it may exist on the
+server. Optional `--recipient Type:Entity:Event=GUID:User|Group:name` flags add recipients;
+each recipient event must also be listed with `--event`.
+
+```sh
+twaco new thing-group Acme.Orders.Site --member Acme.Orders.Pump --apply
+twaco new notification-content Acme.Orders.Email --handler Acme.Orders.Mail --handler-id 11111111-2222-4333-8444-555555555555 --field subject:STRING --field body:TEXT --set "subject=Pump started" --apply
+twaco new notification Acme.Orders.Started --content Acme.Orders.Email --event Thing:Acme.Orders.Pump:ThingStart --apply
+```
+
+Notification content needs a registered extension handler: an extension such as Mail registers
+a hidden, multi-row `Handlers` configuration table on its ThingTemplate. The matching
+`handlerID` row names the `configuration` DataShape. A Thing on the `NotificationHandler`
+template alone is not a handler. twaco resolves these fields offline from the handler Thing,
+its template chain, repository DataShapes and configured local extension metadata/XML. When
+those are unavailable, declare the fields with repeated `--field name:TYPE`. `--set field=value`
+only accepts declared fields and refuses password or credential fields; configure secrets on
+the server. Scalar and JSON cells are supported by `--set`; structured cells require exported
+content XML. The Mail handler needs the recipient User's `emailAddress` extension property set
+(verified on ThingWorx 10.2). Empty `projectName` on the server becomes `PTCDefaultProject`;
+these constructors use the selected repository project. NotificationContent's Composer route
+is unverified; `twaco url` retains its element-name fallback.
+
+All three commands plan unless `--apply`, support `--json`, and create repository files for
+later deployment. MCP uses the same `entity_new` tool, with `dry_run` defaulting to true.
+
 ```sh
 twaco new thing Acme.Orders.Manager --template Acme.Orders.Manager_TT --shape Acme.Orders.Audit_TS
 twaco new thing-template Acme.Orders.Manager_TT --base GenericThing --shape Acme.Orders.Audit_TS
@@ -1111,6 +1141,16 @@ twaco mashup new Acme.App.Orders_MU --project Acme.App --apply
 twaco mashup new Acme.App.Main_MM --master --visibility Organization/Acme.App.Org --apply
 twaco mashup new Acme.App.Navigation_MU --template sidebar --primary-menu data:Acme.App.Nav.Manager.GetPrimaryMenu --apply
 ```
+
+`new mashup` is an alias for `mashup new`, with identical flags and plan/apply behavior.
+Use `twaco mashup new Acme.Gadget --gadget --layout 2x2 --apply` for a fixed dashboard gadget.
+The default is 1x1; supported sizes (columns x rows) are 1x1, 2x1, 4x1, 1x2, 2x2, 4x2,
+1x4, 2x4 and 4x4: 240px cells with a 10px gap between them (a 2x2 gadget is 490x490, as
+Composer makes it). Gadgets accept theme, visibility and parameters;
+template, master, copy, menus, tabs and replacements are refused. Gadgets belong under
+`Mashups` with a `<Mashups>` wrapper. Check/status diagnose legacy `MashupGadgets`
+folders or wrappers; move them explicitly. Dependency extraction remains available.
+Authoring requires exact mashup names; missing short names receive suggestions only.
 
 `mashup new` writes a ThingWorx 10.2 responsive mashup the way Composer makes one: the entity file
 under the project's `Mashups` folder, and its `content.json` and `custom.css` sidecars, written by the
@@ -1647,6 +1687,69 @@ twaco mashup recipe columns Acme.App.Orders_MU ptcsgrid-5 --data data:Acme.App.O
 twaco mashup recipe tracker Acme.App.Wizard_MU new --data data:Acme.App.Wizard.Manager.GetSteps --field-map StepLabelField=caption --apply
 twaco mashup recipe set-on-click Acme.App.Wizard_MU ptcsbutton-6 --param CurrentStep --expr "CurrentStep + 1" --input CurrentStep=mashup:CurrentStep --apply
 ```
+
+`mashup recipe toolbar` fills an empty responsive flexcontainer with a fixed 48px row,
+a search field in the left group and optional buttons in the right group. The groups center
+their children vertically; the right group uses `flex-end`. The field has a search icon,
+clear button, `Search...` hint, width 240 and margin `5 12 5 5`. Override the hint and width
+with `--hint` and `--width`.
+
+```sh
+twaco mashup recipe toolbar Acme.App.Assets_MU toolbar --then data:Acme.App.Manager.SearchAssets --search-param query --button "Reload=mashup:Refresh" --apply
+```
+
+Add the data call to the mashup first. `--search-param` must name one of its STRING input
+parameters; refusals list those parameters. The field's Text feeds that parameter.
+`--run-on change|enter|both` defaults to both: Changed runs the call on each keystroke,
+without debounce, and EnterKeyPressed runs it on Enter. Clearing with the clear button
+fires Changed once (checked on 10.2; Enter does not fire Changed again). In enter mode, clearing
+does not run the call until Enter is pressed.
+
+Repeat `--button "Label=<handler>"` to add transparent buttons in order, with centered
+labels and zero margin as in the reference export. Handlers use the `mashup on` grammar.
+With no buttons, the right group stays empty. The export's extra controls are omitted.
+Plans include the properties, bindings, events and keystroke/clear notes. Use `--json` for
+structured output and `--apply` to write. MCP uses `mashup_recipe`, `recipe: "toolbar"`,
+`widget` for the container, `then`, `search_param`, optional `hint`, `width`, `run_on`,
+and `buttons` (an array of `Label=handler`); `dry_run` defaults to true.
+
+`mashup recipe panel` styles an existing responsive column as a full-width grey
+(`#F7F7F7`) growing panel with 24/24/12 gutters. Default descendant wrappers
+without a background inherit it; explicit backgrounds (including white), descendant
+margins, borders and leaf styles survive. Contained mashups are boundaries.
+
+```sh
+twaco mashup recipe panel Acme.Detail_MU details --compact 768 --detail
+twaco mashup recipe panel Acme.Detail_MU details --compact 768 --apply
+twaco mashup recipe slider-action Acme.Controls_MU ptcsslider-8 ptcsbutton-9 --apply
+```
+
+Panel appends a `twaco-panel-<widget-id>` class token and owns one delimited CSS
+block in `custom.css`. Existing classes and other CSS survive. `--compact 768|960`
+is an inclusive viewport breakpoint for 12px gutters; omitting it removes the
+owned media query. It does not stack children or inset absolutely positioned leaves.
+Checked live on 10.2: the class lands on the panel's bounding box, which computes to
+`flex: 1 1 auto` with 24/24/12 margins and a width of its parent minus 48px; with
+`--compact 768` the gutters are 12px at 768px and below and 24px at 769px.
+Panel refuses roots, static containers, non-column targets, named non-default
+styles, width constraints, malformed styles/markers and bindings to overwritten
+properties. Plans list affected files, including changed CSS; `--detail` lists
+before/after properties, wrapper styles and the CSS block. Apply writes XML,
+content and CSS in one transaction; repeated application is unchanged.
+
+`slider-action` requires exactly a horizontal `ptcsslider` followed by a
+`ptcsbutton`, as flow-sized direct children of an existing responsive row. It sets
+row `align-items:flex-end`, range sizing with no maximum height, slider Margin
+`"0"`, and button Margin `"0 0 18 12"` when `DisplayMinMaxLabels` is true or absent,
+or `"0 0 0 12"` when false. The 18px bottom offset compensates for the min/max
+label row; 12px gives the horizontal gap. On 10.2 the button centre matches the
+slider track centre with the default 34px button. Non-default button height still
+assumes 34px, as stated in the plan. Dimensions, slider options, labels, values,
+button type and wiring survive; no CSS is emitted. Vertical or filled controls,
+extra/reversed siblings, separate parents, non-row parents, malformed styles,
+stale sidecars, bound overwritten properties and unrelated flags are refused.
+MCP `mashup_recipe` takes `recipe:"panel"`, `widget`, optional `compact`, or
+`recipe:"slider-action"`, `widget` (slider) and `button`; `dry_run` defaults true.
 
 `mashup recipe label-pairs` fills an empty responsive container with caption/value labels
 from an existing data call's result DataShape. By default it uses all fields in DataShape order,
@@ -2314,18 +2417,36 @@ member; `remove` removes only that type/name pair. `group member` follows the sa
 MCP uses `entity_new` kinds `role` / `permission-group` and `entity_edit` actions
 `member_add` / `member_remove` with `name` and `type`.
 
-To keep run-time users and groups while deploying a Role's repository-defined permission
-groups, configure:
+List only member types assigned at run time. For a Role with repository-defined Group members
+(for example Acme.Contractors) and PermissionGroup members, preserve run-time users with:
 
 ```toml
 [[server_owned]]
 entities = ["Roles/Acme.Operator"]
-parts = ["members:User,Group"]
+parts = ["members:User"]
 ```
 
+Use `members:User,Group` only when both types are assigned at run time.
 Plain `members` owns all membership. Typed selectors work on Groups, Roles and PermissionGroups;
 Organization membership continues to use plain `members`. An unprotected Role deploy names
 members its import would remove. Role and PermissionGroup Members compare as sets by type/name;
 PermissionGroup EntityPermissions compare by entity, permission category/name and resource.
 Changing isPermitted or onInstances remains a real change. `twaco fmt` writes these sets in
 comparison order without rewriting the enclosing XML.
+
+## Directory services
+
+`twaco new directory-service Acme.Directory --type ldap --project Acme --apply` creates
+repository XML. Use `--type active-directory` for Active Directory. Both start disabled at
+priority 1, with the complete 10.2 exported configuration defaults and empty PASSWORD cells.
+Set the admin password in Composer before enabling the directory service; there are no
+credential flags. `--host <host>` and `--port <n>` override only their row cells, and
+`--priority <n>` changes the directory priority. Without `--apply`, creation only plans.
+MCP `entity_new` takes kind `directory-service`, `type`, and optional `host`, `port`, `priority`
+strings; it plans unless `dry_run` is false. Deploy imports the repository XML.
+`entity delete DirectoryServices/Acme.Directory --apply` uses REST DELETE with the usual
+dependency guards, backup and absence verification.
+
+`config-table set` replaces the table. Its plan lists live columns that currently contain a
+value but are absent from every supplied row, for example `would be cleared: runAsUser, schedule`.
+JSON and MCP results include a `warnings` array; applying still replaces the rows.

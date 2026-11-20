@@ -22,6 +22,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 pub(crate) mod ai;
+mod directory;
+mod notification;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
@@ -29,6 +31,10 @@ pub enum Kind {
     Group,
     Role,
     PermissionGroup,
+    ThingGroup,
+    Notification,
+    NotificationContent,
+    DirectoryService,
     Thing,
     ThingTemplate,
     ThingShape,
@@ -55,6 +61,10 @@ impl Kind {
             "group" => Self::Group,
             "role" => Self::Role,
             "permission-group" => Self::PermissionGroup,
+            "thing-group" => Self::ThingGroup,
+            "notification" => Self::Notification,
+            "notification-content" => Self::NotificationContent,
+            "directory-service" => Self::DirectoryService,
             "thing" => Self::Thing,
             "thing-template" => Self::ThingTemplate,
             "thing-shape" => Self::ThingShape,
@@ -82,6 +92,10 @@ impl Kind {
             Self::Group => "group",
             Self::Role => "role",
             Self::PermissionGroup => "permission-group",
+            Self::ThingGroup => "thing-group",
+            Self::Notification => "notification",
+            Self::NotificationContent => "notification-content",
+            Self::DirectoryService => "directory-service",
             Self::Thing => "thing",
             Self::ThingTemplate => "thing-template",
             Self::ThingShape => "thing-shape",
@@ -108,6 +122,10 @@ impl Kind {
             Self::Group => "Groups",
             Self::Role => "Roles",
             Self::PermissionGroup => "PermissionGroups",
+            Self::ThingGroup => "ThingGroups",
+            Self::Notification => "NotificationDefinitions",
+            Self::NotificationContent => "NotificationContents",
+            Self::DirectoryService => "DirectoryServices",
             Self::Thing
             | Self::Timer
             | Self::Scheduler
@@ -141,6 +159,17 @@ pub struct NewRequest {
     pub value_stream: Option<String>,
     pub base: Option<String>,
     pub fields: Vec<String>,
+    pub members: Vec<String>,
+    pub contents: Vec<String>,
+    pub events: Vec<String>,
+    pub recipients: Vec<String>,
+    pub handler: Option<String>,
+    pub handler_id: Option<String>,
+    pub sets: Vec<String>,
+    pub directory_type: Option<String>,
+    pub server: Option<String>,
+    pub port: Option<String>,
+    pub priority: Option<String>,
     pub every: Option<String>,
     pub cron: Option<String>,
     pub run_as: Option<String>,
@@ -204,6 +233,17 @@ impl NewRequest {
             value_stream: None,
             base: None,
             fields: Vec::new(),
+            members: Vec::new(),
+            contents: Vec::new(),
+            events: Vec::new(),
+            recipients: Vec::new(),
+            handler: None,
+            handler_id: None,
+            sets: Vec::new(),
+            directory_type: None,
+            server: None,
+            port: None,
+            priority: None,
             every: None,
             cron: None,
             run_as: None,
@@ -1146,6 +1186,7 @@ fn make_xml(
     let name = escape(&request.name)?;
     let common = common_tail(visibility)?;
     Ok(match request.kind {
+        Kind::DirectoryService => unreachable!("written by entity::new::directory"),
         Kind::Project => {
             let dependencies = request
                 .depends_on
@@ -1210,6 +1251,7 @@ fn make_xml(
             &format!("            <content>{}</content>", cdata(&render_state_content(request))),
         )?,
         Kind::Menu => menu_xml(request, project)?,
+        Kind::ThingGroup | Kind::Notification | Kind::NotificationContent => unreachable!("written by entity::new::notification"),
         Kind::McpNamespace | Kind::AiAgent => unreachable!("written by entity::new::ai"),
         Kind::Theme => plain_entity(
             "StyleThemes",
@@ -1595,6 +1637,10 @@ pub(crate) fn plan(solution: &Solution, request: &NewRequest) -> Result<Plan, Ne
         }
     }
     let entity = match request.kind {
+        Kind::DirectoryService => directory::xml(&rendered, &project_name)?,
+        Kind::ThingGroup | Kind::Notification | Kind::NotificationContent => {
+            notification::xml(solution, &rendered, &project_name)?
+        }
         Kind::McpNamespace => ai::namespace_xml(solution, &rendered, &project_name)?,
         Kind::AiAgent => ai::agent_xml(solution, &rendered, &project_name)?,
         _ => make_xml(
@@ -1764,13 +1810,339 @@ pub(crate) fn apply(
 
 pub fn plan_json(solution: &Solution, plan: &Plan, applied: bool) -> Value {
     let relative = |path: &Path| solution.relative(path);
-    json!({ "scope": "repository", "deploy_command": format!("twaco deploy --project {} --apply", plan.project), "note": "Repository only; deploy imports it on the server. The server adds template configuration tables absent from the repository; after the first deploy read-back use twaco entity pull to take them.", "applied": applied, "kind": plan.request.kind.word(), "name": plan.request.name, "project": plan.project, "files": std::iter::once(relative(&plan.entity_path)).chain(plan.sidecars.iter().map(|(path, _)| relative(path))).collect::<Vec<_>>(), "twaco_toml": plan.config_after.as_ref().map(|_| if plan.config_before.as_deref() == Some("") { "created" } else { "project appended" }), "every_ms": plan.duration_ms, "cron": plan.cron, "runs": plan.script.as_ref().map(|code| code.lines().next().unwrap_or_default()) })
+    json!({ "warnings": notification::warnings(solution, &plan.request), "scope": "repository", "deploy_command": format!("twaco deploy --project {} --apply", plan.project), "note": "Repository only; deploy imports it on the server. The server adds template configuration tables absent from the repository; after the first deploy read-back use twaco entity pull to take them.", "applied": applied, "kind": plan.request.kind.word(), "name": plan.request.name, "project": plan.project, "files": std::iter::once(relative(&plan.entity_path)).chain(plan.sidecars.iter().map(|(path, _)| relative(path))).collect::<Vec<_>>(), "twaco_toml": plan.config_after.as_ref().map(|_| if plan.config_before.as_deref() == Some("") { "created" } else { "project appended" }), "every_ms": plan.duration_ms, "cron": plan.cron, "runs": plan.script.as_ref().map(|code| code.lines().next().unwrap_or_default()) })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::core::commands::{self, Mode, Notices};
+
+    #[test]
+    fn directory_services_preserve_export_defaults_and_have_goldens() {
+        let (_dir, solution) = fixture();
+        for (kind, class, tables) in [
+            (
+                "ldap",
+                "LDAPDirectoryService",
+                vec!["LDAPProxyConfiguration"],
+            ),
+            (
+                "active-directory",
+                "ActiveDirectoryDirectoryService",
+                vec![
+                    "Connection",
+                    "SchemaMappings",
+                    "GroupMappings",
+                    "UserProvisioning",
+                    "UserDefaults",
+                    "UserProvisioningExclusionList",
+                    "UserExtensionPropertyMapping",
+                    "GroupComparisonExclusionList",
+                ],
+            ),
+        ] {
+            let mut request = request(Kind::DirectoryService, "Acme.Orders.Directory");
+            request.directory_type = Some(kind.into());
+            let planned = plan(&solution, &request).unwrap();
+            assert_golden(&format!("directory-{kind}"), &planned.entity);
+            let xml = String::from_utf8(planned.entity.clone()).unwrap();
+            assert!(xml.contains(&format!(
+                "className=\"com.thingworx.security.directoryservices.{class}\""
+            )));
+            assert!(xml.contains("enabled=\"false\""));
+            assert!(xml.contains("priority=\"1\""));
+            assert_eq!(xml.matches("<ConfigurationTables>").count(), 1);
+            assert_eq!(xml.matches("<ConfigurationTableDefinitions").count(), 1);
+            assert_eq!(xml.matches("<ConfigurationTable ").count(), tables.len());
+            assert_eq!(xml.matches("<adminPassword/>").count(), 1);
+            for table in tables {
+                assert!(xml.contains(&format!("name=\"{table}\"")));
+            }
+            let warning = plan_json(&solution, &planned, false)["warnings"].to_string();
+            assert!(warning.contains("disabled") && warning.contains("Composer"));
+            assert!(!planned.entity_path.exists());
+            request.server = Some("directory.example.invalid".into());
+            request.port = Some("636".into());
+            request.priority = Some("3".into());
+            let changed = String::from_utf8(plan(&solution, &request).unwrap().entity).unwrap();
+            let default_port = if kind == "ldap" { "10389.0" } else { "389" };
+            let port = if kind == "ldap" { "636.0" } else { "636" };
+            assert_eq!(
+                changed,
+                xml.replace("priority=\"1\"", "priority=\"3\"")
+                    .replace(
+                        "<server><![CDATA[localhost]]></server>",
+                        "<server><![CDATA[directory.example.invalid]]></server>"
+                    )
+                    .replace(
+                        &format!("<port>{default_port}</port>"),
+                        &format!("<port>{port}</port>")
+                    )
+            );
+            apply(&solution, planned.request.clone());
+            std::fs::remove_file(planned.entity_path).unwrap();
+        }
+    }
+
+    #[test]
+    fn directory_service_requires_type_and_valid_connection_numbers() {
+        let (_dir, solution) = fixture();
+        let mut request = request(Kind::DirectoryService, "Acme.Orders.Directory");
+        for kind in [None, Some("other")] {
+            request.directory_type = kind.map(str::to_string);
+            assert!(plan(&solution, &request)
+                .unwrap_err()
+                .to_string()
+                .contains("--type"));
+        }
+        request.directory_type = Some("ldap".into());
+        for port in ["0", "65536", "abc", "-1"] {
+            request.port = Some(port.into());
+            assert!(plan(&solution, &request)
+                .unwrap_err()
+                .to_string()
+                .contains("--port"));
+        }
+        request.port = None;
+        request.priority = Some("abc".into());
+        assert!(plan(&solution, &request)
+            .unwrap_err()
+            .to_string()
+            .contains("--priority"));
+        request.priority = None;
+        for host in ["", "a b", "x<y", "user@host", "a]]>b"] {
+            request.server = Some(host.into());
+            assert!(plan(&solution, &request)
+                .unwrap_err()
+                .to_string()
+                .contains("--host"));
+        }
+        // The server keeps the host as CDATA; writing it the same way keeps the read-back equal.
+        request.server = Some("ldap.example.invalid".into());
+        let planned = plan(&solution, &request).unwrap();
+        assert!(String::from_utf8_lossy(&planned.entity)
+            .contains("<server><![CDATA[ldap.example.invalid]]></server>"));
+    }
+
+    const HANDLER_ID: &str = "11111111-2222-4333-8444-555555555555";
+
+    #[test]
+    fn notification_kinds_refuse_repeated_entries() {
+        let (_dir, solution) = fixture();
+        let mut group = request(Kind::ThingGroup, "Acme.Orders.Site");
+        group.members = vec!["Acme.Orders.Pump".into(), "Acme.Orders.Pump".into()];
+        assert!(plan(&solution, &group)
+            .unwrap_err()
+            .to_string()
+            .contains("--member Acme.Orders.Pump is given twice"));
+        let mut definition = request(Kind::Notification, "Acme.Orders.Started");
+        definition.events = vec!["Thing:Acme.Orders.Pump:ThingStart".into(); 2];
+        assert!(plan(&solution, &definition)
+            .unwrap_err()
+            .to_string()
+            .contains("--event"));
+    }
+
+    #[test]
+    fn notification_kinds_match_export_structure_and_have_goldens() {
+        let (_dir, solution) = fixture();
+        let mut group = request(Kind::ThingGroup, "Acme.Orders.Site");
+        group.members = vec!["Acme.Orders.Pump".into()];
+        let mut definition = request(Kind::Notification, "Acme.Orders.Started");
+        definition.contents = vec!["Acme.Orders.Email".into()];
+        definition.events = vec!["Thing:Acme.Orders.Pump:ThingStart".into()];
+        definition.recipients = vec![format!(
+            "{}={HANDLER_ID}:User:Acme.Operator",
+            definition.events[0]
+        )];
+        let mut content = request(Kind::NotificationContent, "Acme.Orders.Email");
+        content.handler = Some("Acme.Orders.Mail".into());
+        content.handler_id = Some(HANDLER_ID.into());
+        content.fields = vec!["subject:STRING".into(), "body:TEXT".into()];
+        content.sets = vec!["subject=Started & ready".into(), "body=Pump <ready>".into()];
+        for (request, golden, tag) in [
+            (&group, "thing-group", "ThingGroup"),
+            (&definition, "notification", "NotificationDefinition"),
+            (&content, "notification-content", "NotificationContent"),
+        ] {
+            let plan = plan(&solution, request).unwrap();
+            assert_golden(golden, &plan.entity);
+            let tokens = scan::tokenize(&plan.entity).unwrap();
+            let at = crate::core::sidecar::entity_element(&tokens, &plan.entity).unwrap();
+            assert_eq!(tokens[at].name.of(&plan.entity), tag.as_bytes());
+            for child in [
+                "avatar",
+                "DesignTimePermissions",
+                "RunTimePermissions",
+                "VisibilityPermissions",
+                "ConfigurationTableDefinitions",
+                "ConfigurationTables",
+            ] {
+                assert_eq!(
+                    scan::child_tags(&tokens, &plan.entity, child, at).len(),
+                    1,
+                    "{child}"
+                );
+            }
+            assert!(!plan.entity.contains(&b'\r'));
+        }
+        let xml = String::from_utf8(plan(&solution, &group).unwrap().entity).unwrap();
+        assert!(xml.contains("<Member name=\"Acme.Orders.Pump\" type=\"Thing\"/>"));
+        let xml = String::from_utf8(plan(&solution, &definition).unwrap().entity).unwrap();
+        assert!(xml.contains("<Contents><Member name=\"Acme.Orders.Email\"/></Contents>"));
+        assert!(xml.contains(&format!("<Recipients><Event eventName=\"ThingStart\" source=\"Acme.Orders.Pump\" sourceType=\"Thing\"><Handler id=\"{HANDLER_ID}\"><Member name=\"Acme.Operator\" type=\"User\"/>")));
+        let planned = plan(&solution, &content).unwrap();
+        let rows = crate::core::config_table::repository_rows(&planned.entity, "Content").unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["body"], "Pump <ready>");
+        assert_eq!(rows[0]["subject"], "Started & ready");
+        let xml = String::from_utf8(planned.entity).unwrap();
+        assert!(xml.contains("isMultiRow=\"false\" name=\"Content\""));
+        assert!(xml.contains("<HandlerEntity name=\"Acme.Orders.Mail\" type=\"Thing\"/>"));
+        assert!(xml.contains(&format!("handlerID=\"{HANDLER_ID}\"")));
+        assert_eq!(
+            plan_json(&solution, &plan(&solution, &definition).unwrap(), false)["warnings"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        group.members = vec!["Acme.Pump & <unit>".into()];
+        definition.contents = vec!["Acme.Email & <unit>".into()];
+        content.handler = Some("Acme.Mail & <unit>".into());
+        for request in [&group, &definition, &content] {
+            let planned = plan(&solution, request).unwrap();
+            let xml = String::from_utf8(planned.entity).unwrap();
+            assert!(xml.contains("&amp; &lt;unit&gt;"));
+        }
+        for kind in [Kind::ThingGroup, Kind::Notification] {
+            let blank = request(kind, "Acme.Orders.Empty");
+            let xml = String::from_utf8(plan(&solution, &blank).unwrap().entity).unwrap();
+            assert!(xml.contains(if kind == Kind::ThingGroup {
+                "<Members></Members>"
+            } else {
+                "<Contents></Contents>"
+            }));
+        }
+    }
+
+    #[test]
+    fn notification_refusals_do_not_disclose_cells_and_obey_project_and_collision_rules() {
+        let (_dir, mut solution) = fixture();
+        let mut content = request(Kind::NotificationContent, "Acme.Orders.Email");
+        assert!(plan(&solution, &content)
+            .unwrap_err()
+            .to_string()
+            .contains("--handler"));
+        content.handler = Some("Acme.Mail".into());
+        content.handler_id = Some("bad".into());
+        assert!(plan(&solution, &content)
+            .unwrap_err()
+            .to_string()
+            .contains("GUID"));
+        content.handler_id = Some(HANDLER_ID.into());
+        assert!(plan(&solution, &content)
+            .unwrap_err()
+            .to_string()
+            .contains("NotificationHandler alone is not a handler"));
+        content.fields = vec!["subject:STRING".into(), "password:PASSWORD".into()];
+        for cell in [
+            "missing=private-value",
+            "password=private-value",
+            "private-value",
+        ] {
+            content.sets = vec![cell.into()];
+            let error = plan(&solution, &content).unwrap_err().to_string();
+            assert!(!error.contains("private-value"));
+        }
+        for (base, value) in [
+            ("BOOLEAN", "yes"),
+            ("INTEGER", "1.5"),
+            ("LONG", "large"),
+            ("NUMBER", "NaN"),
+            ("GUID", "bad"),
+            ("JSON", "broken"),
+            ("INFOTABLE", "{}"),
+            ("STRING", "duplicate"),
+        ] {
+            content.fields = vec![format!("value:{base}")];
+            content.sets = vec![format!("value={value}")];
+            if value == "duplicate" {
+                content.sets.push("value=second".into());
+            }
+            assert!(plan(&solution, &content).is_err(), "{base}");
+        }
+        content.fields = vec!["subject:STRING".into()];
+        let mut definition = request(Kind::Notification, "Acme.Orders.Started");
+        definition.recipients = vec![format!(
+            "Thing:Acme.Pump:ThingStart={HANDLER_ID}:User:Acme.Operator"
+        )];
+        assert!(plan(&solution, &definition)
+            .unwrap_err()
+            .to_string()
+            .contains("also be listed"));
+        definition.recipients.clear();
+        definition.events = vec!["malformed".into()];
+        assert!(plan(&solution, &definition).is_err());
+        for kind in [
+            Kind::ThingGroup,
+            Kind::Notification,
+            Kind::NotificationContent,
+        ] {
+            let mut request = if kind == Kind::NotificationContent {
+                content.clone()
+            } else {
+                request(kind, "Acme.Orders.New")
+            };
+            request.sets.clear();
+            request.description = "quotes \" & <ready>".into();
+            let planned = plan(&solution, &request).unwrap();
+            assert!(String::from_utf8_lossy(&planned.entity)
+                .contains("quotes &quot; &amp; &lt;ready&gt;"));
+            std::fs::create_dir_all(planned.entity_path.parent().unwrap()).unwrap();
+            std::fs::write(&planned.entity_path, &planned.entity).unwrap();
+            assert!(matches!(
+                plan(&solution, &request),
+                Err(NewError::Exists(_))
+            ));
+            std::fs::remove_file(&planned.entity_path).unwrap();
+            solution.projects[0].collections = vec!["Things".into()];
+            assert!(plan(&solution, &request)
+                .unwrap_err()
+                .to_string()
+                .contains("collections"));
+            solution.projects[0].collections.clear();
+        }
+    }
+
+    #[test]
+    fn handler_fields_resolve_from_extension_metadata_through_a_template_chain() {
+        let (_dir, solution) = fixture();
+        let root = &solution.root;
+        std::fs::create_dir_all(root.join("extension/configfiles")).unwrap();
+        std::fs::write(
+            root.join("extension/configfiles/metadata.xml"),
+            include_str!("new/fixtures/handler-metadata.xml"),
+        )
+        .unwrap();
+        let mut config = std::fs::read_to_string(root.join("twaco.toml")).unwrap();
+        config.push_str("\n[[extension]]\nroot = 'extension'\nname = 'Acme.Mail'\n");
+        std::fs::write(root.join("twaco.toml"), config).unwrap();
+        std::fs::write(root.join("app/Things/Acme.Mail.xml"), "<Entities><Things><Thing name='Acme.Mail' projectName='Acme.Orders' thingTemplate='Acme.MailChild'/></Things></Entities>").unwrap();
+        std::fs::write(root.join("app/ThingTemplates/Acme.MailChild.xml"), "<Entities><ThingTemplates><ThingTemplate name='Acme.MailChild' projectName='Acme.Orders' baseThingTemplate='Acme.MailTemplate'/></ThingTemplates></Entities>").unwrap();
+        let solution = Solution::load(&root.join("twaco.toml")).unwrap();
+        let mut content = request(Kind::NotificationContent, "Acme.Orders.Email");
+        content.handler = Some("Acme.Mail".into());
+        content.handler_id = Some(HANDLER_ID.into());
+        content.sets = vec!["subject=Ready".into(), "body=Mail body".into()];
+        let plan = plan(&solution, &content).unwrap();
+        let xml = String::from_utf8(plan.entity).unwrap();
+        assert!(xml.contains("name=\"subject\" baseType=\"STRING\""));
+        assert!(xml.contains("name=\"body\" baseType=\"TEXT\""));
+        assert!(xml.contains("aspect.friendlyName=\"Subject\""));
+        assert!(xml.contains("<subject>Ready</subject>"));
+    }
 
     #[test]
     fn the_envelope_takes_the_entity_line_endings() {
@@ -1823,6 +2195,17 @@ mod tests {
             value_stream: None,
             base: None,
             fields: Vec::new(),
+            members: Vec::new(),
+            contents: Vec::new(),
+            events: Vec::new(),
+            recipients: Vec::new(),
+            handler: None,
+            handler_id: None,
+            sets: Vec::new(),
+            directory_type: None,
+            server: None,
+            port: None,
+            priority: None,
             every: None,
             cron: None,
             run_as: None,

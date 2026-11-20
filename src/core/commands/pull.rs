@@ -357,6 +357,49 @@ mod tests {
     }
 
     #[test]
+    fn new_kinds_compare_pull_and_record_baselines_through_generic_paths() {
+        for (collection, tag) in [
+            ("ThingGroups", "ThingGroup"),
+            ("NotificationDefinitions", "NotificationDefinition"),
+            ("NotificationContents", "NotificationContent"),
+        ] {
+            let xml = |description: &str| {
+                format!("<Entities><{collection}><{tag} name='Acme.Entry' projectName='Acme' description='{description}'/></{collection}></Entities>").into_bytes()
+            };
+            let base = xml("before");
+            let server = xml("after");
+            let dir = tempfile::tempdir().unwrap();
+            let root = dir.path();
+            std::fs::create_dir_all(root.join(collection)).unwrap();
+            std::fs::create_dir_all(root.join(".twaco/profiles")).unwrap();
+            std::fs::write(root.join("twaco.toml"), "[[project]]\nname='Acme'\n").unwrap();
+            std::fs::write(
+                root.join(".twaco/profiles/default.toml"),
+                "url='http://example.invalid/Thingworx'\nusername='user'\npassword='pass'\n",
+            )
+            .unwrap();
+            let path = root.join(collection).join("Acme.Entry.xml");
+            std::fs::write(&path, &base).unwrap();
+            let mut baseline = Baseline::load(root, "default").unwrap();
+            let hash = normalise::hash(&base).unwrap();
+            baseline.set(collection, "Acme.Entry", hash.clone(), hash);
+            baseline.write(root, "default").unwrap();
+            let solution = Solution::load(&root.join("twaco.toml")).unwrap();
+            let plan = pull(&solution, &server, Mode::Plan).unwrap();
+            assert_eq!(plan.entities, [format!("{collection}/Acme.Entry")]);
+            assert_eq!(std::fs::read(&path).unwrap(), base);
+            let applied = pull(&solution, &server, Mode::Apply).unwrap();
+            assert_eq!(applied.recorded, 1);
+            assert_eq!(
+                normalise::hash(&std::fs::read(path).unwrap()).unwrap(),
+                normalise::hash(&server).unwrap()
+            );
+            let next = pull(&solution, &server, Mode::Plan).unwrap();
+            assert_eq!(next.in_sync, [format!("{collection}/Acme.Entry")]);
+        }
+    }
+
+    #[test]
     fn a_server_change_is_taken_in_the_file_line_endings_and_recorded() {
         let base = thing("", "\r\n");
         let (dir, solution) = setup(&base, &base);

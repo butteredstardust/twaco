@@ -3954,7 +3954,7 @@
   },
   {
     "name": "entity_new",
-    "description": "Create a ThingWorx entity as a repository XML file: Projects, Groups, Roles, PermissionGroups, common Things, data Things, media, styles, states, menus, themes, and Networks. A new Project also appends its project declaration to twaco.toml, or creates twaco.toml in a root without one. DataShape and DataTable creation also writes their managed sidecar. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
+    "description": "Create a ThingWorx entity as a repository XML file: Projects, Groups, Roles, PermissionGroups, common Things, data Things, media, styles, states, menus, themes, Networks, ThingGroups, NotificationDefinitions and NotificationContents. DirectoryServices use type ldap or active-directory, optional server/port/priority; created disabled, with the admin password set in Composer. Notifications take content, event (Type:Entity:Event) and recipient (event=GUID:User|Group:name) arrays; content needs handler, handler_id, optional field declarations and set cells. A new Project also appends its project declaration to twaco.toml, or creates twaco.toml in a root without one. DataShape and DataTable creation also writes their managed sidecar. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
     "inputSchema": {
       "required": [
         "kind",
@@ -3964,11 +3964,15 @@
       "type": "object",
       "properties": {
         "kind": {
-          "description": "`project`, `group`, `role`, `permission-group`, `thing`, `thing-template`, `thing-shape`, `data-shape`, `timer`, `scheduler`, `data-table`, `stream`, `value-stream`, `media`, `style`, `state`, `menu`, `theme`, `network`, `mcp-namespace` or `ai-agent`.",
+          "description": "`project`, `group`, `thing-group`, `notification`, `notification-content`, `directory-service`, `role`, `permission-group`, `thing`, `thing-template`, `thing-shape`, `data-shape`, `timer`, `scheduler`, `data-table`, `stream`, `value-stream`, `media`, `style`, `state`, `menu`, `theme`, `network`, `mcp-namespace` or `ai-agent`.",
           "type": "string",
           "enum": [
             "project",
             "group",
+            "thing-group",
+            "notification",
+            "notification-content",
+            "directory-service",
             "role",
             "permission-group",
             "thing",
@@ -4032,6 +4036,42 @@
           "items": {
             "type": "string"
           }
+        },
+        "member": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "content": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "event": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "recipient": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "set": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "handler": {
+          "type": "string"
+        },
+        "handler_id": {
+          "type": "string"
         },
         "every": {
           "type": "string"
@@ -4108,6 +4148,15 @@
           "type": "string"
         },
         "type": {
+          "type": "string"
+        },
+        "host": {
+          "type": "string"
+        },
+        "port": {
+          "type": "string"
+        },
+        "priority": {
           "type": "string"
         },
         "state": {
@@ -4228,6 +4277,7 @@
     },
     "outputSchema": {
       "required": [
+        "warnings",
         "scope",
         "deploy_command",
         "note",
@@ -4239,6 +4289,12 @@
         "files"
       ],
       "properties": {
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "scope": {
           "type": "string"
         },
@@ -5181,6 +5237,11 @@
       "additionalProperties": false,
       "type": "object",
       "properties": {
+        "gadget": {
+          "description": "Create a fixed-size dashboard gadget; layout defaults to 1x1 (columns x rows).",
+          "type": "boolean",
+          "default": false
+        },
         "name": {
           "description": "The new mashup's name.",
           "type": "string"
@@ -5204,7 +5265,7 @@
           }
         },
         "layout": {
-          "description": "Compatibility alias for template.",
+          "description": "Gadget size: 1x1, 2x1, 4x1, 1x2, 2x2, 4x2, 1x4, 2x4, 4x4; otherwise an alias for template.",
           "type": "string"
         },
         "primary_menu": {
@@ -7509,7 +7570,7 @@
   },
   {
     "name": "mashup_recipe",
-    "description": "Write one recipe: the wiring real mashups repeat, in one edit. label-pairs (widget responsive container, data existing call, fields field[:Caption], title, label_columns default one per field, replace inside or beside; caption/value labels bound to SelectedRows, empty destination required). enable-when/show-when (widget, condition, inputs name=address: an expression into Disabled/Visible), text (widget, expression, inputs: a label's computed text), message (after a data call: success say or from, kind info|warning|error; on_failure text shows a separate error on Data_Error and may be used alone), confirm (widget, then, title, say, action_label, cancel_label), popup (widget or on, target mashup, window modal-popup|popup|replace|new, size WxH, title, pass name=address, reload handler on close), close-after (after a data call succeeds the popup closes itself; failure leaves it open), auto-refresh (then data call, every seconds or interval address), validate (widget or on, condition, inputs, then, else_say), chart (widget, data, x, value for a pie, kind), columns (widget, columns field[:Title[:width]], data or existing binding; only listed fields visible, readable DATETIME), picker (widget, data, x display field, value, selected), tracker (widget or new, data; interactive large tracker with five DataShape field maps inferred, field_maps Property=field overrides required for missing or ambiguous maps), set-on-click (widget, param, expression, inputs; evaluate only on click and write the mashup parameter). collapsible (widget container with siblings; toggle existing button or add_toggle with in_container outside it; tab inside|outside|none, start collapsed). A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
+    "description": "Write one recipe: the wiring real mashups repeat, in one edit. panel (widget responsive column, compact optional 768|960 inclusive viewport breakpoint; grey growing panel, inherited wrapper backgrounds, managed CSS). slider-action (widget horizontal slider, button; exactly two flow-sized controls in an existing responsive row; measured track-centre alignment assumes the default 34px button; 18px bottom margin with min/max labels, otherwise 0px, and 12px gap). toolbar (widget empty responsive container, then existing call, search_param STRING input, hint default Search..., width default 240, run_on change|enter|both default both, buttons ordered Label=handler; 48px search row, change/both runs on each keystroke, the clear button fires Changed once). label-pairs (widget responsive container, data existing call, fields field[:Caption], title, label_columns default one per field, replace inside or beside; caption/value labels bound to SelectedRows, empty destination required). enable-when/show-when (widget, condition, inputs name=address: an expression into Disabled/Visible), text (widget, expression, inputs: a label's computed text), message (after a data call: success say or from, kind info|warning|error; on_failure text shows a separate error on Data_Error and may be used alone), confirm (widget, then, title, say, action_label, cancel_label), popup (widget or on, target mashup, window modal-popup|popup|replace|new, size WxH, title, pass name=address, reload handler on close), close-after (after a data call succeeds the popup closes itself; failure leaves it open), auto-refresh (then data call, every seconds or interval address), validate (widget or on, condition, inputs, then, else_say), chart (widget, data, x, value for a pie, kind), columns (widget, columns field[:Title[:width]], data or existing binding; only listed fields visible, readable DATETIME), picker (widget, data, x display field, value, selected), tracker (widget or new, data; interactive large tracker with five DataShape field maps inferred, field_maps Property=field overrides required for missing or ambiguous maps), set-on-click (widget, param, expression, inputs; evaluate only on click and write the mashup parameter). collapsible (widget container with siblings; toggle existing button or add_toggle with in_container outside it; tab inside|outside|none, start collapsed). A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content/CSS sidecars together.",
     "inputSchema": {
       "required": [
         "recipe",
@@ -7518,6 +7579,39 @@
       "additionalProperties": false,
       "type": "object",
       "properties": {
+        "compact": {
+          "description": "panel: inclusive viewport breakpoint for 12px gutters; 768 or 960.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "button": {
+          "description": "slider-action: the button after the slider named by widget.",
+          "type": "string"
+        },
+        "search_param": {
+          "description": "toolbar: STRING input parameter of the existing call named by then.",
+          "type": "string"
+        },
+        "hint": {
+          "description": "toolbar: search hint (Search... by default).",
+          "type": "string"
+        },
+        "run_on": {
+          "description": "toolbar: change, enter or both (default); change/both runs on each keystroke.",
+          "type": "string",
+          "enum": [
+            "change",
+            "enter",
+            "both"
+          ]
+        },
+        "buttons": {
+          "description": "toolbar: ordered Label=handler buttons; handlers use mashup on grammar.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "fields": {
           "description": "label-pairs: ordered field[:Caption] entries; omitted means all DataShape fields.",
           "type": "array",
@@ -7550,7 +7644,7 @@
           "type": "string"
         },
         "recipe": {
-          "description": "enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, picker, tracker, set-on-click, nested-menu, navigate-on-click or collapsible; label-pairs uses widget as the responsive container, data, fields, title, label_columns and replace.",
+          "description": "panel styles a responsive column; slider-action pairs widget (slider) with button. toolbar uses widget as the empty responsive container, then, search_param, hint, width, run_on and buttons. enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, picker, tracker, set-on-click, nested-menu, navigate-on-click or collapsible; label-pairs uses widget as the responsive container, data, fields, title, label_columns and replace.",
           "type": "string"
         },
         "mashup": {
@@ -7709,7 +7803,7 @@
           "type": "boolean"
         },
         "width": {
-          "description": "nested-menu: the column's width in pixels (300 by default).",
+          "description": "nested-menu: column width (300); toolbar: search field width (240), in pixels.",
           "type": "integer",
           "minimum": 0
         },
@@ -8538,6 +8632,15 @@
           ]
         },
         "rows_written": true,
+        "warnings": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
         "rows_removed": true,
         "note": {
           "type": [

@@ -124,6 +124,17 @@ pub(crate) fn entity_new_tool(
         value_stream: arguments.value_stream.as_ref().cloned(),
         base: arguments.base.as_ref().cloned(),
         fields: arguments.field.items().to_vec(),
+        members: arguments.member.items().to_vec(),
+        contents: arguments.content.items().to_vec(),
+        events: arguments.event.items().to_vec(),
+        recipients: arguments.recipient.items().to_vec(),
+        handler: arguments.handler.as_ref().cloned(),
+        handler_id: arguments.handler_id.as_ref().cloned(),
+        sets: arguments.set.items().to_vec(),
+        directory_type: arguments.state_type.as_ref().cloned(),
+        server: arguments.host.as_ref().cloned(),
+        port: arguments.port.as_ref().cloned(),
+        priority: arguments.priority.as_ref().cloned(),
         every: arguments.every.as_ref().cloned(),
         cron: arguments.cron.as_ref().cloned(),
         run_as: arguments.run_as.as_ref().cloned(),
@@ -546,6 +557,9 @@ pub(crate) fn mashup_new_tool(
     arguments: MashupNewRequest,
 ) -> Result<Value, ToolError> {
     let dry_run = arguments.dry_run;
+    if arguments.gadget && !arguments.template.is_absent() {
+        return Err(ToolError::invalid("gadget cannot be used with template"));
+    }
     if !arguments.template.is_absent() && !arguments.layout.is_absent() {
         return Err(ToolError::invalid("give template or layout, not both"));
     }
@@ -567,7 +581,7 @@ pub(crate) fn mashup_new_tool(
     let template = arguments
         .template
         .as_ref()
-        .or_else(|| arguments.layout.as_ref())
+        .or_else(|| arguments.layout.as_ref().filter(|_| !arguments.gadget))
         .cloned()
         .unwrap_or_else(|| "blank".into());
     let request = commands::mashup::MashupNewRequest {
@@ -575,6 +589,12 @@ pub(crate) fn mashup_new_tool(
             name: nonempty(&arguments.name, "name")?.to_string(),
             project: arguments.project.as_ref().cloned(),
             template,
+            gadget: arguments.gadget,
+            layout: arguments
+                .layout
+                .as_ref()
+                .cloned()
+                .filter(|_| arguments.gadget),
             primary_menu: arguments.primary_menu.as_ref().cloned(),
             menu_entity: arguments.menu_entity.as_ref().cloned(),
             secondary_menu: arguments.secondary_menu.as_ref().cloned(),
@@ -987,6 +1007,12 @@ pub(crate) fn mashup_recipe_tool(
     use crate::core::mashup::authoring::{Recipe, RecipeArgs, RecipeRequest};
     let dry_run = arguments.dry_run;
     let recipe_args = RecipeArgs {
+        compact: arguments.compact.as_ref().copied(),
+        button: arguments.button.as_ref().cloned(),
+        search_param: arguments.search_param.as_ref().cloned(),
+        hint: arguments.hint.as_ref().cloned(),
+        run_on: arguments.run_on.as_ref().cloned(),
+        buttons: arguments.buttons.items().to_vec(),
         fields: arguments.fields.items().to_vec(),
         label_columns: arguments.label_columns.as_ref().copied(),
         replace: arguments.replace.as_ref().cloned(),

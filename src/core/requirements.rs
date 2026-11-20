@@ -290,16 +290,34 @@ pub(crate) fn collect_in(
     solution: &Solution,
     found: &workspace::Discovery,
 ) -> Result<Collected, Error> {
-    if !found.unreadable.is_empty() {
+    let unreadable: Vec<_> = found
+        .unreadable
+        .iter()
+        .filter(|message| !message.ends_with(workspace::LEGACY_GADGET_DIAGNOSTIC))
+        .collect();
+    if !unreadable.is_empty() {
         return Err(Error(format!(
             "requirements collection: {}; fix unreadable entity files and retry",
-            found.unreadable.join("\n")
+            unreadable
+                .iter()
+                .map(|message| message.as_str())
+                .collect::<Vec<_>>()
+                .join("\n")
         )));
     }
     let defined: BTreeSet<_> = found
         .entities
         .iter()
-        .map(|file| (file.info.collection.clone(), file.info.name.clone()))
+        .map(|file| {
+            (
+                if file.info.collection == "MashupGadgets" {
+                    "Mashups".into()
+                } else {
+                    file.info.collection.clone()
+                },
+                file.info.name.clone(),
+            )
+        })
         .collect();
     let mut out = Collected::default();
     let mut exported = Collected::default();
@@ -366,6 +384,17 @@ pub(crate) fn collect_in(
             if tag == b"ConfigurationTable" {
                 out.add("DataShapes", &attr("dataShapeName")?, &from);
             }
+            if tag == b"HandlerEntity" && file.info.collection == "NotificationContents" {
+                out.add("Things", &attr("name")?, &from);
+            }
+            if tag == b"Member" {
+                if file.info.collection == "NotificationDefinitions" && attr("type")?.is_empty() {
+                    out.add("NotificationContents", &attr("name")?, &from);
+                }
+                if file.info.collection == "ThingGroups" && attr("type")? == "Thing" {
+                    out.add("Things", &attr("name")?, &from);
+                }
+            }
             if tag == b"ImplementedShape" {
                 out.add("ThingShapes", &attr("name")?, &from);
             }
@@ -427,6 +456,7 @@ pub(crate) fn collect_in(
                 }
             }
         }
+        // Legacy wrappers remain readable for migration; they are never a server collection.
         if matches!(file.info.collection.as_str(), "Mashups" | "MashupGadgets") {
             let assets = mashup::extract(&bytes).map_err(|error| {
                 Error(format!(

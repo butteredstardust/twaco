@@ -962,7 +962,9 @@ Importing a Role replaces its Members; importing a Group keeps them. Role and Pe
 exports have direct `Members/Member` rows with name and type (User, Group or PermissionGroup).
 For a Role whose PermissionGroup members belong in source and User/Group members are assigned
 at run time, use `[[server_owned]] entities = ["Roles/Acme.Operator"]` with
-`parts = ["members:User,Group"]`; plain `members` preserves all types. Field-verified on
+`parts = ["members:User,Group"]`. List only types assigned at run time: when a Role defines
+Group members in the repository (for example Acme.Contractors), use `members:User`.
+Plain `members` preserves all types. Field-verified on
 10.2.1-b148. Role services `AddMembers`, `DeleteMembers` and `UpdateMembers` use EntityReference
 infotables (`name`, `type`); UpdateMembers takes membersToAdd and membersToDelete.
 
@@ -999,3 +1001,21 @@ Set `height: auto !important; min-height: 0 !important; max-height: none !import
 on the row's bounding box, its inner `.widget-flexcontainer`, and every parent
 up to the panel. This also applies when wrapping content arrives after layout,
 such as labels filled by a service in `Acme.Search_MU`.
+
+## Slider track and default button alignment in a responsive row (10.2)
+
+Live measurements with a default `ptcsslider` and default `ptcsbutton` show a
+113px slider box when min/max labels are shown: label y=0?19, value bubble
+21?55, slider-container 61?95, min/max labels 95?113. The track centre is y=78.
+With `DisplayMinMaxLabels=false`, the box is 95px and the track centre stays y=78.
+Default row `align-items:flex-start` puts the 34px button centre at y=17,
+61px above the track.
+
+For an `Acme.Controls_MU` responsive row, `align-items:flex-end`, slider Margin
+`"0"` and button Margin `"0 0 18 12"` give exact track/button centre alignment
+with min/max labels shown (true or absent). With labels hidden, button Margin
+`"0 0 0 12"` gives the same alignment. The 18px offset is the min/max label row;
+12px is the horizontal gap. This assumes the default 34px button height, equal
+to the slider-container height. Non-default button sizes, vertical sliders and
+filled controls are outside the measured contract. `mashup recipe slider-action`
+uses these values and keeps range sizing without a maximum height.

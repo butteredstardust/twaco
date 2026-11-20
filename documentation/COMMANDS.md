@@ -49,7 +49,8 @@ Offline: sidecars, gates, types, the service catalog, what a change reaches, a d
 
 ```text
 extract <entity>|--all      entity XML -> sidecars
-sync <entity>|--all         sidecars -> entity XML
+sync <entity>|--all [--apply|--check]  sidecars -> entity XML
+    --apply                 explicitly apply (the default); refuses --check
     --check                 report what would change, write nothing
     --allow-add-remove      add and remove services and fields as the sidecars do
     --relayout              rewrite scripts in the configured CDATA layout
@@ -330,8 +331,12 @@ mashup param <add|set|remove> <mashup> <name> [--type <BASETYPE>] [--direction <
     --no-default             clear the default on set
     --data-shape             required for INFOTABLE
     --force                  remove bindings when removing a parameter
-mashup recipe <recipe> <mashup> [<widget>] [recipe flags] [--apply] [--json]
+mashup recipe <recipe> <mashup> [<widget>] [<button>] [recipe flags] [--apply] [--json] [--detail]
                             write the wiring real mashups repeat, in one edit; plan unless --apply
+    panel <container> [--compact <768|960>]
+                            grey growing column with managed CSS; optional compact viewport gutters
+    slider-action <slider> <button>
+                            align the button centre to the horizontal slider track (default 34px button)
     collapsible <container> [--toggle <button> | --add-toggle --in <container>]
         [--tab inside|outside|none] [--start collapsed]
                             collapse a container with siblings; keep its toggle outside it
@@ -360,6 +365,11 @@ mashup recipe <recipe> <mashup> [<widget>] [recipe flags] [--apply] [--json]
                             --editable-column makes a listed column (and so the grid) editable
                             --column-editor <field=editor> chooses a typed cell editor (repeatable)
                             --preserve-whitespace <field> keeps newlines and spaces when shown (repeatable)
+    toolbar <container> --then <data call> --search-param <param>
+        [--hint <text>] [--width <px>] [--run-on change|enter|both] [--button Label=<handler>]...
+                            fill an empty responsive container with a 48px search row; STRING input;
+                            hint Search..., width 240; both events by default; change/both runs on
+                            each keystroke; the clear button fires Changed once
     label-pairs <container> --data <data call> [--field <field>]... [--title <text>]
         [--columns <n>] [--replace <widget>]
                             caption/value labels from an existing call's DataShape; field[:Caption]
@@ -386,7 +396,7 @@ mashup event add <mashup> <name> --when <address> [--apply] [--json]
     --when <address>        the event in this mashup that fires it, as mashup on --event takes it
 mashup templates [<name>] [--json]
                             list the embedded responsive mashup templates and their slots
-mashup new <name> [--project <name>] [--from <address> | --template <name>]
+mashup new <name> [--project <name>] [--from <address> | --template <name> | --gadget [--layout <layout>]]
     [--primary-menu <address> | --menu-entity <Menu>] [--secondary-menu <address>] [--theme <StyleTheme>] [--master]
     [--visibility <principal>]... [--param <name:TYPE[:DIRECTION]|name:INFOTABLE:DataShape[:DIRECTION]>]... [--tab <Label=Mashup>]...
     [--apply] [--json]
@@ -394,7 +404,27 @@ mashup new <name> [--project <name>] [--from <address> | --template <name>]
                             and its content sidecars; plan unless --apply
     --from <address>        copy a repository mashup exactly, except identity and permissions
     --template              layout template name or alias (default: blank); see mashup templates
-    --layout                compatibility alias for --template
+    --gadget                fixed dashboard gadget; default 1x1, 240px per cell
+    --layout                gadget columns x rows: 1x1, 2x1, 4x1, 1x2, 2x2, 4x2, 1x4, 2x4, 4x4; otherwise alias for --template
+    --primary-menu          an INFOTABLE service result for a template's menu bar
+    --menu-entity <Menu>    a Menu in the solution for a template's menu bar instead (no service)
+    --secondary-menu        optional INFOTABLE service result for a template's menu bar
+    --theme <StyleTheme>    a StyleTheme in the solution (default: PTC Convergence Theme)
+    --master                a master mashup, with a page container filling the center
+    --visibility            Organization/<name> or OrganizationalUnit/<organization>:<unit>, repeatable;
+                            none unless given
+    --tab                   with --template tabs: a tab's label and the mashup it shows, repeatable
+    --replace <old=new>     replace whole tokens in copied content string values; repeatable, needs --from
+new mashup <name> [--project <name>] [--from <address> | --template <name> | --gadget [--layout <layout>]]
+    [--primary-menu <address> | --menu-entity <Menu>] [--secondary-menu <address>] [--theme <StyleTheme>] [--master]
+    [--visibility <principal>]... [--param <name:TYPE[:DIRECTION]|name:INFOTABLE:DataShape[:DIRECTION]>]... [--tab <Label=Mashup>]...
+    [--apply] [--json]
+                            create a ThingWorx 10.2 responsive mashup as Composer would: its entity file
+                            and its content sidecars; plan unless --apply
+    --from <address>        copy a repository mashup exactly, except identity and permissions
+    --template              layout template name or alias (default: blank); see mashup templates
+    --gadget                fixed dashboard gadget; default 1x1, 240px per cell
+    --layout                gadget columns x rows: 1x1, 2x1, 4x1, 1x2, 2x2, 4x2, 1x4, 2x4, 4x4; otherwise alias for --template
     --primary-menu          an INFOTABLE service result for a template's menu bar
     --menu-entity <Menu>    a Menu in the solution for a template's menu bar instead (no service)
     --secondary-menu        optional INFOTABLE service result for a template's menu bar
@@ -417,6 +447,29 @@ new building-block <name> [--type standard|abstract|implementation] [--display-n
     --base-extension        the PTC.Base extension version to depend on (default: what another project declares)
 new project <name> [--description <text>] [--depends-on <P>]... [--apply] [--json]
                             create a ThingWorx Project and add it to twaco.toml when needed; plan unless --apply
+new thing-group <name> [--project <name>] [--description <text>] [--member <Thing>]... [--apply] [--json]
+                            create a ThingGroup as a repository file; plan unless --apply
+    --member <Thing>        add a Thing member
+new notification <name> [--project <name>] [--description <text>] [--content <NotificationContent>]...
+    [--event <Type:Entity:Event>]... [--recipient <event=handler:User|Group:name>]... [--apply] [--json]
+                            create a NotificationDefinition as a repository file; plan unless --apply
+    --content               attach content (warn if absent from the repository)
+    --event                 applicable Type:Entity:Event
+    --recipient             an event also listed with --event, handler GUID and User or Group
+new directory-service <name> --type <value> [--project <name>] [--description <text>]
+                          [--host <host>] [--port <n>] [--priority <n>] [--apply] [--json]
+                            create disabled LDAP or Active Directory service; set admin password in Composer
+    --type <value>          ldap or active-directory (required)
+    --host <host>           server host (default localhost)
+    --port <n>              server port (default LDAP 10389, Active Directory 389)
+    --priority <n>          directory priority (default 1)
+new notification-content <name> --handler <Thing> --handler-id <GUID> [--project <name>] [--description <text>]
+    [--field <name:TYPE>]... [--set <field=value>]... [--apply] [--json]
+                            create NotificationContent for a registered extension handler; plan unless --apply
+    --handler               handler Thing whose template chain registers the handler
+    --handler-id            GUID of its hidden Handlers table row
+    --field                 fallback fields when the configuration DataShape cannot resolve offline
+    --set                   set a declared content field; secrets are refused
 new group <name> [--project <name>] [--description <text>] [--apply] [--json]
                             create a ThingWorx Group without members as a repository file; plan unless --apply
 group member <add|remove> <Entity> <User/name|Group/name|PermissionGroup/name> [--apply] [--json]

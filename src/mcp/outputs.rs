@@ -606,6 +606,7 @@ pub(crate) struct ConfigTableResult {
     service: Option<String>,
     dry_run: Option<bool>,
     rows_written: Option<Value>,
+    warnings: Option<Vec<String>>,
     rows_removed: Option<Value>,
     note: Option<String>,
     notices: Notices,
@@ -1229,6 +1230,7 @@ pub(crate) struct NewBuildingBlockResult {
 
 #[derive(Serialize, JsonSchema)]
 pub(crate) struct EntityNewResult {
+    warnings: Vec<String>,
     scope: String,
     deploy_command: String,
     note: String,

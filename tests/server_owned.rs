@@ -11,12 +11,19 @@ fn cli_status_push_and_deploy_expose_owned_parts_without_importing() {
     let address = listener.local_addr().unwrap();
     let server = std::thread::spawn(move || {
         // Five entity reads, each deploy's read of its Project, and status --all's project
-        // inventory (GetEntities, a read-only service, called the only way services are: POST).
-        for _ in 0..8 {
+        // inventory plus the two notification collection GETs. GetEntities uses POST.
+        for _ in 0..10 {
             let (mut stream, _) = listener.accept().unwrap();
             let mut buffer = [0; 8192];
             let n = stream.read(&mut buffer).unwrap();
             let request = std::str::from_utf8(&buffer[..n]).unwrap().to_string();
+            if request.starts_with("GET /Thingworx/NotificationContents ")
+                || request.starts_with("GET /Thingworx/NotificationDefinitions ")
+            {
+                let json = "{\"rows\":[]}";
+                write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{json}", json.len()).unwrap();
+                continue;
+            }
             if request.starts_with("POST /Thingworx/Projects/Acme.Project/Services/GetEntities ") {
                 // Its body may follow the headers; read it so closing does not reset.
                 if !request.ends_with("{}") {

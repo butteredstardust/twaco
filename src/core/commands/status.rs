@@ -385,6 +385,9 @@ const ENTITY_COLLECTIONS: &[(&str, &str)] = &[
     ("MediaEntities", "MediaEntity"),
     ("Menus", "Menu"),
     ("Networks", "Network"),
+    ("ThingGroups", "ThingGroup"),
+    ("NotificationDefinitions", "NotificationDefinition"),
+    ("NotificationContents", "NotificationContent"),
     ("Organizations", "Organization"),
     ("PersistenceProviders", "PersistenceProvider"),
     ("Projects", "Project"),
@@ -415,6 +418,21 @@ fn server_only(
         .collect();
     let mut only = Vec::new();
     let mut notes = Vec::new();
+    let mut notifications = Vec::new();
+    for (collection, kind) in [
+        ("NotificationContents", "NotificationContent"),
+        ("NotificationDefinitions", "NotificationDefinition"),
+    ] {
+        match remote.collection_entities(collection) {
+            Ok(rows) => {
+                for mut row in rows {
+                    row["type"] = Value::String(kind.into());
+                    notifications.push(row);
+                }
+            }
+            Err(error) => notes.push(format!("could not list server {collection}: {error}")),
+        }
+    }
     for project in solution
         .projects
         .iter()
@@ -427,17 +445,23 @@ fn server_only(
                     "could not list server entities for project {}: {error}",
                     project.name
                 ));
-                continue;
+                serde_json::json!({"rows": []})
             }
         };
-        let Some(rows) = reply.get("rows").and_then(Value::as_array) else {
-            notes.push(format!(
-                "could not list server entities for project {}: GetEntities returned no rows",
-                project.name
-            ));
-            continue;
-        };
-        for row in rows {
+        let empty = Vec::new();
+        let rows = reply
+            .get("rows")
+            .and_then(Value::as_array)
+            .unwrap_or_else(|| {
+                notes.push(format!(
+                    "could not list server entities for project {}: GetEntities returned no rows",
+                    project.name
+                ));
+                &empty
+            });
+        for row in rows.iter().chain(notifications.iter().filter(|row| {
+            row.get("projectName").and_then(Value::as_str) == Some(project.name.as_str())
+        })) {
             let Some(name) = row
                 .get("name")
                 .and_then(Value::as_str)
@@ -486,6 +510,8 @@ fn server_only(
             }
         }
     }
+    let mut seen = BTreeSet::new();
+    only.retain(|item| seen.insert((item.project.clone(), item.entity.clone())));
     (only, notes)
 }
 
@@ -580,6 +606,51 @@ mod tests {
             &mut Notices::default(),
             &crate::core::progress::NONE,
         )
+    }
+
+    #[test]
+    fn inventory_classifies_new_kinds_and_merges_rest_notifications() {
+        struct Inventory;
+        impl push::Remote for Inventory {
+            fn fetch(&self, _: &EntityKey) -> Result<Option<Vec<u8>>, ServerError> {
+                unreachable!()
+            }
+            fn import(&self, _: &str, _: &[u8]) -> Result<(), ServerError> {
+                unreachable!()
+            }
+            fn project_entities(&self, _: &str) -> Result<Value, ServerError> {
+                Ok(serde_json::json!({"rows": [
+                    {"name":"Acme.Directory", "type":"DirectoryService"},
+                    {"name":"Acme.Site", "type":"ThingGroup"},
+                    {"name":"Acme.Started", "type":"NotificationDefinition"}
+                ]}))
+            }
+            fn collection_entities(&self, collection: &str) -> Result<Vec<Value>, ServerError> {
+                Ok(vec![
+                    serde_json::json!({"name": if collection == "NotificationContents" { "Acme.Email" } else { "Acme.Started" }, "projectName":"Acme"}),
+                    serde_json::json!({"name":"Acme.Other", "projectName":"Other"}),
+                ])
+            }
+        }
+        let mut solution: Solution = toml::from_str("[[project]]\nname = 'Acme'\n").unwrap();
+        solution.root = tempfile::tempdir().unwrap().path().to_path_buf();
+        let (only, notes) = server_only(&Inventory, &solution, &[], None);
+        assert!(notes.is_empty());
+        assert_eq!(
+            only.iter()
+                .map(|row| row.entity.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "DirectoryServices/Acme.Directory",
+                "ThingGroups/Acme.Site",
+                "NotificationDefinitions/Acme.Started",
+                "NotificationContents/Acme.Email"
+            ]
+        );
+        assert!(only.iter().all(|row| row.note.is_none()));
+        assert!(server_only(&Inventory, &solution, &[], Some("Other"))
+            .0
+            .is_empty());
     }
 
     #[test]

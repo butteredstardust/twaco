@@ -175,8 +175,11 @@ impl Client {
             .map_err(|error| self.invalid_response(&url, error.to_string()))
     }
 
-    /// The names of every entity of a collection, from its REST listing.
-    pub(crate) fn list_entity_names(&self, collection: &str) -> Result<Vec<String>, ServerError> {
+    /// The entities of a collection, from its REST listing.
+    pub(crate) fn list_entity_rows(
+        &self,
+        collection: &str,
+    ) -> Result<Vec<serde_json::Value>, ServerError> {
         let url = format!("{}/{}", self.base(), encode_path_segment(collection));
         let (sign_in, credential) = self.sign_in();
         let headers = [
@@ -199,7 +202,13 @@ impl Client {
             .get("rows")
             .and_then(serde_json::Value::as_array)
             .ok_or_else(|| self.invalid_response(&url, "the listing has no rows".to_string()))?;
-        Ok(rows
+        Ok(rows.clone())
+    }
+
+    /// The names of every entity of a collection, from its REST listing.
+    pub(crate) fn list_entity_names(&self, collection: &str) -> Result<Vec<String>, ServerError> {
+        Ok(self
+            .list_entity_rows(collection)?
             .iter()
             .filter_map(|row| row.get("name").and_then(serde_json::Value::as_str))
             .map(str::to_string)
@@ -1577,6 +1586,58 @@ mod tests {
             .to_string();
         assert!(error.contains("HTTP 418"));
         assert!(error.contains("server says no"));
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn notification_inventory_uses_collection_gets_and_resolves_project_ownership() {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            for (path, body) in [
+                (
+                    "NotificationContents",
+                    r#"{"rows":[{"name":"Acme.Email"}]}"#,
+                ),
+                (
+                    "NotificationContents/Acme.Email",
+                    r#"{"name":"Acme.Email","projectName":"Acme"}"#,
+                ),
+                (
+                    "NotificationDefinitions",
+                    r#"{"rows":[{"name":"Acme.Started","projectName":"Acme"}]}"#,
+                ),
+            ] {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = Vec::new();
+                loop {
+                    let mut buffer = [0u8; 4096];
+                    let read = stream.read(&mut buffer).unwrap();
+                    request.extend_from_slice(&buffer[..read]);
+                    if read == 0 || request.windows(4).any(|window| window == b"\r\n\r\n") {
+                        break;
+                    }
+                }
+                assert!(String::from_utf8(request)
+                    .unwrap()
+                    .starts_with(&format!("GET /Thingworx/{path} HTTP/1.1")));
+                write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+            }
+        });
+        let client = Client::new(Profile {
+            url: format!("http://{address}/Thingworx"),
+            username: "user".into(),
+            password: "pass".into(),
+            app_key: None,
+            sdk: None,
+            extra: Default::default(),
+        });
+        for collection in ["NotificationContents", "NotificationDefinitions"] {
+            let rows = crate::core::push::Remote::collection_entities(&client, collection).unwrap();
+            assert_eq!(rows.len(), 1);
+            assert_eq!(rows[0]["projectName"], "Acme");
+        }
         server.join().unwrap();
     }
 

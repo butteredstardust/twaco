@@ -2558,3 +2558,254 @@ fn deploy_excluded_comma_name_does_not_become_two_targets() {
         "{error}"
     );
 }
+
+#[test]
+fn new_mashup_alias_has_plan_apply_and_file_parity() {
+    for extra in [vec![], vec!["--gadget", "--layout", "4x2"]] {
+        let dirs = [tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap()];
+        let run = |index: usize, apply: bool| {
+            let mut command = Command::new(env!("CARGO_BIN_EXE_twaco"));
+            command.current_dir(dirs[index].path()).env_clear();
+            command.args(if index == 0 {
+                ["mashup", "new"]
+            } else {
+                ["new", "mashup"]
+            });
+            command.args(["Acme.Gadget", "--json"]).args(&extra);
+            if apply {
+                command.arg("--apply");
+            }
+            let result = command.output().unwrap();
+            assert!(result.status.success(), "{result:?}");
+            serde_json::from_slice::<serde_json::Value>(&result.stdout).unwrap()
+        };
+        for dir in &dirs {
+            std::fs::write(dir.path().join("twaco.toml"), "[[project]]\nname='Acme'\n").unwrap();
+        }
+        assert_eq!(run(0, false), run(1, false));
+        assert!(!dirs[0].path().join("Mashups").exists());
+        assert_eq!(run(0, true), run(1, true));
+        for path in [
+            "Mashups/Acme.Gadget.xml",
+            "src/Acme.Gadget/mashup/content.json",
+            "src/Acme.Gadget/mashup/custom.css",
+        ] {
+            assert_eq!(
+                std::fs::read(dirs[0].path().join(path)).unwrap(),
+                std::fs::read(dirs[1].path().join(path)).unwrap()
+            );
+        }
+    }
+}
+
+#[test]
+fn legacy_gadget_files_are_reported_by_check_and_status_offline() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("twaco.toml"), "[[project]]\nname='Acme'\n").unwrap();
+    std::fs::create_dir(dir.path().join("MashupGadgets")).unwrap();
+    std::fs::write(
+        dir.path().join("MashupGadgets/Acme.Gadget.xml"),
+        include_bytes!("fixtures/gadget.xml"),
+    )
+    .unwrap();
+    for args in [vec!["check", "--detail"], vec!["entity", "status", "--all"]] {
+        let result = Command::new(env!("CARGO_BIN_EXE_twaco"))
+            .current_dir(dir.path())
+            .env_clear()
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(!result.status.success());
+        let output = format!(
+            "{}{}",
+            String::from_utf8_lossy(&result.stdout),
+            String::from_utf8_lossy(&result.stderr)
+        );
+        assert!(
+            output.contains("move the file under Mashups with a <Mashups> wrapper"),
+            "{output}"
+        );
+    }
+}
+
+#[test]
+fn a_checkout_under_a_folder_named_mashupgadgets_is_not_legacy() {
+    let outer = tempfile::tempdir().unwrap();
+    let root = outer.path().join("MashupGadgets").join("repo");
+    std::fs::create_dir_all(root.join("Mashups")).unwrap();
+    std::fs::write(root.join("twaco.toml"), "[[project]]\nname='Acme'\n").unwrap();
+    let gadget = String::from_utf8(include_bytes!("fixtures/gadget.xml").to_vec()).unwrap();
+    std::fs::write(root.join("Mashups/Acme.Gadget.xml"), gadget).unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_twaco"))
+        .current_dir(&root)
+        .env_clear()
+        .args(["check", "--detail"])
+        .output()
+        .unwrap();
+    let output = format!(
+        "{}{}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(!output.contains("legacy folder"), "{output}");
+}
+
+#[test]
+fn new_notification_kinds_plan_and_apply_offline_as_json() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("twaco.toml"), "[[project]]\nname='Acme'\n").unwrap();
+    for (kind, collection, flags) in [
+        ("thing-group", "ThingGroups", vec!["--member", "Acme.Pump"]),
+        (
+            "notification-content",
+            "NotificationContents",
+            vec![
+                "--handler",
+                "Acme.Mail",
+                "--handler-id",
+                "11111111-2222-4333-8444-555555555555",
+                "--field",
+                "subject:STRING",
+                "--set",
+                "subject=Ready",
+            ],
+        ),
+        (
+            "notification",
+            "NotificationDefinitions",
+            vec![
+                "--content",
+                "Acme.notification-content",
+                "--event",
+                "Thing:Acme.Pump:ThingStart",
+            ],
+        ),
+    ] {
+        let name = format!("Acme.{kind}");
+        let path = dir.path().join(collection).join(format!("{name}.xml"));
+        for apply in [false, true] {
+            let mut command = Command::new(env!("CARGO_BIN_EXE_twaco"));
+            command
+                .current_dir(dir.path())
+                .env_clear()
+                .args(["new", kind, &name, "--json"])
+                .args(&flags);
+            if apply {
+                command.arg("--apply");
+            }
+            let result = command.output().unwrap();
+            assert!(result.status.success(), "{result:?}");
+            let report: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
+            assert_eq!(report["applied"], apply);
+            assert_eq!(report["scope"], "repository");
+            assert_eq!(path.exists(), apply);
+        }
+    }
+}
+
+#[test]
+fn sync_explicit_apply_matches_default_for_selected_and_all_targets() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::fs::write(root.join("twaco.toml"), "[[project]]\nname='Acme'\n").unwrap();
+    let run = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_twaco"))
+            .args(args)
+            .current_dir(root)
+            .env_clear()
+            .output()
+            .unwrap()
+    };
+    assert!(run(&["new", "thing", "Acme.Thing", "--apply"])
+        .status
+        .success());
+    assert!(
+        run(&["thing", "service", "add", "Acme.Thing", "Run", "--apply"])
+            .status
+            .success()
+    );
+    let path = root.join("Things/Acme.Thing.xml");
+    let script = root.join("src/Acme.Thing/services/Run/script.js");
+    let before = std::fs::read(&path).unwrap();
+    std::fs::write(script, "result = 42;\n").unwrap();
+    for target in ["Acme.Thing", "--all"] {
+        std::fs::write(&path, &before).unwrap();
+        let default = run(&["sync", target, "--json"]);
+        assert!(default.status.success(), "{default:?}");
+        let expected = std::fs::read(&path).unwrap();
+        assert_ne!(expected, before);
+        std::fs::write(&path, &before).unwrap();
+        let explicit = run(&["sync", target, "--apply", "--json"]);
+        assert!(explicit.status.success(), "{explicit:?}");
+        assert_eq!(explicit.stdout, default.stdout);
+        assert_eq!(std::fs::read(&path).unwrap(), expected);
+        let refused = run(&["sync", target, "--apply", "--check"]);
+        assert!(!refused.status.success());
+        assert_eq!(std::fs::read(&path).unwrap(), expected);
+    }
+}
+
+#[test]
+fn mashup_move_bottom_and_end_preserve_ids_and_repeat_without_edits() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::fs::write(root.join("twaco.toml"), "[[project]]\nname='Acme'\n").unwrap();
+    let run = |args: &[&str]| {
+        let output = Command::new(env!("CARGO_BIN_EXE_twaco"))
+            .args(args)
+            .current_dir(root)
+            .env_clear()
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{args:?}: {output:?}");
+        serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap()
+    };
+    run(&["mashup", "new", "Acme.Move", "--apply", "--json"]);
+    let first = run(&["mashup", "add", "Acme.Move", "label", "--apply", "--json"])["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let second = run(&[
+        "mashup",
+        "add",
+        "Acme.Move",
+        "label",
+        "--below",
+        &first,
+        "--apply",
+        "--json",
+    ])["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let third = run(&[
+        "mashup",
+        "add",
+        "Acme.Move",
+        "label",
+        "--below",
+        &second,
+        "--apply",
+        "--json",
+    ])["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    for flags in [
+        vec!["--right-of", first.as_str(), "--end"],
+        vec!["--in", "center", "--bottom"],
+    ] {
+        let mut args = vec!["mashup", "move", "Acme.Move", third.as_str()];
+        args.extend(flags);
+        args.extend(["--apply", "--json"]);
+        let moved = run(&args);
+        assert_eq!(moved["id"], third);
+        assert_eq!(moved["moved"], serde_json::json!([third]));
+        assert_eq!(moved["changed"], true);
+        let path = root.join("src/Acme.Move/mashup/content.json");
+        let before = std::fs::read(&path).unwrap();
+        let again = run(&args);
+        assert_eq!(again["changed"], false, "{again}");
+        assert_eq!(std::fs::read(path).unwrap(), before);
+    }
+}

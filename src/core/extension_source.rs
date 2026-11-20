@@ -46,6 +46,29 @@ pub(crate) fn templates(solution: &Solution) -> BTreeMap<String, String> {
     templates
 }
 
+/// Entity documents from local extension metadata and packaged XML, without loading Java.
+pub(crate) fn documents(solution: &Solution) -> Vec<Vec<u8>> {
+    let mut documents = Vec::new();
+    for extension in &solution.extensions {
+        let root = solution.root.join(&extension.root);
+        if let Some(bytes) = [
+            root.join("configfiles/metadata.xml"),
+            root.join("metadata.xml"),
+        ]
+        .into_iter()
+        .find(|path| path.is_file())
+        .and_then(|path| std::fs::read(path).ok())
+        {
+            documents.push(bytes);
+        }
+        let _ = collect_xml(&root.join("Entities"), &mut |path| {
+            documents.push(std::fs::read(path).map_err(|error| error.to_string())?);
+            Ok(())
+        });
+    }
+    documents
+}
+
 pub(crate) fn load(solution: &Solution) -> (Vec<Entity>, Vec<DataShape>, Vec<String>) {
     let mut entities = Vec::new();
     let mut shapes = Vec::new();

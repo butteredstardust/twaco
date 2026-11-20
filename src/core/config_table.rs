@@ -239,6 +239,22 @@ pub(crate) fn set(
         }
         rows.push(row);
     }
+    let cleared: Vec<_> = fields
+        .keys()
+        .filter(|name| {
+            !rows.iter().any(|row| row.contains_key(*name))
+                && current.rows.iter().any(|row| {
+                    row.get(*name)
+                        .is_some_and(|value| !value.is_null() && value.as_str() != Some(""))
+                })
+        })
+        .cloned()
+        .collect();
+    let warnings = if cleared.is_empty() {
+        Vec::new()
+    } else {
+        vec![format!("would be cleared: {}", cleared.join(", "))]
+    };
     let service = if multi {
         "SetMultiRowConfigurationTable"
     } else {
@@ -270,7 +286,7 @@ pub(crate) fn set(
         }
     }
     Ok(
-        json!({"thing":thing,"table":table,"service":service,"dry_run":!apply,"rows_written":rows.len(),"note":format!("{}; all supplied rows replace the table. Server only; run twaco entity pull afterwards to update the repository.", if apply { "set and read back" } else { "plan; nothing written" })}),
+        json!({"thing":thing,"table":table,"service":service,"dry_run":!apply,"rows_written":rows.len(),"warnings":warnings,"note":format!("{}; all supplied rows replace the table. Server only; run twaco entity pull afterwards to update the repository.", if apply { "set and read back" } else { "plan; nothing written" })}),
     )
 }
 
@@ -1139,6 +1155,55 @@ mod tests {
             .contains("MSYS_NO_PATHCONV=1"));
         saved.rows[0].insert("Value".into(), json!("D:/data/file.csv"));
         plan_restore(&current, &saved).unwrap();
+    }
+
+    #[test]
+    fn set_warns_only_for_valued_columns_absent_from_every_supplied_row() {
+        for multi in [false, true] {
+            let mut fake = Fake::with(vec![]);
+            fake.multi_row = multi;
+            fake.table.borrow_mut().data_shape = json!({"fieldDefinitions": {
+                "enabled":{"baseType":"BOOLEAN"}, "runAsUser":{"baseType":"STRING"},
+                "schedule":{"baseType":"STRING"}, "empty":{"baseType":"STRING"},
+                "null":{"baseType":"STRING"}, "zero":{"baseType":"INTEGER"}
+            }});
+            fake.table.borrow_mut().rows = vec![serde_json::from_value(json!({"enabled":true,"runAsUser":"Acme.Operator","schedule":"0 * * * * ?","empty":"","null":null,"zero":0})).unwrap()];
+            let rows = vec!["enabled=false".into()];
+            let report = set(&fake, "Acme.Scheduler", "Settings", &rows, false).unwrap();
+            assert_eq!(
+                report["warnings"],
+                json!(["would be cleared: runAsUser, schedule, zero"])
+            );
+            assert!(fake
+                .calls
+                .borrow()
+                .iter()
+                .all(|call| call.starts_with("Get")));
+            if multi {
+                let report = set(
+                    &fake,
+                    "Acme.Scheduler",
+                    "Settings",
+                    &[
+                        "enabled=false".into(),
+                        "runAsUser=Acme.Operator,zero=0".into(),
+                    ],
+                    false,
+                )
+                .unwrap();
+                assert_eq!(report["warnings"], json!(["would be cleared: schedule"]));
+            }
+            let applied = set(&fake, "Acme.Scheduler", "Settings", &rows, true).unwrap();
+            assert_eq!(applied["warnings"], report["warnings"]);
+            assert_eq!(
+                fake.table.borrow().rows[0],
+                serde_json::from_value::<Map<String, Value>>(json!({"enabled":false})).unwrap()
+            );
+            assert_eq!(
+                set(&fake, "Acme.Scheduler", "Settings", &rows, false).unwrap()["warnings"],
+                json!([])
+            );
+        }
     }
 
     #[test]

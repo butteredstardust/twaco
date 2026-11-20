@@ -187,6 +187,9 @@ pub(crate) fn config_table(solution: &Solution, args: &ConfigTable) -> u8 {
                     report["service"].as_str().unwrap(),
                     report["note"].as_str().unwrap()
                 );
+                for warning in report["warnings"].as_array().into_iter().flatten() {
+                    println!("warning: {}", warning.as_str().unwrap());
+                }
             }
             OK
         }

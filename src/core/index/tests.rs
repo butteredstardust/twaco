@@ -1590,3 +1590,59 @@ fn rbac_members_are_typed_structural_references() {
         1
     );
 }
+
+#[test]
+fn notification_content_and_handler_are_structural_dependencies() {
+    let (_dir, root) = scratch("notifications");
+    write(&root, "twaco.toml", "[[project]]\nname = 'Acme'\n");
+    for (collection, tag, name, body) in [
+        ("Things", "Thing", "Acme.Mail", ""),
+        (
+            "NotificationContents",
+            "NotificationContent",
+            "Acme.Email",
+            "<HandlerEntity name='Acme.Mail' type='Thing'/>",
+        ),
+        (
+            "NotificationDefinitions",
+            "NotificationDefinition",
+            "Acme.Started",
+            "<Contents><Member name='Acme.Email'/></Contents>",
+        ),
+        (
+            "ThingGroups",
+            "ThingGroup",
+            "Acme.Site",
+            "<Members><Member name='Acme.Mail' type='Thing'/></Members>",
+        ),
+    ] {
+        write(
+            &root,
+            &format!("{collection}/{name}.xml"),
+            &entity(collection, tag, name, "Acme", "", body),
+        );
+    }
+    let solution = Solution::load(&root.join("twaco.toml")).unwrap();
+    let index = Index::build(&solution);
+    for (from, to, kind) in [
+        (
+            "NotificationDefinitions/Acme.Started",
+            "NotificationContents/Acme.Email",
+            EdgeKind::NotificationContent,
+        ),
+        (
+            "NotificationContents/Acme.Email",
+            "Things/Acme.Mail",
+            EdgeKind::NotificationHandler,
+        ),
+        (
+            "ThingGroups/Acme.Site",
+            "Things/Acme.Mail",
+            EdgeKind::Member,
+        ),
+    ] {
+        assert!(!edge(&index, from, to, kind).is_empty());
+        assert!(kind.names_whole_entity());
+        assert_eq!(kind.confidence(), Confidence::Structural);
+    }
+}

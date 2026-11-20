@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Entities
+ majorVersion="10"
+ minorVersion="1"
+ universal="password">
+    <DirectoryServices>
+        <DirectoryService className="com.thingworx.security.directoryservices.LDAPDirectoryService" description="" documentationContent="" enabled="false" homeMashup="" name="Acme.Orders.Directory" priority="1" projectName="Acme.Orders" tags="">
+            <avatar></avatar>
+            <DesignTimePermissions>
+                <Create></Create>
+                <Read></Read>
+                <Update></Update>
+                <Delete></Delete>
+                <Metadata></Metadata>
+            </DesignTimePermissions>
+            <RunTimePermissions></RunTimePermissions>
+            <VisibilityPermissions>
+                <Visibility></Visibility>
+            </VisibilityPermissions>
+
+            <ConfigurationTableDefinitions/>
+            <ConfigurationTables><ConfigurationTable dataShapeName="" description="LDAP Settings" isMultiRow="false" name="LDAPProxyConfiguration" ordinal="0"><DataShape><FieldDefinitions><FieldDefinition aspect.defaultValue="uid=admin,ou=system" baseType="STRING" description="LDAP Distinguished Name to use when binding" name="adminBindDN" ordinal="0"/><FieldDefinition baseType="PASSWORD" description="LDAP administrative password" name="adminPassword" ordinal="0"/><FieldDefinition aspect.defaultValue="10389.0" baseType="NUMBER" description="LDAP Server port" name="port" ordinal="0"/><FieldDefinition aspect.defaultValue="LDAP" baseType="STRING" description="LDAP Protocol" name="protocol" ordinal="0"/><FieldDefinition aspect.defaultValue="localhost" baseType="STRING" description="LDAP Server" name="server" ordinal="0"/><FieldDefinition aspect.defaultValue="ou=people" baseType="STRING" description="User Base DN" name="userBaseDN" ordinal="0"/><FieldDefinition aspect.defaultValue="uid" baseType="STRING" description="LDAP user id attribute to match when looking up a user" name="userIdAttribute" ordinal="0"/></FieldDefinitions></DataShape><Rows><Row><adminBindDN><![CDATA[uid=admin,ou=system]]></adminBindDN><adminPassword/><port>10389.0</port><protocol><![CDATA[LDAP]]></protocol><server><![CDATA[localhost]]></server><userBaseDN><![CDATA[ou=people]]></userBaseDN><userIdAttribute><![CDATA[uid]]></userIdAttribute></Row></Rows></ConfigurationTable></ConfigurationTables>
+        </DirectoryService>
+    </DirectoryServices>
+</Entities>

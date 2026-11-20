@@ -166,11 +166,22 @@ impl Coded for AuthoringError {
 
 /// Load one existing mashup, refusing a managed sidecar that is not its entity's current content.
 fn load_existing(solution: &Solution, mashup_name: &str) -> Result<ExistingMashup, AuthoringError> {
-    let entity = workspace::entities(solution)
-        .into_iter()
+    let found = workspace::entities(solution);
+    let entity = found
+        .iter()
         .find(|entity| entity.info.collection == "Mashups" && entity.info.name == mashup_name)
+        .cloned()
         .ok_or_else(|| {
-            AuthoringError::Unknown(format!("no mashup {mashup_name} in the solution"))
+            AuthoringError::Unknown(format!(
+                "no mashup {mashup_name} in the solution{}",
+                workspace::short_name_hint(
+                    found
+                        .iter()
+                        .filter(|entity| entity.info.collection == "Mashups")
+                        .map(|entity| entity.info.name.as_str()),
+                    mashup_name
+                )
+            ))
         })?;
     let entity_before = std::fs::read(&entity.path).map_err(|error| {
         AuthoringError::Unreadable(format!("{}: {error}", entity.path.display()))

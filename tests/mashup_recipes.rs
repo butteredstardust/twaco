@@ -1039,3 +1039,479 @@ fn recipe_options_plan_and_apply_through_cli_and_mcp() {
         }
     }
 }
+
+fn layout_fixture(root: &Path, slider: bool, edit: impl FnOnce(&mut Value)) {
+    std::fs::write(root.join("twaco.toml"), "[[project]]\nname = 'Acme'\n").unwrap();
+    invoke(
+        root,
+        false,
+        &["mashup", "new", "Acme.Layout_MU", "--apply"],
+        "",
+        json!({}),
+    );
+    let content_path = root.join("src/Acme.Layout_MU/mashup/content.json");
+    let mut content: Value =
+        serde_json::from_slice(&std::fs::read(&content_path).unwrap()).unwrap();
+    let container = |id: &str, direction: &str, widgets: Value| {
+        json!({"Properties": {
+        "Id": id, "Type":"flexcontainer", "DisplayName":id, "ResponsiveLayout":true,
+        "positioning":"responsive", "Style":"DefaultContainerStyle", "flex-direction":direction,
+        "flex-min-width":"", "flex-max-width":"", "Margin":"6 12 0", "CustomClass":"existing",
+        "flex-size":"fixed", "flex-min-height":"48px", "flex-max-height":"48px"
+    }, "Widgets": widgets})
+    };
+    content["UI"]["Widgets"] = if slider {
+        json!([container(
+            "flexcontainer-2",
+            "row",
+            json!([
+                {"Properties":{"Id":"ptcsslider-3", "Type":"ptcsslider", "DisplayName":"Slider", "Margin":"5", "Width":200, "Height":113, "Value":7, "Label":"Range", "VerticalSlider":false, "ResponsiveLayout":false}},
+                {"Properties":{"Id":"ptcsbutton-4", "Type":"ptcsbutton", "DisplayName":"Action", "Margin":"5", "Size":"standard", "Label":"Apply", "ButtonType":"primary", "ResponsiveLayout":false}}
+            ])
+        )])
+    } else {
+        json!([container(
+            "flexcontainer-2",
+            "column",
+            json!([
+                container("flexcontainer-3", "row", json!([])),
+                container("flexcontainer-4", "column", json!([]))
+            ])
+        )])
+    };
+    content["UI"]["Properties"]["StyleProperties"] = json!({"data":{
+        "flexcontainer-4":{"widget":"flex-container", "parts":{"$":{"$":{"background":"#ffffff", "border-width":"1px", "border-style":"solid"}}}}
+    }});
+    content["DataBindings"] = json!([{"SourceArea":"UI", "SourceId":"ptcsslider-3", "TargetArea":"UI", "TargetId":"ptcsbutton-4", "PropertyMaps":[{"SourceProperty":"Value", "TargetProperty":"Label"}]}]);
+    content["Events"] = json!([{"sentinel":"preserve"}]);
+    edit(&mut content);
+    let css = ".existing { color: red; }\n";
+    write_layout(root, &content, css);
+}
+
+fn write_layout(root: &Path, content: &Value, css: &str) {
+    let entity = root.join("Mashups/Acme.Layout_MU.xml");
+    let assets = twaco::core::mashup::Assets {
+        content: format!("{}\n", serde_json::to_string_pretty(content).unwrap()),
+        css: css.into(),
+    };
+    let (xml, _) = twaco::core::mashup::sync(&std::fs::read(&entity).unwrap(), &assets).unwrap();
+    std::fs::write(entity, xml).unwrap();
+    std::fs::write(
+        root.join("src/Acme.Layout_MU/mashup/content.json"),
+        assets.content,
+    )
+    .unwrap();
+    std::fs::write(root.join("src/Acme.Layout_MU/mashup/custom.css"), css).unwrap();
+}
+
+fn layout_bytes(root: &Path) -> Vec<Vec<u8>> {
+    [
+        "Mashups/Acme.Layout_MU.xml",
+        "src/Acme.Layout_MU/mashup/content.json",
+        "src/Acme.Layout_MU/mashup/custom.css",
+    ]
+    .iter()
+    .map(|p| std::fs::read(root.join(p)).unwrap())
+    .collect()
+}
+
+fn layout_result(root: &Path) -> Value {
+    let bytes = std::fs::read(root.join("Mashups/Acme.Layout_MU.xml")).unwrap();
+    serde_json::from_str(&twaco::core::mashup::extract(&bytes).unwrap().content).unwrap()
+}
+
+#[test]
+fn panel_css_transaction_reapplication_and_cli_mcp_parity() {
+    for xml_only in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        layout_fixture(root, false, |_| {});
+        let original = layout_result(root);
+        if xml_only {
+            std::fs::remove_dir_all(root.join("src/Acme.Layout_MU/mashup")).unwrap();
+        }
+        for compact in [Some("768"), Some("960"), None] {
+            let mut cli = vec![
+                "mashup",
+                "recipe",
+                "panel",
+                "Acme.Layout_MU",
+                "flexcontainer-2",
+            ];
+            let mut args =
+                json!({"recipe":"panel", "mashup":"Acme.Layout_MU", "widget":"flexcontainer-2"});
+            if let Some(n) = compact {
+                cli.extend(["--compact", n]);
+                args["compact"] = json!(n.parse::<u32>().unwrap());
+            }
+            let before = std::fs::read(root.join("Mashups/Acme.Layout_MU.xml")).unwrap();
+            let planned = invoke(root, false, &cli, "mashup_recipe", args.clone());
+            let mut other = invoke(root, true, &cli, "mashup_recipe", args.clone());
+            for key in ["dry_run", "notices", "duration_ms"] {
+                other.as_object_mut().unwrap().remove(key);
+            }
+            assert_eq!(planned, other);
+            assert_eq!(
+                std::fs::read(root.join("Mashups/Acme.Layout_MU.xml")).unwrap(),
+                before
+            );
+            if !xml_only {
+                assert!(planned["files"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|file| file.as_str().unwrap().ends_with("custom.css")));
+            }
+            cli.push("--apply");
+            args["dry_run"] = json!(false);
+            invoke(root, true, &cli, "mashup_recipe", args.clone());
+            let after = std::fs::read(root.join("Mashups/Acme.Layout_MU.xml")).unwrap();
+            let repeated = invoke(root, false, &cli, "mashup_recipe", args);
+            assert_eq!(repeated["unchanged"], true);
+            assert_eq!(
+                std::fs::read(root.join("Mashups/Acme.Layout_MU.xml")).unwrap(),
+                after
+            );
+            let result = layout_result(root);
+            let props = &result["UI"]["Widgets"][0]["Properties"];
+            assert_eq!(props["CustomClass"], "existing twaco-panel-flexcontainer-2");
+            assert_eq!(props["flex-grow"], 1);
+            assert_eq!(props["Margin"], "24 24 12");
+            assert_eq!(props["flex-max-height"], "");
+            assert_eq!(props["flex-size"], "range");
+            let styles = &result["UI"]["Properties"]["StyleProperties"]["data"];
+            assert_eq!(
+                styles["flexcontainer-2"]["parts"]["$"]["$"]["background"],
+                "#F7F7F7"
+            );
+            assert_eq!(
+                styles["flexcontainer-3"]["parts"]["$"]["$"]["background"],
+                "inherit"
+            );
+            assert_eq!(
+                styles["flexcontainer-4"],
+                original["UI"]["Properties"]["StyleProperties"]["data"]["flexcontainer-4"]
+            );
+            assert_eq!(
+                result["UI"]["Widgets"][0]["Widgets"],
+                original["UI"]["Widgets"][0]["Widgets"]
+            );
+            assert_eq!(result["DataBindings"], original["DataBindings"]);
+            assert_eq!(result["Events"], original["Events"]);
+            let css = result["CustomMashupCss"].as_str().unwrap();
+            assert!(css.starts_with(".existing { color: red; }\n"));
+            assert_eq!(css.matches(":start */").count(), 1);
+            assert_eq!(
+                css.matches("@media").count(),
+                usize::from(compact.is_some())
+            );
+            if let Some(n) = compact {
+                assert!(css.contains(&format!("@media (max-width: {n}px) {{")));
+            }
+            if !xml_only {
+                let files = layout_bytes(root);
+                assert_eq!(files[2], format!("{css}\n").as_bytes());
+            }
+        }
+    }
+}
+
+#[test]
+fn slider_action_measured_margins_preserve_controls_and_wiring() {
+    for mcp in [false, true] {
+        for labels in [None, Some(true), Some(false)] {
+            let dir = tempfile::tempdir().unwrap();
+            let root = dir.path();
+            layout_fixture(root, true, |c| {
+                if let Some(labels) = labels {
+                    c["UI"]["Widgets"][0]["Widgets"][0]["Properties"]["DisplayMinMaxLabels"] =
+                        json!(labels);
+                }
+                if labels == Some(false) {
+                    c["UI"]["Widgets"][0]["Widgets"][1]["Properties"]["Size"] = json!("large");
+                }
+                if labels == Some(true) {
+                    c["UI"]["Widgets"][0]["Properties"]["Style"] = json!("Acme.CustomStyle");
+                }
+                if let Some(labels) = labels {
+                    c["UI"]["Properties"]["StyleProperties"]["data"]["flexcontainer-2"] = json!({"widget":"flex-container", "parts":{"$":{"$":{"background":if labels {"#ffffff"} else {"#F7F7F7"}}}}});
+                }
+            });
+            let original = layout_result(root);
+            let before = layout_bytes(root);
+            let mut cli = vec![
+                "mashup",
+                "recipe",
+                "slider-action",
+                "Acme.Layout_MU",
+                "ptcsslider-3",
+                "ptcsbutton-4",
+            ];
+            let mut args = json!({"recipe":"slider-action", "mashup":"Acme.Layout_MU", "widget":"ptcsslider-3", "button":"ptcsbutton-4"});
+            let plan = invoke(root, mcp, &cli, "mashup_recipe", args.clone());
+            assert_eq!(layout_bytes(root), before);
+            assert!(plan["notes"].to_string().contains("default 34px button"));
+            cli.push("--apply");
+            args["dry_run"] = json!(false);
+            invoke(root, mcp, &cli, "mashup_recipe", args.clone());
+            let after = layout_bytes(root);
+            assert_eq!(
+                invoke(root, mcp, &cli, "mashup_recipe", args)["unchanged"],
+                true
+            );
+            assert_eq!(layout_bytes(root), after);
+            assert_eq!(after[2], before[2]);
+            let mut result = layout_result(root);
+            let row = &mut result["UI"]["Widgets"][0];
+            assert_eq!(row["Properties"]["align-items"], "flex-end");
+            assert_eq!(row["Properties"]["flex-max-height"], "");
+            assert_eq!(row["Widgets"][0]["Properties"]["Margin"], "0");
+            assert_eq!(
+                row["Widgets"][1]["Properties"]["Margin"],
+                if labels == Some(false) {
+                    "0 0 0 12"
+                } else {
+                    "0 0 18 12"
+                }
+            );
+            for index in 0..2 {
+                row["Widgets"][index]["Properties"]["Margin"] =
+                    original["UI"]["Widgets"][0]["Widgets"][index]["Properties"]["Margin"].clone();
+            }
+            assert_eq!(row["Widgets"], original["UI"]["Widgets"][0]["Widgets"]);
+            assert_eq!(result["DataBindings"], original["DataBindings"]);
+            assert_eq!(result["Events"], original["Events"]);
+            let background = &result["UI"]["Properties"]["StyleProperties"]["data"]
+                ["flexcontainer-2"]["parts"]["$"]["$"]["background"];
+            assert_eq!(
+                background,
+                if labels == Some(true) {
+                    "#ffffff"
+                } else if labels == Some(false) {
+                    "#F7F7F7"
+                } else {
+                    "inherit"
+                }
+            );
+        }
+    }
+}
+
+fn layout_refused(root: &Path, cli: &[&str], arguments: Value) {
+    let before = layout_bytes(root);
+    let output = Command::new(env!("CARGO_BIN_EXE_twaco"))
+        .current_dir(root)
+        .env_clear()
+        .args(cli)
+        .arg("--apply")
+        .output()
+        .unwrap();
+    assert!(
+        !output.status.success(),
+        "{cli:?}: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let input = format!(
+        "{}\n",
+        json!({"jsonrpc":"2.0", "id":1,"method":"tools/call", "params":{"name":"mashup_recipe", "arguments":arguments}})
+    );
+    let mut out = Vec::new();
+    twaco::mcp::serve_tools(
+        root,
+        &twaco::mcp::Selection::ALL,
+        input.as_bytes(),
+        &mut out,
+    )
+    .unwrap();
+    let response: Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(response["result"]["isError"], true, "{response}");
+    assert_eq!(layout_bytes(root), before);
+}
+
+#[test]
+fn layout_recipes_refuse_unsafe_targets_and_options_without_writes() {
+    for slider in [false, true] {
+        let cases = if slider { 21 } else { 19 };
+        for case in 0..cases {
+            let dir = tempfile::tempdir().unwrap();
+            let root = dir.path();
+            layout_fixture(root, slider, |c| {
+                let p = &mut c["UI"]["Widgets"][0]["Properties"];
+                match case {
+                    0 => p["ResponsiveLayout"] = json!(false),
+                    1 => p["positioning"] = json!("static"),
+                    2 => p["flex-direction"] = json!(if slider { "column" } else { "row" }),
+                    3 if slider => p["Type"] = json!("ptcslabel"),
+                    3 => p["Style"] = json!("Acme.CustomStyle"),
+                    4 if !slider => p["flex-min-width"] = json!("0px"),
+                    5 if !slider => p["flex-max-width"] = json!("500px"),
+                    4 => {
+                        c["UI"]["Widgets"][0]["Widgets"][0]["Properties"]["VerticalSlider"] =
+                            json!(true)
+                    }
+                    5 => {
+                        c["UI"]["Widgets"][0]["Widgets"][0]["Properties"]["ResponsiveLayout"] =
+                            json!(true)
+                    }
+                    6 => {
+                        c["UI"]["Properties"]["StyleProperties"]["data"]["flexcontainer-4"]
+                            ["parts"] = json!([])
+                    }
+                    7 => {
+                        c["DataBindings"][0] = json!({"TargetArea":"UI", "TargetId":"flexcontainer-2", "PropertyMaps":[{"TargetProperty":"Margin"}]})
+                    }
+                    8 if !slider => {
+                        c["UI"]["Widgets"][0]["Widgets"][0]["Properties"]["Style"] =
+                            json!("Acme.CustomStyle")
+                    }
+                    8 => {
+                        let controls = c["UI"]["Widgets"][0]["Widgets"].as_array_mut().unwrap();
+                        controls.swap(0, 1);
+                    }
+                    9 if slider => {
+                        let extra = c["UI"]["Widgets"][0]["Widgets"][1].clone();
+                        c["UI"]["Widgets"][0]["Widgets"]
+                            .as_array_mut()
+                            .unwrap()
+                            .push(extra);
+                    }
+                    10 if slider => {
+                        c["UI"]["Widgets"][0]["Widgets"][1]["Properties"]["FillContainer"] =
+                            json!(true)
+                    }
+                    11 if slider => {
+                        c["DataBindings"][0] = json!({"TargetArea":"UI", "TargetId":"ptcsslider-3", "PropertyMaps":[{"TargetProperty":"Margin"}]})
+                    }
+                    12 if slider => {
+                        c["UI"]["Widgets"][0]["Widgets"][1]["Properties"]["Type"] =
+                            json!("ptcslabel")
+                    }
+                    15 if slider => {
+                        let mut row = c["UI"]["Widgets"][0].clone();
+                        row["Properties"]["Id"] = json!("flexcontainer-5");
+                        let button = c["UI"]["Widgets"][0]["Widgets"]
+                            .as_array_mut()
+                            .unwrap()
+                            .pop()
+                            .unwrap();
+                        row["Widgets"] = json!([button]);
+                        c["UI"]["Widgets"].as_array_mut().unwrap().push(row);
+                    }
+                    16 if slider => {
+                        c["UI"]["Widgets"][0]["Widgets"][1]["Properties"]["DisplayName"] =
+                            json!("Slider")
+                    }
+                    13 if !slider => {
+                        c["UI"]["Widgets"][0]["Properties"]["Type"] = json!("ptcslabel")
+                    }
+                    14 if !slider => {
+                        c["UI"]["Widgets"][0]["Widgets"][0]["Properties"]["DisplayName"] =
+                            json!("flexcontainer-2")
+                    }
+                    _ => {}
+                }
+            });
+            if !slider && (9..13).contains(&case) {
+                let content = layout_result(root);
+                let css = ["/* twaco:panel:flexcontainer-2:start */\n", "/* twaco:panel:flexcontainer-2:end */\n", "/* twaco:panel:bad */\n", "/* twaco:panel:flexcontainer-2:start */\n/* twaco:panel:flexcontainer-2:start */\n"][case - 9];
+                write_layout(root, &content, css);
+            }
+            let mut cli = vec![
+                "mashup",
+                "recipe",
+                if slider { "slider-action" } else { "panel" },
+                "Acme.Layout_MU",
+                if slider {
+                    "ptcsslider-3"
+                } else {
+                    "flexcontainer-2"
+                },
+            ];
+            let mut args = json!({"recipe":if slider {"slider-action"} else {"panel"}, "mashup":"Acme.Layout_MU", "widget":if slider {"ptcsslider-3"} else {"flexcontainer-2"}, "dry_run":false});
+            if slider {
+                cli.push("ptcsbutton-4");
+                args["button"] = json!("ptcsbutton-4");
+            }
+            if slider && case == 13 {
+                cli.extend(["--compact", "768"]);
+                args["compact"] = json!(768);
+            }
+            if slider && case == 14 {
+                cli[4] = "ptcsbutton-4";
+                args["widget"] = json!("ptcsbutton-4");
+            }
+            match (slider, case) {
+                (false, 14) => {
+                    cli[4] = "mashup-root";
+                    args["widget"] = json!("mashup-root");
+                }
+                (false, 15) => {
+                    cli[4] = "missing-widget";
+                    args["widget"] = json!("missing-widget");
+                }
+                (false, 16) => {
+                    cli.extend(["--compact", "769"]);
+                    args["compact"] = json!(769);
+                }
+                (false, 17) | (true, 18) => {
+                    cli.extend(["--say", "unrelated"]);
+                    args["say"] = json!("unrelated");
+                }
+                (true, 16) => {
+                    cli[4] = "Slider";
+                    args["widget"] = json!("Slider");
+                }
+                (true, 17) => {
+                    cli.pop();
+                    args.as_object_mut().unwrap().remove("button");
+                }
+                (true, 19) => {
+                    cli.push("extra");
+                    args["button"] = json!("missing-widget");
+                }
+                (false, 18) | (true, 20) => {
+                    let path = root.join("src/Acme.Layout_MU/mashup/content.json");
+                    let mut content: Value =
+                        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+                    content["UI"]["Widgets"][0]["Properties"]["Margin"] = json!("stale");
+                    std::fs::write(path, serde_json::to_vec_pretty(&content).unwrap()).unwrap();
+                }
+                _ => {}
+            }
+            layout_refused(root, &cli, args);
+        }
+    }
+}
+
+#[test]
+fn panel_stops_at_contained_mashups_and_accepts_exact_prefixed_display_names() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    layout_fixture(root, false, |c| {
+        c["UI"]["Widgets"][0]["Properties"]["DisplayName"] = json!("Details");
+        let node = &mut c["UI"]["Widgets"][0]["Widgets"][0];
+        node["Properties"]["Type"] = json!("mashupcontainer");
+        node["Widgets"] = json!([{"Properties":{"Id":"flexcontainer-8", "Type":"flexcontainer", "Style":"Acme.CustomStyle", "ResponsiveLayout":true}, "Widgets":[]}]);
+    });
+    let before = layout_result(root)["UI"]["Widgets"][0]["Widgets"][0].clone();
+    invoke(
+        root,
+        false,
+        &[
+            "mashup",
+            "recipe",
+            "panel",
+            "Acme.Layout_MU",
+            "ui:Details",
+            "--apply",
+        ],
+        "",
+        json!({}),
+    );
+    let result = layout_result(root);
+    assert_eq!(result["UI"]["Widgets"][0]["Widgets"][0], before);
+    assert!(result["UI"]["Properties"]["StyleProperties"]["data"]
+        .get("flexcontainer-8")
+        .is_none());
+}

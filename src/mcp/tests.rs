@@ -418,6 +418,14 @@ fn hand_written_tools() -> Vec<Value> {
     ] {
         recipe["inputSchema"]["properties"][name] = json!({"type": kind});
     }
+    recipe["inputSchema"]["properties"]["compact"] = json!({
+        "description": "panel: inclusive viewport breakpoint for 12px gutters; 768 or 960.",
+        "type": "integer", "minimum": 0
+    });
+    recipe["inputSchema"]["properties"]["button"] = json!({
+        "description": "slider-action: the button after the slider named by widget.",
+        "type": "string"
+    });
     recipe["inputSchema"]["properties"]["on_failure"] = json!({
         "description": "Error status message on Data_Error for message; may be used without say/from.",
         "type": "string"
@@ -478,11 +486,42 @@ fn hand_written_tools() -> Vec<Value> {
         }
         recipe["inputSchema"]["properties"][name] = property;
     }
+    for (name, description, kind) in [
+        (
+            "search_param",
+            "toolbar: STRING input parameter of the existing call named by then.",
+            "string",
+        ),
+        (
+            "hint",
+            "toolbar: search hint (Search... by default).",
+            "string",
+        ),
+        (
+            "run_on",
+            "toolbar: change, enter or both (default); change/both runs on each keystroke.",
+            "string",
+        ),
+        (
+            "buttons",
+            "toolbar: ordered Label=handler buttons; handlers use mashup on grammar.",
+            "array",
+        ),
+    ] {
+        let mut property = json!({"description": description, "type": kind});
+        if kind == "array" {
+            property["items"] = json!({"type":"string"});
+        }
+        if name == "run_on" {
+            property["enum"] = json!(["change", "enter", "both"]);
+        }
+        recipe["inputSchema"]["properties"][name] = property;
+    }
     recipe["inputSchema"]["properties"]["fields"] = json!({"description": "label-pairs: ordered field[:Caption] entries; omitted means all DataShape fields.", "type": "array", "items": {"type": "string"}});
     recipe["inputSchema"]["properties"]["label_columns"] = json!({"description": "label-pairs: number of columns, one per field by default, above zero.", "type": "integer", "minimum": 0});
     recipe["inputSchema"]["properties"]["replace"] = json!({"description": "label-pairs: widget inside or beside the destination to remove with its bindings.", "type": "string"});
-    recipe["inputSchema"]["properties"]["width"] = json!({"description": "nested-menu: the column's width in pixels (300 by default).", "type": "integer", "minimum": 0});
-    recipe["inputSchema"]["properties"]["recipe"]["description"] = json!("enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, picker, tracker, set-on-click, nested-menu, navigate-on-click or collapsible; label-pairs uses widget as the responsive container, data, fields, title, label_columns and replace.");
+    recipe["inputSchema"]["properties"]["width"] = json!({"description": "nested-menu: column width (300); toolbar: search field width (240), in pixels.", "type": "integer", "minimum": 0});
+    recipe["inputSchema"]["properties"]["recipe"]["description"] = json!("panel styles a responsive column; slider-action pairs widget (slider) with button. toolbar uses widget as the empty responsive container, then, search_param, hint, width, run_on and buttons. enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, picker, tracker, set-on-click, nested-menu, navigate-on-click or collapsible; label-pairs uses widget as the responsive container, data, fields, title, label_columns and replace.");
     let edit = tools
         .iter_mut()
         .find(|tool| tool["name"] == "entity_edit")
@@ -527,6 +566,48 @@ fn hand_written_tools() -> Vec<Value> {
         .as_array_mut()
         .unwrap()
         .splice(2..2, [json!("role"), json!("permission-group")]);
+    new["description"] = json!(new["description"].as_str().unwrap().replace(
+        "themes, and Networks.",
+        "themes, Networks, ThingGroups, NotificationDefinitions and NotificationContents. Notifications take content, event (Type:Entity:Event) and recipient (event=GUID:User|Group:name) arrays; content needs handler, handler_id, optional field declarations and set cells."
+    ));
+    new["inputSchema"]["properties"]["kind"]["description"] =
+        json!(new["inputSchema"]["properties"]["kind"]["description"].as_str().unwrap().replace(
+        "`project`, `group`, `role`,",
+        "`project`, `group`, `thing-group`, `notification`, `notification-content`, `role`,"
+    ));
+    new["inputSchema"]["properties"]["kind"]["enum"]
+        .as_array_mut()
+        .unwrap()
+        .splice(
+            2..2,
+            [
+                json!("thing-group"),
+                json!("notification"),
+                json!("notification-content"),
+            ],
+        );
+    new["description"] = json!(new["description"].as_str().unwrap().replace("and NotificationContents. Notifications", "and NotificationContents. DirectoryServices use type ldap or active-directory, optional server/port/priority; created disabled, with the admin password set in Composer. Notifications"));
+    new["inputSchema"]["properties"]["kind"]["description"] = json!(new["inputSchema"]
+        ["properties"]["kind"]["description"]
+        .as_str()
+        .unwrap()
+        .replace(
+            "`notification-content`, `role`,",
+            "`notification-content`, `directory-service`, `role`,"
+        ));
+    new["inputSchema"]["properties"]["kind"]["enum"]
+        .as_array_mut()
+        .unwrap()
+        .insert(5, json!("directory-service"));
+    for name in ["host", "port", "priority"] {
+        new["inputSchema"]["properties"][name] = json!({"type":"string"});
+    }
+    for name in ["member", "content", "event", "recipient", "set"] {
+        new["inputSchema"]["properties"][name] = json!({"type":"array", "items":{"type":"string"}});
+    }
+    for name in ["handler", "handler_id"] {
+        new["inputSchema"]["properties"][name] = json!({"type":"string"});
+    }
     new["inputSchema"]["properties"]["icon"] =
         json!({"description": "Menu-level image URL or MediaEntity.", "type": "string"});
     let new = tools
@@ -535,6 +616,11 @@ fn hand_written_tools() -> Vec<Value> {
         .unwrap();
     new["inputSchema"]["properties"]["replacements"] =
         json!({"type": "array", "items": {"type": "string"}});
+    new["inputSchema"]["properties"]["gadget"] = json!({
+        "description": "Create a fixed-size dashboard gadget; layout defaults to 1x1 (columns x rows).",
+        "type": "boolean", "default": false
+    });
+    new["inputSchema"]["properties"]["layout"]["description"] = json!("Gadget size: 1x1, 2x1, 4x1, 1x2, 2x2, 4x2, 1x4, 2x4, 4x4; otherwise an alias for template.");
     let config_table = tools
         .iter_mut()
         .find(|tool| tool["name"] == "config_table")
@@ -2920,8 +3006,8 @@ fn status_record_returns_matching_entities_in_sync_and_keeps_differing_verdicts(
     let address = listener.local_addr().unwrap();
     std::thread::spawn(move || {
         use std::io::{Read, Write};
-        // Two entities per `all` status plus its project inventory, twice, then one single.
-        for _ in 0..7 {
+        // Two entity reads and three inventories per `all` status, twice, then one single.
+        for _ in 0..11 {
             let (mut stream, _) = listener.accept().unwrap();
             let mut buffer = [0; 8192];
             let read = stream.read(&mut buffer).unwrap();
@@ -2933,7 +3019,14 @@ fn status_record_returns_matching_entities_in_sync_and_keeps_differing_verdicts(
                 .rsplit('/')
                 .next()
                 .unwrap();
-            let xml = format!("<Entities><Things><Thing name=\"{name}\" projectName=\"Acme.App\"></Thing></Things></Entities>");
+            let xml = if matches!(
+                name,
+                "GetEntities" | "NotificationContents" | "NotificationDefinitions"
+            ) {
+                "{\"rows\":[]}".to_string()
+            } else {
+                format!("<Entities><Things><Thing name=\"{name}\" projectName=\"Acme.App\"></Thing></Things></Entities>")
+            };
             write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: text/xml\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{xml}",xml.len()).unwrap();
         }
     });
@@ -4873,4 +4966,166 @@ fn label_pairs_mcp_plans_then_applies_with_schema_options() {
         call_tool(&root, "mashup_validate", json!({"mashup":"Acme.Asset_MU"}));
     assert!(!failed, "{validated}");
     assert_eq!(validated["errors"], 0, "{validated}");
+}
+
+#[test]
+fn toolbar_mcp_schema_planning_apply_and_refusals() {
+    let definitions = tool_definitions();
+    let tool = definitions
+        .iter()
+        .find(|t| t["name"] == "mashup_recipe")
+        .unwrap();
+    let schema = &tool["inputSchema"];
+    for name in ["search_param", "hint", "run_on"] {
+        assert_eq!(schema["properties"][name]["type"], "string");
+    }
+    assert_eq!(schema["properties"]["buttons"]["items"]["type"], "string");
+    assert_eq!(
+        schema["properties"]["run_on"]["enum"],
+        json!(["change", "enter", "both"])
+    );
+    assert_eq!(schema["properties"]["dry_run"]["default"], true);
+    let (_dir, root) = solution_dir();
+    std::fs::write(root.join("Things/Acme.Manager.xml"), r#"<Entities><Things><Thing name="Acme.Manager" projectName="P"><ThingShape><ServiceDefinitions><ServiceDefinition name="Search"><ParameterDefinitions><FieldDefinition name="query" baseType="STRING"/><FieldDefinition name="count" baseType="INTEGER"/></ParameterDefinitions><ResultType baseType="NOTHING"/></ServiceDefinition></ServiceDefinitions><ServiceImplementations/></ThingShape></Thing></Things></Entities>"#).unwrap();
+    for (name, args) in [
+        (
+            "mashup_new",
+            json!({"name":"Acme.Assets_MU", "dry_run":false}),
+        ),
+        (
+            "mashup_source_add",
+            json!({"mashup":"Acme.Assets_MU", "entity":"Acme.Manager", "service":"Search", "dry_run":false}),
+        ),
+    ] {
+        let (failed, body) = call_tool(&root, name, args);
+        assert!(!failed, "{body}");
+    }
+    let path = root.join("Mashups/Acme.Assets_MU.xml");
+    let before = std::fs::read(&path).unwrap();
+    let mut args = json!({"recipe":"toolbar", "mashup":"Acme.Assets_MU", "widget":"center", "then":"data:Acme.Manager.Search", "search_param":"query", "hint":"Find", "width":320, "run_on":"enter", "buttons":["Reload=mashup:Refresh"]});
+    assert!(jsonschema::draft202012::is_valid(schema, &args));
+    for (key, value) in [
+        ("search_param", json!("count")),
+        ("run_on", json!("invalid")),
+        ("buttons", json!(["bad"])),
+    ] {
+        let mut bad = args.clone();
+        bad[key] = value;
+        let (failed, body) = call_tool(&root, "mashup_recipe", bad);
+        assert!(failed, "{key}: {body}");
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+    }
+    let (failed, planned) = call_tool(&root, "mashup_recipe", args.clone());
+    assert!(!failed, "{planned}");
+    assert_eq!(planned["dry_run"], true);
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    args["dry_run"] = json!(false);
+    let (failed, applied) = call_tool(&root, "mashup_recipe", args);
+    assert!(!failed, "{applied}");
+    assert_eq!(applied["applied"], true);
+    for key in ["added", "removed", "wired", "notes"] {
+        assert_eq!(planned[key], applied[key], "{key}");
+    }
+    assert_eq!(applied["added"].as_array().unwrap().len(), 5);
+    let (failed, validated) =
+        call_tool(&root, "mashup_validate", json!({"mashup":"Acme.Assets_MU"}));
+    assert!(!failed, "{validated}");
+    assert_eq!(validated["errors"], 0, "{validated}");
+}
+
+#[test]
+fn mashup_new_gadget_plans_and_applies_export_dimensions() {
+    let (_dir, root) = solution_dir();
+    let mut args = json!({"name":"Acme.Gadget", "gadget":true, "layout":"2x4"});
+    let planned = call(&root, "mashup_new", args.clone());
+    assert_eq!(planned["isError"], false, "{planned}");
+    assert_eq!(planned["structuredContent"]["dry_run"], true);
+    assert!(!root.join("Mashups/Acme.Gadget.xml").exists());
+    args["dry_run"] = json!(false);
+    let applied = call(&root, "mashup_new", args);
+    assert_eq!(applied["isError"], false, "{applied}");
+    let xml = std::fs::read_to_string(root.join("Mashups/Acme.Gadget.xml")).unwrap();
+    assert!(xml.contains("columns=\"2.0\""));
+    assert!(xml.contains("rows=\"4.0\""));
+    let content: Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join("src/Acme.Gadget/mashup/content.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(content["UI"]["Properties"]["Width"], 490);
+    assert_eq!(content["UI"]["Properties"]["Height"], 990);
+    for bad in [
+        json!({"name":"Acme.Bad", "gadget":true, "template":"blank"}),
+        json!({"name":"Acme.Bad", "gadget":true, "layout":"3x3"}),
+    ] {
+        assert_eq!(call(&root, "mashup_new", bad)["isError"], true);
+    }
+}
+
+#[test]
+fn new_notification_kinds_have_mcp_plan_apply_parity() {
+    let (_dir, root) = solution_dir();
+    let definitions = tool_definitions();
+    let tool = definitions
+        .iter()
+        .find(|tool| tool["name"] == "entity_new")
+        .unwrap();
+    for (kind, collection, extra) in [
+        ("thing-group", "ThingGroups", json!({"member":["P.T"]})),
+        (
+            "notification-content",
+            "NotificationContents",
+            json!({"handler":"Acme.Mail", "handler_id":"11111111-2222-4333-8444-555555555555", "field":["subject:STRING", "body:TEXT"], "set":["subject=Ready"]}),
+        ),
+        (
+            "notification",
+            "NotificationDefinitions",
+            json!({"content":["Acme.notification-content"], "event":["Thing:P.T:ThingStart"], "recipient":["Thing:P.T:ThingStart=11111111-2222-4333-8444-555555555555:User:Acme.Operator"]}),
+        ),
+    ] {
+        let mut args = extra;
+        args["kind"] = json!(kind);
+        args["name"] = json!(format!("Acme.{kind}"));
+        assert!(jsonschema::draft202012::is_valid(
+            &tool["inputSchema"],
+            &args
+        ));
+        let path = root.join(collection).join(format!("Acme.{kind}.xml"));
+        let planned = call(&root, "entity_new", args.clone());
+        assert_eq!(planned["isError"], false, "{planned}");
+        assert_eq!(planned["structuredContent"]["applied"], false);
+        assert!(!path.exists());
+        args["dry_run"] = json!(false);
+        let applied = call(&root, "entity_new", args);
+        assert_eq!(applied["isError"], false, "{applied}");
+        assert_eq!(applied["structuredContent"]["applied"], true);
+        assert!(path.exists());
+        assert!(jsonschema::draft202012::is_valid(
+            &tool["outputSchema"],
+            &applied["structuredContent"]
+        ));
+    }
+}
+
+#[test]
+fn directory_services_have_mcp_plan_apply_parity_and_refuse_credentials() {
+    let (_dir, root) = solution_dir();
+    for kind in ["ldap", "active-directory"] {
+        let mut args = json!({"kind":"directory-service", "name":format!("Acme.{kind}"), "type":kind, "host":"directory.example.invalid", "port":"636", "priority":"2"});
+        let planned = call(&root, "entity_new", args.clone());
+        assert_eq!(planned["isError"], false, "{planned}");
+        assert_eq!(planned["structuredContent"]["applied"], false);
+        let path = root.join(format!("DirectoryServices/Acme.{kind}.xml"));
+        assert!(!path.exists());
+        assert!(planned["structuredContent"]["warnings"]
+            .to_string()
+            .contains("Composer"));
+        args["password"] = json!("unused");
+        assert_eq!(call(&root, "entity_new", args.clone())["isError"], true);
+        args.as_object_mut().unwrap().remove("password");
+        args["dry_run"] = json!(false);
+        let applied = call(&root, "entity_new", args);
+        assert_eq!(applied["isError"], false, "{applied}");
+        let xml = std::fs::read_to_string(path).unwrap();
+        assert!(xml.contains("enabled=\"false\"") && xml.contains("<adminPassword/>"));
+    }
 }

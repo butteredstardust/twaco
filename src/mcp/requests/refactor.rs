@@ -316,6 +316,9 @@ pub(crate) struct MashupTemplatesRequest {
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct MashupNewRequest {
+    /// Create a fixed-size dashboard gadget; layout defaults to 1x1 (columns x rows).
+    #[serde(default)]
+    pub(crate) gadget: bool,
     /// The new mashup's name.
     pub(crate) name: String,
     /// The project it belongs to; may be left out when the solution has one project.
@@ -329,7 +332,7 @@ pub(crate) struct MashupNewRequest {
     pub(crate) from: Absent<String>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) replacements: Absent<Vec<String>>,
-    /// Compatibility alias for template.
+    /// Gadget size: 1x1, 2x1, 4x1, 1x2, 2x2, 4x2, 1x4, 2x4, 4x4; otherwise an alias for template.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) layout: Absent<String>,
     /// The INFOTABLE service result used as a sidebar's primary menu.
@@ -366,6 +369,14 @@ pub(crate) enum EntityNewKind {
     Project,
     #[serde(rename = "group")]
     Group,
+    #[serde(rename = "thing-group")]
+    ThingGroup,
+    #[serde(rename = "notification")]
+    Notification,
+    #[serde(rename = "notification-content")]
+    NotificationContent,
+    #[serde(rename = "directory-service")]
+    DirectoryService,
     #[serde(rename = "role")]
     Role,
     #[serde(rename = "permission-group")]
@@ -411,6 +422,10 @@ impl From<EntityNewKind> for crate::core::entity::new::Kind {
         match value {
             EntityNewKind::Project => Self::Project,
             EntityNewKind::Group => Self::Group,
+            EntityNewKind::ThingGroup => Self::ThingGroup,
+            EntityNewKind::Notification => Self::Notification,
+            EntityNewKind::NotificationContent => Self::NotificationContent,
+            EntityNewKind::DirectoryService => Self::DirectoryService,
             EntityNewKind::Role => Self::Role,
             EntityNewKind::PermissionGroup => Self::PermissionGroup,
             EntityNewKind::Thing => Self::Thing,
@@ -437,7 +452,7 @@ impl From<EntityNewKind> for crate::core::entity::new::Kind {
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct EntityNewRequest {
-    /// `project`, `group`, `role`, `permission-group`, `thing`, `thing-template`, `thing-shape`, `data-shape`, `timer`, `scheduler`, `data-table`, `stream`, `value-stream`, `media`, `style`, `state`, `menu`, `theme`, `network`, `mcp-namespace` or `ai-agent`.
+    /// `project`, `group`, `thing-group`, `notification`, `notification-content`, `directory-service`, `role`, `permission-group`, `thing`, `thing-template`, `thing-shape`, `data-shape`, `timer`, `scheduler`, `data-table`, `stream`, `value-stream`, `media`, `style`, `state`, `menu`, `theme`, `network`, `mcp-namespace` or `ai-agent`.
     pub(crate) kind: EntityNewKind,
     /// The entity name.
     pub(crate) name: String,
@@ -459,6 +474,20 @@ pub(crate) struct EntityNewRequest {
     pub(crate) base: Absent<String>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) field: Absent<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) member: Absent<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) content: Absent<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) event: Absent<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) recipient: Absent<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) set: Absent<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) handler: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) handler_id: Absent<String>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) every: Absent<String>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
@@ -506,6 +535,12 @@ pub(crate) struct EntityNewRequest {
     pub(crate) display_string: Absent<String>,
     #[serde(default, rename = "type", skip_serializing_if = "Absent::is_absent")]
     pub(crate) state_type: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) host: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) port: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) priority: Absent<String>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) state: Absent<Vec<String>>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
@@ -1010,6 +1045,25 @@ pub(crate) struct MashupParameterRequest {
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct MashupRecipeRequest {
+    /// panel: inclusive viewport breakpoint for 12px gutters; 768 or 960.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) compact: Absent<u32>,
+    /// slider-action: the button after the slider named by widget.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) button: Absent<String>,
+    /// toolbar: STRING input parameter of the existing call named by then.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) search_param: Absent<String>,
+    /// toolbar: search hint (Search... by default).
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) hint: Absent<String>,
+    /// toolbar: change, enter or both (default); change/both runs on each keystroke.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    #[schemars(extend("enum" = ["change", "enter", "both"]))]
+    pub(crate) run_on: Absent<String>,
+    /// toolbar: ordered Label=handler buttons; handlers use mashup on grammar.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) buttons: Absent<Vec<String>>,
     /// label-pairs: ordered field[:Caption] entries; omitted means all DataShape fields.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) fields: Absent<Vec<String>>,
@@ -1029,7 +1083,7 @@ pub(crate) struct MashupRecipeRequest {
     pub(crate) tab: Absent<String>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) start: Absent<String>,
-    /// enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, picker, tracker, set-on-click, nested-menu, navigate-on-click or collapsible; label-pairs uses widget as the responsive container, data, fields, title, label_columns and replace.
+    /// panel styles a responsive column; slider-action pairs widget (slider) with button. toolbar uses widget as the empty responsive container, then, search_param, hint, width, run_on and buttons. enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, picker, tracker, set-on-click, nested-menu, navigate-on-click or collapsible; label-pairs uses widget as the responsive container, data, fields, title, label_columns and replace.
     pub(crate) recipe: String,
     /// The mashup to write it in.
     pub(crate) mashup: String,
@@ -1126,7 +1180,7 @@ pub(crate) struct MashupRecipeRequest {
     /// nested-menu: leave several groups open at once.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) no_auto_collapse: Absent<bool>,
-    /// nested-menu: the column's width in pixels (300 by default).
+    /// nested-menu: column width (300); toolbar: search field width (240), in pixels.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) width: Absent<u32>,
     /// navigate-on-click: the selected row's field that names the mashup to open.

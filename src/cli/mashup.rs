@@ -478,6 +478,18 @@ pub(crate) enum ParamVerb {
 #[derive(Debug, clap::Args)]
 #[group(skip)]
 pub(crate) struct MashupRecipe {
+    #[command(flatten)]
+    pub(crate) detail: super::flags::Detail,
+    #[arg(long = "compact", value_name = "768|960")]
+    pub(crate) compact: Option<u32>,
+    #[arg(long = "search-param", value_name = "param")]
+    pub(crate) search_param: Option<String>,
+    #[arg(long = "hint", value_name = "text")]
+    pub(crate) hint: Option<String>,
+    #[arg(long = "run-on", value_name = "change|enter|both")]
+    pub(crate) run_on: Option<String>,
+    #[arg(long = "button", value_name = "Label=handler")]
+    pub(crate) buttons: Vec<String>,
     #[arg(long = "toggle", value_name = "button")]
     pub(crate) toggle: Option<String>,
     #[arg(long = "add-toggle")]
@@ -602,6 +614,8 @@ pub(crate) struct MashupTemplates {
 #[derive(Debug, clap::Args)]
 #[group(skip)]
 pub(crate) struct MashupNew {
+    #[arg(long = "gadget")]
+    pub(crate) gadget: bool,
     #[command(flatten)]
     pub(crate) project: Project,
     #[arg(long = "template", value_name = "name")]
@@ -642,6 +656,13 @@ pub(crate) fn mashup_new_cmd(solution: &Solution, args: &MashupNew) -> u8 {
         eprintln!("{} mashup new needs one <name>", style::prefix());
         return FAILED;
     };
+    if args.gadget && args.template.is_some() {
+        eprintln!(
+            "{} --gadget cannot be used with --template",
+            style::prefix()
+        );
+        return FAILED;
+    }
     if args.template.is_some() && args.layout.is_some() {
         eprintln!("{} give --template or --layout, not both", style::prefix());
         return FAILED;
@@ -667,7 +688,7 @@ pub(crate) fn mashup_new_cmd(solution: &Solution, args: &MashupNew) -> u8 {
     let template = args
         .template
         .as_ref()
-        .or(args.layout.as_ref())
+        .or(args.layout.as_ref().filter(|_| !args.gadget))
         .cloned()
         .unwrap_or_else(|| "blank".into());
     let apply = args.apply.apply;
@@ -676,6 +697,8 @@ pub(crate) fn mashup_new_cmd(solution: &Solution, args: &MashupNew) -> u8 {
             name: name.clone(),
             project: args.project.project.clone(),
             template,
+            gadget: args.gadget,
+            layout: args.layout.clone().filter(|_| args.gadget),
             primary_menu: args.primary_menu.clone(),
             menu_entity: args.menu_entity.clone(),
             secondary_menu: args.secondary_menu.clone(),
@@ -789,12 +812,15 @@ pub(crate) fn mashup_new_cmd(solution: &Solution, args: &MashupNew) -> u8 {
 /// `twaco mashup param add|set|remove`: keep Composer's four parameter stores together.
 /// `twaco mashup recipe <recipe> <mashup> [<widget>] ...`: plan one recipe, or apply it.
 pub(crate) fn mashup_recipe_cmd(solution: &Solution, args: &MashupRecipe) -> u8 {
-    let (name, mashup, widget) = match args.operands.as_slice() {
-        [name, mashup] => (name, mashup, None),
-        [name, mashup, widget] => (name, mashup, Some(widget.clone())),
+    let (name, mashup, widget, button) = match args.operands.as_slice() {
+        [name, mashup] => (name, mashup, None, None),
+        [name, mashup, widget] => (name, mashup, Some(widget.clone()), None),
+        [name, mashup, widget, button] if name == "slider-action" => {
+            (name, mashup, Some(widget.clone()), Some(button.clone()))
+        }
         _ => {
             eprintln!(
-                "{} mashup recipe needs <recipe> <mashup> [<widget>]; the recipes are {}",
+                "{} mashup recipe needs <recipe> <mashup> [<widget>] (slider-action needs <slider> <button>); the recipes are {}",
                 style::prefix(),
                 mashup::authoring::RECIPES.join(", ")
             );
@@ -826,6 +852,12 @@ pub(crate) fn mashup_recipe_cmd(solution: &Solution, args: &MashupRecipe) -> u8 
         return FAILED;
     }
     let recipe_args = mashup::authoring::RecipeArgs {
+        compact: args.compact,
+        button,
+        search_param: args.search_param.clone(),
+        hint: args.hint.clone(),
+        run_on: args.run_on.clone(),
+        buttons: args.buttons.clone(),
         toggle: args.toggle.clone(),
         add_toggle: args.add_toggle,
         in_container: args.in_container.clone(),
@@ -941,8 +973,10 @@ pub(crate) fn mashup_recipe_cmd(solution: &Solution, args: &MashupRecipe) -> u8 
     for id in &outcome.plan.removed {
         println!("  remove {id}");
     }
-    for line in &outcome.plan.wired {
-        println!("  {line}");
+    if args.detail.detail || !["panel", "slider-action"].contains(&outcome.plan.name) {
+        for line in &outcome.plan.wired {
+            println!("  {line}");
+        }
     }
     if !outcome.applied {
         println!("run again with --apply to write it");

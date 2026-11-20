@@ -108,6 +108,10 @@ pub enum EdgeKind {
     Member,
     /// A mashup's master.
     MasterMashup,
+    /// A notification definition attaching content.
+    NotificationContent,
+    /// Notification content naming its handler Thing.
+    NotificationHandler,
 }
 
 impl EdgeKind {
@@ -127,6 +131,8 @@ impl EdgeKind {
             | EdgeKind::NetworkNode
             | EdgeKind::MenuItem
             | EdgeKind::Member
+            | EdgeKind::NotificationContent
+            | EdgeKind::NotificationHandler
             | EdgeKind::MasterMashup => Confidence::Structural,
             EdgeKind::ScriptReference | EdgeKind::MashupBinding => Confidence::Resolved,
             EdgeKind::ScriptMention | EdgeKind::MashupMention => Confidence::Review,
@@ -144,6 +150,8 @@ impl EdgeKind {
                 | EdgeKind::MenuItem
                 | EdgeKind::Member
                 | EdgeKind::MasterMashup
+                | EdgeKind::NotificationContent
+                | EdgeKind::NotificationHandler
                 | EdgeKind::AgentConfig
                 | EdgeKind::McpFile
         )
@@ -178,6 +186,8 @@ impl EdgeKind {
             EdgeKind::MenuItem => "menu_item",
             EdgeKind::Member => "member",
             EdgeKind::MasterMashup => "master_mashup",
+            EdgeKind::NotificationContent => "notification_content",
+            EdgeKind::NotificationHandler => "notification_handler",
         }
     }
 }

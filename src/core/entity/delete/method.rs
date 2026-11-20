@@ -55,11 +55,11 @@ pub(crate) fn method_for(collection: &str) -> Option<Method> {
     match collection {
         "ApplicationKeys"
         | "Dashboards"
+        | "DirectoryServices"
         | "DataShapes"
         | "DataTables"
         | "Localizations"
         | "LocalizationTables"
-        | "MashupGadgets"
         | "Mashups"
         | "Menus"
         | "ModelTags"
@@ -91,7 +91,6 @@ pub(super) fn known_collections() -> Vec<&'static str> {
     for extra in [
         "DataTables",
         "Localizations",
-        "MashupGadgets",
         "Schedulers",
         "Streams",
         "Timers",
@@ -107,6 +106,25 @@ pub(super) fn known_collections() -> Vec<&'static str> {
 #[cfg(test)]
 mod rbac_tests {
     use super::*;
+    #[test]
+    fn notification_and_thing_group_deletes_use_rest() {
+        for collection in [
+            "DirectoryServices",
+            "ThingGroups",
+            "NotificationDefinitions",
+            "NotificationContents",
+        ] {
+            assert_eq!(method_for(collection), Some(Method::RestDelete));
+            assert!(known_collections().contains(&collection));
+        }
+    }
+
+    #[test]
+    fn legacy_gadgets_are_not_a_server_collection() {
+        assert_eq!(method_for("MashupGadgets"), None);
+        assert!(!known_collections().contains(&"MashupGadgets"));
+    }
+
     #[test]
     fn rbac_deletes_use_the_field_verified_entity_services() {
         for (collection, service) in [
