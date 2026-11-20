@@ -1712,6 +1712,44 @@ structured output and `--apply` to write. MCP uses `mashup_recipe`, `recipe: "to
 `widget` for the container, `then`, `search_param`, optional `hint`, `width`, `run_on`,
 and `buttons` (an array of `Label=handler`); `dry_run` defaults to true.
 
+`mashup recipe panel` styles an existing responsive column as a full-width grey
+(`#F7F7F7`) growing panel with 24/24/12 gutters. Default descendant wrappers
+without a background inherit it; explicit backgrounds (including white), descendant
+margins, borders and leaf styles survive. Contained mashups are boundaries.
+
+```sh
+twaco mashup recipe panel Acme.Detail_MU details --compact 768 --detail
+twaco mashup recipe panel Acme.Detail_MU details --compact 768 --apply
+twaco mashup recipe slider-action Acme.Controls_MU ptcsslider-8 ptcsbutton-9 --apply
+```
+
+Panel appends a `twaco-panel-<widget-id>` class token and owns one delimited CSS
+block in `custom.css`. Existing classes and other CSS survive. `--compact 768|960`
+is an inclusive viewport breakpoint for 12px gutters; omitting it removes the
+owned media query. It does not stack children or inset absolutely positioned leaves.
+Checked live on 10.2: the class lands on the panel's bounding box, which computes to
+`flex: 1 1 auto` with 24/24/12 margins and a width of its parent minus 48px; with
+`--compact 768` the gutters are 12px at 768px and below and 24px at 769px.
+Panel refuses roots, static containers, non-column targets, named non-default
+styles, width constraints, malformed styles/markers and bindings to overwritten
+properties. Plans list affected files, including changed CSS; `--detail` lists
+before/after properties, wrapper styles and the CSS block. Apply writes XML,
+content and CSS in one transaction; repeated application is unchanged.
+
+`slider-action` requires exactly a horizontal `ptcsslider` followed by a
+`ptcsbutton`, as flow-sized direct children of an existing responsive row. It sets
+row `align-items:flex-end`, range sizing with no maximum height, slider Margin
+`"0"`, and button Margin `"0 0 18 12"` when `DisplayMinMaxLabels` is true or absent,
+or `"0 0 0 12"` when false. The 18px bottom offset compensates for the min/max
+label row; 12px gives the horizontal gap. On 10.2 the button centre matches the
+slider track centre with the default 34px button. Non-default button height still
+assumes 34px, as stated in the plan. Dimensions, slider options, labels, values,
+button type and wiring survive; no CSS is emitted. Vertical or filled controls,
+extra/reversed siblings, separate parents, non-row parents, malformed styles,
+stale sidecars, bound overwritten properties and unrelated flags are refused.
+MCP `mashup_recipe` takes `recipe:"panel"`, `widget`, optional `compact`, or
+`recipe:"slider-action"`, `widget` (slider) and `button`; `dry_run` defaults true.
+
 `mashup recipe label-pairs` fills an empty responsive container with caption/value labels
 from an existing data call's result DataShape. By default it uses all fields in DataShape order,
 splits field names into captions, and gives each pair its own column in a wrapping row, matching

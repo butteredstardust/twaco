@@ -418,6 +418,14 @@ fn hand_written_tools() -> Vec<Value> {
     ] {
         recipe["inputSchema"]["properties"][name] = json!({"type": kind});
     }
+    recipe["inputSchema"]["properties"]["compact"] = json!({
+        "description": "panel: inclusive viewport breakpoint for 12px gutters; 768 or 960.",
+        "type": "integer", "minimum": 0
+    });
+    recipe["inputSchema"]["properties"]["button"] = json!({
+        "description": "slider-action: the button after the slider named by widget.",
+        "type": "string"
+    });
     recipe["inputSchema"]["properties"]["on_failure"] = json!({
         "description": "Error status message on Data_Error for message; may be used without say/from.",
         "type": "string"
@@ -513,7 +521,7 @@ fn hand_written_tools() -> Vec<Value> {
     recipe["inputSchema"]["properties"]["label_columns"] = json!({"description": "label-pairs: number of columns, one per field by default, above zero.", "type": "integer", "minimum": 0});
     recipe["inputSchema"]["properties"]["replace"] = json!({"description": "label-pairs: widget inside or beside the destination to remove with its bindings.", "type": "string"});
     recipe["inputSchema"]["properties"]["width"] = json!({"description": "nested-menu: column width (300); toolbar: search field width (240), in pixels.", "type": "integer", "minimum": 0});
-    recipe["inputSchema"]["properties"]["recipe"]["description"] = json!("toolbar uses widget as the empty responsive container, then, search_param, hint, width, run_on and buttons. enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, picker, tracker, set-on-click, nested-menu, navigate-on-click or collapsible; label-pairs uses widget as the responsive container, data, fields, title, label_columns and replace.");
+    recipe["inputSchema"]["properties"]["recipe"]["description"] = json!("panel styles a responsive column; slider-action pairs widget (slider) with button. toolbar uses widget as the empty responsive container, then, search_param, hint, width, run_on and buttons. enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, picker, tracker, set-on-click, nested-menu, navigate-on-click or collapsible; label-pairs uses widget as the responsive container, data, fields, title, label_columns and replace.");
     let edit = tools
         .iter_mut()
         .find(|tool| tool["name"] == "entity_edit")

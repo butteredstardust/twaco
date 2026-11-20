@@ -1003,6 +1003,8 @@ pub(crate) fn mashup_recipe_tool(
     use crate::core::mashup::authoring::{Recipe, RecipeArgs, RecipeRequest};
     let dry_run = arguments.dry_run;
     let recipe_args = RecipeArgs {
+        compact: arguments.compact.as_ref().copied(),
+        button: arguments.button.as_ref().cloned(),
         search_param: arguments.search_param.as_ref().cloned(),
         hint: arguments.hint.as_ref().cloned(),
         run_on: arguments.run_on.as_ref().cloned(),

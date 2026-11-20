@@ -1036,6 +1036,12 @@ pub(crate) struct MashupParameterRequest {
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct MashupRecipeRequest {
+    /// panel: inclusive viewport breakpoint for 12px gutters; 768 or 960.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) compact: Absent<u32>,
+    /// slider-action: the button after the slider named by widget.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) button: Absent<String>,
     /// toolbar: STRING input parameter of the existing call named by then.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) search_param: Absent<String>,
@@ -1068,7 +1074,7 @@ pub(crate) struct MashupRecipeRequest {
     pub(crate) tab: Absent<String>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) start: Absent<String>,
-    /// toolbar uses widget as the empty responsive container, then, search_param, hint, width, run_on and buttons. enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, picker, tracker, set-on-click, nested-menu, navigate-on-click or collapsible; label-pairs uses widget as the responsive container, data, fields, title, label_columns and replace.
+    /// panel styles a responsive column; slider-action pairs widget (slider) with button. toolbar uses widget as the empty responsive container, then, search_param, hint, width, run_on and buttons. enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, picker, tracker, set-on-click, nested-menu, navigate-on-click or collapsible; label-pairs uses widget as the responsive container, data, fields, title, label_columns and replace.
     pub(crate) recipe: String,
     /// The mashup to write it in.
     pub(crate) mashup: String,

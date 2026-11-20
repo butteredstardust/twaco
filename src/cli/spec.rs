@@ -940,8 +940,12 @@ pub(crate) const USAGE: &[Usage] = &[
     Usage {
         path: "mashup recipe",
         group: 1,
-        text: r#"  mashup recipe <recipe> <mashup> [<widget>] [recipe flags] [--apply] [--json]
+        text: r#"  mashup recipe <recipe> <mashup> [<widget>] [<button>] [recipe flags] [--apply] [--json] [--detail]
                               write the wiring real mashups repeat, in one edit; plan unless --apply
+      panel <container> [--compact <768|960>]
+                              grey growing column with managed CSS; optional compact viewport gutters
+      slider-action <slider> <button>
+                              align the button centre to the horizontal slider track (default 34px button)
       collapsible <container> [--toggle <button> | --add-toggle --in <container>]
           [--tab inside|outside|none] [--start collapsed]
                               collapse a container with siblings; keep its toggle outside it

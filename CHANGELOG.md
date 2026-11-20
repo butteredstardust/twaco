@@ -8,6 +8,8 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- `mashup recipe panel` (also MCP `mashup_recipe`) styles an existing responsive column grey (#F7F7F7), inherits backgrounds on default wrappers, preserves explicit surfaces, and manages one class/CSS block with optional inclusive `--compact 768|960` viewport gutters (live-checked on 10.2, including the 768/769px boundary).
+- `mashup recipe slider-action` (also MCP `mashup_recipe`, with `widget` and `button`) aligns a default 34px button centre to a horizontal slider track using measured 10.2 bottom margins (18px with min/max labels, 0px without) and a 12px gap; preserves controls and wiring, with unbounded range row sizing. Both recipes plan by default and apply transactionally; `--detail` lists property/style changes and panel CSS.
 - Add repository-first `new thing-group`, `new notification` and `new notification-content`, with MCP parity, registered handler DataShape discovery and explicit offline field fallback.
 - Classify ThingGroups and notifications in status inventory, list notifications through their REST collections, track notification dependencies and bundle contents before definitions.
 - `mashup new --gadget --layout <columns>x<rows>` creates fixed dashboard gadgets in all nine sizes; `new mashup` shares the same flags and executor. Legacy MashupGadgets folders/wrappers are diagnosed for explicit migration. Exact mashup authoring lookups suggest full names without resolving short names.

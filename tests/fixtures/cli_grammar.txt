@@ -370,8 +370,12 @@ help:
 |       --no-default             clear the default on set
 |       --data-shape             required for INFOTABLE
 |       --force                  remove bindings when removing a parameter
-|   mashup recipe <recipe> <mashup> [<widget>] [recipe flags] [--apply] [--json]
+|   mashup recipe <recipe> <mashup> [<widget>] [<button>] [recipe flags] [--apply] [--json] [--detail]
 |                               write the wiring real mashups repeat, in one edit; plan unless --apply
+|       panel <container> [--compact <768|960>]
+|                               grey growing column with managed CSS; optional compact viewport gutters
+|       slider-action <slider> <button>
+|                               align the button centre to the horizontal slider track (default 34px button)
 |       collapsible <container> [--toggle <button> | --add-toggle --in <container>]
 |           [--tab inside|outside|none] [--start collapsed]
 |                               collapse a container with siblings; keep its toggle outside it
@@ -7998,8 +8002,12 @@ help:
 |       --no-default             clear the default on set
 |       --data-shape             required for INFOTABLE
 |       --force                  remove bindings when removing a parameter
-|   mashup recipe <recipe> <mashup> [<widget>] [recipe flags] [--apply] [--json]
+|   mashup recipe <recipe> <mashup> [<widget>] [<button>] [recipe flags] [--apply] [--json] [--detail]
 |                               write the wiring real mashups repeat, in one edit; plan unless --apply
+|       panel <container> [--compact <768|960>]
+|                               grey growing column with managed CSS; optional compact viewport gutters
+|       slider-action <slider> <button>
+|                               align the button centre to the horizontal slider track (default 34px button)
 |       collapsible <container> [--toggle <button> | --add-toggle --in <container>]
 |           [--tab inside|outside|none] [--start collapsed]
 |                               collapse a container with siblings; keep its toggle outside it
@@ -10030,7 +10038,7 @@ help:
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
 
 == twaco mashup recipe
-usage: twaco mashup recipe <recipe> <mashup> [<widget>] [recipe flags] [--apply] [--json]
+usage: twaco mashup recipe <recipe> <mashup> [<widget>] [<button>] [recipe flags] [--apply] [--json] [--detail]
 settings: disable-version-flag disable-help-subcommand
 subcommands: 
 arg --action-label
@@ -10150,6 +10158,18 @@ arg --columns
     other: -
     given twice: ArgumentConflict
     given bare: InvalidValue
+arg --compact
+    action: Set
+    value_name: 768|960
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 arg --data
     action: Set
     value_name: address
@@ -10162,6 +10182,17 @@ arg --data
     other: -
     given twice: ArgumentConflict
     given bare: InvalidValue
+arg --detail
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
 arg --editable-column
     action: Append
     value_name: field
@@ -10672,8 +10703,12 @@ arg <operands>
     index: 1
     other: -
 help:
-|   mashup recipe <recipe> <mashup> [<widget>] [recipe flags] [--apply] [--json]
+|   mashup recipe <recipe> <mashup> [<widget>] [<button>] [recipe flags] [--apply] [--json] [--detail]
 |                               write the wiring real mashups repeat, in one edit; plan unless --apply
+|       panel <container> [--compact <768|960>]
+|                               grey growing column with managed CSS; optional compact viewport gutters
+|       slider-action <slider> <button>
+|                               align the button centre to the horizontal slider track (default 34px button)
 |       collapsible <container> [--toggle <button> | --add-toggle --in <container>]
 |           [--tab inside|outside|none] [--start collapsed]
 |                               collapse a container with siblings; keep its toggle outside it

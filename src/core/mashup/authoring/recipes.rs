@@ -1,9 +1,12 @@
 //! Recipes: the wiring real mashups repeat, each written in one edit from the same pieces
 //! `mashup add`, `mashup bind` and `mashup on` use. Counts are from 1,084 reference mashups.
 
+mod layout;
+
 use super::{
-    bind_in, cache_entry, contained_parameters, finish_edit, load_existing, navigation_definition,
-    on_in, parse_loaded, AuthoringContext, AuthoringError, EditPlan, ParameterDefinition,
+    bind_in, cache_entry, contained_parameters, finish_edit_with_css, load_existing,
+    navigation_definition, on_in, parse_loaded, AuthoringContext, AuthoringError, EditPlan,
+    ParameterDefinition,
 };
 use crate::core::config::Solution;
 use crate::core::mashup;
@@ -19,6 +22,14 @@ const MAX_COMBO_SERIES: usize = 24;
 /// One recipe and what it needs. Addresses are those `mashup bind` and `mashup on` take.
 #[derive(Clone, Debug)]
 pub enum Recipe {
+    Panel {
+        container: String,
+        compact: Option<u32>,
+    },
+    SliderAction {
+        slider: String,
+        button: String,
+    },
     Toolbar {
         container: String,
         then: String,
@@ -102,7 +113,9 @@ pub enum Recipe {
         refresh: Option<String>,
     },
     /// A popup closing itself once its save completes (232 seen).
-    CloseAfter { after: String },
+    CloseAfter {
+        after: String,
+    },
     /// A service run again every so often (48 seen).
     AutoRefresh {
         call: String,
@@ -185,6 +198,8 @@ pub struct RecipePlan {
 impl Recipe {
     pub(crate) fn name(&self) -> &'static str {
         match self {
+            Self::Panel { .. } => "panel",
+            Self::SliderAction { .. } => "slider-action",
             Self::Toolbar { .. } => "toolbar",
             Self::LabelPairs { .. } => "label-pairs",
             Self::Collapsible { .. } => "collapsible",
@@ -1070,7 +1085,12 @@ pub(crate) fn plan_recipe(
         wired: Vec::new(),
         notes: Vec::new(),
     };
+    let mut css = None;
     match &request.recipe {
+        Recipe::Panel { container, compact } => {
+            css = Some(work.panel(container, *compact, &loaded.assets.css)?);
+        }
+        Recipe::SliderAction { slider, button } => work.slider_action(slider, button)?,
         Recipe::Toolbar {
             container,
             then,
@@ -2074,6 +2094,16 @@ pub(crate) fn plan_recipe(
             }
         }
     }
+    if let Some(css) = &css {
+        if loaded.sidecars.is_some() {
+            work.document.root_mut().remove("CustomMashupCss");
+        } else {
+            work.document.set_top(
+                "CustomMashupCss",
+                json!(css.strip_suffix('\n').unwrap_or(css)),
+            );
+        }
+    }
     let Work {
         document,
         added,
@@ -2086,7 +2116,7 @@ pub(crate) fn plan_recipe(
     let mut seen = std::collections::BTreeSet::new();
     notes.retain(|note| seen.insert(note.clone()));
     Ok(RecipePlan {
-        edit: finish_edit(loaded, document, "mashup recipe")?,
+        edit: finish_edit_with_css(loaded, document, "mashup recipe", css)?,
         name: request.recipe.name(),
         added,
         removed,
@@ -2096,8 +2126,10 @@ pub(crate) fn plan_recipe(
 }
 
 /// What a recipe can be given, as the command line and MCP both pass it.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct RecipeArgs {
+    pub compact: Option<u32>,
+    pub button: Option<String>,
     pub search_param: Option<String>,
     pub hint: Option<String>,
     pub run_on: Option<String>,
@@ -2171,6 +2203,8 @@ pub struct RecipeArgs {
 
 /// The recipe names, for help and errors.
 pub const RECIPES: &[&str] = &[
+    "panel",
+    "slider-action",
     "toolbar",
     "label-pairs",
     "collapsible",
@@ -2241,6 +2275,27 @@ fn required(value: &Option<String>, what: &str, recipe: &str) -> Result<String, 
 impl Recipe {
     /// Build a recipe from its name and arguments, refusing what it does not take.
     pub fn from_args(name: &str, args: &RecipeArgs) -> Result<Recipe, AuthoringError> {
+        if args.compact.is_some() && name != "panel" {
+            return Err(AuthoringError::Invalid(
+                "--compact is for recipe panel".into(),
+            ));
+        }
+        if args.button.is_some() && name != "slider-action" {
+            return Err(AuthoringError::Invalid(
+                "the fourth operand (button) is for recipe slider-action".into(),
+            ));
+        }
+        if ["panel", "slider-action"].contains(&name) {
+            let mut rest = args.clone();
+            rest.widget = None;
+            rest.button = None;
+            rest.compact = None;
+            if rest != RecipeArgs::default() {
+                return Err(AuthoringError::Invalid(format!(
+                    "{name}: unrelated recipe flags are not accepted"
+                )));
+            }
+        }
         if args.on_failure.is_some() && name != "message" {
             return Err(AuthoringError::Invalid(
                 "--on-failure is for recipe message; close-after closes only on success".into(),
@@ -2294,6 +2349,21 @@ impl Recipe {
         let inputs = pairs("--input", &args.inputs)?;
         let widget = |what: &str| required(&args.widget, what, name);
         Ok(match name {
+            "panel" => {
+                if args.compact.is_some_and(|n| ![768, 960].contains(&n)) {
+                    return Err(AuthoringError::Invalid(
+                        "panel: --compact must be 768 or 960".into(),
+                    ));
+                }
+                Recipe::Panel {
+                    container: widget("a responsive column")?,
+                    compact: args.compact,
+                }
+            }
+            "slider-action" => Recipe::SliderAction {
+                slider: widget("a slider and button")?,
+                button: required(&args.button, "the fourth operand (button)", name)?,
+            },
             "toolbar" => {
                 let run_on = args.run_on.clone().unwrap_or_else(|| "both".into());
                 let width = args.width.unwrap_or(240);
@@ -2526,6 +2596,9 @@ pub fn recipe_plan_json(solution: &Solution, plan: &RecipePlan, applied: bool) -
     let mut files = vec![relative(&plan.edit.entity_path)];
     if let Some(sidecars) = &plan.edit.sidecars {
         files.push(relative(&sidecars.content_path));
+        if sidecars.css_before != sidecars.css_after {
+            files.push(relative(&sidecars.css_path));
+        }
     }
     json!({
         "applied": applied,
