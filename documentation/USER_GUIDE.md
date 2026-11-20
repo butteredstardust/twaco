@@ -892,6 +892,35 @@ twaco new project Acme.Orders --depends-on Acme.Base --apply
 twaco new group Acme.Orders.Viewers_UG --project Acme.Orders --apply
 ```
 
+`new thing-group` creates a ThingGroup with empty membership unless repeated `--member Thing`
+flags are given. `new notification` creates a NotificationDefinition; repeated `--content`
+flags attach NotificationContents and `--event Type:Entity:Event` flags declare applicable
+sources. A content absent from the repository produces a warning because it may exist on the
+server. Optional `--recipient Type:Entity:Event=GUID:User|Group:name` flags add recipients;
+each recipient event must also be listed with `--event`.
+
+```sh
+twaco new thing-group Acme.Orders.Site --member Acme.Orders.Pump --apply
+twaco new notification-content Acme.Orders.Email --handler Acme.Orders.Mail --handler-id 11111111-2222-4333-8444-555555555555 --field subject:STRING --field body:TEXT --set "subject=Pump started" --apply
+twaco new notification Acme.Orders.Started --content Acme.Orders.Email --event Thing:Acme.Orders.Pump:ThingStart --apply
+```
+
+Notification content needs a registered extension handler: an extension such as Mail registers
+a hidden, multi-row `Handlers` configuration table on its ThingTemplate. The matching
+`handlerID` row names the `configuration` DataShape. A Thing on the `NotificationHandler`
+template alone is not a handler. twaco resolves these fields offline from the handler Thing,
+its template chain, repository DataShapes and configured local extension metadata/XML. When
+those are unavailable, declare the fields with repeated `--field name:TYPE`. `--set field=value`
+only accepts declared fields and refuses password or credential fields; configure secrets on
+the server. Scalar and JSON cells are supported by `--set`; structured cells require exported
+content XML. The Mail handler needs the recipient User's `emailAddress` extension property set
+(verified on ThingWorx 10.2). Empty `projectName` on the server becomes `PTCDefaultProject`;
+these constructors use the selected repository project. NotificationContent's Composer route
+is unverified; `twaco url` retains its element-name fallback.
+
+All three commands plan unless `--apply`, support `--json`, and create repository files for
+later deployment. MCP uses the same `entity_new` tool, with `dry_run` defaulting to true.
+
 ```sh
 twaco new thing Acme.Orders.Manager --template Acme.Orders.Manager_TT --shape Acme.Orders.Audit_TS
 twaco new thing-template Acme.Orders.Manager_TT --base GenericThing --shape Acme.Orders.Audit_TS

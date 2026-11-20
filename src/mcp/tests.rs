@@ -558,6 +558,32 @@ fn hand_written_tools() -> Vec<Value> {
         .as_array_mut()
         .unwrap()
         .splice(2..2, [json!("role"), json!("permission-group")]);
+    new["description"] = json!(new["description"].as_str().unwrap().replace(
+        "themes, and Networks.",
+        "themes, Networks, ThingGroups, NotificationDefinitions and NotificationContents. Notifications take content, event (Type:Entity:Event) and recipient (event=GUID:User|Group:name) arrays; content needs handler, handler_id, optional field declarations and set cells."
+    ));
+    new["inputSchema"]["properties"]["kind"]["description"] =
+        json!(new["inputSchema"]["properties"]["kind"]["description"].as_str().unwrap().replace(
+        "`project`, `group`, `role`,",
+        "`project`, `group`, `thing-group`, `notification`, `notification-content`, `role`,"
+    ));
+    new["inputSchema"]["properties"]["kind"]["enum"]
+        .as_array_mut()
+        .unwrap()
+        .splice(
+            2..2,
+            [
+                json!("thing-group"),
+                json!("notification"),
+                json!("notification-content"),
+            ],
+        );
+    for name in ["member", "content", "event", "recipient", "set"] {
+        new["inputSchema"]["properties"][name] = json!({"type":"array", "items":{"type":"string"}});
+    }
+    for name in ["handler", "handler_id"] {
+        new["inputSchema"]["properties"][name] = json!({"type":"string"});
+    }
     new["inputSchema"]["properties"]["icon"] =
         json!({"description": "Menu-level image URL or MediaEntity.", "type": "string"});
     let new = tools
@@ -2956,8 +2982,8 @@ fn status_record_returns_matching_entities_in_sync_and_keeps_differing_verdicts(
     let address = listener.local_addr().unwrap();
     std::thread::spawn(move || {
         use std::io::{Read, Write};
-        // Two entities per `all` status plus its project inventory, twice, then one single.
-        for _ in 0..7 {
+        // Two entity reads and three inventories per `all` status, twice, then one single.
+        for _ in 0..11 {
             let (mut stream, _) = listener.accept().unwrap();
             let mut buffer = [0; 8192];
             let read = stream.read(&mut buffer).unwrap();
@@ -2969,7 +2995,14 @@ fn status_record_returns_matching_entities_in_sync_and_keeps_differing_verdicts(
                 .rsplit('/')
                 .next()
                 .unwrap();
-            let xml = format!("<Entities><Things><Thing name=\"{name}\" projectName=\"Acme.App\"></Thing></Things></Entities>");
+            let xml = if matches!(
+                name,
+                "GetEntities" | "NotificationContents" | "NotificationDefinitions"
+            ) {
+                "{\"rows\":[]}".to_string()
+            } else {
+                format!("<Entities><Things><Thing name=\"{name}\" projectName=\"Acme.App\"></Thing></Things></Entities>")
+            };
             write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: text/xml\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{xml}",xml.len()).unwrap();
         }
     });
@@ -5001,5 +5034,50 @@ fn mashup_new_gadget_plans_and_applies_export_dimensions() {
         json!({"name":"Acme.Bad", "gadget":true, "layout":"3x3"}),
     ] {
         assert_eq!(call(&root, "mashup_new", bad)["isError"], true);
+    }
+}
+
+#[test]
+fn new_notification_kinds_have_mcp_plan_apply_parity() {
+    let (_dir, root) = solution_dir();
+    let definitions = tool_definitions();
+    let tool = definitions
+        .iter()
+        .find(|tool| tool["name"] == "entity_new")
+        .unwrap();
+    for (kind, collection, extra) in [
+        ("thing-group", "ThingGroups", json!({"member":["P.T"]})),
+        (
+            "notification-content",
+            "NotificationContents",
+            json!({"handler":"Acme.Mail", "handler_id":"11111111-2222-4333-8444-555555555555", "field":["subject:STRING", "body:TEXT"], "set":["subject=Ready"]}),
+        ),
+        (
+            "notification",
+            "NotificationDefinitions",
+            json!({"content":["Acme.notification-content"], "event":["Thing:P.T:ThingStart"], "recipient":["Thing:P.T:ThingStart=11111111-2222-4333-8444-555555555555:User:Acme.Operator"]}),
+        ),
+    ] {
+        let mut args = extra;
+        args["kind"] = json!(kind);
+        args["name"] = json!(format!("Acme.{kind}"));
+        assert!(jsonschema::draft202012::is_valid(
+            &tool["inputSchema"],
+            &args
+        ));
+        let path = root.join(collection).join(format!("Acme.{kind}.xml"));
+        let planned = call(&root, "entity_new", args.clone());
+        assert_eq!(planned["isError"], false, "{planned}");
+        assert_eq!(planned["structuredContent"]["applied"], false);
+        assert!(!path.exists());
+        args["dry_run"] = json!(false);
+        let applied = call(&root, "entity_new", args);
+        assert_eq!(applied["isError"], false, "{applied}");
+        assert_eq!(applied["structuredContent"]["applied"], true);
+        assert!(path.exists());
+        assert!(jsonschema::draft202012::is_valid(
+            &tool["outputSchema"],
+            &applied["structuredContent"]
+        ));
     }
 }

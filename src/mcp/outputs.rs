@@ -1229,6 +1229,7 @@ pub(crate) struct NewBuildingBlockResult {
 
 #[derive(Serialize, JsonSchema)]
 pub(crate) struct EntityNewResult {
+    warnings: Vec<String>,
     scope: String,
     deploy_command: String,
     note: String,

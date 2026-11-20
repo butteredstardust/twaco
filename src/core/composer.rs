@@ -127,6 +127,25 @@ mod tests {
     use super::*;
 
     #[test]
+    fn notification_and_thing_group_links_keep_the_content_fallback() {
+        for (collection, element) in [
+            ("ThingGroups", "ThingGroup"),
+            ("NotificationDefinitions", "NotificationDefinition"),
+            ("NotificationContents", "NotificationContent"),
+        ] {
+            let kind = composer_type(collection, element);
+            let url = link(
+                "https://example.invalid/Thingworx",
+                kind,
+                "Acme.Entry",
+                None,
+            )
+            .unwrap();
+            assert!(url.ends_with(&format!("{element}~Acme.Entry/attributes")));
+        }
+    }
+
+    #[test]
     fn composer_types_cover_field_verified_routes_and_thing_collections() {
         for (collection, element, expected) in [
             ("Things", "Thing", "Thing"),

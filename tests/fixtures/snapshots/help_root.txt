@@ -441,6 +441,22 @@ twaco <command> --help shows one command; the full listing follows.
       --base-extension        the PTC.Base extension version to depend on (default: what another project declares)
   new project <name> [--description <text>] [--depends-on <P>]... [--apply] [--json]
                               create a ThingWorx Project and add it to twaco.toml when needed; plan unless --apply
+  new thing-group <name> [--project <name>] [--description <text>] [--member <Thing>]... [--apply] [--json]
+                              create a ThingGroup as a repository file; plan unless --apply
+      --member <Thing>        add a Thing member
+  new notification <name> [--project <name>] [--description <text>] [--content <NotificationContent>]...
+      [--event <Type:Entity:Event>]... [--recipient <event=handler:User|Group:name>]... [--apply] [--json]
+                              create a NotificationDefinition as a repository file; plan unless --apply
+      --content               attach content (warn if absent from the repository)
+      --event                 applicable Type:Entity:Event
+      --recipient             an event also listed with --event, handler GUID and User or Group
+  new notification-content <name> --handler <Thing> --handler-id <GUID> [--project <name>] [--description <text>]
+      [--field <name:TYPE>]... [--set <field=value>]... [--apply] [--json]
+                              create NotificationContent for a registered extension handler; plan unless --apply
+      --handler               handler Thing whose template chain registers the handler
+      --handler-id            GUID of its hidden Handlers table row
+      --field                 fallback fields when the configuration DataShape cannot resolve offline
+      --set                   set a declared content field; secrets are refused
   new group <name> [--project <name>] [--description <text>] [--apply] [--json]
                               create a ThingWorx Group without members as a repository file; plan unless --apply
   group member <add|remove> <Entity> <User/name|Group/name|PermissionGroup/name> [--apply] [--json]

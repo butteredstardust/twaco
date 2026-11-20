@@ -51,6 +51,8 @@ impl Builder<'_> {
                         | "PermissionGroups"
                         | "Organizations"
                         | "ThingGroups"
+                        | "NotificationDefinitions"
+                        | "NotificationContents"
                 )
             })
             .map(|(key, at)| (key.collection().to_string(), *at))
@@ -100,6 +102,36 @@ impl Builder<'_> {
                                     None,
                                 );
                             }
+                        }
+                    }
+                }
+                "NotificationDefinitions" => {
+                    for contents in scan::child_tags(&tokens, &src, "Contents", entity) {
+                        for member in scan::child_tags(&tokens, &src, "Member", contents) {
+                            if let Some(name) = attribute(&tokens, &src, member, "name") {
+                                self.link(
+                                    from,
+                                    "NotificationContents",
+                                    &name,
+                                    EdgeKind::NotificationContent,
+                                    None,
+                                    None,
+                                );
+                            }
+                        }
+                    }
+                }
+                "NotificationContents" => {
+                    for handler in scan::child_tags(&tokens, &src, "HandlerEntity", entity) {
+                        if let Some(name) = attribute(&tokens, &src, handler, "name") {
+                            self.link(
+                                from,
+                                "Things",
+                                &name,
+                                EdgeKind::NotificationHandler,
+                                None,
+                                None,
+                            );
                         }
                     }
                 }

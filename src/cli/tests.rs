@@ -512,6 +512,20 @@ fn every_flag_means_the_same_in_every_command() {
                 "{} {name}: a value is named, a switch is not",
                 command.path
             );
+            // Creation declares members, events and content cells; older flags select members
+            // or mashup events and parameters, and DataShape fields have extra syntax.
+            let declaration = match (command.path, name.as_str()) {
+                ("new thing-group", "--member") => Some("Thing"),
+                ("new notification", "--event") => Some("Type:Entity:Event"),
+                ("new notification-content", "--field") => Some("name:TYPE"),
+                ("new notification-content", "--set") => Some("field=value"),
+                _ => None,
+            };
+            if let Some(value) = declaration {
+                assert_eq!(kind, "repeated");
+                assert_eq!(value_names, [value]);
+                continue;
+            }
             // State-format's specified interface selects existing names. The older flags
             // declare repeated states, fields or columns, with their own declaration syntax.
             if command.path == "mashup state-format set" {

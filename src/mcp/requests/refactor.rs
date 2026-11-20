@@ -369,6 +369,12 @@ pub(crate) enum EntityNewKind {
     Project,
     #[serde(rename = "group")]
     Group,
+    #[serde(rename = "thing-group")]
+    ThingGroup,
+    #[serde(rename = "notification")]
+    Notification,
+    #[serde(rename = "notification-content")]
+    NotificationContent,
     #[serde(rename = "role")]
     Role,
     #[serde(rename = "permission-group")]
@@ -414,6 +420,9 @@ impl From<EntityNewKind> for crate::core::entity::new::Kind {
         match value {
             EntityNewKind::Project => Self::Project,
             EntityNewKind::Group => Self::Group,
+            EntityNewKind::ThingGroup => Self::ThingGroup,
+            EntityNewKind::Notification => Self::Notification,
+            EntityNewKind::NotificationContent => Self::NotificationContent,
             EntityNewKind::Role => Self::Role,
             EntityNewKind::PermissionGroup => Self::PermissionGroup,
             EntityNewKind::Thing => Self::Thing,
@@ -440,7 +449,7 @@ impl From<EntityNewKind> for crate::core::entity::new::Kind {
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct EntityNewRequest {
-    /// `project`, `group`, `role`, `permission-group`, `thing`, `thing-template`, `thing-shape`, `data-shape`, `timer`, `scheduler`, `data-table`, `stream`, `value-stream`, `media`, `style`, `state`, `menu`, `theme`, `network`, `mcp-namespace` or `ai-agent`.
+    /// `project`, `group`, `thing-group`, `notification`, `notification-content`, `role`, `permission-group`, `thing`, `thing-template`, `thing-shape`, `data-shape`, `timer`, `scheduler`, `data-table`, `stream`, `value-stream`, `media`, `style`, `state`, `menu`, `theme`, `network`, `mcp-namespace` or `ai-agent`.
     pub(crate) kind: EntityNewKind,
     /// The entity name.
     pub(crate) name: String,
@@ -462,6 +471,20 @@ pub(crate) struct EntityNewRequest {
     pub(crate) base: Absent<String>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) field: Absent<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) member: Absent<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) content: Absent<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) event: Absent<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) recipient: Absent<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) set: Absent<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) handler: Absent<String>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) handler_id: Absent<String>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) every: Absent<String>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]

@@ -21,6 +21,9 @@ pub(crate) enum NewEntity {
     Mashup(super::mashup::MashupNew),
     Project(NewProject),
     Group(NewGroup),
+    ThingGroup(NewThingGroup),
+    Notification(NewNotification),
+    NotificationContent(NewNotificationContent),
     Role(NewGroup),
     PermissionGroup(NewGroup),
     Thing(NewThing),
@@ -62,6 +65,43 @@ pub(crate) struct NewProject {
 pub(crate) struct NewGroup {
     #[command(flatten)]
     pub(crate) base: Base,
+}
+
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct NewThingGroup {
+    #[command(flatten)]
+    pub(crate) base: Base,
+    #[arg(long = "member", value_name = "Thing")]
+    pub(crate) members: Vec<String>,
+}
+
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct NewNotification {
+    #[command(flatten)]
+    pub(crate) base: Base,
+    #[arg(long = "content", value_name = "NotificationContent")]
+    pub(crate) contents: Vec<String>,
+    #[arg(long = "event", value_name = "Type:Entity:Event")]
+    pub(crate) events: Vec<String>,
+    #[arg(long = "recipient", value_name = "event=handler:User|Group:name")]
+    pub(crate) recipients: Vec<String>,
+}
+
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct NewNotificationContent {
+    #[command(flatten)]
+    pub(crate) base: Base,
+    #[arg(long = "handler", value_name = "Thing")]
+    pub(crate) handler: Option<String>,
+    #[arg(long = "handler-id", value_name = "GUID")]
+    pub(crate) handler_id: Option<String>,
+    #[arg(long = "field", value_name = "name:TYPE")]
+    pub(crate) fields: Vec<String>,
+    #[arg(long = "set", value_name = "field=value")]
+    pub(crate) sets: Vec<String>,
 }
 
 /// What every `new <kind>` takes: the name, `--project`, `--description`, `--apply` and
@@ -347,6 +387,9 @@ impl NewEntity {
             NewEntity::Mashup(_) => "new mashup",
             NewEntity::Project(_) => "new project",
             NewEntity::Group(_) => "new group",
+            NewEntity::ThingGroup(_) => "new thing-group",
+            NewEntity::Notification(_) => "new notification",
+            NewEntity::NotificationContent(_) => "new notification-content",
             NewEntity::Role(_) => "new role",
             NewEntity::PermissionGroup(_) => "new permission-group",
             NewEntity::Thing(_) => "new thing",
@@ -377,6 +420,9 @@ impl NewEntity {
             NewEntity::Group(new) | NewEntity::Role(new) | NewEntity::PermissionGroup(new) => {
                 &new.base
             }
+            NewEntity::ThingGroup(new) => &new.base,
+            NewEntity::Notification(new) => &new.base,
+            NewEntity::NotificationContent(new) => &new.base,
             NewEntity::Thing(new) => &new.base,
             NewEntity::ThingTemplate(new) => &new.base,
             NewEntity::ThingShape(new) => &new.base,
@@ -414,6 +460,18 @@ impl NewEntity {
                 request.depends_on.clone_from(&new.depends_on);
             }
             NewEntity::Group(_) | NewEntity::Role(_) | NewEntity::PermissionGroup(_) => {}
+            NewEntity::ThingGroup(new) => request.members.clone_from(&new.members),
+            NewEntity::Notification(new) => {
+                request.contents.clone_from(&new.contents);
+                request.events.clone_from(&new.events);
+                request.recipients.clone_from(&new.recipients);
+            }
+            NewEntity::NotificationContent(new) => {
+                request.handler.clone_from(&new.handler);
+                request.handler_id.clone_from(&new.handler_id);
+                request.fields.clone_from(&new.fields);
+                request.sets.clone_from(&new.sets);
+            }
             NewEntity::Thing(new) => {
                 request.visibility.clone_from(&new.visibility);
                 request.template.clone_from(&new.template);
@@ -547,6 +605,9 @@ pub(crate) fn entity_new_cmd(solution: &Solution, new: &NewEntity) -> u8 {
         eprintln!("{} {note}", style::prefix());
     }
     let report = entity::new::plan_json(solution, &outcome.plan, outcome.applied);
+    for warning in report["warnings"].as_array().into_iter().flatten() {
+        eprintln!("{} {}", style::prefix(), warning.as_str().unwrap());
+    }
     if json {
         println!(
             "{}",

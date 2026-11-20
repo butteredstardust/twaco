@@ -1078,6 +1078,34 @@ pub(crate) const USAGE: &[Usage] = &[
                               create a ThingWorx Project and add it to twaco.toml when needed; plan unless --apply"#,
     },
     Usage {
+        path: "new thing-group",
+        group: 1,
+        text: r#"  new thing-group <name> [--project <name>] [--description <text>] [--member <Thing>]... [--apply] [--json]
+                              create a ThingGroup as a repository file; plan unless --apply
+      --member <Thing>        add a Thing member"#,
+    },
+    Usage {
+        path: "new notification",
+        group: 1,
+        text: r#"  new notification <name> [--project <name>] [--description <text>] [--content <NotificationContent>]...
+      [--event <Type:Entity:Event>]... [--recipient <event=handler:User|Group:name>]... [--apply] [--json]
+                              create a NotificationDefinition as a repository file; plan unless --apply
+      --content               attach content (warn if absent from the repository)
+      --event                 applicable Type:Entity:Event
+      --recipient             an event also listed with --event, handler GUID and User or Group"#,
+    },
+    Usage {
+        path: "new notification-content",
+        group: 1,
+        text: r#"  new notification-content <name> --handler <Thing> --handler-id <GUID> [--project <name>] [--description <text>]
+      [--field <name:TYPE>]... [--set <field=value>]... [--apply] [--json]
+                              create NotificationContent for a registered extension handler; plan unless --apply
+      --handler               handler Thing whose template chain registers the handler
+      --handler-id            GUID of its hidden Handlers table row
+      --field                 fallback fields when the configuration DataShape cannot resolve offline
+      --set                   set a declared content field; secrets are refused"#,
+    },
+    Usage {
         path: "new group",
         group: 1,
         text: r#"  new group <name> [--project <name>] [--description <text>] [--apply] [--json]

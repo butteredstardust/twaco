@@ -3954,7 +3954,7 @@
   },
   {
     "name": "entity_new",
-    "description": "Create a ThingWorx entity as a repository XML file: Projects, Groups, Roles, PermissionGroups, common Things, data Things, media, styles, states, menus, themes, and Networks. A new Project also appends its project declaration to twaco.toml, or creates twaco.toml in a root without one. DataShape and DataTable creation also writes their managed sidecar. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
+    "description": "Create a ThingWorx entity as a repository XML file: Projects, Groups, Roles, PermissionGroups, common Things, data Things, media, styles, states, menus, themes, Networks, ThingGroups, NotificationDefinitions and NotificationContents. Notifications take content, event (Type:Entity:Event) and recipient (event=GUID:User|Group:name) arrays; content needs handler, handler_id, optional field declarations and set cells. A new Project also appends its project declaration to twaco.toml, or creates twaco.toml in a root without one. DataShape and DataTable creation also writes their managed sidecar. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
     "inputSchema": {
       "required": [
         "kind",
@@ -3964,11 +3964,14 @@
       "type": "object",
       "properties": {
         "kind": {
-          "description": "`project`, `group`, `role`, `permission-group`, `thing`, `thing-template`, `thing-shape`, `data-shape`, `timer`, `scheduler`, `data-table`, `stream`, `value-stream`, `media`, `style`, `state`, `menu`, `theme`, `network`, `mcp-namespace` or `ai-agent`.",
+          "description": "`project`, `group`, `thing-group`, `notification`, `notification-content`, `role`, `permission-group`, `thing`, `thing-template`, `thing-shape`, `data-shape`, `timer`, `scheduler`, `data-table`, `stream`, `value-stream`, `media`, `style`, `state`, `menu`, `theme`, `network`, `mcp-namespace` or `ai-agent`.",
           "type": "string",
           "enum": [
             "project",
             "group",
+            "thing-group",
+            "notification",
+            "notification-content",
             "role",
             "permission-group",
             "thing",
@@ -4032,6 +4035,42 @@
           "items": {
             "type": "string"
           }
+        },
+        "member": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "content": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "event": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "recipient": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "set": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "handler": {
+          "type": "string"
+        },
+        "handler_id": {
+          "type": "string"
         },
         "every": {
           "type": "string"
@@ -4228,6 +4267,7 @@
     },
     "outputSchema": {
       "required": [
+        "warnings",
         "scope",
         "deploy_command",
         "note",
@@ -4239,6 +4279,12 @@
         "files"
       ],
       "properties": {
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "scope": {
           "type": "string"
         },

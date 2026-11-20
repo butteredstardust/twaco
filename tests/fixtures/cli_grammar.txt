@@ -482,6 +482,22 @@ help:
 |       --base-extension        the PTC.Base extension version to depend on (default: what another project declares)
 |   new project <name> [--description <text>] [--depends-on <P>]... [--apply] [--json]
 |                               create a ThingWorx Project and add it to twaco.toml when needed; plan unless --apply
+|   new thing-group <name> [--project <name>] [--description <text>] [--member <Thing>]... [--apply] [--json]
+|                               create a ThingGroup as a repository file; plan unless --apply
+|       --member <Thing>        add a Thing member
+|   new notification <name> [--project <name>] [--description <text>] [--content <NotificationContent>]...
+|       [--event <Type:Entity:Event>]... [--recipient <event=handler:User|Group:name>]... [--apply] [--json]
+|                               create a NotificationDefinition as a repository file; plan unless --apply
+|       --content               attach content (warn if absent from the repository)
+|       --event                 applicable Type:Entity:Event
+|       --recipient             an event also listed with --event, handler GUID and User or Group
+|   new notification-content <name> --handler <Thing> --handler-id <GUID> [--project <name>] [--description <text>]
+|       [--field <name:TYPE>]... [--set <field=value>]... [--apply] [--json]
+|                               create NotificationContent for a registered extension handler; plan unless --apply
+|       --handler               handler Thing whose template chain registers the handler
+|       --handler-id            GUID of its hidden Handlers table row
+|       --field                 fallback fields when the configuration DataShape cannot resolve offline
+|       --set                   set a declared content field; secrets are refused
 |   new group <name> [--project <name>] [--description <text>] [--apply] [--json]
 |                               create a ThingWorx Group without members as a repository file; plan unless --apply
 |   group member <add|remove> <Entity> <User/name|Group/name|PermissionGroup/name> [--apply] [--json]
@@ -13969,7 +13985,7 @@ help:
 == twaco new
 usage: twaco new <command>
 settings: disable-version-flag disable-help-subcommand subcommand-required arg-required-else-help
-subcommands: ai-agent building-block data-shape data-table group mashup mcp-namespace media menu network permission-group project role scheduler state stream style theme thing thing-shape thing-template timer value-stream
+subcommands: ai-agent building-block data-shape data-table group mashup mcp-namespace media menu network notification notification-content permission-group project role scheduler state stream style theme thing thing-group thing-shape thing-template timer value-stream
 arg --help
     action: Help
     value_name: -
@@ -14039,6 +14055,22 @@ help:
 |       --base-extension        the PTC.Base extension version to depend on (default: what another project declares)
 |   new project <name> [--description <text>] [--depends-on <P>]... [--apply] [--json]
 |                               create a ThingWorx Project and add it to twaco.toml when needed; plan unless --apply
+|   new thing-group <name> [--project <name>] [--description <text>] [--member <Thing>]... [--apply] [--json]
+|                               create a ThingGroup as a repository file; plan unless --apply
+|       --member <Thing>        add a Thing member
+|   new notification <name> [--project <name>] [--description <text>] [--content <NotificationContent>]...
+|       [--event <Type:Entity:Event>]... [--recipient <event=handler:User|Group:name>]... [--apply] [--json]
+|                               create a NotificationDefinition as a repository file; plan unless --apply
+|       --content               attach content (warn if absent from the repository)
+|       --event                 applicable Type:Entity:Event
+|       --recipient             an event also listed with --event, handler GUID and User or Group
+|   new notification-content <name> --handler <Thing> --handler-id <GUID> [--project <name>] [--description <text>]
+|       [--field <name:TYPE>]... [--set <field=value>]... [--apply] [--json]
+|                               create NotificationContent for a registered extension handler; plan unless --apply
+|       --handler               handler Thing whose template chain registers the handler
+|       --handler-id            GUID of its hidden Handlers table row
+|       --field                 fallback fields when the configuration DataShape cannot resolve offline
+|       --set                   set a declared content field; secrets are refused
 |   new group <name> [--project <name>] [--description <text>] [--apply] [--json]
 |                               create a ThingWorx Group without members as a repository file; plan unless --apply
 |   new role <name> [--project <name>] [--description <text>] [--apply] [--json]
@@ -15668,6 +15700,303 @@ help:
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
 
+== twaco new notification
+usage: twaco new notification <name> [--project <name>] [--description <text>] [--content <NotificationContent>]...
+settings: disable-version-flag disable-help-subcommand
+subcommands: 
+arg --apply
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --content
+    action: Append
+    value_name: NotificationContent
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: accepted
+    given bare: InvalidValue
+arg --description
+    action: Set
+    value_name: text
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --event
+    action: Append
+    value_name: Type:Entity:Event
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: accepted
+    given bare: InvalidValue
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+arg --json
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --project
+    action: Set
+    value_name: name
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --recipient
+    action: Append
+    value_name: event=handler:User|Group:name
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: accepted
+    given bare: InvalidValue
+arg <operands>
+    action: Append
+    value_name: operand
+    num_args: 0..
+    allow_hyphen_values: no
+    allow_negative_numbers: yes
+    required: no
+    default: -
+    index: 1
+    other: -
+help:
+|   new notification <name> [--project <name>] [--description <text>] [--content <NotificationContent>]...
+|       [--event <Type:Entity:Event>]... [--recipient <event=handler:User|Group:name>]... [--apply] [--json]
+|                               create a NotificationDefinition as a repository file; plan unless --apply
+|       --content               attach content (warn if absent from the repository)
+|       --event                 applicable Type:Entity:Event
+|       --recipient             an event also listed with --event, handler GUID and User or Group
+| 
+|   --project <name>            narrow to one project of the solution
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
+== twaco new notification-content
+usage: twaco new notification-content <name> --handler <Thing> --handler-id <GUID> [--project <name>] [--description <text>]
+settings: disable-version-flag disable-help-subcommand
+subcommands: 
+arg --apply
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --description
+    action: Set
+    value_name: text
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --field
+    action: Append
+    value_name: name:TYPE
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: accepted
+    given bare: InvalidValue
+arg --handler
+    action: Set
+    value_name: Thing
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --handler-id
+    action: Set
+    value_name: GUID
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+arg --json
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --project
+    action: Set
+    value_name: name
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --set
+    action: Append
+    value_name: field=value
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: accepted
+    given bare: InvalidValue
+arg <operands>
+    action: Append
+    value_name: operand
+    num_args: 0..
+    allow_hyphen_values: no
+    allow_negative_numbers: yes
+    required: no
+    default: -
+    index: 1
+    other: -
+help:
+|   new notification-content <name> --handler <Thing> --handler-id <GUID> [--project <name>] [--description <text>]
+|       [--field <name:TYPE>]... [--set <field=value>]... [--apply] [--json]
+|                               create NotificationContent for a registered extension handler; plan unless --apply
+|       --handler               handler Thing whose template chain registers the handler
+|       --handler-id            GUID of its hidden Handlers table row
+|       --field                 fallback fields when the configuration DataShape cannot resolve offline
+|       --set                   set a declared content field; secrets are refused
+| 
+|   --project <name>            narrow to one project of the solution
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
 == twaco new permission-group
 usage: twaco new permission-group <name> [--project <name>] [--description <text>] [--apply] [--json]
 settings: disable-version-flag disable-help-subcommand
@@ -16912,6 +17241,121 @@ help:
 |   new thing <name> [--project <name>] [--description <text>] [--template <ThingTemplate>] [--shape <ThingShape>]...
 |       [--value-stream <ValueStream>] [--visibility <principal>]... [--apply] [--json]
 |                               create a ThingWorx Thing as a repository file; plan unless --apply
+| 
+|   --project <name>            narrow to one project of the solution
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
+== twaco new thing-group
+usage: twaco new thing-group <name> [--project <name>] [--description <text>] [--member <Thing>]... [--apply] [--json]
+settings: disable-version-flag disable-help-subcommand
+subcommands: 
+arg --apply
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --description
+    action: Set
+    value_name: text
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+arg --json
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --member
+    action: Append
+    value_name: Thing
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: accepted
+    given bare: InvalidValue
+arg --project
+    action: Set
+    value_name: name
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg <operands>
+    action: Append
+    value_name: operand
+    num_args: 0..
+    allow_hyphen_values: no
+    allow_negative_numbers: yes
+    required: no
+    default: -
+    index: 1
+    other: -
+help:
+|   new thing-group <name> [--project <name>] [--description <text>] [--member <Thing>]... [--apply] [--json]
+|                               create a ThingGroup as a repository file; plan unless --apply
+|       --member <Thing>        add a Thing member
 | 
 |   --project <name>            narrow to one project of the solution
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)

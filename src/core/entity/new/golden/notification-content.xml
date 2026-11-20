@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Entities
+ majorVersion="10"
+ minorVersion="1"
+ universal="password">
+    <NotificationContents>
+        <NotificationContent
+         handlerID="11111111-2222-4333-8444-555555555555"
+         description=""
+         documentationContent=""
+         homeMashup=""
+         name="Acme.Orders.Email"
+         projectName="Acme.Orders"
+         tags="">
+            <avatar></avatar>
+            <DesignTimePermissions>
+                <Create></Create>
+                <Read></Read>
+                <Update></Update>
+                <Delete></Delete>
+                <Metadata></Metadata>
+            </DesignTimePermissions>
+            <RunTimePermissions></RunTimePermissions>
+            <VisibilityPermissions>
+                <Visibility></Visibility>
+            </VisibilityPermissions>
+            <ConfigurationTableDefinitions></ConfigurationTableDefinitions>
+            <ConfigurationTables><ConfigurationTable dataShapeName="" description="" isMultiRow="false" name="Content" ordinal="1"><DataShape><FieldDefinitions><FieldDefinition name="subject" baseType="STRING" description="" ordinal="1" aspect.isPrimaryKey="false"/><FieldDefinition name="body" baseType="TEXT" description="" ordinal="2" aspect.isPrimaryKey="false"/></FieldDefinitions></DataShape><Rows><Row><subject>Started &amp; ready</subject><body>Pump &lt;ready&gt;</body></Row></Rows></ConfigurationTable></ConfigurationTables>
+            <HandlerEntity name="Acme.Orders.Mail" type="Thing"/>
+        </NotificationContent>
+    </NotificationContents>
+</Entities>

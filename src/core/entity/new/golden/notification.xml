@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Entities
+ majorVersion="10"
+ minorVersion="1"
+ universal="password">
+    <NotificationDefinitions>
+        <NotificationDefinition
+         description=""
+         documentationContent=""
+         homeMashup=""
+         name="Acme.Orders.Started"
+         projectName="Acme.Orders"
+         tags="">
+            <avatar></avatar>
+            <DesignTimePermissions>
+                <Create></Create>
+                <Read></Read>
+                <Update></Update>
+                <Delete></Delete>
+                <Metadata></Metadata>
+            </DesignTimePermissions>
+            <RunTimePermissions></RunTimePermissions>
+            <VisibilityPermissions>
+                <Visibility></Visibility>
+            </VisibilityPermissions>
+            <ConfigurationTableDefinitions></ConfigurationTableDefinitions>
+            <ConfigurationTables></ConfigurationTables>
+            <Contents><Member name="Acme.Orders.Email"/></Contents>
+            <Recipients><Event eventName="ThingStart" source="Acme.Orders.Pump" sourceType="Thing"><Handler id="11111111-2222-4333-8444-555555555555"><Member name="Acme.Operator" type="User"/></Handler></Event></Recipients>
+            <Events><Event eventName="ThingStart" source="Acme.Orders.Pump" sourceType="Thing"/></Events>
+        </NotificationDefinition>
+    </NotificationDefinitions>
+</Entities>

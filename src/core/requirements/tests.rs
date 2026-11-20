@@ -733,3 +733,35 @@ fn rbac_members_and_script_collections_are_requirements() {
         );
     }
 }
+
+#[test]
+fn notification_and_thing_group_requirements_name_external_entities() {
+    let (_dir, solution) = solution("");
+    for (collection, tag, name, body) in [
+        ("NotificationDefinitions", "NotificationDefinition", "Acme.Started", "<Contents><Member name='Acme.ExternalEmail'/></Contents><Recipients><Event><Handler><Member name='Acme.Operator' type='User'/></Handler></Event></Recipients>"),
+        ("NotificationContents", "NotificationContent", "Acme.Email", "<HandlerEntity name='Acme.ExternalMail' type='Thing'/>"),
+        ("ThingGroups", "ThingGroup", "Acme.Site", "<Members><Member name='Acme.ExternalPump' type='Thing'/></Members>"),
+    ] {
+        entity(&solution.root, collection, tag, name, "", body);
+    }
+    let collected = collect(&solution).unwrap();
+    for (collection, name, from) in [
+        (
+            "NotificationContents",
+            "Acme.ExternalEmail",
+            "NotificationDefinitions/Acme.Started",
+        ),
+        (
+            "Things",
+            "Acme.ExternalMail",
+            "NotificationContents/Acme.Email",
+        ),
+        ("Things", "Acme.ExternalPump", "ThingGroups/Acme.Site"),
+    ] {
+        assert_eq!(
+            collected.references[collection][name],
+            BTreeSet::from([from.into()])
+        );
+    }
+    assert!(!collected.references.contains_key("Users"));
+}

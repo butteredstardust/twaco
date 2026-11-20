@@ -106,6 +106,18 @@ pub(super) fn known_collections() -> Vec<&'static str> {
 mod rbac_tests {
     use super::*;
     #[test]
+    fn notification_and_thing_group_deletes_use_rest() {
+        for collection in [
+            "ThingGroups",
+            "NotificationDefinitions",
+            "NotificationContents",
+        ] {
+            assert_eq!(method_for(collection), Some(Method::RestDelete));
+            assert!(known_collections().contains(&collection));
+        }
+    }
+
+    #[test]
     fn legacy_gadgets_are_not_a_server_collection() {
         assert_eq!(method_for("MashupGadgets"), None);
         assert!(!known_collections().contains(&"MashupGadgets"));

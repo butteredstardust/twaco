@@ -62,6 +62,7 @@ pub(crate) const COLLECTION_ORDER: &[&str] = &[
     "Authenticators",
     "QueueProviderPackages",
     "ThingPackages",
+    "NotificationContents",
     "NotificationDefinitions",
     "ApplicationKeys",
     "StateDefinitions",
@@ -74,7 +75,6 @@ pub(crate) const COLLECTION_ORDER: &[&str] = &[
     "Resources",
     "DataTags",
     "Subsystems",
-    "NotificationContents",
 ];
 
 /// Collections a server before 10.2 does not know, written only when a bundle has some.
@@ -754,6 +754,28 @@ pub(crate) fn dangling_references(selected: &[PathBuf], all: &[PathBuf]) -> Vec<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn notification_content_imports_before_its_definition() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut paths = Vec::new();
+        for (collection, tag) in [
+            ("NotificationDefinitions", "NotificationDefinition"),
+            ("NotificationContents", "NotificationContent"),
+            ("ThingGroups", "ThingGroup"),
+        ] {
+            let path = dir.path().join(format!("{tag}.xml"));
+            std::fs::write(&path, format!("<Entities><{collection}><{tag} name='Acme.{tag}' projectName='Acme'/></{collection}></Entities>")).unwrap();
+            paths.push(path);
+        }
+        let bundle = build(&paths, &Selection::everything()).unwrap();
+        let xml = String::from_utf8(bundle.bytes).unwrap();
+        assert!(
+            xml.find("<NotificationContents>").unwrap()
+                < xml.find("<NotificationDefinitions>").unwrap()
+        );
+        assert!(xml.contains("<ThingGroups>"));
+    }
 
     #[test]
     fn a_backend_bundle_names_what_it_leaves_out_and_a_whole_one_does_not() {

@@ -55,7 +55,12 @@ fn serve() -> std::net::SocketAddr {
             let path = request.split_whitespace().nth(1).unwrap_or("");
             // A service call (the project inventory status --all asks for) sends its body
             // after the headers; closing with it unread resets the connection on Windows.
-            if path.contains("/Services/") {
+            if path.contains("/Services/")
+                || matches!(
+                    path,
+                    "/Thingworx/NotificationContents" | "/Thingworx/NotificationDefinitions"
+                )
+            {
                 let length = request
                     .lines()
                     .find_map(|line| {

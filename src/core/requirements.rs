@@ -384,6 +384,17 @@ pub(crate) fn collect_in(
             if tag == b"ConfigurationTable" {
                 out.add("DataShapes", &attr("dataShapeName")?, &from);
             }
+            if tag == b"HandlerEntity" && file.info.collection == "NotificationContents" {
+                out.add("Things", &attr("name")?, &from);
+            }
+            if tag == b"Member" {
+                if file.info.collection == "NotificationDefinitions" && attr("type")?.is_empty() {
+                    out.add("NotificationContents", &attr("name")?, &from);
+                }
+                if file.info.collection == "ThingGroups" && attr("type")? == "Thing" {
+                    out.add("Things", &attr("name")?, &from);
+                }
+            }
             if tag == b"ImplementedShape" {
                 out.add("ThingShapes", &attr("name")?, &from);
             }

@@ -2627,3 +2627,56 @@ fn legacy_gadget_files_are_reported_by_check_and_status_offline() {
         );
     }
 }
+
+#[test]
+fn new_notification_kinds_plan_and_apply_offline_as_json() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("twaco.toml"), "[[project]]\nname='Acme'\n").unwrap();
+    for (kind, collection, flags) in [
+        ("thing-group", "ThingGroups", vec!["--member", "Acme.Pump"]),
+        (
+            "notification-content",
+            "NotificationContents",
+            vec![
+                "--handler",
+                "Acme.Mail",
+                "--handler-id",
+                "11111111-2222-4333-8444-555555555555",
+                "--field",
+                "subject:STRING",
+                "--set",
+                "subject=Ready",
+            ],
+        ),
+        (
+            "notification",
+            "NotificationDefinitions",
+            vec![
+                "--content",
+                "Acme.notification-content",
+                "--event",
+                "Thing:Acme.Pump:ThingStart",
+            ],
+        ),
+    ] {
+        let name = format!("Acme.{kind}");
+        let path = dir.path().join(collection).join(format!("{name}.xml"));
+        for apply in [false, true] {
+            let mut command = Command::new(env!("CARGO_BIN_EXE_twaco"));
+            command
+                .current_dir(dir.path())
+                .env_clear()
+                .args(["new", kind, &name, "--json"])
+                .args(&flags);
+            if apply {
+                command.arg("--apply");
+            }
+            let result = command.output().unwrap();
+            assert!(result.status.success(), "{result:?}");
+            let report: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
+            assert_eq!(report["applied"], apply);
+            assert_eq!(report["scope"], "repository");
+            assert_eq!(path.exists(), apply);
+        }
+    }
+}
