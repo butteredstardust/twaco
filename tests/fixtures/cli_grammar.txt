@@ -373,8 +373,8 @@ help:
 |       --force                  remove bindings when removing a parameter
 |   mashup recipe <recipe> <mashup> [<widget>] [<button>] [recipe flags] [--apply] [--json] [--detail]
 |                               write the wiring real mashups repeat, in one edit; plan unless --apply
-|       panel <container> [--compact <768|960>]
-|                               grey growing column with managed CSS; optional compact viewport gutters
+|       panel <container> [--compact <768|960>] [--style <style>]
+|                               grey growing column with managed CSS; --style grey (default) or white bordered card; optional compact viewport gutters
 |       slider-action <slider> <button>
 |                               align the button centre to the horizontal slider track (default 34px button)
 |       collapsible <container> [--toggle <button> | --add-toggle --in <container>]
@@ -428,7 +428,11 @@ help:
 |                               fill a dropdown or list from a service result; without the "(None)" row,
 |                               or selecting the first row
 |       tracker <widget|new> --data <data call> [--field-map Property=field]...
-|                               interactive large tracker; infer all five maps from the result DataShape
+|           [--initial-step <n>] [--step-size <size>] [--host <widget>]
+|                               interactive tracker; initial step 1, step-size small|medium|large (default large), minimum spacing 24
+|                               --host wires mashupcontainer Name/stepNumber round trip before Data; runtime verification required
+|       tree <treeselector> --data <data call> [--field-map Property=field]...
+|                               infer IDField/NameField/ParentIDField and optional ColorField; override ambiguous or missing maps
 |       set-on-click <button> --param <name> --expr <expression> [--input name=<address>]...
 |                               set a mashup parameter on click; no automatic evaluation
 |       nested-menu <menubar> --menu <Root> [--no-auto-collapse] [--width <px>]
@@ -8020,8 +8024,8 @@ help:
 |       --force                  remove bindings when removing a parameter
 |   mashup recipe <recipe> <mashup> [<widget>] [<button>] [recipe flags] [--apply] [--json] [--detail]
 |                               write the wiring real mashups repeat, in one edit; plan unless --apply
-|       panel <container> [--compact <768|960>]
-|                               grey growing column with managed CSS; optional compact viewport gutters
+|       panel <container> [--compact <768|960>] [--style <style>]
+|                               grey growing column with managed CSS; --style grey (default) or white bordered card; optional compact viewport gutters
 |       slider-action <slider> <button>
 |                               align the button centre to the horizontal slider track (default 34px button)
 |       collapsible <container> [--toggle <button> | --add-toggle --in <container>]
@@ -8075,7 +8079,11 @@ help:
 |                               fill a dropdown or list from a service result; without the "(None)" row,
 |                               or selecting the first row
 |       tracker <widget|new> --data <data call> [--field-map Property=field]...
-|                               interactive large tracker; infer all five maps from the result DataShape
+|           [--initial-step <n>] [--step-size <size>] [--host <widget>]
+|                               interactive tracker; initial step 1, step-size small|medium|large (default large), minimum spacing 24
+|                               --host wires mashupcontainer Name/stepNumber round trip before Data; runtime verification required
+|       tree <treeselector> --data <data call> [--field-map Property=field]...
+|                               infer IDField/NameField/ParentIDField and optional ColorField; override ambiguous or missing maps
 |       set-on-click <button> --param <name> --expr <expression> [--input name=<address>]...
 |                               set a mashup parameter on click; no automatic evaluation
 |       nested-menu <menubar> --menu <Root> [--no-auto-collapse] [--width <px>]
@@ -10323,6 +10331,18 @@ arg --hint
     other: -
     given twice: ArgumentConflict
     given bare: InvalidValue
+arg --host
+    action: Set
+    value_name: widget
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 arg --if
     action: Set
     value_name: condition
@@ -10338,6 +10358,18 @@ arg --if
 arg --in
     action: Set
     value_name: widget
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --initial-step
+    action: Set
+    value_name: n
     num_args: 1
     allow_hyphen_values: yes
     allow_negative_numbers: no
@@ -10668,6 +10700,30 @@ arg --status-state
     other: -
     given twice: ArgumentConflict
     given bare: InvalidValue
+arg --step-size
+    action: Set
+    value_name: size
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --style
+    action: Set
+    value_name: style
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 arg --tab
     action: Set
     value_name: inside|outside|none
@@ -10801,8 +10857,8 @@ arg <operands>
 help:
 |   mashup recipe <recipe> <mashup> [<widget>] [<button>] [recipe flags] [--apply] [--json] [--detail]
 |                               write the wiring real mashups repeat, in one edit; plan unless --apply
-|       panel <container> [--compact <768|960>]
-|                               grey growing column with managed CSS; optional compact viewport gutters
+|       panel <container> [--compact <768|960>] [--style <style>]
+|                               grey growing column with managed CSS; --style grey (default) or white bordered card; optional compact viewport gutters
 |       slider-action <slider> <button>
 |                               align the button centre to the horizontal slider track (default 34px button)
 |       collapsible <container> [--toggle <button> | --add-toggle --in <container>]
@@ -10856,7 +10912,11 @@ help:
 |                               fill a dropdown or list from a service result; without the "(None)" row,
 |                               or selecting the first row
 |       tracker <widget|new> --data <data call> [--field-map Property=field]...
-|                               interactive large tracker; infer all five maps from the result DataShape
+|           [--initial-step <n>] [--step-size <size>] [--host <widget>]
+|                               interactive tracker; initial step 1, step-size small|medium|large (default large), minimum spacing 24
+|                               --host wires mashupcontainer Name/stepNumber round trip before Data; runtime verification required
+|       tree <treeselector> --data <data call> [--field-map Property=field]...
+|                               infer IDField/NameField/ParentIDField and optional ColorField; override ambiguous or missing maps
 |       set-on-click <button> --param <name> --expr <expression> [--input name=<address>]...
 |                               set a mashup parameter on click; no automatic evaluation
 |       nested-menu <menubar> --menu <Root> [--no-auto-collapse] [--width <px>]

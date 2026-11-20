@@ -510,6 +510,14 @@ pub(crate) struct MashupRecipe {
     pub(crate) params: Vec<String>,
     #[arg(long = "field-map", value_name = "Property=field")]
     pub(crate) field_maps: Vec<String>,
+    #[arg(long = "style", value_name = "style")]
+    pub(crate) style: Option<String>,
+    #[arg(long = "initial-step", value_name = "n")]
+    pub(crate) initial_step: Option<u32>,
+    #[arg(long = "step-size", value_name = "size")]
+    pub(crate) step_size: Option<String>,
+    #[arg(long = "host", value_name = "widget")]
+    pub(crate) host: Option<String>,
     #[arg(long = "action-label", value_name = "text")]
     pub(crate) action_label: Option<String>,
     #[arg(long = "cancel-label", value_name = "text")]
@@ -879,6 +887,10 @@ pub(crate) fn mashup_recipe_cmd(solution: &Solution, args: &MashupRecipe) -> u8 
         widget,
         param: args.params.first().cloned(),
         field_maps: args.field_maps.clone(),
+        style: args.style.clone(),
+        initial_step: args.initial_step,
+        step_size: args.step_size.clone(),
+        host: args.host.clone(),
         action_label: args.action_label.clone(),
         cancel_label: args.cancel_label.clone(),
         condition: args.condition.clone(),

@@ -418,6 +418,15 @@ fn hand_written_tools() -> Vec<Value> {
     ] {
         recipe["inputSchema"]["properties"][name] = json!({"type": kind});
     }
+    for (name, description, kind) in [
+        ("style", "panel: grey (default) or white bordered card.", "string"),
+        ("initial_step", "tracker: initial CurrentStepNumber (default 1); runtime verification required.", "integer"),
+        ("step_size", "tracker: small, medium or large (default).", "string"),
+        ("host", "tracker: mashupcontainer with a bindable NUMBER stepNumber parameter; wires round trip before Data.", "string"),
+    ] {
+        recipe["inputSchema"]["properties"][name] = json!({"description": description, "type": kind});
+    }
+    recipe["inputSchema"]["properties"]["initial_step"]["minimum"] = json!(0);
     recipe["inputSchema"]["properties"]["compact"] = json!({
         "description": "panel: inclusive viewport breakpoint for 12px gutters; 768 or 960.",
         "type": "integer", "minimum": 0
@@ -438,7 +447,7 @@ fn hand_written_tools() -> Vec<Value> {
         ),
         (
             "field_maps",
-            "Tracker overrides as `Property=field`, using catalogue field-map property names.",
+            "Tracker/tree overrides as `Property=field`, using catalogue field-map property names.",
             "array",
         ),
         ("action_label", "Confirmation action button text.", "string"),

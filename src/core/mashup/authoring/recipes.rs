@@ -25,6 +25,7 @@ pub enum Recipe {
     Panel {
         container: String,
         compact: Option<u32>,
+        style: String,
     },
     SliderAction {
         slider: String,
@@ -85,6 +86,14 @@ pub enum Recipe {
     },
     /// An interactive progress tracker whose field maps follow the result DataShape.
     Tracker {
+        widget: String,
+        data: String,
+        field_maps: Vec<(String, String)>,
+        initial_step: u32,
+        step_size: String,
+        host: Option<String>,
+    },
+    Tree {
         widget: String,
         data: String,
         field_maps: Vec<(String, String)>,
@@ -215,6 +224,7 @@ impl Recipe {
             Self::Text { .. } => "text",
             Self::SetOnClick { .. } => "set-on-click",
             Self::Tracker { .. } => "tracker",
+            Self::Tree { .. } => "tree",
             Self::Message { .. } => "message",
             Self::Confirm { .. } => "confirm",
             Self::Popup { .. } => "popup",
@@ -1345,8 +1355,12 @@ pub(crate) fn plan_recipe(
     };
     let mut css = None;
     match &request.recipe {
-        Recipe::Panel { container, compact } => {
-            css = Some(work.panel(container, *compact, &loaded.assets.css)?);
+        Recipe::Panel {
+            container,
+            compact,
+            style,
+        } => {
+            css = Some(work.panel(container, *compact, style, &loaded.assets.css)?);
         }
         Recipe::SliderAction { slider, button } => work.slider_action(slider, button)?,
         Recipe::Toolbar {
@@ -1631,6 +1645,9 @@ pub(crate) fn plan_recipe(
             widget,
             data,
             field_maps,
+            initial_step,
+            step_size,
+            host,
         } => {
             // Resolve and validate every map before creating a visual widget.
             let fields = work.result_fields(data).ok_or_else(|| AuthoringError::Invalid(
@@ -1656,26 +1673,76 @@ pub(crate) fn plan_recipe(
                     target.id, target.type_id
                 )));
             }
-            let stored = work.document.at_mut(&target.path)["Properties"]
-                .as_object_mut()
-                .expect("a widget has properties");
-            let mut removed = Vec::new();
-            for name in ["CurrentStepMashup", "CurrentStepNumber"] {
-                if stored.remove(name).is_some() {
-                    removed.push(name);
-                }
-            }
-            if !removed.is_empty() {
-                work.notes.push(format!(
-                    "{}: removed stored {}: a stored value blanks the step container at load",
-                    target.id,
-                    removed.join("/")
+            if !["small", "medium", "large"].contains(&step_size.as_str()) {
+                return Err(AuthoringError::Invalid(
+                    "tracker: --step-size is small, medium or large".into(),
                 ));
             }
-            let mut properties = vec![("IsInteractive", json!(true)), ("StepSize", json!("large"))];
+            if work.document.at_mut(&target.path)["Properties"]
+                .as_object_mut()
+                .unwrap()
+                .remove("CurrentStepMashup")
+                .is_some()
+            {
+                work.notes.push(format!("{}: removed stored CurrentStepMashup output; initialise selection through CurrentStepNumber", target.id));
+            }
+            let mut properties = vec![
+                ("IsInteractive", json!(true)),
+                ("StepSize", json!(step_size)),
+                ("MinStepSpacing", json!(24)),
+                ("CurrentStepNumber", json!(initial_step)),
+            ];
             properties.extend(maps.iter().map(|(name, field)| (*name, json!(field))));
             work.set(&target, &properties);
+            work.notes.push(format!("tracker initial CurrentStepNumber={initial_step}; StepSize={step_size}; MinStepSpacing=24; initial selection and narrow-width fit require runtime verification"));
+            if let Some(host) = host {
+                let container = widget_id(&work.document, host)?;
+                if container.type_id != "mashupcontainer" {
+                    return Err(AuthoringError::Invalid(format!(
+                        "{}: --host needs a mashupcontainer",
+                        container.id
+                    )));
+                }
+                work.set(&container, &[("stepNumber", json!(initial_step))]);
+                work.bind(
+                    &format!("ui:{}.stepNumber", container.id),
+                    &format!("ui:{}.CurrentStepNumber", target.id),
+                )?;
+                work.bind(
+                    &format!("ui:{}.CurrentStepNumber", target.id),
+                    &format!("ui:{}.stepNumber", container.id),
+                )?;
+                work.bind(
+                    &format!("ui:{}.CurrentStepMashup", target.id),
+                    &format!("ui:{}.Name", container.id),
+                )?;
+                work.notes.push("host binding order: host.stepNumber -> tracker.CurrentStepNumber; tracker.CurrentStepNumber -> host.stepNumber; tracker.CurrentStepMashup -> host.Name; Data last. Keep the host's default first-step Name; child stepNumber must be a bindable NUMBER parameter".into());
+            }
             work.bind(data, &format!("ui:{}.Data", target.id))?;
+        }
+        Recipe::Tree {
+            widget,
+            data,
+            field_maps,
+        } => {
+            let fields = work.result_fields(data).ok_or_else(|| AuthoringError::Invalid(format!("tree needs {data} to return a DataShape available in the repository; add its DataShape before mapping fields")))?;
+            let maps = field_maps_for("tree", TREE_MAPS, TREE_REQUIRED, &fields, field_maps)?;
+            let target = widget_id(&work.document, widget)?;
+            if target.type_id != "ptcstreeselector" {
+                return Err(AuthoringError::Invalid(format!(
+                    "{} is a {}, not a tree selector",
+                    target.id, target.type_id
+                )));
+            }
+            work.set(
+                &target,
+                &maps
+                    .iter()
+                    .map(|(name, field)| (*name, json!(field)))
+                    .collect::<Vec<_>>(),
+            );
+            work.bind(data, &format!("ui:{}.Data", target.id))?;
+            work.notes.push(format!("tree: bind ui:{}.SelectedItem to an ID parameter, or SelectedData fields to detail widgets; run the data call on load. Empty results show the widget's NoData state", target.id));
         }
         Recipe::Message {
             after,
@@ -2422,6 +2489,10 @@ pub(crate) fn plan_recipe(
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct RecipeArgs {
     pub compact: Option<u32>,
+    pub style: Option<String>,
+    pub initial_step: Option<u32>,
+    pub step_size: Option<String>,
+    pub host: Option<String>,
     pub button: Option<String>,
     pub search_param: Option<String>,
     pub hint: Option<String>,
@@ -2520,6 +2591,7 @@ pub const RECIPES: &[&str] = &[
     "columns",
     "picker",
     "tracker",
+    "tree",
     "set-on-click",
     "nested-menu",
     "navigate-on-click",
@@ -2589,6 +2661,9 @@ impl Recipe {
             rest.widget = None;
             rest.button = None;
             rest.compact = None;
+            if name == "panel" {
+                rest.style = None;
+            }
             if rest != RecipeArgs::default() {
                 return Err(AuthoringError::Invalid(format!(
                     "{name}: unrelated recipe flags are not accepted"
@@ -2643,7 +2718,15 @@ impl Recipe {
             (args.action_label.is_some(), "--action-label", "confirm"),
             (args.cancel_label.is_some(), "--cancel-label", "confirm"),
             (args.param.is_some(), "--param", "set-on-click"),
-            (!args.field_maps.is_empty(), "--field-map", "tracker"),
+            (args.style.is_some(), "--style", "panel"),
+            (args.initial_step.is_some(), "--initial-step", "tracker"),
+            (args.step_size.is_some(), "--step-size", "tracker"),
+            (args.host.is_some(), "--host", "tracker"),
+            (
+                !args.field_maps.is_empty() && name != "tree",
+                "--field-map",
+                "tracker",
+            ),
             (!args.editable.is_empty(), "--editable-column", "columns"),
             (
                 !args.column_editors.is_empty(),
@@ -2679,6 +2762,7 @@ impl Recipe {
                 Recipe::Panel {
                     container: widget("a responsive column")?,
                     compact: args.compact,
+                    style: args.style.clone().unwrap_or_else(|| "grey".into()),
                 }
             }
             "slider-action" => Recipe::SliderAction {
@@ -2788,6 +2872,14 @@ impl Recipe {
             },
             "tracker" => Recipe::Tracker {
                 widget: widget("the progress tracker, or new")?,
+                data: required(&args.data, "--data <service result>", name)?,
+                field_maps: pairs("--field-map", &args.field_maps)?,
+                initial_step: args.initial_step.unwrap_or(1),
+                step_size: args.step_size.clone().unwrap_or_else(|| "large".into()),
+                host: args.host.clone(),
+            },
+            "tree" => Recipe::Tree {
+                widget: widget("a tree selector")?,
                 data: required(&args.data, "--data <service result>", name)?,
                 field_maps: pairs("--field-map", &args.field_maps)?,
             },
@@ -3065,16 +3157,63 @@ const TRACKER_MAPS: &[(&str, &[&str], &[&str])] = &[
     ),
 ];
 
+const TREE_REQUIRED: &[&str] = &["IDField", "NameField", "ParentIDField"];
+const TREE_MAPS: &[FieldMapSpec] = &[
+    (
+        "IDField",
+        &["id", "nodeid", "itemid", "identifier"],
+        &["STRING", "TEXT", "INTEGER", "LONG", "NUMBER", "GUID"],
+    ),
+    (
+        "NameField",
+        &[
+            "name",
+            "nodename",
+            "itemname",
+            "label",
+            "title",
+            "displayname",
+        ],
+        &["STRING", "TEXT"],
+    ),
+    (
+        "ParentIDField",
+        &["parentid", "parent", "parentnodeid", "parentitemid"],
+        &["STRING", "TEXT", "INTEGER", "LONG", "NUMBER", "GUID"],
+    ),
+    (
+        "ColorField",
+        &["color", "colour", "nodecolor", "nodecolour"],
+        &["STRING", "TEXT"],
+    ),
+];
+
 fn tracker_maps(
+    fields: &[(String, String)],
+    overrides: &[(String, String)],
+) -> Result<Vec<(&'static str, String)>, AuthoringError> {
+    field_maps_for("tracker", TRACKER_MAPS, TRACKER_REQUIRED, fields, overrides)
+}
+
+type FieldMapSpec = (
+    &'static str,
+    &'static [&'static str],
+    &'static [&'static str],
+);
+
+fn field_maps_for(
+    recipe: &str,
+    specs: &[FieldMapSpec],
+    required: &[&str],
     fields: &[(String, String)],
     overrides: &[(String, String)],
 ) -> Result<Vec<(&'static str, String)>, AuthoringError> {
     let mut explicit = std::collections::BTreeMap::new();
     for (property, field) in overrides {
-        if !TRACKER_MAPS.iter().any(|(name, _, _)| property == name) {
+        if !specs.iter().any(|(name, _, _)| property == name) {
             return Err(AuthoringError::Invalid(format!(
-                "unknown tracker map {property}; use {}",
-                TRACKER_MAPS
+                "unknown {recipe} map {property}; use {}",
+                specs
                     .iter()
                     .map(|(name, _, _)| *name)
                     .collect::<Vec<_>>()
@@ -3083,7 +3222,7 @@ fn tracker_maps(
         }
         if explicit.insert(property.as_str(), field.as_str()).is_some() {
             return Err(AuthoringError::Invalid(format!(
-                "tracker map {property} is given twice"
+                "{recipe} map {property} is given twice"
             )));
         }
     }
@@ -3095,14 +3234,14 @@ fn tracker_maps(
     };
     let mut maps = Vec::new();
     let mut unmatched = Vec::new();
-    for &(property, aliases, bases) in TRACKER_MAPS {
+    for &(property, aliases, bases) in specs {
         let field = if let Some(field) = explicit.get(property) {
             fields
                 .iter()
                 .find(|(name, _)| name == field)
                 .ok_or_else(|| {
                     AuthoringError::Invalid(format!(
-                        "tracker map {property} names missing field {field}; available fields: {}",
+                        "{recipe} map {property} names missing field {field}; available fields: {}",
                         fields
                             .iter()
                             .map(|(name, _)| name.as_str())
@@ -3119,7 +3258,7 @@ fn tracker_maps(
                 .collect();
             match candidates.as_slice() {
                 [field] => *field,
-                [] if !TRACKER_REQUIRED.contains(&property) => continue,
+                [] if !required.contains(&property) => continue,
                 _ => {
                     unmatched.push(if candidates.is_empty() {
                         property.to_string()
@@ -3139,7 +3278,7 @@ fn tracker_maps(
         };
         if !bases.contains(&field.1.as_str()) {
             return Err(AuthoringError::Invalid(format!(
-                "tracker map {property} field {} is {}; use a {} field",
+                "{recipe} map {property} field {} is {}; use a {} field",
                 field.0,
                 field.1,
                 bases.join("/")
@@ -3148,7 +3287,7 @@ fn tracker_maps(
         maps.push((property, field.0.clone()));
     }
     if !unmatched.is_empty() {
-        return Err(AuthoringError::Invalid(format!("tracker has unmatched field maps: {}; give --field-map Property=field for each (MCP field_maps); available fields: {}", unmatched.join("; "), fields.iter().map(|(name, _)| name.as_str()).collect::<Vec<_>>().join(", "))));
+        return Err(AuthoringError::Invalid(format!("{recipe} has unmatched field maps: {}; give --field-map Property=field for each (MCP field_maps); available fields: {}", unmatched.join("; "), fields.iter().map(|(name, _)| name.as_str()).collect::<Vec<_>>().join(", "))));
     }
     Ok(maps)
 }
@@ -3156,6 +3295,81 @@ fn tracker_maps(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tree_maps_cover_catalogue_and_require_parent_and_unambiguous_optional_color() {
+        let catalog = widgets::catalog().by_type("ptcstreeselector").unwrap();
+        let mut catalogue_fields: Vec<_> = catalog
+            .properties
+            .as_ref()
+            .unwrap()
+            .iter()
+            .filter(|(_, p)| p.base_type.as_deref() == Some("FIELDNAME"))
+            .map(|(name, _)| name.as_str())
+            .collect();
+        catalogue_fields.sort();
+        let mut mapped: Vec<_> = TREE_MAPS.iter().map(|(name, _, _)| *name).collect();
+        mapped.sort();
+        assert_eq!(catalogue_fields, mapped);
+        let fields = vec![
+            ("id".into(), "STRING".into()),
+            ("name".into(), "STRING".into()),
+        ];
+        let error = field_maps_for("tree", TREE_MAPS, TREE_REQUIRED, &fields, &[])
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("ParentIDField") && error.contains("available fields: id, name"),
+            "{error}"
+        );
+        let fields = vec![
+            ("id".into(), "STRING".into()),
+            ("name".into(), "STRING".into()),
+            ("parentId".into(), "STRING".into()),
+            ("color".into(), "STRING".into()),
+            ("colour".into(), "STRING".into()),
+        ];
+        assert!(
+            field_maps_for("tree", TREE_MAPS, TREE_REQUIRED, &fields, &[])
+                .unwrap_err()
+                .to_string()
+                .contains("ColorField (ambiguous: color, colour)")
+        );
+        let maps = field_maps_for("tree", TREE_MAPS, TREE_REQUIRED, &fields[..3], &[]).unwrap();
+        assert_eq!(maps.len(), 3);
+        for (name, args) in [
+            (
+                "tree",
+                RecipeArgs {
+                    initial_step: Some(1),
+                    ..Default::default()
+                },
+            ),
+            (
+                "tree",
+                RecipeArgs {
+                    step_size: Some("small".into()),
+                    ..Default::default()
+                },
+            ),
+            (
+                "tree",
+                RecipeArgs {
+                    host: Some("host".into()),
+                    ..Default::default()
+                },
+            ),
+            (
+                "tracker",
+                RecipeArgs {
+                    style: Some("card".into()),
+                    ..Default::default()
+                },
+            ),
+        ] {
+            assert!(Recipe::from_args(name, &args).is_err());
+        }
+    }
 
     #[test]
     fn tracker_maps_require_complete_unambiguous_typed_fields_and_valid_overrides() {

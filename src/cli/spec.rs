@@ -943,8 +943,8 @@ pub(crate) const USAGE: &[Usage] = &[
         group: 1,
         text: r#"  mashup recipe <recipe> <mashup> [<widget>] [<button>] [recipe flags] [--apply] [--json] [--detail]
                               write the wiring real mashups repeat, in one edit; plan unless --apply
-      panel <container> [--compact <768|960>]
-                              grey growing column with managed CSS; optional compact viewport gutters
+      panel <container> [--compact <768|960>] [--style <style>]
+                              grey growing column with managed CSS; --style grey (default) or white bordered card; optional compact viewport gutters
       slider-action <slider> <button>
                               align the button centre to the horizontal slider track (default 34px button)
       collapsible <container> [--toggle <button> | --add-toggle --in <container>]
@@ -998,7 +998,11 @@ pub(crate) const USAGE: &[Usage] = &[
                               fill a dropdown or list from a service result; without the "(None)" row,
                               or selecting the first row
       tracker <widget|new> --data <data call> [--field-map Property=field]...
-                              interactive large tracker; infer all five maps from the result DataShape
+          [--initial-step <n>] [--step-size <size>] [--host <widget>]
+                              interactive tracker; initial step 1, step-size small|medium|large (default large), minimum spacing 24
+                              --host wires mashupcontainer Name/stepNumber round trip before Data; runtime verification required
+      tree <treeselector> --data <data call> [--field-map Property=field]...
+                              infer IDField/NameField/ParentIDField and optional ColorField; override ambiguous or missing maps
       set-on-click <button> --param <name> --expr <expression> [--input name=<address>]...
                               set a mashup parameter on click; no automatic evaluation
       nested-menu <menubar> --menu <Root> [--no-auto-collapse] [--width <px>]

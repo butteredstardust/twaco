@@ -1045,6 +1045,19 @@ pub(crate) struct MashupParameterRequest {
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct MashupRecipeRequest {
+    /// panel: grey (default) or white bordered card.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) style: Absent<String>,
+    /// tracker: initial CurrentStepNumber (default 1); runtime verification required.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) initial_step: Absent<u32>,
+    /// tracker: small, medium or large (default).
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) step_size: Absent<String>,
+    /// tracker: mashupcontainer with a bindable NUMBER stepNumber parameter; wires round trip before Data.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) host: Absent<String>,
+
     /// panel: inclusive viewport breakpoint for 12px gutters; 768 or 960.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) compact: Absent<u32>,
@@ -1118,7 +1131,7 @@ pub(crate) struct MashupRecipeRequest {
     /// Destination mashup parameter for set-on-click.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) param: Absent<String>,
-    /// Tracker overrides as `Property=field`, using catalogue field-map property names.
+    /// Tracker/tree overrides as `Property=field`, using catalogue field-map property names.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) field_maps: Absent<Vec<String>>,
     /// Confirmation action button text.

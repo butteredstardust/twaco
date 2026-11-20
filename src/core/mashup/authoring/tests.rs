@@ -13487,3 +13487,231 @@ fn detail_options_refuse_invalid_modes_and_incomplete_status_without_writing() {
         assert_eq!(sidecar_content(&solution), before);
     }
 }
+
+#[test]
+fn tracker_initial_step_host_order_and_rerun_identity() {
+    let (dir, solution) = recipe_fixture();
+    write(
+        dir.path(),
+        "acme/DataShapes/Acme.Orders.Order_DS.xml",
+        r#"<Entities><DataShapes><DataShape name="Acme.Orders.Order_DS" projectName="Acme"><FieldDefinitions><FieldDefinition name="stepNumber" baseType="INTEGER"/><FieldDefinition name="label" baseType="STRING"/><FieldDefinition name="mashupName" baseType="MASHUPNAME"/></FieldDefinitions></DataShape></DataShapes></Entities>"#,
+    );
+    let child = NewRequest {
+        params: vec!["stepNumber:NUMBER:BOTH".into()],
+        ..request("Acme.Step_MU")
+    };
+    apply_new(
+        &solution,
+        &plan_new(&solution, &child).unwrap(),
+        &lock(&solution),
+    )
+    .unwrap();
+    let host = plan_add_contained(
+        &solution,
+        &AddContainedRequest {
+            mashup: "Acme.Orders_MU".into(),
+            child: "Acme.Step_MU".into(),
+            placement: None,
+            settings: vec![],
+        },
+    )
+    .unwrap();
+    apply_edit(&solution, &host.edit, &lock(&solution)).unwrap();
+    let args = RecipeArgs {
+        widget: Some("new".into()),
+        data: Some("data:Acme.Orders.Manager.GetOrders[as steps]".into()),
+        ..Default::default()
+    };
+    let first = recipe(&solution, "tracker", args.clone()).unwrap();
+    let id = first.added[0].clone();
+    let doc = mashup::edit::parse(&sidecar_content(&solution)).unwrap();
+    let target = doc.find(&id).unwrap();
+    assert_eq!(doc.at(&target.path)["Properties"]["CurrentStepNumber"], 1);
+    assert_eq!(doc.at(&target.path)["Properties"]["MinStepSpacing"], 24);
+    let before = sidecar_content(&solution);
+    recipe(
+        &solution,
+        "tracker",
+        RecipeArgs {
+            widget: Some(id.clone()),
+            ..args.clone()
+        },
+    )
+    .unwrap();
+    assert_eq!(sidecar_content(&solution), before);
+    let args = RecipeArgs {
+        widget: Some(id.clone()),
+        initial_step: Some(0),
+        step_size: Some("small".into()),
+        host: Some(host.placed.id.clone()),
+        ..args
+    };
+    let plan = recipe(&solution, "tracker", args.clone()).unwrap();
+    let edges: Vec<_> = plan
+        .wired
+        .iter()
+        .filter(|line| line.contains(" -> ") && line.starts_with("ui:"))
+        .collect();
+    assert_eq!(
+        edges,
+        vec![
+            &format!(
+                "ui:{}.stepNumber -> ui:{id}.CurrentStepNumber",
+                host.placed.id
+            ),
+            &format!(
+                "ui:{id}.CurrentStepNumber -> ui:{}.stepNumber",
+                host.placed.id
+            ),
+            &format!("ui:{id}.CurrentStepMashup -> ui:{}.Name", host.placed.id),
+        ]
+    );
+    let doc = mashup::edit::parse(&sidecar_content(&solution)).unwrap();
+    assert_eq!(
+        doc.at(&doc.find(&id).unwrap().path)["Properties"]["CurrentStepNumber"],
+        0
+    );
+    assert_eq!(
+        doc.at(&doc.find(&id).unwrap().path)["Properties"]["StepSize"],
+        "small"
+    );
+    assert_eq!(
+        doc.at(&doc.find(&host.placed.id).unwrap().path)["Properties"]["Name"],
+        "Acme.Step_MU"
+    );
+    let before = sidecar_content(&solution);
+    recipe(&solution, "tracker", args).unwrap();
+    assert_eq!(sidecar_content(&solution), before);
+}
+
+#[test]
+fn tree_recipe_infers_overrides_refuses_and_repeats_without_changes() {
+    let (dir, solution) = recipe_fixture();
+    let shape = |extra: &str| {
+        write(
+            dir.path(),
+            "acme/DataShapes/Acme.Orders.Order_DS.xml",
+            &format!(
+                r#"<Entities><DataShapes><DataShape name="Acme.Orders.Order_DS" projectName="Acme"><FieldDefinitions><FieldDefinition name="node_id" baseType="STRING"/><FieldDefinition name="name" baseType="STRING"/><FieldDefinition name="parentId" baseType="STRING"/><FieldDefinition name="color" baseType="STRING"/>{extra}</FieldDefinitions></DataShape></DataShapes></Entities>"#
+            ),
+        )
+    };
+    shape("");
+    let tree = plan_add(&solution, &add_request("Acme.Orders_MU", "tree")).unwrap();
+    apply_edit(&solution, &tree.edit, &lock(&solution)).unwrap();
+    let args = RecipeArgs {
+        widget: Some(tree.placed.id.clone()),
+        data: Some("data:Acme.Orders.Manager.GetOrders[as nodes]".into()),
+        ..Default::default()
+    };
+    recipe(&solution, "tree", args.clone()).unwrap();
+    let before = sidecar_content(&solution);
+    let doc = mashup::edit::parse(&before).unwrap();
+    let p = &doc.at(&doc.find(&tree.placed.id).unwrap().path)["Properties"];
+    for (key, value) in [
+        ("IDField", "node_id"),
+        ("NameField", "name"),
+        ("ParentIDField", "parentId"),
+        ("ColorField", "color"),
+    ] {
+        assert_eq!(p[key], value);
+    }
+    assert!(has_binding(
+        doc.value(),
+        "nodes",
+        "",
+        &tree.placed.id,
+        "Data"
+    ));
+    recipe(&solution, "tree", args.clone()).unwrap();
+    assert_eq!(sidecar_content(&solution), before);
+    shape(r#"<FieldDefinition name="title" baseType="STRING"/>"#);
+    let error = recipe(&solution, "tree", args.clone())
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("NameField (ambiguous: name, title)") && error.contains("available fields:"),
+        "{error}"
+    );
+    assert_eq!(sidecar_content(&solution), before);
+    recipe(
+        &solution,
+        "tree",
+        RecipeArgs {
+            field_maps: vec!["NameField=title".into()],
+            ..args.clone()
+        },
+    )
+    .unwrap();
+    for field in [
+        "NameField=absent",
+        "Bogus=name",
+        "NameField=node_id;NameField=name",
+    ] {
+        let before = sidecar_content(&solution);
+        assert!(recipe(
+            &solution,
+            "tree",
+            RecipeArgs {
+                field_maps: field.split(';').map(str::to_string).collect(),
+                ..args.clone()
+            }
+        )
+        .is_err());
+        assert_eq!(sidecar_content(&solution), before);
+    }
+}
+
+#[test]
+fn panel_card_matches_focus_export_and_inherits_on_wrappers() {
+    let (dir, solution, _) = label_pairs_fixture();
+    let panel = mashup::edit::parse(&sidecar_content(&solution))
+        .unwrap()
+        .find("Details")
+        .unwrap()
+        .id;
+    set_and_apply(
+        &solution,
+        "Acme.Orders_MU",
+        &panel,
+        vec![("flex-direction".into(), json!("column"))],
+        None,
+    )
+    .unwrap();
+    let wrapper = add_at(
+        &solution,
+        "Acme.Orders_MU",
+        "container",
+        Placement::In(panel.clone()),
+    );
+    let args = RecipeArgs {
+        widget: Some(panel.clone()),
+        style: Some("card".into()),
+        ..Default::default()
+    };
+    recipe(&solution, "panel", args.clone()).unwrap();
+    let before = sidecar_content(&solution);
+    let doc = mashup::edit::parse(&before).unwrap();
+    let styles = &doc.root_properties()["StyleProperties"]["data"];
+    assert_eq!(
+        styles[&panel]["parts"]["$"]["$"],
+        json!({
+            "background":"#ffffff", "border-color":"#BEC6CA", "border-radius":"initial", "border-style":"solid", "border-width":"1px",
+            "padding-bottom":"12px", "padding-left":"24px", "padding-right":"24px", "padding-top":"12px"
+        })
+    );
+    assert_eq!(styles[&wrapper]["parts"]["$"]["$"]["background"], "inherit");
+    let props = &doc.at(&doc.find(&panel).unwrap().path)["Properties"];
+    assert_eq!(props["Margin"], "");
+    assert_eq!(props["flex-min-height"], "0px");
+    let css_path = dir.path().join("src/Acme.Orders_MU/mashup/custom.css");
+    let css = std::fs::read_to_string(&css_path).unwrap();
+    assert!(
+        css.contains("height: calc(100% - 16px) !important;")
+            && css.contains("margin: 8px !important;")
+            && css.contains("min-height: 0 !important;")
+    );
+    recipe(&solution, "panel", args).unwrap();
+    assert_eq!(sidecar_content(&solution), before);
+    assert_eq!(std::fs::read_to_string(css_path).unwrap(), css);
+}

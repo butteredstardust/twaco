@@ -580,6 +580,18 @@ fn every_flag_means_the_same_in_every_command() {
                 assert_eq!(value_names, ["old=new"]);
                 continue;
             }
+            // Tracker host selects a container; directory services take a network host.
+            if command.path == "mashup recipe" && name == "--host" {
+                assert_eq!(kind, "value");
+                assert_eq!(value_names, ["widget"]);
+                continue;
+            }
+            // Panel style selects a preset; mashup set --style assigns style properties.
+            if command.path == "mashup recipe" && name == "--style" {
+                assert_eq!(kind, "value");
+                assert_eq!(value_names, ["style"]);
+                continue;
+            }
             // Recipe layout selects presentation; gadget creation declares dimensions.
             if command.path == "mashup recipe" && name == "--layout" {
                 assert_eq!(kind, "value");

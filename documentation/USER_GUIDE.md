@@ -1698,6 +1698,36 @@ twaco mashup recipe tracker Acme.App.Wizard_MU new --data data:Acme.App.Wizard.M
 twaco mashup recipe set-on-click Acme.App.Wizard_MU ptcsbutton-6 --param CurrentStep --expr "CurrentStep + 1" --input CurrentStep=mashup:CurrentStep --apply
 ```
 
+`tracker` now seeds `CurrentStepNumber=1` (override with `--initial-step <n>`, including
+0 for comparison) and removes stored `CurrentStepMashup`, which is an output.
+The catalogue has no initial-selection flag or explicit fit option. `MinStepSpacing=24`
+reduces the default 90px spacing; `--step-size small|medium|large` defaults to large.
+Five large steps were reported to scroll horizontally at 617px with the old spacing.
+Initial selection and the tighter layout are candidates awaiting live verification;
+empty or delayed data is left to the widget, with no fabricated initial mashup output.
+
+Optional `--host <mashupcontainer>` seeds host.stepNumber to the same initial step and wires host.stepNumber to tracker.CurrentStepNumber,
+then tracker.CurrentStepNumber to host.stepNumber, then tracker.CurrentStepMashup to
+host.Name, before binding Data. Keep the host's default first-step Name and declare a
+bindable NUMBER `stepNumber` parameter on each child. Next/Back in the child update it.
+This is an alternative wiring sequence for runtime comparison; stored binding order
+alone cannot guarantee asynchronous event order.
+
+```sh
+twaco mashup recipe tracker Acme.Wizard_MU tracker --data data:Acme.Manager.GetSteps --initial-step 1 --step-size small --host host --apply
+twaco mashup recipe tree Acme.Wizard_MU tree --data data:Acme.Manager.GetNodes --field-map NameField=caption --apply
+```
+
+`tree` binds Data and infers all four catalogue FIELDNAME properties. IDField,
+NameField and ParentIDField are required; ColorField is optional. Common aliases include
+id/nodeId/itemId/identifier, name/nodeName/label/title/displayName, parentId/parent,
+and color/colour/nodeColor. Matching ignores case and separators. Missing required or
+ambiguous maps list available fields and require `--field-map Property=field` overrides.
+IDs and parents accept STRING/TEXT/GUID or numeric fields; names and colors accept
+STRING/TEXT. Bind SelectedItem to an ID parameter, or SelectedData fields to detail
+widgets, and run the data call on load. MCP uses recipe `tree` with `field_maps`;
+tracker also accepts `initial_step`, `step_size`, and `host`. Plans remain the default.
+
 `mashup recipe toolbar` fills an empty responsive flexcontainer with a fixed 48px row,
 a search field in the left group and optional buttons in the right group. The groups center
 their children vertically; the right group uses `flex-end`. The field has a search icon,
@@ -1733,6 +1763,16 @@ twaco mashup recipe panel Acme.Detail_MU details --compact 768 --detail
 twaco mashup recipe panel Acme.Detail_MU details --compact 768 --apply
 twaco mashup recipe slider-action Acme.Controls_MU ptcsslider-8 ptcsbutton-9 --apply
 ```
+
+`--style card` uses the measured padded focus-card surface: `#ffffff`, solid `1px #BEC6CA`
+border, radius `initial`, `12px` top/bottom and `24px` left/right padding and an 8px margin on every side (16px between cards, like the kit).
+The managed box is 16px narrower and shorter than its slot (the margins), with border-box sizing,
+flex growth and min-height 0, so rows do not scroll. Default inner wrappers inherit its white
+background. The export also has two unpadded focus cards; this preset chooses the three padded
+focus-card variants. The reference trend cards share the surface but leave padding empty and
+use asymmetric sibling margins (`0 16 0 0` and `0 0 0 8`); those page-specific offsets
+are not applied by this reusable preset. `--style grey` keeps the existing defaults.
+MCP uses `style: "card"`.
 
 Panel appends a `twaco-panel-<widget-id>` class token and owns one delimited CSS
 block in `custom.css`. Existing classes and other CSS survive. `--compact 768|960`
@@ -1825,7 +1865,7 @@ all its Y axes. Pie charts have no axis labels.
 | chart | `--data` bound into the chart and its category field `--x` named (a pie: `--x` label and `--value` fields); every other numeric column of the result becomes a series; `--kind` bar/column or linechart/areachart |
 | columns | only the listed `--column field[:Title[:width]]` fields visible, in order; unlisted DataShape fields excluded from the layout; DATETIME fields use the localized default date/time format. Uses `--data` or the grid's existing binding; without a known DataShape only the listed columns are written and unlisted fields stay visible |
 | picker | a dropdown or list filled from `--data`, showing `--x`, valued by `--value`, its selection bound from `--selected` |
-| tracker | a progress tracker (existing widget or `new` in `center`) bound to `--data`, with `IsInteractive=true`, `StepSize=large` and field maps inferred from its result DataShape (number and label required); `--field-map Property=field` overrides any map |
+| tracker | a progress tracker (existing widget or `new` in `center`) bound to `--data`, with `IsInteractive=true`, `CurrentStepNumber=1`, `MinStepSpacing=24`, `StepSize=large` and field maps inferred from its result DataShape (number and label required); `--field-map Property=field` overrides any map |
 | set-on-click | an expression of `--expr`, fed by `--input name=address`, evaluated by the button's click and bound into the existing `--param` mashup parameter, using that parameter's type; no evaluation on load or input changes |
 
 For `columns`, repeat `--editable-column <field>` to make listed columns and the grid editable.

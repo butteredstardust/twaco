@@ -639,15 +639,20 @@ Both properties are needed; changing the parent container's responsive layout
 or flex-grow did not fix the truncation. `mashup new` sets both to `true` for
 template menu bars.
 
-## Progress tracker stored outputs blank the step container at load
+## Progress tracker initial container can be empty
 
-Verified on ThingWorx 10.2 Runtime: a `ptcsprogresstracker` must not store
-`CurrentStepMashup` or `CurrentStepNumber` in its properties. With `CurrentStepMashup`
-bound to a contained mashup's `Name` in `Acme.Steps_MU`, a stored value blanks the
-step container until a step is clicked. Even `"CurrentStepMashup": ""` alone causes
-this. Remove both stored properties so the tracker computes its initial step;
-step 1 then loads immediately and Next advances to step 2 with step 1 checked.
-`mashup recipe tracker` removes these stored values from an existing tracker.
+Verified on ThingWorx 10.2 Runtime: storing `CurrentStepMashup` (including an empty
+string) can blank the step container at load. Removing stored outputs was insufficient
+in a later 10.2 reproduction: binding CurrentStepMashup to a container's Name replaced
+its default first-step mashup with an empty value until a step was clicked. Clicking
+then loaded the child and the step-number round trip worked.
+
+The catalogue declares CurrentStepMashup as output-only, but CurrentStepNumber as
+both input and output. `recipe tracker` now removes only the stored mashup output,
+seeds CurrentStepNumber to 1 and offers `--initial-step` plus optional `--host` wiring
+for comparison. These initialisation candidates still require live verification.
+Five large steps also scrolled at 617px with the default MinStepSpacing of 90; the
+recipe tries 24 and exposes `--step-size`. The catalogue has no explicit fit option.
 
 ## Additional mashup binding and widget observations
 
