@@ -582,6 +582,19 @@ pub(crate) struct MashupRecipe {
     pub(crate) operands: Vec<String>,
     #[arg(long = "columns", value_name = "n")]
     pub(crate) label_columns: Option<u32>,
+    #[arg(long = "row", value_name = "first|selected")]
+    pub(crate) row: Option<String>,
+    #[arg(long = "layout", value_name = "inline|stacked")]
+    pub(crate) layout: Option<String>,
+    #[arg(long = "status", value_name = "field")]
+    pub(crate) status: Option<String>,
+    #[arg(long = "status-state", value_name = "name")]
+    pub(crate) status_state: Option<String>,
+    #[arg(long = "x-title", value_name = "text")]
+    pub(crate) x_title: Option<String>,
+    #[arg(long = "y-title", value_name = "text")]
+    pub(crate) y_title: Option<String>,
+
     #[arg(long = "replace", value_name = "widget")]
     pub(crate) replace: Option<String>,
 }
@@ -912,6 +925,12 @@ pub(crate) fn mashup_recipe_cmd(solution: &Solution, args: &MashupRecipe) -> u8 
         },
         label_columns: args.label_columns,
         replace: args.replace.clone(),
+        row: args.row.clone(),
+        layout: args.layout.clone(),
+        status: args.status.clone(),
+        status_state: args.status_state.clone(),
+        x_title: args.x_title.clone(),
+        y_title: args.y_title.clone(),
     };
     let recipe = match mashup::authoring::Recipe::from_args(name, &recipe_args) {
         Ok(recipe) => recipe,

@@ -1767,8 +1767,8 @@ from an existing data call's result DataShape. By default it uses all fields in 
 splits field names into captions, and gives each pair its own column in a wrapping row, matching
 the measured detail-panel pattern. Repeat `--field name[:Caption]` to pick, order and rename
 fields. With `--columns n` (above zero), pairs go across the n columns in order, then continue in
-the first column; there are never more columns than pairs. `--title` adds a sub-header above the
-wrapping row. Captions use `LabelType=label`; values use `body`.
+the first column; there are never more columns than pairs. `--title` adds a heading above the
+wrapping row. Inline captions and values use `LabelType=body`; stacked captions use `label`.
 
 ```sh
 twaco mashup recipe label-pairs Acme.App.Asset_MU details --data data:Acme.App.Manager.GetAssets --field assetName:Name --field status:Status --title Details --columns 3 --replace ptcspropertydisplay-8 --apply
@@ -1776,17 +1776,38 @@ twaco mashup recipe label-pairs Acme.App.Asset_MU details --data data:Acme.App.M
 
 `--replace` removes a widget inside or beside the destination, its descendants, and their
 bindings and event handlers in the same edit. Unknown references refuse. A non-empty destination
-refuses unless the replacement is its only child; there is no append mode. Plans list added
+refuses unless it already matches the recipe or the replacement is its only child; there is no append mode. Plans list added
 widgets with properties, bindings and removals. No files change without `--apply`.
 
-Values bind to the call's `SelectedRows` fields. Result cardinality cannot be known offline, so
-this also applies to a one-row result: select a row or enable the call's `Properties.AutoSelectFirstRow`.
-The existing selection hints explain missing selection and the All Data alternative for reading
-the first row. The wrapping row uses range sizing with no maximum height; on 10.2.1 the plan
-also names the CSS height overrides needed on its bounding box, inner flexcontainer and ancestors
-(see `twaco guide quirks`). MCP uses `mashup_recipe` with `recipe: "label-pairs"`, `widget` for the
-container, `data`, `fields` (array), `title`, `label_columns` and `replace`; `columns` remains the
-grid-column array. MCP plans by default with `dry_run: true`.
+`--row first` binds scalar fields through All Data (`data:Acme.Records.GetRecord.title`).
+`--row selected` binds `[SelectedRows]` and follows selection. By default the recipe uses selected
+when a selecting grid, list, dropdown or collection receives this exact call's All Data; otherwise
+it uses first. The plan names the choice and reason. Service names and offline signatures do not
+establish cardinality. Named calls keep `[as alias]`. Empty results have no first row; generated
+value labels start empty rather than displaying a placeholder.
+
+`--layout inline` is the default: captions left, values right, one line per pair, with a 1px divider
+between lines in each column (kit color `#C2C7CE`). `--layout stacked` retains captions above values. The kit export's
+inline margins are caption `0 5`, value `0 18 0 5`, circle `0 5`; circles are 12 by 12 and rows have
+no fixed height. `--status field --status-state Acme.Status` adds a circle per pair, binding the
+status field to the shape's `Data` and using the repository StateDefinition's inline snapshot in
+`ShapeFormatter`. Supply both options so the color meaning is explicit; the kit's dots themselves
+use static colors. Columns keep the same distribution in either layout. Repeating an identical
+recipe preserves bytes; a different recipe still requires an empty destination or `--replace`.
+
+A manually requested `[SelectedRows]` binding remains a warning when no selecting widget receives
+the same call's All Data. Bind the field from All Data to read the first row, or bind the result to
+a grid/list/collection/dropdown and turn on that widget's AutoSelectFirstRow.
+
+The wrapping row uses range sizing with no maximum height; on 10.2.1 the plan also names CSS height
+overrides (see `twaco guide quirks`). MCP `mashup_recipe` uses `row`, `layout`, `status`, `status_state`,
+`fields` (array), `title`, `label_columns` and `replace`; `columns` remains the grid-column array.
+MCP plans by default with `dry_run: true`.
+
+The chart recipe clears catalogue chart names (`Label`) and axis placeholders, including combo
+`YAxis1Label` through `YAxis100Label`. Existing authored names survive. `--title`, `--x-title` and
+`--y-title` override these labels (MCP `title`, `x_title`, `y_title`); the combo Y title applies to
+all its Y axes. Pie charts have no axis labels.
 
 `mashup recipe` writes, in one edit, the wiring real mashups repeat, from the same pieces `mashup add`,
 `bind` and `on` use:

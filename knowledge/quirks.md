@@ -38,8 +38,17 @@ and wire the Save button's `Clicked` event to `Evaluate` so validation runs only
 For a one-record form, `data:Acme.Records.GetRecord.title` reads the first row through All Data;
 `data:Acme.Records.GetRecord[SelectedRows].title` stays empty until a row is selected.
 
-SelectedRows field diagnostics read `Data.<section>.Services[]` by `Name` (the call alias), with
-`Properties.AutoSelectFirstRow=true` enabling automatic service selection. Missing/false is off.
+## AutoSelectFirstRow belongs to widgets, not data services (verified on 10.2, 2026-11-20)
+
+A one-row `Acme.Records.GetRecord` result bound from `[SelectedRows].title` stays empty
+even with `Services[].Properties.AutoSelectFirstRow=true`. Import and read-back preserve
+that property, but Runtime ignores it. Runtime scripts expose AutoSelectFirstRow only on
+widgets (collection, dropdown and list/dhxlist), with an `autoSelectFirstRow` setter on
+the collection component; there is no data-service option. Bind the scalar field from
+All Data to read the first row, or bind the result to a selecting widget and enable that
+widget's AutoSelectFirstRow.
+
+`recipe label-pairs` defaults to All Data when no selecting widget receives that same call.
 `DataBindings` identifies fields with `SourceArea="Data"`, `SourceDetails="SelectedRows"` and
 `PropertyMaps[].SourcePropertyType="Field"`; `SourceSection` and `SourceId` identify the call.
 All Data reads the first row. Selecting widgets must receive that same call's whole AllData
@@ -48,7 +57,7 @@ ptcscollection with SelectionMode single/multiple and HandleSelectionUpdates ena
 enabled ptcslist/ptcsdropdown. Composer propagates their selection through the shared Data
 binding; there is no extra two-way flag in twaco's binding shape. Other widgets, extension
 selectors and script-driven selection are conservatively not inferred. Bind/on hints and the
-bindings gate/mashup validation share this advisory; the service option is never changed.
+bindings gate/mashup validation share this advisory.
 
 ## Networks are declarative forests (verified on 10.1)
 

@@ -1016,6 +1016,13 @@ pub(crate) fn mashup_recipe_tool(
         fields: arguments.fields.items().to_vec(),
         label_columns: arguments.label_columns.as_ref().copied(),
         replace: arguments.replace.as_ref().cloned(),
+        row: arguments.row.as_ref().cloned(),
+        layout: arguments.layout.as_ref().cloned(),
+        status: arguments.status.as_ref().cloned(),
+        status_state: arguments.status_state.as_ref().cloned(),
+        x_title: arguments.x_title.as_ref().cloned(),
+        y_title: arguments.y_title.as_ref().cloned(),
+
         toggle: arguments.toggle.as_ref().cloned(),
         add_toggle: arguments.add_toggle.as_ref().copied().unwrap_or(false),
         in_container: arguments.in_container.as_ref().cloned(),

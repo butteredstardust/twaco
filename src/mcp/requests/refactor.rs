@@ -1070,6 +1070,27 @@ pub(crate) struct MashupRecipeRequest {
     /// label-pairs: number of columns, one per field by default, above zero.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) label_columns: Absent<u32>,
+    /// label-pairs: first or selected; default selected only with a selecting widget on this call.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    #[schemars(extend("enum" = ["first", "selected"]))]
+    pub(crate) row: Absent<String>,
+    /// label-pairs: inline (default) or stacked caption/value presentation.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    #[schemars(extend("enum" = ["inline", "stacked"]))]
+    pub(crate) layout: Absent<String>,
+    /// label-pairs: field bound to each status circle; needs status_state.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) status: Absent<String>,
+    /// label-pairs: repository StateDefinition mapping status values to colors.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) status_state: Absent<String>,
+    /// chart: explicit X-axis label; omitted clears only catalogue placeholders.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) x_title: Absent<String>,
+    /// chart: explicit Y-axis label (all combo Y axes); omitted preserves authored names.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) y_title: Absent<String>,
+
     /// label-pairs: widget inside or beside the destination to remove with its bindings.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) replace: Absent<String>,

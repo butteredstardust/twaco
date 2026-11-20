@@ -517,6 +517,16 @@ fn hand_written_tools() -> Vec<Value> {
         }
         recipe["inputSchema"]["properties"][name] = property;
     }
+    for (name, description) in [
+        ("row", "label-pairs: first or selected; default selected only with a selecting widget on this call."),
+        ("layout", "label-pairs: inline (default) or stacked caption/value presentation."),
+        ("status", "label-pairs: field bound to each status circle; needs status_state."),
+        ("status_state", "label-pairs: repository StateDefinition mapping status values to colors."),
+        ("x_title", "chart: explicit X-axis label; omitted clears only catalogue placeholders."),
+        ("y_title", "chart: explicit Y-axis label (all combo Y axes); omitted preserves authored names."),
+    ] { recipe["inputSchema"]["properties"][name] = json!({"type":"string","description":description}); }
+    recipe["inputSchema"]["properties"]["row"]["enum"] = json!(["first", "selected"]);
+    recipe["inputSchema"]["properties"]["layout"]["enum"] = json!(["inline", "stacked"]);
     recipe["inputSchema"]["properties"]["fields"] = json!({"description": "label-pairs: ordered field[:Caption] entries; omitted means all DataShape fields.", "type": "array", "items": {"type": "string"}});
     recipe["inputSchema"]["properties"]["label_columns"] = json!({"description": "label-pairs: number of columns, one per field by default, above zero.", "type": "integer", "minimum": 0});
     recipe["inputSchema"]["properties"]["replace"] = json!({"description": "label-pairs: widget inside or beside the destination to remove with its bindings.", "type": "string"});
@@ -4955,12 +4965,12 @@ fn label_pairs_mcp_plans_then_applies_with_schema_options() {
         .as_array()
         .unwrap()
         .iter()
-        .any(|n| n.as_str().unwrap().contains("SelectedRows")));
+        .any(|n| n.as_str().unwrap().contains("row first")));
     args["dry_run"] = json!(false);
     let (failed, applied) = call_tool(&root, "mashup_recipe", args);
     assert!(!failed, "{applied}");
     assert_eq!(applied["applied"], true);
-    assert_eq!(applied["added"].as_array().unwrap().len(), 9);
+    assert_eq!(applied["added"].as_array().unwrap().len(), 15);
     assert_ne!(std::fs::read(path).unwrap(), before);
     let (failed, validated) =
         call_tool(&root, "mashup_validate", json!({"mashup":"Acme.Asset_MU"}));

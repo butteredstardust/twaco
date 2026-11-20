@@ -7624,6 +7624,38 @@
           "type": "integer",
           "minimum": 0
         },
+        "row": {
+          "description": "label-pairs: first or selected; default selected only with a selecting widget on this call.",
+          "type": "string",
+          "enum": [
+            "first",
+            "selected"
+          ]
+        },
+        "layout": {
+          "description": "label-pairs: inline (default) or stacked caption/value presentation.",
+          "type": "string",
+          "enum": [
+            "inline",
+            "stacked"
+          ]
+        },
+        "status": {
+          "description": "label-pairs: field bound to each status circle; needs status_state.",
+          "type": "string"
+        },
+        "status_state": {
+          "description": "label-pairs: repository StateDefinition mapping status values to colors.",
+          "type": "string"
+        },
+        "x_title": {
+          "description": "chart: explicit X-axis label; omitted clears only catalogue placeholders.",
+          "type": "string"
+        },
+        "y_title": {
+          "description": "chart: explicit Y-axis label (all combo Y axes); omitted preserves authored names.",
+          "type": "string"
+        },
         "replace": {
           "description": "label-pairs: widget inside or beside the destination to remove with its bindings.",
           "type": "string"

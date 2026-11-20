@@ -871,14 +871,14 @@ pub(crate) const USAGE: &[Usage] = &[
       --from <address>        source address from mashup describe
       --to <address>          target address from mashup describe
                               selected row example: data:Acme.Manager.Load[SelectedRows].name
-                              hints when a selected-row field has no row selector or automatic selection"#,
+                              hints when a selected-row field has no selecting widget"#,
     },
     Usage {
         path: "mashup on",
         group: 1,
         text: r#"  mashup on <mashup> --event <address> --invoke <address> [--apply] [--json]
                               run a service or widget service when a mashup event fires; plan unless --apply
-                              hints when selected-row fields have no row selector or automatic selection
+                              hints when selected-row fields have no selecting widget
       --event <address>       widget/mashup event or data call event (Data_Error on failure)
       --invoke <address>      data call or widget service to run"#,
     },
@@ -969,6 +969,9 @@ pub(crate) const USAGE: &[Usage] = &[
       validate <widget>|--on <event> --if <condition> [--input name=<address>]... --then <handler>
           [--else-say <text>]   run the handler when the condition holds, else show the text
       chart <chart> --data <data call> --x <field> [--value <field>] [--kind <chart type>]
+          [--title <text>] [--x-title <text>] [--y-title <text>]
+      --x-title <text>        explicit X-axis name; catalogue placeholders are cleared
+      --y-title <text>        explicit Y-axis name; authored names are preserved
                               draw a service result: the category field (a pie: label and value)
       columns <grid> --column field[:Title[:width]]... [--data <data call>] [--editable-column <field>]...
                               only these columns in order, with readable dates; --data or existing binding;
@@ -981,10 +984,15 @@ pub(crate) const USAGE: &[Usage] = &[
                               hint Search..., width 240; both events by default; change/both runs on
                               each keystroke; the clear button fires Changed once
       label-pairs <container> --data <data call> [--field <field>]... [--title <text>]
-          [--columns <n>] [--replace <widget>]
+          [--columns <n>] [--replace <widget>] [--row <first|selected>] [--layout <inline|stacked>]
+          [--status <field> --status-state <name>]
+      --row <first|selected>            first or selected; default selected with a selecting widget on this call, first otherwise
+      --layout <inline|stacked>         inline (default) or stacked caption/value pairs
+      --status <field>         result field driving a 12px circle per pair
+      --status-state <name>   repository StateDefinition mapping the status field to colors
                               caption/value labels from an existing call's DataShape; field[:Caption]
-                              picks/orders/renames; default all fields, a column each; SelectedRows
-                              bindings; empty responsive container unless --replace removes its only child
+                              picks/orders/renames; default all fields, a column each; first row unless
+                              a selecting widget is bound to this call; empty responsive container unless --replace removes its only child
       picker <dropdown|list> --data <data call> --x <display field> [--value <field>]
           [--selected <address>] [--no-none-row] [--auto-select-first]
                               fill a dropdown or list from a service result; without the "(None)" row,

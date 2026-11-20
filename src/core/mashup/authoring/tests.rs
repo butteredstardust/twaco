@@ -11831,7 +11831,7 @@ fn columns_recipe_rebinding_refreshes_types_but_keeps_state_and_unrelated_option
 }
 
 #[test]
-fn selected_rows_authoring_hints_follow_automatic_selection() {
+fn selected_rows_authoring_hints_ignore_service_auto_select_first_row() {
     let (dir, solution) = bind_fixture();
     let planned = bind(
         &solution,
@@ -11858,10 +11858,10 @@ fn selected_rows_authoring_hints_follow_automatic_selection() {
         "ui:ptcslabel-4.LabelText",
     )
     .unwrap();
-    assert!(!planned
+    assert!(planned
         .warnings
         .iter()
-        .any(|w| w.contains("AutoSelectFirstRow")));
+        .any(|w| w.contains("that widget's AutoSelectFirstRow")));
     assert!(on(&solution, event, invoke).unwrap().warnings.is_empty());
 }
 
@@ -12059,7 +12059,8 @@ fn label_pairs_plan(solution: &Solution, args: &RecipeArgs) -> Result<RecipePlan
 
 #[test]
 fn label_pairs_all_fields_follow_shape_order_and_measured_styles() {
-    let (_dir, solution, args) = label_pairs_fixture();
+    let (_dir, solution, mut args) = label_pairs_fixture();
+    args.layout = Some("stacked".into());
     let before = sidecar_content(&solution);
     let plan = label_pairs_plan(&solution, &args).unwrap();
     assert_eq!(
@@ -12119,7 +12120,7 @@ fn label_pairs_all_fields_follow_shape_order_and_measured_styles() {
             .iter()
             .any(|binding| {
                 binding["TargetId"] == value["Id"]
-                    && binding["SourceDetails"] == "SelectedRows"
+                    && binding["SourceDetails"] == "AllData"
                     && binding["PropertyMaps"][0]["SourceProperty"] == *field
                     && binding["PropertyMaps"][0]["SourcePropertyType"] == "Field"
                     && binding["PropertyMaps"][0]["TargetProperty"] == "LabelText"
@@ -12138,6 +12139,7 @@ fn label_pairs_all_fields_follow_shape_order_and_measured_styles() {
 #[test]
 fn label_pairs_picks_captions_title_and_three_columns() {
     let (_dir, solution, mut args) = label_pairs_fixture();
+    args.layout = Some("stacked".into());
     args.fields = vec![
         "active:Enabled?".into(),
         "id:Asset identifier".into(),
@@ -12213,7 +12215,7 @@ fn label_pairs_replace_removes_property_display_and_binding_inside_or_beside() {
         .unwrap();
         apply_edit(&solution, &bound.edit, &lock(&solution)).unwrap();
         args.replace = Some(display_id.clone());
-        let plan = recipe(&solution, "label-pairs", args).unwrap();
+        let plan = recipe(&solution, "label-pairs", args.clone()).unwrap();
         assert_eq!(plan.removed, [display_id.clone()]);
         assert_eq!(
             recipe_plan_json(&solution, &plan, true)["removed"],
@@ -12227,6 +12229,11 @@ fn label_pairs_replace_removes_property_display_and_binding_inside_or_beside() {
             .iter()
             .all(|b| b["TargetId"] != display_id && b["SourceId"] != display_id));
         assert!(problems(&solution).is_empty());
+        let before = sidecar_content(&solution);
+        let rerun = recipe(&solution, "label-pairs", args).unwrap();
+        assert!(rerun.added.is_empty());
+        assert!(rerun.removed.is_empty());
+        assert_eq!(sidecar_content(&solution), before);
     }
 }
 
@@ -12284,11 +12291,11 @@ fn label_pairs_notes_selected_rows_and_wrapping_guidance_in_json() {
     assert!(plan
         .notes
         .iter()
-        .any(|n| n.contains("multi-row") && n.contains("SelectedRows")));
+        .any(|n| n.contains("row first") && n.contains("no selecting widget")));
     assert!(plan
         .notes
         .iter()
-        .any(|n| n.contains(crate::core::bindings::SELECTED_ROWS_RULE) && n.contains("first row")));
+        .all(|n| !n.contains(crate::core::bindings::SELECTED_ROWS_RULE)));
     assert!(plan
         .notes
         .iter()
@@ -12315,10 +12322,7 @@ fn label_pairs_resolves_named_calls_and_requires_an_existing_call() {
     });
     args.data = Some("data:Acme.Orders.Manager.GetOrders[as details]".into());
     let plan = recipe(&solution, "label-pairs", args).unwrap();
-    assert!(plan
-        .wired
-        .iter()
-        .any(|n| n.contains("[as details][SelectedRows]")));
+    assert!(plan.wired.iter().any(|n| n.contains("[as details].")));
     let value: Value = serde_json::from_str(&sidecar_content(&solution)).unwrap();
     assert!(value["DataBindings"]
         .as_array()
@@ -13249,5 +13253,237 @@ fn b1_wizard_and_dashboard_command_sequences_keep_shared_rows_growing() {
             assert_eq!(p["flex-size"], "fixed");
             assert_eq!(p["flex-max-height"], "180px");
         }
+    }
+}
+
+#[test]
+fn detail_row_choice_uses_only_selectors_on_the_same_call_and_respects_overrides() {
+    for (selector, other_call, explicit, expected) in [
+        (false, false, None, "AllData"),
+        (true, false, None, "SelectedRows"),
+        (true, true, None, "AllData"),
+        (true, false, Some("first"), "AllData"),
+        (false, false, Some("selected"), "SelectedRows"),
+    ] {
+        let (dir, solution, mut args) = label_pairs_fixture();
+        args.row = explicit.map(str::to_string);
+        if selector {
+            rewrite_content(dir.path(), |value| {
+                let mut document = mashup::edit::parse(&value.to_string()).unwrap();
+                let grid = document
+                    .widgets()
+                    .into_iter()
+                    .find(|w| w.type_id == "ptcsgrid")
+                    .unwrap();
+                document.set_property(&grid.path, "RowSelection", json!("single"));
+                document.bindings_mut().push(json!({"SourceArea":"Data","SourceSection":"Things_Acme.Orders.Manager","SourceId":if other_call { "another" } else { "GetOrders" },"SourceDetails":"AllData","TargetArea":"UI","TargetId":grid.id,"PropertyMaps":[{"SourcePropertyType":"InfoTable","TargetProperty":"Data"}]}));
+                *value = document.value().clone();
+            });
+        }
+        let plan = recipe(&solution, "label-pairs", args).unwrap();
+        let value = content_value(&solution);
+        let fields: Vec<_> = value["DataBindings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|b| b["PropertyMaps"][0]["TargetProperty"] == "LabelText")
+            .collect();
+        assert_eq!(fields.len(), 7);
+        assert!(fields.iter().all(|b| b["SourceDetails"] == expected));
+        assert!(plan
+            .notes
+            .iter()
+            .any(|note| note.contains(if explicit.is_some() {
+                "explicit --row"
+            } else if expected == "SelectedRows" {
+                "a selecting widget is bound"
+            } else {
+                "no selecting widget is bound"
+            })));
+        assert_eq!(
+            plan.notes
+                .iter()
+                .any(|n| n.contains("selected-rows-without-selection")),
+            explicit == Some("selected") && !selector
+        );
+    }
+}
+
+#[test]
+fn detail_inline_matches_kit_geometry_and_reruns_without_changing_bytes() {
+    let (_dir, solution, mut args) = label_pairs_fixture();
+    args.label_columns = Some(1);
+    recipe(&solution, "label-pairs", args.clone()).unwrap();
+    let before = sidecar_content(&solution);
+    let document = mashup::edit::parse(&before).unwrap();
+    let panel = document.find("Details").unwrap();
+    let column = &document.at(&panel.path)["Widgets"][0]["Widgets"][0];
+    let rows = column["Widgets"].as_array().unwrap();
+    assert_eq!(rows.len(), 13);
+    for (index, row) in rows.iter().enumerate() {
+        let p = &row["Properties"];
+        if index % 2 == 1 {
+            assert_eq!(p["flex-size"], "fixed");
+            assert_eq!(p["flex-min-height"], "1px");
+            assert_eq!(p["flex-max-height"], "1px");
+            assert_eq!(
+                document.root_properties()["StyleProperties"]["data"][p["Id"].as_str().unwrap()]
+                    ["parts"]["$"]["$"]["background"],
+                "#C2C7CE"
+            );
+        } else {
+            assert_eq!(p["flex-direction"], "row");
+            assert_eq!(p["align-items"], "center");
+            assert_eq!(p["justify-content"], "space-between");
+            assert_eq!(p["flex-min-height"], "");
+            let caption = &row["Widgets"][0]["Widgets"][0]["Properties"];
+            let value = &row["Widgets"][1]["Widgets"][0]["Properties"];
+            assert_eq!(caption["HorizontalAlignment"], "left");
+            assert_eq!(caption["LabelType"], "body");
+            assert_eq!(caption["Margin"], "0 5");
+            assert_eq!(value["HorizontalAlignment"], "right");
+            assert_eq!(value["Margin"], "0 18 0 5");
+            assert_eq!(value["LabelText"], "");
+        }
+    }
+    let rerun = recipe(&solution, "label-pairs", args).unwrap();
+    assert!(rerun.added.is_empty());
+    assert_eq!(sidecar_content(&solution), before);
+}
+
+#[test]
+fn detail_status_uses_shape_data_and_existing_state_snapshot() {
+    let (dir, solution, mut args) = label_pairs_fixture();
+    write(
+        dir.path(),
+        "acme/StateDefinitions/Acme.Status.xml",
+        r##"<Entities><StateDefinitions><StateDefinition name="Acme.Status" projectName="Acme"><content><![CDATA[{"stateType":"string","stateDefinitions":[{"displayString":"Ready","defaultValue":"ready","defaultStyleDefinition":{"backgroundColor":"#00aa00"}},{"displayString":"Other","defaultStyleDefinition":{"backgroundColor":"#aaaaaa"}}]}]]></content></StateDefinition></StateDefinitions></Entities>"##,
+    );
+    args.status = Some("assetName".into());
+    args.status_state = Some("Acme.Status".into());
+    recipe(&solution, "label-pairs", args.clone()).unwrap();
+    let before = sidecar_content(&solution);
+    let document = mashup::edit::parse(&before).unwrap();
+    let dots: Vec<_> = document
+        .widgets()
+        .into_iter()
+        .filter(|w| w.type_id == "shape")
+        .collect();
+    assert_eq!(dots.len(), 7);
+    for dot in dots {
+        let p = &document.at(&dot.path)["Properties"];
+        assert_eq!(p["ShapeType"], "circle");
+        assert_eq!(p["Width"], 12);
+        assert_eq!(p["Height"], 12);
+        assert_eq!(p["Margin"], "0 5");
+        assert_eq!(p["ShapeFormatter"]["FieldName"], "Data");
+        assert_eq!(p["ShapeFormatter"]["StateDefinition"], "Acme.Status");
+        assert!(document.value()["DataBindings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|b| b["TargetId"] == dot.id
+                && b["PropertyMaps"][0]["TargetProperty"] == "Data"
+                && b["PropertyMaps"][0]["SourceProperty"] == "assetName"));
+    }
+    recipe(&solution, "label-pairs", args).unwrap();
+    assert_eq!(sidecar_content(&solution), before);
+}
+
+#[test]
+fn chart_recipes_clear_catalogue_titles_and_keep_explicit_or_authored_names() {
+    for kind in [
+        "ptcschartpie",
+        "ptcschartcombo",
+        "ptcschartline",
+        "ptcschartbar",
+    ] {
+        let (_dir, solution) = bind_fixture();
+        let plan = plan_add(&solution, &add_request("Acme.Orders_MU", kind)).unwrap();
+        apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+        let mut args = RecipeArgs {
+            widget: Some(plan.placed.id.clone()),
+            data: Some("data:Acme.Orders.Manager.GetOrders".into()),
+            x: Some("note".into()),
+            value: (kind == "ptcschartpie").then(|| "id".into()),
+            ..Default::default()
+        };
+        recipe(&solution, "chart", args.clone()).unwrap();
+        let before = sidecar_content(&solution);
+        let document = mashup::edit::parse(&before).unwrap();
+        let p = &document.at(&document.find_exact(&plan.placed.id).unwrap().path)["Properties"];
+        for (key, _) in widgets::catalog()
+            .by_type(kind)
+            .unwrap()
+            .defaults
+            .iter()
+            .filter(|(key, _)| {
+                key.as_str() == "Label"
+                    || key.as_str() == "XAxisLabel"
+                    || key.as_str() == "YAxisLabel"
+                    || key.as_str() == "SecondYAxisLabel"
+                    || (key.starts_with("YAxis") && key.ends_with("Label"))
+            })
+        {
+            assert_eq!(p[key], "", "{kind}.{key}");
+        }
+        recipe(&solution, "chart", args.clone()).unwrap();
+        assert_eq!(sidecar_content(&solution), before);
+        args.title = Some("Trend".into());
+        args.x_title = Some("Category".into());
+        args.y_title = Some("Count".into());
+        recipe(&solution, "chart", args.clone()).unwrap();
+        let titled = sidecar_content(&solution);
+        let document = mashup::edit::parse(&titled).unwrap();
+        let p = &document.at(&document.find_exact(&plan.placed.id).unwrap().path)["Properties"];
+        assert_eq!(p["Label"], "Trend");
+        if kind != "ptcschartpie" {
+            assert_eq!(p["XAxisLabel"], "Category");
+            assert_eq!(
+                p[if kind == "ptcschartcombo" {
+                    "YAxis1Label"
+                } else {
+                    "YAxisLabel"
+                }],
+                "Count"
+            );
+        }
+        args.title = None;
+        args.x_title = None;
+        args.y_title = None;
+        recipe(&solution, "chart", args).unwrap();
+        assert_eq!(sidecar_content(&solution), titled);
+    }
+}
+
+#[test]
+fn detail_options_refuse_invalid_modes_and_incomplete_status_without_writing() {
+    let (_dir, solution, args) = label_pairs_fixture();
+    let before = sidecar_content(&solution);
+    for changed in [
+        RecipeArgs {
+            row: Some("guess".into()),
+            ..args.clone()
+        },
+        RecipeArgs {
+            layout: Some("guess".into()),
+            ..args.clone()
+        },
+        RecipeArgs {
+            status: Some("active".into()),
+            ..args.clone()
+        },
+        RecipeArgs {
+            status_state: Some("Acme.Status".into()),
+            ..args.clone()
+        },
+        RecipeArgs {
+            status: Some("missing".into()),
+            status_state: Some("Acme.Status".into()),
+            ..args.clone()
+        },
+    ] {
+        assert!(label_pairs_plan(&solution, &changed).is_err());
+        assert_eq!(sidecar_content(&solution), before);
     }
 }
