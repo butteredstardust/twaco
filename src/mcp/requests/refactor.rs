@@ -494,8 +494,8 @@ pub(crate) struct EntityNewRequest {
     pub(crate) cron: Absent<String>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) run_as: Absent<String>,
-    #[serde(default)]
-    pub(crate) disabled: bool,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) disabled: Absent<bool>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) then: Absent<String>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
@@ -518,12 +518,12 @@ pub(crate) struct EntityNewRequest {
     pub(crate) line_style: Absent<String>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) line_thickness: Absent<String>,
-    #[serde(default)]
-    pub(crate) bold: bool,
-    #[serde(default)]
-    pub(crate) italic: bool,
-    #[serde(default)]
-    pub(crate) underline: bool,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) bold: Absent<bool>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) italic: Absent<bool>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) underline: Absent<bool>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) text_size: Absent<String>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
@@ -545,8 +545,8 @@ pub(crate) struct EntityNewRequest {
     pub(crate) state: Absent<Vec<String>>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) item: Absent<Vec<String>>,
-    #[serde(default)]
-    pub(crate) default: bool,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) default: Absent<bool>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) label: Absent<String>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
@@ -626,6 +626,8 @@ pub(crate) enum EntityEditAction {
     ServiceAdd,
     #[serde(rename = "service_remove")]
     ServiceRemove,
+    #[serde(rename = "service_set")]
+    ServiceSet,
     #[serde(rename = "service_override")]
     ServiceOverride,
     #[serde(rename = "service_revert")]
@@ -720,7 +722,7 @@ pub(crate) struct EntityEditRequest {
     /// subscription_add: the property a DataChange subscription watches.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) source_property: Absent<String>,
-    /// subscription_add / service_add / service_override: the script (service_add: absent means an empty body).
+    /// subscription_add / service_add / service_set / service_override: the script (service_add: absent means an empty body).
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) then: Absent<String>,
     /// service_override: copy the script of the implementation the entity inherits, from the repository; not with then.
@@ -1061,6 +1063,16 @@ pub(crate) struct MashupRecipeRequest {
     /// panel: inclusive viewport breakpoint for 12px gutters; 768 or 960.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) compact: Absent<u32>,
+    /// panel: fill (default) or content height without growing.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    #[schemars(extend("enum" = ["fill", "content"]))]
+    pub(crate) fit: Absent<String>,
+    /// chart: stack bar series with SeriesDisplay=auto.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) stacked: Absent<bool>,
+    /// toolbar: style a row as a grey band, retaining its controls.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) band: Absent<bool>,
     /// slider-action: the button after the slider named by widget.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) button: Absent<String>,
@@ -1094,7 +1106,7 @@ pub(crate) struct MashupRecipeRequest {
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     #[schemars(extend("enum" = ["inline", "stacked"]))]
     pub(crate) layout: Absent<String>,
-    /// label-pairs: field bound to each status circle; needs status_state.
+    /// label-pairs: field bound to each status circle (needs status_state); columns: field=StateDefinition for icon plus text.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) status: Absent<String>,
     /// label-pairs: repository StateDefinition mapping status values to colors.
@@ -1120,7 +1132,7 @@ pub(crate) struct MashupRecipeRequest {
     pub(crate) tab: Absent<String>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) start: Absent<String>,
-    /// panel styles a responsive column; slider-action pairs widget (slider) with button. toolbar uses widget as the empty responsive container, then, search_param, hint, width, run_on and buttons. enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, picker, tracker, set-on-click, nested-menu, navigate-on-click or collapsible; label-pairs uses widget as the responsive container, data, fields, title, label_columns and replace.
+    /// panel styles a responsive column; slider-action pairs widget (slider) with button. toolbar uses widget as the empty responsive container, then, search_param, hint, width, run_on and buttons. enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, pagination, picker, tracker, set-on-click, nested-menu, navigate-on-click or collapsible; label-pairs uses widget as the responsive container, data, fields, title, label_columns and replace.
     pub(crate) recipe: String,
     /// The mashup to write it in.
     pub(crate) mashup: String,

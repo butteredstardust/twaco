@@ -3,7 +3,7 @@
 use super::{lock_workspace, Access, Effects, Mode, Notices};
 use crate::core::codes::{Coded, ErrorCode};
 use crate::core::config::{Severity, Solution};
-use crate::core::{catalog, check, header, lint_report, lock, types, workspace};
+use crate::core::{catalog, check, header, lint_report, lock, types, workflow, workspace};
 use std::path::Path;
 
 /// The arguments that affect a header repair.
@@ -33,6 +33,8 @@ pub struct FixHeadersOutcome {
     pub examined: usize,
     /// Scripts that could not be read or written, with the reason.
     pub failed: Vec<String>,
+    /// Entities whose XML an apply brought in line with the repaired scripts.
+    pub synced: Vec<String>,
     #[allow(
         dead_code,
         reason = "the command facade's Effects (COMMAND_FACADE.md); read only by tests"
@@ -91,6 +93,7 @@ pub fn execute(
         scripts: Vec::new(),
         examined: 0,
         failed: Vec::new(),
+        synced: Vec::new(),
         effects: Effects::new(
             match request.mode {
                 Mode::Plan => Access::Read,
@@ -99,6 +102,7 @@ pub fn execute(
             Access::None,
         ),
     };
+    let mut touched = std::collections::BTreeSet::new();
     let mut paths = lint_report::selected_scripts(
         solution,
         &discovery,
@@ -168,11 +172,48 @@ pub fn execute(
                 continue;
             }
         }
+        if let (Mode::Apply, Some(_), Some((collection, name))) = (
+            request.mode,
+            &repair.fixed,
+            check::script_entity(solution, &discovery, &path),
+        ) {
+            touched.insert((collection.to_string(), name.to_string()));
+        }
         outcome.scripts.push(FixedScript {
             file,
             changes: repair.changes,
             not_fixable: repair.not_fixable,
         });
+    }
+    // The entity XML holds the header too; leaving it behind fails the next gate.
+    if !touched.is_empty() {
+        let chosen: Vec<_> = discovery
+            .entities
+            .iter()
+            .filter(|entity| {
+                touched.contains(&(entity.info.collection.clone(), entity.info.name.clone()))
+            })
+            .cloned()
+            .collect();
+        let report = workflow::sync(
+            solution,
+            &chosen,
+            &[],
+            workflow::SyncOptions {
+                named: true,
+                ..workflow::SyncOptions::default()
+            },
+        );
+        let before = outcome.failed.len();
+        outcome
+            .failed
+            .extend(report.log.errors().map(|error| format!("sync: {error}")));
+        if outcome.failed.len() == before {
+            outcome.synced = chosen
+                .iter()
+                .map(|entity| format!("{}/{}", entity.info.collection, entity.info.name))
+                .collect();
+        }
     }
     Ok(outcome)
 }
@@ -308,11 +349,15 @@ mod tests {
 
         let fixed = execute(
             &solution,
-            &request(Mode::Apply, Some("Things/Child")),
+            &request(Mode::Apply, Some("Child")),
             &mut Notices::default(),
         )
         .unwrap();
-        assert_eq!(fixed.changed(), 1);
+        assert_eq!(fixed.changed(), 1, "a bare entity name selects it");
+        assert!(fixed.failed.is_empty(), "{:?}", fixed.failed);
+        assert_eq!(fixed.synced, ["Things/Child"]);
+        let xml = std::fs::read_to_string(root.join("Things/Child.xml")).unwrap();
+        assert!(xml.contains(" Run"), "the entity XML follows: {xml}");
         let text = std::fs::read_to_string(script).unwrap();
         assert!(text.contains("@function Run"), "{text}");
         assert!(text.contains("@param {string} who"), "{text}");

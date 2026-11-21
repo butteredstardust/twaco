@@ -28,9 +28,11 @@ Mashup templates
   kpi-tile        Compact KPI title and centered value (also kpi)
                   slots: title, value
   filter-panel    Fixed filters beside flexible content (also filters)
-                  slots: filter-column, filters, content
+                  slots: filter-column, filters, filter-footer, content
   tabs            A title above a tab set; --tab Label=Mashup shows a mashup in each tab (also tab-page)
                   slots: title, tabs
+  tab-content     Toolbar and body for a tab; the host supplies the title and 24px gutter
+                  slots: toolbar, body
   dashboard       A title, a row of four KPI tiles, and a side panel beside a main panel
                   slots: title, tiles, tile-1, tile-2, tile-3, tile-4, panels, side, main
 --- stderr

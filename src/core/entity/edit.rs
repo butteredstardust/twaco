@@ -142,6 +142,11 @@ pub enum Action {
         name: String,
         force: bool,
     },
+    /// Replace the script of an own service; its definition and callers stay.
+    ServiceSet {
+        name: String,
+        code: String,
+    },
     /// A script implementation of a definition an ancestor supplies.
     ServiceOverride {
         name: String,
@@ -495,6 +500,7 @@ pub(crate) fn plan(solution: &Solution, request: &Request) -> Result<Plan, EditE
         Action::SubscriptionRemove { name } => subscription_remove(&doc, name, &mut plan)?,
         Action::ServiceAdd(service) => edit.service_add(service, &mut plan)?,
         Action::ServiceRemove { name, force } => edit.service_remove(name, *force, &mut plan)?,
+        Action::ServiceSet { name, code } => edit.service_set(name, code, &mut plan)?,
         Action::ServiceOverride { name, source } => {
             edit.service_override(name, source, &mut plan)?
         }
@@ -2160,6 +2166,97 @@ impl Edit2<'_> {
             ),
             created_sidecar(folder.join("script.js"), doc.label(), code.into_bytes()),
         ]);
+        Ok(())
+    }
+
+    /// Replace the script of an own service, keeping its definition (so its callers stay
+    /// valid). An override or a non-script service is refused, and so is a service whose
+    /// sidecar was edited since the XML was synced: that edit would be lost.
+    fn service_set(&self, name: &str, code: &str, plan: &mut Plan) -> Result<(), EditError> {
+        let doc = self.doc;
+        doc.require(
+            &MEMBER_HOSTS,
+            "services belong to a Thing, ThingTemplate or ThingShape",
+        )?;
+        let extraction = sidecar::extract(&doc.src).map_err(invalid)?;
+        if extraction
+            .services
+            .iter()
+            .any(|service| service.name == name && service.is_override())
+        {
+            return Err(EditError::Invalid(format!(
+                "{} only implements inherited service {name}; edit its script.js and run sync, or use thing service override --revert",
+                doc.label()
+            )));
+        }
+        if !extraction
+            .services
+            .iter()
+            .any(|service| service.name == name)
+        {
+            return Err(EditError::Unknown(format!(
+                "{} has no own script service {name}",
+                doc.label()
+            )));
+        }
+        let mut sidecars = service_sidecars(doc)?;
+        let existing = sidecars
+            .get_mut(name)
+            .ok_or_else(|| EditError::Unknown(format!("{} has no service {name}", doc.label())))?;
+        let definition_xml = existing
+            .definition()
+            .expect("an own service has a definition")
+            .to_string();
+        let header_definition = crate::core::header::definition(&definition_xml)
+            .ok_or_else(|| invalid(format!("{name} has no readable definition")))?;
+        let current = existing.script().replace("\r\n", "\n");
+        let prepared = prepared_service_code(self.solution, doc, name, code, &header_definition);
+        *existing.script_mut() = prepared.clone();
+        let services = workspace::services_dir(self.solution, &doc.file);
+        let folder = services.join(name);
+        let script_path = folder.join("script.js");
+        if script_path.exists() {
+            let on_disk = read_file(&script_path)?;
+            if String::from_utf8_lossy(&on_disk).replace("\r\n", "\n") != current {
+                return Err(invalid(format!(
+                    "{} differs from the XML; run twaco sync {} first, then set the service",
+                    script_path.display(),
+                    doc.name()
+                )));
+            }
+        }
+        let (after, _) = crate::core::sync::sync(
+            &doc.src,
+            &sidecars,
+            true,
+            self.solution.format.indent_cdata_payload,
+            false,
+        )
+        .map_err(invalid)?;
+        plan.summary = format!("set the script of service {name}");
+        plan.changes.push(doc.change(after));
+        if script_path.exists() {
+            let before = read_file(&script_path)?;
+            plan.changes.push(FileChange {
+                path: script_path,
+                entity: doc.label(),
+                before,
+                after: prepared.into_bytes(),
+                kind: FileChangeKind::Replace,
+            });
+        } else {
+            other_sidecars(doc, &services, &sidecars, name, plan);
+            plan.changes.push(created_sidecar(
+                folder.join("definition.xml"),
+                doc.label(),
+                definition_xml.replace("\r\n", "\n").into_bytes(),
+            ));
+            plan.changes.push(created_sidecar(
+                script_path,
+                doc.label(),
+                prepared.into_bytes(),
+            ));
+        }
         Ok(())
     }
 

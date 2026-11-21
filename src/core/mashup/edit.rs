@@ -805,7 +805,14 @@ impl MashupDocument {
         for id in &placed.containers {
             if let Ok(row) = self.find(id) {
                 if row.path.starts_with(&filters.path) && !is_footer(self.at(&row.path)) {
-                    self.set_property(&row.path, "justify-content", Value::from("center"));
+                    let labels = children(self.at(&row.path))
+                        .iter()
+                        .all(|child| type_of(child) == Some("ptcslabel"));
+                    self.set_property(
+                        &row.path,
+                        "justify-content",
+                        Value::from(if labels { "flex-start" } else { "center" }),
+                    );
                     self.set_property(&row.path, "flex-shrink", Value::from(0));
                 }
             }
@@ -856,7 +863,8 @@ impl MashupDocument {
             return;
         };
         let row = self.at(parent);
-        if !is_generated_container(row)
+        if !(is_generated_container(row) || is_panel(row))
+            || authored_layout(row)
             || row["Properties"]["flex-direction"] != "row"
             || children(row).len() < 2
             || !children(row).iter().all(is_panel)
@@ -2027,10 +2035,27 @@ impl MashupDocument {
             )));
         }
         let mut below_row = None;
+        if !in_column && side.axis() == "column" {
+            for depth in (1..anchor.path.len()).rev() {
+                let path = &anchor.path[..depth];
+                let row = self.at(path);
+                if row["Properties"]["Type"] == "flexcontainer"
+                    && row["Properties"]["flex-direction"] == "row"
+                    && row["Properties"]["flex-size"] == "fixed"
+                    && row["Properties"]["flex-max-height"]
+                        .as_str()
+                        .is_some_and(|height| !height.is_empty())
+                {
+                    below_row = Some(widget_id(row).to_string());
+                    anchor = self.find(below_row.as_ref().unwrap())?;
+                    break;
+                }
+            }
+        }
         if !in_column && side == Side::Below && is_panel(self.at(&anchor.path)) {
             let parent = &anchor.path[..anchor.path.len() - 1];
             let row = self.at(parent);
-            if is_generated_container(row)
+            if is_owned_row(row)
                 && row["Properties"]["flex-direction"] == "row"
                 && children(row).len() > 1
                 && children(row)
@@ -2202,7 +2227,7 @@ impl MashupDocument {
         };
         let parent_path = parent_path.to_vec();
         let row = self.at(&parent_path).clone();
-        if !is_generated_container(&row) || row["Properties"]["flex-direction"] != "row" {
+        if !is_owned_row(&row) || row["Properties"]["flex-direction"] != "row" {
             return refuse("the anchor is not in a row twaco made; place it --right-of instead");
         }
         if let Some((_, grand)) = parent_path.split_last() {
@@ -2246,7 +2271,9 @@ impl MashupDocument {
             Value::from("space-between"),
         );
         self.set_property(&parent_path, "align-items", Value::from("center"));
-        self.unfix_row(&parent_path);
+        if is_generated_container(&row) {
+            self.unfix_row(&parent_path);
+        }
         let (_, column_path) = parent_path.split_last().expect("a row has a parent");
         if is_panel(self.at(column_path)) && is_label_value_row(self.at(&parent_path)) {
             self.floor_row(&parent_path, CARD_TEXT_ROW_MIN);
@@ -3300,6 +3327,13 @@ fn has_measured_height(widget: &Value) -> bool {
 // Explicit `set`/`add --prop` geometry relinquishes automatic layout ownership.
 fn authored_layout(widget: &Value) -> bool {
     widget["twacoLayoutAuthored"] == true
+}
+
+fn is_owned_row(widget: &Value) -> bool {
+    is_generated_container(widget)
+        || widget["twacoTemplateSlot"] == true
+        || (type_of(widget) == Some("flexcontainer")
+            && widget["Properties"]["DisplayName"] == "body")
 }
 
 fn is_generated_container(widget: &Value) -> bool {

@@ -13,6 +13,8 @@ pub struct WidgetSummary {
     pub container: bool,
     pub bindable: bool,
     pub(crate) auto_resize: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hint: Option<String>,
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
@@ -40,11 +42,43 @@ pub struct WidgetDetail {
     pub note: Option<String>,
 }
 
-/// List the catalogue in Composer's order, optionally narrowing it by type, label or alias.
+/// List the catalogue in Composer's order, optionally narrowing it by type, label, alias or discovery hint.
 pub fn list(search: Option<&str>) -> Vec<WidgetSummary> {
     match search {
-        Some(text) => catalog().search(text).into_iter().map(summary).collect(),
+        Some(text) => {
+            let wanted = text.to_ascii_lowercase().replace('-', " ");
+            let words: Vec<_> = wanted.split_whitespace().collect();
+            catalog()
+                .widgets
+                .iter()
+                .filter(|widget| {
+                    widget
+                        .names()
+                        .chain(std::iter::once(widget.type_display_name.as_str()))
+                        .chain(discovery_hint(&widget.type_id))
+                        .any(|name| {
+                            let name = name.to_ascii_lowercase().replace('-', " ");
+                            words.iter().all(|word| name.contains(word))
+                        })
+                })
+                .map(summary)
+                .collect()
+        }
         None => catalog().widgets.iter().map(summary).collect(),
+    }
+}
+
+/// Why a searched word finds nothing although Composer knows the thing it names, and the closest
+/// native widget to use instead.
+pub fn absent_note(search: &str) -> Option<&'static str> {
+    let wanted = search.to_ascii_lowercase();
+    let has = |words: &[&str]| words.iter().any(|word| wanted.contains(word));
+    if has(&["gauge", "dial", "meter"]) {
+        Some("ThingWorx 10.2 has a legacy `gauge` type that twaco cannot author (no contract); the closest native widget is ptcskpidial, the KPI dial: twaco widgets ptcskpidial")
+    } else if has(&["webframe", "web frame", "iframe", "frame"]) {
+        Some("Web Frame (`webframe`) is a legacy widget twaco cannot author (no contract). To show a page or a document, open it from a Link (ptcslink), or a navigation function with twaco mashup recipe popup; an image can go in ptcsimage")
+    } else {
+        None
     }
 }
 
@@ -63,10 +97,32 @@ pub fn detail(word: &str) -> Result<WidgetDetail, CatalogError> {
         events: widget.events.clone().unwrap_or_default(),
         services: widget.services.clone().unwrap_or_default(),
         defaults_count: widget.defaults.len(),
-        note: (!bindable).then(|| {
-            "no binding contract in the catalogue: it can be placed but not bound".to_string()
-        }),
+        note: if bindable {
+            schema_note(&widget.type_id).map(str::to_string)
+        } else {
+            Some("no binding contract in the catalogue: it can be placed but not bound".to_string())
+        },
     })
+}
+
+/// Structure of a property the catalogue types only as a JSON value.
+fn schema_note(type_id: &str) -> Option<&'static str> {
+    match type_id {
+        "ptcstabset" => Some(
+            "Items is a JSON array of objects, one per tab: [{\"name\":\"Orders\",\"value\":\"TabValue1\",\"visible\":true,\"disabled\":false}]. Tab<n>Name and Tab<n>Value carry the same text and value; NumberOfTabs says how many. mashup add keeps all of them in step and names an unnamed tab `Tab <n>`; set NumberOfTabs (not Items) to add or remove tabs.",
+        ),
+        _ => None,
+    }
+}
+
+fn discovery_hint(type_id: &str) -> Option<&'static str> {
+    match type_id {
+        "ptcsrte" => Some("Display-only HTML: set ReadOnly=true and HideToolbar=true on ptcsrte."),
+        "flexcontainer" => {
+            Some("For a collapsible container, see twaco mashup recipe collapsible --help.")
+        }
+        _ => None,
+    }
 }
 
 fn summary(widget: &Widget) -> WidgetSummary {
@@ -77,6 +133,7 @@ fn summary(widget: &Widget) -> WidgetSummary {
         container: widget.container,
         bindable: widget.has_contract(),
         auto_resize: widget.auto_resize,
+        hint: discovery_hint(&widget.type_id).map(str::to_string),
     }
 }
 
@@ -118,6 +175,29 @@ mod tests {
     use crate::core::codes::{Coded, ErrorCode};
 
     #[test]
+    fn a_widget_composer_has_but_the_catalogue_lacks_names_the_closest_one() {
+        for word in ["gauge", "webframe", "Web Frame", "iframe"] {
+            assert!(list(Some(word)).is_empty(), "{word}");
+        }
+        assert!(absent_note("gauge").unwrap().contains("ptcskpidial"));
+        assert!(absent_note("webframe").unwrap().contains("ptcslink"));
+        assert!(absent_note("grid").is_none());
+        let error = catalog().resolve("webframe").unwrap_err().to_string();
+        assert!(error.contains("legacy widget"), "{error}");
+        assert!(!list(Some("kpi")).is_empty());
+    }
+
+    #[test]
+    fn the_tab_set_detail_documents_the_items_objects() {
+        let note = detail("tabs").unwrap().note.unwrap();
+        assert!(
+            note.contains(r#""name":"Orders""#) && note.contains("Tab <n>"),
+            "{note}"
+        );
+        assert!(detail("button").unwrap().note.is_none());
+    }
+
+    #[test]
     fn list_keeps_catalogue_order_and_searches_names_ignoring_case() {
         let all = list(None);
         let expected: Vec<&str> = catalog()
@@ -135,6 +215,16 @@ mod tests {
         assert!(!charts.is_empty());
         assert!(charts.iter().all(|widget| widget.type_id.contains("chart")));
         assert_eq!(list(Some("Grid"))[0].type_id, "ptcsgrid");
+    }
+
+    #[test]
+    fn search_normalizes_alias_words() {
+        for query in ["date picker", "picker date", "DATE-PICKER"] {
+            assert!(list(Some(query))
+                .iter()
+                .any(|w| w.type_id == "ptcsdatepicker"));
+        }
+        assert!(list(Some("picker nonexistent")).is_empty());
     }
 
     #[test]
@@ -201,5 +291,47 @@ mod settings_tests {
                 .as_deref(),
             Some("BOOLEAN")
         );
+    }
+}
+
+#[cfg(test)]
+mod discovery_tests {
+    use super::*;
+
+    #[test]
+    fn html_and_collapsible_are_discovery_hints_without_authoring_aliases() {
+        let html = list(Some("HTML"));
+        let rte = html
+            .iter()
+            .find(|widget| widget.type_id == "ptcsrte")
+            .unwrap();
+        let hint = rte.hint.as_deref().unwrap();
+        assert!(hint.contains("ReadOnly=true") && hint.contains("HideToolbar=true"));
+        let collapsible = list(Some("collapsible"));
+        assert!(collapsible.iter().any(|widget| widget
+            .hint
+            .as_deref()
+            .unwrap_or_default()
+            .contains("twaco mashup recipe collapsible")));
+        assert!(catalog().resolve("html").is_err());
+        assert!(catalog().resolve("collapsible").is_err());
+        let tabs = catalog().by_type("ptcstabset").unwrap();
+        for property in [
+            "NumberOfTabs",
+            "Tab1Name",
+            "Tab2Name",
+            "Tab3Name",
+            "TabStyle",
+        ] {
+            assert!(
+                tabs.property(property).is_some() || tabs.defaults.contains_key(property),
+                "{property}"
+            );
+        }
+        assert!(tabs
+            .property("TabStyle")
+            .unwrap()
+            .options
+            .contains(&serde_json::json!("contained-tabs")));
     }
 }

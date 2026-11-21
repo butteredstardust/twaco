@@ -402,6 +402,11 @@ fn hand_written_tools() -> Vec<Value> {
         "type": "boolean",
         "default": false
     });
+    let push = tools
+        .iter_mut()
+        .find(|tool| tool["name"] == "push")
+        .unwrap();
+    push["inputSchema"]["properties"]["skip_checks"] = json!({"type":"boolean", "default":false, "description":"Skip per-entity deploy gates and the server script parse; reports the skipped gates."});
     let new = tools
         .iter_mut()
         .find(|tool| tool["name"] == "mashup_new")
@@ -440,6 +445,23 @@ fn hand_written_tools() -> Vec<Value> {
         "description": "panel: inclusive viewport breakpoint for 12px gutters; 768 or 960.",
         "type": "integer", "minimum": 0
     });
+    recipe["inputSchema"]["properties"]["fit"] = json!({
+        "description": "panel: fill (default) or content height without growing.",
+        "type": "string", "enum": ["fill", "content"]
+    });
+    for (name, description) in [
+        (
+            "stacked",
+            "chart: stack bar series with SeriesDisplay=auto.",
+        ),
+        (
+            "band",
+            "toolbar: style a row as a grey band, retaining its controls.",
+        ),
+    ] {
+        recipe["inputSchema"]["properties"][name] =
+            json!({"description": description, "type": "boolean"});
+    }
     recipe["inputSchema"]["properties"]["button"] = json!({
         "description": "slider-action: the button after the slider named by widget.",
         "type": "string"
@@ -538,7 +560,7 @@ fn hand_written_tools() -> Vec<Value> {
     for (name, description) in [
         ("row", "label-pairs: first or selected; default selected only with a selecting widget on this call."),
         ("layout", "label-pairs: inline (default) or stacked caption/value presentation."),
-        ("status", "label-pairs: field bound to each status circle; needs status_state."),
+        ("status", "label-pairs: field bound to each status circle (needs status_state); columns: field=StateDefinition for icon plus text."),
         ("status_state", "label-pairs: repository StateDefinition mapping status values to colors."),
         ("x_title", "chart: explicit X-axis label; omitted clears only catalogue placeholders."),
         ("y_title", "chart: explicit Y-axis label (all combo Y axes); omitted preserves authored names."),
@@ -553,7 +575,7 @@ fn hand_written_tools() -> Vec<Value> {
     recipe["inputSchema"]["properties"]["label_columns"] = json!({"description": "label-pairs: number of columns, one per field by default, above zero.", "type": "integer", "minimum": 0});
     recipe["inputSchema"]["properties"]["replace"] = json!({"description": "label-pairs: widget inside or beside the destination to remove with its bindings.", "type": "string"});
     recipe["inputSchema"]["properties"]["width"] = json!({"description": "nested-menu: column width (300); toolbar: search field width (240), in pixels.", "type": "integer", "minimum": 0});
-    recipe["inputSchema"]["properties"]["recipe"]["description"] = json!("panel styles a responsive column; slider-action pairs widget (slider) with button. toolbar uses widget as the empty responsive container, then, search_param, hint, width, run_on and buttons. enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, picker, tracker, set-on-click, nested-menu, navigate-on-click or collapsible; label-pairs uses widget as the responsive container, data, fields, title, label_columns and replace.");
+    recipe["inputSchema"]["properties"]["recipe"]["description"] = json!("panel styles a responsive column; slider-action pairs widget (slider) with button. toolbar uses widget as the empty responsive container, then, search_param, hint, width, run_on and buttons. enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, pagination, picker, tracker, set-on-click, nested-menu, navigate-on-click or collapsible; label-pairs uses widget as the responsive container, data, fields, title, label_columns and replace.");
     let edit = tools
         .iter_mut()
         .find(|tool| tool["name"] == "entity_edit")
@@ -582,6 +604,12 @@ fn hand_written_tools() -> Vec<Value> {
         .iter_mut()
         .find(|tool| tool["name"] == "entity_new")
         .unwrap();
+    for flag in ["disabled", "bold", "italic", "underline", "default"] {
+        new["inputSchema"]["properties"][flag]
+            .as_object_mut()
+            .unwrap()
+            .remove("default");
+    }
     new["description"] = json!(new["description"].as_str().unwrap().replace(
         "repository XML file: Projects, Groups, common Things",
         "repository XML file: Projects, Groups, Roles, PermissionGroups, common Things"
@@ -841,6 +869,7 @@ fn generated_schemas_mean_what_the_hand_written_ones_did() {
                         | "entity_edit"
                         | "mashup_new"
                         | "widgets"
+                        | "guide"
                 )
             {
                 continue;
@@ -3622,6 +3651,47 @@ fn entity_edit_overrides_an_inherited_service_then_reverts_it() {
 }
 
 #[test]
+fn entity_edit_sets_a_service_body_and_keeps_the_signature() {
+    let (_dir, root) = solution_dir();
+    let created = call(
+        &root,
+        "entity_new",
+        json!({"kind": "thing", "name": "P.Press", "dry_run": false}),
+    );
+    assert_eq!(created["isError"], false, "{created}");
+    let added = call(
+        &root,
+        "entity_edit",
+        json!({"action": "service_add", "entity": "P.Press", "name": "Read", "returns": "NUMBER", "then": "result = 1;", "dry_run": false}),
+    );
+    assert_eq!(added["isError"], false, "{added}");
+    let script = root.join("src/P.Press/services/Read/script.js");
+    let planned = call(
+        &root,
+        "entity_edit",
+        json!({"action": "service_set", "entity": "P.Press", "name": "Read", "then": "result = 2;"}),
+    );
+    assert_eq!(planned["isError"], false, "{planned}");
+    assert!(!std::fs::read_to_string(&script).unwrap().contains("= 2;"));
+    let set = call(
+        &root,
+        "entity_edit",
+        json!({"action": "service_set", "entity": "P.Press", "name": "Read", "then": "result = 2;", "dry_run": false}),
+    );
+    assert_eq!(set["isError"], false, "{set}");
+    assert!(std::fs::read_to_string(&script)
+        .unwrap()
+        .contains("result = 2;"));
+    for refused in [
+        json!({"action": "service_set", "entity": "P.Press", "name": "Read"}),
+        json!({"action": "service_set", "entity": "P.Press", "name": "Read", "then": "x", "returns": "STRING"}),
+    ] {
+        let result = call(&root, "entity_edit", refused);
+        assert_eq!(result["isError"], true, "{result}");
+    }
+}
+
+#[test]
 fn trace_reports_a_service_and_refuses_an_unknown_one() {
     let (_dir, root) = solution_dir();
     let created = call(
@@ -4022,7 +4092,7 @@ fn mashup_templates_lists_every_template_and_new_uses_template() {
             .as_array()
             .unwrap()
             .len(),
-        15
+        16
     );
     let created = call(
         &root,
@@ -5225,4 +5295,60 @@ fn presentation_next_steps_are_returned_by_mcp_plans_and_applies() {
     );
     assert!(!failed, "{cards}");
     assert!(cards["notes"].to_string().contains("--menu"));
+}
+
+#[test]
+fn tasks_and_widget_discovery_are_available_through_mcp() {
+    let definitions = tool_definitions();
+    for name in [
+        "entity_new",
+        "entity_edit",
+        "mashup_new",
+        "mashup_add",
+        "mashup_recipe",
+        "mashup_bind",
+    ] {
+        assert!(INSTRUCTIONS.contains(name));
+        assert!(definitions.iter().any(|tool| tool["name"] == name));
+    }
+    assert!(INSTRUCTIONS.contains("`guide` topic `tasks`"));
+    let (_dir, root) = solution_dir();
+    let (failed, tasks) = call_tool(&root, "guide", json!({"topic":"tasks"}));
+    assert!(!failed, "{tasks}");
+    assert!(tasks.to_string().contains("twaco mashup new"));
+    for (search, expected) in [
+        ("html", "ReadOnly=true"),
+        ("collapsible", "mashup recipe collapsible"),
+    ] {
+        let (failed, result) = call_tool(&root, "widgets", json!({"search":search}));
+        assert!(!failed && result.to_string().contains(expected), "{result}");
+    }
+}
+
+#[test]
+fn mashup_add_next_steps_cover_plans_and_applies() {
+    let (_dir, root) = solution_dir();
+    let (failed, created) = call_tool(
+        &root,
+        "mashup_new",
+        json!({"name":"Acme.Tasks_MU", "dry_run":false}),
+    );
+    assert!(!failed, "{created}");
+    for dry_run in [true, false] {
+        let (failed, result) = call_tool(
+            &root,
+            "mashup_add",
+            json!({"mashup":"Acme.Tasks_MU", "widget":"label", "dry_run":dry_run}),
+        );
+        assert!(!failed, "{result}");
+        let expected = format!(
+            "{}see the result: twaco mashup describe Acme.Tasks_MU",
+            if dry_run { "after --apply, " } else { "" }
+        );
+        assert_eq!(result["next_steps"], json!([expected]));
+        assert!(jsonschema::draft202012::is_valid(
+            &output_schema_of("mashup_add"),
+            &result
+        ));
+    }
 }

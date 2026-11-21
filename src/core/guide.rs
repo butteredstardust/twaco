@@ -1,7 +1,7 @@
 //! The knowledge an agent needs besides the CLI and the XML.
 //!
 //! Two kinds of topic, read and searched alike. The built-in ones ship inside twaco: how to work
-//! with it (`workflow`), the platform's verified-live quirks (`quirks`) and the service-code
+//! with it (`workflow`), the task-to-command index (`tasks`), styling a mashup (`styling`), the platform's verified-live quirks (`quirks`) and the service-code
 //! reference (`service-code`). The solution's own are its markdown files, by default AGENTS.md,
 //! CLAUDE.md and everything under `docs/`, which `[knowledge] paths` in twaco.toml replaces.
 //! A topic is searched per `##` section, because a search should find the one section about
@@ -12,13 +12,17 @@ use super::config::Solution;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-const BUILTIN: [(&str, &str); 3] = [
+pub const TASKS: &str = include_str!("../../knowledge/tasks.md");
+
+const BUILTIN: [(&str, &str); 5] = [
+    ("tasks", TASKS),
     ("workflow", include_str!("../../knowledge/workflow.md")),
     ("quirks", include_str!("../../knowledge/quirks.md")),
     (
         "service-code",
         include_str!("../../knowledge/service-code.md"),
     ),
+    ("styling", include_str!("../../knowledge/styling.md")),
 ];
 const DEFAULT_PATHS: [&str; 3] = ["AGENTS.md", "CLAUDE.md", "docs"];
 const HEADING_WEIGHT: f64 = 3.0;
@@ -518,7 +522,7 @@ mod tests {
         assert!(problems.is_empty());
         assert_eq!(
             topics.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(),
-            ["workflow", "quirks", "service-code"]
+            ["tasks", "workflow", "quirks", "service-code", "styling"]
         );
         let quirks = find(&topics, "quirks").unwrap();
         assert!(sections(&quirks.text).len() >= 50, "one section per quirk");
@@ -539,6 +543,24 @@ mod tests {
                 topic.id
             );
         }
+    }
+
+    #[test]
+    fn style_questions_find_the_styling_commands() {
+        let (topics, _) = super::topics(None);
+        for query in ["custom CSS", "style", "colour", "font colour of a label"] {
+            let hits = search(&topics, query, 5);
+            assert!(
+                hits.iter()
+                    .any(|hit| hit.topic == "styling" || hit.line.contains("--style")),
+                "{query}: {hits:?}"
+            );
+        }
+        let styling = find(&topics, "styling").unwrap();
+        assert!(styling
+            .text
+            .contains("mashup set <mashup> <widget> --style"));
+        assert!(TASKS.contains("--style"));
     }
 
     #[test]
@@ -664,7 +686,7 @@ mod tests {
         let (topics, problems) = super::topics(Some(&solution));
         assert!(problems.is_empty(), "{problems:?}");
         let ids: Vec<&str> = topics.iter().map(|t| t.id.as_str()).collect();
-        assert_eq!(&ids[3..], ["AGENTS", "docs/deep/GUIDE"]);
+        assert_eq!(&ids[5..], ["AGENTS", "docs/deep/GUIDE"]);
         assert_eq!(
             find(&topics, "guide").unwrap().id,
             "docs/deep/GUIDE",
@@ -679,7 +701,7 @@ mod tests {
         .unwrap();
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
         let (topics, problems) = super::topics(Some(&solution));
-        assert_eq!(topics.len(), 3);
+        assert_eq!(topics.len(), 5);
         assert_eq!(problems.len(), 2, "{problems:?}");
     }
 }

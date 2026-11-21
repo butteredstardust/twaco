@@ -17,6 +17,7 @@ use std::time::Instant;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Health {
+    Info,
     Ok,
     /// Works, but something is worth knowing.
     Warn,
@@ -36,6 +37,7 @@ pub struct Item {
 /// The stable report shared by the command line and MCP adapters.
 pub fn report_json(items: &[Item]) -> Value {
     let word = |health| match health {
+        Health::Info => "info",
         Health::Ok => "ok",
         Health::Warn => "warn",
         Health::Fail => "fail",
@@ -70,6 +72,43 @@ fn item(health: Health, subject: impl Into<String>, detail: impl Into<String>) -
     }
 }
 
+fn agent_guidance_advice(root: &Path) -> Vec<Item> {
+    ["AGENTS.md", "CLAUDE.md"]
+        .into_iter()
+        .filter_map(|file| {
+            let text = std::fs::read_to_string(root.join(file)).ok()?;
+            super::init::agent_guidance_stale(file, &text).then(|| {
+                item(
+                    Health::Info,
+                    file,
+                    "run `twaco init --agents` to add/refresh twaco's agent guidance",
+                )
+            })
+        })
+        .collect()
+}
+
+fn tooling_source(root: &Path, name: &str, value: Option<&std::ffi::OsStr>) -> Item {
+    let Some(value) = value.filter(|value| !value.is_empty()) else {
+        return item(Health::Info, name, "not set (optional)");
+    };
+    let path = root.join(value);
+    if !path.exists() {
+        return item(
+            Health::Warn,
+            name,
+            "set; path does not exist; correct the configured path",
+        );
+    }
+    if name == "TWACO_SDK" {
+        return item(Health::Ok, name, "set; path exists");
+    }
+    match super::structure::source_summary(&path) {
+        Ok(summary) => item(Health::Ok, name, format!("set; path exists; {summary}")),
+        Err(error) => item(Health::Warn, name, format!("set; path exists; {error}")),
+    }
+}
+
 /// Everything, in the order a person would check it. `root` is where to look for the solution.
 pub fn diagnose(root: &Path, profile_name: &str) -> Vec<Item> {
     let mut items = vec![item(
@@ -82,6 +121,14 @@ pub fn diagnose(root: &Path, profile_name: &str) -> Vec<Item> {
             std::env::consts::ARCH
         ),
     )];
+
+    for name in ["TWACO_SDK", "TWACO_STRUCTURE_XSD"] {
+        items.push(tooling_source(
+            root,
+            name,
+            std::env::var_os(name).as_deref(),
+        ));
+    }
 
     let solution = match Solution::discover(root) {
         Ok(solution) => solution,
@@ -104,6 +151,8 @@ pub fn diagnose(root: &Path, profile_name: &str) -> Vec<Item> {
         "solution",
         format!("{name} at {}", solution.root.display()),
     ));
+
+    items.extend(agent_guidance_advice(&solution.root));
 
     match solution.deploy_order() {
         Ok(order) => items.push(item(
@@ -941,5 +990,70 @@ password = \"p\"
             server.detail
         );
         serving.join().unwrap();
+    }
+}
+
+#[cfg(test)]
+mod tooling_tests {
+    use super::*;
+    use std::io::Write;
+
+    #[test]
+    fn optional_tooling_reports_unset_missing_broken_and_schema_generation() {
+        let temp = tempfile::tempdir().unwrap();
+        assert_eq!(
+            tooling_source(temp.path(), "TWACO_SDK", None).health,
+            Health::Info
+        );
+        assert_eq!(
+            tooling_source(
+                temp.path(),
+                "TWACO_SDK",
+                Some(std::ffi::OsStr::new("missing"))
+            )
+            .health,
+            Health::Warn
+        );
+        let jar = temp.path().join("schema.jar");
+        for (schema, version) in [("", "10.0-compatible"), ("<xs:element name=\"Roles\"/><xs:element name=\"PermissionGroups\"/><xs:element name=\"MCPNamespaces\"/>", "10.2-compatible")] {
+            let mut zip = zip::ZipWriter::new(std::fs::File::create(&jar).unwrap());
+            zip.start_file("com/thingworx/documents/schema.xsd", zip::write::SimpleFileOptions::default()).unwrap();
+            write!(zip, "<xs:schema xmlns:xs=\"http://www.w3.org/2001/XMLSchema\"><xs:element name=\"Entities\"/>{schema}</xs:schema>").unwrap();
+            zip.finish().unwrap();
+            let report = tooling_source(temp.path(), "TWACO_STRUCTURE_XSD", Some(jar.as_os_str()));
+            assert_eq!(report.health, Health::Ok, "{}", report.detail);
+            assert!(report.detail.contains(version), "{}", report.detail);
+        }
+        let mut zip = zip::ZipWriter::new(std::fs::File::create(&jar).unwrap());
+        zip.start_file("other.txt", zip::write::SimpleFileOptions::default())
+            .unwrap();
+        zip.finish().unwrap();
+        let report = tooling_source(temp.path(), "TWACO_STRUCTURE_XSD", Some(jar.as_os_str()));
+        assert_eq!(report.health, Health::Warn);
+        assert!(report.detail.contains("has no"));
+    }
+}
+
+#[cfg(test)]
+mod agent_guidance_tests {
+    use super::*;
+
+    #[test]
+    fn guidance_advice_reports_only_existing_missing_or_stale_blocks() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        assert!(agent_guidance_advice(root).is_empty());
+        std::fs::write(root.join("AGENTS.md"), "# Acme guidance\n").unwrap();
+        std::fs::write(
+            root.join("CLAUDE.md"),
+            "<!-- twaco:begin -->old<!-- twaco:end -->",
+        )
+        .unwrap();
+        let advice = agent_guidance_advice(root);
+        assert_eq!(advice.len(), 2);
+        assert!(advice.iter().all(|item| item.health == Health::Info
+            && item.detail == "run `twaco init --agents` to add/refresh twaco's agent guidance"));
+        super::super::init::write_agent_files(root, "Acme", &[]).unwrap();
+        assert!(agent_guidance_advice(root).is_empty());
     }
 }

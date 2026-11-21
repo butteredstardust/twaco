@@ -47,6 +47,8 @@ impl fmt::Display for Finding {
 /// What one gate did.
 #[derive(Debug)]
 pub struct GateResult {
+    // A finding may live on a consumer while a different entity causes it.
+    related_entities: Vec<(Finding, String)>,
     pub name: String,
     /// What the gate looked at, for a summary line that means something.
     pub examined: usize,
@@ -67,6 +69,7 @@ pub struct GateResult {
 impl GateResult {
     fn passed(name: &str, examined: usize) -> Self {
         GateResult {
+            related_entities: Vec::new(),
             name: name.to_string(),
             examined,
             findings: Vec::new(),
@@ -177,8 +180,8 @@ impl CheckReport {
     }
 
     /// Narrow the report to a deploy of `files`: a finding in an entity the plan leaves out
-    /// becomes a warning. Findings twaco cannot place in one entity still block, as does a gate
-    /// that could not run. Returns how many findings were set aside.
+    /// becomes a warning unless it involves a selected entity. Findings twaco cannot place in
+    /// one entity still block, as does a gate that could not run. Returns the count set aside.
     pub(crate) fn scope_to_entities(
         &mut self,
         solution: &Solution,
@@ -188,17 +191,26 @@ impl CheckReport {
             return 0;
         }
         let owners = file_owners(solution);
+        let selected: BTreeSet<_> = workspace::discover(solution)
+            .entities
+            .iter()
+            .filter(|entity| files.contains(&solution.relative(&entity.path).replace('\\', "/")))
+            .map(|entity| format!("{}/{}", entity.info.collection, entity.info.name))
+            .collect();
         let mut set_aside = 0;
         for gate in &mut self.gates {
             let (kept, other): (Vec<_>, Vec<_>) = std::mem::take(&mut gate.findings)
                 .into_iter()
                 .partition(|finding| {
-                    owner_of(&owners, &finding.file).is_none_or(|owner| {
-                        owner
-                            .entity
-                            .as_ref()
-                            .is_none_or(|entity| files.contains(&entity.file))
-                    })
+                    gate.related_entities
+                        .iter()
+                        .any(|(related, entity)| related == finding && selected.contains(entity))
+                        || owner_of(&owners, &finding.file).is_none_or(|owner| {
+                            owner
+                                .entity
+                                .as_ref()
+                                .is_none_or(|entity| files.contains(&entity.file))
+                        })
                 });
             gate.findings = kept;
             if other.is_empty() {
@@ -348,6 +360,10 @@ fn as_configured(solution: &Solution, mut gate: GateResult) -> GateResult {
 
 /// Run every gate the solution declares, built in and configured alike.
 pub fn run(solution: &Solution) -> CheckReport {
+    run_with_hooks(solution, true)
+}
+
+fn run_with_hooks(solution: &Solution, hooks: bool) -> CheckReport {
     let discovery = workspace::discover(solution);
     let (model, _) = types::load_model(solution);
     let lint = solution.effective_lint();
@@ -396,8 +412,47 @@ pub fn run(solution: &Solution) -> CheckReport {
             as_configured(solution, comment_header_with(solution, &discovery, &lint)),
         );
     }
-    for hook in &solution.checks {
-        report.gates.push(run_hook(solution, hook));
+    if hooks {
+        for hook in &solution.checks {
+            report.gates.push(run_hook(solution, hook));
+        }
+    }
+    report
+}
+
+pub(crate) fn entity_gate_names(solution: &Solution) -> Vec<&'static str> {
+    let lint = solution.effective_lint();
+    BUILT_IN_GATES
+        .iter()
+        .copied()
+        .filter(|name| {
+            !matches!(*name, "requirements" | "project dependencies")
+                && (!name.starts_with("comment ") || lint.gate_enabled(name))
+        })
+        .chain(std::iter::once("live parse"))
+        .collect()
+}
+
+/// The deploy gates that apply to one entity, without solution-wide hooks or requirements.
+pub(crate) fn run_entity(solution: &Solution, entity: &workspace::EntityFile) -> CheckReport {
+    let mut report = run_with_hooks(solution, false);
+    report
+        .gates
+        .retain(|gate| gate.name != "requirements" && gate.name != "project dependencies");
+    report.scope_to_entities(
+        solution,
+        &BTreeSet::from([solution.relative(&entity.path).replace('\\', "/")]),
+    );
+    let owners = file_owners(solution);
+    for gate in &mut report.gates {
+        gate.prose.clear();
+        gate.warnings.retain(|finding| {
+            owner_of(&owners, &finding.file)
+                .and_then(|owner| owner.entity.as_ref())
+                .is_none_or(|owner| {
+                    owner.file == solution.relative(&entity.path).replace('\\', "/")
+                })
+        });
     }
     report
 }
@@ -548,13 +603,27 @@ pub fn live_parse_with_progress(
     checker: Result<&dyn ScriptChecker, String>,
     progress: &dyn Progress,
 ) -> GateResult {
-    as_configured(solution, live_parse_gate(solution, checker, progress))
+    as_configured(solution, live_parse_gate(solution, checker, progress, None))
+}
+
+pub(crate) fn live_parse_entity(
+    solution: &Solution,
+    checker: &dyn ScriptChecker,
+    progress: &dyn Progress,
+    entity: &Path,
+    bytes: &[u8],
+) -> GateResult {
+    as_configured(
+        solution,
+        live_parse_gate(solution, Ok(checker), progress, Some((entity, bytes))),
+    )
 }
 
 fn live_parse_gate(
     solution: &Solution,
     checker: Result<&dyn ScriptChecker, String>,
     progress: &dyn Progress,
+    only: Option<(&Path, &[u8])>,
 ) -> GateResult {
     const GATE: &str = "live parse";
     let mut result = GateResult::passed(GATE, 0);
@@ -572,11 +641,19 @@ fn live_parse_gate(
         sidecar: PathBuf,
         service: String,
         source: String,
+        xml_line: usize,
     }
     let mut scripts = Vec::new();
     for entity in workspace::discover(solution).entities {
-        let Ok(bytes) = std::fs::read(&entity.path) else {
+        if only.is_some_and(|(path, _)| path != entity.path) {
             continue;
+        }
+        let bytes = match only {
+            Some((_, bytes)) => bytes.to_vec(),
+            None => match std::fs::read(&entity.path) {
+                Ok(bytes) => bytes,
+                Err(_) => continue,
+            },
         };
         // A document that will not parse is the project gate's finding, not this one's.
         let Ok(services) = super::sidecar::script_services(&bytes) else {
@@ -589,6 +666,10 @@ fn live_parse_gate(
                 entity_file: entity.path.clone(),
                 sidecar: services_dir.join(&service.name).join("script.js"),
                 service: service.name,
+                xml_line: String::from_utf8_lossy(&bytes)
+                    .find(&service.script)
+                    .map(|at| bytes[..at].iter().filter(|b| **b == b'\n').count())
+                    .unwrap_or(0),
                 source: service.script,
             });
         }
@@ -625,7 +706,7 @@ fn live_parse_gate(
             Finding {
                 gate: GATE.to_string(),
                 file: relative(solution, &script.entity_file),
-                line: 0,
+                line: script.xml_line + checked.line_number.max(1),
                 rule: "rhino".to_string(),
                 message: format!(
                     "service {} line {} column {}: {message}",
@@ -1069,7 +1150,13 @@ fn sidecars_in_sync(solution: &Solution, found: &workspace::Discovery) -> GateRe
 
 /// Every service script with its text, for a script gate. What cannot be read is a finding of
 /// that gate, so the gate fails rather than passes on the scripts it could read.
-fn scripts(solution: &Solution, result: &mut GateResult) -> Vec<(PathBuf, String)> {
+struct ScriptSource {
+    path: PathBuf,
+    source: String,
+    identity: Option<(String, String, String)>,
+}
+
+fn scripts(solution: &Solution, result: &mut GateResult) -> Vec<ScriptSource> {
     let tree = workspace::script_files(solution);
     let mut read = Vec::new();
     for why in tree.unreadable {
@@ -1078,10 +1165,46 @@ fn scripts(solution: &Solution, result: &mut GateResult) -> Vec<(PathBuf, String
     }
     for path in tree.files {
         match std::fs::read_to_string(&path) {
-            Ok(source) => read.push((path, workspace::without_bom(&source).to_string())),
+            Ok(source) => read.push(ScriptSource {
+                path,
+                source: workspace::without_bom(&source).to_string(),
+                identity: None,
+            }),
             Err(error) => {
                 let file = relative(solution, &path);
                 result.findings.push(unreadable(&result.name, file, error));
+            }
+        }
+    }
+    if result.name == "script traps" {
+        for entity in workspace::discover(solution).entities {
+            let Ok(bytes) = std::fs::read(&entity.path) else {
+                continue;
+            };
+            let Ok(services) = super::sidecar::script_services(&bytes) else {
+                continue;
+            };
+            for service in services {
+                let sidecar = workspace::services_dir(solution, &entity)
+                    .join(&service.name)
+                    .join("script.js");
+                if sidecar.is_file() {
+                    continue;
+                }
+                let source = String::from_utf8_lossy(&bytes);
+                let offset = source
+                    .find(&service.script)
+                    .map(|at| source[..at].bytes().filter(|b| *b == b'\n').count())
+                    .unwrap_or(0);
+                read.push(ScriptSource {
+                    path: entity.path.clone(),
+                    source: format!("{}{}", "\n".repeat(offset), service.script),
+                    identity: Some((
+                        entity.info.collection.clone(),
+                        entity.info.name.clone(),
+                        service.name,
+                    )),
+                });
             }
         }
     }
@@ -1103,8 +1226,8 @@ pub(crate) fn formatting_with(
     let mut result = GateResult::passed("formatting", 0);
     let style = format_js::Style::from(&solution.format.script);
     let scripts = scripts(solution, &mut result);
-    let survey = format_js::survey(scripts.iter().map(|(_, source)| source.as_str()));
-    for (path, source) in scripts {
+    let survey = format_js::survey(scripts.iter().map(|script| script.source.as_str()));
+    for ScriptSource { path, source, .. } in scripts {
         result.examined += 1;
         match format_js::format(&source.replace("\r\n", "\n"), &style) {
             Ok(None) => {}
@@ -1164,7 +1287,21 @@ pub(crate) fn script_traps_with(
     lint: &EffectiveLint<'_>,
 ) -> GateResult {
     let mut result = GateResult::passed("script traps", 0);
-    for (path, source) in scripts(solution, &mut result) {
+    for ScriptSource {
+        path,
+        source,
+        identity,
+    } in scripts(solution, &mut result)
+    {
+        let entity = identity
+            .as_ref()
+            .map(|(collection, name, _)| (collection.as_str(), name.as_str()))
+            .or_else(|| script_entity(solution, discovered, &path));
+        let service = identity
+            .as_ref()
+            .map(|(_, _, service)| service.as_str())
+            .or_else(|| path.parent()?.file_name()?.to_str())
+            .unwrap_or("");
         result.examined += 1;
         let mark = (result.findings.len(), result.warnings.len());
         let source = source.replace("\r\n", "\n");
@@ -1177,10 +1314,11 @@ pub(crate) fn script_traps_with(
             }) {
                 continue;
             }
-            lint_finding(
+            lint_finding_for_service(
                 &mut result,
                 lint,
-                script_entity(solution, discovered, &path),
+                entity,
+                service,
                 "script traps",
                 trap.rule,
                 Finding {
@@ -1194,10 +1332,11 @@ pub(crate) fn script_traps_with(
         }
         if let Some(directives) = &directives {
             for problem in directives.malformed() {
-                lint_finding(
+                lint_finding_for_service(
                     &mut result,
                     lint,
-                    script_entity(solution, discovered, &path),
+                    entity,
+                    service,
                     "script traps",
                     "suppression",
                     Finding {
@@ -1210,10 +1349,11 @@ pub(crate) fn script_traps_with(
                 );
             }
             for problem in directives.unused("traps.") {
-                lint_finding(
+                lint_finding_for_service(
                     &mut result,
                     lint,
-                    script_entity(solution, discovered, &path),
+                    entity,
+                    service,
                     "script traps",
                     "suppression",
                     Finding {
@@ -1277,7 +1417,7 @@ fn result_shapes(solution: &Solution, model: &types::Model) -> GateResult {
                     .collect::<BTreeSet<_>>()
             })
     };
-    for (path, source) in scripts(solution, &mut result) {
+    for ScriptSource { path, source, .. } in scripts(solution, &mut result) {
         // A script without a definition is the sidecars gate's to report.
         let Some(definition) = path
             .parent()
@@ -1331,7 +1471,7 @@ pub(crate) fn code_order_with(
     lint: &EffectiveLint<'_>,
 ) -> GateResult {
     let mut result = GateResult::passed("code order", 0);
-    for (path, source) in scripts(solution, &mut result) {
+    for ScriptSource { path, source, .. } in scripts(solution, &mut result) {
         result.examined += 1;
         let mark = (result.findings.len(), result.warnings.len());
         let source = source.replace("\r\n", "\n");
@@ -1419,7 +1559,7 @@ pub(crate) fn comment_header_with(
     }
     let (model, _) = types::load_model(solution);
     let platform = types::cached_platform(solution);
-    for (path, source) in scripts(solution, &mut result) {
+    for ScriptSource { path, source, .. } in scripts(solution, &mut result) {
         result.examined += 1;
         let service = path
             .parent()
@@ -1505,7 +1645,7 @@ fn comment_gate(
     if !lint.gate_enabled(gate) {
         return result;
     }
-    for (path, source) in scripts(solution, &mut result) {
+    for ScriptSource { path, source, .. } in scripts(solution, &mut result) {
         result.examined += 1;
         let measure = super::comments::measure(&source.replace("\r\n", "\n"));
         for finding in findings(&measure, lint.comment_policy()) {
@@ -1550,6 +1690,19 @@ fn lint_finding(
     rule: &str,
     finding: Finding,
 ) {
+    let service = finding.file.rsplit('/').nth(1).unwrap_or("").to_string();
+    lint_finding_for_service(result, lint, entity, &service, gate, rule, finding);
+}
+
+fn lint_finding_for_service(
+    result: &mut GateResult,
+    lint: &EffectiveLint<'_>,
+    entity: Option<(&str, &str)>,
+    service: &str,
+    gate: &str,
+    rule: &str,
+    finding: Finding,
+) {
     let Some(rule) = super::rules::RULES
         .iter()
         .find(|known| known.gate == gate && known.rule == rule)
@@ -1558,11 +1711,7 @@ fn lint_finding(
         return;
     };
     let entity = entity.map(|(collection, name)| format!("{collection}/{name}"));
-    match lint.severity(
-        rule.id,
-        entity.as_deref(),
-        finding.file.rsplit('/').nth(1).unwrap_or(""),
-    ) {
+    match lint.severity(rule.id, entity.as_deref(), service) {
         Severity::Error => result.findings.push(finding),
         Severity::Warn => result.warnings.push(finding),
         Severity::Off => {}
@@ -1863,12 +2012,19 @@ fn mashup_bindings(
     result.findings = checked
         .problems
         .into_iter()
-        .map(|problem| Finding {
-            gate: bindings::GATE.to_string(),
-            file: problem.file,
-            line: 0,
-            rule: problem.rule,
-            message: problem.message,
+        .map(|problem| {
+            let related = problem.related_entity;
+            let finding = Finding {
+                gate: bindings::GATE.to_string(),
+                file: problem.file,
+                line: 0,
+                rule: problem.rule,
+                message: problem.message,
+            };
+            if let Some(entity) = related {
+                result.related_entities.push((finding.clone(), entity));
+            }
+            finding
         })
         .collect();
     let (advisories, errors) = result
@@ -1921,12 +2077,17 @@ fn contained_mashups(solution: &Solution, discovered: &workspace::Discovery) -> 
     result.findings = checked
         .problems
         .into_iter()
-        .map(|problem| Finding {
-            gate: super::contained_check::GATE.to_string(),
-            file: problem.file,
-            line: 0,
-            rule: problem.rule,
-            message: problem.message,
+        .map(|problem| {
+            let related = problem.related_entity;
+            let finding = Finding {
+                gate: super::contained_check::GATE.to_string(),
+                file: problem.file,
+                line: 0,
+                rule: problem.rule,
+                message: problem.message,
+            };
+            result.related_entities.push((finding.clone(), related));
+            finding
         })
         .collect();
     let mut prose = format!(
@@ -3615,6 +3776,170 @@ mod scope_tests {
             format!(r#"<Entities><Things><Thing name="{name}" projectName="{project}"/></Things></Entities>"#),
         )
         .unwrap();
+    }
+
+    fn acme_solution(root: &Path) -> Solution {
+        std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"Acme\"\n").unwrap();
+        Solution::load(&root.join("twaco.toml")).unwrap()
+    }
+
+    fn acme_entity(root: &Path, collection: &str, name: &str, body: &str) {
+        let folder = root.join(collection);
+        std::fs::create_dir_all(&folder).unwrap();
+        let tag = collection.strip_suffix('s').unwrap();
+        std::fs::write(folder.join(format!("{name}.xml")), format!(
+            "<Entities><{collection}><{tag} name=\"{name}\" projectName=\"Acme\">{body}</{tag}></{collection}></Entities>"
+        )).unwrap();
+    }
+
+    #[test]
+    fn pushing_a_child_keeps_only_parent_findings_about_that_child() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let solution = acme_solution(root);
+        for name in ["Acme.Child", "Acme.Other"] {
+            acme_entity(
+                root,
+                "Mashups",
+                name,
+                "<mashupContent><![CDATA[{}]]></mashupContent>",
+            );
+        }
+        let content = serde_json::json!({
+            "UI": {"Widgets": [
+                {"Properties": {"Id": "child", "Type": "mashupcontainer", "Name": "Acme.Child", "MashupParameters": [{"ParameterName": "removed"}]}},
+                {"Properties": {"Id": "other", "Type": "mashupcontainer", "Name": "Acme.Other", "MashupParameters": [{"ParameterName": "removed"}]}}
+            ]},
+            "DataBindings": [
+                {"TargetId": "child", "PropertyMaps": [{"TargetProperty": "removed"}]},
+                {"TargetId": "other", "PropertyMaps": [{"TargetProperty": "removed"}]}
+            ]
+        });
+        acme_entity(
+            root,
+            "Mashups",
+            "Acme.Parent",
+            &format!("<mashupContent><![CDATA[{content}]]></mashupContent>"),
+        );
+        let discovery = workspace::discover(&solution);
+        let child = discovery
+            .entities
+            .iter()
+            .find(|entity| entity.info.name == "Acme.Child")
+            .unwrap();
+        let report = run_entity(&solution, child);
+        let gate = report
+            .gates
+            .iter()
+            .find(|gate| gate.name == "contained mashups")
+            .unwrap();
+        assert!(gate.blocks());
+        assert_eq!(gate.findings.len(), 1);
+        assert_eq!(gate.findings[0].file, "Mashups/Acme.Parent.xml");
+        assert!(gate.findings[0].message.contains("Acme.Child"));
+        assert!(gate.warnings.is_empty());
+    }
+
+    #[test]
+    fn pushing_a_service_owner_keeps_only_consumers_findings_about_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let solution = acme_solution(root);
+        std::fs::create_dir_all(root.join(".twaco")).unwrap();
+        std::fs::write(
+            root.join(".twaco/platform.json"),
+            r#"{"templates":{"GenericThing":{"services":{}}},"shapes":{},"resources":{}}"#,
+        )
+        .unwrap();
+        for name in ["Acme.Owner", "Acme.Other"] {
+            acme_entity(
+                root,
+                "Things",
+                name,
+                "<ThingShape><ServiceDefinitions/><ServiceImplementations/></ThingShape>",
+            );
+        }
+        let content = serde_json::json!({"Data": {
+            "Owner": {"EntityName": "Acme.Owner", "EntityType": "Things", "Services": [{"Name": "Removed", "Target": "Removed"}]},
+            "Other": {"EntityName": "Acme.Other", "EntityType": "Things", "Services": [{"Name": "Removed", "Target": "Removed"}]}
+        }});
+        for name in ["Acme.Consumer", "Acme.Consumer2"] {
+            acme_entity(
+                root,
+                "Mashups",
+                name,
+                &format!("<mashupContent><![CDATA[{content}]]></mashupContent>"),
+            );
+        }
+        let discovery = workspace::discover(&solution);
+        let owner = discovery
+            .entities
+            .iter()
+            .find(|entity| entity.info.name == "Acme.Owner")
+            .unwrap();
+        let report = run_entity(&solution, owner);
+        let gate = report
+            .gates
+            .iter()
+            .find(|gate| gate.name == "mashup bindings")
+            .unwrap();
+        assert!(gate.blocks());
+        assert_eq!(gate.findings.len(), 2);
+        assert!(gate
+            .findings
+            .iter()
+            .all(|finding| finding.rule == "unknown-service"
+                && finding.message.contains("Acme.Owner")));
+        assert!(gate.warnings.is_empty());
+    }
+
+    #[test]
+    fn xml_only_script_overrides_use_entity_collection_and_service_identity() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        acme_solution(root);
+        let service = |name: &str| {
+            format!("<ServiceImplementation name=\"{name}\" handlerName=\"Script\"><ConfigurationTables><ConfigurationTable name=\"Script\"><Rows><Row><code><![CDATA[for (var i = 0; i < 6; i++) {{\n    const row = i;\n}}]]></code></Row></Rows></ConfigurationTable></ConfigurationTables></ServiceImplementation>")
+        };
+        let body = format!(
+            "<ThingShape><ServiceImplementations>{}{}</ServiceImplementations></ThingShape>",
+            service("Run"),
+            service("Other")
+        );
+        acme_entity(root, "Things", "Acme.Owner", &body);
+        acme_entity(root, "Things", "Acme.Other", &body);
+        for (entity, service, severity, errors, warnings) in [
+            ("Things/Acme.Owner", "Run", "off", 3, 0),
+            ("Things/Acme.Owner", "Run", "warn", 3, 1),
+            ("Things/Acme.Owner", "*", "off", 2, 0),
+            ("ThingTemplates/Acme.Owner", "Run", "off", 4, 0),
+            ("Things/Acme.Owner", "Absent", "off", 4, 0),
+        ] {
+            std::fs::write(root.join("twaco.toml"), format!("[[project]]\nname = \"Acme\"\n[[lint.override]]\nentity = \"{entity}\"\nservice = \"{service}\"\n[lint.override.rules.\"traps.const-in-loop\"]\nseverity = \"{severity}\"\n")).unwrap();
+            let solution = Solution::load(&root.join("twaco.toml")).unwrap();
+            let discovery = workspace::discover(&solution);
+            let gate = script_traps_with(&solution, &discovery, &solution.effective_lint());
+            assert_eq!(
+                gate.findings
+                    .iter()
+                    .filter(|finding| finding.rule == "const-in-loop")
+                    .count(),
+                errors,
+                "{entity} {service} {severity}"
+            );
+            assert_eq!(
+                gate.warnings
+                    .iter()
+                    .filter(|finding| finding.rule == "const-in-loop")
+                    .count(),
+                warnings
+            );
+            assert!(gate
+                .findings
+                .iter()
+                .chain(&gate.warnings)
+                .all(|finding| finding.file.starts_with("Things/") && finding.line == 2));
+        }
     }
 
     #[test]

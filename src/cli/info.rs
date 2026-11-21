@@ -7,25 +7,16 @@ use twaco::core::config::Solution;
 use twaco::core::index::Confidence;
 use twaco::core::{catalog, docs, impact, profile, server, unused};
 
-/// `twaco help search <words> | page <page>`: the ThingWorx Platform help center, for the
-/// server's own version unless told otherwise. Read-only; downloads go to the user's cache.
-/// AGENTS.md and CLAUDE.md for the solution, each only where none exists, and the `.gitignore`
-/// lines twaco's local state needs.
+/// Refresh the marked agent guidance and the `.gitignore` lines twaco's local state needs.
 pub(crate) fn write_agent_files(solution: &Solution) -> u8 {
     let projects: Vec<String> = match solution.deploy_order() {
         Ok(order) => order.iter().map(|p| p.name.clone()).collect(),
         Err(_) => solution.projects.iter().map(|p| p.name.clone()).collect(),
     };
     match twaco::core::init::write_agent_files(&solution.root, &solution.solution.name, &projects) {
-        Ok((wrote, kept)) => {
-            for file in &wrote {
-                match file.as_str() {
-                    "AGENTS.md" => println!("wrote AGENTS.md: fill in its project context; the next agent starts from it"),
-                    other => println!("wrote {other}"),
-                }
-            }
-            for file in &kept {
-                println!("{file} exists and is left alone");
+        Ok(changes) => {
+            for change in changes {
+                println!("{}: {}", change.file, change.action);
             }
             if twaco::core::gitignore::in_git_work_tree(&solution.root) {
                 match twaco::core::gitignore::add_missing(&solution.root) {

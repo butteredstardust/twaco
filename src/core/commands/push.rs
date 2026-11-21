@@ -17,6 +17,7 @@ pub struct PushRequest {
     pub entity: String,
     pub mode: Mode,
     pub force: bool,
+    pub skip_checks: bool,
     pub backup: bool,
     pub profile: String,
 }
@@ -54,14 +55,16 @@ const ALREADY_THERE_EFFECTS: Effects = Effects::new(Access::Write, Access::Read)
 const PUSHED_EFFECTS: Effects = Effects::new(Access::Write, Access::Write);
 
 /// A remote that can both push an entity and save the current server copy before a forced push.
-pub trait Remote: push::Remote + backup::Remote {}
+pub trait Remote: push::Remote + backup::Remote + crate::core::check::ScriptChecker {}
 
-impl<T: push::Remote + backup::Remote + ?Sized> Remote for T {}
+impl<T: push::Remote + backup::Remote + crate::core::check::ScriptChecker + ?Sized> Remote for T {}
 
 /// A failure before a typed push outcome could be produced.
 #[derive(Debug)]
 pub enum PushCommandError {
     Lock(lock::LockError),
+    Gates(String),
+    Dependency(String),
     Resolve(workspace::WorkspaceError),
     Unreadable(Vec<String>),
     Read {
@@ -90,7 +93,9 @@ impl PushCommandError {
             Self::Key { label, .. } | Self::Backup { label, .. } | Self::Push { label, .. } => {
                 Some(label)
             }
-            Self::Lock(_)
+            Self::Gates(_)
+            | Self::Dependency(_)
+            | Self::Lock(_)
             | Self::Resolve(_)
             | Self::Unreadable(_)
             | Self::Read { .. }
@@ -110,6 +115,7 @@ impl PushCommandError {
 impl fmt::Display for PushCommandError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Gates(why) | Self::Dependency(why) => f.write_str(why),
             Self::Lock(why) => why.fmt(f),
             Self::Resolve(why) => why.fmt(f),
             Self::Unreadable(unreadable) => write!(f, "{}", unreadable.join("\n")),
@@ -117,7 +123,13 @@ impl fmt::Display for PushCommandError {
             Self::Profile(why) => why.fmt(f),
             Self::Key { label, why } => write!(f, "{label}: {why}"),
             Self::Backup { label, why } => write!(f, "{label}: {why}"),
-            Self::Push { label, why, .. } => write!(f, "{label}: {why}"),
+            Self::Push { label, why, .. } => {
+                write!(f, "{label}: {why}")?;
+                if let Some(hint) = missing_dependency_hint(&why.to_string()) {
+                    write!(f, "; {hint}")?;
+                }
+                Ok(())
+            }
         }
     }
 }
@@ -127,6 +139,7 @@ impl std::error::Error for PushCommandError {}
 impl Coded for PushCommandError {
     fn code(&self) -> ErrorCode {
         match self {
+            Self::Gates(_) | Self::Dependency(_) => ErrorCode::InvalidData,
             Self::Lock(why) => why.code(),
             Self::Resolve(why) => why.code(),
             Self::Unreadable(_) => ErrorCode::InvalidData,
@@ -169,6 +182,22 @@ where
     R: Remote,
     F: FnOnce(profile::Profile) -> R,
 {
+    execute_with_gate_reporter(solution, request, open, notices, progress, None)
+}
+
+/// Execute a push with structured gate reports instead of gate notices when a reporter is supplied.
+pub fn execute_with_gate_reporter<R, F>(
+    solution: &Solution,
+    request: &PushRequest,
+    open: F,
+    notices: &mut Notices,
+    progress: &dyn Progress,
+    mut reporter: Option<&mut dyn FnMut(&crate::core::check::CheckReport)>,
+) -> Result<PushOutcome, PushCommandError>
+where
+    R: Remote,
+    F: FnOnce(profile::Profile) -> R,
+{
     let _lock = match request.mode {
         Mode::Plan => None,
         Mode::Apply => {
@@ -185,6 +214,18 @@ where
         path: entity.path.clone(),
         why,
     })?;
+    let mut gates = if request.skip_checks {
+        notices.push(format!(
+            "skipped gates: {}",
+            crate::core::check::entity_gate_names(solution).join(", ")
+        ));
+        None
+    } else {
+        Some(crate::core::check::run_entity(solution, entity))
+    };
+    if let Some(report) = &gates {
+        report_gates(report, notices, &mut reporter)?;
+    }
     let profile =
         profile::load(&solution.root, &request.profile).map_err(PushCommandError::Profile)?;
     let bytes = crate::core::patch::apply(
@@ -220,6 +261,46 @@ where
             bytes: &bytes,
         },
     };
+    if let Some(report) = &mut gates {
+        report.gates.clear();
+        report.gates.push(crate::core::check::live_parse_entity(
+            solution,
+            &remote,
+            progress,
+            &entity.path,
+            &bytes,
+        ));
+        report_gates(report, notices, &mut reporter)?;
+    }
+    let index = crate::core::index::Index::build(solution);
+    let prerequisites = crate::core::deploy::import_prerequisites(&bytes);
+    for reference in index.references_from(&key) {
+        if reference.kind.confidence() >= crate::core::index::Confidence::Resolved
+            && reference.to != key.to_string()
+            && !prerequisites.contains(&reference.to)
+        {
+            notices.push(format!(
+                "{label}: reference {} is advisory; it is not an import prerequisite",
+                reference.to
+            ));
+        }
+    }
+    for reference in prerequisites {
+        let Ok(dependency) = EntityKey::parse(&reference) else {
+            continue;
+        };
+        if dependency == key {
+            continue;
+        }
+        if push::Remote::fetch(&remote, &dependency)
+            .map_err(|why| {
+                PushCommandError::Dependency(format!("{label}: cannot check {dependency}: {why}"))
+            })?
+            .is_none()
+        {
+            return Err(PushCommandError::Dependency(format!("{label}: referenced {dependency} is absent from the server; run `twaco entity push {dependency} --apply` first, or `twaco deploy --apply`")));
+        }
+    }
     let backup = if matches!(request.mode, Mode::Apply) && request.force && request.backup {
         backup::before_forced_push(
             &remote,
@@ -303,6 +384,72 @@ where
     }
 }
 
+fn missing_dependency_hint(message: &str) -> Option<String> {
+    if !["not found", "does not exist", "missing", "unknown"]
+        .iter()
+        .any(|word| message.to_ascii_lowercase().contains(word))
+    {
+        return None;
+    }
+    let pattern = regex::Regex::new(r#"(?i)\b(DataShape|ThingTemplate|ThingShape|Thing|Mashup|ValueStream)[\s:\[\"']+([A-Za-z0-9_.-]+)"#).ok()?;
+    let captures = pattern.captures(message)?;
+    let collection = match captures[1].to_ascii_lowercase().as_str() {
+        "datashape" => "DataShapes",
+        "thingtemplate" => "ThingTemplates",
+        "thingshape" => "ThingShapes",
+        "mashup" => "Mashups",
+        "valuestream" => "ValueStreams",
+        _ => "Things",
+    };
+    Some(format!(
+        "run `twaco entity push {collection}/{} --apply` first, or `twaco deploy --apply`",
+        &captures[2]
+    ))
+}
+
+fn report_gates(
+    report: &crate::core::check::CheckReport,
+    notices: &mut Notices,
+    reporter: &mut Option<&mut dyn FnMut(&crate::core::check::CheckReport)>,
+) -> Result<(), PushCommandError> {
+    let mut lines = Vec::new();
+    for gate in &report.gates {
+        lines.push(format!(
+            "{}: {} finding(s), {} advisory finding(s){}",
+            gate.name,
+            gate.findings.len(),
+            gate.warnings.len(),
+            if gate.gates_the_run {
+                ""
+            } else {
+                " (advisory)"
+            }
+        ));
+        lines.extend(
+            gate.findings
+                .iter()
+                .chain(&gate.warnings)
+                .map(ToString::to_string),
+        );
+        lines.extend(gate.prose.iter().cloned());
+        if let Some(why) = &gate.broken {
+            lines.push(format!("{}: {why}", gate.name));
+        }
+        if let Some(why) = &gate.skipped {
+            lines.push(format!("{} skipped: {why}", gate.name));
+        }
+    }
+    if let Some(reporter) = reporter {
+        reporter(report);
+    } else if !report.blocks() {
+        notices.extend(lines.clone());
+    }
+    if report.blocks() {
+        return Err(PushCommandError::Gates(format!("gates block entity push; nothing was imported; fix the findings or pass --skip-checks\n{}", lines.join("\n"))));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -322,54 +469,80 @@ mod tests {
     use crate::core::baseline::Baseline;
     use crate::core::normalise;
     use crate::core::server::ServerError;
-    use std::cell::RefCell;
-    use std::rc::Rc;
+    use std::sync::Arc;
+    use std::sync::Mutex;
 
     #[derive(Clone)]
     struct Fake {
-        state: Rc<RefCell<FakeState>>,
+        state: Arc<Mutex<FakeState>>,
     }
 
     struct FakeState {
+        entities: Option<std::collections::BTreeMap<String, Vec<u8>>>,
         held: Option<Vec<u8>>,
         imports: usize,
         exports: usize,
         fail_export: bool,
         fail_import: bool,
+        fail_parse: bool,
+        parsed: usize,
     }
 
     impl Fake {
         fn new(held: Option<Vec<u8>>) -> Self {
             Self {
-                state: Rc::new(RefCell::new(FakeState {
+                state: Arc::new(Mutex::new(FakeState {
+                    entities: None,
                     held,
                     imports: 0,
                     exports: 0,
                     fail_export: false,
                     fail_import: false,
+                    fail_parse: false,
+                    parsed: 0,
                 })),
             }
         }
 
         fn imports(&self) -> usize {
-            self.state.borrow().imports
+            self.state.lock().unwrap().imports
         }
 
         fn exports(&self) -> usize {
-            self.state.borrow().exports
+            self.state.lock().unwrap().exports
+        }
+    }
+
+    impl crate::core::check::ScriptChecker for Fake {
+        fn check_script(&self, _: &str) -> Result<crate::core::server::ScriptCheck, ServerError> {
+            self.state.lock().unwrap().parsed += 1;
+            Ok(crate::core::server::ScriptCheck {
+                status: !self.state.lock().unwrap().fail_parse,
+                line_number: 2,
+                column_number: 1,
+                message: "invalid script".into(),
+            })
         }
     }
 
     impl push::Remote for Fake {
-        fn fetch(&self, _: &EntityKey) -> Result<Option<Vec<u8>>, ServerError> {
-            Ok(self.state.borrow().held.clone())
+        fn fetch(&self, key: &EntityKey) -> Result<Option<Vec<u8>>, ServerError> {
+            let state = self.state.lock().unwrap();
+            Ok(match &state.entities {
+                Some(entities) => entities.get(&key.to_string()).cloned(),
+                None => state.held.clone(),
+            })
         }
 
         fn import(&self, _: &str, xml: &[u8]) -> Result<(), ServerError> {
-            let mut state = self.state.borrow_mut();
+            let mut state = self.state.lock().unwrap();
             state.imports += 1;
             if state.fail_import {
                 return Err(ServerError::InvalidUrl("import failed".to_string()));
+            }
+            if let Some(entities) = &mut state.entities {
+                let info = crate::core::entity::parse(xml).unwrap();
+                entities.insert(format!("{}/{}", info.collection, info.name), xml.to_vec());
             }
             state.held = Some(xml.to_vec());
             Ok(())
@@ -378,7 +551,7 @@ mod tests {
 
     impl backup::Remote for Fake {
         fn export(&self, _: &EntityKey) -> Result<Option<Vec<u8>>, ServerError> {
-            let mut state = self.state.borrow_mut();
+            let mut state = self.state.lock().unwrap();
             state.exports += 1;
             if state.fail_export {
                 return Err(ServerError::InvalidUrl("backup failed".to_string()));
@@ -391,13 +564,13 @@ mod tests {
         }
 
         fn exists(&self, _: &EntityKey) -> Result<bool, ServerError> {
-            Ok(self.state.borrow().held.is_some())
+            Ok(self.state.lock().unwrap().held.is_some())
         }
     }
 
     fn document(script: &str) -> Vec<u8> {
         format!(
-            "<Entities><Things><Thing name=\"P.T\" projectName=\"P\"><code><![CDATA[{script}]]></code></Thing></Things></Entities>"
+            "<Entities><Things><Thing name=\"Acme.T\" projectName=\"Acme\"><code><![CDATA[{script}]]></code></Thing></Things></Entities>"
         )
         .into_bytes()
     }
@@ -413,19 +586,19 @@ mod tests {
         let root = root_guard.path().to_path_buf();
         std::fs::create_dir_all(root.join("Things")).unwrap();
         std::fs::create_dir_all(root.join(".twaco/profiles")).unwrap();
-        std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
+        std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"Acme\"\n").unwrap();
         std::fs::write(
             root.join(".twaco/profiles/default.toml"),
             "url = \"http://example.invalid/Thingworx/\"\nusername = \"u\"\npassword = \"p\"\n",
         )
         .unwrap();
         let working = document("working();");
-        std::fs::write(root.join("Things/P.T.xml"), &working).unwrap();
+        std::fs::write(root.join("Things/Acme.T.xml"), &working).unwrap();
         if let Some((local, remote)) = baseline {
             let mut stored = Baseline::load(&root, "default").unwrap();
             stored.set(
                 "Things",
-                "P.T",
+                "Acme.T",
                 normalise::hash(local).unwrap(),
                 normalise::hash(remote).unwrap(),
             );
@@ -437,11 +610,241 @@ mod tests {
 
     fn request(mode: Mode, force: bool, backup: bool) -> PushRequest {
         PushRequest {
-            entity: "P.T".to_string(),
+            entity: "Acme.T".to_string(),
             mode,
             force,
+            skip_checks: true,
             backup,
             profile: "default".to_string(),
+        }
+    }
+
+    fn service_document(script: &str) -> Vec<u8> {
+        format!("<Entities><Things><Thing name=\"Acme.T\" projectName=\"Acme\"><ThingShape><ServiceDefinitions><ServiceDefinition name=\"Run\"/></ServiceDefinitions><ServiceImplementations><ServiceImplementation name=\"Run\" handlerName=\"Script\"><ConfigurationTables><ConfigurationTable name=\"Script\"><Rows><Row><code><![CDATA[{script}]]></code></Row></Rows></ConfigurationTable></ConfigurationTables></ServiceImplementation></ServiceImplementations></ThingShape></Thing></Things></Entities>").into_bytes()
+    }
+
+    #[test]
+    fn gates_block_plans_and_applies_before_import_even_with_force() {
+        for mode in [Mode::Plan, Mode::Apply] {
+            let (_guard, root, solution, fake) = setup(None, None);
+            std::fs::write(
+                root.join("Things/Acme.T.xml"),
+                service_document("for (var i = 0; i < 6; i++) {\n    const row = i;\n}"),
+            )
+            .unwrap();
+            let mut request = request(mode, true, true);
+            request.skip_checks = false;
+            let error = execute(&solution, &request, |_| fake.clone()).unwrap_err();
+            assert!(error.to_string().contains("const-in-loop"), "{error}");
+            assert!(error.to_string().contains("Things/Acme.T.xml:2"), "{error}");
+            assert_eq!(fake.imports(), 0);
+            assert_eq!(fake.exports(), 0);
+        }
+    }
+
+    #[test]
+    fn live_parse_is_scoped_and_fails_closed_before_import() {
+        let (_guard, root, solution, fake) = setup(None, None);
+        std::fs::write(
+            root.join("Things/Acme.T.xml"),
+            service_document("var result = 1;"),
+        )
+        .unwrap();
+        fake.state.lock().unwrap().fail_parse = true;
+        let mut request = request(Mode::Apply, false, false);
+        request.skip_checks = false;
+        let error = execute(&solution, &request, |_| fake.clone()).unwrap_err();
+        assert!(error.to_string().contains("rhino"), "{error}");
+        assert_eq!(fake.imports(), 0);
+    }
+
+    #[test]
+    fn structured_reports_include_offline_and_live_gates_without_gate_notices() {
+        for mode in [Mode::Plan, Mode::Apply] {
+            for fail_parse in [false, true] {
+                let (_guard, root, solution, fake) = setup(None, None);
+                std::fs::write(
+                    root.join("Things/Acme.T.xml"),
+                    service_document("var result = 1;"),
+                )
+                .unwrap();
+                fake.state.lock().unwrap().fail_parse = fail_parse;
+                let mut request = request(mode, false, false);
+                request.skip_checks = false;
+                let mut notices = Notices::default();
+                let mut counts = Vec::new();
+                let mut findings = Vec::new();
+                let mut reporter = |report: &crate::core::check::CheckReport| {
+                    counts.push(report.gates.len());
+                    findings.extend(
+                        report
+                            .gates
+                            .iter()
+                            .filter(|gate| gate.name == "live parse")
+                            .flat_map(|gate| gate.findings.iter().map(ToString::to_string)),
+                    );
+                };
+                let result = execute_with_gate_reporter(
+                    &solution,
+                    &request,
+                    |_| fake.clone(),
+                    &mut notices,
+                    &progress::NONE,
+                    Some(&mut reporter),
+                );
+                assert_eq!(counts, [16, 1]);
+                assert!(notices.is_empty(), "{:?}", notices.lines());
+                assert_eq!(result.is_err(), fail_parse);
+                if fail_parse {
+                    assert_eq!(findings.len(), 1);
+                    assert!(findings[0].contains("Things/Acme.T.xml:2"));
+                    assert_eq!(fake.imports(), 0);
+                } else {
+                    assert!(findings.is_empty());
+                    assert_eq!(fake.imports(), usize::from(mode == Mode::Apply));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn advisories_are_visible_and_other_entities_do_not_block_or_get_parsed() {
+        let (_guard, root, mut solution, fake) = setup(None, None);
+        let trap = "for (var i = 0; i < 6; i++) {\n    const row = i;\n}";
+        std::fs::write(
+            root.join("Things/Acme.Other.xml"),
+            String::from_utf8(service_document(trap))
+                .unwrap()
+                .replace("Acme.T", "Acme.Other"),
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("Things/Acme.T.xml"),
+            service_document("var result = 1;"),
+        )
+        .unwrap();
+        let mut request = request(Mode::Plan, false, false);
+        request.skip_checks = false;
+        let mut notices = Notices::default();
+        super::execute(&solution, &request, |_| fake.clone(), &mut notices).unwrap();
+        assert_eq!(fake.state.lock().unwrap().parsed, 1);
+        assert_eq!(fake.imports(), 0);
+        assert!(!notices
+            .lines()
+            .iter()
+            .any(|line| line.contains("const-in-loop")));
+        std::fs::write(
+            root.join("twaco.toml"),
+            "[gates]\nadvisory = [\"script traps\"]\n[[project]]\nname = \"Acme\"\n",
+        )
+        .unwrap();
+        solution = Solution::load(&root.join("twaco.toml")).unwrap();
+        std::fs::write(root.join("Things/Acme.T.xml"), service_document(trap)).unwrap();
+        request.mode = Mode::Apply;
+        let mut notices = Notices::default();
+        super::execute(&solution, &request, |_| fake.clone(), &mut notices).unwrap();
+        assert_eq!(fake.imports(), 1);
+        assert!(notices
+            .lines()
+            .iter()
+            .any(|line| line.contains("const-in-loop")));
+        assert!(notices
+            .lines()
+            .iter()
+            .any(|line| line.contains("(advisory)")));
+    }
+
+    #[test]
+    fn missing_references_name_the_push_order_and_server_errors_do_too() {
+        let (_guard, root, solution, fake) = setup(None, None);
+        std::fs::create_dir_all(root.join("DataShapes")).unwrap();
+        std::fs::write(root.join("DataShapes/Acme.Rows.xml"), "<Entities><DataShapes><DataShape name=\"Acme.Rows\" projectName=\"Acme\"/></DataShapes></Entities>").unwrap();
+        std::fs::write(root.join("Things/Acme.T.xml"), "<Entities><Things><Thing name=\"Acme.T\" projectName=\"Acme\"><ThingShape><PropertyDefinitions><PropertyDefinition name=\"Rows\" baseType=\"INFOTABLE\" aspect.dataShape=\"Acme.Rows\"/></PropertyDefinitions></ThingShape></Thing></Things></Entities>").unwrap();
+        let error = execute(&solution, &request(Mode::Apply, false, false), |_| {
+            fake.clone()
+        })
+        .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("entity push DataShapes/Acme.Rows --apply` first"),
+            "{error}"
+        );
+        assert_eq!(fake.imports(), 0);
+        assert!(
+            missing_dependency_hint("DataShape [Acme.External] does not exist")
+                .unwrap()
+                .contains("DataShapes/Acme.External")
+        );
+        assert!(missing_dependency_hint("connection reset").is_none());
+    }
+
+    #[test]
+    fn mutually_calling_new_things_can_be_pushed_individually() {
+        for skip_checks in [false, true] {
+            let (_guard, root, solution, fake) = setup(None, None);
+            fake.state.lock().unwrap().entities = Some(Default::default());
+            for (name, other) in [("Acme.T", "Acme.Other"), ("Acme.Other", "Acme.T")] {
+                let xml =
+                    String::from_utf8(service_document(&format!("Things[\"{other}\"].Run();")))
+                        .unwrap();
+                let xml = xml.replacen("name=\"Acme.T\"", &format!("name=\"{name}\""), 1);
+                std::fs::write(root.join(format!("Things/{name}.xml")), xml).unwrap();
+            }
+            for (index, name) in ["Acme.T", "Acme.Other"].iter().enumerate() {
+                let mut request = request(Mode::Apply, false, false);
+                request.entity = name.to_string();
+                request.skip_checks = skip_checks;
+                let mut notices = Notices::default();
+                let outcome =
+                    super::execute(&solution, &request, |_| fake.clone(), &mut notices).unwrap();
+                assert!(matches!(
+                    outcome,
+                    PushOutcome::Applied {
+                        result: push::Outcome::Pushed { .. },
+                        ..
+                    }
+                ));
+                assert_eq!(fake.imports(), index + 1);
+                assert!(notices
+                    .lines()
+                    .iter()
+                    .any(|line| line.contains("reference") && line.contains("advisory")));
+            }
+            assert_eq!(
+                fake.state.lock().unwrap().entities.as_ref().unwrap().len(),
+                2
+            );
+        }
+    }
+
+    #[test]
+    fn typed_import_prerequisites_block_without_runtime_or_local_index_edges() {
+        for (body, dependency) in [
+            ("<ImplementedShapes><ImplementedShape name=\"Acme.Shape\"/></ImplementedShapes>", "ThingShapes/Acme.Shape"),
+            ("<ThingShape><PropertyDefinitions><PropertyDefinition name=\"Rows\" baseType=\"INFOTABLE\" aspect.dataShape=\"Acme.Rows\"/></PropertyDefinitions></ThingShape>", "DataShapes/Acme.Rows"),
+            ("<ConfigurationTables><ConfigurationTable name=\"Acme.Table\" dataShapeName=\"Acme.Rows\"/></ConfigurationTables>", "DataShapes/Acme.Rows"),
+            ("<ThingProperties><dataShape>Acme.Rows</dataShape></ThingProperties>", "DataShapes/Acme.Rows"),
+            ("<ThingProperties><valueStream>Acme.Values</valueStream></ThingProperties>", "Things/Acme.Values"),
+            ("<ConfigurationTables><ConfigurationTable name=\"StreamProcessingSettings\"><Rows><Row><queueProvider><![CDATA[Acme.Queue]]></queueProvider></Row></Rows></ConfigurationTable></ConfigurationTables>", "QueueProviders/Acme.Queue"),
+        ] {
+            for mode in [Mode::Plan, Mode::Apply] {
+                let (_guard, root, solution, fake) = setup(None, None);
+                std::fs::write(root.join("Things/Acme.T.xml"), format!("<Entities><Things><Thing name=\"Acme.T\" projectName=\"Acme\">{body}</Thing></Things></Entities>")).unwrap();
+                let error = execute(&solution, &request(mode, false, false), |_| fake.clone()).unwrap_err();
+                assert!(error.to_string().contains(dependency), "{error}");
+                assert_eq!(fake.imports(), 0);
+            }
+        }
+        for attribute in ["thingTemplate", "valueStream", "queueProvider"] {
+            let (_guard, root, solution, fake) = setup(None, None);
+            std::fs::write(root.join("Things/Acme.T.xml"), format!("<Entities><Things><Thing name=\"Acme.T\" projectName=\"Acme\" {attribute}=\"Acme.Required\"/></Things></Entities>")).unwrap();
+            let error = execute(&solution, &request(Mode::Apply, false, false), |_| {
+                fake.clone()
+            })
+            .unwrap_err();
+            assert!(error.to_string().contains("Acme.Required"), "{error}");
+            assert_eq!(fake.imports(), 0);
         }
     }
 
@@ -462,7 +865,7 @@ mod tests {
         assert_eq!(recorder.advanced(), 1);
         assert!(recorder
             .events()
-            .contains(&Event::Message("Things/P.T".to_string())));
+            .contains(&Event::Message("Things/Acme.T".to_string())));
         assert_eq!(recorder.events().last(), Some(&Event::Finish));
     }
 
@@ -484,7 +887,7 @@ mod tests {
 
     #[test]
     fn outcome_effects_match_the_push_result() {
-        let key = EntityKey::new("Things", "P.T").unwrap();
+        let key = EntityKey::new("Things", "Acme.T").unwrap();
         let plan = PushOutcome::Plan {
             server_owned: Vec::new(),
             entity: key.clone(),
@@ -626,7 +1029,7 @@ mod tests {
             Some(changed.clone()),
             Some((old.as_slice(), old.as_slice())),
         );
-        remote.state.borrow_mut().fail_export = true;
+        remote.state.lock().unwrap().fail_export = true;
         let error = execute(&solution, &request(Mode::Apply, true, true), {
             let remote = remote.clone();
             move |_| remote
@@ -666,7 +1069,7 @@ mod tests {
             .unwrap();
         }
         assert_eq!(backup::list(&solution).len(), backup::KEEP);
-        remote.state.borrow_mut().fail_import = true;
+        remote.state.lock().unwrap().fail_import = true;
         let failed = execute(&solution, &request(Mode::Apply, true, true), {
             let remote = remote.clone();
             move |_| remote
@@ -677,7 +1080,7 @@ mod tests {
             backup::KEEP + 1,
             "the failed push's set is kept, and no older one is pruned"
         );
-        remote.state.borrow_mut().fail_import = false;
+        remote.state.lock().unwrap().fail_import = false;
         execute(&solution, &request(Mode::Apply, true, true), {
             let remote = remote.clone();
             move |_| remote
@@ -706,13 +1109,13 @@ mod tests {
     fn command_errors_keep_the_wrapped_stable_code() {
         let remote = ServerError::InvalidUrl("bad URL".to_string());
         let error = PushCommandError::Push {
-            label: "Things/P.T".to_string(),
+            label: "Things/Acme.T".to_string(),
             why: push::PushError::Remote(remote),
             backup: None,
         };
         assert_eq!(error.code(), ErrorCode::InvalidArguments);
         let error = PushCommandError::Push {
-            label: "Things/P.T".to_string(),
+            label: "Things/Acme.T".to_string(),
             why: push::PushError::Unverified(ServerError::InvalidUrl("bad URL".to_string())),
             backup: None,
         };

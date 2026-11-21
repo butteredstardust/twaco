@@ -412,6 +412,10 @@ fn resolve_navigation_end(
     }))
 }
 
+/// A call is addressed by its service; its alias goes in brackets and is never part of the name.
+const ALIAS_HINT: &str =
+    "name the service, with the alias in brackets: data:<Entity>.<Service>[as <alias>]";
+
 pub(super) fn resolve_service<'a>(
     model: &'a types::Model,
     platform: Option<&types::Platform>,
@@ -444,11 +448,11 @@ pub(super) fn resolve_service<'a>(
     matches.dedup_by(|a, b| a.0.name == b.0.name && a.1 == b.1);
     match matches.as_slice() {
         [] if unseen_chain => Err(AuthoringError::Unknown(format!(
-            "no entity and service twaco can see match data:{raw}; {}",
+            "no entity and service twaco can see match data:{raw}; {ALIAS_HINT}; if the service is inherited, {}",
             catalog::INCOMPLETE_CHAIN_HINT
         ))),
         [] => Err(AuthoringError::Unknown(format!(
-            "no entity and service in the solution match data:{raw}"
+            "no entity and service in the solution match data:{raw}; {ALIAS_HINT}"
         ))),
         [only] => {
             let head = format!("{}.{}", only.0.name, only.1);

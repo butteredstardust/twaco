@@ -26,6 +26,17 @@ pub enum Recipe {
         container: String,
         compact: Option<u32>,
         style: String,
+        fit: String,
+    },
+    ToolbarBand {
+        container: String,
+    },
+    Card {
+        container: String,
+        caption: String,
+        value: Option<String>,
+        status: Option<String>,
+        kind: String,
     },
     SliderAction {
         slider: String,
@@ -146,6 +157,7 @@ pub enum Recipe {
         title: Option<String>,
         x_title: Option<String>,
         y_title: Option<String>,
+        stacked: bool,
     },
     /// A grid's columns, in order, with titles and widths, rendered by each field's base type.
     Columns {
@@ -157,6 +169,11 @@ pub enum Recipe {
         editable: Vec<String>,
         column_editors: Vec<(String, String)>,
         preserve_whitespace: Vec<String>,
+        status: Option<(String, String)>,
+    },
+    Pagination {
+        widget: String,
+        data: String,
     },
     /// A dropdown or list filled from a service result, showing one field.
     Picker {
@@ -216,8 +233,9 @@ impl Recipe {
     pub(crate) fn name(&self) -> &'static str {
         match self {
             Self::Panel { .. } => "panel",
+            Self::Card { .. } => "card",
             Self::SliderAction { .. } => "slider-action",
-            Self::Toolbar { .. } => "toolbar",
+            Self::Toolbar { .. } | Self::ToolbarBand { .. } => "toolbar",
             Self::LabelPairs { .. } => "label-pairs",
             Self::Collapsible { .. } => "collapsible",
             Self::EnableWhen { .. } => "enable-when",
@@ -236,6 +254,7 @@ impl Recipe {
             Self::NavigateOnClick { .. } => "navigate-on-click",
             Self::Chart { .. } => "chart",
             Self::Columns { .. } => "columns",
+            Self::Pagination { .. } => "pagination",
             Self::Picker { .. } => "picker",
         }
     }
@@ -249,6 +268,47 @@ struct Work<'a> {
     removed: Vec<String>,
     wired: Vec<String>,
     notes: Vec<String>,
+}
+
+fn untriggered_calls(content: &Value, mashup: &str) -> Vec<String> {
+    let mut notes = Vec::new();
+    for (section_name, section) in bindings::data_sections(content) {
+        for call in section.services {
+            let bound = content["DataBindings"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .any(|binding| {
+                    binding["SourceArea"] == "Data"
+                        && binding["SourceSection"] == section_name
+                        && binding["SourceId"] == call.instance
+                });
+            let triggered = content["Events"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .any(|event| {
+                    event["EventHandlerArea"] == "Data"
+                        && event["EventHandlerId"] == section_name
+                        && event["EventHandlerService"] == call.instance
+                });
+            if bound && !triggered {
+                let alias = if call.instance == call.target {
+                    String::new()
+                } else {
+                    format!("[as {}]", call.instance)
+                };
+                let address = format!("data:{}.{}{alias}", section.entity, call.target);
+                let invoke = if address.contains(char::is_whitespace) {
+                    format!("\"{address}\"")
+                } else {
+                    address.clone()
+                };
+                notes.push(format!("{address} is bound but has no trigger; run twaco mashup on {mashup} --event mashup:Loaded --invoke {invoke} --apply"));
+            }
+        }
+    }
+    notes
 }
 
 impl Work<'_> {
@@ -278,6 +338,102 @@ impl Work<'_> {
         self.document.push_child(parent, widget);
         self.added.push(id.clone());
         id
+    }
+
+    fn pagination(&mut self, widget: &str, data: &str) -> Result<(), AuthoringError> {
+        let grid = widget_id(&self.document, widget)?;
+        if grid.type_id != "ptcsgrid" || self.source_type(data)? != "INFOTABLE" {
+            return Err(AuthoringError::Invalid(
+                "pagination needs a grid and --data <INFOTABLE service result>".into(),
+            ));
+        }
+        if let Some(pager) =
+            self.document.widgets().iter().find(|candidate| {
+                self.document.at(&candidate.path)["twacoPaginationFor"] == grid.id
+            })
+        {
+            if self.document.at(&pager.path)["twacoPaginationData"] != data {
+                return Err(AuthoringError::Refused(format!(
+                    "{} already pages {}; remove its pagination before changing --data",
+                    pager.id, grid.id
+                )));
+            }
+            return Ok(());
+        }
+        self.bind(data, &format!("ui:{}.Data", grid.id))?;
+        let pager = self
+            .document
+            .place(
+                widgets::catalog()
+                    .by_type("ptcspagination")
+                    .expect("pagination catalogue"),
+                &mashup::edit::Placement::BelowInColumn(grid.id.clone()),
+            )
+            .map_err(AuthoringError::Edit)?;
+        self.added.push(pager.id.clone());
+        let pager_ref = widget_id(&self.document, &pager.id)?;
+        self.document.at_mut(&pager_ref.path)["twacoPaginationFor"] = json!(grid.id);
+        self.document.at_mut(&pager_ref.path)["twacoPaginationData"] = json!(data);
+        let parent = &pager_ref.path[..pager_ref.path.len() - 1];
+        self.document
+            .set_property(parent, "justify-content", json!("center"));
+        let inputs = vec![("table".into(), data.into())];
+        let count = self.computed(
+            "expression2",
+            "result = table && table.rows ? table.rows.length : 0;",
+            Some("NUMBER"),
+            &inputs,
+            true,
+        )?;
+        self.bind(
+            &format!("ui:{count}.Output"),
+            &format!("ui:{}.ResultsNumber", pager.id),
+        )?;
+        let mut inputs = inputs;
+        inputs.push(("size".into(), format!("ui:{}.PageSize", pager.id)));
+        let reset = self.computed("expression2", "result = 1;", Some("NUMBER"), &inputs, true)?;
+        let reset_ref = widget_id(&self.document, &reset)?;
+        self.set(&reset_ref, &[("DataChangeType", json!("ALWAYS"))]);
+        self.bind(
+            &format!("ui:{reset}.Output"),
+            &format!("ui:{}.PageNumber", pager.id),
+        )?;
+        inputs.push(("page".into(), format!("ui:{}.PageNumber", pager.id)));
+        let slice = self.computed("expression2", "result = table && table.rows ? {dataShape: table.dataShape, rows: table.rows.slice((Math.max(1, page || 1) - 1) * Math.max(1, size || 10), Math.max(1, page || 1) * Math.max(1, size || 10))} : {dataShape: {}, rows: []};", Some("INFOTABLE"), &inputs, true)?;
+        let mut replaced = Vec::new();
+        for binding in self.document.bindings_mut() {
+            if binding["TargetId"] == grid.id {
+                let source = binding["SourceId"].as_str().unwrap_or_default().to_string();
+                if let Some(maps) = binding["PropertyMaps"].as_array_mut() {
+                    maps.retain(|map| {
+                        let data = map["TargetProperty"] == "Data";
+                        if data {
+                            let property = map["SourceProperty"].as_str().unwrap_or_default();
+                            replaced.push(format!("{source}.{property}"));
+                        }
+                        !data
+                    });
+                }
+            }
+        }
+        if !replaced.is_empty() {
+            self.notes.push(format!(
+                "{}.Data now comes from the page slice; replaced binding(s) from {}",
+                grid.id,
+                replaced.join(", ")
+            ));
+        }
+        self.document.bindings_mut().retain(|binding| {
+            binding["PropertyMaps"]
+                .as_array()
+                .is_none_or(|maps| !maps.is_empty())
+        });
+        self.bind(
+            &format!("ui:{slice}.Output"),
+            &format!("ui:{}.Data", grid.id),
+        )?;
+        self.notes.push(format!("{} pages {} locally (10 rows by default); new results or page size reset to page 1; verify expression evaluation in Runtime", pager.id, grid.id));
+        Ok(())
     }
 
     fn toolbar(
@@ -400,6 +556,7 @@ impl Work<'_> {
             ("iconClass", json!("widgets-flexcontainer-fixed")),
         ]);
         let row = self.add_in(&target.path, "flexcontainer", &row_properties);
+        self.toolbar_band(&row)?;
         let row_path = widget_id(&self.document, &row)?.path;
         let left = self.add_in(&row_path, "flexcontainer", &common);
         let left_path = widget_id(&self.document, &left)?.path;
@@ -1360,9 +1517,33 @@ pub(crate) fn plan_recipe(
             container,
             compact,
             style,
+            fit,
         } => {
-            css = Some(work.panel(container, *compact, style, &loaded.assets.css)?);
+            let original_css = loaded
+                .sidecars
+                .as_ref()
+                .map(|(_, _, _, bytes)| {
+                    crate::core::workspace::without_bom(
+                        std::str::from_utf8(bytes).expect("CSS read as UTF-8"),
+                    )
+                })
+                .unwrap_or(&loaded.assets.css);
+            css = Some(work.panel(container, *compact, style, fit, original_css)?);
         }
+        Recipe::ToolbarBand { container } => work.toolbar_band(container)?,
+        Recipe::Card {
+            container,
+            caption,
+            value,
+            status,
+            kind,
+        } => work.card(
+            container,
+            caption,
+            value.as_deref(),
+            status.as_deref(),
+            kind,
+        )?,
         Recipe::SliderAction { slider, button } => work.slider_action(slider, button)?,
         Recipe::Toolbar {
             container,
@@ -1439,7 +1620,14 @@ pub(crate) fn plan_recipe(
             }
             let invoke = format!("ui:{}.ToggleExpandCollapse", target.id);
             let mut button = toggle.clone();
-            if let Some(destination) = add_toggle_in {
+            let has_tab =
+                work.document.at(&target.path)["Properties"]["ShowExpandCollapseTab"] == true;
+            if add_toggle_in.is_some() && has_tab {
+                work.notes.push(format!(
+                    "{container}: reusing its existing expand/collapse tab; no button added"
+                ));
+            }
+            if let Some(destination) = add_toggle_in.as_ref().filter(|_| !has_tab) {
                 let header = work
                     .document
                     .find_exact(destination)
@@ -1520,7 +1708,10 @@ pub(crate) fn plan_recipe(
             for (name, value) in [
                 ("EnableExpandCollapse", json!(true)),
                 ("Expanded", json!(!collapsed)),
-                ("ShowExpandCollapseTab", json!(tab != "none")),
+                (
+                    "ShowExpandCollapseTab",
+                    json!(tab != "none" || (has_tab && add_toggle_in.is_some())),
+                ),
             ] {
                 work.document.set_property(&target.path, name, value);
             }
@@ -1892,6 +2083,7 @@ pub(crate) fn plan_recipe(
             title,
             x_title,
             y_title,
+            stacked,
         } => {
             let target = widget_id(&work.document, widget)?;
             let pie = matches!(target.type_id.as_str(), "ptcschartpie");
@@ -1946,6 +2138,15 @@ pub(crate) fn plan_recipe(
                 Vec::new()
             };
             let mut properties = Vec::new();
+            if *stacked {
+                if target.type_id != "ptcschartbar" {
+                    return Err(AuthoringError::Invalid(format!(
+                        "{}: --stacked needs a bar chart",
+                        target.id
+                    )));
+                }
+                properties.push(("SeriesDisplay", json!("auto")));
+            }
             for (key, field) in &series {
                 properties.push((key.as_str(), json!(field)));
             }
@@ -2014,6 +2215,7 @@ pub(crate) fn plan_recipe(
             editable,
             column_editors,
             preserve_whitespace,
+            status,
         } => {
             let target = widget_id(&work.document, widget)?;
             if target.type_id != "ptcsgrid" {
@@ -2027,6 +2229,34 @@ pub(crate) fn plan_recipe(
                     "columns needs at least one --column".into(),
                 ));
             }
+            let status_format = status
+                .as_ref()
+                .map(|(field, name)| {
+                    if !columns
+                        .iter()
+                        .any(|column| column.split(':').next() == Some(field))
+                    {
+                        return Err(AuthoringError::Invalid(format!(
+                            "--status {field}={name}: list {field} with --column first"
+                        )));
+                    }
+                    let file = crate::core::workspace::entities(solution)
+                        .into_iter()
+                        .find(|file| {
+                            file.info.collection == "StateDefinitions" && file.info.name == *name
+                        })
+                        .ok_or_else(|| {
+                            AuthoringError::Unknown(format!(
+                                "no StateDefinition {name}; add it to the solution first"
+                            ))
+                        })?;
+                    let bytes = std::fs::read(&file.path).map_err(|error| {
+                        AuthoringError::Unreadable(format!("{}: {error}", file.path.display()))
+                    })?;
+                    let definition = super::state_format::read_definition(&bytes)?;
+                    super::state_format::inline(&definition, name, field)
+                })
+                .transpose()?;
             let previous_fields = work.bound_fields(&target.id);
             if let Some(data) = data {
                 work.bind(data, &format!("ui:{}.Data", target.id))?;
@@ -2105,8 +2335,20 @@ pub(crate) fn plan_recipe(
                 if base == "DATETIME" && date_format.is_none() && per_column_format.is_none() {
                     work.notes.push(format!("{name}: choose a date presentation with twaco mashup recipe columns {} {} --column {name} --date-format dd-MM-yyyy", request.mashup, target.id));
                 }
+                if status.as_ref().is_some_and(|(field, _)| field == &name) {
+                    let snapshot = status_format.as_ref().expect("status snapshot");
+                    if snapshot["StateDefinitionType"] == "numeric"
+                        && !matches!(base.as_str(), "NUMBER" | "INTEGER" | "LONG")
+                    {
+                        return Err(AuthoringError::Invalid(format!("--status {name}: numeric StateDefinition requires a numeric field, found {base}")));
+                    }
+                    column["FormatOptions"]["formatInfo"] = snapshot.clone();
+                    column["FormatOptions"]["FormatString"] = json!("full");
+                }
                 let normalized = name.to_ascii_lowercase();
-                if (normalized.contains("status") || normalized.contains("state"))
+                if (normalized.contains("status")
+                    || normalized.contains("state")
+                    || normalized.contains("severity"))
                     && column["FormatOptions"]["formatInfo"]["StateDefinition"]
                         .as_str()
                         .is_none_or(str::is_empty)
@@ -2114,7 +2356,7 @@ pub(crate) fn plan_recipe(
                         .as_array()
                         .is_none_or(Vec::is_empty)
                 {
-                    work.notes.push(format!("{name}: add status icons with twaco mashup state-format set {} {} --column {name} --state <StateDefinition> --icon-only", request.mashup, target.id));
+                    work.notes.push(format!("{name}: add status icons with twaco mashup state-format set {} {} --column {name} --state <StateDefinition>", request.mashup, target.id));
                 }
                 format.push(column);
             }
@@ -2207,6 +2449,32 @@ pub(crate) fn plan_recipe(
             };
             configuration["formatInfo"] = json!(format);
             work.set(&target, &[("ColumnFormat", configuration)]);
+            super::set::style_properties(work.document.root_properties(), &request.mashup)?;
+            let mut style = work
+                .document
+                .root_properties()
+                .get("StyleProperties")
+                .and_then(|styles| styles.get("data"))
+                .and_then(|data| data.get(&target.id))
+                .cloned()
+                .unwrap_or(Value::Null);
+            if style.is_null() {
+                style = json!({"parts":{"$":{"$":{}}},"widget":"ptcs-grid"});
+            }
+            if !style["parts"]["$"]["$"].is_object() {
+                return Err(AuthoringError::Refused(format!(
+                    "{}: malformed grid style; repair StyleProperties first",
+                    target.id
+                )));
+            }
+            style["parts"]["$"]["$"]["--ptcs-header-vert-divider-width"] = json!("0px");
+            super::set::copy_style_entry(
+                &mut work.document,
+                &target.id,
+                style,
+                None,
+                &mut Vec::new(),
+            );
             // A column is only editable in Runtime when its grid is.
             if !editable.is_empty() {
                 work.set(&target, &[("IsEditable", json!(true))]);
@@ -2216,6 +2484,7 @@ pub(crate) fn plan_recipe(
                 ));
             }
         }
+        Recipe::Pagination { widget, data } => work.pagination(widget, data)?,
         Recipe::Picker {
             widget,
             data,
@@ -2479,6 +2748,8 @@ pub(crate) fn plan_recipe(
             }
         }
     }
+    work.notes
+        .extend(untriggered_calls(work.document.value(), &request.mashup));
     if let Some(css) = &css {
         if loaded.sidecars.is_some() {
             work.document.root_mut().remove("CustomMashupCss");
@@ -2513,6 +2784,9 @@ pub(crate) fn plan_recipe(
 /// What a recipe can be given, as the command line and MCP both pass it.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct RecipeArgs {
+    pub fit: Option<String>,
+    pub stacked: bool,
+    pub band: bool,
     pub compact: Option<u32>,
     pub style: Option<String>,
     pub initial_step: Option<u32>,
@@ -2600,6 +2874,7 @@ pub struct RecipeArgs {
 /// The recipe names, for help and errors.
 pub const RECIPES: &[&str] = &[
     "panel",
+    "card",
     "slider-action",
     "toolbar",
     "label-pairs",
@@ -2615,6 +2890,7 @@ pub const RECIPES: &[&str] = &[
     "validate",
     "chart",
     "columns",
+    "pagination",
     "picker",
     "tracker",
     "tree",
@@ -2672,6 +2948,37 @@ fn required(value: &Option<String>, what: &str, recipe: &str) -> Result<String, 
 impl Recipe {
     /// Build a recipe from its name and arguments, refusing what it does not take.
     pub fn from_args(name: &str, args: &RecipeArgs) -> Result<Recipe, AuthoringError> {
+        for (given, flag, recipe) in [
+            (args.fit.is_some(), "--fit", "panel"),
+            (args.stacked, "--stacked", "chart"),
+            (args.band, "--band", "toolbar"),
+        ] {
+            if given && name != recipe {
+                return Err(AuthoringError::Invalid(format!(
+                    "{flag} is for recipe {recipe}"
+                )));
+            }
+        }
+        if args
+            .fit
+            .as_deref()
+            .is_some_and(|fit| !["fill", "content"].contains(&fit))
+        {
+            return Err(AuthoringError::Invalid(
+                "panel: --fit is fill or content".into(),
+            ));
+        }
+        if args.band {
+            let mut rest = args.clone();
+            rest.band = false;
+            rest.widget = None;
+            if rest != RecipeArgs::default() {
+                return Err(AuthoringError::Invalid("toolbar --band takes only a responsive container; add date picker and buttons with mashup add".into()));
+            }
+            return Ok(Recipe::ToolbarBand {
+                container: required(&args.widget, "a responsive row", name)?,
+            });
+        }
         if args.compact.is_some() && name != "panel" {
             return Err(AuthoringError::Invalid(
                 "--compact is for recipe panel".into(),
@@ -2689,6 +2996,7 @@ impl Recipe {
             rest.compact = None;
             if name == "panel" {
                 rest.style = None;
+                rest.fit = None;
             }
             if rest != RecipeArgs::default() {
                 return Err(AuthoringError::Invalid(format!(
@@ -2719,13 +3027,19 @@ impl Recipe {
                 "label-pairs: --row is first or selected; --layout is inline or stacked".into(),
             ));
         }
-        if args.status.is_some() != args.status_state.is_some() {
+        if !["columns", "card"].contains(&name)
+            && args.status.is_some() != args.status_state.is_some()
+        {
             return Err(AuthoringError::Invalid("label-pairs: --status <field> and --status-state <StateDefinition> are required together".into()));
         }
         for (given, flag, recipe) in [
             (args.row.is_some(), "--row", "label-pairs"),
             (args.layout.is_some(), "--layout", "label-pairs"),
-            (args.status.is_some(), "--status", "label-pairs"),
+            (
+                args.status.is_some() && !["columns", "card"].contains(&name),
+                "--status",
+                "label-pairs",
+            ),
             (args.status_state.is_some(), "--status-state", "label-pairs"),
             (args.x_title.is_some(), "--x-title", "chart"),
             (args.y_title.is_some(), "--y-title", "chart"),
@@ -2790,8 +3104,16 @@ impl Recipe {
                     container: widget("a responsive column")?,
                     compact: args.compact,
                     style: args.style.clone().unwrap_or_else(|| "grey".into()),
+                    fit: args.fit.clone().unwrap_or_else(|| "fill".into()),
                 }
             }
+            "card" => Recipe::Card {
+                container: widget("an empty responsive column")?,
+                caption: required(&args.title, "--title <caption>", name)?,
+                value: args.say.clone(),
+                status: args.status.clone(),
+                kind: args.kind.clone().unwrap_or_else(|| "info".into()),
+            },
             "slider-action" => Recipe::SliderAction {
                 slider: widget("a slider and button")?,
                 button: required(&args.button, "the fourth operand (button)", name)?,
@@ -2989,6 +3311,7 @@ impl Recipe {
                 value: args.value.clone(),
                 kind: args.kind.clone(),
                 title: args.title.clone(),
+                stacked: args.stacked,
                 x_title: args.x_title.clone(),
                 y_title: args.y_title.clone(),
             },
@@ -3000,6 +3323,30 @@ impl Recipe {
                 editable: args.editable.clone(),
                 column_editors: pairs("--column-editor", &args.column_editors)?,
                 preserve_whitespace: args.preserve_whitespace.clone(),
+                status: args
+                    .status
+                    .as_deref()
+                    .map(|text| {
+                        let (field, state) = text
+                            .split_once('=')
+                            .filter(|(field, state)| {
+                                !field.trim().is_empty() && !state.trim().is_empty()
+                            })
+                            .ok_or_else(|| {
+                                AuthoringError::Invalid(
+                                    "columns: --status must be field=StateDefinition".into(),
+                                )
+                            })?;
+                        Ok::<_, AuthoringError>((
+                            field.trim().to_string(),
+                            state.trim().to_string(),
+                        ))
+                    })
+                    .transpose()?,
+            },
+            "pagination" => Recipe::Pagination {
+                widget: widget("the grid")?,
+                data: required(&args.data, "--data <service result>", name)?,
             },
             "picker" => Recipe::Picker {
                 widget: widget("the dropdown or list")?,
@@ -3554,6 +3901,20 @@ mod tests {
                 .to_string()
                 .contains("is for recipe columns"));
         }
+    }
+
+    #[test]
+    fn untriggered_call_commands_quote_aliases_and_check_the_exact_instance() {
+        let mut content = json!({
+            "Data": {"Acme.Manager": {"EntityName":"Acme.Manager", "EntityType":"Thing", "Services":[{"Name":"rows", "Target":"GetRows"}]}},
+            "DataBindings":[{"SourceArea":"Data", "SourceSection":"Acme.Manager", "SourceId":"rows"}],
+            "Events":[{"EventHandlerArea":"Data", "EventHandlerId":"Acme.Manager", "EventHandlerService":"GetRows"}]
+        });
+        let notes = untriggered_calls(&content, "Acme.Page_MU");
+        assert_eq!(notes.len(), 1);
+        assert!(notes[0].contains("--invoke \"data:Acme.Manager.GetRows[as rows]\" --apply"));
+        content["Events"][0]["EventHandlerService"] = json!("rows");
+        assert!(untriggered_calls(&content, "Acme.Page_MU").is_empty());
     }
 
     #[test]

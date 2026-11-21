@@ -3,6 +3,20 @@
 How twaco sees a solution, and how to do each part of the work with it. [Quick
 start](QUICK_START.md) gets a repository set up; [Commands](COMMANDS.md) lists every flag.
 
+## Finding the right command
+
+`twaco guide tasks` is the short task-to-command index, also shown near the top of
+`twaco --help` and available through MCP `guide` with `topic: "tasks"`.
+`twaco <family> --help` lists every subcommand of a family: start with `twaco new --help`
+for entity creation or `twaco mashup --help` for mashup authoring.
+
+`twaco init --agents` immediately adds or refreshes twaco guidance in AGENTS.md and
+CLAUDE.md and reports each file as created, appended, refreshed or unchanged. Existing
+files receive a block between `<!-- twaco:begin -->` and `<!-- twaco:end -->`; later runs
+replace only that block. Human text outside the markers, including project context and
+lessons learned, stays byte-for-byte intact; existing CRLF files keep CRLF. Doctor gives
+an info item when an existing file needs this guidance added or refreshed.
+
 ## How twaco works
 
 The repository holds the entity XML that ThingWorx exports, and twaco keeps the parts you
@@ -275,6 +289,16 @@ contract and type checks wait for `twaco types --platform`; `[validate] inherite
 only suppress that unresolved case. When the full ancestry is known and nobody defines the
 service, `check` says to revert the override or restore the parent definition.
 
+To change a DataShape's fields, edit `src/<DataShape>/fields.json`, then preview and sync:
+
+```sh
+twaco sync Acme.Asset_DS --check --allow-add-remove
+twaco sync Acme.Asset_DS --allow-add-remove
+```
+
+The second command writes immediately. `twaco extract Acme.Asset_DS` adopts the fields
+from entity XML into the sidecar; use it when XML is the version to keep.
+
 A service or a DataShape field appearing or disappearing is a bigger change than an edit, so
 `sync` refuses it unless given `--allow-add-remove`. With it, a new service folder holding a
 `definition.xml` and a `script.js` adds the service, its Script implementation laid out like
@@ -335,8 +359,8 @@ select all prose rules with `--rule comments.prose`, and tune their thresholds a
 `[lint.rules]`. The comment-header rules also hold the leading JSDoc to `definition.xml`; `twaco
 lint fix-headers` shows contract repairs, and `twaco lint fix-headers --apply` writes them to
 sidecar `script.js` files, correcting `@function`, moving each existing tag whole and generating
-only what is missing (see [Configuration](CONFIGURATION.md#service-headers)). `twaco sync` then
-writes them into the XML.
+only what is missing (see [Configuration](CONFIGURATION.md#service-headers)), then syncs the
+entities it changed so the XML follows. `--entity` takes `Collection/Name` or just the entity name.
 
 #### Adopting house-v1 in an existing solution
 
@@ -346,7 +370,7 @@ A solution without `[lint]` keeps today's gates (`checks-v1`). To take up the fu
    `comment budget`, `comment prose` or `comment header`, remove it first: twaco now runs that
    gate itself, and refuses a hook with its name.
 2. `twaco lint --rule comments` lists what the comment rules find, by rule.
-3. `twaco lint fix-headers` shows the header repairs; `--apply` writes them, then `twaco sync`.
+3. `twaco lint fix-headers` shows the header repairs; `--apply` writes them and syncs their entities.
 4. Fix the rest by hand, or keep a legacy entity out of a rule with `[[lint.override]]`, and set
    a rule you do not want to `warn` or `off` in `[lint.rules]`.
 5. Every script the repair or a reworded comment changes differs from the server until deployed.
@@ -441,7 +465,11 @@ recorded; counts, detail and the exit status reflect the updated baseline.
 
 After upgrading to a release that changes the comparison hash version (this release moves from
 v11 to v12), older baselines count as missing: run `twaco entity status --all --record`.
-It records baselines only where the repository and server already agree. Entities listed as
+It records baselines only where the repository and server already agree. The same applies
+to baselines from another ownership policy: `twaco entity status <entity> --record` or
+`twaco entity status --all --record` records matching current hashes. For example, 41
+outdated baselines need an explicit `--record`; neither status nor doctor migrates them
+automatically. Entities listed as
 `no-baseline-differs` need investigation with `entity diff`, pull or adopt; `--record` does
 not resolve their differences.
 A full `--all --record` also prunes baseline entries of entities that are in neither the
@@ -558,7 +586,15 @@ applies that profile's mashup patches (without it none apply), but a hand-import
 preserve server-owned parts. `bundle --handoff` records the whole repository, so it is refused
 with any of these.
 
-`twaco entity push <Entity>` imports a single entity, with the same conflict check.
+`twaco entity push Things/Acme.Orders` runs the per-entity deploy gates in plans and applies:
+lint and script traps, sidecar consistency, validation and the configured structure XSD.
+It also parses that entity's service scripts on the server before import. Blocking findings
+name their file and line and import nothing; advisories are reported without blocking.
+`--force` only overrides server conflicts. `--skip-checks` skips these gates and the script
+parse and lists what was skipped (MCP: `skip_checks: true`). A missing referenced entity
+names the required order: `twaco entity push DataShapes/Acme.Rows --apply` first, or use
+`twaco deploy --apply` for an ordered deployment.
+The same conflict check applies.
 
 ## Taking in a designer's or another backend developer's work
 
@@ -1105,6 +1141,7 @@ twaco thing property set Acme.Orders.Machine_TT Speed --no-logged --category Mot
 twaco thing property remove Acme.Orders.Machine_TT Speed --apply
 twaco thing service add Acme.Orders.Machine_TT ReadSpeed --returns NUMBER --then "result = me.Speed;" --apply
 twaco thing service remove Acme.Orders.Machine_TT ReadSpeed --apply
+twaco thing service set Acme.Orders.Machine_TT ReadSpeed --script read-speed.js --apply
 twaco thing service override Acme.Orders.Press ReadSpeed --script press-read-speed.js --apply
 twaco thing service override --revert Acme.Orders.Press ReadSpeed --apply
 twaco thing subscription add Acme.Orders.Press OnSpeed --event DataChange --source-property Speed --then "me.Check();" --apply
@@ -1133,6 +1170,13 @@ into the entity through the same synchronizer as sidecar changes. Parameters are
 an own script service, its run-time permission and sidecar folder. Both refuse inherited clashes;
 remove also refuses callers unless `--force` lists and accepts them. MCP exposes the same work as
 `entity_edit` actions `service_add` and `service_remove`.
+
+`thing service set <Entity> <Name> (--script <file.js> | --then <code>)` replaces the body of an own
+service and leaves its definition, so its signature and callers stay. The script gets the JSDoc
+header the definition implies when the contract rule is on. It refuses a service the entity does not
+define, an override (use `thing service override --revert`, or edit its `script.js` and `sync`), and
+a `script.js` that differs from the XML (run `sync` first, or the edit would be lost). MCP:
+`entity_edit` action `service_set`.
 
 `thing service override` adds a Script implementation, but no local definition, for a service an
 ancestor defines. Its `services/<Service>/` folder therefore has only `script.js`; the script gets
@@ -1188,25 +1232,35 @@ items' `imageURL` (e.g. `cds:icon_*`) and fits its labels when expanded.
 | card | header, title, actions, body | Card content |
 | master-detail | list, detail | Master and detail panes |
 | kpi-tile | title, value | A compact KPI display |
-| filter-panel | filter-column, filters, content | Filters beside results |
+| filter-panel | filter-column, filters, filter-footer, content | Filters beside results |
+| tab-content | toolbar, body | Tab child without a title row or gutter |
 | tabs | title, tabs | A tab set whose tabs each show a mashup (`--tab Label=Mashup`) |
 | dashboard | title, tiles, tile-1..tile-4, panels, side, main | Four KPI tiles above a side panel and a main panel (1:3) |
 
 `filter-panel` draws the kits' look: `filter-column` is a continuous 276px column on `#F7F7F7`.
-Inside it, `filters` is a centered 240px controls column. Controls added there fit its width;
-the first gets `Margin` `5 0`, later controls `13 0 5` (13px above, 5px below, no horizontal
-inset). Generated rows center the controls and keep their content height without nested
-scrollbars. Existing `--in filters` commands target this inner slot, including
-`--in filters --bottom` for Apply and `--right-of <apply>` for Clear: their footer stays at the
-bottom while later filters go above it. Footer buttons get `Width` 110 and `Margin` 0;
-the footer row gets `Margin` `0 5`. The inner column and generated rows inherit the grey
-background. Content is white with a 24px margin. `list-page` gives its toolbar the same grey band. Its shared content container (including title, toolbar and body) has a 24px margin on every side, like the kit's content (the kit stores `24 24 24 0` beside a sibling that supplies the left 24px). The colours are ordinary widget styles
+Inside it, `filters` is a centered 240px controls column with left-aligned labels. It grows
+above `filter-footer`, a bottom action slot with a top 1px divider and a 24px gutter.
+Add Apply and Reset there; these labels default to primary and tertiary buttons respectively,
+with 110px widths and no margins. Explicit `--prop` values win. Older `--in filters --bottom`
+footers remain supported. The filter column has the kit's native collapse tab;
+`recipe collapsible --add-toggle` reuses it. Date pickers in `filters` or columns capped at
+300px default to `DateOnly=true` and `FormatToken=DD-MM-YY`; explicit properties win.
+
+```sh
+twaco mashup add Acme.App.Metrics_MU button --in filter-footer --label Apply --apply
+twaco mashup add Acme.App.Metrics_MU button --in filter-footer --label Reset --apply
+```
+
+Content is white with a 24px margin. `list-page` gives its toolbar the same grey band. Its shared content container (including title, toolbar and body) has a 24px margin on every side, like the kit's content (the kit stores `24 24 24 0` beside a sibling that supplies the left 24px). The colours are ordinary widget styles
 in the root's StyleProperties, so `mashup set <mashup> <slot> --style background=...` changes them.
 `dashboard` keeps the kits' 24px page margin around everything; `blank` has none, since it also serves
 contained mashups and collection cells.
 
 `--template tabs` takes `--tab "Label=Mashup"` once per tab (up to 16; a label may be a `[[token]]`, and a
-bare `Label` leaves that tab empty). Each tab gets the container Composer gives it, holding the mashup in a
+bare `Label` leaves that tab empty). The host supplies a 24px page gutter. Use
+`--template tab-content` for its children: a 48px toolbar and growing body, without a
+second gutter or title row. Existing full-page children keep their own layout and receive
+a warning; rebuild those as tab-content or remove their title/gutter explicitly. Each tab gets the container Composer gives it, holding the mashup in a
 contained mashup with its parameters cached, so `mashup bind` can reach them; without `--tab` the tab set
 has Composer's two empty tabs. A tabs page cannot be a master.
 
@@ -1215,8 +1269,8 @@ are INFOTABLE-returning services. Their menu-bar data bindings and page-loaded s
 exactly those `mashup bind` and `mashup on` would create. The menu bar shows a tree of `MenuEntry`
 rows: one root row (`linkType` `Menu`, a `menuId` such as `topMenu`) and items whose `parentMenuId` is
 that id, with `linkType` and `linkTarget` `Mashup` and the mashup in `linkDestination`. Rows without
-the root show nothing, and twaco cannot check that from the service definition. `--master` makes a master mashup instead,
-with a page container filling the template's master slot for the pages it shows. The theme is ThingWorx's default unless `--theme` names a
+the root show nothing, and twaco cannot check that from the service definition. `--master` creates a master mashup (a page container fills the center)
+for the pages it shows. The theme is ThingWorx's default unless `--theme` names a
 StyleTheme in the solution; twaco never creates one. Nothing is granted visibility unless
 `--visibility` names an `Organization/<name>` or an `OrganizationalUnit/<organization>:<unit>`.
 `--project` may be left out when the solution has one project. A name that is already a mashup, or
@@ -1267,6 +1321,28 @@ may declare scalar parameters with repeatable `--param name:TYPE[:IN|OUT|BOTH]`;
 parameters need a DataShape and are added with `mashup param add --data-shape`.
 
 ### Adding widgets
+
+Widget searches match all query words in any order and treat alias hyphens as spaces:
+`twaco widgets --search "date picker"` and `--search "picker date"` both find `ptcsdatepicker`.
+
+`twaco widgets --search html` finds `ptcsrte`: set `ReadOnly=true` and
+`HideToolbar=true` for display-only HTML. `--search collapsible` points at the existing
+`mashup recipe collapsible`; these are discovery hints, with no authoring aliases or presets.
+After `mashup add`, the result suggests `twaco mashup describe <mashup>` to inspect the
+layout (after `--apply` for a plan). JSON and MCP return this in `next_steps`.
+
+For a tab container, the catalogue's property names and style value are:
+
+```sh
+twaco mashup add Acme.App.Orders_MU ptcstabset --in center \
+  --prop NumberOfTabs=3 --prop Tab1Name=Overview --prop Tab2Name=Details \
+  --prop Tab3Name=History --prop TabStyle=contained-tabs --apply
+```
+
+To place controls into an existing row, use `--in <row>` for the first, then chain
+`--right-of <new id>` using each returned widget id. For example, add a button with
+`--in <row>` and place the next button with `--right-of <id returned by that add>`.
+
 
 ```sh
 twaco mashup add Acme.App.Orders_MU grid --apply
@@ -1514,7 +1590,7 @@ twaco mashup collection add Acme.App.Orders_MU Acme.App.OrderCell_MU \
 ```
 
 The command adds the collection, records the field-to-parameter mapping as an object, and binds
-the result to `Data` in one edit. It reports when nothing invokes the source call. See
+the result to `Data` in one edit. It reports when nothing invokes the source call. `--data` is the whole result, `data:<Entity>.<Service>`, or a call's selected rows, `data:<Entity>.<Service>[SelectedRows]`, when another widget picks the rows to show. See
 [Collections: the serialized contract](MASHUP_COLLECTIONS.md) for the stored properties and
 runtime behaviour.
 
@@ -1631,7 +1707,7 @@ twaco mashup on Acme.App.Orders_MU --event mashup:Loaded --invoke data:Acme.App.
 twaco mashup on Acme.App.Orders_MU --event data:Acme.App.Orders.Manager.SaveOrder.ServiceInvokeCompleted --invoke data:Acme.App.Orders.Manager.GetOrders --apply
 ```
 
-`mashup on` makes one event run a service, until `--apply` only a plan. The event is a widget's
+`mashup on` makes one event run a service, until `--apply` only a plan. A widget address may drop its `ui:` prefix (`ptcsbutton-6.Clicked`) when exactly one widget has that id or display name; the same holds for `mashup bind` and the recipes' addresses. The event is a widget's
 (`ui:<widget>.<Event>`, one its catalogue contract lists, such as a button's `Clicked`), the
 page's `mashup:Loaded`, or a call's `ServiceInvokeCompleted`, `Data_Error`, `AllDataChanged` or
 `SelectedRowsChanged` for a call the mashup already has. It runs a data service, added as a call
@@ -1713,6 +1789,34 @@ twaco mashup recipe tracker Acme.App.Wizard_MU new --data data:Acme.App.Wizard.M
 twaco mashup recipe set-on-click Acme.App.Wizard_MU ptcsbutton-6 --param CurrentStep --expr "CurrentStep + 1" --input CurrentStep=mashup:CurrentStep --apply
 ```
 
+For a details header above tabs, use `mashup recipe panel Acme.App.Details_MU <container>
+--fit content`: the panel uses `flex-grow: 0`, basis `auto`, and managed `height: auto`
+at both normal and compact widths. The default `--fit fill` grows to fill the available
+height. The choice appears in plan notes and JSON/MCP. The grey preset keeps the kit's
+`#F7F7F7` background and `24 24 12` margins.
+
+Adding above or below a widget in a fixed-height title row creates a sibling row outside
+that fixed row; the plan says which row was promoted. Below a panel in a template body row
+also starts a new row, so chaining `--right-of`, `--below`, `--right-of` makes a 2 by 2 card
+layout. `--in-column` retains the explicit within-column placement.
+
+`mashup new Acme.App.Details_MU --template tabs --tab History=Acme.App.History_MU`
+and `mashup add-contained ... --in <tab-container>` use the kit's responsive contained
+mashup in a growing row, with no child-derived minimum height on the tab. They keep the
+inner mashup's responsive layout intact. A contained page template produces a warning:
+check its own filling/scrolling at runtime; prefer a responsive content layout. The kit's
+History is itself responsive and scrolls, so scrolling alone is not grounds to rewrite it.
+
+Use `mashup recipe toolbar Acme.App.History_MU <row> --band` to style an existing responsive
+row as the kit's date-picker band: `#F7F7F7`, no border or padding, fixed 48px. Add a date
+picker and buttons into that row with `mashup add --in`. This form retains existing
+controls and does not require a search call. The search toolbar recipe uses the same grey band.
+`--end` also works inside rows created by templates, including their toolbar slots.
+
+For stacked bars, add `--stacked` to `mashup recipe chart`: it sets the bar widget's real
+`SeriesDisplay` property to `auto` (the kit's stacked bar), rather than `grouped`. The option
+refuses other chart types. All these commands plan by default; add `--apply` to write.
+
 `columns` accepts repeatable `--column field[:Title[:width[:format]]]` entries.
 New DATETIME columns use `yyyy-MM-dd HH:mm:ss`, without milliseconds; existing
 column formats are preserved. `--date-format dd-MM-yyyy` sets the format for listed
@@ -1722,7 +1826,21 @@ is stored as `ColumnFormat.FormatOptions.FormatString`; 10.2 rendering remains a
 live verification step. `--columns <n>` belongs to label-pairs; a non-number value
 on the columns recipe explains the repeatable `--column` flag.
 
-Plans, applies, JSON and MCP notes suggest status/state column icon formatting,
+`columns --status Severity=Acme.Status_ST` copies the repository StateDefinition into
+the column formatter, preserving the kit's icon and text (`FormatString=full`). The field
+must be listed with `--column`. Column recipes also remove header dividers using the kit's
+`--ptcs-header-vert-divider-width: 0px`, preserving other widget styles.
+
+`recipe pagination <mashup> <grid> --data data:Acme.Manager.GetRows` adds a centred pager,
+binds the result count, and slices the result into grid Data with expression widgets. It
+pages locally, defaults to 10 rows, and resets to page 1 when results or page size change.
+Repeating it reuses the same pager. Verify client expression evaluation in Runtime.
+
+Recipes warn when a call they bind has no event that runs it, including after a retry.
+The note prints `twaco mashup on <mashup> --event mashup:Loaded --invoke data:<Entity>.<Service> --apply`.
+A button or another event that already invokes the call suppresses this warning.
+
+Plans, applies, JSON and MCP notes suggest status/state/severity column icon formatting,
 explicit date formatting, `--menu` for cards without a menu, and attaching a new
 page when the solution contains a master. Review the suggested StateDefinition or
 master before applying it.
@@ -1789,8 +1907,24 @@ structured output and `--apply` to write. MCP uses `mashup_recipe`, `recipe: "to
 `widget` for the container, `then`, `search_param`, optional `hint`, `width`, `run_on`,
 and `buttons` (an array of `Label=handler`); `dry_run` defaults to true.
 
+`mashup recipe card` turns an empty column into one small status card: a caption, a value and
+a coloured status chip in one bordered box, with equal flex so cards added to one row share its
+width. `--say` and `--status` take text or a `data:` or `ui:` address that is bound to the label.
+
+```sh
+twaco mashup recipe card Acme.Line_MU flexcontainer-9 --title "01 / CUTTING" --say "162 U/H" --status RUNNING --kind ok --apply
+```
+
+`mashup validate` and `mashup set --style` advise on style settings the runtime is likely to
+ignore. A value ending in `!important`, a placement property (`position`, `top`, `transform`,
+`flex`) on a widget's own part, and a part the widget does not have are named. A container's own
+`--style flex...` is refused: use `--prop flex-grow`, `flex-basis` or `flex-min-height`.
+`mashup set <mashup> mashup-root --style` names the page container to style instead. These notes
+come from comparing built pages with the kits, not from a specification.
+
 `mashup recipe panel` styles an existing responsive column as a full-width grey
-(`#F7F7F7`) growing panel with 24/24/12 gutters. Default descendant wrappers
+(`#F7F7F7`) panel with 24/24/12 gutters. It grows by default (`--fit fill`);
+`--fit content` keeps it at natural content height. Default descendant wrappers
 without a background inherit it; explicit backgrounds (including white), descendant
 margins, borders and leaf styles survive. Contained mashups are boundaries.
 
@@ -1998,6 +2132,10 @@ server. Search by type, Composer label or alias; name one widget to see the prop
 bind, their base types and directions, and its events and services. `--json` gives the same data
 to automation. A container with no binding contract is marked so it can be placed without being
 mistaken for a bindable widget.
+
+A word for a widget Composer has but the catalogue lacks (`gauge`, `webframe`) finds nothing, and
+says so with the closest native widget: the KPI dial `ptcskpidial` for a gauge, a Link or a popup
+for a Web Frame. `mashup add` names it in its refusal too.
 
 ### Reading a mashup's wiring
 
@@ -2566,6 +2704,20 @@ strings; it plans unless `dry_run` is false. Deploy imports the repository XML.
 `entity delete DirectoryServices/Acme.Directory --apply` uses REST DELETE with the usual
 dependency guards, backup and absence verification.
 
-`config-table set` replaces the table. Its plan lists live columns that currently contain a
-value but are absent from every supplied row, for example `would be cleared: runAsUser, schedule`.
-JSON and MCP results include a `warnings` array; applying still replaces the rows.
+JSON and MCP configuration-table results include a `warnings` array; applying still replaces the rows.
+
+`twaco doctor` reports whether optional `TWACO_SDK` and `TWACO_STRUCTURE_XSD` are set and their
+paths exist. It reads the configured XSD or jar/zip with the same reader as the structure
+gate, checks for `schema.xsd` in archives, and infers the platform schema generation from
+Roles, PermissionGroups and MCPNamespaces (absent in 10.0, present in 10.2). Unset is
+informational; a broken configured path or archive is a warning.
+
+MCP `entity_new` refuses arguments outside the selected kind's CLI grammar, including
+explicit empty lists and false switches. Pass only options accepted by `twaco new <kind>`.
+Panel recipes preserve existing CRLF when adding or replacing managed CSS; only whole,
+trimmed marker lines delimit a managed block.
+
+`config-table set` replaces all rows. Its plan and apply warn for valued columns omitted
+from every supplied row, columns supplied in some rows but omitted in others (those cells
+are cleared), and existing rows omitted from the replacement. With a primary key, dropped
+rows are identified by that key; without one, the warning reports a reduction in row count.

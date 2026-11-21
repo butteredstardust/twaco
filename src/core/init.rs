@@ -365,6 +365,7 @@ and managed with twaco. Read this file in full before changing anything.
 Projects, in deploy order (`twaco projects`):
 
 {listed}
+<!-- twaco:begin -->
 ## How to work here
 
 - `twaco guide workflow`: how to change a service, deploy it, call it, and take a designer's
@@ -385,44 +386,141 @@ Projects, in deploy order (`twaco projects`):
     and the server differ.
 - `twaco check` before reporting a change complete. Then deploy only what changed and call
   the service; the gates check structure, never behaviour.
-- A command that writes to the server only plans unless given `--apply`.
+- Server writes plan unless given `--apply`; `twaco call` runs immediately.
+
+## Create and change
+
+{tasks}
+<!-- twaco:end -->
 
 ## What we learned
 
 <!-- Write here, or in docs/, what was expensive to find out about this solution: the next
      agent starts from these files, not from your conversation. Platform behaviour that is not
      specific to this solution belongs in a quirk instead. -->
-"#
+"#,
+        tasks = super::guide::TASKS
+            .trim_start_matches("# Task index\n\n")
+            .trim_end(),
     );
-    let claude = "# CLAUDE.md\n\n`AGENTS.md` is the source of truth for this repository: read it in full before making\nchanges. `twaco guide --search <words>` finds the platform's quirks and this repository's\ndocuments; `twaco mcp` serves every twaco command as a tool.\n".to_string();
+    let claude = "# CLAUDE.md\n\n<!-- twaco:begin -->\nRead `AGENTS.md` in full before making changes; `twaco guide tasks` is the task index and `twaco mcp` serves twaco tools.\n<!-- twaco:end -->\n".to_string();
     [("AGENTS.md", agents), ("CLAUDE.md", claude)]
 }
 
-/// Writes each agent file that does not exist yet, never replacing one. Returns what it wrote
-/// and what it left alone.
+const AGENT_BEGIN: &str = "<!-- twaco:begin -->";
+const AGENT_END: &str = "<!-- twaco:end -->";
+
+fn agent_block(text: &str) -> std::io::Result<Option<&str>> {
+    let mut begin = None;
+    let mut end = None;
+    let mut offset = 0;
+    for line in text.split_inclusive('\n') {
+        let trimmed = line.trim();
+        let slot = match trimmed {
+            AGENT_BEGIN => Some(&mut begin),
+            AGENT_END => Some(&mut end),
+            _ => None,
+        };
+        if let Some(slot) = slot {
+            if slot.is_some() {
+                return Err(agent_marker_error());
+            }
+            *slot = Some(offset + line.find(trimmed).unwrap());
+        }
+        offset += line.len();
+    }
+    match (begin, end) {
+        (None, None) => Ok(None),
+        (Some(start), Some(end)) if end > start => Ok(Some(&text[start..end + AGENT_END.len()])),
+        _ => Err(agent_marker_error()),
+    }
+}
+
+fn agent_marker_error() -> std::io::Error {
+    std::io::Error::new(
+        std::io::ErrorKind::InvalidData,
+        "repair the incomplete or repeated twaco guidance markers before running `twaco init --agents`",
+    )
+}
+
+/// Whether existing guidance is missing or differs from the block this version writes.
+pub(crate) fn agent_guidance_stale(file: &str, text: &str) -> bool {
+    let files = agent_files("", &[]);
+    let Some((_, expected)) = files.iter().find(|(name, _)| *name == file) else {
+        return false;
+    };
+    match agent_block(text) {
+        Ok(Some(block)) => block.replace("\r\n", "\n") != agent_block(expected).unwrap().unwrap(),
+        _ => true,
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct AgentFileChange {
+    pub file: &'static str,
+    /// Created file, appended block, refreshed block, or unchanged block.
+    pub action: &'static str,
+}
+
+/// Add or refresh only the marked guidance, preserving all other bytes and existing CRLF.
+/// Validates both files before writing either, refusing incomplete, reversed or repeated markers.
 pub fn write_agent_files(
     root: &Path,
     solution_name: &str,
     projects: &[String],
-) -> std::io::Result<(Vec<String>, Vec<String>)> {
-    let mut wrote = Vec::new();
-    let mut kept = Vec::new();
-    for (file, text) in agent_files(solution_name, projects) {
+) -> std::io::Result<Vec<AgentFileChange>> {
+    let mut planned = Vec::new();
+    for (file, template) in agent_files(solution_name, projects) {
         let path = root.join(file);
-        match std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&path)
-        {
-            Ok(mut handle) => {
-                std::io::Write::write_all(&mut handle, text.as_bytes())?;
-                wrote.push(file.to_string());
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => kept.push(file.to_string()),
-            Err(e) => return Err(e),
-        }
+        let result = (|| -> std::io::Result<_> {
+            let (text, action) = match std::fs::read_to_string(&path) {
+                Ok(old) => {
+                    let newline = if old.contains("\r\n") { "\r\n" } else { "\n" };
+                    let block = agent_block(&template)?.unwrap().replace('\n', newline);
+                    if let Some(previous) = agent_block(&old)? {
+                        if previous == block {
+                            return Ok((None, "unchanged twaco guidance"));
+                        }
+                        let start = previous.as_ptr() as usize - old.as_ptr() as usize;
+                        let end = start + previous.len();
+                        (
+                            format!("{}{block}{}", &old[..start], &old[end..]),
+                            "refreshed twaco block",
+                        )
+                    } else {
+                        let separator = if old.is_empty() {
+                            String::new()
+                        } else if old.ends_with(newline) {
+                            newline.to_string()
+                        } else {
+                            newline.repeat(2)
+                        };
+                        (
+                            format!("{old}{separator}{block}{newline}"),
+                            "appended twaco block",
+                        )
+                    }
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    (template, "created file")
+                }
+                Err(error) => return Err(error),
+            };
+            Ok((Some(text), action))
+        })();
+        let (text, action) = result
+            .map_err(|error| std::io::Error::new(error.kind(), format!("{file}: {error}")))?;
+        planned.push((file, text, action));
     }
-    Ok((wrote, kept))
+    let mut changes = Vec::new();
+    for (file, text, action) in planned {
+        if let Some(text) = text {
+            super::workspace::atomic_replace(&root.join(file), text.as_bytes())
+                .map_err(|error| std::io::Error::new(error.kind(), format!("{file}: {error}")))?;
+        }
+        changes.push(AgentFileChange { file, action });
+    }
+    Ok(changes)
 }
 
 #[cfg(test)]
@@ -531,33 +629,146 @@ mod tests {
     }
 
     #[test]
-    fn agent_files_are_written_once_and_never_replace_one() {
-        let root_guard = tempfile::Builder::new()
-            .prefix("twaco-init-agents-")
-            .tempdir()
-            .unwrap();
-        let root = root_guard.path().to_path_buf();
-        std::fs::create_dir_all(&root).unwrap();
-        std::fs::write(root.join("CLAUDE.md"), "mine").unwrap();
-        let (wrote, kept) =
-            write_agent_files(&root, "S", &["P.One".into(), "P.Two".into()]).unwrap();
-        assert_eq!(
-            (wrote, kept),
-            (vec!["AGENTS.md".to_string()], vec!["CLAUDE.md".to_string()])
-        );
-        let agents = std::fs::read_to_string(root.join("AGENTS.md")).unwrap();
-        assert!(
-            agents.contains("working on S,") && agents.contains("- `P.One`\n- `P.Two`\n"),
-            "{agents}"
-        );
-        assert!(agents.contains("twaco guide workflow") && agents.contains("twaco catalog"));
-        assert_eq!(
-            std::fs::read_to_string(root.join("CLAUDE.md")).unwrap(),
-            "mine",
-            "never replaced"
-        );
-        let (wrote, _) = write_agent_files(&root, "S", &[]).unwrap();
-        assert!(wrote.is_empty(), "a second run writes nothing");
+    fn agent_files_create_append_refresh_and_preserve_human_bytes() {
+        for newline in ["\n", "\r\n"] {
+            let dir = tempfile::tempdir().unwrap();
+            let root = dir.path();
+            let changes = write_agent_files(root, "Acme", &["Acme.Project".into()]).unwrap();
+            assert!(changes.iter().all(|change| change.action == "created file"));
+            for (file, _) in agent_files("Acme", &[]) {
+                let created = std::fs::read_to_string(root.join(file)).unwrap();
+                assert!(!agent_guidance_stale(file, &created));
+                if file == "AGENTS.md" {
+                    assert!(
+                        created.find("## Project context").unwrap()
+                            < created.find(AGENT_BEGIN).unwrap()
+                    );
+                    assert!(
+                        created.find("## What we learned").unwrap()
+                            > created.find(AGENT_END).unwrap()
+                    );
+                    assert!(created.contains(
+                        super::super::guide::TASKS
+                            .trim_start_matches("# Task index\n\n")
+                            .trim_end()
+                    ));
+                }
+                let human = format!("# Acme notes{newline}{newline}Keep these bytes.  {newline}");
+                std::fs::write(root.join(file), &human).unwrap();
+                assert!(agent_guidance_stale(file, &human));
+                let changes = write_agent_files(root, "Acme", &[]).unwrap();
+                assert_eq!(
+                    changes
+                        .iter()
+                        .find(|change| change.file == file)
+                        .unwrap()
+                        .action,
+                    "appended twaco block"
+                );
+                let appended = std::fs::read_to_string(root.join(file)).unwrap();
+                assert!(appended.starts_with(&human));
+                assert!(!agent_guidance_stale(file, &appended));
+                let suffix = format!("{newline}Human tail without final newline");
+                let old = format!(
+                    "{human}{AGENT_BEGIN}{newline}old guidance{newline}{AGENT_END}{suffix}"
+                );
+                assert!(agent_guidance_stale(file, &old));
+                std::fs::write(root.join(file), &old).unwrap();
+                let changes = write_agent_files(root, "Acme", &[]).unwrap();
+                assert_eq!(
+                    changes
+                        .iter()
+                        .find(|change| change.file == file)
+                        .unwrap()
+                        .action,
+                    "refreshed twaco block"
+                );
+                let refreshed = std::fs::read_to_string(root.join(file)).unwrap();
+                assert!(refreshed.starts_with(&human) && refreshed.ends_with(&suffix));
+                assert!(!agent_guidance_stale(file, &refreshed));
+                if newline == "\r\n" {
+                    assert!(!refreshed.replace("\r\n", "").contains('\n'));
+                }
+            }
+            let changes = write_agent_files(root, "Acme", &[]).unwrap();
+            assert!(changes
+                .iter()
+                .all(|change| change.action == "unchanged twaco guidance"));
+        }
+    }
+
+    #[test]
+    fn appending_guidance_keeps_a_bom_and_human_text_without_a_final_newline() {
+        let dir = tempfile::tempdir().unwrap();
+        let human = "\u{feff}# Acme human context";
+        std::fs::write(dir.path().join("AGENTS.md"), human).unwrap();
+        write_agent_files(dir.path(), "Acme", &[]).unwrap();
+        let updated = std::fs::read_to_string(dir.path().join("AGENTS.md")).unwrap();
+        assert!(updated.starts_with(&format!("{human}\n\n{AGENT_BEGIN}")));
+    }
+
+    #[test]
+    fn malformed_guidance_markers_refuse_to_overwrite_human_text() {
+        for old in [
+            AGENT_BEGIN.to_string(),
+            format!("{AGENT_END}\n{AGENT_BEGIN}"),
+            format!("{AGENT_BEGIN}\n{AGENT_BEGIN}\n{AGENT_END}"),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("AGENTS.md");
+            std::fs::write(&path, &old).unwrap();
+            let error = write_agent_files(dir.path(), "Acme", &[]).unwrap_err();
+            assert!(error.to_string().contains("AGENTS.md"));
+            assert_eq!(std::fs::read_to_string(path).unwrap(), old);
+        }
+    }
+
+    #[test]
+    fn prose_markers_are_preserved_and_only_trimmed_marker_lines_are_replaced() {
+        for newline in ["\n", "\r\n"] {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("AGENTS.md");
+            let prose = format!("Use {AGENT_BEGIN} and {AGENT_END} as markers{newline}");
+            std::fs::write(&path, &prose).unwrap();
+            write_agent_files(dir.path(), "Acme", &[]).unwrap();
+            let appended = std::fs::read_to_string(&path).unwrap();
+            assert!(appended.starts_with(&prose));
+            assert!(!agent_guidance_stale("AGENTS.md", &appended));
+            let old = format!("{prose}  {AGENT_BEGIN}{newline}old{newline}  {AGENT_END}{newline}Human tail{newline}");
+            std::fs::write(&path, old).unwrap();
+            write_agent_files(dir.path(), "Acme", &[]).unwrap();
+            let refreshed = std::fs::read_to_string(&path).unwrap();
+            assert!(refreshed.starts_with(&format!("{prose}  {AGENT_BEGIN}{newline}")));
+            assert!(refreshed.ends_with(&format!("{AGENT_END}{newline}Human tail{newline}")));
+            assert!(!refreshed.contains(&format!("{newline}old{newline}")));
+        }
+    }
+
+    #[test]
+    fn malformed_claude_guidance_changes_neither_file() {
+        for agents in [
+            None,
+            Some("Human guidance\n"),
+            Some("<!-- twaco:begin -->\nold\n<!-- twaco:end -->\n"),
+        ] {
+            for malformed in [
+                format!("{AGENT_END}\n{AGENT_BEGIN}\n"),
+                format!("{AGENT_BEGIN}\n{AGENT_END}\n{AGENT_END}\n"),
+                AGENT_BEGIN.to_string(),
+            ] {
+                let dir = tempfile::tempdir().unwrap();
+                let path = dir.path().join("AGENTS.md");
+                if let Some(old) = agents {
+                    std::fs::write(&path, old).unwrap();
+                }
+                let claude = dir.path().join("CLAUDE.md");
+                std::fs::write(&claude, &malformed).unwrap();
+                let error = write_agent_files(dir.path(), "Acme", &[]).unwrap_err();
+                assert!(error.to_string().contains("CLAUDE.md"));
+                assert_eq!(std::fs::read_to_string(path).ok().as_deref(), agents);
+                assert_eq!(std::fs::read_to_string(claude).unwrap(), malformed);
+            }
+        }
     }
 
     #[test]

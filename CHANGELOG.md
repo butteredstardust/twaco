@@ -10,12 +10,52 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- Mashup panel `--fit content` keeps details headers at natural height; default `--fit fill` still grows. Plans report the choice. Toolbar `--band` styles existing date-picker/button rows with the kit?s grey band. Chart `--stacked` uses the bar widget?s `SeriesDisplay=auto`.
+- Above/below placement promotes fixed title rows, and below-panel placement promotes template body rows. Tab-contained mashups use responsive kit sizing without a child-height floor, with warnings for inner page templates.
+
+- Share a short task index across top-level help, `guide tasks` (CLI/MCP) and generated agent guidance; MCP instructions name authoring tools.
+- `init --agents` adds or refreshes marked guidance in existing AGENTS.md and CLAUDE.md, preserving human text and CRLF and reporting changes per file. Doctor points out missing or stale blocks.
+- Widget search hints find display-only HTML (`ptcsrte`, ReadOnly and HideToolbar) and the collapsible recipe; mashup add reports describe next steps in text, JSON and MCP.
+- Document DataShape sidecar field edits, tab container properties, row placement and explicit baseline recording across hash or ownership policy changes.
+
+- `doctor` reports optional SDK/XSD setup, archive schema availability and inferred 10.0/10.2 schema generation.
+- Record attributed ThingWorx 10.2.1 field quirks separately from maintainer-verified observations.
 - `deploy --exclude` now names, in the plan, the repository entities that still structurally reference each excluded entity (transitively, preserving collection identity and ignoring prose), with a warning that the import will fail; `--with-dependents` (and `with_dependents` over MCP) leaves them out too. A refused import whose server response body or log reason names an entity suggests `--exclude <it> --with-dependents`.
 - `ext import` takes a zip of extension zips (such as a solutions-common bundle): each inner package is read, ordered by `dependsOn` (a cycle or a dependency neither in the bundle nor installed is refused before anything is sent), skipped when the server holds that version or a newer one, and imported one by one, reporting imported, skipped or failed for each. A plan validates what it can and marks packages waiting for the bundle. Queued prerequisites defer their dependents until restart. Unsupported or overflowing versions and Windows-style inner zip paths are refused before upload.
 - `entity status --all --record` prunes baseline entries of entities in neither the repository nor on the server, and says how many (names with `--detail` or live `--json`; `pruned` and `pruned_entries` over MCP without needing detail). `twaco doctor` names incompatible and orphan baseline entries (all of them in `--json` as `entries`) and which command fixes each.
+- `thing service set <Entity> <Name> (--script <file.js> | --then <code>)` replaces the body of an own service and keeps its signature and callers (MCP `entity_edit` action `service_set`); it refuses an override, a missing service and a sidecar that differs from the XML.
+- A `styling` guide topic and task-index lines for `mashup set --style`, themes and custom CSS, so `guide --search "custom CSS"`, "style" and "colour" find them.
+- `widgets --search gauge` and `webframe` name the closest native widget (the KPI dial, a link or popup) when the 10.2 catalogue has no such widget, instead of only "no widget matches".
+- `mashup recipe card <container> --title <caption> [--say <value>] [--status <text>] [--kind info|ok|warning|error]` fills an empty column with one bordered box: caption, value and a coloured status chip; `--say` and `--status` take text or a `data:`/`ui:` address. Cards in one row get equal flex.
+- `mashup validate` and `mashup set --style` advise on style settings the runtime is likely to ignore: values ending in `!important`, placement properties (`position`, `top`, `transform`, `flex`) on a widget's own part, and parts a widget does not have (a chart's text, axes and bars are not styled through parts). `widgets ptcstabset` documents the `Items` objects.
+
+### Changed
+
+- Clarify that `mashup new --master` creates a master mashup with a page container filling the center.
+- A bare `widget.property` in `mashup bind`, `on` and recipes is read as `ui:widget.property` when exactly one widget has that id or display name; otherwise the error offers `ui:` and `data:`. An unresolved `data:` service says to write the alias as `data:<Entity>.<Service>[as <alias>]`.
+- `mashup collection add --data` accepts `data:<Entity>.<Service>[SelectedRows]` as well as the whole result.
+- `lint fix-headers --apply` syncs the repaired scripts into the entity XML, and `--entity` (also on `lint`) takes an entity name without its collection.
+- Usage text lists the accepted values of `recipe panel --style` (`grey|card`), `--step-size`, `--window` and chart `--kind`.
+- `mashup set` and `mashup add` explain a split argument (a double-quoted CSS value on Windows) and show the single-quote form.
+- `mashup set <mashup> mashup-root --style` names the page container to style instead. `--style flex*` on a container is refused: the runtime applied `flex: 0 0 74px` inside the header's own box and made it 74px wide; use `--prop flex-grow`, `flex-basis` or `flex-min-height`/`flex-max-height`.
 
 ### Fixed
 
+- A tab set added or created without tab names gets `Tab 1`, `Tab 2`... instead of `Tab Name 1`.
+- A row container added with only `--prop flex-direction=row` is no longer treated as an authored size, so a toolbar row keeps its buttons' height instead of sharing the spare height with the grid below; cards added into a container row share its width equally; a date picker in a column of up to 320px, or a fixed column of that width, defaults to the short `DD-MM-YY` format.
+- Mashup benchmark J/K follow-ups: multi-word widget alias search, actionable address errors and untriggered-call warnings; template toolbar `--end`; gutter-free `tab-content` children under 24px-gutter tabs; grid status icon/text formatting and hidden header dividers; filter title alignment, bottom action footer, native toggle reuse and short dates; grey search toolbars and a centred grid pagination recipe.
+
+- Entity push retains blocking findings in consuming mashups caused by the pushed entity, and treats runtime script references as advisory while checking typed import prerequisites.
+- XML-only service scripts respect entity and service lint overrides.
+- Agent guidance refresh recognises only whole trimmed marker lines and validates AGENTS.md and CLAUDE.md before writing either.
+
+- Entity push shows only gate findings, once each, and ends with one gate summary in plans and applies.
+
+- Behaviour change: `entity push` now runs scoped deploy gates and server script parsing in plans and applies, so an entity with an existing blocking finding is refused until it is fixed or `--skip-checks` is given; blocking findings import nothing, advisories remain visible, and `--skip-checks` reports skipped gates independently of `--force`.
+- Missing push dependencies name the prerequisite entity and suggest pushing it first or deploying the solution.
+- MCP `entity_new` rejects options outside the selected kind's CLI grammar.
+- Managed panel CSS preserves existing CRLF and recognises only whole trimmed marker lines.
+- Configuration-table replacement warns about partially omitted columns and dropped existing rows.
 - Deploy apply (CLI and MCP) refuses before importing when selected entities still reference an excluded entity, naming the referrers and suggesting `--with-dependents`; dry runs keep the plan note.
 - Extension bundle plans defer server validation when a dependency needs an earlier package's planned install or upgrade, report its name and version, and continue planning. Dependencies already installed at the required versions still allow validation.
 - `twaco doctor` counted entities with derived PermissionGroup grants as unrecorded right after a full `--record`: it compared a different hash scope than status writes. Both now share one definition, and the broken spacing in its message is gone.

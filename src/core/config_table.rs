@@ -250,11 +250,42 @@ pub(crate) fn set(
         })
         .cloned()
         .collect();
-    let warnings = if cleared.is_empty() {
+    let mut warnings = if cleared.is_empty() {
         Vec::new()
     } else {
         vec![format!("would be cleared: {}", cleared.join(", "))]
     };
+    let partial: Vec<_> = fields
+        .keys()
+        .filter(|name| {
+            rows.iter().any(|row| row.contains_key(*name))
+                && rows.iter().any(|row| !row.contains_key(*name))
+        })
+        .cloned()
+        .collect();
+    if !partial.is_empty() {
+        warnings.push(format!(
+            "omitted cells would be cleared in some rows: {}",
+            partial.join(", ")
+        ));
+    }
+    let keys = primary_key(&current.data_shape);
+    let dropped = if keys.is_empty() {
+        current.rows.len().saturating_sub(rows.len())
+    } else {
+        current
+            .rows
+            .iter()
+            .filter(|old| {
+                !rows
+                    .iter()
+                    .any(|new| keys.iter().all(|key| old.get(key) == new.get(key)))
+            })
+            .count()
+    };
+    if dropped > 0 {
+        warnings.push(format!("{dropped} existing row(s) would be dropped"));
+    }
     let service = if multi {
         "SetMultiRowConfigurationTable"
     } else {
@@ -1191,7 +1222,13 @@ mod tests {
                     false,
                 )
                 .unwrap();
-                assert_eq!(report["warnings"], json!(["would be cleared: schedule"]));
+                assert_eq!(
+                    report["warnings"],
+                    json!([
+                        "would be cleared: schedule",
+                        "omitted cells would be cleared in some rows: enabled, runAsUser, zero"
+                    ])
+                );
             }
             let applied = set(&fake, "Acme.Scheduler", "Settings", &rows, true).unwrap();
             assert_eq!(applied["warnings"], report["warnings"]);
@@ -1235,6 +1272,42 @@ mod tests {
             assert_eq!(fake.table.borrow().rows[0]["Count"], 2);
             assert_eq!(fake.table.borrow().rows[0]["Enabled"], true);
             assert_eq!(fake.calls.borrow().last().unwrap(), "GetConfigurationTable");
+        }
+    }
+
+    #[test]
+    fn replacement_warns_about_removed_keys_and_unkeyed_row_count() {
+        for keyed in [true, false] {
+            let mut fake = Fake::with(vec![
+                row("Acme.Keep", json!("one")),
+                row("Acme.Drop", json!("two")),
+            ]);
+            fake.multi_row = true;
+            fake.table.borrow_mut().data_shape = shape(if keyed { &["Key"] } else { &[] });
+            for field in fake.table.borrow_mut().data_shape["fieldDefinitions"]
+                .as_object_mut()
+                .unwrap()
+                .values_mut()
+            {
+                field["baseType"] = json!("STRING");
+            }
+            let mut rows = vec!["Key=Acme.Keep,Value=one".into()];
+            if keyed {
+                rows.push("Key=Acme.New,Value=three".into());
+            }
+            let report = set(&fake, "Acme.Store", "Settings", &rows, false).unwrap();
+            assert!(
+                report["warnings"]
+                    .as_array()
+                    .unwrap()
+                    .contains(&json!("1 existing row(s) would be dropped")),
+                "{report}"
+            );
+            assert!(fake
+                .calls
+                .borrow()
+                .iter()
+                .all(|call| call.starts_with("Get")));
         }
     }
 

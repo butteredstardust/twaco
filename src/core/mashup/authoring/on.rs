@@ -178,7 +178,8 @@ pub(crate) fn plan_on(solution: &Solution, request: &OnRequest) -> Result<OnPlan
         .as_array()
         .map_or(0, Vec::len);
     let new_source = on_in(&mut document, &context, &request.event, &request.invoke)?;
-    refuse_unknown_cell_menu_item(solution, &document, &request.event)?;
+    let event = mashup::address::imply_ui(&document, &request.event);
+    refuse_unknown_cell_menu_item(solution, &document, &event)?;
     // Only a binding this call added; older ones were reported when they were made.
     let warnings = crate::core::bindings::selected_rows_hints(document.value())
         .into_iter()
@@ -234,6 +235,10 @@ pub(super) fn on_in(
     event_raw: &str,
     invoke_raw: &str,
 ) -> Result<Option<String>, AuthoringError> {
+    let (event_raw, invoke_raw) = (
+        &mashup::address::imply_ui(document, event_raw),
+        &mashup::address::imply_ui(document, invoke_raw),
+    );
     let routed = route_child_event(document, event_raw)?;
     let event_raw = routed.as_deref().unwrap_or(event_raw);
     let trigger = resolve_trigger(document, context.model, context.platform, event_raw)?;
@@ -328,7 +333,7 @@ pub(super) fn resolve_trigger(
     if let Some(rest) = raw.strip_prefix("ui:") {
         let (widget, event) = rest
             .rsplit_once('.')
-            .ok_or_else(|| AuthoringError::Invalid(format!("invalid mashup address `{raw}`")))?;
+            .ok_or_else(|| AuthoringError::Invalid(mashup::address::address_help(raw)))?;
         let found = document.find_exact(widget).map_err(AuthoringError::Edit)?;
         if found.type_id == "mashupcontainer" {
             return Err(AuthoringError::Invalid(
@@ -383,10 +388,10 @@ pub(super) fn resolve_trigger(
     }
     let rest = raw
         .strip_prefix("data:")
-        .ok_or_else(|| AuthoringError::Invalid(format!("invalid mashup address `{raw}`")))?;
+        .ok_or_else(|| AuthoringError::Invalid(mashup::address::address_help(raw)))?;
     let (call, event) = rest
         .rsplit_once('.')
-        .ok_or_else(|| AuthoringError::Invalid(format!("invalid mashup address `{raw}`")))?;
+        .ok_or_else(|| AuthoringError::Invalid(mashup::address::address_help(raw)))?;
     if matches!(event, "ServiceInvokeFailed" | "ServiceInvokeError") {
         return Err(AuthoringError::Invalid(format!(
             "{raw}: ThingWorx 10.2 emits Data_Error on service failure; use data:{call}.Data_Error, or mashup recipe message <mashup> --after data:{call} --on-failure <text>"
@@ -435,7 +440,7 @@ pub(super) fn resolve_handler(
     if let Some(rest) = raw.strip_prefix("ui:") {
         let (widget, service) = rest
             .rsplit_once('.')
-            .ok_or_else(|| AuthoringError::Invalid(format!("invalid mashup address `{raw}`")))?;
+            .ok_or_else(|| AuthoringError::Invalid(mashup::address::address_help(raw)))?;
         let found = document.find_exact(widget).map_err(AuthoringError::Edit)?;
         if found.type_id == "mashupcontainer" {
             if service != "Refresh" {

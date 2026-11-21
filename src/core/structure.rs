@@ -218,6 +218,34 @@ pub(crate) fn run(solution: &Solution, discovered: &workspace::Discovery) -> Rep
     report
 }
 
+pub(crate) fn source_summary(path: &Path) -> Result<String, String> {
+    let bytes = schema_bytes(path)?;
+    let root = parse_xml(&bytes, true)?;
+    fn declarations(node: &Node, names: &mut BTreeSet<String>) {
+        if let Some(name) = node.attrs.get("name") {
+            names.insert(name.clone());
+        }
+        for child in &node.children {
+            declarations(child, names);
+        }
+    }
+    let mut names = BTreeSet::new();
+    declarations(&root, &mut names);
+    Schema::from_root(root)?;
+    let collections: Vec<_> = ["Roles", "PermissionGroups", "MCPNamespaces"]
+        .into_iter()
+        .filter(|name| names.contains(*name))
+        .collect();
+    let version = match (names.contains("Entities"), collections.len()) {
+        (true, 3) => "10.2-compatible (Roles, PermissionGroups, MCPNamespaces present)",
+        (true, 0) => "10.0-compatible (Roles, PermissionGroups, MCPNamespaces absent)",
+        _ => "unknown platform version (unrecognised or partial collection declarations)",
+    };
+    Ok(format!(
+        "schema.xsd readable; platform schema: {version}; inferred from collection declarations"
+    ))
+}
+
 fn schema_bytes(path: &Path) -> Result<Vec<u8>, String> {
     let path = path.to_path_buf();
     if path.is_dir() {

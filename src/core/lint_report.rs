@@ -75,7 +75,7 @@ pub fn run(solution: &Solution, request: &LintRequest) -> Result<LintReport, Str
             request
                 .entity
                 .as_deref()
-                .is_none_or(|pattern| glob::matches(pattern, &address))
+                .is_none_or(|pattern| entity_matches(pattern, &address))
                 .then(|| check::relative(solution, &entity.path))
         }));
     }
@@ -169,6 +169,16 @@ fn script_addresses(
     .collect()
 }
 
+/// An `--entity` filter against `Collection/Name`: a glob of the whole address, or, when it names no
+/// collection, of the entity's name alone.
+pub(crate) fn entity_matches(pattern: &str, address: &str) -> bool {
+    glob::matches(pattern, address)
+        || (!pattern.contains('/')
+            && address
+                .split_once('/')
+                .is_some_and(|(_, name)| glob::matches(pattern, name)))
+}
+
 /// Every sidecar script `check` reads that the filters select, with its `Collection/Name` when
 /// its entity file is found. A script whose entity is missing is selected unless an entity filter
 /// is given.
@@ -192,7 +202,7 @@ pub(crate) fn selected_scripts(
             entity.is_none_or(|pattern| {
                 address
                     .as_deref()
-                    .is_some_and(|address| glob::matches(pattern, address))
+                    .is_some_and(|address| entity_matches(pattern, address))
             }) && service.is_none_or(|pattern| glob::matches(pattern, &name))
         })
         .collect()
@@ -417,5 +427,23 @@ severity = \"off\"
             ],
             "advisory leaves error as error; off drops P.B"
         );
+    }
+}
+
+#[cfg(test)]
+mod entity_filter_tests {
+    use super::entity_matches;
+
+    #[test]
+    fn a_filter_without_a_collection_matches_the_entity_name() {
+        assert!(entity_matches("Things/Acme.Cards", "Things/Acme.Cards"));
+        assert!(entity_matches("Acme.Cards", "Things/Acme.Cards"));
+        assert!(entity_matches("Acme.*", "ThingTemplates/Acme.Cards"));
+        assert!(!entity_matches("Acme.Cards", "Things/Acme.CardsTwo"));
+        assert!(!entity_matches(
+            "Things/Acme.Cards",
+            "ThingTemplates/Acme.Cards"
+        ));
+        assert!(!entity_matches("Cards", "Things/Acme.Cards"));
     }
 }

@@ -2272,6 +2272,91 @@ fn thing_service_override_and_revert_from_the_command_line() {
     assert!(!root.join("src/Acme.Press/services/Read").exists());
 }
 
+/// `thing service set` swaps a body and keeps the signature; a stray operand from a split
+/// argument is explained.
+#[test]
+fn thing_service_set_replaces_a_body_from_the_command_line() {
+    let root_guard = tempfile::tempdir().unwrap();
+    let root = root_guard.path();
+    std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"Acme\"\n").unwrap();
+    let twaco = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_twaco"))
+            .args(args)
+            .current_dir(root)
+            .env_clear()
+            .output()
+            .unwrap()
+    };
+    let ok = |args: &[&str]| {
+        let out = twaco(args);
+        assert!(out.status.success(), "{args:?}: {out:?}");
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    };
+    ok(&["new", "thing", "Acme.Press", "--apply"]);
+    ok(&[
+        "thing",
+        "service",
+        "add",
+        "Acme.Press",
+        "Read",
+        "--param",
+        "limit:NUMBER",
+        "--returns",
+        "NUMBER",
+        "--then",
+        "result = 1;",
+        "--apply",
+    ]);
+    let folder = root.join("src/Acme.Press/services/Read");
+    let definition = std::fs::read_to_string(folder.join("definition.xml")).unwrap();
+    ok(&[
+        "thing",
+        "service",
+        "set",
+        "Acme.Press",
+        "Read",
+        "--then",
+        "result = limit + 1;",
+    ]);
+    assert!(!std::fs::read_to_string(folder.join("script.js"))
+        .unwrap()
+        .contains("limit + 1"));
+    ok(&[
+        "thing",
+        "service",
+        "set",
+        "Acme.Press",
+        "Read",
+        "--then",
+        "result = limit + 1;",
+        "--apply",
+    ]);
+    assert!(std::fs::read_to_string(folder.join("script.js"))
+        .unwrap()
+        .contains("result = limit + 1;"));
+    assert_eq!(
+        std::fs::read_to_string(folder.join("definition.xml")).unwrap(),
+        definition
+    );
+    let refused = twaco(&["thing", "service", "set", "Acme.Press", "Read"]);
+    assert!(!refused.status.success());
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("--then <code> or --script"));
+    let split = twaco(&[
+        "mashup",
+        "set",
+        "Acme.Page_MU",
+        "ptcslabel-3",
+        "Black\"",
+        "--style",
+        "font-family=\"Arial",
+    ]);
+    assert!(!split.status.success());
+    assert!(
+        String::from_utf8_lossy(&split.stderr).contains("font-family='Arial Black'"),
+        "{split:?}"
+    );
+}
+
 #[test]
 fn mashup_add_reports_which_widgets_new_containers_hold() {
     let root_guard = tempfile::tempdir().unwrap();
@@ -2888,4 +2973,133 @@ fn recipe_columns_wrong_plural_flag_explains_the_repeatable_singular_flag() {
         );
         assert!(!text.contains("invalid digit"), "{text}");
     }
+}
+
+#[test]
+fn task_discovery_and_agent_guidance_refresh_work_offline() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"Acme\"\n").unwrap();
+    let run = |args: &[&str]| {
+        let output = Command::new(env!("CARGO_BIN_EXE_twaco"))
+            .args(args)
+            .current_dir(root)
+            .env_clear()
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{args:?}: {output:?}");
+        String::from_utf8(output.stdout).unwrap()
+    };
+    assert!(run(&["--help"])
+        .lines()
+        .take(40)
+        .any(|line| line.contains("twaco mashup new")));
+    assert!(run(&["guide", "tasks"]).contains("twaco thing service add"));
+    assert!(run(&["widgets", "--search", "html"]).contains("ReadOnly=true"));
+    assert!(run(&["widgets", "--search", "collapsible"]).contains("mashup recipe collapsible"));
+    let first = run(&["init", "--agents"]);
+    assert!(first.contains("AGENTS.md: created file") && first.contains("CLAUDE.md: created file"));
+    std::fs::write(root.join("AGENTS.md"), "# Acme human guidance\r\n").unwrap();
+    let appended = run(&["init", "--agents"]);
+    assert!(appended.contains("AGENTS.md: appended twaco block"));
+    assert!(appended.contains("CLAUDE.md: unchanged twaco guidance"));
+    let agents = std::fs::read_to_string(root.join("AGENTS.md")).unwrap();
+    assert!(agents.starts_with("# Acme human guidance\r\n"));
+    assert!(!agents.replace("\r\n", "").contains('\n'));
+    run(&["mashup", "new", "Acme.Tasks_MU", "--apply"]);
+    run(&[
+        "mashup",
+        "add",
+        "Acme.Tasks_MU",
+        "ptcstabset",
+        "--in",
+        "center",
+        "--prop",
+        "NumberOfTabs=3",
+        "--prop",
+        "Tab1Name=Overview",
+        "--prop",
+        "Tab2Name=Details",
+        "--prop",
+        "Tab3Name=History",
+        "--prop",
+        "TabStyle=contained-tabs",
+    ]);
+    let plan = run(&["mashup", "add", "Acme.Tasks_MU", "label"]);
+    assert!(plan.contains("after --apply, see the result: twaco mashup describe Acme.Tasks_MU"));
+    let json: serde_json::Value =
+        serde_json::from_str(&run(&["mashup", "add", "Acme.Tasks_MU", "label", "--json"])).unwrap();
+    assert_eq!(
+        json["next_steps"],
+        serde_json::json!(["after --apply, see the result: twaco mashup describe Acme.Tasks_MU"])
+    );
+    let applied = run(&["mashup", "add", "Acme.Tasks_MU", "label", "--apply"]);
+    assert!(applied.contains("\nsee the result: twaco mashup describe Acme.Tasks_MU"));
+    assert!(!applied.contains("after --apply"));
+}
+
+#[test]
+fn entity_push_prints_each_gate_finding_once_and_ends_with_the_summary() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::fs::write(root.join("twaco.toml"), "[[project]]\nname='Acme'\n").unwrap();
+    std::fs::create_dir_all(root.join("Things")).unwrap();
+    std::fs::write(
+        root.join("Things/Acme.T.xml"),
+        "<Entities><Things><Thing name=\"Acme.T\" projectName=\"Acme\"><ThingShape><ServiceDefinitions><ServiceDefinition name=\"Run\"/></ServiceDefinitions><ServiceImplementations><ServiceImplementation name=\"Run\" handlerName=\"Script\"><ConfigurationTables><ConfigurationTable name=\"Script\"><Rows><Row><code><![CDATA[for (var i = 0; i < 6; i++) {\n    const row = i;\n}]]></code></Row></Rows></ConfigurationTable></ConfigurationTables></ServiceImplementation></ServiceImplementations></ThingShape></Thing></Things></Entities>",
+    )
+    .unwrap();
+    let run = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_twaco"))
+            .args(args)
+            .current_dir(root)
+            .env_clear()
+            .output()
+            .unwrap()
+    };
+    for apply in [false, true] {
+        let mut args = vec!["entity", "push", "Things/Acme.T", "--force"];
+        if apply {
+            args.push("--apply");
+        }
+        let output = run(&args);
+        assert_eq!(output.status.code(), Some(2));
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(
+            stdout.matches("[script traps/const-in-loop]").count(),
+            1,
+            "{stdout}"
+        );
+        assert!(stdout.contains("Things/Acme.T.xml:2"), "{stdout}");
+        assert!(!stderr.contains("const-in-loop"), "{stderr}");
+        assert!(!stdout.contains("0 finding(s)"), "{stdout}");
+        assert_eq!(stdout.lines().last(), Some("gates block entity push; nothing was imported; fix the findings or pass --skip-checks"));
+        assert!(stderr.is_empty(), "{stderr}");
+
+        args.push("--json");
+        let output = run(&args);
+        assert_eq!(output.status.code(), Some(2));
+        let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert!(value["error"].as_str().unwrap().contains("const-in-loop"));
+        assert!(!value["notices"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|line| line.as_str().unwrap().contains("const-in-loop")));
+    }
+    std::fs::write(
+        root.join("twaco.toml"),
+        "[gates]\nadvisory = [\"script traps\"]\n[[project]]\nname='Acme'\n",
+    )
+    .unwrap();
+    let output = run(&["entity", "push", "Things/Acme.T"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(
+        stdout.matches("[script traps/const-in-loop]").count(),
+        1,
+        "{stdout}"
+    );
+    assert!(stdout.contains("(advisory)"), "{stdout}");
+    assert_eq!(stdout.lines().last(), Some("16 gate(s) passed"));
 }

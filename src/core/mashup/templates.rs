@@ -30,6 +30,7 @@ const LAYOUTS: &[&str] = &[
     include_str!("templates/layouts/kpi-tile.json"),
     include_str!("templates/layouts/filter-panel.json"),
     include_str!("templates/layouts/tabs.json"),
+    include_str!("templates/layouts/tab-content.json"),
     include_str!("templates/layouts/dashboard.json"),
 ];
 

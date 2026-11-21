@@ -25,6 +25,8 @@ Topics built into twaco, read and searched together with the solution's own mark
   the script engine; a DataBinding with two PropertyMaps applies only the first.
 - **`service-code`:** how to write ThingWorx services well: JSDoc, output contracts, building
   and reading InfoTables, DataTable writes, error handling, and a review checklist.
+- **`styling`:** which command changes a mashup's colour, font or custom CSS: `mashup set --style`,
+  a StyleDefinition, a StyleTheme or `CustomMashupCss`, with examples.
 - **The solution's own documents:** AGENTS.md, CLAUDE.md and everything under `docs/`, or what
   `[knowledge] paths` names.
 

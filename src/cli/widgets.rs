@@ -83,6 +83,9 @@ fn list_cmd(args: &Widgets) -> u8 {
             "no widget matches \"{}\"; twaco widgets lists them all",
             search.unwrap_or_default()
         );
+        if let Some(note) = search.and_then(widgets_view::absent_note) {
+            println!("{note}");
+        }
         return OK;
     }
     if args.json.json {
@@ -117,6 +120,9 @@ fn print_summary(widget: &WidgetSummary) {
         print!(" [no contract]");
     }
     println!();
+    if let Some(hint) = &widget.hint {
+        println!("    {hint}");
+    }
 }
 
 fn print_detail(detail: &WidgetDetail) {

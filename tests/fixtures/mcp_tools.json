@@ -1413,6 +1413,11 @@
       "additionalProperties": false,
       "type": "object",
       "properties": {
+        "skip_checks": {
+          "description": "Skip per-entity deploy gates and the server script parse; reports the skipped gates.",
+          "type": "boolean",
+          "default": false
+        },
         "entity": {
           "type": "string"
         },
@@ -4106,8 +4111,7 @@
           "type": "string"
         },
         "disabled": {
-          "type": "boolean",
-          "default": false
+          "type": "boolean"
         },
         "then": {
           "type": "string"
@@ -4146,16 +4150,13 @@
           "type": "string"
         },
         "bold": {
-          "type": "boolean",
-          "default": false
+          "type": "boolean"
         },
         "italic": {
-          "type": "boolean",
-          "default": false
+          "type": "boolean"
         },
         "underline": {
-          "type": "boolean",
-          "default": false
+          "type": "boolean"
         },
         "text_size": {
           "type": "string"
@@ -4195,8 +4196,7 @@
           }
         },
         "default": {
-          "type": "boolean",
-          "default": false
+          "type": "boolean"
         },
         "label": {
           "type": "string"
@@ -4930,6 +4930,7 @@
             "subscription_remove",
             "service_add",
             "service_remove",
+            "service_set",
             "service_override",
             "service_revert",
             "shape_add",
@@ -5019,7 +5020,7 @@
           "type": "string"
         },
         "then": {
-          "description": "subscription_add / service_add / service_override: the script (service_add: absent means an empty body).",
+          "description": "subscription_add / service_add / service_set / service_override: the script (service_add: absent means an empty body).",
           "type": "string"
         },
         "from_parent": {
@@ -5610,6 +5611,15 @@
         "files"
       ],
       "properties": {
+        "next_steps": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
         "notes": {
           "type": "array",
           "items": {
@@ -6164,6 +6174,15 @@
         "files"
       ],
       "properties": {
+        "next_steps": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
         "notes": {
           "type": "array",
           "items": {
@@ -7600,7 +7619,7 @@
   },
   {
     "name": "mashup_recipe",
-    "description": "Write one recipe: the wiring real mashups repeat, in one edit. panel (widget responsive column, compact optional 768|960 inclusive viewport breakpoint; style grey (default) or white bordered card, inherited wrapper backgrounds, managed CSS). slider-action (widget horizontal slider, button; exactly two flow-sized controls in an existing responsive row; measured track-centre alignment assumes the default 34px button; 18px bottom margin with min/max labels, otherwise 0px, and 12px gap). toolbar (widget empty responsive container, then existing call, search_param STRING input, hint default Search..., width default 240, run_on change|enter|both default both, buttons ordered Label=handler; 48px search row, change/both runs on each keystroke, the clear button fires Changed once). label-pairs (widget responsive container, data existing call, fields field[:Caption], title, label_columns default one per field, replace inside or beside; caption/value labels bound to SelectedRows, empty destination required). enable-when/show-when (widget, condition, inputs name=address: an expression into Disabled/Visible), text (widget, expression, inputs: a label's computed text), message (after a data call: success say or from, kind info|warning|error; on_failure text shows a separate error on Data_Error and may be used alone), confirm (widget, then, title, say, action_label, cancel_label), popup (widget or on, target mashup, window modal-popup|popup|replace|new, size WxH, title, pass name=address, reload handler on close), close-after (after a data call succeeds the popup closes itself; failure leaves it open), auto-refresh (then data call, every seconds or interval address), validate (widget or on, condition, inputs, then, else_say), chart (widget, data, x, value for a pie, kind), columns (widget, columns field[:Title[:width[:format]]], date_format optional DATETIME pattern, data or existing binding; only listed fields visible, readable DATETIME), picker (widget, data, x display field, value, selected), tracker (widget or new, data; initial_step defaults to 1, step_size small|medium|large defaults to large, MinStepSpacing 24; host optionally wires mashupcontainer stepNumber round trip and Name before Data; runtime verification required; five DataShape field maps inferred, field_maps Property=field overrides for missing or ambiguous maps), tree (widget tree selector, data; infer IDField/NameField/ParentIDField and optional ColorField; field_maps overrides for missing or ambiguous maps), set-on-click (widget, param, expression, inputs; evaluate only on click and write the mashup parameter). collapsible (widget container with siblings; toggle existing button or add_toggle with in_container outside it; tab inside|outside|none, start collapsed). A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content/CSS sidecars together.",
+    "description": "Write one recipe: the wiring real mashups repeat, in one edit. panel (widget responsive column, compact optional 768|960 inclusive viewport breakpoint; style grey (default) or white bordered card, inherited wrapper backgrounds, managed CSS). card (widget empty responsive column, title caption, say value, status chip text, kind info|ok|warning|error; say and status take text or a data:/ui: address; one bordered box, equal flex). slider-action (widget horizontal slider, button; exactly two flow-sized controls in an existing responsive row; measured track-centre alignment assumes the default 34px button; 18px bottom margin with min/max labels, otherwise 0px, and 12px gap). toolbar (widget empty responsive container, then existing call, search_param STRING input, hint default Search..., width default 240, run_on change|enter|both default both, buttons ordered Label=handler; grey 48px search row, change/both runs on each keystroke, the clear button fires Changed once). label-pairs (widget responsive container, data existing call, fields field[:Caption], title, label_columns default one per field, replace inside or beside; caption/value labels bound to SelectedRows, empty destination required). enable-when/show-when (widget, condition, inputs name=address: an expression into Disabled/Visible), text (widget, expression, inputs: a label's computed text), message (after a data call: success say or from, kind info|warning|error; on_failure text shows a separate error on Data_Error and may be used alone), confirm (widget, then, title, say, action_label, cancel_label), popup (widget or on, target mashup, window modal-popup|popup|replace|new, size WxH, title, pass name=address, reload handler on close), close-after (after a data call succeeds the popup closes itself; failure leaves it open), auto-refresh (then data call, every seconds or interval address), validate (widget or on, condition, inputs, then, else_say), chart (widget, data, x, value for a pie, kind), columns (widget, columns field[:Title[:width[:format]]], date_format optional DATETIME pattern, data or existing binding, status field=StateDefinition for icon plus text; only listed fields visible, readable DATETIME, no header dividers), pagination (widget grid, data service result; add a centred pager, slice grid Data locally, 10 rows by default, new results/page size reset page 1), picker (widget, data, x display field, value, selected), tracker (widget or new, data; initial_step defaults to 1, step_size small|medium|large defaults to large, MinStepSpacing 24; host optionally wires mashupcontainer stepNumber round trip and Name before Data; runtime verification required; five DataShape field maps inferred, field_maps Property=field overrides for missing or ambiguous maps), tree (widget tree selector, data; infer IDField/NameField/ParentIDField and optional ColorField; field_maps overrides for missing or ambiguous maps), set-on-click (widget, param, expression, inputs; evaluate only on click and write the mashup parameter). collapsible (widget container with siblings; toggle existing button or add_toggle with in_container outside it; tab inside|outside|none, start collapsed; add_toggle reuses an existing native tab). Bound calls without triggers produce an exact mashup on command in notes. A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content/CSS sidecars together.",
     "inputSchema": {
       "required": [
         "recipe",
@@ -7630,6 +7649,22 @@
           "description": "panel: inclusive viewport breakpoint for 12px gutters; 768 or 960.",
           "type": "integer",
           "minimum": 0
+        },
+        "fit": {
+          "description": "panel: fill (default) or content height without growing.",
+          "type": "string",
+          "enum": [
+            "fill",
+            "content"
+          ]
+        },
+        "stacked": {
+          "description": "chart: stack bar series with SeriesDisplay=auto.",
+          "type": "boolean"
+        },
+        "band": {
+          "description": "toolbar: style a row as a grey band, retaining its controls.",
+          "type": "boolean"
         },
         "button": {
           "description": "slider-action: the button after the slider named by widget.",
@@ -7692,7 +7727,7 @@
           ]
         },
         "status": {
-          "description": "label-pairs: field bound to each status circle; needs status_state.",
+          "description": "label-pairs: field bound to each status circle (needs status_state); columns: field=StateDefinition for icon plus text.",
           "type": "string"
         },
         "status_state": {
@@ -7727,7 +7762,7 @@
           "type": "string"
         },
         "recipe": {
-          "description": "panel styles a responsive column; slider-action pairs widget (slider) with button. toolbar uses widget as the empty responsive container, then, search_param, hint, width, run_on and buttons. enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, picker, tracker, set-on-click, nested-menu, navigate-on-click or collapsible; label-pairs uses widget as the responsive container, data, fields, title, label_columns and replace.",
+          "description": "panel styles a responsive column; slider-action pairs widget (slider) with button. toolbar uses widget as the empty responsive container, then, search_param, hint, width, run_on and buttons. enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, pagination, picker, tracker, set-on-click, nested-menu, navigate-on-click or collapsible; label-pairs uses widget as the responsive container, data, fields, title, label_columns and replace.",
           "type": "string"
         },
         "mashup": {
@@ -12222,7 +12257,7 @@
             "type": "object",
             "properties": {
               "health": {
-                "description": "ok, warn or fail.",
+                "description": "info, ok, warn or fail.",
                 "type": "string"
               },
               "subject": {
@@ -12295,7 +12330,7 @@
   },
   {
     "name": "guide",
-    "description": "Knowledge for working on this solution: twaco's workflow, the ThingWorx platform's verified-live quirks, the service-code reference, and the solution's own AGENTS.md, CLAUDE.md and docs/. Search before a live import, a hand-written mashup binding, a configuration-table change, or a service that introspects metadata or touches JSON. list: the topics; search: the best-matching sections; read: a topic (a long one gives its outline) or one section by heading.",
+    "description": "Knowledge for working on this solution: topic tasks is the short task-to-command index for creation, authoring and reading; twaco's workflow, the ThingWorx platform's verified-live quirks, the service-code reference, and the solution's own AGENTS.md, CLAUDE.md and docs/. Search before a live import, a hand-written mashup binding, a configuration-table change, or a service that introspects metadata or touches JSON. list: the topics; search: the best-matching sections; read: a topic (a long one gives its outline) or one section by heading.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {

@@ -56,6 +56,7 @@ pub struct AddContainedRequest {
 
 #[derive(Debug)]
 pub struct AddContainedPlan {
+    pub notes: Vec<String>,
     pub(crate) edit: EditPlan,
     pub placed: mashup::edit::Placed,
     pub child: String,
@@ -370,6 +371,54 @@ pub(crate) fn plan_add(
             .path;
         document.set_property(&path, property, Value::String(label.clone()));
     }
+    let placed_path = document
+        .find(&placed.id)
+        .map_err(AuthoringError::Edit)?
+        .path;
+    if widget.type_id == "ptcsbutton"
+        && (1..placed_path.len()).any(|depth| {
+            document.at(&placed_path[..depth])["Properties"]["DisplayName"] == "filter-footer"
+        })
+    {
+        document.set_property(&placed_path, "Width", json!(110));
+        document.set_property(&placed_path, "Margin", json!("0"));
+        if let Some(label) = request.label.as_deref() {
+            if let Some(kind) = match label {
+                "Apply" => Some("primary"),
+                "Reset" => Some("tertiary"),
+                _ => None,
+            } {
+                document.set_property(&placed_path, "ButtonType", json!(kind));
+            }
+        }
+    }
+    if widget.type_id == "ptcsdatepicker" {
+        let path = document
+            .find(&placed.id)
+            .map_err(AuthoringError::Edit)?
+            .path;
+        let narrow = (1..path.len()).any(|depth| {
+            let p = &document.at(&path[..depth])["Properties"];
+            let px = |key: &str| {
+                p[key]
+                    .as_str()
+                    .and_then(|width| width.trim_end_matches("px").parse::<u32>().ok())
+            };
+            matches!(p["DisplayName"].as_str(), Some("filters" | "filter-column"))
+                || px("flex-max-width").is_some_and(|width| width <= NARROW_COLUMN)
+                || (p["flex-size"] == "fixed"
+                    && px("flex-basis").is_some_and(|width| width <= NARROW_COLUMN))
+                || (p["Type"] == "flexcontainer"
+                    && p["ResponsiveLayout"] == false
+                    && p["Width"]
+                        .as_u64()
+                        .is_some_and(|width| width <= u64::from(NARROW_COLUMN)))
+        });
+        if narrow {
+            document.set_property(&path, "FormatToken", json!("DD-MM-YY"));
+            document.set_property(&path, "DateOnly", json!(true));
+        }
+    }
     let mut properties = request
         .properties
         .iter()
@@ -466,10 +515,7 @@ pub(crate) fn plan_add(
         document.set_property(&path, "DataSource", json!("menuentity"));
     }
     if widget.type_id == "flexcontainer"
-        && request
-            .properties
-            .iter()
-            .any(|(key, _)| key.starts_with("flex-") || matches!(key.as_str(), "Width" | "Height"))
+        && request.properties.iter().any(|(key, _)| sizes_layout(key))
     {
         let path = document
             .find_exact(&placed.id)
@@ -521,7 +567,8 @@ pub(crate) fn plan_add(
     if let Some(row) = &placed.below_row {
         let found = document.find_exact(row).map_err(AuthoringError::Edit)?;
         notes.push(format!(
-            "below row {} ({row}); use --in-column to stack within the panel",
+            "{} row {} ({row}); new content is a sibling row; fixed rows keep their height; use --in-column to stack within the panel",
+            if matches!(&request.placement, Some(Placement::Beside { side: mashup::edit::Side::Above, .. })) { "above" } else { "below" },
             found.display_name
         ));
     }
@@ -575,6 +622,25 @@ pub(crate) fn plan_add(
     })
 }
 
+/// A column this narrow cannot show a long date: its pickers default to a short format.
+const NARROW_COLUMN: u32 = 320;
+
+/// Whether a property fixes a container's size, which twaco then leaves as it was set. The
+/// direction and wrapping only say how its content runs: a row added with them still takes its
+/// content's height.
+fn sizes_layout(key: &str) -> bool {
+    (key.starts_with("flex-") && !matches!(key, "flex-direction" | "flex-wrap"))
+        || matches!(key, "Width" | "Height")
+}
+
+pub(super) fn contained_page_warning(child: &str, document: &MashupDocument) -> Option<String> {
+    let page = document.widgets().iter().any(|widget| {
+        widget.display_name == "page"
+            && document.at(&widget.path)["twacoTemplateName"] != "tab-content"
+    });
+    page.then(|| format!("{child}: page template fills its own page and may scroll inside this tab; use --template tab-content for a responsive content mashup with one growing layout and no title or gutter, as in the kit, and check nested scrolling at runtime"))
+}
+
 /// Plan adding a child mashup as Composer's contained-mashup builder does.  The child is read
 /// from the repository, never from a server, so the cache is deterministic and reviewable.
 pub(crate) fn plan_add_contained(
@@ -617,9 +683,40 @@ pub(crate) fn plan_add_contained(
         .map_err(AuthoringError::Edit)?
         .path;
     document.set_property(&path, "Name", json!(request.child));
+    let tab_parent = (1..path.len()).find_map(|depth| {
+        let parent = &path[..depth];
+        (document.at(&parent[..parent.len() - 1])["Properties"]["Type"] == "ptcstabset")
+            .then(|| parent.to_vec())
+    });
+    let mut notes = Vec::new();
+    if let Some(tab) = &tab_parent {
+        for (key, value) in [
+            ("flex-direction", json!("row")),
+            ("flex-grow", json!(1)),
+            ("flex-shrink", json!(1)),
+            ("flex-basis", json!("auto")),
+            ("flex-size", json!("default")),
+            ("flex-min-height", json!("")),
+            ("flex-max-height", json!("")),
+            ("ExpandCollapseTabLocation", json!("inside")),
+        ] {
+            document.set_property(tab, key, value);
+        }
+        for (key, value) in [
+            ("ResponsiveLayout", json!(true)),
+            ("Width", json!(400)),
+            ("Height", json!(300)),
+        ] {
+            document.set_property(&path, key, value);
+        }
+        notes.extend(contained_page_warning(&request.child, &child_document));
+    }
     // Placement floored the row at Composer's 300px drop height; the child's own rows say how
     // tall it really is, so a KPI tile is neither clipped nor padded out when the page is short.
-    if let Some(height) = child_document.natural_page_height() {
+    if let Some(height) = child_document
+        .natural_page_height()
+        .filter(|_| tab_parent.is_none())
+    {
         document.floor_contained_row(&placed.id, height, &placed.containers);
     }
     document.set_property(
@@ -676,6 +773,7 @@ pub(crate) fn plan_add_contained(
         settings.push(name.clone());
     }
     Ok(AddContainedPlan {
+        notes,
         edit: finish_edit(loaded, document, "mashup add-contained")?,
         placed,
         child: request.child.clone(),
@@ -847,6 +945,7 @@ pub fn add_plan_json(solution: &Solution, plan: &AddPlan, applied: bool) -> Valu
         "applied": applied,
         "mashup": plan.edit.mashup,
         "notes": plan.notes,
+        "next_steps": [format!("{}see the result: twaco mashup describe {}", if applied { "" } else { "after --apply, " }, plan.edit.mashup)],
         "widget": plan.widget,
         "id": plan.placed.id,
         "containers": plan.placed.containers,
@@ -869,7 +968,7 @@ pub fn add_contained_plan_json(
         files.push(relative(&sidecars.content_path));
     }
     json!({
-        "notes": [], "applied": applied, "mashup": plan.edit.mashup, "child": plan.child,
+        "notes": plan.notes, "applied": applied, "mashup": plan.edit.mashup, "child": plan.child,
         "widget": "mashupcontainer", "id": plan.placed.id,
         "containers": plan.placed.containers, "flipped": plan.placed.flipped,
         "wrapped": plan.placed.wrapped, "parameters": plan.parameters.iter().map(|parameter| json!({

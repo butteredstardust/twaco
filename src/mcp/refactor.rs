@@ -112,6 +112,16 @@ pub(crate) fn entity_new_tool(
     solution: &Solution,
     arguments: EntityNewRequest,
 ) -> Result<Value, ToolError> {
+    let kind: crate::core::entity::new::Kind = arguments.kind.into();
+    let supplied = serde_json::to_value(&arguments).expect("entity_new request serializes");
+    for option in supplied.as_object().expect("request object").keys() {
+        if !kind.accepts_option(option) {
+            return Err(ToolError::invalid(format!(
+                "unexpected argument '--{}' found",
+                option.replace('_', "-")
+            )));
+        }
+    }
     let request = crate::core::entity::new::NewRequest {
         kind: arguments.kind.into(),
         name: nonempty(&arguments.name, "name")?.to_string(),
@@ -131,14 +141,16 @@ pub(crate) fn entity_new_tool(
         handler: arguments.handler.as_ref().cloned(),
         handler_id: arguments.handler_id.as_ref().cloned(),
         sets: arguments.set.items().to_vec(),
-        directory_type: arguments.state_type.as_ref().cloned(),
+        directory_type: (kind == crate::core::entity::new::Kind::DirectoryService)
+            .then(|| arguments.state_type.as_ref().cloned())
+            .flatten(),
         server: arguments.host.as_ref().cloned(),
         port: arguments.port.as_ref().cloned(),
         priority: arguments.priority.as_ref().cloned(),
         every: arguments.every.as_ref().cloned(),
         cron: arguments.cron.as_ref().cloned(),
         run_as: arguments.run_as.as_ref().cloned(),
-        disabled: arguments.disabled,
+        disabled: arguments.disabled.as_ref().copied().unwrap_or(false),
         then: arguments.then.as_ref().cloned(),
         script: arguments.script.as_ref().map(Into::into),
         data_shape: arguments.data_shape.as_ref().cloned(),
@@ -150,9 +162,9 @@ pub(crate) fn entity_new_tool(
         line_color: arguments.line_color.as_ref().cloned(),
         line_style: arguments.line_style.as_ref().cloned(),
         line_thickness: arguments.line_thickness.as_ref().cloned(),
-        bold: arguments.bold,
-        italic: arguments.italic,
-        underline: arguments.underline,
+        bold: arguments.bold.as_ref().copied().unwrap_or(false),
+        italic: arguments.italic.as_ref().copied().unwrap_or(false),
+        underline: arguments.underline.as_ref().copied().unwrap_or(false),
         text_size: arguments.text_size.as_ref().cloned(),
         image: arguments
             .icon
@@ -160,10 +172,12 @@ pub(crate) fn entity_new_tool(
             .or_else(|| arguments.image.as_ref())
             .cloned(),
         display_string: arguments.display_string.as_ref().cloned(),
-        state_type: arguments.state_type.as_ref().cloned(),
+        state_type: (kind == crate::core::entity::new::Kind::State)
+            .then(|| arguments.state_type.as_ref().cloned())
+            .flatten(),
         states: arguments.state.items().to_vec(),
         items: arguments.item.items().to_vec(),
-        default: arguments.default,
+        default: arguments.default.as_ref().copied().unwrap_or(false),
         label: arguments.label.as_ref().cloned(),
         from: arguments.from.as_ref().cloned(),
         props: arguments.prop.items().to_vec(),
@@ -314,6 +328,22 @@ pub(crate) fn entity_edit_tool(
             name: need(&arguments.name, "name")?,
             force: arguments.force,
         },
+        EntityEditAction::ServiceSet => {
+            if !arguments.params.is_absent()
+                || !arguments.returns.is_absent()
+                || !arguments.description.is_absent()
+                || arguments.private
+                || arguments.force
+            {
+                return Err(ToolError::invalid(
+                    "service_set takes name and then only: the signature stays",
+                ));
+            }
+            Action::ServiceSet {
+                name: need(&arguments.name, "name")?,
+                code: need(&arguments.then, "then (the new script)")?,
+            }
+        }
         EntityEditAction::ServiceOverride => {
             // The signature is the ancestor's: as on the command line, these are refused.
             if !arguments.params.is_absent()
@@ -1007,6 +1037,9 @@ pub(crate) fn mashup_recipe_tool(
     use crate::core::mashup::authoring::{Recipe, RecipeArgs, RecipeRequest};
     let dry_run = arguments.dry_run;
     let recipe_args = RecipeArgs {
+        fit: arguments.fit.as_ref().cloned(),
+        stacked: arguments.stacked.as_ref().copied().unwrap_or(false),
+        band: arguments.band.as_ref().copied().unwrap_or(false),
         compact: arguments.compact.as_ref().copied(),
         button: arguments.button.as_ref().cloned(),
         search_param: arguments.search_param.as_ref().cloned(),
@@ -1402,7 +1435,15 @@ pub(crate) fn widgets_tool(arguments: WidgetsRequest) -> Result<Value, ToolError
             .map(|detail| serde_json::to_value(detail).expect("a widget serialises"))
             .map_err(ToolError::coded),
         (None, search) => {
-            Ok(json!({ "widgets": crate::core::widgets_view::list(search.map(String::as_str)) }))
+            let widgets = crate::core::widgets_view::list(search.map(String::as_str));
+            let mut result = json!({ "widgets": widgets });
+            if let (true, Some(note)) = (
+                widgets.is_empty(),
+                search.and_then(|text| crate::core::widgets_view::absent_note(text)),
+            ) {
+                result["note"] = json!(note);
+            }
+            Ok(result)
         }
     }
 }
@@ -1711,4 +1752,33 @@ pub(crate) fn mashup_gap_tool(
         crate::core::mashup::authoring::gap_plan_json(solution, &outcome.plan, outcome.applied);
     add_notices(&mut result, &notices);
     Ok(result)
+}
+
+#[cfg(test)]
+mod entity_new_argument_tests {
+    use super::*;
+
+    #[test]
+    fn irrelevant_arguments_are_refused_even_when_empty_or_false() {
+        let root = tempfile::tempdir().unwrap();
+        for extra in [
+            json!({"template":"Acme.Base"}),
+            json!({"field":[]}),
+            json!({"disabled":false}),
+        ] {
+            let mut value = json!({"kind":"project", "name":"Acme.App"});
+            value
+                .as_object_mut()
+                .unwrap()
+                .extend(extra.as_object().unwrap().clone());
+            let request = serde_json::from_value(value).unwrap();
+            let error = entity_new_tool(&Solution::bare(root.path()), request).unwrap_err();
+            assert!(
+                error.message.starts_with("unexpected argument '--"),
+                "{}",
+                error.message
+            );
+            assert!(!root.path().join("twaco.toml").exists());
+        }
+    }
 }

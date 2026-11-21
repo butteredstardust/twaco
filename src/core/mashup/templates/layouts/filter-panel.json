@@ -22,7 +22,7 @@
         {
           "slot": "filters",
           "flex-direction": "column",
-          "align-items": "center",
+          "align-items": "flex-start",
           "flex-size": "range",
           "flex-min-width": "240px",
           "flex-max-width": "240px",
@@ -30,9 +30,36 @@
           "Margin": "",
           "style": {
             "background": "inherit"
-          }
+          },
+          "flex-grow": 1
+        },
+        {
+          "divider": true,
+          "style": {
+            "background": "#E4E7E9"
+          },
+          "flex-min-width": "276px",
+          "flex-max-width": "276px"
+        },
+        {
+          "slot": "filter-footer",
+          "flex-direction": "row",
+          "align-items": "center",
+          "justify-content": "space-between",
+          "flex-grow": 0,
+          "flex-shrink": 0,
+          "Margin": "24",
+          "style": {
+            "background": "inherit"
+          },
+          "flex-size": "range",
+          "flex-min-width": "228px",
+          "flex-max-width": "228px"
         }
-      ]
+      ],
+      "EnableExpandCollapse": true,
+      "ShowExpandCollapseTab": true,
+      "ExpandCollapseTabLocation": "outside"
     },
     {
       "divider": true

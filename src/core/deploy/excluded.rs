@@ -9,7 +9,7 @@ use super::super::workspace::EntityFile;
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Structural references retain their collection; prose and service bodies are never edges.
-fn mentions(bytes: &[u8]) -> BTreeSet<String> {
+pub(crate) fn mentions(bytes: &[u8]) -> BTreeSet<String> {
     let Ok(tokens) = scan::tokenize(bytes) else {
         return BTreeSet::new();
     };

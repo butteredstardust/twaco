@@ -168,6 +168,7 @@ pub(crate) fn push_tool(
         entity: request.entity,
         mode: if dry_run { Mode::Plan } else { Mode::Apply },
         force,
+        skip_checks: request.skip_checks,
         backup: request.backup,
         profile: request.profile,
     };

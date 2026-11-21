@@ -599,6 +599,8 @@ mod status_tests {
 #[derive(Debug, clap::Args)]
 #[group(skip)]
 pub(crate) struct EntityPush {
+    #[arg(long = "skip-checks")]
+    pub(crate) skip_checks: bool,
     #[command(flatten)]
     pub(crate) json: Json,
     #[command(flatten)]
@@ -630,28 +632,40 @@ pub(crate) fn entity_push(solution: &Solution, args: &EntityPush) -> u8 {
             Mode::Plan
         },
         force: args.force,
+        skip_checks: args.skip_checks,
         backup: !args.no_backup,
         profile: args.profile.name().to_string(),
     };
     let mut notices = commands::Notices::default();
     let progress = super::progress::reporter();
-    let result = commands::push::execute_with_progress(
+    let mut gates = PushGates::default();
+    let mut reporter = |report: &twaco::core::check::CheckReport| gates.record(report);
+    let result = commands::push::execute_with_gate_reporter(
         solution,
         &request,
         server::Client::new,
         &mut notices,
         &progress,
+        if args.json.json {
+            None
+        } else {
+            Some(&mut reporter)
+        },
     );
     print_notices(&notices);
     if args.json.json {
-        let (value, code) = push_json(result, request.force);
+        let (mut value, code) = push_json(result, request.force);
+        value["notices"] = serde_json::json!(notices.lines());
         println!(
             "{}",
             serde_json::to_string_pretty(&value).expect("push result is JSON")
         );
         return code;
     }
-    match result {
+    for line in &gates.lines {
+        println!("{line}");
+    }
+    let code = match result {
         Ok(commands::push::PushOutcome::Plan {
             entity,
             decision,
@@ -681,10 +695,12 @@ pub(crate) fn entity_push(solution: &Solution, args: &EntityPush) -> u8 {
                 }
                 push::Decision::Refuse(refusal) => {
                     println!("{label}: {}: {refusal}", style::warn("would refuse"));
-                    if !request.force {
+                    if request.force {
+                        println!("  --force would push anyway");
+                    } else {
+                        gates.print_summary();
                         return DRIFT;
                     }
-                    println!("  --force would push anyway");
                 }
             }
             println!("dry run: nothing was sent; pass --apply to push");
@@ -722,7 +738,9 @@ pub(crate) fn entity_push(solution: &Solution, args: &EntityPush) -> u8 {
             }
         }
         Err(error) => {
-            if let commands::push::PushCommandError::Unreadable(unreadable) = &error {
+            if matches!(error, commands::push::PushCommandError::Gates(_)) {
+                // The final gate summary includes the refusal after every finding.
+            } else if let commands::push::PushCommandError::Unreadable(unreadable) = &error {
                 for problem in unreadable {
                     eprintln!("{} {problem}", style::prefix());
                 }
@@ -740,6 +758,49 @@ pub(crate) fn entity_push(solution: &Solution, args: &EntityPush) -> u8 {
                 eprintln!("{} {error}", style::prefix());
             }
             FAILED
+        }
+    };
+    gates.print_summary();
+    code
+}
+
+#[derive(Default)]
+struct PushGates {
+    count: usize,
+    blocked: bool,
+    lines: Vec<String>,
+}
+
+impl PushGates {
+    fn record(&mut self, report: &twaco::core::check::CheckReport) {
+        self.count += report.gates.len();
+        self.blocked |= report.blocks();
+        for gate in &report.gates {
+            for finding in &gate.findings {
+                self.lines.push(format!(
+                    "  {finding}{}",
+                    if gate.gates_the_run {
+                        ""
+                    } else {
+                        " (advisory)"
+                    }
+                ));
+            }
+            for warning in &gate.warnings {
+                self.lines.push(format!("  warning: {warning}"));
+            }
+            if let Some(why) = &gate.broken {
+                self.lines
+                    .push(format!("  {}: could not run: {why}", gate.name));
+            }
+        }
+    }
+
+    fn print_summary(&self) {
+        if self.blocked {
+            println!("gates block entity push; nothing was imported; fix the findings or pass --skip-checks");
+        } else if self.count > 0 {
+            println!("{} gate(s) passed", self.count);
         }
     }
 }

@@ -161,9 +161,35 @@ pub(crate) fn plan_set(
             .map(|text| parse_style(text))
             .collect::<Result<Vec<_>, _>>()?;
         if root {
-            return Err(AuthoringError::Refused(
-                "--style sets a widget's look; name the widget, not the mashup root".into(),
-            ));
+            let page = document
+                .widgets()
+                .into_iter()
+                .find(|widget| widget.type_id == "flexcontainer");
+            let instead = page.map_or_else(String::new, |page| {
+                format!(
+                    "; style the page container instead: twaco mashup set {} {} --style background=<colour> --apply",
+                    request.mashup, page.id
+                )
+            });
+            return Err(AuthoringError::Refused(format!(
+                "--style sets a widget's look and the mashup root has no style entry (page colour and fonts go on a container, or in a theme: --prop StyleTheme=<name>){instead}"
+            )));
+        }
+        // The runtime applies a container's own style inside its bounding box, so `flex: 0 0 74px`
+        // on a header made a 74px wide one; the container's flex properties are real properties.
+        if found.type_id == "flexcontainer" {
+            if let Some(setting) = settings.iter().find(|setting| {
+                setting.part == "$"
+                    && matches!(
+                        setting.property.as_str(),
+                        "flex" | "flex-grow" | "flex-shrink" | "flex-basis"
+                    )
+            }) {
+                return Err(AuthoringError::Refused(format!(
+                    "--style {} on a container resizes it inside its own box (a header became 74px wide); set it with --prop flex-grow=, flex-shrink=, flex-basis= or flex-min-height=/flex-max-height= instead",
+                    setting.property
+                )));
+            }
         }
         let styler = styler_name(&found.type_id).ok_or_else(|| {
             AuthoringError::Refused(format!(
@@ -203,6 +229,11 @@ pub(crate) fn plan_set(
             copy_style_entry(&mut document, &found.id, entry.clone(), None, &mut changed);
             changed.retain(|change| change.property != property);
         }
+        notes.extend(
+            crate::core::mashup::style_check::entry_notes(&found.id, &entry)
+                .into_iter()
+                .map(|(_, note)| note),
+        );
         let after = (!emptied).then_some(entry);
         if after != original_entry {
             changed.push(Change {

@@ -541,7 +541,7 @@ fn init_cmd(parsed: &Init) -> u8 {
     let target = here.join(twaco::core::config::CONFIG_FILE);
     if !write {
         print!("{}", proposal.toml);
-        eprintln!("{} nothing written; `twaco init --write` creates {}, and AGENTS.md and CLAUDE.md where absent", cli::style::prefix(), target.display());
+        eprintln!("{} nothing written; `twaco init --write` creates {}, and adds/refreshes marked guidance in AGENTS.md and CLAUDE.md", cli::style::prefix(), target.display());
         return OK;
     }
     // Created new, never renamed over: whatever is at the name, a file or a link, stays.
@@ -612,6 +612,7 @@ fn doctor_cmd(parsed: &Doctor) -> u8 {
     }
     for item in &items {
         let mark = match item.health {
+            twaco::core::doctor::Health::Info => "info",
             twaco::core::doctor::Health::Ok => "ok  ",
             twaco::core::doctor::Health::Warn => "warn",
             twaco::core::doctor::Health::Fail => "FAIL",

@@ -344,7 +344,9 @@ pub(crate) fn listing() -> String {
         out.push_str(line.trim_end());
         out.push('\n');
     }
-    out.push_str("twaco <command> --help shows one command; the full listing follows.\n\n");
+    out.push_str("twaco <family> --help lists every subcommand of a family\n\n");
+    out.push_str(twaco::core::guide::TASKS);
+    out.push_str("\nThe full listing follows.\n\n");
     for group in 0..GROUPS.len() {
         for command in USAGE.iter().filter(|c| c.group == group) {
             out.push_str(command.text);
@@ -408,9 +410,9 @@ pub(crate) const USAGE: &[Usage] = &[
         path: "init",
         group: 0,
         text: r#"  init [--write]              propose a twaco.toml from the repository's own entities; --write
-                              also writes AGENTS.md and CLAUDE.md where absent, and adds the
-                              lines twaco needs to .gitignore
-  init --agents               write only those, where absent
+                              also adds/refreshes marked guidance in AGENTS.md and CLAUDE.md,
+                              and adds the lines twaco needs to .gitignore
+  init --agents               add/refresh agent guidance and .gitignore; report each file
   init --from-server <project>... [--missing] [--profile <name>] [--apply] [--json]
                               start a repository in an empty folder, or add projects to this one,
                               from server projects; plans by default
@@ -423,6 +425,7 @@ pub(crate) const USAGE: &[Usage] = &[
         path: "doctor",
         group: 0,
         text: r#"  doctor [--profile <name>] [--json]  what resolved, what is reachable, what is missing
+      Checks optional TWACO_SDK and TWACO_STRUCTURE_XSD paths and schema generation.
       --json                  print the report as JSON"#,
     },
     Usage {
@@ -495,7 +498,7 @@ pub(crate) const USAGE: &[Usage] = &[
         group: 1,
         text: r#"  lint [--entity <name>] [--service <name>] [--rule <id>]... [--json]
                               report configurable script rules; advisory gates do not change severity
-      --entity <name>         Collection/Name glob
+      --entity <name>         Collection/Name glob, or an entity name alone
       --service <name>        service folder glob
       --rule <id>             rule id or group (format, traps, order, comments), repeatable
       --explain <id>          explain a rule id or group
@@ -508,9 +511,9 @@ pub(crate) const USAGE: &[Usage] = &[
         text: r#"  lint fix-headers [--entity <name>] [--service <name>] [--apply] [--json]
                               bring each service's JSDoc header to its definition.xml: @function,
                               @param in ordinal order, @returns; plans by default
-      --entity <name>         Collection/Name glob
+      --entity <name>         Collection/Name glob, or an entity name alone
       --service <name>        service folder glob
-      --apply                 write the repaired scripts
+      --apply                 write the repaired scripts, then sync their entities' XML
       --json                  print the plan or result as JSON"#,
     },
     Usage {
@@ -698,6 +701,7 @@ pub(crate) const USAGE: &[Usage] = &[
         path: "widgets",
         group: 1,
         text: r#"  widgets [<widget>] [--search <text>] [--json]
+                              --search html finds display-only HTML; collapsible finds its recipe
   widgets --icons [<filter>] [--json]
                               the embedded ThingWorx 10.2 widget catalogue: types, Composer labels,
                               aliases, containers and editable or bindable properties with defaults, events and services
@@ -763,7 +767,8 @@ pub(crate) const USAGE: &[Usage] = &[
       [--preset cards] [--menu <state-definition>]
       [--in <container> | --right-of <widget> | --left-of <widget> | --above <widget> | --below <widget>] [--apply] [--json]
                               add a collection that renders a cell mashup once per service-result row; plan unless --apply
-      --data <address>        an existing whole service result from mashup source add
+      --data <address>        an existing service result from mashup source add: data:<Entity>.<Service>, or
+                              data:<Entity>.<Service>[SelectedRows] for the rows selected in another widget
       --map <value>           map result fields to cell mashup parameters as row-field=cell-parameter,
                               separated by commas
       --uid <row-field>       the row field that identifies each cell
@@ -943,8 +948,13 @@ pub(crate) const USAGE: &[Usage] = &[
         group: 1,
         text: r#"  mashup recipe <recipe> <mashup> [<widget>] [<button>] [recipe flags] [--apply] [--json] [--detail]
                               write the wiring real mashups repeat, in one edit; plan unless --apply
-      panel <container> [--compact <768|960>] [--style <style>]
-                              grey growing column with managed CSS; --style grey (default) or white bordered card; optional compact viewport gutters
+      panel <container> [--compact <768|960>] [--fit <fill|content>] [--style <grey|card>]
+                              grey column with managed CSS; --style grey (default) or card (white bordered card); optional compact viewport gutters
+      --fit <fill|content>    fill (default) grows; content uses no grow and height auto
+      card <container> --title <caption> [--say <value>] [--status <text>] [--kind <info|ok|warning|error>]
+                              one bordered box in an empty column: caption, value and status chip; equal
+                              flex, so cards added to one row share its width; --say and --status take
+                              text or a data:/ui: address bound to the label
       slider-action <slider> <button>
                               align the button centre to the horizontal slider track (default 34px button)
       collapsible <container> [--toggle <button> | --add-toggle --in <container>]
@@ -968,20 +978,26 @@ pub(crate) const USAGE: &[Usage] = &[
                               run the call again every so often
       validate <widget>|--on <event> --if <condition> [--input name=<address>]... --then <handler>
           [--else-say <text>]   run the handler when the condition holds, else show the text
-      chart <chart> --data <data call> --x <field> [--value <field>] [--kind <chart type>]
-          [--title <text>] [--x-title <text>] [--y-title <text>]
+      chart <chart> --data <data call> --x <field> [--value <field>] [--kind <bar|column|linechart|areachart>]
+          [--title <text>] [--x-title <text>] [--y-title <text>] [--stacked]
+      --kind                  bar or column on a bar chart; linechart or areachart on a line chart; the card chip colour (info, ok, warning, error)
+      --stacked              bar chart series stacked with SeriesDisplay=auto
       --x-title <text>        explicit X-axis name; catalogue placeholders are cleared
       --y-title <text>        explicit Y-axis name; authored names are preserved
                               draw a service result: the category field (a pie: label and value)
-      columns <grid> --column field[:Title[:width[:format]]]... [--date-format <pattern>] [--data <data call>] [--editable-column <field>]...
-                              only these columns in order, with readable dates; --data or existing binding;
+      columns <grid> --column field[:Title[:width[:format]]]... [--date-format <pattern>] [--data <data call>] [--status <field=StateDefinition>] [--editable-column <field>]...
+                              only these columns in order, with readable dates and no header dividers; --data or existing binding;
                               --editable-column makes a listed column (and so the grid) editable
                               --column-editor <field=editor> chooses a typed cell editor (repeatable)
                               --date-format <pattern> formats DATETIME columns (default yyyy-MM-dd HH:mm:ss for new columns)
                               --preserve-whitespace <field> keeps newlines and spaces when shown (repeatable)
+      pagination <grid> --data <data call>
+                              add a centred pager; slice the service result into grid Data locally; default 10 rows, reset on new results/page size
+      toolbar <container> --band
+      --band                 grey #F7F7F7 toolbar band (fixed 48px); keeps existing date picker/buttons; no search wiring
       toolbar <container> --then <data call> --search-param <param>
           [--hint <text>] [--width <px>] [--run-on change|enter|both] [--button Label=<handler>]...
-                              fill an empty responsive container with a 48px search row; STRING input;
+                              fill an empty responsive container with a grey 48px search row; STRING input;
                               hint Search..., width 240; both events by default; change/both runs on
                               each keystroke; the clear button fires Changed once
       label-pairs <container> --data <data call> [--field <field>]... [--title <text>]
@@ -989,7 +1005,7 @@ pub(crate) const USAGE: &[Usage] = &[
           [--status <field> --status-state <name>]
       --row <first|selected>            first or selected; default selected with a selecting widget on this call, first otherwise
       --layout <inline|stacked>         inline (default) or stacked caption/value pairs
-      --status <field>         result field driving a 12px circle per pair
+      --status <field>         label-pairs: field driving a 12px circle per pair; columns: field=StateDefinition for icon plus text; card: the chip text
       --status-state <name>   repository StateDefinition mapping the status field to colors
                               caption/value labels from an existing call's DataShape; field[:Caption]
                               picks/orders/renames; default all fields, a column each; first row unless
@@ -1011,7 +1027,8 @@ pub(crate) const USAGE: &[Usage] = &[
                               them), in a column fixed at --width (300 by default)
       navigate-on-click <collection|grid> --field <field> [--window replace|new|popup|modal-popup]
                               a click opens the mashup the selected row's field names; plan warns when
-                              the widget selects its first row on load"#,
+                              the widget selects its first row on load
+                              recipes warn with a mashup on command when a bound call has no trigger"#,
     },
     Usage {
         path: "mashup event",
@@ -1045,10 +1062,10 @@ pub(crate) const USAGE: &[Usage] = &[
       --menu-entity <Menu>    a Menu in the solution for a template's menu bar instead (no service)
       --secondary-menu        optional INFOTABLE service result for a template's menu bar
       --theme <StyleTheme>    a StyleTheme in the solution (default: PTC Convergence Theme)
-      --master                a master mashup, with a page container filling the center
+      --master                create a master mashup (a page container fills the center)
       --visibility            Organization/<name> or OrganizationalUnit/<organization>:<unit>, repeatable;
                               none unless given
-      --tab                   with --template tabs: a tab's label and the mashup it shows, repeatable
+      --tab                   with --template tabs: a tab's label and the mashup it shows, repeatable; use tab-content for the child (no title/gutter)
       --replace <old=new>     replace whole tokens in copied content string values; repeatable, needs --from"#,
     },
     Usage {
@@ -1068,10 +1085,10 @@ pub(crate) const USAGE: &[Usage] = &[
       --menu-entity <Menu>    a Menu in the solution for a template's menu bar instead (no service)
       --secondary-menu        optional INFOTABLE service result for a template's menu bar
       --theme <StyleTheme>    a StyleTheme in the solution (default: PTC Convergence Theme)
-      --master                a master mashup, with a page container filling the center
+      --master                create a master mashup (a page container fills the center)
       --visibility            Organization/<name> or OrganizationalUnit/<organization>:<unit>, repeatable;
                               none unless given
-      --tab                   with --template tabs: a tab's label and the mashup it shows, repeatable
+      --tab                   with --template tabs: a tab's label and the mashup it shows, repeatable; use tab-content for the child (no title/gutter)
       --replace <old=new>     replace whole tokens in copied content string values; repeatable, needs --from"#,
     },
     Usage {
@@ -1185,10 +1202,12 @@ pub(crate) const USAGE: &[Usage] = &[
       [--returns <TYPE>[:<DataShape>]] [--description <text>] [--category <text>] [--private]
       [--then <code> | --script <file.js>] [--apply] [--json]
   thing service remove <Entity> <Name> [--force] [--apply] [--json]
+  thing service set <Entity> <Name> (--script <file.js> | --then <code>) [--apply] [--json]
   thing service override <Entity> <Name> [--script <file.js> | --from-parent] [--apply] [--json]
   thing service override --revert <Entity> <Name> [--apply] [--json]
-                              add or remove an own script service, or override an inherited one
-                              with a script-only sidecar; plan unless --apply
+                              add or remove an own script service, replace its body (set keeps
+                              the signature and callers), or override an inherited one with a
+                              script-only sidecar; plan unless --apply
       --param                 a parameter in declaration order
       --returns               result type, NOTHING by default
       --private               make the service private
@@ -1581,8 +1600,9 @@ pub(crate) const USAGE: &[Usage] = &[
         path: "entity push",
         group: 2,
         text: r#"  entity push <entity> [--apply] [--json]
-                              import one entity, refusing if the server changed
+                              check and import one entity, refusing if gates fail or the server changed
       --apply                 actually push (without it, report what would happen)
+      --skip-checks           skip per-entity deploy gates and live script parse; report skipped gates
       --force                 push over a server-side change; the server's copy is saved first
       --no-backup             with --force, do not save the server's copy first"#,
     },
@@ -1979,8 +1999,9 @@ pub(crate) const USAGE: &[Usage] = &[
     Usage {
         path: "guide",
         group: 6,
-        text: r#"  guide                       the knowledge topics: twaco's workflow, the platform's verified quirks,
+        text: r#"  guide                       the knowledge topics: tasks, twaco's workflow, the platform's verified quirks,
                               the service-code reference, and the solution's own markdown
+  guide tasks                 the task-to-command index for creating, changing and reading
   guide <topic> [--section <heading>]  read one (a long one gives its outline)
   guide --search <words>      the sections that best match; extra operands extend the search
                               common English stopwords are ignored unless they are the whole query

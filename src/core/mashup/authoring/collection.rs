@@ -246,15 +246,15 @@ pub(crate) fn plan_collection_add(
     let mut document = parse_loaded(&parent)?;
     let address =
         parse_address(&request.data).map_err(|error| AuthoringError::Invalid(error.to_string()))?;
+    // A call's selected rows are a table too: they bind to Data like the whole result.
     let Address::Data {
-        selected_rows: false,
         entity_name: false,
         member: None,
         ..
     } = address
     else {
         return Err(AuthoringError::Invalid(
-            "--data names a whole service result".into(),
+            "--data names a service result (data:<Entity>.<Service>) or its selected rows (data:<Entity>.<Service>[SelectedRows]), not a field or EntityName".into(),
         ));
     };
     let (model, _) = types::load_model(solution);
@@ -407,11 +407,12 @@ pub(crate) fn plan_collection_add(
                 && event["EventHandlerId"] == section
                 && event["EventHandlerService"] == call
         });
+    let call_address = request.data.replace("[SelectedRows]", "");
     let mut notes: Vec<String> = (!has_event)
         .then(|| {
             format!(
                 "nothing runs {call}; add `twaco mashup on {} --event mashup:Loaded --invoke {}`",
-                request.mashup, request.data
+                request.mashup, call_address
             )
         })
         .into_iter()
