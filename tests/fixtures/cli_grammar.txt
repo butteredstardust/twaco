@@ -255,6 +255,9 @@ help:
 |                               each service it calls with what sets each parameter (or that nothing does),
 |                               each binding and each event, in the addresses mashup bind and on take
 |       --detail                show non-default widget properties and widget bindings
+|   mashup build <mashup> [--apply] [--json]
+|                               compile src/<Mashup>/page.yaml and merge with the generated baseline;
+|                               keep independent hand edits; conflicts write nothing; plans by default
 |   mashup why <mashup> <widget> [--json]
 |                               what the layout rules decide for one widget (size, gutter, alignment, surface,
 |                               equal siblings), the rule that decided each, what the mashup holds now, and the
@@ -496,12 +499,14 @@ help:
 |       --when <address>        the event in this mashup that fires it, as mashup on --event takes it
 |   mashup templates [<name>] [--json]
 |                               list the embedded responsive mashup templates and their slots
-|   mashup new <name> [--project <name>] [--from <address> | --template <name> | --gadget [--layout <layout>]]
+|   mashup new <name> [--project <name>] [--spec <file> | --from <address> | --template <name> | --gadget [--layout <layout>]]
 |       [--primary-menu <address> | --menu-entity <Menu>] [--secondary-menu <address>] [--theme <StyleTheme>] [--master]
 |       [--visibility <principal>]... [--param <name:TYPE[:DIRECTION]|name:INFOTABLE:DataShape[:DIRECTION]>]... [--tab <Label=Mashup>]...
 |       [--apply] [--json]
 |                               create a ThingWorx 10.2 responsive mashup as Composer would: its entity file
 |                               and its content sidecars; plan unless --apply
+|       --spec <file>          compile a page spec, copy it to src/<Mashup>/page.yaml and record a generated baseline;
+|                               accepts only --project, --apply and --json
 |       --from <address>        copy a repository mashup exactly, except identity and permissions
 |       --template              layout template name or alias (default: blank); form-2col has full-width fields and left/right columns; see mashup templates
 |       --gadget                fixed dashboard gadget; default 1x1, 240px per cell
@@ -515,12 +520,14 @@ help:
 |                               none unless given
 |       --tab                   with --template tabs: a tab's label and the mashup it shows, repeatable; use tab-content for the child (no title/gutter)
 |       --replace <old=new>     replace whole tokens in copied content string values; repeatable, needs --from
-|   new mashup <name> [--project <name>] [--from <address> | --template <name> | --gadget [--layout <layout>]]
+|   new mashup <name> [--project <name>] [--spec <file> | --from <address> | --template <name> | --gadget [--layout <layout>]]
 |       [--primary-menu <address> | --menu-entity <Menu>] [--secondary-menu <address>] [--theme <StyleTheme>] [--master]
 |       [--visibility <principal>]... [--param <name:TYPE[:DIRECTION]|name:INFOTABLE:DataShape[:DIRECTION]>]... [--tab <Label=Mashup>]...
 |       [--apply] [--json]
 |                               create a ThingWorx 10.2 responsive mashup as Composer would: its entity file
 |                               and its content sidecars; plan unless --apply
+|       --spec <file>          compile a page spec, copy it to src/<Mashup>/page.yaml and record a generated baseline;
+|                               accepts only --project, --apply and --json
 |       --from <address>        copy a repository mashup exactly, except identity and permissions
 |       --template              layout template name or alias (default: blank); form-2col has full-width fields and left/right columns; see mashup templates
 |       --gadget                fixed dashboard gadget; default 1x1, 240px per cell
@@ -7919,7 +7926,7 @@ help:
 == twaco mashup
 usage: twaco mashup <command>
 settings: disable-version-flag disable-help-subcommand subcommand-required arg-required-else-help
-subcommands: add add-contained bind collection describe diff event gap move new off on param recipe remove set source state-format templates unbind validate why
+subcommands: add add-contained bind build collection describe diff event gap move new off on param recipe remove set source state-format templates unbind validate why
 arg --help
     action: Help
     value_name: -
@@ -7967,6 +7974,9 @@ help:
 |                               each service it calls with what sets each parameter (or that nothing does),
 |                               each binding and each event, in the addresses mashup bind and on take
 |       --detail                show non-default widget properties and widget bindings
+|   mashup build <mashup> [--apply] [--json]
+|                               compile src/<Mashup>/page.yaml and merge with the generated baseline;
+|                               keep independent hand edits; conflicts write nothing; plans by default
 |   mashup why <mashup> <widget> [--json]
 |                               what the layout rules decide for one widget (size, gutter, alignment, surface,
 |                               equal siblings), the rule that decided each, what the mashup holds now, and the
@@ -8208,12 +8218,14 @@ help:
 |       --when <address>        the event in this mashup that fires it, as mashup on --event takes it
 |   mashup templates [<name>] [--json]
 |                               list the embedded responsive mashup templates and their slots
-|   mashup new <name> [--project <name>] [--from <address> | --template <name> | --gadget [--layout <layout>]]
+|   mashup new <name> [--project <name>] [--spec <file> | --from <address> | --template <name> | --gadget [--layout <layout>]]
 |       [--primary-menu <address> | --menu-entity <Menu>] [--secondary-menu <address>] [--theme <StyleTheme>] [--master]
 |       [--visibility <principal>]... [--param <name:TYPE[:DIRECTION]|name:INFOTABLE:DataShape[:DIRECTION]>]... [--tab <Label=Mashup>]...
 |       [--apply] [--json]
 |                               create a ThingWorx 10.2 responsive mashup as Composer would: its entity file
 |                               and its content sidecars; plan unless --apply
+|       --spec <file>          compile a page spec, copy it to src/<Mashup>/page.yaml and record a generated baseline;
+|                               accepts only --project, --apply and --json
 |       --from <address>        copy a repository mashup exactly, except identity and permissions
 |       --template              layout template name or alias (default: blank); form-2col has full-width fields and left/right columns; see mashup templates
 |       --gadget                fixed dashboard gadget; default 1x1, 240px per cell
@@ -8714,6 +8726,84 @@ help:
 |       --to <address>          target address from mashup describe
 |                               selected row example: data:Acme.Manager.Load[SelectedRows].name
 |                               hints when a selected-row field has no selecting widget
+| 
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
+== twaco mashup build
+usage: twaco mashup build <mashup> [--apply] [--json]
+settings: disable-version-flag disable-help-subcommand
+subcommands: 
+arg --apply
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+arg --json
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg <operands>
+    action: Append
+    value_name: operand
+    num_args: 0..
+    allow_hyphen_values: no
+    allow_negative_numbers: yes
+    required: no
+    default: -
+    index: 1
+    other: -
+help:
+|   mashup build <mashup> [--apply] [--json]
+|                               compile src/<Mashup>/page.yaml and merge with the generated baseline;
+|                               keep independent hand edits; conflicts write nothing; plans by default
 | 
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
@@ -9536,7 +9626,7 @@ help:
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
 
 == twaco mashup new
-usage: twaco mashup new <name> [--project <name>] [--from <address> | --template <name> | --gadget [--layout <layout>]]
+usage: twaco mashup new <name> [--project <name>] [--spec <file> | --from <address> | --template <name> | --gadget [--layout <layout>]]
 settings: disable-version-flag disable-help-subcommand
 subcommands: 
 arg --apply
@@ -9713,6 +9803,18 @@ arg --secondary-menu
     other: -
     given twice: ArgumentConflict
     given bare: InvalidValue
+arg --spec
+    action: Set
+    value_name: file
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 arg --tab
     action: Append
     value_name: Label=Mashup
@@ -9772,12 +9874,14 @@ arg <operands>
     index: 1
     other: -
 help:
-|   mashup new <name> [--project <name>] [--from <address> | --template <name> | --gadget [--layout <layout>]]
+|   mashup new <name> [--project <name>] [--spec <file> | --from <address> | --template <name> | --gadget [--layout <layout>]]
 |       [--primary-menu <address> | --menu-entity <Menu>] [--secondary-menu <address>] [--theme <StyleTheme>] [--master]
 |       [--visibility <principal>]... [--param <name:TYPE[:DIRECTION]|name:INFOTABLE:DataShape[:DIRECTION]>]... [--tab <Label=Mashup>]...
 |       [--apply] [--json]
 |                               create a ThingWorx 10.2 responsive mashup as Composer would: its entity file
 |                               and its content sidecars; plan unless --apply
+|       --spec <file>          compile a page spec, copy it to src/<Mashup>/page.yaml and record a generated baseline;
+|                               accepts only --project, --apply and --json
 |       --from <address>        copy a repository mashup exactly, except identity and permissions
 |       --template              layout template name or alias (default: blank); form-2col has full-width fields and left/right columns; see mashup templates
 |       --gadget                fixed dashboard gadget; default 1x1, 240px per cell
@@ -14460,12 +14564,14 @@ arg --log-file
 help:
 | usage: twaco new <command>
 | 
-|   new mashup <name> [--project <name>] [--from <address> | --template <name> | --gadget [--layout <layout>]]
+|   new mashup <name> [--project <name>] [--spec <file> | --from <address> | --template <name> | --gadget [--layout <layout>]]
 |       [--primary-menu <address> | --menu-entity <Menu>] [--secondary-menu <address>] [--theme <StyleTheme>] [--master]
 |       [--visibility <principal>]... [--param <name:TYPE[:DIRECTION]|name:INFOTABLE:DataShape[:DIRECTION]>]... [--tab <Label=Mashup>]...
 |       [--apply] [--json]
 |                               create a ThingWorx 10.2 responsive mashup as Composer would: its entity file
 |                               and its content sidecars; plan unless --apply
+|       --spec <file>          compile a page spec, copy it to src/<Mashup>/page.yaml and record a generated baseline;
+|                               accepts only --project, --apply and --json
 |       --from <address>        copy a repository mashup exactly, except identity and permissions
 |       --template              layout template name or alias (default: blank); form-2col has full-width fields and left/right columns; see mashup templates
 |       --gadget                fixed dashboard gadget; default 1x1, 240px per cell
@@ -15502,7 +15608,7 @@ help:
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
 
 == twaco new mashup
-usage: twaco new mashup <name> [--project <name>] [--from <address> | --template <name> | --gadget [--layout <layout>]]
+usage: twaco new mashup <name> [--project <name>] [--spec <file> | --from <address> | --template <name> | --gadget [--layout <layout>]]
 settings: disable-version-flag disable-help-subcommand
 subcommands: 
 arg --apply
@@ -15679,6 +15785,18 @@ arg --secondary-menu
     other: -
     given twice: ArgumentConflict
     given bare: InvalidValue
+arg --spec
+    action: Set
+    value_name: file
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 arg --tab
     action: Append
     value_name: Label=Mashup
@@ -15738,12 +15856,14 @@ arg <operands>
     index: 1
     other: -
 help:
-|   new mashup <name> [--project <name>] [--from <address> | --template <name> | --gadget [--layout <layout>]]
+|   new mashup <name> [--project <name>] [--spec <file> | --from <address> | --template <name> | --gadget [--layout <layout>]]
 |       [--primary-menu <address> | --menu-entity <Menu>] [--secondary-menu <address>] [--theme <StyleTheme>] [--master]
 |       [--visibility <principal>]... [--param <name:TYPE[:DIRECTION]|name:INFOTABLE:DataShape[:DIRECTION]>]... [--tab <Label=Mashup>]...
 |       [--apply] [--json]
 |                               create a ThingWorx 10.2 responsive mashup as Composer would: its entity file
 |                               and its content sidecars; plan unless --apply
+|       --spec <file>          compile a page spec, copy it to src/<Mashup>/page.yaml and record a generated baseline;
+|                               accepts only --project, --apply and --json
 |       --from <address>        copy a repository mashup exactly, except identity and permissions
 |       --template              layout template name or alias (default: blank); form-2col has full-width fields and left/right columns; see mashup templates
 |       --gadget                fixed dashboard gadget; default 1x1, 240px per cell

@@ -726,6 +726,13 @@ pub(crate) const USAGE: &[Usage] = &[
       --detail                show non-default widget properties and widget bindings"#,
     },
     Usage {
+        path: "mashup build",
+        group: 1,
+        text: r#"  mashup build <mashup> [--apply] [--json]
+                              compile src/<Mashup>/page.yaml and merge with the generated baseline;
+                              keep independent hand edits; conflicts write nothing; plans by default"#,
+    },
+    Usage {
         path: "mashup why",
         group: 1,
         text: r#"  mashup why <mashup> <widget> [--json]
@@ -1057,12 +1064,14 @@ pub(crate) const USAGE: &[Usage] = &[
     Usage {
         path: "mashup new",
         group: 1,
-        text: r#"  mashup new <name> [--project <name>] [--from <address> | --template <name> | --gadget [--layout <layout>]]
+        text: r#"  mashup new <name> [--project <name>] [--spec <file> | --from <address> | --template <name> | --gadget [--layout <layout>]]
       [--primary-menu <address> | --menu-entity <Menu>] [--secondary-menu <address>] [--theme <StyleTheme>] [--master]
       [--visibility <principal>]... [--param <name:TYPE[:DIRECTION]|name:INFOTABLE:DataShape[:DIRECTION]>]... [--tab <Label=Mashup>]...
       [--apply] [--json]
                               create a ThingWorx 10.2 responsive mashup as Composer would: its entity file
                               and its content sidecars; plan unless --apply
+      --spec <file>          compile a page spec, copy it to src/<Mashup>/page.yaml and record a generated baseline;
+                              accepts only --project, --apply and --json
       --from <address>        copy a repository mashup exactly, except identity and permissions
       --template              layout template name or alias (default: blank); form-2col has full-width fields and left/right columns; see mashup templates
       --gadget                fixed dashboard gadget; default 1x1, 240px per cell
@@ -1080,12 +1089,14 @@ pub(crate) const USAGE: &[Usage] = &[
     Usage {
         path: "new mashup",
         group: 1,
-        text: r#"  new mashup <name> [--project <name>] [--from <address> | --template <name> | --gadget [--layout <layout>]]
+        text: r#"  new mashup <name> [--project <name>] [--spec <file> | --from <address> | --template <name> | --gadget [--layout <layout>]]
       [--primary-menu <address> | --menu-entity <Menu>] [--secondary-menu <address>] [--theme <StyleTheme>] [--master]
       [--visibility <principal>]... [--param <name:TYPE[:DIRECTION]|name:INFOTABLE:DataShape[:DIRECTION]>]... [--tab <Label=Mashup>]...
       [--apply] [--json]
                               create a ThingWorx 10.2 responsive mashup as Composer would: its entity file
                               and its content sidecars; plan unless --apply
+      --spec <file>          compile a page spec, copy it to src/<Mashup>/page.yaml and record a generated baseline;
+                              accepts only --project, --apply and --json
       --from <address>        copy a repository mashup exactly, except identity and permissions
       --template              layout template name or alias (default: blank); form-2col has full-width fields and left/right columns; see mashup templates
       --gadget                fixed dashboard gadget; default 1x1, 240px per cell

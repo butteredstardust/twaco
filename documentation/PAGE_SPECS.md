@@ -1,9 +1,10 @@
-# Page specs (internal compiler)
+# Page specs
 
-Batch 3 exposes `core::mashup::page::compile::compile(solution, project, yaml)` inside the
-crate. It returns entity XML bytes, content.json text, custom.css text and the authored-node
-ID map without writing files. There is no build command yet; baseline merging and application
-belong to batch 4.
+Create a mashup with `twaco mashup new Acme.Alerts_MU --spec alerts.page.yaml --apply`.
+This copies the spec to `src/Acme.Alerts_MU/page.yaml`. Edit that file and run
+`twaco mashup build Acme.Alerts_MU` to review the plan, then repeat with `--apply` to write it.
+Both commands accept `--json`. MCP uses `mashup_new` with `spec` and `mashup_build` with
+`mashup`; `dry_run` defaults to true. These operations are entirely offline.
 
 ```yaml
 version: 1
@@ -65,4 +66,38 @@ identical artifacts. Mapping declaration order does not affect output; node arra
 The compiler calls the same in-memory new/add/set/source/bind/on/recipe operations as command
 planners. XML is filled through `mashup::sync` scanner spans and splices. The compiler neither
 serializes entity XML nor invokes the CLI. Future elements extend the node enum and reuse this
-session; this batch does not add components, baseline ownership or application.
+session; components and the remaining intent-level elements are separate work.
+
+
+## Baseline and hand edits
+
+Commit `src/<Mashup>/.page-baseline.json` beside `page.yaml`. Format 1 records compiler
+`page-v1`, rule version `v1`, the node-to-widget ID map, generated ownership paths, generated
+content and CSS, and managed XML identity values (`name`, `projectName`). XML outside the
+mashup payload and identity remains unmanaged. The baseline always records the last generated
+artifacts, never the merged result. Unsupported baseline versions are refused.
+
+For baseline B, current C and generated G, build keeps C when G equals B, applies G when C
+equals B, and accepts identical changes. Other changes conflict. Widgets merge by ID even when
+moved; properties and style maps merge by key; sources, service calls, bindings and events merge
+by their IDs or names. Child order is compared independently of value edits. Competing order
+changes and deletion versus edit conflict. Unkeyed compound values, including ambiguous arrays
+and custom CSS text, are compared conservatively as complete values. A CSS hand edit survives
+when generation leaves the CSS unchanged.
+
+Extra current widgets and properties stay unmanaged. Unchanged JSON values retain their original
+spelling; XML changes use scanner spans and splices. A no-op build writes nothing. Reports show
+created, changed and unchanged nodes, retained hand edits, and conflicts with a widget/property
+path and a spec line. Resolve a conflict by reconciling the spec and hand edit, then plan again;
+there is no force option. Conflicts write no artifacts or baseline.
+
+An existing mashup without a baseline can adopt a spec only when all generated values already
+match current values (extra unmanaged widgets/properties are allowed). Otherwise reconcile the
+spec and mashup first. If XML and sidecars disagree, explicitly run `twaco sync` to keep the
+sidecars or `twaco extract` to keep XML before building.
+
+Apply takes the workspace lock, reloads and validates, and uses one journaled transaction for
+XML, content.json, custom.css and the baseline (plus the copied spec for new mashups). Inputs
+are rechecked before any installation, including unchanged files; stale plans are refused.
+Transaction failures roll back, and the existing workspace-lock recovery handles interrupted
+transactions. Build changes local files only; deploy remains a separate command.

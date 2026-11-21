@@ -1377,21 +1377,27 @@ struct MashupValidateProblem {
 
 #[derive(Serialize, JsonSchema)]
 pub(crate) struct MashupNewResult {
-    notes: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    nodes: Option<Vec<Value>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hand_edits_kept: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    conflicts: Option<Vec<Value>>,
+    notes: Option<Vec<String>>,
     replacements: Option<Vec<String>>,
     applied: bool,
     dry_run: bool,
     mashup: String,
     project: String,
     template: String,
-    layout: String,
+    layout: Option<String>,
     slots: Vec<String>,
-    master: bool,
+    master: Option<bool>,
     theme: Option<String>,
-    visibility: Vec<String>,
+    visibility: Option<Vec<String>>,
     files: Vec<String>,
-    widgets: Vec<Value>,
-    menus: Vec<Value>,
+    widgets: Option<Vec<Value>>,
+    menus: Option<Vec<Value>>,
     notices: Notices,
 }
 
@@ -1740,4 +1746,15 @@ pub(crate) struct MashupGapResult {
 #[derive(Serialize, JsonSchema)]
 pub(crate) struct UrlResult {
     url: String,
+}
+
+#[derive(Serialize, JsonSchema)]
+pub(crate) struct MashupBuildResult {
+    mashup: String,
+    applied: bool,
+    dry_run: bool,
+    nodes: Vec<Value>,
+    hand_edits_kept: Vec<String>,
+    conflicts: Vec<Value>,
+    files: Vec<String>,
 }

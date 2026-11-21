@@ -355,3 +355,381 @@ fn dotted_service_names_use_the_shared_authoring_resolver() {
         "Get.Alerts"
     );
 }
+
+fn create_page(solution: &Solution) {
+    let spec = solution.root.join("Acme.page.yaml");
+    std::fs::write(&spec, SPEC).unwrap();
+    let mut plan =
+        super::build::plan(solution, "Acme.Alerts_MU", Some("Acme"), Some(&spec)).unwrap();
+    assert!(!plan.conflicts(), "{}", plan.report);
+    let guard = lock::acquire(&solution.root, "page test", &[]).unwrap();
+    plan.apply(solution, &guard).unwrap();
+}
+
+fn page_files(solution: &Solution) -> Vec<std::path::PathBuf> {
+    vec![
+        solution.root.join("acme/Mashups/Acme.Alerts_MU.xml"),
+        solution
+            .src_root()
+            .join("Acme.Alerts_MU/mashup/content.json"),
+        solution.src_root().join("Acme.Alerts_MU/mashup/custom.css"),
+        solution
+            .src_root()
+            .join("Acme.Alerts_MU/.page-baseline.json"),
+        solution.src_root().join("Acme.Alerts_MU/page.yaml"),
+    ]
+}
+
+fn hand_edit(solution: &Solution) {
+    let files = page_files(solution);
+    let content = std::fs::read_to_string(&files[1])
+        .unwrap()
+        .replace("Refresh", "Hand edited");
+    let assets = mashup::Assets {
+        content: content.clone(),
+        css: std::fs::read_to_string(&files[2]).unwrap(),
+    };
+    let entity = mashup::sync(&std::fs::read(&files[0]).unwrap(), &assets)
+        .unwrap()
+        .0;
+    std::fs::write(&files[0], entity).unwrap();
+    std::fs::write(&files[1], content).unwrap();
+}
+
+#[test]
+fn build_new_spec_plans_then_creates_and_rebuild_is_byte_identical() {
+    let (_dir, solution) = solution();
+    let spec = solution.root.join("Acme.page.yaml");
+    std::fs::write(&spec, SPEC).unwrap();
+    let plan = super::build::plan(&solution, "Acme.Alerts_MU", None, Some(&spec)).unwrap();
+    assert!(!solution.src_root().exists());
+    assert_eq!(plan.report["nodes"][0]["status"], "created");
+    create_page(&solution);
+    let paths = page_files(&solution);
+    let before: Vec<_> = paths
+        .iter()
+        .map(std::fs::read)
+        .collect::<Result<_, _>>()
+        .unwrap();
+    let mut plan = super::build::plan(&solution, "Acme.Alerts_MU", None, None).unwrap();
+    assert!(!plan.conflicts(), "{}", plan.report);
+    assert_eq!(plan.report["files"], serde_json::json!([]));
+    let guard = lock::acquire(&solution.root, "page test", &[]).unwrap();
+    plan.apply(&solution, &guard).unwrap();
+    let after: Vec<_> = paths
+        .iter()
+        .map(std::fs::read)
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(before, after);
+    let baseline: Value = serde_json::from_slice(&after[3]).unwrap();
+    assert_eq!(baseline["format"], 1);
+    assert_eq!(
+        baseline["ids"]["refresh"],
+        compile(&solution, "Acme", SPEC).unwrap().ids["refresh"]
+    );
+}
+
+#[test]
+fn hand_edits_survive_independent_builds_and_never_enter_baseline() {
+    let (_dir, solution) = solution();
+    create_page(&solution);
+    hand_edit(&solution);
+    let files = page_files(&solution);
+    std::fs::write(
+        &files[4],
+        SPEC.replace("title: Alerts", "title: Alerts today"),
+    )
+    .unwrap();
+    let mut plan = super::build::plan(&solution, "Acme.Alerts_MU", None, None).unwrap();
+    assert!(!plan.conflicts(), "{}", plan.report);
+    assert!(!plan.report["hand_edits_kept"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+    let guard = lock::acquire(&solution.root, "page test", &[]).unwrap();
+    plan.apply(&solution, &guard).unwrap();
+    assert!(std::fs::read_to_string(&files[1])
+        .unwrap()
+        .contains("Hand edited"));
+    assert!(!std::fs::read_to_string(&files[3])
+        .unwrap()
+        .contains("Hand edited"));
+    drop(guard);
+    let again = super::build::plan(&solution, "Acme.Alerts_MU", None, None).unwrap();
+    assert!(!again.conflicts());
+    assert_eq!(again.report["files"], serde_json::json!([]));
+}
+
+#[test]
+fn conflicts_are_located_and_write_nothing() {
+    let (_dir, solution) = solution();
+    create_page(&solution);
+    hand_edit(&solution);
+    let paths = page_files(&solution);
+    std::fs::write(&paths[4], SPEC.replace("text: Refresh", "text: Generated")).unwrap();
+    let before: Vec<_> = paths
+        .iter()
+        .map(std::fs::read)
+        .collect::<Result<_, _>>()
+        .unwrap();
+    let mut plan = super::build::plan(&solution, "Acme.Alerts_MU", None, None).unwrap();
+    assert!(plan.conflicts(), "{}", plan.report);
+    assert!(plan.report["conflicts"][0]["path"]
+        .as_str()
+        .unwrap()
+        .contains("ptcsbutton-"));
+    assert_eq!(plan.report["conflicts"][0]["line"], 11);
+    let guard = lock::acquire(&solution.root, "page test", &[]).unwrap();
+    assert!(plan.apply(&solution, &guard).is_err());
+    let after: Vec<_> = paths
+        .iter()
+        .map(std::fs::read)
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(before, after);
+}
+
+#[test]
+fn first_adoption_is_safe_only_when_generated_values_already_match() {
+    let (_dir, solution) = solution();
+    create_page(&solution);
+    let paths = page_files(&solution);
+    std::fs::remove_file(&paths[3]).unwrap();
+    let mut plan = super::build::plan(&solution, "Acme.Alerts_MU", None, None).unwrap();
+    assert!(!plan.conflicts(), "{}", plan.report);
+    let guard = lock::acquire(&solution.root, "page test", &[]).unwrap();
+    plan.apply(&solution, &guard).unwrap();
+    drop(guard);
+    std::fs::remove_file(&paths[3]).unwrap();
+    hand_edit(&solution);
+    let plan = super::build::plan(&solution, "Acme.Alerts_MU", None, None).unwrap();
+    assert!(plan.conflicts());
+    assert!(!paths[3].exists());
+}
+
+#[test]
+fn stale_build_checks_every_input_even_on_a_noop() {
+    let (_dir, solution) = solution();
+    create_page(&solution);
+    let paths = page_files(&solution);
+    for path in paths
+        .iter()
+        .chain(std::iter::once(&solution.root.join("twaco.toml")))
+    {
+        let mut plan = super::build::plan(&solution, "Acme.Alerts_MU", None, None).unwrap();
+        let old = std::fs::read(path).unwrap();
+        let mut changed = old.clone();
+        changed.push(b' ');
+        std::fs::write(path, &changed).unwrap();
+        let guard = lock::acquire(&solution.root, "page test", &[]).unwrap();
+        let error = plan.apply(&solution, &guard).unwrap_err();
+        assert!(
+            error.to_string().contains("changed since planning"),
+            "{error}"
+        );
+        assert_eq!(std::fs::read(path).unwrap(), changed);
+        std::fs::write(path, old).unwrap();
+    }
+}
+
+#[test]
+fn build_transaction_rolls_back_each_failed_step() {
+    let (_dir, solution) = solution();
+    create_page(&solution);
+    let paths = page_files(&solution);
+    std::fs::write(&paths[4], SPEC.replace("text: Refresh", "text: Generated")).unwrap();
+    let before: Vec<_> = paths
+        .iter()
+        .map(std::fs::read)
+        .collect::<Result<_, _>>()
+        .unwrap();
+    for fail in 0..3 {
+        let plan = super::build::plan(&solution, "Acme.Alerts_MU", None, None).unwrap();
+        let guard = lock::acquire(&solution.root, "page test", &[]).unwrap();
+        let tx = plan.transaction(&solution).unwrap();
+        let error = tx
+            .apply_with(&guard, &mut |step, _| {
+                if step == fail {
+                    Err(std::io::Error::other("injected failure"))
+                } else {
+                    Ok(())
+                }
+            })
+            .unwrap_err();
+        assert!(error.changed_nothing(), "{error}");
+        let after: Vec<_> = paths
+            .iter()
+            .map(std::fs::read)
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(before, after);
+    }
+}
+
+#[test]
+fn css_blank_lines_and_unmanaged_values_survive_a_changed_build() {
+    let (_dir, solution) = solution();
+    create_page(&solution);
+    let files = page_files(&solution);
+    let content = std::fs::read_to_string(&files[1]).unwrap();
+    let mut value: Value = serde_json::from_str(&content).unwrap();
+    value["AcmeExtra"] = serde_json::json!({"number":1.0,"escaped":"ab"});
+    let content = mashup::to_sidecar(&value)
+        .replace("\"number\": 1.0", "\"number\": 1.00")
+        .replace("\"escaped\": \"ab\"", "\"escaped\": \"a\\u0062\"");
+    let css = "/* Acme handmade */\n.Acme { color: red; }\n\n\n";
+    let assets = mashup::Assets {
+        content: content.clone(),
+        css: css.into(),
+    };
+    let entity = mashup::sync(&std::fs::read(&files[0]).unwrap(), &assets)
+        .unwrap()
+        .0;
+    // Sidecars must hold the same CSS value as XML before build.
+    let content = content.replace(
+        "\"Data\":",
+        &format!(
+            "\"CustomMashupCss\": {},\n  \"Data\":",
+            serde_json::to_string(&mashup::without_terminator(css)).unwrap()
+        ),
+    );
+    std::fs::write(&files[0], entity).unwrap();
+    std::fs::write(&files[1], content).unwrap();
+    std::fs::write(&files[2], css).unwrap();
+    std::fs::write(&files[4], SPEC.replace("text: Refresh", "text: Generated")).unwrap();
+    let mut plan = super::build::plan(&solution, "Acme.Alerts_MU", None, None).unwrap();
+    assert!(!plan.conflicts(), "{}", plan.report);
+    let guard = lock::acquire(&solution.root, "page test", &[]).unwrap();
+    plan.apply(&solution, &guard).unwrap();
+    drop(guard);
+    let content = std::fs::read_to_string(&files[1]).unwrap();
+    assert!(content.contains("\"number\": 1.00"));
+    assert!(content.contains("\"escaped\": \"a\\u0062\""));
+    assert_eq!(std::fs::read_to_string(&files[2]).unwrap(), css);
+    assert!(mashup::sync(
+        &std::fs::read(&files[0]).unwrap(),
+        &mashup::Assets {
+            content,
+            css: css.into()
+        }
+    )
+    .unwrap()
+    .1
+    .is_empty());
+    let plan = super::build::plan(&solution, "Acme.Alerts_MU", None, None).unwrap();
+    assert_eq!(plan.report["files"], serde_json::json!([]));
+}
+
+#[test]
+fn safe_adoption_allows_unmanaged_properties() {
+    let (_dir, solution) = solution();
+    create_page(&solution);
+    let files = page_files(&solution);
+    let content = std::fs::read_to_string(&files[1])
+        .unwrap()
+        .replace("\"UI\":", "\"AcmeExtra\": {\"value\": 1.00},\n  \"UI\":");
+    let assets = mashup::Assets {
+        content: content.clone(),
+        css: std::fs::read_to_string(&files[2]).unwrap(),
+    };
+    let entity = mashup::sync(&std::fs::read(&files[0]).unwrap(), &assets)
+        .unwrap()
+        .0;
+    std::fs::write(&files[0], &entity).unwrap();
+    std::fs::write(&files[1], &content).unwrap();
+    std::fs::remove_file(&files[3]).unwrap();
+    let mut plan = super::build::plan(&solution, "Acme.Alerts_MU", None, None).unwrap();
+    assert!(!plan.conflicts(), "{}", plan.report);
+    let guard = lock::acquire(&solution.root, "page test", &[]).unwrap();
+    plan.apply(&solution, &guard).unwrap();
+    assert_eq!(std::fs::read(&files[0]).unwrap(), entity);
+    assert_eq!(std::fs::read_to_string(&files[1]).unwrap(), content);
+}
+
+#[test]
+fn corrupt_or_unsupported_baselines_are_refused_without_writes() {
+    let (_dir, solution) = solution();
+    create_page(&solution);
+    let paths = page_files(&solution);
+    let baseline: Value = serde_json::from_slice(&std::fs::read(&paths[3]).unwrap()).unwrap();
+    for (field, value) in [
+        ("format", serde_json::json!(2)),
+        ("compiler", serde_json::json!("future")),
+        ("rules", serde_json::json!("future")),
+        ("content", Value::Null),
+    ] {
+        let mut bad = baseline.clone();
+        bad[field] = value;
+        std::fs::write(&paths[3], bad.to_string()).unwrap();
+        let before: Vec<_> = paths
+            .iter()
+            .map(std::fs::read)
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert!(super::build::plan(&solution, "Acme.Alerts_MU", None, None).is_err());
+        let after: Vec<_> = paths
+            .iter()
+            .map(std::fs::read)
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(before, after);
+    }
+}
+
+#[test]
+fn new_spec_failure_rolls_back_all_created_artifacts_and_the_copy() {
+    let (_dir, solution) = solution();
+    let spec = solution.root.join("Acme.page.yaml");
+    std::fs::write(&spec, SPEC).unwrap();
+    for fail in 0..5 {
+        let plan = super::build::plan(&solution, "Acme.Alerts_MU", None, Some(&spec)).unwrap();
+        let guard = lock::acquire(&solution.root, "page test", &[]).unwrap();
+        let tx = plan.transaction(&solution).unwrap();
+        let error = tx
+            .apply_with(&guard, &mut |step, _| {
+                if step == fail {
+                    Err(std::io::Error::other("injected creation failure"))
+                } else {
+                    Ok(())
+                }
+            })
+            .unwrap_err();
+        assert!(error.changed_nothing(), "{error}");
+        assert!(page_files(&solution).iter().all(|p| !p.exists()));
+        assert_eq!(std::fs::read_to_string(&spec).unwrap(), SPEC);
+    }
+}
+
+#[test]
+fn removed_nodes_are_reported_and_removed_atomically() {
+    let (_dir, solution) = solution();
+    create_page(&solution);
+    let paths = page_files(&solution);
+    let old: Value = serde_json::from_slice(&std::fs::read(&paths[3]).unwrap()).unwrap();
+    let id = old["ids"]["refresh"].as_str().unwrap();
+    let spec = SPEC
+        .replace(
+            "    toolbar:\n      - button: {id: refresh, text: Refresh}\n",
+            "",
+        )
+        .replace(
+            "  events:\n    - {on: refresh.Clicked, invoke: alerts}\n",
+            "  events: []\n",
+        );
+    std::fs::write(&paths[4], spec).unwrap();
+    let mut plan = super::build::plan(&solution, "Acme.Alerts_MU", None, None).unwrap();
+    assert!(!plan.conflicts(), "{}", plan.report);
+    let removed = plan.report["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n["node"] == "refresh")
+        .unwrap();
+    assert_eq!(removed["status"], "changed");
+    assert_eq!(removed["removed"], true);
+    let guard = lock::acquire(&solution.root, "page test", &[]).unwrap();
+    plan.apply(&solution, &guard).unwrap();
+    assert!(!std::fs::read_to_string(&paths[1]).unwrap().contains(id));
+    assert!(!std::fs::read_to_string(&paths[3]).unwrap().contains(id));
+}

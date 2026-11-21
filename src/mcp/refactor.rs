@@ -600,6 +600,37 @@ pub(crate) fn mashup_new_tool(
     arguments: MashupNewRequest,
 ) -> Result<Value, ToolError> {
     let dry_run = arguments.dry_run;
+    if let Some(spec) = arguments.spec.as_ref() {
+        if arguments.gadget
+            || !arguments.template.is_absent()
+            || !arguments.from.is_absent()
+            || !arguments.layout.is_absent()
+            || !arguments.primary_menu.is_absent()
+            || !arguments.menu_entity.is_absent()
+            || !arguments.secondary_menu.is_absent()
+            || !arguments.theme.is_absent()
+            || arguments.master
+            || !arguments.visibility.is_absent()
+            || !arguments.params.is_absent()
+            || !arguments.tabs.is_absent()
+            || !arguments.replacements.is_absent()
+        {
+            return Err(ToolError::invalid("spec accepts only project and dry_run"));
+        }
+        let path = solution.root.join(spec);
+        let mut notices = commands::Notices::default();
+        let mut report = commands::mashup::build(
+            solution,
+            nonempty(&arguments.name, "name")?,
+            arguments.project.as_ref().map(String::as_str),
+            Some(&path),
+            if dry_run { Mode::Plan } else { Mode::Apply },
+            &mut notices,
+        )
+        .map_err(ToolError::coded)?;
+        add_notices(&mut report, &notices);
+        return Ok(report);
+    }
     if arguments.gadget && !arguments.template.is_absent() {
         return Err(ToolError::invalid("gadget cannot be used with template"));
     }
@@ -1763,6 +1794,28 @@ pub(crate) fn mashup_gap_tool(
         commands::mashup::gap(solution, &request, &mut notices).map_err(ToolError::coded)?;
     let mut result =
         crate::core::mashup::authoring::gap_plan_json(solution, &outcome.plan, outcome.applied);
+    add_notices(&mut result, &notices);
+    Ok(result)
+}
+
+pub(crate) fn mashup_build_tool(
+    solution: &Solution,
+    arguments: super::requests::refactor::MashupBuildRequest,
+) -> Result<Value, ToolError> {
+    let mut notices = commands::Notices::default();
+    let mut result = commands::mashup::build(
+        solution,
+        nonempty(&arguments.mashup, "mashup")?,
+        None,
+        None,
+        if arguments.dry_run {
+            Mode::Plan
+        } else {
+            Mode::Apply
+        },
+        &mut notices,
+    )
+    .map_err(ToolError::coded)?;
     add_notices(&mut result, &notices);
     Ok(result)
 }

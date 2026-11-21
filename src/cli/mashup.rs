@@ -12,6 +12,7 @@ pub(crate) enum Mashup {
     Validate(MashupValidate),
     Describe(MashupDescribe),
     Why(MashupWhy),
+    Build(MashupBuild),
     Diff(MashupDiff),
     Add(MashupAdd),
     Collection(MashupCollection),
@@ -40,6 +41,7 @@ impl Mashup {
             Mashup::Validate(_) => "mashup validate",
             Mashup::Describe(_) => "mashup describe",
             Mashup::Why(_) => "mashup why",
+            Mashup::Build(_) => "mashup build",
             Mashup::Diff(_) => "mashup diff",
             Mashup::Add(_) => "mashup add",
             Mashup::Collection(collection) => collection.path(),
@@ -655,6 +657,8 @@ pub(crate) struct MashupTemplates {
 #[derive(Debug, clap::Args)]
 #[group(skip)]
 pub(crate) struct MashupNew {
+    #[arg(long = "spec", value_name = "file")]
+    pub(crate) spec: Option<std::path::PathBuf>,
     #[arg(long = "gadget")]
     pub(crate) gadget: bool,
     #[command(flatten)]
@@ -697,6 +701,36 @@ pub(crate) fn mashup_new_cmd(solution: &Solution, args: &MashupNew) -> u8 {
         eprintln!("{} mashup new needs one <name>", style::prefix());
         return FAILED;
     };
+    if let Some(spec) = &args.spec {
+        if args.gadget
+            || args.template.is_some()
+            || args.from.is_some()
+            || args.layout.is_some()
+            || args.primary_menu.is_some()
+            || args.menu_entity.is_some()
+            || args.secondary_menu.is_some()
+            || args.theme.is_some()
+            || args.master
+            || !args.visibility.is_empty()
+            || !args.params.is_empty()
+            || !args.tabs.is_empty()
+            || !args.replacements.is_empty()
+        {
+            eprintln!(
+                "{} --spec accepts only --project, --apply and --json",
+                style::prefix()
+            );
+            return FAILED;
+        }
+        return page_build(
+            solution,
+            name,
+            args.project.project.as_deref(),
+            Some(spec),
+            args.apply.apply,
+            args.json.json,
+        );
+    }
     if args.gadget && args.template.is_some() {
         eprintln!(
             "{} --gadget cannot be used with --template",
@@ -3066,5 +3100,91 @@ mod operand_tests {
             message.contains("--style \"font-family='Arial Black'\""),
             "{message}"
         );
+    }
+}
+
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct MashupBuild {
+    #[command(flatten)]
+    pub(crate) apply: Apply,
+    #[command(flatten)]
+    pub(crate) json: Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
+pub(crate) fn mashup_build_cmd(solution: &Solution, args: &MashupBuild) -> u8 {
+    let [name] = args.operands.as_slice() else {
+        eprintln!("{} mashup build needs one <mashup>", style::prefix());
+        return FAILED;
+    };
+    page_build(solution, name, None, None, args.apply.apply, args.json.json)
+}
+
+fn page_build(
+    solution: &Solution,
+    name: &str,
+    project: Option<&str>,
+    spec: Option<&std::path::Path>,
+    apply: bool,
+    json: bool,
+) -> u8 {
+    let mut notices = commands::Notices::default();
+    let result = commands::mashup::build(
+        solution,
+        name,
+        project,
+        spec,
+        if apply { Mode::Apply } else { Mode::Plan },
+        &mut notices,
+    );
+    print_notices(&notices);
+    let report = match result {
+        Ok(report) => report,
+        Err(error) => {
+            eprintln!("{} {error}", style::prefix());
+            return FAILED;
+        }
+    };
+    let conflicts = report["conflicts"].as_array().expect("conflicts array");
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report).expect("build report")
+        );
+    } else {
+        println!(
+            "{} {name}: {} nodes, {} hand edits kept, {} conflicts",
+            if report["applied"] == true {
+                "built"
+            } else {
+                "planned"
+            },
+            report["nodes"].as_array().expect("nodes").len(),
+            report["hand_edits_kept"].as_array().expect("kept").len(),
+            conflicts.len()
+        );
+        for node in report["nodes"].as_array().expect("nodes") {
+            println!(
+                "  {}: {}",
+                node["node"].as_str().unwrap_or_default(),
+                node["status"].as_str().unwrap_or_default()
+            );
+        }
+        for edit in report["hand_edits_kept"].as_array().expect("kept") {
+            println!("  hand edit kept: {}", edit.as_str().unwrap_or_default());
+        }
+        for conflict in conflicts {
+            println!("  {}", conflict["message"].as_str().unwrap_or_default());
+        }
+        if !apply && conflicts.is_empty() {
+            println!("run again with --apply to write it");
+        }
+    }
+    if conflicts.is_empty() {
+        OK
+    } else {
+        FAILED
     }
 }

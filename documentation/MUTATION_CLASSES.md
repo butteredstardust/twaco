@@ -198,6 +198,7 @@ when the command is asked to write. A local output named by an option is include
 | `state set` | read-only | multi-file atomic | entity XML | Every file is rewritten in one journaled transaction, or none is; a file edited since the plan read it is refused. Retry. | `core/commands/entity_edit.rs: execute` |
 | `retemplate` | read-only | single-file atomic | one entity XML | The entity is old or new; retry freely. | `core/commands/retemplate.rs: execute` |
 | `mashup describe` | read-only | read-only | none | Retry freely. | `core/mashup_describe.rs: describe` |
+| `mashup build` | read-only | multi-file atomic | mashup XML, content/CSS sidecars, generated page baseline | Conflicts write nothing; independent edits survive. One journaled transaction or none; retry after reconciling conflicts. | `core/commands/mashup.rs: build` |
 | `mashup why` | read-only | read-only | none | Retry freely. | `core/mashup/why.rs: why` |
 | `mashup diff` | read-only | read-only | none | Retry freely. | `core/mashup/diff.rs: diff` |
 | `mashup validate` | read-only | read-only | none | Retry freely. | `core/mashup_validate.rs: validate` |
@@ -281,6 +282,7 @@ when the command is asked to write. A local output named by an option is include
 | `entity_edit` | read-only | multi-file atomic | entity XML, service sidecars, Things inheriting it | Every file is rewritten in one journaled transaction, or none is; `service_revert` keeps inherited-service permission grants. A file edited since the plan read it is refused. Retry. | `core/commands/entity_edit.rs: execute` |
 | `retemplate` | read-only | single-file atomic | one entity XML | The entity is old or new; retry freely. | `core/commands/retemplate.rs: execute` |
 | `mashup_describe` | read-only | read-only | none | Retry freely. | `core/mashup_describe.rs: describe` |
+| `mashup_build` | read-only | multi-file atomic | mashup XML, content/CSS sidecars, generated page baseline | Conflicts write nothing; independent edits survive. One journaled transaction or none; retry after reconciling conflicts. | `core/commands/mashup.rs: build` |
 | `mashup_why` | read-only | read-only | none | Retry freely. | `core/mashup/why.rs: why` |
 | `mashup_diff` | read-only | read-only | none | Retry freely. | `core/mashup/diff.rs: diff` |
 | `mashup_validate` | read-only | read-only | none | Retry freely. | `core/mashup_validate.rs: validate` |

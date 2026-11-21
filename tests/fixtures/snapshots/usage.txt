@@ -216,6 +216,9 @@ The full listing follows.
                               each service it calls with what sets each parameter (or that nothing does),
                               each binding and each event, in the addresses mashup bind and on take
       --detail                show non-default widget properties and widget bindings
+  mashup build <mashup> [--apply] [--json]
+                              compile src/<Mashup>/page.yaml and merge with the generated baseline;
+                              keep independent hand edits; conflicts write nothing; plans by default
   mashup why <mashup> <widget> [--json]
                               what the layout rules decide for one widget (size, gutter, alignment, surface,
                               equal siblings), the rule that decided each, what the mashup holds now, and the
@@ -457,12 +460,14 @@ The full listing follows.
       --when <address>        the event in this mashup that fires it, as mashup on --event takes it
   mashup templates [<name>] [--json]
                               list the embedded responsive mashup templates and their slots
-  mashup new <name> [--project <name>] [--from <address> | --template <name> | --gadget [--layout <layout>]]
+  mashup new <name> [--project <name>] [--spec <file> | --from <address> | --template <name> | --gadget [--layout <layout>]]
       [--primary-menu <address> | --menu-entity <Menu>] [--secondary-menu <address>] [--theme <StyleTheme>] [--master]
       [--visibility <principal>]... [--param <name:TYPE[:DIRECTION]|name:INFOTABLE:DataShape[:DIRECTION]>]... [--tab <Label=Mashup>]...
       [--apply] [--json]
                               create a ThingWorx 10.2 responsive mashup as Composer would: its entity file
                               and its content sidecars; plan unless --apply
+      --spec <file>          compile a page spec, copy it to src/<Mashup>/page.yaml and record a generated baseline;
+                              accepts only --project, --apply and --json
       --from <address>        copy a repository mashup exactly, except identity and permissions
       --template              layout template name or alias (default: blank); form-2col has full-width fields and left/right columns; see mashup templates
       --gadget                fixed dashboard gadget; default 1x1, 240px per cell
@@ -476,12 +481,14 @@ The full listing follows.
                               none unless given
       --tab                   with --template tabs: a tab's label and the mashup it shows, repeatable; use tab-content for the child (no title/gutter)
       --replace <old=new>     replace whole tokens in copied content string values; repeatable, needs --from
-  new mashup <name> [--project <name>] [--from <address> | --template <name> | --gadget [--layout <layout>]]
+  new mashup <name> [--project <name>] [--spec <file> | --from <address> | --template <name> | --gadget [--layout <layout>]]
       [--primary-menu <address> | --menu-entity <Menu>] [--secondary-menu <address>] [--theme <StyleTheme>] [--master]
       [--visibility <principal>]... [--param <name:TYPE[:DIRECTION]|name:INFOTABLE:DataShape[:DIRECTION]>]... [--tab <Label=Mashup>]...
       [--apply] [--json]
                               create a ThingWorx 10.2 responsive mashup as Composer would: its entity file
                               and its content sidecars; plan unless --apply
+      --spec <file>          compile a page spec, copy it to src/<Mashup>/page.yaml and record a generated baseline;
+                              accepts only --project, --apply and --json
       --from <address>        copy a repository mashup exactly, except identity and permissions
       --template              layout template name or alias (default: blank); form-2col has full-width fields and left/right columns; see mashup templates
       --gadget                fixed dashboard gadget; default 1x1, 240px per cell

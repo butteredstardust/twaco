@@ -1,8 +1,11 @@
 //! Offline page compilation. Applying artifacts and baseline ownership belong to the build layer.
-#![allow(dead_code)] // The build facade is added in batch 4.
 
+mod baseline;
+pub(crate) mod build;
 pub(crate) mod compile;
 pub(crate) mod ids;
+pub(crate) mod merge;
+mod preserve;
 mod schema;
 
 #[derive(Debug, thiserror::Error)]

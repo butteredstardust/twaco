@@ -2739,3 +2739,24 @@ trimmed marker lines delimit a managed block.
 from every supplied row, columns supplied in some rows but omitted in others (those cells
 are cleared), and existing rows omitted from the replacement. With a primary key, dropped
 rows are identified by that key; without one, the warning reports a reduction in row count.
+
+
+## Build a mashup from a page spec
+
+Write a [page spec](PAGE_SPECS.md) with the mashup name, template and authored node IDs, then:
+
+```sh
+twaco mashup new Acme.Alerts_MU --spec alerts.page.yaml
+twaco mashup new Acme.Alerts_MU --spec alerts.page.yaml --apply
+# Edit src/Acme.Alerts_MU/page.yaml, then review and apply the rebuild:
+twaco mashup build Acme.Alerts_MU
+twaco mashup build Acme.Alerts_MU --apply
+```
+
+Use `--project <name>` on new in a multi-project solution. Add `--json` for structured plans.
+MCP equivalents are `mashup_new` with `spec` and `mashup_build`; both plan unless `dry_run:false`.
+Commit page.yaml and .page-baseline.json with the XML and mashup sidecars. Build keeps hand
+edits where generation is unchanged, merges independent edits, and reports competing changes
+with the widget/property and spec line. Conflicts write nothing; reconcile the edits and plan
+again. Existing mashups can adopt only specs whose generated values already match their current
+values. All local output files apply together under the workspace lock; deployment is separate.
