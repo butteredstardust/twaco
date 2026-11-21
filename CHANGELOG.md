@@ -14,6 +14,8 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- Page-spec v1 `panel` (framed grey panel with an optional title and a toolbar band above its content), `chart: {kind: combo, series: [{field, kind: bar|line}]}` on the native combo chart, `slider` and `kpi_dial` (`dial`, `half`, `horizontal`, `vertical`, bound to the slider's `Value`). Card and trend-tile titles use the regular label size. Benchmarks A and H follow the kit (framed chart panels, bar+line combo, transparent eye-icon View Details, no Refresh); a new O benchmark builds the Gauges & KPI page. v1 goldens updated deliberately; legacy output is unchanged.
+
 - Page-spec v1 `trend_tile` and `detail_pair` elements, button `variant`, `icon` and `enabled_when: <grid>.selected`, and short `From`/`To` hints for narrow date ranges. The A, H, J, K and N benchmark specs use them (kit transparent icon buttons, selection-gated Preview and View Details, pagination); legacy output is unchanged.
 
 - Five reproducible page-spec benchmark examples (A, H, J, K, N), offline Acme contracts, artifact goldens and CLI/MCP rebuild/hand-edit coverage. Page-spec worked examples document remaining kit gaps.

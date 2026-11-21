@@ -424,6 +424,34 @@ fn add(
         _ => Ok(()),
     }
     .map_err(|e| Error::at(loc, e))?;
+    if matches!(node, Node::Card(_) | Node::TrendTile(_)) {
+        // Kit card titles use the regular label size, not the recipe's sub-header.
+        let path = session
+            .document
+            .find_exact(&placed)
+            .map_err(|e| Error::at(loc, e))?
+            .path;
+        let caption = session
+            .document
+            .widgets()
+            .into_iter()
+            .find(|w| w.path.starts_with(&path) && w.type_id == "ptcslabel")
+            .map(|w| w.path);
+        if let Some(caption) = caption {
+            let context = crate::core::mashup::layout::context::Node::op(
+                "page-card-caption",
+                crate::core::mashup::layout::Element::Container,
+            );
+            for (key, value) in session
+                .document
+                .rules()
+                .evaluate(&context.context())
+                .patch()
+            {
+                session.document.set_property(&caption, key, value);
+            }
+        }
+    }
     let id = stabilize(session, allocator, &old, &placed, &body.id.value, loc)?;
     ids.insert(body.id.value.clone(), id.clone());
     apply_styles(solution, session, page, &id, body)?;

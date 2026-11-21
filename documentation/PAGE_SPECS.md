@@ -87,7 +87,10 @@ numeric `Count` fields. Bindings and events use authored IDs, including tile and
 | `card` | `recipe card` | `- card: {id: state, title: Status, value: {bind: rows.Count}, status: Healthy, kind: ok, children: [{label: {id: detail, text: Details}}]}` |
 | `filter_panel` | filter-panel template and filter-footer authoring rules | `- filter_panel: {id: filters, fields: [{text_field: {id: query, hint: Search}}], footer: [apply, reset]}` |
 | `tabs` | tabset authoring (`sync_tabs`), tab-content template, add-contained | `- tabs: {id: views, tabs: [{label: Overview, content: [{label: {id: overview, text: Overview}}]}, {label: Details, mashup: Acme.Child_MU}]}` |
-| `chart` | `recipe chart` | `- chart: {id: counts, kind: bar, data: rows, x: Name, stacked: true}` |
+| `chart` | `recipe chart` | `- chart: {id: counts, kind: bar, data: rows, x: Name, stacked: true}` or `kind: combo, series: [{field: Count, kind: bar}, {field: Total, kind: line}]` |
+| `panel` | container with grey panel style; generated title label and toolbar band | `- panel: {id: box, title: Counts, toolbar: [{date_range: {id: dates}}], children: [{chart: {id: counts, kind: bar, data: rows, x: Name}}]}` |
+| `slider` | `ptcsslider` | `- slider: {id: level, min: 0, max: 100, value: 35, labels: true}` |
+| `kpi_dial` | `ptcskpidial` | `- kpi_dial: {id: dial, title: Level, kind: half, unit: '(%)', value: {bind: level.Value}}` |
 | `spacer` | responsive container authoring and v1 spacer rule | `- spacer: {id: space}` |
 | `date_range` | datepicker authoring, `DateRange: true` | `- date_range: {id: dates}` |
 | `dropdown` | `recipe picker` | `- dropdown: {id: choice, options: rows, display: Name}` |
@@ -113,7 +116,10 @@ flexible content slot. Tabs require 1?16 unique labels and exactly one of `mashu
 per tab. Inline content uses tab-content's body slot; contained mashups use the shared offline
 parameter checks. Inline specs do not reserve the template's unused toolbar slot; an authored
 toolbar provides the single band at any nesting depth. A pie chart requires `value: Count`; line and bar charts draw numeric series
-through the chart recipe, and `stacked: true` requires bar. Pagination names a grid with data
+through the chart recipe, and `stacked: true` requires bar. A `combo` chart uses the native
+`ptcschartcombo` and requires `series` (1 to 8 entries): each `field` is a numeric column and each
+`kind` is `bar` (column) or `line`; they are written to `DataField<n>`, `Series<n>Type` and
+`NumberOfSeries`. A single shared primary axis is used; secondary axes are not exposed yet. Pagination names a grid with data
 and creates the same local slicing expressions and reset bindings as the pagination recipe.
 
 Trend tiles go in a `kpi_row` through `children` (a `kpi_row` takes `tiles` or `children`). A
@@ -137,6 +143,23 @@ the button.
 Date ranges narrower than 300px (an explicit `Width` below that) get the hints `From` and `To`
 instead of the automatic `DD-MM-YY`, which truncates in two short inputs. Explicit hint props win.
 
+A `panel` is the kit's framed chart box: grey `#F7F7F7` fill, 1px `#E4E7E9` border, column layout,
+equal flexible width (`flex-grow: 1`, override with `props: {flex-grow: 2}`) and an 8px margin. An
+optional `title` becomes a regular-size label and `toolbar` a 48px band at the top of the panel
+(`<id>--title`, `<id>--toolbar`). Charts in a panel keep their minimum height and share the
+remaining height. Place panels in a row container such as `widget: {type: flexcontainer, size: fill}`.
+
+A `slider` writes `Minimum`, `Maximum`, `Value`, `DisplayMinMaxLabels` (`labels`, default true) and a
+`Label` from `title`; it defaults to `size: fill` so its wrapper spans the row, with the kit's 110px
+height. A `kpi_dial` writes the kit's dial settings per `kind`: `dial` (start 45, end 315 degrees,
+clockwise), `half` (90 to 270), `horizontal` (left to right) and `vertical` (bottom to top);
+`min`/`max` default to 0/100, `unit` is written verbatim to `UnitOfMeasure` (the kit uses `(%)`) and
+shows the unit label, `title` is the dial's label. Its `value` is a number or `{bind: node.Prop}`,
+for example the slider's `Value`. A `card` holding a dial stretches it.
+
+Card and trend-tile titles use the regular label size (`LabelType: label`), as the kit does, instead
+of the card recipe's sub-header; the recipe command keeps its own size.
+
 ## Planned elements
 
 These are proposals, not implemented elements. They compose native widgets and named parts; no
@@ -146,7 +169,7 @@ bitmap chart or custom HTML is needed.
 | --- | --- | --- |
 | `trend_tile` sparkline | compact `ptcschartline` (plot/series, axes and legend hidden) | Series field and period caption; a bounded sparkline under the value. |
 | `detail_pair` status mapping | `Acme.Status_ST` StateDefinition | Map a bound status to the dot colour. |
-| `chart: {kind: combo}` | `ptcschartcombo` with native bar and line series, primary/secondary axes and legend; chart/plot/legend parts for spacing and theme styling | Per-series field, bar/line kind, axis and label; reuse INFOTABLE binding and chart recipe validation. Replaces A's line-only approximation. |
+| `chart: {kind: combo}` secondary axis | `DisplaySeries<n>On: yaxis2`, `YAxis2` labels | A series option that moves a series to the second axis. |
 
 Part selectors and compact chart settings must be checked against the embedded platform
 metadata and kit exports when implemented; the plot/series names above describe native
@@ -189,7 +212,7 @@ transactions. Build changes local files only; deploy remains a separate command.
 
 ## Worked examples
 
-The benchmark pages use the small offline [Acme solution](../tests/fixtures/mashup/pages/bench_solution/twaco.toml).
+The benchmark pages (A, H, J, K, N, O) use the small offline [Acme solution](../tests/fixtures/mashup/pages/bench_solution/twaco.toml).
 Copy that directory to a scratch workspace and pass one of these specs to
 `twaco mashup new <page.name> --project Acme.Bench --spec <file>` to review a plan.
 Add `--apply` to create local files, then `twaco mashup build <page.name>` should plan no changes.
@@ -198,10 +221,11 @@ CI also checks both front ends, rebuilds, retained hand edits and conflicts.
 
 | Benchmark / kit | Spec | Remaining differences from the kit |
 | --- | --- | --- |
-| A / AssetKPI | [KPI dashboard](../tests/fixtures/mashup/pages/bench_a/page.yaml) | Native trend tiles replace the contained trend doodads (static direction, no sparkline); detail pairs carry status dots with fixed colours; a line chart replaces the combo chart. |
-| H / AssetListTopFilter | [Asset list](../tests/fixtures/mashup/pages/bench_h/page.yaml) | Search and refresh invoke SearchAssets. Its contract has only query, so category/date filtering needs another service contract. View Details is selection-gated but navigation is outside the event subset. Pagination slices the grid locally. |
+| A / AssetKPI | [KPI dashboard](../tests/fixtures/mashup/pages/bench_a/page.yaml) | Native trend tiles replace the contained trend doodads (static direction, no sparkline); detail pairs carry status dots with fixed colours; the right chart is a native bar+line combo on one axis (no secondary axis); charts sit in framed grey panels with their date toolbars. |
+| H / AssetListTopFilter | [Asset list](../tests/fixtures/mashup/pages/bench_h/page.yaml) | Search invokes SearchAssets. Its contract has only query, so category/date filtering needs another service contract. View Details is the kit's transparent eye-icon button, selection-gated; navigation is outside the event subset. Pagination slices the grid locally. |
 | J / AlertsAndNotifications | [Alerts tabs](../tests/fixtures/mashup/pages/bench_j/page.yaml) | Asset fields substitute for a dedicated alert contract. Severity/date controls need filtering services; Form is styled but cannot open a popup through spec events yet. Application uses a second grid over the same source. |
 | K / AdminMetrics | [Metrics filters](../tests/fixtures/mashup/pages/bench_k/page.yaml) | Apply binds all side-filter values; Reset is present but has no reset recipe in specs. The template chevron is retained; no collapsible recipe is exposed. Toolbar search/category/date and View Details are visual controls awaiting separate filter/navigation wiring. Pagination uses the existing local slicing recipe. |
+| O / WDK_Gauges | [Gauges and KPI](../tests/fixtures/mashup/pages/bench_o/page.yaml) | The kit's four needle gauges use a legacy `gauge` type with no authoring contract and no native widget; the native `ptcskpidial` (dial and half layouts) stands in, a recorded native deviation. Dials bind to one slider; the kit's absolute-positioned slider becomes a full-width slider with min/max labels. |
 | N / Documents | [Document actions](../tests/fixtures/mashup/pages/bench_n/page.yaml) | Transparent icon buttons as in the kit; Preview is enabled by the grid's selection. Preview window and download actions need navigation/download event support. |
 
 These are offline acceptance fixtures, not newly measured visual scores. A and H still require

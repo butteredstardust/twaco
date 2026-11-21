@@ -50,23 +50,21 @@ page:
           size: fill
           props: {flex-direction: row, align-items: stretch}
           children:
-            - widget:
+            - panel:
                 id: distribution_panel
-                type: flexcontainer
-                props: {flex-direction: column, flex-grow: 1, flex-basis: '0px'}
+                toolbar:
+                  - date_range: {id: distribution_date, props: {DateRange: false, Width: 273}}
                 children:
-                  - toolbar:
-                      id: distribution_tools
-                      children:
-                        - date_range: {id: distribution_date, props: {DateRange: false, Width: 273}}
                   - chart: {id: distribution, kind: pie, data: history, x: year, value: Value}
-            - widget:
+            - panel:
                 id: trend_panel
-                type: flexcontainer
-                props: {flex-direction: column, flex-grow: 2, flex-basis: '0px'}
+                props: {flex-grow: 2}
+                toolbar:
+                  - date_range: {id: trend_dates}
                 children:
-                  - toolbar:
-                      id: trend_tools
-                      children:
-                        - date_range: {id: trend_dates}
-                  - chart: {id: trend, kind: line, data: history, x: year}
+                  - chart:
+                      id: trend
+                      kind: combo
+                      data: history
+                      x: year
+                      series: [{field: Value, kind: bar}, {field: Value02, kind: line}]

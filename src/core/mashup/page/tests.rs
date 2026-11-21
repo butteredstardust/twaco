@@ -767,7 +767,7 @@ fn every_element_and_mixed_nesting_match_golden_artifacts() {
         .filter(|p| p.to_string_lossy().ends_with(".page.yaml"))
         .collect();
     paths.sort();
-    assert_eq!(paths.len(), 19);
+    assert_eq!(paths.len(), 22);
     for path in paths {
         let text = std::fs::read_to_string(&path).unwrap();
         let built =
@@ -965,6 +965,24 @@ fn elements_match_equivalent_primitive_recipe_sequences() {
             },
         };
         primitive.recipe(&solution, recipe).unwrap();
+        if kind == "flexcontainer" {
+            // Page cards title with the regular label size (v1 rule), not the recipe's sub-header.
+            let card = primitive
+                .document
+                .find_exact("flexcontainer-3")
+                .unwrap()
+                .path;
+            let caption = primitive
+                .document
+                .widgets()
+                .into_iter()
+                .find(|w| w.path.starts_with(&card) && w.type_id == "ptcslabel")
+                .unwrap()
+                .path;
+            primitive
+                .document
+                .set_property(&caption, "LabelType", serde_json::json!("label"));
+        }
         assert_eq!(
             canonical(&built.content),
             canonical(&primitive.document.to_content()),
@@ -1149,6 +1167,10 @@ fn benchmark_k_golden() {
 fn benchmark_n_golden() {
     benchmark("n");
 }
+#[test]
+fn benchmark_o_golden() {
+    benchmark("o");
+}
 
 #[test]
 fn alerts_layout_has_one_gutter_centered_fixed_band_and_only_spacer_grows() {
@@ -1217,8 +1239,12 @@ fn dashboard_charts_stay_in_their_panels_and_share_remaining_height() {
     assert_eq!(props["flex-shrink"], 0);
     assert_eq!(props["ShowVerticalScrollbar"], false);
     for (chart, panel, tools) in [
-        ("distribution", "distribution_panel", "distribution_tools"),
-        ("trend", "trend_panel", "trend_tools"),
+        (
+            "distribution",
+            "distribution_panel",
+            "distribution_panel--toolbar",
+        ),
+        ("trend", "trend_panel", "trend_panel--toolbar"),
     ] {
         let chart = doc.find_exact(&built.ids[chart]).unwrap();
         let panel = doc.find_exact(&built.ids[panel]).unwrap();
@@ -1540,5 +1566,136 @@ fn benchmark_specs_use_the_kit_button_and_selection_conventions() {
     assert!(!built.ids.contains_key("refresh"));
     let built = compiled_benchmark("h");
     assert!(built.ids.contains_key("pages"));
-    assert_eq!(element_props(&built, "details")["ButtonType"], "tertiary");
+    let details = element_props(&built, "details");
+    assert_eq!(details["ButtonType"], "transparent");
+    assert_eq!(details["SVGIcon"], "cds:icon_view");
+    assert!(!built.ids.contains_key("refresh"));
+}
+
+#[test]
+fn panel_frames_toolbar_and_chart_and_gives_equal_flexible_width() {
+    let (_dir, solution) = element_solution();
+    let text = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/mashup/pages/panel.page.yaml"),
+    )
+    .unwrap();
+    let built = compile(&solution, "Acme", &text).unwrap();
+    let panel = element_props(&built, "counts_panel");
+    assert_eq!(panel["flex-direction"], "column");
+    assert_eq!(panel["flex-grow"], 1);
+    let doc = mashup::edit::parse(&built.content).unwrap();
+    let id = &built.ids["counts_panel"];
+    let style = &doc.root_properties()["StyleProperties"]["data"][id.as_str()]["parts"]["$"]["$"];
+    assert_eq!(style["background"], "#F7F7F7");
+    assert_eq!(style["border-style"], "solid");
+    // Title, toolbar band and the chart wrapper sit in the panel, in that order.
+    let root = doc.find_exact(id).unwrap();
+    let kinds: Vec<_> = doc.at(&root.path)["Widgets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|w| w["Properties"]["Id"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(kinds.len(), 2);
+    assert!(built.ids.contains_key("counts_panel--title"));
+    assert!(built.ids.contains_key("counts_panel--toolbar"));
+    assert!(
+        doc.at(&doc
+            .find_exact(&built.ids["counts_panel--toolbar"])
+            .unwrap()
+            .path)["Properties"]["flex-max-height"]
+            == "48px"
+    );
+}
+
+#[test]
+fn slider_and_kpi_dials_use_the_kit_properties_and_bind_to_the_slider() {
+    let (_dir, solution) = element_solution();
+    let folder =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/mashup/pages");
+    let slider = compile(
+        &solution,
+        "Acme",
+        &std::fs::read_to_string(folder.join("slider.page.yaml")).unwrap(),
+    )
+    .unwrap();
+    let props = element_props(&slider, "level");
+    assert_eq!(props["Maximum"], 200);
+    assert_eq!(props["Value"], 35);
+    assert_eq!(props["DisplayMinMaxLabels"], false);
+    assert_eq!(props["Label"], "Level");
+    let built = compile(
+        &solution,
+        "Acme",
+        &std::fs::read_to_string(folder.join("kpi_dial.page.yaml")).unwrap(),
+    )
+    .unwrap();
+    let half = element_props(&built, "dial");
+    assert_eq!(half["Layout"], "dial");
+    assert_eq!(half["StartAngle"], 90);
+    assert_eq!(half["EndAngle"], 270);
+    assert_eq!(half["UnitOfMeasure"], "(%)");
+    assert_eq!(half["ShowUOMLabel"], true);
+    let horizontal = element_props(&built, "bar");
+    assert_eq!(horizontal["Layout"], "horizontal");
+    assert_eq!(horizontal["Direction"], "left to right");
+    assert_eq!(horizontal["MaximumValue"], 50);
+    let content: Value = serde_json::from_str(&built.content).unwrap();
+    let bound = |source: &str, target: &str| {
+        content["DataBindings"].as_array().unwrap().iter().any(|b| {
+            b["SourceId"] == built.ids[source].as_str()
+                && b["TargetId"] == built.ids[target].as_str()
+        })
+    };
+    assert!(bound("level", "dial"));
+    assert!(!bound("level", "bar"));
+}
+
+#[test]
+fn page_cards_use_the_regular_label_size_for_titles() {
+    let built = compiled_benchmark("a");
+    let doc = mashup::edit::parse(&built.content).unwrap();
+    let card = doc.find_exact(&built.ids["focus_1"]).unwrap();
+    let caption = doc
+        .widgets()
+        .into_iter()
+        .find(|w| w.path.starts_with(&card.path) && w.type_id == "ptcslabel")
+        .unwrap();
+    assert_eq!(doc.at(&caption.path)["Properties"]["LabelType"], "label");
+}
+
+#[test]
+fn combo_chart_draws_the_listed_series_as_bars_and_lines() {
+    let built = compiled_benchmark("a");
+    let props = element_props(&built, "trend");
+    assert_eq!(props["NumberOfSeries"], 2);
+    assert_eq!(props["DataField1"], "Value");
+    assert_eq!(props["Series1Type"], "bar");
+    assert_eq!(props["DataField2"], "Value02");
+    assert_eq!(props["Series2Type"], "line");
+    let doc = mashup::edit::parse(&built.content).unwrap();
+    assert_eq!(
+        doc.at(&doc.find_exact(&built.ids["trend"]).unwrap().path)["Properties"]["Type"],
+        "ptcschartcombo"
+    );
+}
+
+#[test]
+fn panel_slider_dial_and_combo_errors_are_located() {
+    let (_dir, solution) = element_solution();
+    for body in [
+        "slider: {id: s, min: 5, max: 5}",
+        "slider: {id: s, mystery: 1}",
+        "kpi_dial: {id: d, kind: spiral}",
+        "kpi_dial: {id: d, labels: true}",
+        "chart: {id: c, kind: combo, data: rows, x: Name}",
+        "chart: {id: c, kind: combo, data: rows, x: Name, series: [{field: Count, kind: area}]}",
+        "chart: {id: c, kind: bar, data: rows, x: Name, series: [{field: Count, kind: bar}]}",
+        "panel: {id: p, toolbar: 3}",
+        "label: {id: l, text: x, toolbar: [{label: {id: z, text: y}}]}",
+    ] {
+        let error = compile(&solution, "Acme", &error_page(body, "")).unwrap_err();
+        assert!(error.line >= 10 && error.column > 0, "{body}: {error}");
+    }
 }

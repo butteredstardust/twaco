@@ -31,6 +31,15 @@ fn child(parent: &Body, role: &str, kind: &str, props: serde_json::Value) -> Nod
     node
 }
 
+#[allow(clippy::cast_possible_truncation)]
+fn number(value: f64) -> serde_json::Value {
+    if value.fract() == 0.0 && value.abs() < 1e15 {
+        json!(value as i64)
+    } else {
+        json!(value)
+    }
+}
+
 fn default_prop(body: &mut Body, key: &str, value: serde_json::Value) {
     let at = body.id.referenced;
     body.props
@@ -71,6 +80,22 @@ const DOTS: [(&str, &str); 4] = [
     ("warning", "#F2A93B"),
     ("error", "#E0575B"),
     ("info", "#8D96A0"),
+];
+
+/// A framed grey panel as in the kit: grey fill, hairline border.
+const PANEL_STYLE: [&str; 4] = [
+    "background=#F7F7F7",
+    "border-style=solid",
+    "border-width=1px",
+    "border-color=#E4E7E9",
+];
+/// Kit KPI dial layouts: (kind, Layout, Direction, start and end angle).
+type Dial = (&'static str, &'static str, &'static str, Option<(u32, u32)>);
+const DIALS: [Dial; 4] = [
+    ("dial", "dial", "clockwise", Some((45, 315))),
+    ("half", "dial", "clockwise", Some((90, 270))),
+    ("horizontal", "horizontal", "left to right", None),
+    ("vertical", "vertical", "bottom to top", None),
 ];
 
 pub(super) fn expand(page: &mut Page) -> Result<(), Error> {
@@ -204,8 +229,97 @@ pub(super) fn expand(page: &mut Page) -> Result<(), Error> {
                     default_prop(b, "align-items", json!("center"));
                     default_prop(b, "Margin", json!("4 0"));
                 }
+                Node::Panel(b) => {
+                    // The title sits in the band; a bare label first in the panel would make
+                    // placement wrap the whole panel body.
+                    let title = b.title.take();
+                    if title.is_some() || !b.toolbar.is_empty() {
+                        let mut toolbar = generated(b, "toolbar", "toolbar", json!({}));
+                        let mut items = Vec::new();
+                        if let Some(title) = title {
+                            items.push(generated(
+                                b,
+                                "title",
+                                "label",
+                                json!({"text": title, "props": {"LabelType": "label", "Margin": "0 12 0 8"}}),
+                            ));
+                        }
+                        items.append(&mut b.toolbar);
+                        toolbar.body_mut().children = items;
+                        b.children.insert(0, toolbar);
+                    }
+                    let at = b.id.referenced;
+                    let mut styles: Vec<_> = PANEL_STYLE
+                        .iter()
+                        .map(|s| serde_saphyr::Spanned::new(s.to_string(), at, at))
+                        .collect();
+                    styles.append(&mut b.style);
+                    b.style = styles;
+                    for (key, value) in [
+                        ("flex-direction", json!("column")),
+                        ("align-items", json!("stretch")),
+                        ("flex-grow", json!(1)),
+                        ("flex-shrink", json!(1)),
+                        ("flex-basis", json!("0px")),
+                        ("Margin", json!("8")),
+                    ] {
+                        default_prop(b, key, value);
+                    }
+                }
+                Node::Slider(b) => {
+                    let min = b.min.as_ref().map_or(0.0, |m| m.value);
+                    let max = b.max.as_ref().map_or(100.0, |m| m.value);
+                    if min >= max {
+                        let at = b.max.as_ref().map_or(b.id.referenced, |m| m.referenced);
+                        return Err(Error::at(at, "slider max must exceed min"));
+                    }
+                    default_prop(b, "Minimum", number(min));
+                    default_prop(b, "Maximum", number(max));
+                    default_prop(b, "DisplayMinMaxLabels", json!(b.labels.unwrap_or(true)));
+                    let title = b.title.take().unwrap_or_default();
+                    default_prop(b, "Label", json!(title));
+                    if let Some(value) = b.value.take() {
+                        default_prop(b, "Value", value.value);
+                    }
+                    default_prop(b, "Height", json!(110));
+                }
+                Node::KpiDial(b) => {
+                    let kind = b.chart_kind.take().unwrap_or_else(|| "dial".into());
+                    let Some((_, layout, direction, angles)) =
+                        DIALS.iter().find(|(name, ..)| *name == kind)
+                    else {
+                        return Err(Error::at(
+                            b.id.referenced,
+                            "kpi_dial kind is dial, half, horizontal or vertical",
+                        ));
+                    };
+                    default_prop(b, "Layout", json!(layout));
+                    default_prop(b, "Direction", json!(direction));
+                    if let Some((start, end)) = angles {
+                        default_prop(b, "StartAngle", json!(start));
+                        default_prop(b, "EndAngle", json!(end));
+                    }
+                    default_prop(b, "LabelAlignment", json!("center"));
+                    let min = b.min.as_ref().map_or(0.0, |m| m.value);
+                    let max = b.max.as_ref().map_or(100.0, |m| m.value);
+                    default_prop(b, "MinimumValue", number(min));
+                    default_prop(b, "MaximumValue", number(max));
+                    if let Some(title) = b.title.take() {
+                        default_prop(b, "Label", json!(title));
+                    }
+                    if let Some(unit) = b.unit.take() {
+                        default_prop(b, "UnitOfMeasure", json!(unit));
+                        default_prop(b, "ShowUOMLabel", json!(true));
+                    }
+                    if let Some(value) = b.value.take() {
+                        default_prop(b, "Value", value.value);
+                    }
+                }
                 Node::Card(b) => {
-                    if b.children.iter().any(|c| matches!(c, Node::DetailPair(_))) {
+                    if b.children
+                        .iter()
+                        .any(|c| matches!(c, Node::DetailPair(_) | Node::KpiDial(_)))
+                    {
                         default_prop(b, "align-items", json!("stretch"));
                     }
                 }
@@ -301,7 +415,13 @@ fn fields(node: &Node) -> Result<(), Error> {
             b.title.is_some(),
             matches!(
                 node,
-                Node::PageHeader(_) | Node::Card(_) | Node::Chart(_) | Node::TrendTile(_)
+                Node::PageHeader(_)
+                    | Node::Card(_)
+                    | Node::Chart(_)
+                    | Node::TrendTile(_)
+                    | Node::Panel(_)
+                    | Node::Slider(_)
+                    | Node::KpiDial(_)
             ),
             "title",
         ),
@@ -324,14 +444,22 @@ fn fields(node: &Node) -> Result<(), Error> {
         (!b.tabs.is_empty(), matches!(node, Node::Tabs(_)), "tabs"),
         (
             b.chart_kind.is_some(),
-            matches!(node, Node::Chart(_) | Node::Card(_) | Node::DetailPair(_)),
+            matches!(
+                node,
+                Node::Chart(_) | Node::Card(_) | Node::DetailPair(_) | Node::KpiDial(_)
+            ),
             "kind",
         ),
         (
             b.value.is_some(),
             matches!(
                 node,
-                Node::Chart(_) | Node::Card(_) | Node::TrendTile(_) | Node::DetailPair(_)
+                Node::Chart(_)
+                    | Node::Card(_)
+                    | Node::TrendTile(_)
+                    | Node::DetailPair(_)
+                    | Node::Slider(_)
+                    | Node::KpiDial(_)
             ),
             "value",
         ),
@@ -342,7 +470,7 @@ fn fields(node: &Node) -> Result<(), Error> {
         ),
         (
             b.unit.is_some(),
-            matches!(node, Node::Card(_) | Node::TrendTile(_)),
+            matches!(node, Node::Card(_) | Node::TrendTile(_) | Node::KpiDial(_)),
             "unit",
         ),
         (
@@ -366,6 +494,26 @@ fn fields(node: &Node) -> Result<(), Error> {
             "options/display",
         ),
         (b.grid.is_some(), matches!(node, Node::Pagination(_)), "for"),
+        (
+            b.min.is_some() || b.max.is_some(),
+            matches!(node, Node::Slider(_) | Node::KpiDial(_)),
+            "min/max",
+        ),
+        (
+            b.labels.is_some(),
+            matches!(node, Node::Slider(_)),
+            "labels",
+        ),
+        (
+            !b.series.is_empty(),
+            matches!(node, Node::Chart(_)),
+            "series",
+        ),
+        (
+            !b.toolbar.is_empty(),
+            matches!(node, Node::Panel(_)),
+            "toolbar",
+        ),
         (
             b.hint.is_some(),
             matches!(
@@ -395,6 +543,19 @@ pub(super) fn validate(node: &Node, page: &Page) -> Result<(), Error> {
         }
         Node::Chart(_) if b.data.is_none() || b.x.is_none() => {
             return Err(fail("chart needs data and x"))
+        }
+        Node::Chart(_) if b.chart_kind.as_deref() == Some("combo") => {
+            if b.series.is_empty() || b.series.len() > 8 {
+                return Err(fail("combo chart needs series: 1 to 8 {field, kind}"));
+            }
+            for series in &b.series {
+                if !["bar", "line"].contains(&series.value.kind.as_str()) {
+                    return Err(Error::at(series.referenced, "series kind is bar or line"));
+                }
+            }
+        }
+        Node::Chart(_) if !b.series.is_empty() => {
+            return Err(fail("series belongs to a combo chart"))
         }
         Node::Dropdown(_) if b.options.is_none() || b.display.is_none() => {
             return Err(fail("dropdown needs options and display"))
@@ -483,6 +644,41 @@ pub(super) fn wire(
     if let Some(recipe) = recipe {
         session
             .recipe(solution, recipe)
+            .map_err(|e| Error::at(loc, e))?;
+    }
+    if matches!(node, Node::Chart(_)) && b.chart_kind.as_deref() == Some("combo") {
+        // The recipe names every numeric column; the spec picks the series and their drawing.
+        let path = session
+            .document
+            .find_exact(id)
+            .map_err(|e| Error::at(loc, e))?
+            .path;
+        let mut properties = vec![("NumberOfSeries".to_string(), json!(b.series.len()))];
+        for (index, series) in b.series.iter().enumerate() {
+            let n = index + 1;
+            properties.push((format!("DataField{n}"), json!(series.value.field)));
+            properties.push((format!("Series{n}Type"), json!(series.value.kind)));
+        }
+        for n in b.series.len() + 1..=8 {
+            let key = format!("DataField{n}");
+            let named = session.document.at(&path)["Properties"][key.as_str()]
+                .as_str()
+                .is_some_and(|field| !field.is_empty());
+            if named {
+                properties.push((key, json!("")));
+            }
+        }
+        session
+            .set(
+                solution,
+                &crate::core::mashup::authoring::SetRequest {
+                    mashup: page.name.value.clone(),
+                    widget: id.clone(),
+                    properties,
+                    style_from: None,
+                    styles: vec![],
+                },
+            )
             .map_err(|e| Error::at(loc, e))?;
     }
     Ok(())
@@ -659,6 +855,15 @@ pub(super) fn finish_layout(
                     .set_property(&path, "InitializeWithCurrentDateTime", json!(false));
             }
         }
+        if matches!(node, Node::Slider(_)) && body.size.is_none() {
+            // A row wrapper shrink-wraps the slider (min/max labels collide); a column wrapper
+            // that stretches its child gives it the full row width at content height.
+            patch(
+                &mut session.document,
+                &path[..path.len() - 1],
+                "page-slider-wrapper",
+            );
+        }
         if matches!(node, Node::KpiRow(_) | Node::Card(_) | Node::TrendTile(_))
             && body.size.is_none()
         {
@@ -670,7 +875,7 @@ pub(super) fn finish_layout(
             };
             patch(&mut session.document, &path, op);
         }
-        if matches!(node, Node::Widget(_))
+        if matches!(node, Node::Widget(_) | Node::Panel(_))
             && session.document.at(&path)["Properties"]["Type"] == "flexcontainer"
             && !matches!(
                 body.size.as_ref().map(|s| &s.value),

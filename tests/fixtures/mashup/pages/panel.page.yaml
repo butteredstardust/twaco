@@ -1,0 +1,16 @@
+version: 1
+rules: v1
+page:
+  name: Acme.Elements_MU
+  template: blank
+  data:
+    rows: {service: Acme.Data.GetRows, on: load}
+  slots:
+    center:
+      - panel:
+          id: counts_panel
+          title: Counts
+          toolbar:
+            - date_range: {id: counts_dates}
+          children:
+            - chart: {id: counts, kind: bar, data: rows, x: Name}

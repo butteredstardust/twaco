@@ -58,6 +58,9 @@ pub(crate) enum Node {
     Pagination(Body),
     TrendTile(Body),
     DetailPair(Body),
+    Panel(Body),
+    Slider(Body),
+    KpiDial(Body),
 }
 
 impl Node {
@@ -81,7 +84,10 @@ impl Node {
             | Self::TextField(b)
             | Self::Pagination(b)
             | Self::TrendTile(b)
-            | Self::DetailPair(b) => b,
+            | Self::DetailPair(b)
+            | Self::Panel(b)
+            | Self::Slider(b)
+            | Self::KpiDial(b) => b,
         }
     }
     pub(crate) fn body_mut(&mut self) -> &mut Body {
@@ -104,7 +110,10 @@ impl Node {
             | Self::TextField(b)
             | Self::Pagination(b)
             | Self::TrendTile(b)
-            | Self::DetailPair(b) => b,
+            | Self::DetailPair(b)
+            | Self::Panel(b)
+            | Self::Slider(b)
+            | Self::KpiDial(b) => b,
         }
     }
     pub(crate) fn widget(&self) -> Result<&str, Error> {
@@ -116,16 +125,20 @@ impl Node {
             | Self::FilterPanel(_)
             | Self::TrendTile(_)
             | Self::DetailPair(_)
+            | Self::Panel(_)
             | Self::Spacer(_) => "flexcontainer",
+            Self::Slider(_) => "ptcsslider",
+            Self::KpiDial(_) => "ptcskpidial",
             Self::Tabs(_) => "ptcstabset",
             Self::Chart(b) => match b.chart_kind.as_deref() {
                 Some("line") => "ptcschartline",
                 Some("bar") => "ptcschartbar",
                 Some("pie") => "ptcschartpie",
+                Some("combo") => "ptcschartcombo",
                 _ => {
                     return Err(Error::at(
                         b.id.referenced,
-                        "chart kind must be line, bar or pie",
+                        "chart kind must be line, bar, pie or combo",
                     ))
                 }
             },
@@ -171,6 +184,13 @@ pub(crate) struct Body {
     pub(crate) display: Option<String>,
     pub(crate) x: Option<String>,
     pub(crate) stacked: Option<bool>,
+    pub(crate) min: Option<Spanned<f64>>,
+    pub(crate) max: Option<Spanned<f64>>,
+    pub(crate) labels: Option<bool>,
+    #[serde(default)]
+    pub(crate) series: Vec<Spanned<Series>>,
+    #[serde(default)]
+    pub(crate) toolbar: Vec<Node>,
     #[serde(rename = "for")]
     pub(crate) grid: Option<Spanned<String>>,
     #[serde(default)]
@@ -197,6 +217,13 @@ pub(crate) struct Body {
     pub(crate) size: Option<Spanned<Size>>,
     #[serde(default)]
     pub(crate) children: Vec<Node>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Series {
+    pub(crate) field: String,
+    pub(crate) kind: String,
 }
 
 #[derive(Debug, Deserialize)]

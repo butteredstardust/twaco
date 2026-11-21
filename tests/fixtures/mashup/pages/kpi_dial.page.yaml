@@ -1,0 +1,23 @@
+version: 1
+rules: v1
+page:
+  name: Acme.Elements_MU
+  template: blank
+  data:
+    rows: {service: Acme.Data.GetRows, on: load}
+  slots:
+    center:
+      - slider: {id: level, min: 0, max: 100, value: 35}
+      - kpi_row:
+          id: dials
+          children:
+            - card:
+                id: dial_card
+                title: Level
+                children:
+                  - kpi_dial: {id: dial, title: Level, kind: half, unit: '(%)', value: {bind: level.Value}}
+            - card:
+                id: bar_card
+                title: Count
+                children:
+                  - kpi_dial: {id: bar, kind: horizontal, max: 50, value: {bind: rows.Count}}

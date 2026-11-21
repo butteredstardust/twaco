@@ -13,11 +13,10 @@ page:
           id: tools
           children:
             - text_field: {id: search, hint: Search..., props: {Icon: 'cds:icon_search', Width: 240}}
+            - button: {id: details, label: View Details, variant: transparent, icon: 'cds:icon_view', enabled_when: assets_grid.selected}
+            - spacer: {id: space}
             - dropdown: {id: category, options: categories, display: Value, hint: Category..., props: {Width: 240}}
             - date_range: {id: dates}
-            - spacer: {id: space}
-            - button: {id: refresh, label: Refresh, props: {ButtonType: tertiary}}
-            - button: {id: details, label: View Details, variant: tertiary, enabled_when: assets_grid.selected}
       - grid:
           id: assets_grid
           data: assets
@@ -25,4 +24,3 @@ page:
       - pagination: {id: pages, for: assets_grid}
   events:
     - {on: search.Changed, invoke: assets}
-    - {on: refresh.Clicked, invoke: assets}

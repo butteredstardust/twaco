@@ -203,6 +203,7 @@ fn benchmark_lifecycle(id: &str) {
                 "A" => "Asset KPI",
                 "H" => "Asset List Top Filter",
                 "J" => "Alerts & Notifications",
+                "O" => "Gauges & KPI",
                 _ => "Admin Metrics",
             },
         )
@@ -265,4 +266,8 @@ fn benchmark_k_frontends_and_rebuilds() {
 #[test]
 fn benchmark_n_frontends_and_rebuilds() {
     benchmark_lifecycle("N");
+}
+#[test]
+fn benchmark_o_frontends_and_rebuilds() {
+    benchmark_lifecycle("O");
 }
