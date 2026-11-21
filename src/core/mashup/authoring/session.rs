@@ -103,6 +103,50 @@ impl Session {
         Ok(id)
     }
 
+    pub(crate) fn template_children(
+        &mut self,
+        parent: &str,
+        template: &str,
+    ) -> Result<(), AuthoringError> {
+        let layout = mashup::templates::layouts_with(self.document.rules())
+            .map_err(AuthoringError::Invalid)?
+            .into_iter()
+            .find(|t| t.name == template)
+            .ok_or_else(|| AuthoringError::Unknown(format!("unknown template {template}")))?;
+        let path = self
+            .document
+            .find_exact(parent)
+            .map_err(AuthoringError::Edit)?
+            .path;
+        self.document.at_mut(&path)["twacoTemplateName"] = serde_json::json!(template);
+        for (key, value) in &layout.page {
+            self.document.set_property(&path, key, value.clone());
+        }
+        for node in &layout.children {
+            super::new::add_template_node(&mut self.document, &path, node, template)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn contained(
+        &mut self,
+        solution: &Solution,
+        parent: &str,
+        mashup: &str,
+    ) -> Result<String, AuthoringError> {
+        self.sync()?;
+        let request = super::AddContainedRequest {
+            mashup: self.name.clone(),
+            child: mashup.into(),
+            placement: Some(mashup::edit::Placement::In(parent.into())),
+            settings: vec![],
+        };
+        let plan = super::add::plan_add_contained_loaded(solution, &request, self.loaded())?;
+        let id = plan.placed.id;
+        self.accept(plan.edit)?;
+        Ok(id)
+    }
+
     pub(crate) fn set(
         &mut self,
         solution: &Solution,

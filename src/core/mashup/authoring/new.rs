@@ -840,7 +840,7 @@ fn unknown_template(word: &str) -> String {
     format!("unknown template `{word}`; use {names}")
 }
 
-fn add_template_node(
+pub(super) fn add_template_node(
     document: &mut MashupDocument,
     parent: &[usize],
     node: &mashup::templates::LayoutNode,

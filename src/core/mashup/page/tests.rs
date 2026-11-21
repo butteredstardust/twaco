@@ -733,3 +733,361 @@ fn removed_nodes_are_reported_and_removed_atomically() {
     assert!(!std::fs::read_to_string(&paths[1]).unwrap().contains(id));
     assert!(!std::fs::read_to_string(&paths[3]).unwrap().contains(id));
 }
+
+fn element_solution() -> (tempfile::TempDir, Solution) {
+    let (dir, _) = solution();
+    let folder = dir.path().join("acme");
+    std::fs::write(folder.join("Things/Acme.Data.xml"), r#"<Entities><Things><Thing name="Acme.Data" projectName="Acme"><ThingShape><ServiceDefinitions><ServiceDefinition name="GetRows"><ResultType baseType="INFOTABLE" aspect.dataShape="Acme.Rows_DS"/></ServiceDefinition></ServiceDefinitions></ThingShape></Thing></Things></Entities>"#).unwrap();
+    std::fs::create_dir_all(folder.join("DataShapes")).unwrap();
+    std::fs::write(folder.join("DataShapes/Acme.Rows_DS.xml"),r#"<Entities><DataShapes><DataShape name="Acme.Rows_DS" projectName="Acme"><FieldDefinitions><FieldDefinition name="Name" baseType="STRING" ordinal="0"/><FieldDefinition name="Count" baseType="NUMBER" ordinal="1"/></FieldDefinitions></DataShape></DataShapes></Entities>"#).unwrap();
+    let child = authoring::session::Session::new(
+        "Acme.Child_MU",
+        "Acme",
+        "tab-content",
+        "PTC Convergence Theme",
+    )
+    .unwrap();
+    std::fs::create_dir_all(folder.join("Mashups")).unwrap();
+    std::fs::write(folder.join("Mashups/Acme.Child_MU.xml"), child.entity).unwrap();
+    let solution = Solution::load(&dir.path().join("twaco.toml")).unwrap();
+    (dir, solution)
+}
+
+#[test]
+fn every_element_and_mixed_nesting_match_golden_artifacts() {
+    let (_dir, solution) = element_solution();
+    let folder =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/mashup/pages");
+    let mut paths: Vec<_> = std::fs::read_dir(&folder)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .filter(|p| p.to_string_lossy().ends_with(".page.yaml"))
+        .collect();
+    paths.sort();
+    assert_eq!(paths.len(), 16);
+    for path in paths {
+        let text = std::fs::read_to_string(&path).unwrap();
+        let built =
+            compile(&solution, "Acme", &text).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        assert_eq!(
+            built,
+            compile(&solution, "Acme", &text).unwrap(),
+            "{}",
+            path.display()
+        );
+        let actual = serde_json::to_string_pretty(&serde_json::json!({
+            "entity":String::from_utf8(built.entity).unwrap(),
+            "content":serde_json::from_str::<Value>(&built.content).unwrap(),"css":built.css,"ids":built.ids
+        })).unwrap()+"\n";
+        let mut problems = vec![];
+        mashup::validate::check_content(&built.content, &mut problems);
+        assert!(
+            !problems
+                .iter()
+                .any(|p| p.severity == mashup::validate::Severity::Error),
+            "{}: {problems:?}",
+            path.display()
+        );
+        let golden = path.with_extension("golden.json");
+        if std::env::var_os("TWACO_BLESS").is_some() {
+            std::fs::write(&golden, &actual).unwrap();
+        }
+        assert_eq!(
+            actual,
+            std::fs::read_to_string(golden)
+                .unwrap()
+                .replace("\r\n", "\n"),
+            "{}",
+            path.display()
+        );
+    }
+}
+
+#[test]
+fn element_schema_errors_are_located() {
+    let (_dir, solution) = element_solution();
+    for body in [
+        "page_header: {id: header}",
+        "toolbar: {id: tools, band: invalid}",
+        "kpi_row: {id: tiles, tiles: []}",
+        "card: {id: card}",
+        "filter_panel: {id: filters, footer: [delete]}",
+        "tabs: {id: views, tabs: [{label: Details}]}",
+        "chart: {id: chart, kind: area, data: rows, x: Name}",
+        "spacer: {id: space, mystery: true}",
+        "date_range: {id: date, mystery: true}",
+        "dropdown: {id: choice, options: missing, display: Name}",
+        "text_field: {id: query, mystery: true}",
+        "pagination: {id: pager, for: absent}",
+    ] {
+        let text = format!("version: 1\nrules: v1\npage:\n  name: Acme.Errors_MU\n  template: blank\n  slots:\n    center:\n      - {body}\n");
+        let error = compile(&solution, "Acme", &text).unwrap_err();
+        assert!(error.line >= 8 && error.column > 0, "{body}: {error}");
+    }
+}
+
+fn canonical(content: &str) -> Value {
+    let document = mashup::edit::parse(content).unwrap();
+    let ids: std::collections::BTreeMap<_, _> = document
+        .widgets()
+        .iter()
+        .enumerate()
+        .map(|(i, w)| (w.id.clone(), format!("widget-{i}")))
+        .collect();
+    fn replace(value: &mut Value, ids: &std::collections::BTreeMap<String, String>) {
+        match value {
+            Value::String(s) => {
+                if let Some(id) = ids.get(s) {
+                    *s = id.clone();
+                } else if uuid::Uuid::parse_str(s).is_ok() {
+                    *s = "uuid".into();
+                }
+            }
+            Value::Object(map) => {
+                map.remove("twacoLayoutAuthored");
+                let old = std::mem::take(map);
+                for (key, mut value) in old {
+                    replace(&mut value, ids);
+                    map.insert(ids.get(&key).cloned().unwrap_or(key), value);
+                }
+            }
+            Value::Array(items) => {
+                for v in items {
+                    replace(v, ids);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut value: Value = serde_json::from_str(content).unwrap();
+    replace(&mut value, &ids);
+    normalized(&value.to_string())
+}
+
+#[test]
+fn elements_match_equivalent_primitive_recipe_sequences() {
+    use authoring::{session::Session, AddRequest, Recipe, SourceAddRequest};
+    let (_dir, solution) = element_solution();
+    for (body, kind, props) in [
+        (
+            "card: {id: target, title: Status, value: 42, status: Healthy, kind: ok}",
+            "flexcontainer",
+            vec![("flex-direction".into(), "column".into())],
+        ),
+        (
+            "chart: {id: target, kind: line, data: rows, x: Name}",
+            "ptcschartline",
+            vec![],
+        ),
+        (
+            "dropdown: {id: target, options: rows, display: Name}",
+            "ptcsdropdown",
+            vec![],
+        ),
+        (
+            "grid: {id: target, data: rows}\n      - pagination: {id: pager, for: target}",
+            "ptcsgrid",
+            vec![],
+        ),
+    ] {
+        let text=format!("version: 1\nrules: v1\npage:\n  name: Acme.Elements_MU\n  template: blank\n  data:\n    rows: {{service: Acme.Data.GetRows, on: load}}\n  slots:\n    center:\n      - {body}\n");
+        let built = compile(&solution, "Acme", &text).unwrap();
+        let mut primitive =
+            Session::new("Acme.Elements_MU", "Acme", "blank", "PTC Convergence Theme").unwrap();
+        let target = primitive
+            .add(
+                &solution,
+                &AddRequest {
+                    mashup: "Acme.Elements_MU".into(),
+                    widget: kind.into(),
+                    inputs: vec![],
+                    placement: Some(mashup::edit::Placement::In("center".into())),
+                    label: None,
+                    properties: props,
+                },
+            )
+            .unwrap();
+        primitive
+            .source(
+                &solution,
+                &SourceAddRequest {
+                    mashup: "Acme.Elements_MU".into(),
+                    entity: "Acme.Data".into(),
+                    service: "GetRows".into(),
+                    dynamic: false,
+                    on_load: true,
+                    alias: Some("rows".into()),
+                    entity_from: None,
+                    refresh: None,
+                    cache: false,
+                    cache_keys: vec![],
+                    cache_strategy: None,
+                    max_result_sets: None,
+                    param_values: vec![],
+                },
+            )
+            .unwrap();
+        let data = "data:Acme.Data.GetRows[as rows]".to_string();
+        let recipe = match kind {
+            "flexcontainer" => Recipe::Card {
+                container: target,
+                caption: "Status".into(),
+                value: Some("42".into()),
+                status: Some("Healthy".into()),
+                kind: "ok".into(),
+            },
+            "ptcschartline" => Recipe::Chart {
+                widget: target,
+                data,
+                x: "Name".into(),
+                value: None,
+                kind: None,
+                title: None,
+                x_title: None,
+                y_title: None,
+                stacked: false,
+            },
+            "ptcsdropdown" => Recipe::Picker {
+                widget: target,
+                data,
+                display: "Name".into(),
+                value: None,
+                selected: None,
+                no_none_row: false,
+                auto_select_first: false,
+            },
+            _ => Recipe::Pagination {
+                widget: target,
+                data,
+            },
+        };
+        primitive.recipe(&solution, recipe).unwrap();
+        assert_eq!(
+            canonical(&built.content),
+            canonical(&primitive.document.to_content()),
+            "{kind}"
+        );
+    }
+}
+
+#[test]
+fn old_id_policy_baselines_are_recognised_and_refused() {
+    let (_dir, solution) = solution();
+    let built = compile(&solution, "Acme", SPEC).unwrap();
+    let baseline = super::baseline::Baseline::generated(&built, "Acme.Alerts_MU", "Acme");
+    let mut old: Value = serde_json::from_slice(&baseline.bytes()).unwrap();
+    old.as_object_mut().unwrap().remove("id_policy");
+    let error = super::baseline::Baseline::read(&serde_json::to_vec(&old).unwrap()).unwrap_err();
+    assert!(
+        error.contains("id policy") && error.contains("version"),
+        "{error}"
+    );
+}
+
+#[test]
+fn pagination_forward_grid_and_widget_references_are_supported() {
+    let (_dir, solution) = element_solution();
+    let text="version: 1\nrules: v1\npage:\n  name: Acme.Pages_MU\n  template: blank\n  data:\n    rows: {service: Acme.Data.GetRows, on: load}\n  slots:\n    center:\n      - pagination: {id: pages, for: grid}\n      - label: {id: number, props: {LabelText: {bind: pages.PageNumber}}}\n      - grid: {id: grid, data: rows, columns: [Name, Count]}\n";
+    let built = compile(&solution, "Acme", text).unwrap();
+    assert!(built.ids.contains_key("pages"));
+    let content: Value = serde_json::from_str(&built.content).unwrap();
+    assert!(content["DataBindings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|b| b["SourceId"] == built.ids["pages"] && b["TargetId"] == built.ids["number"]));
+}
+
+#[test]
+fn bands_spacers_equal_tiles_and_filter_footer_keep_their_contracts() {
+    let (_dir, solution) = element_solution();
+    let folder =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/mashup/pages");
+    for fixture in ["toolbar", "mixed"] {
+        let text = std::fs::read_to_string(folder.join(format!("{fixture}.page.yaml"))).unwrap();
+        let built = compile(&solution, "Acme", &text).unwrap();
+        let doc = mashup::edit::parse(&built.content).unwrap();
+        let props = |name: &str| {
+            let w = doc.find_exact(&built.ids[name]).unwrap();
+            doc.at(&w.path)["Properties"].clone()
+        };
+        assert_eq!(props("tools")["flex-min-height"], "48px");
+        assert_eq!(props("tools")["flex-max-height"], "48px");
+        assert_eq!(props("space")["flex-grow"], 1);
+        if fixture == "mixed" {
+            for tile in ["total", "open"] {
+                assert_eq!(props(tile)["flex-grow"], 1);
+                assert_eq!(props(tile)["flex-basis"], "0px");
+            }
+            assert_eq!(props("filters--apply")["ButtonType"], "primary");
+            assert_eq!(props("filters--reset")["ButtonType"], "tertiary");
+        }
+    }
+}
+
+#[test]
+fn plain_toolbar_and_explicit_size_override_the_band_default() {
+    let (_dir, solution) = element_solution();
+    let spec = |fields| {
+        format!("version: 1\nrules: v1\npage:\n  name: Acme.Toolbar_MU\n  template: blank\n  slots:\n    center:\n      - toolbar: {{id: tools, {fields}}}\n")
+    };
+    let plain = compile(&solution, "Acme", &spec("band: false")).unwrap();
+    let doc = mashup::edit::parse(&plain.content).unwrap();
+    let tool = doc.find_exact(&plain.ids["tools"]).unwrap();
+    assert_ne!(doc.at(&tool.path)["Properties"]["flex-min-height"], "48px");
+    let transparent = compile(&solution, "Acme", &spec("surface: false")).unwrap();
+    let content: Value = serde_json::from_str(&transparent.content).unwrap();
+    assert_eq!(
+        content["UI"]["Properties"]["StyleProperties"]["data"][&transparent.ids["tools"]]["parts"]
+            ["$"]["$"]["background"],
+        "transparent"
+    );
+    let sized = compile(&solution, "Acme", &spec("size: {fixed: 72}")).unwrap();
+    let doc = mashup::edit::parse(&sized.content).unwrap();
+    let tool = doc.find_exact(&sized.ids["tools"]).unwrap();
+    assert_eq!(doc.at(&tool.path)["Properties"]["flex-min-height"], "72px");
+}
+
+#[test]
+fn recipe_ids_and_binding_uuids_survive_unrelated_nodes() {
+    let (_dir, solution) = element_solution();
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/mashup/pages/pagination.page.yaml");
+    let text = std::fs::read_to_string(path).unwrap();
+    let first = compile(&solution, "Acme", &text).unwrap();
+    let second = compile(
+        &solution,
+        "Acme",
+        &text.replace(
+            "    center:\n",
+            "    center:\n      - label: {id: unrelated, text: Acme}\n",
+        ),
+    )
+    .unwrap();
+    for (node, id) in first.ids {
+        assert_eq!(second.ids[&node], id);
+    }
+    let a: Value = serde_json::from_str(&first.content).unwrap();
+    let b: Value = serde_json::from_str(&second.content).unwrap();
+    assert_eq!(a["DataBindings"], b["DataBindings"]);
+    assert_eq!(a["Events"], b["Events"]);
+}
+
+#[test]
+fn column_shorthand_is_identical_to_explicit_fields() {
+    let (_dir, solution) = element_solution();
+    let text = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/mashup/pages/grid.page.yaml"),
+    )
+    .unwrap();
+    assert_eq!(
+        compile(&solution, "Acme", &text).unwrap(),
+        compile(
+            &solution,
+            "Acme",
+            &text.replace("columns: [Name,", "columns: [{field: Name},")
+        )
+        .unwrap()
+    );
+}

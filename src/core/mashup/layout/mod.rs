@@ -537,10 +537,19 @@ mod tests {
     }
 
     #[test]
-    fn the_embedded_rule_sets_load_and_legacy_equals_v1_for_now() {
+    fn v1_preserves_legacy_rules_and_adds_only_page_element_operations() {
         let legacy = RuleSet::embedded(Version::Legacy);
         let v1 = RuleSet::embedded(Version::V1);
-        assert_eq!(legacy.rules, v1.rules);
+        assert_eq!(legacy.rules, v1.rules[..legacy.rules.len()]);
+        let additions = &v1.rules[legacy.rules.len()..];
+        assert_eq!(additions.len(), 4);
+        for (rule, op) in
+            additions
+                .iter()
+                .zip(["page-header", "page-kpi-row", "page-card", "page-spacer"])
+        {
+            assert!(matches!(&rule.when.op,Some(Names::One(name)) if name == op));
+        }
         assert_eq!(legacy.version, "legacy");
         assert_eq!(v1.version, "v1");
         assert!(!legacy.rules.is_empty());

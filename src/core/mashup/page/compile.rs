@@ -172,10 +172,36 @@ pub(crate) fn compile(solution: &Solution, project: &str, text: &str) -> Result<
                 &model,
                 platform.as_ref(),
                 page,
-                &ids,
+                &mut ids,
                 node,
             )?;
         }
+    }
+    fn pagers<'a>(node: &'a Node, out: &mut Vec<&'a Node>) {
+        if matches!(node, Node::Pagination(_)) {
+            out.push(node);
+        }
+        for child in descendants(node) {
+            pagers(child, out);
+        }
+    }
+    let mut pagination = vec![];
+    for node in page.slots.values().flat_map(|s| &s.value) {
+        pagers(node, &mut pagination);
+    }
+    for node in pagination {
+        wire_pagination(solution, &mut session, &mut allocator, page, &mut ids, node)?;
+    }
+    for node in page.slots.values().flat_map(|s| &s.value) {
+        wire_values(
+            solution,
+            &mut session,
+            &model,
+            platform.as_ref(),
+            page,
+            &ids,
+            node,
+        )?;
     }
     for (alias, source) in &page.data {
         let source = &source.value;
@@ -224,13 +250,13 @@ pub(crate) fn compile(solution: &Solution, project: &str, text: &str) -> Result<
     })
 }
 
-fn scalar(value: &Value) -> String {
+pub(super) fn scalar(value: &Value) -> String {
     value
         .as_str()
         .map_or_else(|| value.to_string(), str::to_string)
 }
 
-fn binding(value: &Value) -> Option<&str> {
+pub(super) fn binding(value: &Value) -> Option<&str> {
     value
         .as_object()
         .filter(|m| m.len() == 1)?
@@ -239,6 +265,9 @@ fn binding(value: &Value) -> Option<&str> {
 }
 
 fn is_function(node: &Node) -> Result<bool, Error> {
+    if matches!(node, Node::Pagination(_)) {
+        return Ok(true);
+    }
     Ok(crate::core::widgets::catalog()
         .resolve(node.widget()?)
         .is_ok_and(|w| w.function))
@@ -255,12 +284,35 @@ fn add(
 ) -> Result<String, Error> {
     let body = node.body();
     let loc = body.id.referenced;
+    if matches!(node, Node::Pagination(_)) {
+        return Ok(String::new());
+    }
     let mut props: Vec<_> = body
         .props
         .iter()
         .filter(|(_, v)| binding(&v.value).is_none())
         .map(|(k, v)| (k.clone(), scalar(&v.value)))
         .collect();
+    let op = match node {
+        Node::PageHeader(_) => Some("page-header"),
+        Node::Toolbar(_) => Some("toolbar"),
+        Node::KpiRow(_) => Some("page-kpi-row"),
+        Node::Card(_) => Some("page-card"),
+        _ => None,
+    };
+    match node {
+        Node::DateRange(_) => props.push(("DateRange".into(), "true".into())),
+        Node::Tabs(_) => {
+            props.push(("NumberOfTabs".into(), body.tabs.len().to_string()));
+            for (i, tab) in body.tabs.iter().enumerate() {
+                props.push((format!("Tab{}Name", i + 1), tab.label.value.clone()));
+            }
+        }
+        _ => {}
+    }
+    if let Some(hint) = &body.hint {
+        props.push(("HintText".into(), hint.clone()));
+    }
     if matches!(node, Node::Heading(_)) {
         props.push(("LabelType".into(), "header".into()));
     }
@@ -304,31 +356,180 @@ fn add(
             },
         )
         .map_err(|e| Error::at(loc, e))?;
+    if let Some(op) = op {
+        let context = crate::core::mashup::layout::context::Node::op(
+            op,
+            crate::core::mashup::layout::Element::Container,
+        );
+        let path = session
+            .document
+            .find_exact(&placed)
+            .map_err(|e| Error::at(loc, e))?
+            .path;
+        for (key, value) in session
+            .document
+            .rules()
+            .evaluate(&context.context())
+            .patch()
+        {
+            session.document.set_property(&path, key, value);
+        }
+    }
+    match node {
+        Node::Toolbar(_) if body.band.unwrap_or(true) => session.recipe(
+            solution,
+            authoring::Recipe::ToolbarBand {
+                container: placed.clone(),
+            },
+        ),
+        Node::Card(_) => session.recipe(
+            solution,
+            authoring::Recipe::Card {
+                container: placed.clone(),
+                caption: body.title.clone().expect("validated title"),
+                value: body.value.as_ref().map(|v| {
+                    if binding(&v.value).is_some() {
+                        String::new()
+                    } else {
+                        scalar(&v.value)
+                    }
+                }),
+                status: body.status.as_ref().map(|v| {
+                    if binding(&v.value).is_some() {
+                        String::new()
+                    } else {
+                        scalar(&v.value)
+                    }
+                }),
+                kind: body.chart_kind.clone().unwrap_or_else(|| "info".into()),
+            },
+        ),
+        Node::FilterPanel(_) => session.template_children(&placed, "filter-panel"),
+        _ => Ok(()),
+    }
+    .map_err(|e| Error::at(loc, e))?;
     let id = stabilize(session, allocator, &old, &placed, &body.id.value, loc)?;
     ids.insert(body.id.value.clone(), id.clone());
-    let mut styles: Vec<_> = body.style.iter().map(|s| s.value.clone()).collect();
-    if let Some(surface) = body.surface {
-        styles.push(format!(
-            "background={}",
-            if surface { "#FFFFFF" } else { "transparent" }
-        ));
-    }
-    if !styles.is_empty() {
-        session
-            .set(
+    apply_styles(solution, session, page, &id, body)?;
+    if matches!(node, Node::FilterPanel(_)) {
+        let root = session
+            .document
+            .find_exact(&id)
+            .map_err(|e| Error::at(loc, e))?
+            .path;
+        let slot = |name: &str, session: &Session| {
+            session
+                .document
+                .widgets()
+                .into_iter()
+                .find(|w| w.path.starts_with(&root) && w.display_name == name)
+                .expect("template slot")
+                .id
+        };
+        let filters = slot("filters", session);
+        let footer = slot("filter-footer", session);
+        let content = slot("content", session);
+        add_children(
+            solution,
+            session,
+            allocator,
+            ids,
+            page,
+            &body.fields,
+            &filters,
+        )?;
+        for child in &body.children {
+            let target = if body
+                .footer
+                .iter()
+                .any(|f| child.body().id.value == format!("{}--{}", body.id.value, f.value))
+            {
+                &footer
+            } else {
+                &content
+            };
+            add_children(
                 solution,
-                &authoring::SetRequest {
-                    mashup: page.name.value.clone(),
-                    widget: id.clone(),
-                    properties: vec![],
-                    style_from: None,
-                    styles: std::mem::take(&mut styles),
-                },
-            )
-            .map_err(|e| Error::at(loc, e))?;
+                session,
+                allocator,
+                ids,
+                page,
+                std::slice::from_ref(child),
+                target,
+            )?;
+        }
+    } else if matches!(node, Node::Tabs(_)) {
+        let path = session
+            .document
+            .find_exact(&id)
+            .map_err(|e| Error::at(loc, e))?
+            .path;
+        for (i, tab) in body.tabs.iter().enumerate() {
+            let tab_path = [path.as_slice(), &[i]].concat();
+            let parent = session.document.at(&tab_path)["Properties"]["Id"]
+                .as_str()
+                .expect("tab id")
+                .to_string();
+            let old: BTreeSet<_> = session
+                .document
+                .widgets()
+                .into_iter()
+                .map(|w| w.id)
+                .collect();
+            let role = format!("{}--tab-{}", body.id.value, tab.label.value);
+            if let Some(mashup) = &tab.mashup {
+                let held = session
+                    .contained(solution, &parent, &mashup.value)
+                    .map_err(|e| Error::at(mashup.referenced, e))?;
+                stabilize(session, allocator, &old, &held, &role, tab.label.referenced)?;
+            } else {
+                session
+                    .template_children(&parent, "tab-content")
+                    .map_err(|e| Error::at(tab.label.referenced, e))?;
+                let body_slot = session
+                    .document
+                    .widgets()
+                    .into_iter()
+                    .find(|w| w.path.starts_with(&tab_path) && w.display_name == "body")
+                    .expect("tab body")
+                    .id;
+                let stable = stabilize(
+                    session,
+                    allocator,
+                    &old,
+                    &body_slot,
+                    &role,
+                    tab.label.referenced,
+                )?;
+                add_children(
+                    solution,
+                    session,
+                    allocator,
+                    ids,
+                    page,
+                    tab.content.as_deref().unwrap_or_default(),
+                    &stable,
+                )?;
+            }
+        }
+    } else {
+        add_children(solution, session, allocator, ids, page, &body.children, &id)?;
     }
+    Ok(id)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn add_children(
+    solution: &Solution,
+    session: &mut Session,
+    allocator: &mut Ids,
+    ids: &mut BTreeMap<String, String>,
+    page: &Page,
+    children: &[Node],
+    parent: &str,
+) -> Result<(), Error> {
     let mut previous = None;
-    for child in &body.children {
+    for child in children {
         let added = add(
             solution,
             session,
@@ -336,13 +537,57 @@ fn add(
             ids,
             page,
             child,
-            (&id, previous.as_deref()),
+            (parent, previous.as_deref()),
         )?;
         if !is_function(child)? {
             previous = Some(added);
         }
     }
-    Ok(id)
+    Ok(())
+}
+
+pub(super) fn descendants(node: &Node) -> impl Iterator<Item = &Node> {
+    let b = node.body();
+    b.children
+        .iter()
+        .chain(&b.fields)
+        .chain(b.tabs.iter().flat_map(|t| t.content.iter().flatten()))
+}
+
+fn styles(body: &schema::Body) -> Vec<String> {
+    let mut styles: Vec<_> = body.style.iter().map(|s| s.value.clone()).collect();
+    if let Some(surface) = body.surface {
+        styles.push(format!(
+            "background={}",
+            if surface { "#FFFFFF" } else { "transparent" }
+        ));
+    }
+    styles
+}
+
+fn apply_styles(
+    solution: &Solution,
+    session: &mut Session,
+    page: &Page,
+    id: &str,
+    body: &schema::Body,
+) -> Result<(), Error> {
+    let styles = styles(body);
+    if !styles.is_empty() {
+        session
+            .set(
+                solution,
+                &authoring::SetRequest {
+                    mashup: page.name.value.clone(),
+                    widget: id.into(),
+                    properties: vec![],
+                    style_from: None,
+                    styles,
+                },
+            )
+            .map_err(|e| Error::at(body.id.referenced, e))?;
+    }
+    Ok(())
 }
 
 fn apply_size(
@@ -353,10 +598,48 @@ fn apply_size(
     node: &Node,
 ) -> Result<(), Error> {
     let body = node.body();
-    for child in &body.children {
+    for child in descendants(node) {
         apply_size(solution, session, page, ids, child)?;
     }
+    if matches!(node, Node::Toolbar(_)) && body.band.unwrap_or(true) {
+        session
+            .recipe(
+                solution,
+                authoring::Recipe::ToolbarBand {
+                    container: ids[&body.id.value].clone(),
+                },
+            )
+            .map_err(|e| Error::at(body.id.referenced, e))?;
+        apply_styles(solution, session, page, &ids[&body.id.value], body)?;
+    }
     let id = ids[&body.id.value].clone();
+    if matches!(node, Node::Spacer(_)) {
+        session
+            .set(
+                solution,
+                &authoring::SetRequest {
+                    mashup: page.name.value.clone(),
+                    widget: id.clone(),
+                    properties: session
+                        .document
+                        .rules()
+                        .evaluate(
+                            &crate::core::mashup::layout::context::Node::op(
+                                "page-spacer",
+                                crate::core::mashup::layout::Element::Container,
+                            )
+                            .context(),
+                        )
+                        .patch()
+                        .into_iter()
+                        .map(|(k, v)| (k.into(), v))
+                        .collect(),
+                    style_from: None,
+                    styles: vec![],
+                },
+            )
+            .map_err(|e| Error::at(body.id.referenced, e))?;
+    }
     let loc = body.id.referenced;
     let mut properties = vec![];
     if let Some(size) = &body.size {
@@ -459,9 +742,50 @@ fn stabilize(
             .unwrap_or(placed);
         let child = mapping.get(child).map_or(child, String::as_str);
         let role = if let Some((_, tab)) = widget.display_name.rsplit_once(" #") {
-            format!("tab:{tab}")
+            let label = session.document.at(&main.path)["Properties"][format!("Tab{tab}Name")]
+                .as_str()
+                .unwrap_or(tab);
+            format!("tab:{label}")
         } else {
-            format!("wrapper:{child}")
+            if crate::core::widgets::catalog()
+                .by_type(&widget.type_id)
+                .is_some_and(|w| w.function)
+            {
+                format!(
+                    "function:{}",
+                    session.document.at(&widget.path)["Properties"]["Expression"]
+                        .as_str()
+                        .unwrap_or(&widget.type_id)
+                )
+            } else if session.document.at(&widget.path)["twacoTemplateSlot"] == true
+                && !widget.display_name.starts_with("divider-")
+            {
+                format!("slot:{}", widget.display_name)
+            } else if widget.display_name.starts_with("divider-") {
+                let parent = &widget.path[..widget.path.len() - 1];
+                let next = widget.path.last().expect("divider index") + 1;
+                let next_slot = session.document.at(parent)["Widgets"]
+                    .as_array()
+                    .and_then(|items| items.get(next))
+                    .and_then(|v| v["Properties"]["DisplayName"].as_str())
+                    .unwrap_or("end");
+                let parent_slot = session.document.at(parent)["Properties"]["DisplayName"]
+                    .as_str()
+                    .filter(|_| session.document.at(parent)["twacoTemplateSlot"] == true)
+                    .unwrap_or("root");
+                format!("divider:{parent_slot}:before:{next_slot}")
+            } else if !widget.path.starts_with(&main.path) {
+                format!("wrapper:{child}")
+            } else if widget.type_id == "ptcslabel" && widget.path.len() == main.path.len() + 1 {
+                format!(
+                    "label:{}",
+                    session.document.at(&widget.path)["Properties"]["LabelType"]
+                        .as_str()
+                        .unwrap_or("body")
+                )
+            } else {
+                format!("wrapper:{child}")
+            }
         };
         let stable = allocator
             .widget(&widget.type_id, node, &role)
@@ -484,6 +808,58 @@ fn stabilize(
             }
         }
     }
+    fn remap(v: &mut Value, mapping: &BTreeMap<String, String>) {
+        match v {
+            Value::Object(m) => {
+                for (key, value) in m.iter_mut() {
+                    if matches!(
+                        key.as_str(),
+                        "SourceId"
+                            | "TargetId"
+                            | "EventTriggerId"
+                            | "EventHandlerId"
+                            | "twacoPaginationFor"
+                    ) {
+                        if let Some(id) = value.as_str().and_then(|s| mapping.get(s)) {
+                            *value = json!(id);
+                        }
+                    } else {
+                        remap(value, mapping);
+                    }
+                }
+            }
+            Value::Array(items) => {
+                for item in items {
+                    remap(item, mapping);
+                }
+            }
+            _ => {}
+        }
+    }
+    for value in session.document.root_mut().values_mut() {
+        remap(value, &mapping);
+    }
+    fn binding_ids(items: &mut [Value], mapping: &BTreeMap<String, String>) {
+        for item in items {
+            let uses_generated = ["SourceId", "TargetId", "EventTriggerId", "EventHandlerId"]
+                .iter()
+                .any(|k| {
+                    item[*k]
+                        .as_str()
+                        .is_some_and(|id| mapping.values().any(|stable| stable == id))
+                });
+            if uses_generated {
+                let mut semantic = item.clone();
+                semantic
+                    .as_object_mut()
+                    .expect("binding object")
+                    .remove("Id");
+                item["Id"] = json!(super::ids::uuid(&format!("remapped:{semantic}")));
+            }
+        }
+    }
+    binding_ids(session.document.bindings_mut(), &mapping);
+    binding_ids(session.document.events_mut(), &mapping);
     if let Some(styles) = session
         .document
         .root_properties_mut()
@@ -504,11 +880,11 @@ fn stabilize(
     Ok(id)
 }
 
-fn call(page: &Page, alias: &str) -> String {
+pub(super) fn call(page: &Page, alias: &str) -> String {
     format!("data:{}[as {alias}]", page.data[alias].value.service.value)
 }
 
-fn address(
+pub(super) fn address(
     page: &Page,
     ids: &BTreeMap<String, String>,
     text: &str,
@@ -535,18 +911,35 @@ fn address(
     Err(Error::at(loc, format!("unknown reference {text}")))
 }
 
+fn find_grid<'a>(page: &'a Page, name: &str) -> Option<&'a str> {
+    fn find<'a>(node: &'a Node, name: &str) -> Option<&'a str> {
+        if matches!(node, Node::Grid(_)) && node.body().id.value == name {
+            return node.body().data.as_ref().map(|d| d.value.as_str());
+        }
+        descendants(node).find_map(|n| find(n, name))
+    }
+    page.slots
+        .values()
+        .flat_map(|s| &s.value)
+        .find_map(|n| find(n, name))
+}
+
 fn wire(
     solution: &Solution,
     session: &mut Session,
     model: &types::Model,
     platform: Option<&types::Platform>,
     page: &Page,
-    ids: &BTreeMap<String, String>,
+    ids: &mut BTreeMap<String, String>,
     node: &Node,
 ) -> Result<(), Error> {
     let body = node.body();
+    if matches!(node, Node::Pagination(_)) {
+        return Ok(());
+    }
     let id = &ids[&body.id.value];
-    if let Some(data) = &body.data {
+    super::elements::wire(solution, session, model, platform, page, ids, node)?;
+    if let Some(data) = body.data.as_ref().filter(|_| matches!(node, Node::Grid(_))) {
         let from = call(page, &data.value);
         session
             .bind(solution, model, platform, &from, &format!("ui:{id}.Data"))
@@ -603,6 +996,92 @@ fn wire(
             "grid columns need data",
         ));
     }
+    for child in descendants(node) {
+        wire(solution, session, model, platform, page, ids, child)?;
+    }
+    Ok(())
+}
+
+fn wire_pagination(
+    solution: &Solution,
+    session: &mut Session,
+    allocator: &mut Ids,
+    page: &Page,
+    ids: &mut BTreeMap<String, String>,
+    node: &Node,
+) -> Result<(), Error> {
+    let body = node.body();
+    let grid = body.grid.as_ref().expect("validated grid");
+    let target = ids
+        .get(&grid.value)
+        .ok_or_else(|| Error::at(grid.referenced, "unknown pagination grid"))?;
+    let data = find_grid(page, &grid.value)
+        .ok_or_else(|| Error::at(grid.referenced, "pagination for must name a grid with data"))?;
+    let old: BTreeSet<_> = session
+        .document
+        .widgets()
+        .into_iter()
+        .map(|w| w.id)
+        .collect();
+    session
+        .recipe(
+            solution,
+            authoring::Recipe::Pagination {
+                widget: target.clone(),
+                data: call(page, data),
+            },
+        )
+        .map_err(|e| Error::at(grid.referenced, e))?;
+    let placed = session
+        .document
+        .widgets()
+        .into_iter()
+        .find(|w| !old.contains(&w.id) && w.type_id == "ptcspagination")
+        .ok_or_else(|| Error::at(grid.referenced, "grid already has pagination"))?
+        .id;
+    let id = stabilize(
+        session,
+        allocator,
+        &old,
+        &placed,
+        &body.id.value,
+        body.id.referenced,
+    )?;
+    ids.insert(body.id.value.clone(), id);
+    let id = &ids[&body.id.value];
+    session
+        .set(
+            solution,
+            &authoring::SetRequest {
+                mashup: page.name.value.clone(),
+                widget: id.clone(),
+                properties: body
+                    .props
+                    .iter()
+                    .filter(|(_, v)| binding(&v.value).is_none())
+                    .map(|(k, v)| (k.clone(), v.value.clone()))
+                    .collect(),
+                style_from: None,
+                styles: styles(body),
+            },
+        )
+        .map_err(|e| Error::at(body.id.referenced, e))?;
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn wire_values(
+    solution: &Solution,
+    session: &mut Session,
+    model: &types::Model,
+    platform: Option<&types::Platform>,
+    page: &Page,
+    ids: &BTreeMap<String, String>,
+    node: &Node,
+) -> Result<(), Error> {
+    let body = node.body();
+    let id = &ids[&body.id.value];
+    super::elements::wire_values(solution, session, model, platform, page, ids, node)?;
     for (prop, value) in &body.props {
         if let Some(from) = binding(&value.value) {
             let from = address(page, ids, from, value.referenced)?;
@@ -611,8 +1090,8 @@ fn wire(
                 .map_err(|e| Error::at(value.referenced, e))?;
         }
     }
-    for child in &body.children {
-        wire(solution, session, model, platform, page, ids, child)?;
+    for child in descendants(node) {
+        wire_values(solution, session, model, platform, page, ids, child)?;
     }
     Ok(())
 }

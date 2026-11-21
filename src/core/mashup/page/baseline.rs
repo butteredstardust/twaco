@@ -9,6 +9,8 @@ pub(super) struct Baseline {
     pub format: u32,
     pub compiler: String,
     pub rules: String,
+    #[serde(default)]
+    pub id_policy: String,
     pub ids: BTreeMap<String, String>,
     pub ownership: Vec<String>,
     pub content: Value,
@@ -45,6 +47,7 @@ impl Baseline {
             format: 1,
             compiler: "page-v1".into(),
             rules: "v1".into(),
+            id_policy: super::ids::VERSION.into(),
             ids: artifacts.ids.clone(),
             ownership,
             content,
@@ -62,6 +65,9 @@ impl Baseline {
             serde_json::from_slice(bytes).map_err(|e| format!(".page-baseline.json: {e}"))?;
         if baseline.format != 1 || baseline.compiler != "page-v1" || baseline.rules != "v1" {
             return Err(".page-baseline.json: unsupported format/compiler/rule version; use a compatible twaco".into());
+        }
+        if baseline.id_policy != super::ids::VERSION {
+            return Err(".page-baseline.json: unsupported id policy; use the twaco version that generated this baseline".into());
         }
         crate::core::mashup::edit::parse(&crate::core::mashup::to_sidecar(&baseline.content))
             .map_err(|e| format!(".page-baseline.json: invalid generated content: {e}"))?;

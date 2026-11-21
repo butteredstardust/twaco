@@ -44,6 +44,18 @@ pub(crate) enum Node {
     Heading(Body),
     Button(Body),
     Widget(Body),
+    PageHeader(Body),
+    Toolbar(Body),
+    KpiRow(Body),
+    Card(Body),
+    FilterPanel(Body),
+    Tabs(Body),
+    Chart(Body),
+    Spacer(Body),
+    DateRange(Body),
+    Dropdown(Body),
+    TextField(Body),
+    Pagination(Body),
 }
 
 impl Node {
@@ -53,11 +65,66 @@ impl Node {
             | Self::Label(b)
             | Self::Heading(b)
             | Self::Button(b)
-            | Self::Widget(b) => b,
+            | Self::Widget(b)
+            | Self::PageHeader(b)
+            | Self::Toolbar(b)
+            | Self::KpiRow(b)
+            | Self::Card(b)
+            | Self::FilterPanel(b)
+            | Self::Tabs(b)
+            | Self::Chart(b)
+            | Self::Spacer(b)
+            | Self::DateRange(b)
+            | Self::Dropdown(b)
+            | Self::TextField(b)
+            | Self::Pagination(b) => b,
+        }
+    }
+    pub(crate) fn body_mut(&mut self) -> &mut Body {
+        match self {
+            Self::Grid(b)
+            | Self::Label(b)
+            | Self::Heading(b)
+            | Self::Button(b)
+            | Self::Widget(b)
+            | Self::PageHeader(b)
+            | Self::Toolbar(b)
+            | Self::KpiRow(b)
+            | Self::Card(b)
+            | Self::FilterPanel(b)
+            | Self::Tabs(b)
+            | Self::Chart(b)
+            | Self::Spacer(b)
+            | Self::DateRange(b)
+            | Self::Dropdown(b)
+            | Self::TextField(b)
+            | Self::Pagination(b) => b,
         }
     }
     pub(crate) fn widget(&self) -> Result<&str, Error> {
         Ok(match self {
+            Self::PageHeader(_)
+            | Self::Toolbar(_)
+            | Self::KpiRow(_)
+            | Self::Card(_)
+            | Self::FilterPanel(_)
+            | Self::Spacer(_) => "flexcontainer",
+            Self::Tabs(_) => "ptcstabset",
+            Self::Chart(b) => match b.chart_kind.as_deref() {
+                Some("line") => "ptcschartline",
+                Some("bar") => "ptcschartbar",
+                Some("pie") => "ptcschartpie",
+                _ => {
+                    return Err(Error::at(
+                        b.id.referenced,
+                        "chart kind must be line, bar or pie",
+                    ))
+                }
+            },
+            Self::DateRange(_) => "ptcsdatepicker",
+            Self::Dropdown(_) => "ptcsdropdown",
+            Self::TextField(_) => "ptcstextfield",
+            Self::Pagination(_) => "ptcspagination",
             Self::Grid(_) => "ptcsgrid",
             Self::Label(_) | Self::Heading(_) => "ptcslabel",
             Self::Button(_) => "ptcsbutton",
@@ -77,6 +144,33 @@ pub(crate) struct Body {
     pub(crate) id: Spanned<String>,
     #[serde(rename = "type")]
     pub(crate) kind: Option<Spanned<String>>,
+    #[serde(rename = "kind")]
+    pub(crate) chart_kind: Option<String>,
+    pub(crate) title: Option<String>,
+    pub(crate) help: Option<String>,
+    pub(crate) hint: Option<String>,
+    pub(crate) band: Option<bool>,
+    pub(crate) value: Option<Spanned<Value>>,
+    pub(crate) status: Option<Spanned<Value>>,
+    pub(crate) unit: Option<String>,
+    pub(crate) color: Option<String>,
+    pub(crate) options: Option<Spanned<String>>,
+    pub(crate) display: Option<String>,
+    pub(crate) x: Option<String>,
+    pub(crate) stacked: Option<bool>,
+    #[serde(rename = "for")]
+    pub(crate) grid: Option<Spanned<String>>,
+    #[serde(default)]
+    pub(crate) actions: Vec<Body>,
+    #[serde(default)]
+    pub(crate) fields: Vec<Node>,
+    #[serde(default)]
+    pub(crate) footer: Vec<Spanned<String>>,
+    #[serde(default)]
+    pub(crate) tiles: Vec<Body>,
+    #[serde(default)]
+    pub(crate) tabs: Vec<Tab>,
+
     #[serde(alias = "label")]
     pub(crate) text: Option<String>,
     pub(crate) data: Option<Spanned<String>>,
@@ -94,7 +188,52 @@ pub(crate) struct Body {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct Tab {
+    pub(crate) label: Spanned<String>,
+    pub(crate) mashup: Option<Spanned<String>>,
+    pub(crate) content: Option<Vec<Node>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum ColumnInput {
+    Name(String),
+    Full(FullColumn),
+}
+
+impl<'de> Deserialize<'de> for Column {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        Ok(match ColumnInput::deserialize(d)? {
+            ColumnInput::Name(field) => Self {
+                field,
+                title: None,
+                width: None,
+                format: None,
+                status: None,
+            },
+            ColumnInput::Full(c) => Self {
+                field: c.field,
+                title: c.title,
+                width: c.width,
+                format: c.format,
+                status: c.status,
+            },
+        })
+    }
+}
+
+#[derive(Debug)]
 pub(crate) struct Column {
+    pub(crate) field: String,
+    pub(crate) title: Option<String>,
+    pub(crate) width: Option<u32>,
+    pub(crate) format: Option<String>,
+    pub(crate) status: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FullColumn {
     pub(crate) field: String,
     pub(crate) title: Option<String>,
     pub(crate) width: Option<u32>,
@@ -118,7 +257,7 @@ pub(crate) struct Event {
 }
 
 pub(crate) fn parse(text: &str) -> Result<Spec, Error> {
-    let spec: Spec = serde_saphyr::from_str(text).map_err(|error| {
+    let mut spec: Spec = serde_saphyr::from_str(text).map_err(|error| {
         Error::at(
             error.location().unwrap_or(serde_saphyr::Location::UNKNOWN),
             error,
@@ -130,6 +269,7 @@ pub(crate) fn parse(text: &str) -> Result<Spec, Error> {
     if spec.rules.value != "v1" {
         return Err(Error::at(spec.rules.referenced, "rules must be v1"));
     }
+    super::elements::expand(&mut spec.page.value)?;
     let mut ids = BTreeMap::new();
     fn check(
         nodes: &[Node],
@@ -175,16 +315,25 @@ pub(crate) fn parse(text: &str) -> Result<Spec, Error> {
                     ));
                 }
             }
-            if !matches!(node, Node::Grid(_)) && (b.data.is_some() || !b.columns.is_empty()) {
+            if (!matches!(node, Node::Grid(_) | Node::Chart(_)) && b.data.is_some())
+                || (!matches!(node, Node::Grid(_)) && !b.columns.is_empty())
+            {
                 return Err(Error::at(
                     b.id.referenced,
-                    "data and columns belong to grid",
+                    "data belongs to grid/chart; columns belong to grid",
                 ));
             }
             if !matches!(node, Node::Widget(_)) && b.kind.is_some() {
                 return Err(Error::at(b.id.referenced, "type belongs to widget"));
             }
+            super::elements::validate(node, page)?;
             check(&b.children, ids, page)?;
+            check(&b.fields, ids, page)?;
+            for tab in &b.tabs {
+                if let Some(content) = &tab.content {
+                    check(content, ids, page)?;
+                }
+            }
         }
         Ok(())
     }

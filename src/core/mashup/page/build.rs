@@ -211,7 +211,9 @@ pub(crate) fn plan(
             if let Some(id) = ids.get(&b.id.value) {
                 lines.insert(id.clone(), b.id.referenced.line().max(1));
             }
-            node_lines(&b.children, ids, lines);
+            for child in super::compile::descendants(n) {
+                node_lines(std::slice::from_ref(child), ids, lines);
+            }
         }
     }
     for slot in spec.page.value.slots.values() {

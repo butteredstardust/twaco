@@ -2760,3 +2760,12 @@ edits where generation is unchanged, merges independent edits, and reports compe
 with the widget/property and spec line. Conflicts write nothing; reconcile the edits and plan
 again. Existing mashups can adopt only specs whose generated values already match their current
 values. All local output files apply together under the workspace lock; deployment is separate.
+
+
+Page specs support page headers with actions, grey toolbar bands and spacers, equal KPI rows,
+cards, filter panels with Apply/Reset footers, inline or contained tabs, line/bar/pie charts,
+date ranges, dropdowns, text fields, grids and local pagination. Grid columns can use bare
+field names (`columns: [Name, Count]`). See the [element reference](PAGE_SPECS.md#element-reference)
+for one example of each. These elements reuse the command recipes, templates and native
+widgets, with layout from the pinned v1 rules. Widget IDs keep stable hash suffixes in a readable
+four to six digit range; old ID-policy baselines require their compatible twaco version.

@@ -8,6 +8,9 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- Page-spec v1 elements: page headers, toolbar bands and spacers, equal KPI rows, cards, filter panels, tabs, line/bar/pie charts, date ranges, dropdowns, text fields and grid pagination through existing authoring helpers. Grid columns accept bare field names.
+- Page widget IDs now use stable four to six digit suffixes with collision refusal. Baselines record ID policy v2 and refuse incompatible older policies without renumbering.
+
 - `mashup build` (MCP `mashup_build`) plans baseline-aware page-spec rebuilds, preserves independent hand edits, refuses conflicts, and applies XML, sidecars and the generated baseline atomically. `mashup new --spec` creates through the same path and copies page.yaml.
 
 - Internal page-spec compiler: strict, located YAML diagnostics, stable widget IDs and deterministic source/binding IDs; compiles grid, text, button and raw-widget specs to entity XML and sidecars through shared authoring operations.

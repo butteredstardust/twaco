@@ -1,7 +1,7 @@
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 
-const VERSION: &str = "twaco-page-ids-v1";
+pub(crate) const VERSION: &str = "twaco-page-ids-v2";
 
 fn hash(node: &str, role: &str) -> [u8; 32] {
     let mut hash = Sha256::new();
@@ -33,9 +33,9 @@ impl Ids {
     }
     pub(crate) fn widget(&mut self, kind: &str, node: &str, role: &str) -> Result<String, String> {
         let digest = hash(node, role);
-        // Stay within Composer/JavaScript's signed 32-bit numeric range.
-        let number =
-            u64::from(u32::from_be_bytes(digest[..4].try_into().expect("4 bytes")) & 0x7fff_ffff);
+        // Leave template numbers below 1000; refuse collisions instead of probing.
+        let number = 1000
+            + u64::from(u32::from_be_bytes(digest[..4].try_into().expect("4 bytes"))) % 999_000;
         self.reserve(number)?;
         Ok(format!("{kind}-{number}"))
     }
@@ -60,5 +60,25 @@ mod tests {
         ids.widget("ptcslabel", "title", "widget").unwrap();
         assert!(ids.widget("ptcslabel", "title", "widget").is_err());
         assert_eq!(uuid("Acme.Data.GetRows"), uuid("Acme.Data.GetRows"));
+    }
+    #[test]
+    fn readable_ids_are_stable_and_real_hash_collisions_are_refused() {
+        let mut first = Ids::new(std::iter::empty());
+        let id = first.widget("ptcsbutton", "refresh", "widget").unwrap();
+        assert_eq!(
+            id,
+            Ids::new(std::iter::empty())
+                .widget("ptcsbutton", "refresh", "widget")
+                .unwrap()
+        );
+        let suffix = id.rsplit('-').next().unwrap();
+        assert!((4..=6).contains(&suffix.len()));
+        first.widget("ptcslabel", "node-697", "widget").unwrap();
+        assert!(first
+            .widget("ptcsbutton", "node-903", "widget")
+            .unwrap_err()
+            .contains("576705"));
+        let mut reserved = Ids::new([id].into_iter());
+        assert!(reserved.widget("ptcsbutton", "refresh", "widget").is_err());
     }
 }

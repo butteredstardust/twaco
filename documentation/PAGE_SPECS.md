@@ -33,7 +33,7 @@ page:
     - {on: refresh.Clicked, invoke: alerts}
 ```
 
-The current elements are `grid`, `label`, `heading`, `button` and
+The primitive elements are `grid`, `label`, `heading`, `button` and
 `widget: {id: ..., type: ptcs...}`. Every authored node requires an ID containing ASCII
 letters, digits, underscores or hyphens. Nodes accept `text` (also spelled `label`), catalogue
 `props`, a list of `style` settings in the `mashup set --style` grammar, `surface: true|false`,
@@ -57,7 +57,7 @@ IDs, unresolved symbols and contract errors report `page.yaml:line:column`.
 
 The rule version is required and pinned to `v1`; existing commands keep their legacy behavior.
 Widget numeric suffixes derive from SHA-256 of the ID policy version, authored node ID and
-generated role, within Composer's signed 32-bit range. Template numbers are reserved. A collision
+generated role, in the range 1000?999999 (four to six digits). Template numbers are reserved. A collision
 is an error and never causes renumbering. Wrapper roles name their enclosed widgets, and sources,
 bindings and events use semantic addresses for deterministic UUIDs. Ordinary authoring retains
 UUIDv4 through the document's injectable generator. Identical specs and offline metadata produce
@@ -66,16 +66,60 @@ identical artifacts. Mapping declaration order does not affect output; node arra
 The compiler calls the same in-memory new/add/set/source/bind/on/recipe operations as command
 planners. XML is filled through `mashup::sync` scanner spans and splices. The compiler neither
 serializes entity XML nor invokes the CLI. Future elements extend the node enum and reuse this
-session; components and the remaining intent-level elements are separate work.
+session. Reusable component libraries remain separate work.
 
+
+## Element reference
+
+These nodes also accept the common ID, props, style, surface and size fields. IDs are
+required, including on spacers, KPI tiles and header actions. Generated internal names use
+`<id>--<role>`; choose other names for authored nodes. All output uses native widgets.
+Examples below are nodes in a slot; `rows` is a declared INFOTABLE source with `Name` and
+numeric `Count` fields. Bindings and events use authored IDs, including tile and action IDs.
+
+| Element | Existing operation reused | Example |
+| --- | --- | --- |
+| `page_header` | heading/label/button authoring; v1 header row | `- page_header: {id: header, title: Alerts, help: Current alerts, actions: [{id: refresh, label: Refresh}]}` |
+| `toolbar` | row authoring and `recipe toolbar --band` | `- toolbar: {id: tools, children: [{text_field: {id: search, hint: Search}}, {spacer: {id: space}}, {button: {id: refresh, label: Refresh}}]}` |
+| `kpi_row` | `recipe card`, label bindings and equal panel widths | `- kpi_row: {id: totals, tiles: [{id: total, label: Total, value: {bind: rows.Count}, unit: alerts, color: '#123456'}]}` |
+| `card` | `recipe card` | `- card: {id: state, title: Status, value: {bind: rows.Count}, status: Healthy, kind: ok, children: [{label: {id: detail, text: Details}}]}` |
+| `filter_panel` | filter-panel template and filter-footer authoring rules | `- filter_panel: {id: filters, fields: [{text_field: {id: query, hint: Search}}], footer: [apply, reset]}` |
+| `tabs` | tabset authoring (`sync_tabs`), tab-content template, add-contained | `- tabs: {id: views, tabs: [{label: Overview, content: [{label: {id: overview, text: Overview}}]}, {label: Details, mashup: Acme.Child_MU}]}` |
+| `chart` | `recipe chart` | `- chart: {id: counts, kind: bar, data: rows, x: Name, stacked: true}` |
+| `spacer` | responsive container authoring and v1 spacer rule | `- spacer: {id: space}` |
+| `date_range` | datepicker authoring, `DateRange: true` | `- date_range: {id: dates}` |
+| `dropdown` | `recipe picker` | `- dropdown: {id: choice, options: rows, display: Name}` |
+| `text_field` | textfield authoring | `- text_field: {id: query, hint: Search}` |
+| `pagination` | `recipe pagination` | `- pagination: {id: pages, for: results}` |
+| `grid` | grid authoring and `recipe columns` | `- grid: {id: results, data: rows, columns: [Name, {field: Count, title: Total}]}` |
+| `label` | label authoring | `- label: {id: note, text: Details}` |
+| `heading` | label authoring with header LabelType | `- heading: {id: title, text: Alerts}` |
+| `button` | button authoring | `- button: {id: refresh, label: Refresh}` |
+| `widget` | catalogue authoring | `- widget: {id: input, type: ptcstextfield, props: {Text: Acme}}` |
+
+Toolbar `band` defaults to true: the existing recipe supplies the grey 48px band. Set
+`band: false` for a plain row. A spacer grows inside its row and pushes following controls
+right. KPI tiles reuse the native card caption/value styling, equal flex widths and an optional
+unit label; `color` styles the value label. Card `kind` defaults to `info` and accepts `info`,
+`ok`, `warning`, `error`; value and status accept text or `{bind: ...}`.
+
+Filter fields go in the template's filters slot; footer accepts `apply` and `reset` and uses
+the existing primary/tertiary button rules. Their generated IDs are `<id>--apply` and
+`<id>--reset`, so events can invoke services through those names. Optional children go in the
+flexible content slot. Tabs require 1?16 unique labels and exactly one of `mashup` or `content`
+per tab. Inline content uses tab-content's body slot; contained mashups use the shared offline
+parameter checks. A pie chart requires `value: Count`; line and bar charts draw numeric series
+through the chart recipe, and `stacked: true` requires bar. Pagination names a grid with data
+and creates the same local slicing expressions and reset bindings as the pagination recipe.
 
 ## Baseline and hand edits
 
 Commit `src/<Mashup>/.page-baseline.json` beside `page.yaml`. Format 1 records compiler
-`page-v1`, rule version `v1`, the node-to-widget ID map, generated ownership paths, generated
+`page-v1`, rule version `v1`, ID policy `twaco-page-ids-v2`, the node-to-widget ID map, generated ownership paths, generated
 content and CSS, and managed XML identity values (`name`, `projectName`). XML outside the
 mashup payload and identity remains unmanaged. The baseline always records the last generated
-artifacts, never the merged result. Unsupported baseline versions are refused.
+artifacts, never the merged result. Unsupported baseline versions are refused. Baselines made before ID policy v2 are recognised
+and refused with a compatible-version instruction; they are never silently renumbered.
 
 For baseline B, current C and generated G, build keeps C when G equals B, applies G when C
 equals B, and accepts identical changes. Other changes conflict. Widgets merge by ID even when

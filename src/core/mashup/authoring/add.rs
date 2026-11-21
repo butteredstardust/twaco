@@ -634,12 +634,20 @@ pub(crate) fn plan_add_contained(
     solution: &Solution,
     request: &AddContainedRequest,
 ) -> Result<AddContainedPlan, AuthoringError> {
+    let loaded = load_existing(solution, &request.mashup)?;
+    plan_add_contained_loaded(solution, request, loaded)
+}
+
+pub(super) fn plan_add_contained_loaded(
+    solution: &Solution,
+    request: &AddContainedRequest,
+    loaded: super::ExistingMashup,
+) -> Result<AddContainedPlan, AuthoringError> {
     if request.mashup == request.child {
         return Err(AuthoringError::Refused(
             "a mashup cannot contain itself".into(),
         ));
     }
-    let loaded = load_existing(solution, &request.mashup)?;
     let child = load_existing(solution, &request.child)?;
     let child_document = parse_loaded(&child)?;
     if child_document.value()["mashupType"] == "targetmashup" {
@@ -677,7 +685,7 @@ pub(crate) fn plan_add_contained(
     });
     let mut notes = Vec::new();
     if let Some(tab) = &tab_parent {
-        let rules = layout::current();
+        let rules = document.rules();
         let in_tab =
             |element| layout::context::Node::op("add-contained", element).fact("in-tab", true);
         let tab_node = in_tab(layout::Element::Tab);
