@@ -328,7 +328,7 @@ pub(super) fn resolve_trigger(
     if let Some(rest) = raw.strip_prefix("ui:") {
         let (widget, event) = rest
             .rsplit_once('.')
-            .ok_or_else(|| AuthoringError::Invalid(format!("invalid mashup address `{raw}`")))?;
+            .ok_or_else(|| AuthoringError::Invalid(mashup::address::address_help(raw)))?;
         let found = document.find_exact(widget).map_err(AuthoringError::Edit)?;
         if found.type_id == "mashupcontainer" {
             return Err(AuthoringError::Invalid(
@@ -383,10 +383,10 @@ pub(super) fn resolve_trigger(
     }
     let rest = raw
         .strip_prefix("data:")
-        .ok_or_else(|| AuthoringError::Invalid(format!("invalid mashup address `{raw}`")))?;
+        .ok_or_else(|| AuthoringError::Invalid(mashup::address::address_help(raw)))?;
     let (call, event) = rest
         .rsplit_once('.')
-        .ok_or_else(|| AuthoringError::Invalid(format!("invalid mashup address `{raw}`")))?;
+        .ok_or_else(|| AuthoringError::Invalid(mashup::address::address_help(raw)))?;
     if matches!(event, "ServiceInvokeFailed" | "ServiceInvokeError") {
         return Err(AuthoringError::Invalid(format!(
             "{raw}: ThingWorx 10.2 emits Data_Error on service failure; use data:{call}.Data_Error, or mashup recipe message <mashup> --after data:{call} --on-failure <text>"
@@ -435,7 +435,7 @@ pub(super) fn resolve_handler(
     if let Some(rest) = raw.strip_prefix("ui:") {
         let (widget, service) = rest
             .rsplit_once('.')
-            .ok_or_else(|| AuthoringError::Invalid(format!("invalid mashup address `{raw}`")))?;
+            .ok_or_else(|| AuthoringError::Invalid(mashup::address::address_help(raw)))?;
         let found = document.find_exact(widget).map_err(AuthoringError::Edit)?;
         if found.type_id == "mashupcontainer" {
             if service != "Refresh" {

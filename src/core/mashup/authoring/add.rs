@@ -371,6 +371,45 @@ pub(crate) fn plan_add(
             .path;
         document.set_property(&path, property, Value::String(label.clone()));
     }
+    let placed_path = document
+        .find(&placed.id)
+        .map_err(AuthoringError::Edit)?
+        .path;
+    if widget.type_id == "ptcsbutton"
+        && (1..placed_path.len()).any(|depth| {
+            document.at(&placed_path[..depth])["Properties"]["DisplayName"] == "filter-footer"
+        })
+    {
+        document.set_property(&placed_path, "Width", json!(110));
+        document.set_property(&placed_path, "Margin", json!("0"));
+        if let Some(label) = request.label.as_deref() {
+            if let Some(kind) = match label {
+                "Apply" => Some("primary"),
+                "Reset" => Some("tertiary"),
+                _ => None,
+            } {
+                document.set_property(&placed_path, "ButtonType", json!(kind));
+            }
+        }
+    }
+    if widget.type_id == "ptcsdatepicker" {
+        let path = document
+            .find(&placed.id)
+            .map_err(AuthoringError::Edit)?
+            .path;
+        let narrow = (1..path.len()).any(|depth| {
+            let p = &document.at(&path[..depth])["Properties"];
+            p["DisplayName"] == "filters"
+                || p["flex-max-width"]
+                    .as_str()
+                    .and_then(|width| width.trim_end_matches("px").parse::<u32>().ok())
+                    .is_some_and(|width| width <= 300)
+        });
+        if narrow {
+            document.set_property(&path, "FormatToken", json!("DD-MM-YY"));
+            document.set_property(&path, "DateOnly", json!(true));
+        }
+    }
     let mut properties = request
         .properties
         .iter()
@@ -578,11 +617,11 @@ pub(crate) fn plan_add(
 }
 
 pub(super) fn contained_page_warning(child: &str, document: &MashupDocument) -> Option<String> {
-    let page = document
-        .widgets()
-        .iter()
-        .any(|widget| widget.display_name == "page");
-    page.then(|| format!("{child}: page template fills its own page and may scroll inside this tab; use a responsive content mashup with one growing layout, as in the kit History, and check nested scrolling at runtime"))
+    let page = document.widgets().iter().any(|widget| {
+        widget.display_name == "page"
+            && document.at(&widget.path)["twacoTemplateName"] != "tab-content"
+    });
+    page.then(|| format!("{child}: page template fills its own page and may scroll inside this tab; use --template tab-content for a responsive content mashup with one growing layout and no title or gutter, as in the kit, and check nested scrolling at runtime"))
 }
 
 /// Plan adding a child mashup as Composer's contained-mashup builder does.  The child is read

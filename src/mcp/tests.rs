@@ -560,7 +560,7 @@ fn hand_written_tools() -> Vec<Value> {
     for (name, description) in [
         ("row", "label-pairs: first or selected; default selected only with a selecting widget on this call."),
         ("layout", "label-pairs: inline (default) or stacked caption/value presentation."),
-        ("status", "label-pairs: field bound to each status circle; needs status_state."),
+        ("status", "label-pairs: field bound to each status circle (needs status_state); columns: field=StateDefinition for icon plus text."),
         ("status_state", "label-pairs: repository StateDefinition mapping status values to colors."),
         ("x_title", "chart: explicit X-axis label; omitted clears only catalogue placeholders."),
         ("y_title", "chart: explicit Y-axis label (all combo Y axes); omitted preserves authored names."),
@@ -575,7 +575,7 @@ fn hand_written_tools() -> Vec<Value> {
     recipe["inputSchema"]["properties"]["label_columns"] = json!({"description": "label-pairs: number of columns, one per field by default, above zero.", "type": "integer", "minimum": 0});
     recipe["inputSchema"]["properties"]["replace"] = json!({"description": "label-pairs: widget inside or beside the destination to remove with its bindings.", "type": "string"});
     recipe["inputSchema"]["properties"]["width"] = json!({"description": "nested-menu: column width (300); toolbar: search field width (240), in pixels.", "type": "integer", "minimum": 0});
-    recipe["inputSchema"]["properties"]["recipe"]["description"] = json!("panel styles a responsive column; slider-action pairs widget (slider) with button. toolbar uses widget as the empty responsive container, then, search_param, hint, width, run_on and buttons. enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, picker, tracker, set-on-click, nested-menu, navigate-on-click or collapsible; label-pairs uses widget as the responsive container, data, fields, title, label_columns and replace.");
+    recipe["inputSchema"]["properties"]["recipe"]["description"] = json!("panel styles a responsive column; slider-action pairs widget (slider) with button. toolbar uses widget as the empty responsive container, then, search_param, hint, width, run_on and buttons. enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, pagination, picker, tracker, set-on-click, nested-menu, navigate-on-click or collapsible; label-pairs uses widget as the responsive container, data, fields, title, label_columns and replace.");
     let edit = tools
         .iter_mut()
         .find(|tool| tool["name"] == "entity_edit")
@@ -4051,7 +4051,7 @@ fn mashup_templates_lists_every_template_and_new_uses_template() {
             .as_array()
             .unwrap()
             .len(),
-        15
+        16
     );
     let created = call(
         &root,

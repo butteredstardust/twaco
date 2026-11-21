@@ -3622,7 +3622,12 @@ fn template_containers_have_no_margin_and_their_widgets_keep_composers() {
                         .map_or(Value::from(""), |(_, margin)| margin.clone());
                     assert_eq!(margin, &expected, "{} {}", template.name, widget.id);
                 } else {
-                    assert_eq!(margin, "5", "{} {}", template.name, widget.id);
+                    let expected = if widget.type_id == "ptcstabset" {
+                        ""
+                    } else {
+                        "5"
+                    };
+                    assert_eq!(margin, expected, "{} {}", template.name, widget.id);
                 }
             }
         }
@@ -3733,7 +3738,7 @@ fn filter_controls_are_inset_and_their_footer_stays_at_the_bottom() {
     );
     let inset = document.at(&filters.path)["Properties"].clone();
     assert_eq!(inset["Margin"], "");
-    assert_eq!(inset["align-items"], "center");
+    assert_eq!(inset["align-items"], "flex-start");
     assert_eq!(inset["flex-size"], "range");
     assert_eq!(inset["flex-min-width"], "240px");
     assert_eq!(inset["flex-max-width"], "240px");

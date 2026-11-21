@@ -1224,25 +1224,35 @@ items' `imageURL` (e.g. `cds:icon_*`) and fits its labels when expanded.
 | card | header, title, actions, body | Card content |
 | master-detail | list, detail | Master and detail panes |
 | kpi-tile | title, value | A compact KPI display |
-| filter-panel | filter-column, filters, content | Filters beside results |
+| filter-panel | filter-column, filters, filter-footer, content | Filters beside results |
+| tab-content | toolbar, body | Tab child without a title row or gutter |
 | tabs | title, tabs | A tab set whose tabs each show a mashup (`--tab Label=Mashup`) |
 | dashboard | title, tiles, tile-1..tile-4, panels, side, main | Four KPI tiles above a side panel and a main panel (1:3) |
 
 `filter-panel` draws the kits' look: `filter-column` is a continuous 276px column on `#F7F7F7`.
-Inside it, `filters` is a centered 240px controls column. Controls added there fit its width;
-the first gets `Margin` `5 0`, later controls `13 0 5` (13px above, 5px below, no horizontal
-inset). Generated rows center the controls and keep their content height without nested
-scrollbars. Existing `--in filters` commands target this inner slot, including
-`--in filters --bottom` for Apply and `--right-of <apply>` for Clear: their footer stays at the
-bottom while later filters go above it. Footer buttons get `Width` 110 and `Margin` 0;
-the footer row gets `Margin` `0 5`. The inner column and generated rows inherit the grey
-background. Content is white with a 24px margin. `list-page` gives its toolbar the same grey band. Its shared content container (including title, toolbar and body) has a 24px margin on every side, like the kit's content (the kit stores `24 24 24 0` beside a sibling that supplies the left 24px). The colours are ordinary widget styles
+Inside it, `filters` is a centered 240px controls column with left-aligned labels. It grows
+above `filter-footer`, a bottom action slot with a top 1px divider and a 24px gutter.
+Add Apply and Reset there; these labels default to primary and tertiary buttons respectively,
+with 110px widths and no margins. Explicit `--prop` values win. Older `--in filters --bottom`
+footers remain supported. The filter column has the kit's native collapse tab;
+`recipe collapsible --add-toggle` reuses it. Date pickers in `filters` or columns capped at
+300px default to `DateOnly=true` and `FormatToken=DD-MM-YY`; explicit properties win.
+
+```sh
+twaco mashup add Acme.App.Metrics_MU button --in filter-footer --label Apply --apply
+twaco mashup add Acme.App.Metrics_MU button --in filter-footer --label Reset --apply
+```
+
+Content is white with a 24px margin. `list-page` gives its toolbar the same grey band. Its shared content container (including title, toolbar and body) has a 24px margin on every side, like the kit's content (the kit stores `24 24 24 0` beside a sibling that supplies the left 24px). The colours are ordinary widget styles
 in the root's StyleProperties, so `mashup set <mashup> <slot> --style background=...` changes them.
 `dashboard` keeps the kits' 24px page margin around everything; `blank` has none, since it also serves
 contained mashups and collection cells.
 
 `--template tabs` takes `--tab "Label=Mashup"` once per tab (up to 16; a label may be a `[[token]]`, and a
-bare `Label` leaves that tab empty). Each tab gets the container Composer gives it, holding the mashup in a
+bare `Label` leaves that tab empty). The host supplies a 24px page gutter. Use
+`--template tab-content` for its children: a 48px toolbar and growing body, without a
+second gutter or title row. Existing full-page children keep their own layout and receive
+a warning; rebuild those as tab-content or remove their title/gutter explicitly. Each tab gets the container Composer gives it, holding the mashup in a
 contained mashup with its parameters cached, so `mashup bind` can reach them; without `--tab` the tab set
 has Composer's two empty tabs. A tabs page cannot be a master.
 
@@ -1303,6 +1313,9 @@ may declare scalar parameters with repeatable `--param name:TYPE[:IN|OUT|BOTH]`;
 parameters need a DataShape and are added with `mashup param add --data-shape`.
 
 ### Adding widgets
+
+Widget searches match all query words in any order and treat alias hyphens as spaces:
+`twaco widgets --search "date picker"` and `--search "picker date"` both find `ptcsdatepicker`.
 
 `twaco widgets --search html` finds `ptcsrte`: set `ReadOnly=true` and
 `HideToolbar=true` for display-only HTML. `--search collapsible` points at the existing
@@ -1789,7 +1802,8 @@ History is itself responsive and scrolls, so scrolling alone is not grounds to r
 Use `mashup recipe toolbar Acme.App.History_MU <row> --band` to style an existing responsive
 row as the kit's date-picker band: `#F7F7F7`, no border or padding, fixed 48px. Add a date
 picker and buttons into that row with `mashup add --in`. This form retains existing
-controls and does not require a search call.
+controls and does not require a search call. The search toolbar recipe uses the same grey band.
+`--end` also works inside rows created by templates, including their toolbar slots.
 
 For stacked bars, add `--stacked` to `mashup recipe chart`: it sets the bar widget's real
 `SeriesDisplay` property to `auto` (the kit's stacked bar), rather than `grouped`. The option
@@ -1804,7 +1818,21 @@ is stored as `ColumnFormat.FormatOptions.FormatString`; 10.2 rendering remains a
 live verification step. `--columns <n>` belongs to label-pairs; a non-number value
 on the columns recipe explains the repeatable `--column` flag.
 
-Plans, applies, JSON and MCP notes suggest status/state column icon formatting,
+`columns --status Severity=Acme.Status_ST` copies the repository StateDefinition into
+the column formatter, preserving the kit's icon and text (`FormatString=full`). The field
+must be listed with `--column`. Column recipes also remove header dividers using the kit's
+`--ptcs-header-vert-divider-width: 0px`, preserving other widget styles.
+
+`recipe pagination <mashup> <grid> --data data:Acme.Manager.GetRows` adds a centred pager,
+binds the result count, and slices the result into grid Data with expression widgets. It
+pages locally, defaults to 10 rows, and resets to page 1 when results or page size change.
+Repeating it reuses the same pager. Verify client expression evaluation in Runtime.
+
+Recipes warn when a call they bind has no event that runs it, including after a retry.
+The note prints `twaco mashup on <mashup> --event mashup:Loaded --invoke data:<Entity>.<Service> --apply`.
+A button or another event that already invokes the call suppresses this warning.
+
+Plans, applies, JSON and MCP notes suggest status/state/severity column icon formatting,
 explicit date formatting, `--menu` for cards without a menu, and attaching a new
 page when the solution contains a master. Review the suggested StateDefinition or
 master before applying it.

@@ -23,8 +23,19 @@ pub(crate) enum Address {
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
-#[error("invalid mashup address `{0}`")]
+#[error("{}", address_help(.0))]
 pub(crate) struct AddressError(pub(crate) String);
+
+pub(crate) fn address_help(text: &str) -> String {
+    let suggestion = if let Some(event) = text.strip_prefix("mashup-root.") {
+        format!("mashup:{event}")
+    } else if !text.contains(':') && text.contains('.') {
+        format!("data:{text}")
+    } else {
+        "data:Acme.Cards.GetAssets".into()
+    };
+    format!("invalid mashup address `{text}`; accepted forms: data:<Entity>.<Service>, ui:<widget>.<property>, mashup:<parameter> (events: mashup:Loaded); did you mean {suggestion}?")
+}
 
 impl Coded for AddressError {
     fn code(&self) -> ErrorCode {
@@ -114,6 +125,18 @@ fn data(rest: &str) -> Option<Address> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn errors_show_forms_and_a_nearby_example() {
+        for (input, suggestion) in [
+            ("Acme.Cards.GetAssets", "data:Acme.Cards.GetAssets"),
+            ("mashup-root.Loaded", "mashup:Loaded"),
+        ] {
+            let message = parse_address(input).unwrap_err().to_string();
+            assert!(message.contains(&format!("did you mean {suggestion}?")));
+            assert!(message.contains("ui:<widget>.<property>"));
+        }
+    }
 
     #[test]
     fn parses_every_described_form() {

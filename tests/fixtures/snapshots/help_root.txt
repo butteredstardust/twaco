@@ -390,17 +390,19 @@ The full listing follows.
       --x-title <text>        explicit X-axis name; catalogue placeholders are cleared
       --y-title <text>        explicit Y-axis name; authored names are preserved
                               draw a service result: the category field (a pie: label and value)
-      columns <grid> --column field[:Title[:width[:format]]]... [--date-format <pattern>] [--data <data call>] [--editable-column <field>]...
-                              only these columns in order, with readable dates; --data or existing binding;
+      columns <grid> --column field[:Title[:width[:format]]]... [--date-format <pattern>] [--data <data call>] [--status <field=StateDefinition>] [--editable-column <field>]...
+                              only these columns in order, with readable dates and no header dividers; --data or existing binding;
                               --editable-column makes a listed column (and so the grid) editable
                               --column-editor <field=editor> chooses a typed cell editor (repeatable)
                               --date-format <pattern> formats DATETIME columns (default yyyy-MM-dd HH:mm:ss for new columns)
                               --preserve-whitespace <field> keeps newlines and spaces when shown (repeatable)
+      pagination <grid> --data <data call>
+                              add a centred pager; slice the service result into grid Data locally; default 10 rows, reset on new results/page size
       toolbar <container> --band
       --band                 grey #F7F7F7 toolbar band (fixed 48px); keeps existing date picker/buttons; no search wiring
       toolbar <container> --then <data call> --search-param <param>
           [--hint <text>] [--width <px>] [--run-on change|enter|both] [--button Label=<handler>]...
-                              fill an empty responsive container with a 48px search row; STRING input;
+                              fill an empty responsive container with a grey 48px search row; STRING input;
                               hint Search..., width 240; both events by default; change/both runs on
                               each keystroke; the clear button fires Changed once
       label-pairs <container> --data <data call> [--field <field>]... [--title <text>]
@@ -408,7 +410,7 @@ The full listing follows.
           [--status <field> --status-state <name>]
       --row <first|selected>            first or selected; default selected with a selecting widget on this call, first otherwise
       --layout <inline|stacked>         inline (default) or stacked caption/value pairs
-      --status <field>         result field driving a 12px circle per pair
+      --status <field>         label-pairs: field driving a 12px circle per pair; columns: field=StateDefinition for icon plus text
       --status-state <name>   repository StateDefinition mapping the status field to colors
                               caption/value labels from an existing call's DataShape; field[:Caption]
                               picks/orders/renames; default all fields, a column each; first row unless
@@ -431,6 +433,7 @@ The full listing follows.
       navigate-on-click <collection|grid> --field <field> [--window replace|new|popup|modal-popup]
                               a click opens the mashup the selected row's field names; plan warns when
                               the widget selects its first row on load
+                              recipes warn with a mashup on command when a bound call has no trigger
   mashup event add <mashup> <name> --when <address> [--apply] [--json]
                               give a mashup an event its parents react to with mashup on --event
                               ui:<container>.<name>: a NUMBER parameter set to the time when the
@@ -455,7 +458,7 @@ The full listing follows.
       --master                create a master mashup (a page container fills the center)
       --visibility            Organization/<name> or OrganizationalUnit/<organization>:<unit>, repeatable;
                               none unless given
-      --tab                   with --template tabs: a tab's label and the mashup it shows, repeatable
+      --tab                   with --template tabs: a tab's label and the mashup it shows, repeatable; use tab-content for the child (no title/gutter)
       --replace <old=new>     replace whole tokens in copied content string values; repeatable, needs --from
   new mashup <name> [--project <name>] [--from <address> | --template <name> | --gadget [--layout <layout>]]
       [--primary-menu <address> | --menu-entity <Menu>] [--secondary-menu <address>] [--theme <StyleTheme>] [--master]
@@ -474,7 +477,7 @@ The full listing follows.
       --master                create a master mashup (a page container fills the center)
       --visibility            Organization/<name> or OrganizationalUnit/<organization>:<unit>, repeatable;
                               none unless given
-      --tab                   with --template tabs: a tab's label and the mashup it shows, repeatable
+      --tab                   with --template tabs: a tab's label and the mashup it shows, repeatable; use tab-content for the child (no title/gutter)
       --replace <old=new>     replace whole tokens in copied content string values; repeatable, needs --from
   new building-block <name> [--type standard|abstract|implementation] [--display-name <text>] [--description <text>]
       [--parent <block>] [--model-logic] [--no-management-shape] [--root <dir>] [--base-extension PTC.Base:<version>]

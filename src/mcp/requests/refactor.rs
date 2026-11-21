@@ -1104,7 +1104,7 @@ pub(crate) struct MashupRecipeRequest {
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     #[schemars(extend("enum" = ["inline", "stacked"]))]
     pub(crate) layout: Absent<String>,
-    /// label-pairs: field bound to each status circle; needs status_state.
+    /// label-pairs: field bound to each status circle (needs status_state); columns: field=StateDefinition for icon plus text.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) status: Absent<String>,
     /// label-pairs: repository StateDefinition mapping status values to colors.
@@ -1130,7 +1130,7 @@ pub(crate) struct MashupRecipeRequest {
     pub(crate) tab: Absent<String>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) start: Absent<String>,
-    /// panel styles a responsive column; slider-action pairs widget (slider) with button. toolbar uses widget as the empty responsive container, then, search_param, hint, width, run_on and buttons. enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, picker, tracker, set-on-click, nested-menu, navigate-on-click or collapsible; label-pairs uses widget as the responsive container, data, fields, title, label_columns and replace.
+    /// panel styles a responsive column; slider-action pairs widget (slider) with button. toolbar uses widget as the empty responsive container, then, search_param, hint, width, run_on and buttons. enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, pagination, picker, tracker, set-on-click, nested-menu, navigate-on-click or collapsible; label-pairs uses widget as the responsive container, data, fields, title, label_columns and replace.
     pub(crate) recipe: String,
     /// The mashup to write it in.
     pub(crate) mashup: String,

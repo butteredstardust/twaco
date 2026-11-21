@@ -4,4 +4,4 @@ exit: 2
 --- stdout
 
 --- stderr
-twaco: unknown recipe sparkle; the recipes are panel, slider-action, toolbar, label-pairs, collapsible, enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, picker, tracker, tree, set-on-click, nested-menu, navigate-on-click
+twaco: unknown recipe sparkle; the recipes are panel, slider-action, toolbar, label-pairs, collapsible, enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, pagination, picker, tracker, tree, set-on-click, nested-menu, navigate-on-click

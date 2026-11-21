@@ -28,6 +28,8 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Fixed
 
+- Mashup benchmark J/K follow-ups: multi-word widget alias search, actionable address errors and untriggered-call warnings; template toolbar `--end`; gutter-free `tab-content` children under 24px-gutter tabs; grid status icon/text formatting and hidden header dividers; filter title alignment, bottom action footer, native toggle reuse and short dates; grey search toolbars and a centred grid pagination recipe.
+
 - Entity push retains blocking findings in consuming mashups caused by the pushed entity, and treats runtime script references as advisory while checking typed import prerequisites.
 - XML-only service scripts respect entity and service lint overrides.
 - Agent guidance refresh recognises only whole trimmed marker lines and validates AGENTS.md and CLAUDE.md before writing either.

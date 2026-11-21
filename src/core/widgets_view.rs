@@ -46,7 +46,8 @@ pub struct WidgetDetail {
 pub fn list(search: Option<&str>) -> Vec<WidgetSummary> {
     match search {
         Some(text) => {
-            let wanted = text.trim().to_ascii_lowercase();
+            let wanted = text.to_ascii_lowercase().replace('-', " ");
+            let words: Vec<_> = wanted.split_whitespace().collect();
             catalog()
                 .widgets
                 .iter()
@@ -55,7 +56,10 @@ pub fn list(search: Option<&str>) -> Vec<WidgetSummary> {
                         .names()
                         .chain(std::iter::once(widget.type_display_name.as_str()))
                         .chain(discovery_hint(&widget.type_id))
-                        .any(|name| name.to_ascii_lowercase().contains(&wanted))
+                        .any(|name| {
+                            let name = name.to_ascii_lowercase().replace('-', " ");
+                            words.iter().all(|word| name.contains(word))
+                        })
                 })
                 .map(summary)
                 .collect()
@@ -162,6 +166,16 @@ mod tests {
         assert!(!charts.is_empty());
         assert!(charts.iter().all(|widget| widget.type_id.contains("chart")));
         assert_eq!(list(Some("Grid"))[0].type_id, "ptcsgrid");
+    }
+
+    #[test]
+    fn search_normalizes_alias_words() {
+        for query in ["date picker", "picker date", "DATE-PICKER"] {
+            assert!(list(Some(query))
+                .iter()
+                .any(|w| w.type_id == "ptcsdatepicker"));
+        }
+        assert!(list(Some("picker nonexistent")).is_empty());
     }
 
     #[test]

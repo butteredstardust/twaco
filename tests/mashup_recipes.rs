@@ -1722,3 +1722,477 @@ fn tree_and_tracker_options_plan_and_apply_through_cli_and_mcp() {
         );
     }
 }
+
+fn n7_fixture() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::fs::write(root.join("twaco.toml"), "[[project]]\nname = 'Acme'\n").unwrap();
+    for collection in ["Things", "DataShapes", "StateDefinitions"] {
+        std::fs::create_dir_all(root.join(collection)).unwrap();
+    }
+    std::fs::write(root.join("Things/Acme.Manager.xml"), r#"<Entities><Things><Thing name="Acme.Manager" projectName="Acme"><ThingShape><ServiceDefinitions><ServiceDefinition name="GetRows"><ParameterDefinitions><FieldDefinition name="query" baseType="STRING"/></ParameterDefinitions><ResultType baseType="INFOTABLE" aspect.dataShape="Acme.Rows_DS"/></ServiceDefinition></ServiceDefinitions></ThingShape></Thing></Things></Entities>"#).unwrap();
+    std::fs::write(root.join("DataShapes/Acme.Rows_DS.xml"), r#"<Entities><DataShapes><DataShape name="Acme.Rows_DS" projectName="Acme"><FieldDefinitions><FieldDefinition name="Severity" baseType="STRING"/><FieldDefinition name="Value" baseType="NUMBER"/></FieldDefinitions></DataShape></DataShapes></Entities>"#).unwrap();
+    std::fs::write(root.join("StateDefinitions/Acme.Status_ST.xml"), r#"<Entities><StateDefinitions><StateDefinition name="Acme.Status_ST" projectName="Acme"><content><![CDATA[{"stateType":"string","stateDefinitions":[{"defaultValue":"Low","displayString":"Low","defaultStyleDefinition":{"image":"Acme.Good_MD","displayString":""}},{"displayString":"Other","defaultStyleDefinition":"DefaultCollectionCellAlternateStyle"}]}]]></content></StateDefinition></StateDefinitions></Entities>"#).unwrap();
+    dir
+}
+
+fn n7_new(root: &Path, mcp: bool, template: &str) {
+    invoke(
+        root,
+        mcp,
+        &[
+            "mashup",
+            "new",
+            "Acme.Layout_MU",
+            "--template",
+            template,
+            "--apply",
+        ],
+        "mashup_new",
+        json!({"name":"Acme.Layout_MU", "template":template, "dry_run":false}),
+    );
+}
+
+fn n7_content(root: &Path) -> Value {
+    serde_json::from_slice(
+        &std::fs::read(root.join("src/Acme.Layout_MU/mashup/content.json")).unwrap(),
+    )
+    .unwrap()
+}
+
+fn n7_add(root: &Path, mcp: bool, kind: &str, slot: &str) -> String {
+    invoke(
+        root,
+        mcp,
+        &[
+            "mashup",
+            "add",
+            "Acme.Layout_MU",
+            kind,
+            "--in",
+            slot,
+            "--apply",
+        ],
+        "mashup_add",
+        json!({"mashup":"Acme.Layout_MU", "widget":kind, "in":slot, "dry_run":false}),
+    )["id"]
+        .as_str()
+        .unwrap()
+        .into()
+}
+
+fn n7_recipe(
+    root: &Path,
+    mcp: bool,
+    recipe: &str,
+    widget: &str,
+    flags: &[&str],
+    mut options: Value,
+) -> Value {
+    let mut cli = vec![
+        "mashup",
+        "recipe",
+        recipe,
+        "Acme.Layout_MU",
+        widget,
+        "--apply",
+    ];
+    cli.extend(flags);
+    options["mashup"] = json!("Acme.Layout_MU");
+    options["recipe"] = json!(recipe);
+    options["widget"] = json!(widget);
+    options["dry_run"] = json!(false);
+    invoke(root, mcp, &cli, "mashup_recipe", options)
+}
+
+fn named<'a>(value: &'a Value, name: &str) -> Option<&'a Value> {
+    if value["Properties"]["DisplayName"] == name {
+        return Some(value);
+    }
+    value["Widgets"]
+        .as_array()?
+        .iter()
+        .find_map(|child| named(child, name))
+}
+
+#[test]
+fn n7_bound_recipes_warn_until_a_call_has_any_trigger() {
+    for mcp in [false, true] {
+        let dir = n7_fixture();
+        let root = dir.path();
+        n7_new(root, mcp, "list-page");
+        let grid = n7_add(root, mcp, "grid", "body");
+        let columns = || {
+            n7_recipe(
+                root,
+                mcp,
+                "columns",
+                &grid,
+                &[
+                    "--data",
+                    "data:Acme.Manager.GetRows",
+                    "--column",
+                    "Severity",
+                ],
+                json!({"data":"data:Acme.Manager.GetRows", "columns":["Severity"]}),
+            )
+        };
+        let result = columns();
+        assert!(result["notes"].as_array().unwrap().iter().any(|note| note.as_str().unwrap().contains("twaco mashup on Acme.Layout_MU --event mashup:Loaded --invoke data:Acme.Manager.GetRows --apply")), "{result}");
+        let button = n7_add(root, mcp, "button", "toolbar");
+        let event = format!("ui:{button}.Clicked");
+        invoke(
+            root,
+            mcp,
+            &[
+                "mashup",
+                "on",
+                "Acme.Layout_MU",
+                "--event",
+                &event,
+                "--invoke",
+                "data:Acme.Manager.GetRows",
+                "--apply",
+            ],
+            "mashup_on",
+            json!({"mashup":"Acme.Layout_MU", "event":event, "invoke":"data:Acme.Manager.GetRows", "dry_run":false}),
+        );
+        let result = columns();
+        assert!(
+            !result["notes"].to_string().contains("has no trigger"),
+            "{result}"
+        );
+    }
+}
+
+#[test]
+fn n7_template_toolbar_accepts_end_and_keeps_its_height() {
+    for mcp in [false, true] {
+        let dir = n7_fixture();
+        let root = dir.path();
+        n7_new(root, mcp, "list-page");
+        let first = n7_add(root, mcp, "dropdown", "toolbar");
+        invoke(
+            root,
+            mcp,
+            &[
+                "mashup",
+                "add",
+                "Acme.Layout_MU",
+                "button",
+                "--right-of",
+                &first,
+                "--end",
+                "--apply",
+            ],
+            "mashup_add",
+            json!({"mashup":"Acme.Layout_MU", "widget":"button", "right_of":first, "end":true, "dry_run":false}),
+        );
+        let content = n7_content(root);
+        let toolbar = named(&content["UI"], "toolbar").unwrap();
+        assert_eq!(toolbar["Properties"]["justify-content"], "space-between");
+        assert_eq!(toolbar["Properties"]["flex-size"], "fixed");
+        assert_eq!(toolbar["Properties"]["flex-max-height"], "56px");
+        assert_eq!(toolbar["Widgets"].as_array().unwrap().len(), 2);
+    }
+}
+
+#[test]
+fn n7_tabs_share_one_gutter_with_content_without_a_title_gap() {
+    for mcp in [false, true] {
+        let dir = n7_fixture();
+        let root = dir.path();
+        invoke(
+            root,
+            mcp,
+            &[
+                "mashup",
+                "new",
+                "Acme.Content_MU",
+                "--template",
+                "tab-content",
+                "--apply",
+            ],
+            "mashup_new",
+            json!({"name":"Acme.Content_MU", "template":"tab-content", "dry_run":false}),
+        );
+        let child: Value = serde_json::from_slice(
+            &std::fs::read(root.join("src/Acme.Content_MU/mashup/content.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            named(&child["UI"], "page").unwrap()["Properties"]["Margin"],
+            ""
+        );
+        assert!(named(&child["UI"], "title").is_none());
+        let result = invoke(
+            root,
+            mcp,
+            &[
+                "mashup",
+                "new",
+                "Acme.Layout_MU",
+                "--template",
+                "tabs",
+                "--tab",
+                "Device=Acme.Content_MU",
+                "--apply",
+            ],
+            "mashup_new",
+            json!({"name":"Acme.Layout_MU", "template":"tabs", "tabs":["Device=Acme.Content_MU"], "dry_run":false}),
+        );
+        assert!(!result["notes"].to_string().contains("may scroll"));
+        let host = n7_content(root);
+        assert_eq!(
+            named(&host["UI"], "page").unwrap()["Properties"]["Margin"],
+            "24"
+        );
+        assert_eq!(properties(&host["UI"], "ptcstabset").unwrap()["Margin"], "");
+        assert_eq!(
+            properties(&host["UI"], "mashupcontainer").unwrap()["Margin"],
+            ""
+        );
+    }
+}
+
+#[test]
+fn n7_columns_render_kit_status_icon_and_text_without_header_dividers() {
+    for mcp in [false, true] {
+        let dir = n7_fixture();
+        let root = dir.path();
+        n7_new(root, mcp, "list-page");
+        let grid = n7_add(root, mcp, "grid", "body");
+        n7_recipe(
+            root,
+            mcp,
+            "columns",
+            &grid,
+            &[
+                "--data",
+                "data:Acme.Manager.GetRows",
+                "--column",
+                "Severity",
+                "--status",
+                "Severity=Acme.Status_ST",
+            ],
+            json!({"data":"data:Acme.Manager.GetRows", "columns":["Severity"], "status":"Severity=Acme.Status_ST"}),
+        );
+        let content = n7_content(root);
+        let column =
+            &properties(&content["UI"], "ptcsgrid").unwrap()["ColumnFormat"]["formatInfo"][0];
+        assert_eq!(column["FormatOptions"]["FormatString"], "full");
+        assert_eq!(column["FormatOptions"]["renderer"], "STRING");
+        assert_eq!(
+            column["FormatOptions"]["formatInfo"]["StateFormats"][0]["state"]["image"],
+            "Acme.Good_MD"
+        );
+        assert_eq!(
+            content["UI"]["Properties"]["StyleProperties"]["data"][&grid]["parts"]["$"]["$"]
+                ["--ptcs-header-vert-divider-width"],
+            "0px"
+        );
+    }
+}
+
+#[test]
+fn n7_filter_title_and_footer_match_kit_alignment_and_spacing() {
+    for mcp in [false, true] {
+        let dir = n7_fixture();
+        let root = dir.path();
+        n7_new(root, mcp, "filter-panel");
+        let title = n7_add(root, mcp, "label", "filters");
+        n7_add(root, mcp, "text-field", "filters");
+        let content = n7_content(root);
+        let filters = named(&content["UI"], "filters").unwrap();
+        assert_eq!(filters["Properties"]["align-items"], "flex-start");
+        assert_eq!(filters["Properties"]["flex-grow"], 1);
+        assert_eq!(
+            find_widget(&content["UI"], &title).unwrap()["Properties"]["HorizontalAlignment"],
+            "left"
+        );
+        let footer = named(&content["UI"], "filter-footer").unwrap();
+        assert_eq!(footer["Properties"]["Margin"], "24");
+        assert_eq!(footer["Properties"]["flex-grow"], 0);
+        let column = named(&content["UI"], "filter-column").unwrap();
+        assert_eq!(
+            column["Widgets"].as_array().unwrap().last().unwrap(),
+            footer
+        );
+        let divider = &column["Widgets"][1];
+        assert_eq!(divider["Properties"]["flex-max-height"], "1px");
+        for (label, kind) in [("Apply", "primary"), ("Reset", "tertiary")] {
+            let result = invoke(
+                root,
+                mcp,
+                &[
+                    "mashup",
+                    "add",
+                    "Acme.Layout_MU",
+                    "button",
+                    "--in",
+                    "filter-footer",
+                    "--label",
+                    label,
+                    "--apply",
+                ],
+                "mashup_add",
+                json!({"mashup":"Acme.Layout_MU", "widget":"button", "in":"filter-footer", "label":label,"dry_run":false}),
+            );
+            let content = n7_content(root);
+            let button = find_widget(&content["UI"], result["id"].as_str().unwrap()).unwrap();
+            assert_eq!(button["Properties"]["ButtonType"], kind);
+            assert_eq!(button["Properties"]["Margin"], "0");
+        }
+    }
+}
+
+#[test]
+fn n7_collapsible_reuses_filter_panels_native_toggle() {
+    for mcp in [false, true] {
+        let dir = n7_fixture();
+        let root = dir.path();
+        n7_new(root, mcp, "filter-panel");
+        let result = n7_recipe(
+            root,
+            mcp,
+            "collapsible",
+            "filter-column",
+            &["--add-toggle", "--in", "content"],
+            json!({"add_toggle":true,"in_container":"content"}),
+        );
+        assert!(
+            result["notes"].to_string().contains("reusing its existing"),
+            "{result}"
+        );
+        let content = n7_content(root);
+        assert!(properties(&content["UI"], "ptcsbutton").is_none());
+        assert_eq!(
+            named(&content["UI"], "filter-column").unwrap()["Properties"]["ShowExpandCollapseTab"],
+            true
+        );
+    }
+}
+
+#[test]
+fn n7_search_toolbar_uses_the_same_grey_band_as_date_toolbars() {
+    for mcp in [false, true] {
+        let dir = n7_fixture();
+        let root = dir.path();
+        n7_new(root, mcp, "filter-panel");
+        invoke(
+            root,
+            mcp,
+            &[
+                "mashup",
+                "source",
+                "add",
+                "Acme.Layout_MU",
+                "Acme.Manager",
+                "GetRows",
+                "--apply",
+            ],
+            "mashup_source_add",
+            json!({"mashup":"Acme.Layout_MU","entity":"Acme.Manager","service":"GetRows","dry_run":false}),
+        );
+        n7_recipe(
+            root,
+            mcp,
+            "toolbar",
+            "content",
+            &[
+                "--then",
+                "data:Acme.Manager.GetRows",
+                "--search-param",
+                "query",
+            ],
+            json!({"then":"data:Acme.Manager.GetRows","search_param":"query"}),
+        );
+        let content = n7_content(root);
+        let styles = &content["UI"]["Properties"]["StyleProperties"]["data"];
+        let toolbar = &named(&content["UI"], "content").unwrap()["Widgets"][0]["Properties"]["Id"];
+        assert_eq!(
+            styles[toolbar.as_str().unwrap()]["parts"]["$"]["$"]["background"],
+            "#F7F7F7"
+        );
+        let field = properties(&content["UI"], "ptcstextfield").unwrap();
+        assert_eq!(field["HintText"], "Search...");
+    }
+}
+
+#[test]
+fn n7_pagination_is_centered_wired_to_grid_and_safe_to_repeat() {
+    for mcp in [false, true] {
+        let dir = n7_fixture();
+        let root = dir.path();
+        n7_new(root, mcp, "list-page");
+        let grid = n7_add(root, mcp, "grid", "body");
+        let apply = || {
+            n7_recipe(
+                root,
+                mcp,
+                "pagination",
+                &grid,
+                &["--data", "data:Acme.Manager.GetRows"],
+                json!({"data":"data:Acme.Manager.GetRows"}),
+            )
+        };
+        apply();
+        let content = n7_content(root);
+        apply();
+        assert_eq!(n7_content(root), content);
+        let pager = properties(&content["UI"], "ptcspagination").unwrap();
+        let bindings = content["DataBindings"].as_array().unwrap();
+        assert!(bindings.iter().any(|b| b["TargetId"] == pager["Id"]
+            && b["PropertyMaps"][0]["TargetProperty"] == "ResultsNumber"));
+        assert!(bindings.iter().any(|b| b["TargetId"] == grid
+            && b["SourceArea"] == "UI"
+            && b["PropertyMaps"][0]["TargetProperty"] == "Data"));
+        fn centered(value: &Value, id: &Value) -> bool {
+            value["Properties"]["justify-content"] == "center"
+                && value["Widgets"].as_array().is_some_and(|children| {
+                    children
+                        .iter()
+                        .any(|child| child["Properties"]["Id"] == *id)
+                })
+                || value["Widgets"]
+                    .as_array()
+                    .is_some_and(|children| children.iter().any(|child| centered(child, id)))
+        }
+        assert!(centered(&content["UI"], &pager["Id"]));
+        assert!(content.to_string().contains("table.rows.slice"));
+    }
+}
+
+#[test]
+fn n7_narrow_date_picker_defaults_to_short_dates_and_explicit_format_wins() {
+    for mcp in [false, true] {
+        let dir = n7_fixture();
+        let root = dir.path();
+        n7_new(root, mcp, "filter-panel");
+        let date = n7_add(root, mcp, "datepicker", "filters");
+        let content = n7_content(root);
+        assert_eq!(
+            find_widget(&content["UI"], &date).unwrap()["Properties"]["FormatToken"],
+            "DD-MM-YY"
+        );
+        invoke(
+            root,
+            mcp,
+            &[
+                "mashup",
+                "add",
+                "Acme.Layout_MU",
+                "datepicker",
+                "--in",
+                "filters",
+                "--prop",
+                "FormatToken=YYYY-MM-DD",
+                "--apply",
+            ],
+            "mashup_add",
+            json!({"mashup":"Acme.Layout_MU","widget":"datepicker","in":"filters","properties":{"FormatToken":"YYYY-MM-DD"},"dry_run":false}),
+        );
+        let content = n7_content(root);
+        assert!(content.to_string().contains("YYYY-MM-DD"));
+    }
+}

@@ -803,6 +803,7 @@ pub(super) fn new_document(
     }
     if !template.children.is_empty() {
         document.set_property(&root.path, "DisplayName", json!("page"));
+        document.at_mut(&root.path)["twacoTemplateName"] = json!(template.name);
         for child in &template.children {
             add_template_node(&mut document, &root.path, child, template.name.as_str())?;
         }
@@ -860,6 +861,7 @@ fn add_template_node(
         node.slot.clone().expect("validated slot")
     };
     document.set_property(&child.path, "DisplayName", json!(name));
+    document.at_mut(&child.path)["twacoTemplateSlot"] = json!(true);
     for (key, value) in &node.properties {
         document.set_property(&child.path, key, value.clone());
     }
@@ -903,7 +905,11 @@ fn add_template_node(
             ))
         })?;
         let number = document.allocate();
-        document.push_child(&child.path, mashup::edit::new_widget(widget, number, true));
+        let mut value = mashup::edit::new_widget(widget, number, true);
+        if type_id == "ptcstabset" {
+            value["Properties"]["Margin"] = json!("");
+        }
+        document.push_child(&child.path, value);
     }
     for grandchild in &node.children {
         add_template_node(document, &child.path, grandchild, template)?;
@@ -1185,6 +1191,7 @@ fn build_tabs(
         let mut tab = mashup::edit::new_widget(container, number, true);
         tab["Properties"]["DisplayName"] = json!(format!("{tabset_name} #{}", index + 1));
         tab["Properties"]["ExpandCollapseTabLocation"] = json!("inside");
+        tab["Properties"]["Margin"] = json!("");
         mashup::edit::insert_sorted(
             mashup::edit::properties_mut(&mut tab),
             "userCannotRemove",
@@ -1207,6 +1214,7 @@ fn build_tabs(
             let mut widget = mashup::edit::new_widget(contained, document.allocate(), true);
             let properties = mashup::edit::properties_mut(&mut widget);
             mashup::edit::insert_sorted(properties, "Name", json!(child));
+            mashup::edit::insert_sorted(properties, "Margin", json!(""));
             mashup::edit::insert_sorted(properties, "Width", json!(400));
             mashup::edit::insert_sorted(properties, "Height", json!(300));
             mashup::edit::insert_sorted(
@@ -1303,6 +1311,7 @@ pub(super) fn sync_tabs(
         let mut tab = mashup::edit::new_widget(container, document.allocate(), true);
         tab["Properties"]["DisplayName"] = json!(format!("{tabset_name} #{}", index + 1));
         tab["Properties"]["ExpandCollapseTabLocation"] = json!("inside");
+        tab["Properties"]["Margin"] = json!("");
         mashup::edit::insert_sorted(
             mashup::edit::properties_mut(&mut tab),
             "userCannotRemove",
