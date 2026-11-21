@@ -1,0 +1,126 @@
+=== twaco mashup why Acme.Case_MU filter-footer
+Acme.Case_MU flexcontainer-6 (flexcontainer, filter-footer)
+  slot "filter-footer" of template filter-panel; rules: legacy
+  surface               inherit             rule surface.filter-children (rule table)
+    now: background=inherit [agrees]
+  size                  content             rule size.content-filter-footer (rule table)
+    now: flex-grow=0 [agrees]
+  gutter                24                  rule gutter.filter-footer (rule table)
+    now: Margin=24 [agrees]
+  align                 center              rule align.filter-column (rule table)
+    now: align-items=center [agrees]
+  justify               space-between       rule justify.filter-footer (rule table)
+    now: justify-content=space-between [agrees]
+  prop flex-min-width   228px               rule props.filter-footer-width (rule table)
+    now: flex-min-width=228px [agrees]
+  prop flex-max-width   228px               rule props.filter-footer-width (rule table)
+    now: flex-max-width=228px [agrees]
+  prop flex-size        range               rule props.filter-range (rule table)
+    now: flex-size=range [agrees]
+  prop flex-shrink      0                   rule props.filter-range (rule table)
+    now: flex-shrink=0 [agrees]
+override:
+  twaco mashup set Acme.Case_MU flexcontainer-6 --style background=<colour>
+  twaco mashup set Acme.Case_MU flexcontainer-6 --prop flex-grow=<n> (any flex-*, Width or Height setting marks the size as authored)
+  twaco mashup set Acme.Case_MU flexcontainer-6 --prop Margin="<top right bottom left>"
+  twaco mashup set Acme.Case_MU flexcontainer-6 --prop align-items=<flex-start|center|flex-end|stretch>
+  twaco mashup set Acme.Case_MU flexcontainer-6 --prop justify-content=<flex-start|center|flex-end|space-between>
+  twaco mashup set Acme.Case_MU flexcontainer-6 --prop flex-min-width=<value>
+  twaco mashup set Acme.Case_MU flexcontainer-6 --prop flex-max-width=<value>
+  twaco mashup set Acme.Case_MU flexcontainer-6 --prop flex-size=<value>
+  twaco mashup set Acme.Case_MU flexcontainer-6 --prop flex-shrink=<value>
+=== twaco mashup why Acme.Case_MU filter-footer --json
+{
+  "mashup": "Acme.Case_MU",
+  "widget": "flexcontainer-6",
+  "widget_type": "flexcontainer",
+  "display_name": "filter-footer",
+  "origin": "slot \"filter-footer\" of template filter-panel",
+  "inferred": false,
+  "rules": "legacy",
+  "decisions": [
+    {
+      "name": "surface",
+      "value": "inherit",
+      "rule": "surface.filter-children",
+      "source": "rule_table",
+      "current": "background=inherit",
+      "agrees": true,
+      "override_with": "twaco mashup set Acme.Case_MU flexcontainer-6 --style background=<colour>"
+    },
+    {
+      "name": "size",
+      "value": "content",
+      "rule": "size.content-filter-footer",
+      "source": "rule_table",
+      "current": "flex-grow=0",
+      "agrees": true,
+      "override_with": "twaco mashup set Acme.Case_MU flexcontainer-6 --prop flex-grow=<n> (any flex-*, Width or Height setting marks the size as authored)"
+    },
+    {
+      "name": "gutter",
+      "value": "24",
+      "rule": "gutter.filter-footer",
+      "source": "rule_table",
+      "current": "Margin=24",
+      "agrees": true,
+      "override_with": "twaco mashup set Acme.Case_MU flexcontainer-6 --prop Margin=\"<top right bottom left>\""
+    },
+    {
+      "name": "align",
+      "value": "center",
+      "rule": "align.filter-column",
+      "source": "rule_table",
+      "current": "align-items=center",
+      "agrees": true,
+      "override_with": "twaco mashup set Acme.Case_MU flexcontainer-6 --prop align-items=<flex-start|center|flex-end|stretch>"
+    },
+    {
+      "name": "justify",
+      "value": "space-between",
+      "rule": "justify.filter-footer",
+      "source": "rule_table",
+      "current": "justify-content=space-between",
+      "agrees": true,
+      "override_with": "twaco mashup set Acme.Case_MU flexcontainer-6 --prop justify-content=<flex-start|center|flex-end|space-between>"
+    },
+    {
+      "name": "prop flex-min-width",
+      "value": "228px",
+      "rule": "props.filter-footer-width",
+      "source": "rule_table",
+      "current": "flex-min-width=228px",
+      "agrees": true,
+      "override_with": "twaco mashup set Acme.Case_MU flexcontainer-6 --prop flex-min-width=<value>"
+    },
+    {
+      "name": "prop flex-max-width",
+      "value": "228px",
+      "rule": "props.filter-footer-width",
+      "source": "rule_table",
+      "current": "flex-max-width=228px",
+      "agrees": true,
+      "override_with": "twaco mashup set Acme.Case_MU flexcontainer-6 --prop flex-max-width=<value>"
+    },
+    {
+      "name": "prop flex-size",
+      "value": "range",
+      "rule": "props.filter-range",
+      "source": "rule_table",
+      "current": "flex-size=range",
+      "agrees": true,
+      "override_with": "twaco mashup set Acme.Case_MU flexcontainer-6 --prop flex-size=<value>"
+    },
+    {
+      "name": "prop flex-shrink",
+      "value": "0",
+      "rule": "props.filter-range",
+      "source": "rule_table",
+      "current": "flex-shrink=0",
+      "agrees": true,
+      "override_with": "twaco mashup set Acme.Case_MU flexcontainer-6 --prop flex-shrink=<value>"
+    }
+  ],
+  "enclosing": null,
+  "notes": []
+}

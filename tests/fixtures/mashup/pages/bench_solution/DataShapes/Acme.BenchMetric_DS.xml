@@ -1,0 +1,10 @@
+<Entities><DataShapes><DataShape name="Acme.BenchMetric_DS" projectName="Acme.Bench"><FieldDefinitions>
+                <FieldDefinition aspect.isPrimaryKey="false" baseType="STRING" description="" name="ThingName" ordinal="1" />
+                <FieldDefinition aspect.isPrimaryKey="false" baseType="STRING" description="" name="Type" ordinal="2" />
+                <FieldDefinition aspect.isPrimaryKey="false" baseType="STRING" description="" name="Title" ordinal="3" />
+                <FieldDefinition aspect.isPrimaryKey="false" baseType="STRING" description="" name="Version" ordinal="4" />
+                <FieldDefinition aspect.isPrimaryKey="false" baseType="STRING" description="" name="Status" ordinal="5" />
+                <FieldDefinition aspect.isPrimaryKey="false" baseType="STRING" description="" name="Category" ordinal="6" />
+                <FieldDefinition aspect.isPrimaryKey="false" baseType="NUMBER" description="" name="Count" ordinal="7" />
+            </FieldDefinitions>
+        </DataShape></DataShapes></Entities>

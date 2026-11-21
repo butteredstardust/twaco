@@ -273,6 +273,15 @@ pub(crate) struct MashupDescribeRequest {
 
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct MashupWhyRequest {
+    /// The mashup's name.
+    pub(crate) mashup: String,
+    /// The widget: its id, or a display name or type that names exactly one.
+    pub(crate) widget: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct MashupDiffRequest {
     /// The left repository mashup name.
     pub(crate) mashup_a: String,
@@ -316,6 +325,9 @@ pub(crate) struct MashupTemplatesRequest {
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct MashupNewRequest {
+    /// Create from a page spec file; exclusive with other creation options except project.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) spec: Absent<String>,
     /// Create a fixed-size dashboard gadget; layout defaults to 1x1 (columns x rows).
     #[serde(default)]
     pub(crate) gadget: bool,
@@ -1451,6 +1463,14 @@ pub(crate) struct MashupGapRequest {
     pub(crate) container: String,
     /// Fixed spacer size, 0 to 200 pixels; zero removes spacers.
     pub(crate) px: i32,
+    #[serde(default = "default_true")]
+    pub(crate) dry_run: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MashupBuildRequest {
+    pub(crate) mashup: String,
     #[serde(default = "default_true")]
     pub(crate) dry_run: bool,
 }

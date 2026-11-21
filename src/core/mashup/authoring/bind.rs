@@ -11,7 +11,6 @@ use crate::core::mashup::describe::mashup_parameters;
 use crate::core::mashup::edit::MashupDocument;
 use crate::core::{bindings, mashup, types};
 use serde_json::{Map, Value};
-use uuid::Uuid;
 
 #[derive(Clone, Debug)]
 pub struct BindRequest {
@@ -169,7 +168,7 @@ pub(super) fn bind_in(
     insert(
         &mut binding,
         "Id",
-        Value::String(Uuid::new_v4().to_string()),
+        Value::String(document.uuid(&format!("binding:{from_raw}:{to_raw}"))),
     );
     let mut map = Map::new();
     insert(
@@ -483,7 +482,7 @@ fn bind_entity_end(
     insert(
         &mut binding,
         "Id",
-        Value::String(Uuid::new_v4().to_string()),
+        Value::String(document.uuid(&format!("entity-binding:{from_raw}:{section}"))),
     );
     insert(
         &mut binding,
@@ -583,13 +582,15 @@ pub(super) fn data_call(
         return Err(AuthoringError::Refused(format!("{entity} is a {collection}: add its call with twaco mashup source add <mashup> {entity} {service} --kind {kind} first")));
     }
     let key = format!("Things_{entity}");
+    let source_uuid = document.uuid(&format!("source:{key}"));
+    let call_uuid = document.uuid(&format!("call:{key}:{service}:{requested_alias:?}"));
     let data = document.data_mut();
     if !data.contains_key(&key) {
         let mut value = Map::new();
         insert(&mut value, "DataName", Value::String(key.clone()));
         insert(&mut value, "EntityName", Value::String(entity.clone()));
         insert(&mut value, "EntityType", Value::String("Things".into()));
-        insert(&mut value, "Id", Value::String(Uuid::new_v4().to_string()));
+        insert(&mut value, "Id", Value::String(source_uuid));
         insert(&mut value, "RefreshInterval", Value::from(0));
         insert(&mut value, "Services", Value::Array(Vec::new()));
         insert(data, &key, Value::Object(value));
@@ -627,7 +628,7 @@ pub(super) fn data_call(
         "Characteristic",
         Value::String("Services".into()),
     );
-    insert(&mut call, "Id", Value::String(Uuid::new_v4().to_string()));
+    insert(&mut call, "Id", Value::String(call_uuid));
     insert(&mut call, "Name", Value::String(alias.clone()));
     insert(&mut call, "Parameters", Value::Object(Map::new()));
     insert(&mut call, "RefreshInterval", Value::from(0));

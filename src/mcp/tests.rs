@@ -674,6 +674,10 @@ fn hand_written_tools() -> Vec<Value> {
         .iter_mut()
         .find(|tool| tool["name"] == "mashup_new")
         .unwrap();
+    new["inputSchema"]["properties"]["spec"] = json!({
+        "description":"Create from a page spec file; exclusive with other creation options except project.",
+        "type":"string"
+    });
     new["inputSchema"]["properties"]["replacements"] =
         json!({"type": "array", "items": {"type": "string"}});
     new["inputSchema"]["properties"]["gadget"] = json!({
@@ -1565,6 +1569,8 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
             "mashup_event",
             "mashup_validate",
             "mashup_describe",
+            "mashup_build",
+            "mashup_why",
             "mashup_diff",
             "reproject",
             "retemplate",
@@ -2692,6 +2698,10 @@ fn what_the_offline_tools_return_fits_the_output_schema_they_publish() {
         ("widgets", json!({"widget": "button"})),
         ("mashup_validate", json!({"all": true})),
         ("mashup_describe", json!({"mashup": "P.Board_MU"})),
+        (
+            "mashup_why",
+            json!({"mashup": "P.Board_MU", "widget": "flexcontainer-2"}),
+        ),
         (
             "mashup_diff",
             json!({"mashup_a": "P.Board_MU", "mashup_b": "P.Board_MU"}),
@@ -5351,4 +5361,39 @@ fn mashup_add_next_steps_cover_plans_and_applies() {
             &result
         ));
     }
+}
+
+#[test]
+fn page_spec_new_and_build_are_offline_plans_by_default_and_structured() {
+    let (_dir, root) = solution_dir();
+    std::fs::write(root.join("Acme.page.yaml"),"version: 1\nrules: v1\npage:\n  name: Acme.Page_MU\n  template: blank\n  slots:\n    center:\n      - label: {id: title, text: Acme}\n").unwrap();
+    let args = json!({"name":"Acme.Page_MU","spec":"Acme.page.yaml"});
+    let planned = call(&root, "mashup_new", args.clone())["structuredContent"].clone();
+    assert_eq!(planned["applied"], false, "{planned}");
+    assert!(!root.join("src/Acme.Page_MU").exists());
+    assert!(
+        jsonschema::draft202012::is_valid(&output_schema_of("mashup_new"), &planned),
+        "{planned}"
+    );
+    let mut args = args;
+    args["dry_run"] = json!(false);
+    let applied = call(&root, "mashup_new", args)["structuredContent"].clone();
+    assert_eq!(applied["applied"], true, "{applied}");
+    assert!(root.join("src/Acme.Page_MU/page.yaml").exists());
+    let plan =
+        call(&root, "mashup_build", json!({"mashup":"Acme.Page_MU"}))["structuredContent"].clone();
+    assert_eq!(plan["applied"], false, "{plan}");
+    assert_eq!(plan["dry_run"], true);
+    assert_eq!(plan["files"], json!([]));
+    assert!(
+        jsonschema::draft202012::is_valid(&output_schema_of("mashup_build"), &plan),
+        "{plan}"
+    );
+    let _guard = lock::acquire(&root, "page test", &[]).unwrap();
+    let refused = call(
+        &root,
+        "mashup_build",
+        json!({"mashup":"Acme.Page_MU","dry_run":false}),
+    );
+    assert_eq!(refused["isError"], true, "{refused}");
 }

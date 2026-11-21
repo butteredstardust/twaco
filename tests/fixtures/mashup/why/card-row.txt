@@ -1,0 +1,57 @@
+=== twaco mashup why Acme.Case_MU container-10
+Acme.Case_MU flexcontainer-10 (flexcontainer, container-10)
+  generated container; rules: legacy (inferred)
+  siblings              equal               rule siblings.panel-row (inferred)
+    now: 3 of 3 unsized members have flex-grow=1 and flex-basis=0px [agrees]
+  size                  fill                rule size.row-natural (inferred)
+    now: flex-grow=1 [agrees]
+  prop flex-shrink      0                   rule size.row-natural (inferred)
+    now: flex-shrink=0 [agrees]
+note: twaco did not record how this container was made, so these are the rules' answers now (inferred), not provenance
+override:
+  twaco mashup set Acme.Case_MU <member> --prop flex-grow=<n> (a flex-* setting marks that member as authored, so the row stops equalising it)
+  twaco mashup set Acme.Case_MU flexcontainer-10 --prop flex-grow=<n> (any flex-*, Width or Height setting marks the size as authored)
+  twaco mashup set Acme.Case_MU flexcontainer-10 --prop flex-shrink=<value>
+=== twaco mashup why Acme.Case_MU container-10 --json
+{
+  "mashup": "Acme.Case_MU",
+  "widget": "flexcontainer-10",
+  "widget_type": "flexcontainer",
+  "display_name": "container-10",
+  "origin": "generated container",
+  "inferred": true,
+  "rules": "legacy",
+  "decisions": [
+    {
+      "name": "siblings",
+      "value": "equal",
+      "rule": "siblings.panel-row",
+      "source": "inferred",
+      "current": "3 of 3 unsized members have flex-grow=1 and flex-basis=0px",
+      "agrees": true,
+      "override_with": "twaco mashup set Acme.Case_MU <member> --prop flex-grow=<n> (a flex-* setting marks that member as authored, so the row stops equalising it)"
+    },
+    {
+      "name": "size",
+      "value": "fill",
+      "rule": "size.row-natural",
+      "source": "inferred",
+      "current": "flex-grow=1",
+      "agrees": true,
+      "override_with": "twaco mashup set Acme.Case_MU flexcontainer-10 --prop flex-grow=<n> (any flex-*, Width or Height setting marks the size as authored)"
+    },
+    {
+      "name": "prop flex-shrink",
+      "value": "0",
+      "rule": "size.row-natural",
+      "source": "inferred",
+      "current": "flex-shrink=0",
+      "agrees": true,
+      "override_with": "twaco mashup set Acme.Case_MU flexcontainer-10 --prop flex-shrink=<value>"
+    }
+  ],
+  "enclosing": null,
+  "notes": [
+    "twaco did not record how this container was made, so these are the rules' answers now (inferred), not provenance"
+  ]
+}

@@ -1,0 +1,8 @@
+version: 1
+rules: v1
+page:
+  name: Acme.Elements_MU
+  template: blank
+  slots:
+    center:
+      - slider: {id: level, title: Level, min: 0, max: 200, value: 35, labels: false}

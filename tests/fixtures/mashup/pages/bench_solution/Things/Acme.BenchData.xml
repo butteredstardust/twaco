@@ -1,0 +1,16 @@
+<Entities><Things><Thing name="Acme.BenchData" projectName="Acme.Bench" thingTemplate="GenericThing"><ThingShape><ServiceDefinitions><ServiceDefinition name="GetDocuments"><ParameterDefinitions>
+                    </ParameterDefinitions>
+                <ResultType baseType="INFOTABLE" aspect.dataShape="Acme.BenchDocument_DS"/></ServiceDefinition><ServiceDefinition name="GetFilterOptions"><ParameterDefinitions>
+                        <FieldDefinition baseType="STRING" description="" name="kind" ordinal="1" />
+                        <FieldDefinition baseType="STRING" description="" name="query" ordinal="2" />
+                    </ParameterDefinitions>
+                <ResultType baseType="INFOTABLE" aspect.dataShape="Acme.Option_DS"/></ServiceDefinition><ServiceDefinition name="FilterMetrics"><ParameterDefinitions>
+                        <FieldDefinition baseType="STRING" description="" name="query" ordinal="1" />
+                        <FieldDefinition baseType="STRING" description="" name="version" ordinal="2" />
+                        <FieldDefinition baseType="STRING" description="" name="status" ordinal="3" />
+                        <FieldDefinition baseType="STRING" description="" name="category" ordinal="4" />
+                        <FieldDefinition baseType="NUMBER" description="" name="page" ordinal="5" />
+                        <FieldDefinition baseType="DATETIME" description="" name="startDate" ordinal="6" />
+                        <FieldDefinition baseType="DATETIME" description="" name="endDate" ordinal="7" />
+                    </ParameterDefinitions>
+                <ResultType baseType="INFOTABLE" aspect.dataShape="Acme.BenchMetric_DS"/></ServiceDefinition><ServiceDefinition name="GetMetrics"><ParameterDefinitions/><ResultType baseType="INFOTABLE" aspect.dataShape="Acme.BenchMetric_DS"/></ServiceDefinition></ServiceDefinitions></ThingShape></Thing></Things></Entities>

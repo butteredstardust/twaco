@@ -6,6 +6,41 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Page specs support `row`/`column`, proportional fill weights and gaps, equal chart widths,
+  minimum chart heights and optional hidden legends. Overflow scrolls at the page so pagination
+  and content-height status cards stay in flow. Field-only filter panels no longer reserve an
+  empty content pane, and narrow date ranges fit their fields.
+- Page detail values can bind to `<grid>.selected.<Field>`; mixed detail pairs reserve the same
+  status-dot column. Added combined-layout Q1-Q4 examples and offline acceptance fixtures.
+
+### Fixed
+
+- `mashup new --spec` overflowed the stack on specs with a few nested containers (tabs in a column in a row): parsing and placing recurse with large frames, so the page work now runs on a 64 MiB thread; over-deep YAML is refused by the parser's depth budget with a located error. A page header with help and actions collapsed to zero height in a column (the spacer rule left a 0px flex basis); it now keeps `auto`. The v1 header golden changes deliberately; legacy output is unchanged.
+
+- Page-spec v1 inline tabs no longer reserve an empty toolbar band. Nested charts stay in their panels and share remaining height with a floor for short viewports; cards and KPI rows size to content. Filter footers fit equal buttons inside their gutters, and bound date filters start empty unless explicitly initialized to today. Legacy layout output is unchanged.
+
+- Page-spec v1 blank pages now own a 24px gutter; toolbar bands stay 48px with centered controls, spacers push later controls right, and date ranges use the kit's 340px width and short dates. Explicit sizes and props remain overrides; legacy output is unchanged.
+
+### Added
+
+- Page-spec v1 `panel` (framed grey panel with an optional title and a toolbar band above its content), `chart: {kind: combo, series: [{field, kind: bar|line}]}` on the native combo chart, `slider` and `kpi_dial` (`dial`, `half`, `horizontal`, `vertical`, bound to the slider's `Value`). Card and trend-tile titles use the regular label size. Benchmarks A and H follow the kit (framed chart panels, bar+line combo, transparent eye-icon View Details, no Refresh); a new O benchmark builds the Gauges & KPI page. v1 goldens updated deliberately; legacy output is unchanged.
+
+- Page-spec v1 `trend_tile` and `detail_pair` elements, button `variant`, `icon` and `enabled_when: <grid>.selected`, and short `From`/`To` hints for narrow date ranges. The A, H, J, K and N benchmark specs use them (kit transparent icon buttons, selection-gated Preview and View Details, pagination); legacy output is unchanged.
+
+- Five reproducible page-spec benchmark examples (A, H, J, K, N), offline Acme contracts, artifact goldens and CLI/MCP rebuild/hand-edit coverage. Page-spec worked examples document remaining kit gaps.
+
+- Page-spec v1 elements: page headers, toolbar bands and spacers, equal KPI rows, cards, filter panels, tabs, line/bar/pie charts, date ranges, dropdowns, text fields and grid pagination through existing authoring helpers. Grid columns accept bare field names.
+- Page widget IDs now use stable four to six digit suffixes with collision refusal. Baselines record ID policy v2 and refuse incompatible older policies without renumbering.
+
+- `mashup build` (MCP `mashup_build`) plans baseline-aware page-spec rebuilds, preserves independent hand edits, refuses conflicts, and applies XML, sidecars and the generated baseline atomically. `mashup new --spec` creates through the same path and copies page.yaml.
+
+- Internal page-spec compiler: strict, located YAML diagnostics, stable widget IDs and deterministic source/binding IDs; compiles grid, text, button and raw-widget specs to entity XML and sidecars through shared authoring operations.
+
+- `mashup why <mashup> <widget>` (MCP `mashup_why`) explains a widget's layout: each decision with the rule that made it, rule table versus an explicit authored setting, what the mashup holds now, and the `mashup set` command that overrides it; containers twaco did not record are explained as inferred. `mashup validate` reports a template slot or a row of cards that contradicts its rule as an advisory (`layout-slot-size`, `layout-siblings`).
+- The layout rules gain `op`, `label` and `facts` predicates and a `siblings` decision. Authoring (add, add-contained, set, the toolbar, card, panel and label-pairs recipes, equal card widths, natural row heights, mixed control rows) now asks one evaluator; output is unchanged.
+
 ## [0.1.72] - 2026-11-21
 
 ## [0.1.71] - 2026-11-21

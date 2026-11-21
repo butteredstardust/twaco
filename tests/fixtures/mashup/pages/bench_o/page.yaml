@@ -1,0 +1,55 @@
+version: 1
+rules: v1
+page:
+  name: Acme.BenchSpecO_MU
+  template: blank
+  slots:
+    center:
+      - page_header: {id: header, title: Gauges & KPI}
+      - slider: {id: level, min: 0, max: 100, value: 35, labels: true}
+      - kpi_row:
+          id: row_1
+          children:
+            - card:
+                id: gauge_inside
+                title: Gauge with labels inside
+                children:
+                  - kpi_dial: {id: gauge_inside_dial, kind: dial, max: 100, unit: '(%)', title: KPI Dial, value: {bind: level.Value}}
+            - card:
+                id: gauge_outside
+                title: Gauge with labels outside
+                children:
+                  - kpi_dial: {id: gauge_outside_dial, kind: half, max: 100, unit: '(%)', title: KPI Dial, value: {bind: level.Value}}
+            - card:
+                id: gauge_face
+                title: Gauge with custom face
+                children:
+                  - kpi_dial: {id: gauge_face_dial, kind: dial, max: 100, unit: '(%)', title: KPI Dial, value: {bind: level.Value}}
+            - card:
+                id: gauge_temperature
+                title: Temperature Gauge
+                children:
+                  - kpi_dial: {id: gauge_temperature_dial, kind: half, max: 150, unit: '(%)', title: KPI Dial, value: {bind: level.Value}}
+      - kpi_row:
+          id: row_2
+          children:
+            - card:
+                id: kpi_dial
+                title: Kpi Dial
+                children:
+                  - kpi_dial: {id: kpi_dial_dial, kind: dial, max: 100, unit: '(%)', title: KPI Dial, value: {bind: level.Value}}
+            - card:
+                id: kpi_half
+                title: Kpi Dial
+                children:
+                  - kpi_dial: {id: kpi_half_dial, kind: half, max: 100, unit: '(%)', title: KPI Dial, value: {bind: level.Value}}
+            - card:
+                id: kpi_horizontal
+                title: Kpi Horizontal
+                children:
+                  - kpi_dial: {id: kpi_horizontal_dial, kind: horizontal, max: 100, unit: '(%)', title: KPI Dial, value: {bind: level.Value}}
+            - card:
+                id: kpi_vertical
+                title: Kpi Vertical
+                children:
+                  - kpi_dial: {id: kpi_vertical_dial, kind: vertical, max: 100, unit: '(%)', title: KPI Dial, value: {bind: level.Value}}

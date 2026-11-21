@@ -6,31 +6,29 @@
   ],
   "page": {
     "flex-direction": "column",
-    "align-items": "stretch",
-    "Margin": "24"
+    "align-items": "@rule",
+    "Margin": "@rule"
   },
   "master_slot": "body",
   "children": [
     {
       "slot": "title",
       "flex-direction": "row",
-      "align-items": "center",
-      "fixed": "70px"
+      "align-items": "@rule",
+      "fixed": "@rule"
     },
     {
       "slot": "toolbar",
       "flex-direction": "row",
-      "align-items": "center",
-      "fixed": "50px",
-      "style": {
-        "background": "#F7F7F7"
-      }
+      "align-items": "@rule",
+      "fixed": "@rule",
+      "style": "@rule"
     },
     {
       "slot": "body",
       "flex-direction": "column",
-      "flex-grow": 1,
-      "align-items": "stretch"
+      "flex-grow": "@rule",
+      "align-items": "@rule"
     }
   ]
 }

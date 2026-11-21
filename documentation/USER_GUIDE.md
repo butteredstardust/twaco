@@ -80,7 +80,7 @@ until `--apply`; `sync` and `deploy` take them to the server.
 | Thing, ThingTemplate, ThingShape | `new thing`, `new thing-template`, `new thing-shape` | `catalog`, `impact`, `entity get` | `thing shape add\|remove`, `retemplate`, `reproject`, `rename entity` | `entity delete` |
 | DataShape | `new data-shape` | `src/<DataShape>/fields.json` | edit `fields.json` + `sync` (its DataTables and Streams follow); `rename field` | `entity delete` |
 | DataTable, Stream, ValueStream | `new data-table`, `new stream`, `new value-stream` | `datatable.json`, `db query` | `datatable.json` + `sync`; `datatable copy` for rows | `entity delete` |
-| Mashup | `mashup new` (14 templates), `mashup add-contained` | `mashup describe`, `diff`, `validate` | `mashup add`, `bind`, `on`, `param`, `event`, `recipe` | `entity delete` |
+| Mashup | `mashup new` (14 templates), `mashup add-contained` | `mashup describe`, `why`, `diff`, `validate` | `mashup add`, `bind`, `on`, `param`, `event`, `recipe` | `entity delete` |
 | Timer, Scheduler | `new timer`, `new scheduler` | the entity's XML | `timer set`, `scheduler set` | `entity delete` |
 | Style, theme, state, menu, media | `new style`, `new theme`, `new state`, `new menu`, `new media` | the entity's XML | `style set`, `state set`, `menu item add\|remove`, `media set` | `entity delete` |
 | Network (asset hierarchy) | `new network`, `network import` | `network list`, `network show` | `network add`, `network move` | `network remove` (connections, never the Things) |
@@ -2155,6 +2155,24 @@ selected rows `data:<Entity>.<Service>[SelectedRows].<field>`, and the entity a 
 runs on `data:<Entity>[EntityName]`. A property map after a binding's first is listed as ignored,
 since the runtime applies only the first.
 
+### Why a widget is laid out as it is
+
+```sh
+twaco mashup why Acme.App.Orders_MU toolbar
+twaco mashup why Acme.App.Orders_MU container-10 --json
+```
+
+`mashup why` prints what the layout rules decide for one widget (named by id, display name or a
+unique type): size, gutter, align, justify, surface, whether a row of cards is equal, and the
+properties a rule sets. Each decision shows its value, the rule that made it (`size.toolbar-50`),
+whether it came from the rule table or from a setting someone made by hand (which always wins),
+what the mashup holds now and whether that agrees, and the `twaco mashup set` command that
+overrides it. A container twaco did not record how it made (no template slot) is explained as
+`inferred`: the rules' answer now, not provenance. A widget that decides nothing shows the container
+it sits in. The same rules drive `mashup add`, the recipes and `mashup validate`, which reports a
+template slot whose fixed size, or a row of cards that, contradicts its rule as an advisory
+(`layout-slot-size`, `layout-siblings`), never an error. MCP: `mashup_why`.
+
 ### Comparing mashups
 
 ```sh
@@ -2721,3 +2739,52 @@ trimmed marker lines delimit a managed block.
 from every supplied row, columns supplied in some rows but omitted in others (those cells
 are cleared), and existing rows omitted from the replacement. With a primary key, dropped
 rows are identified by that key; without one, the warning reports a reduction in row count.
+
+
+## Build a mashup from a page spec
+
+Write a [page spec](PAGE_SPECS.md) with the mashup name, template and authored node IDs, then:
+
+```sh
+twaco mashup new Acme.Alerts_MU --spec alerts.page.yaml
+twaco mashup new Acme.Alerts_MU --spec alerts.page.yaml --apply
+# Edit src/Acme.Alerts_MU/page.yaml, then review and apply the rebuild:
+twaco mashup build Acme.Alerts_MU
+twaco mashup build Acme.Alerts_MU --apply
+```
+
+Use `--project <name>` on new in a multi-project solution. Add `--json` for structured plans.
+MCP equivalents are `mashup_new` with `spec` and `mashup_build`; both plan unless `dry_run:false`.
+Commit page.yaml and .page-baseline.json with the XML and mashup sidecars. Build keeps hand
+edits where generation is unchanged, merges independent edits, and reports competing changes
+with the widget/property and spec line. Conflicts write nothing; reconcile the edits and plan
+again. Existing mashups can adopt only specs whose generated values already match their current
+values. All local output files apply together under the workspace lock; deployment is separate.
+
+
+Page specs support page headers with actions, grey toolbar bands and spacers, equal KPI rows,
+cards, filter panels with Apply/Reset footers, inline or contained tabs, line/bar/pie charts,
+date ranges, dropdowns, text fields, grids and local pagination. Grid columns can use bare
+field names (`columns: [Name, Count]`). See the [element reference](PAGE_SPECS.md#element-reference)
+for one example of each. These elements reuse the command recipes, templates and native
+widgets, with layout from the pinned v1 rules. Widget IDs keep stable hash suffixes in a readable
+four to six digit range; old ID-policy baselines require their compatible twaco version.
+
+
+## Build a page from a spec
+
+Write a YAML page spec with `version: 1`, `rules: v1`, a page name, template,
+data services and slot elements. Start with the [worked examples](PAGE_SPECS.md#worked-examples).
+Services resolve from your local solution; building needs no server.
+
+```sh
+twaco mashup new Acme.Alerts_MU --project Acme --spec alerts.page.yaml
+twaco mashup new Acme.Alerts_MU --project Acme --spec alerts.page.yaml --apply
+twaco mashup build Acme.Alerts_MU
+```
+
+Creation copies the spec to `src/Acme.Alerts_MU/page.yaml`. Edit it and plan another build;
+add `--apply` to write local changes. Commit the spec and `.page-baseline.json` beside the
+mashup sidecars. Builds retain independent hand edits and report conflicts without writing.
+Use your normal deploy workflow after reviewing the generated files. MCP offers the same
+operations through `mashup_new` (`spec`) and `mashup_build`, with `dry_run: true` by default.

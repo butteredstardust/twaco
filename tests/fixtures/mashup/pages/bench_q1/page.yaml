@@ -1,0 +1,57 @@
+# Q1 Operations overview: filter column + KPI trend row + tabs (grid with toolbar/pagination | two charts)
+version: 1
+rules: v1
+page:
+  name: Acme.BenchSpecQ1_MU
+  template: blank
+  data:
+    assets: {service: Acme.Cards.GetAssets, on: load}
+    focus: {service: Acme.Cards.GetFocus, on: load}
+    history: {service: Acme.Cards.GetHistory, on: load}
+    categories: {service: Acme.Cards.GetCategories, on: load}
+  slots:
+    center:
+      - row:
+          id: shell
+          size: fill
+          children:
+            - filter_panel:
+                id: filters
+                fields:
+                  - text_field: {id: query, hint: Search...}
+                  - dropdown: {id: category, options: categories, display: Value}
+                  - date_range: {id: period}
+                footer: [apply, reset]
+            - column:
+                id: main
+                size: fill
+
+                children:
+                  - page_header: {id: header, title: Operations Overview}
+                  - kpi_row:
+                      id: kpis
+                      children:
+                        - trend_tile: {id: oee, label: OEE, value: {bind: focus.Objective}, unit: '%', trend: up}
+                        - trend_tile: {id: output, label: Output, value: {bind: focus.Measures}, unit: pcs, trend: up}
+                        - trend_tile: {id: scrap, label: Scrap, value: {bind: focus.Targets}, unit: '%', trend: down}
+                  - tabs:
+                      id: views
+                      tabs:
+                        - label: Assets
+                          content:
+                            - toolbar:
+                                id: grid_tools
+                                children:
+                                  - text_field: {id: grid_search, hint: Search...}
+                                  - spacer: {id: grid_space}
+                                  - button: {id: export, label: Export, variant: transparent, icon: cds:icon_download}
+                            - grid:
+                                id: asset_grid
+                                size: fill
+                                data: assets
+                                columns: [{field: ThingName, title: Asset}, {field: Status, status: Acme.BenchStatus_ST}, Category, Model, Date]
+                            - pagination: {id: asset_pages, for: asset_grid}
+                        - label: Trends
+                          content:
+                            - chart: {id: trend_line, kind: line, data: history, x: year}
+                            - chart: {id: trend_bar, kind: bar, data: history, x: year, stacked: true}

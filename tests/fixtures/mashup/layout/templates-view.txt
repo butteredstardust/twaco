@@ -1,0 +1,1258 @@
+=== twaco mashup templates
+Mashup templates
+  blank           A single responsive center container
+                  slots: center
+  sidebar         Menu sidebar beside a center content area
+                  slots: sidebar, center
+  header-footer   Fixed header and footer around a center content area
+                  slots: header, center, footer
+  header-sidebar  Header above a menu sidebar and center content area
+                  slots: header, body, sidebar, center
+  sidebar-header  Menu sidebar the full height, a header and the page beside it (also app-shell)
+                  slots: sidebar, main, header, center
+  form-dialog     Title bar, fields, and a right-aligned action bar (also form, dialog)
+                  slots: title, fields, actions
+  form-2col       Title, full-width fields, and two equal form columns above actions
+                  slots: title, fields, form-columns, left, right, actions
+  confirm-dialog  Confirmation message with close and action areas (also confirm)
+                  slots: close, message, actions
+  list-page       Title and toolbar above a list body (also list)
+                  slots: title, toolbar, body
+  card            Card with a title, actions, and body
+                  slots: header, title, actions, body
+  master-detail   Side-by-side list and detail areas
+                  slots: list, detail
+  kpi-tile        Compact KPI title and centered value (also kpi)
+                  slots: title, value
+  filter-panel    Fixed filters beside flexible content (also filters)
+                  slots: filter-column, filters, filter-footer, content
+  tabs            A title above a tab set; --tab Label=Mashup shows a mashup in each tab (also tab-page)
+                  slots: title, tabs
+  tab-content     Toolbar and body for a tab; the host supplies the title and 24px gutter
+                  slots: toolbar, body
+  dashboard       A title, a row of four KPI tiles, and a side panel beside a main panel
+                  slots: title, tiles, tile-1, tile-2, tile-3, tile-4, panels, side, main
+=== twaco mashup templates --json
+[
+  {
+    "name": "blank",
+    "aliases": [],
+    "summary": "A single responsive center container",
+    "slots": [
+      "center"
+    ]
+  },
+  {
+    "name": "sidebar",
+    "aliases": [],
+    "summary": "Menu sidebar beside a center content area",
+    "slots": [
+      "sidebar",
+      "center"
+    ]
+  },
+  {
+    "name": "header-footer",
+    "aliases": [],
+    "summary": "Fixed header and footer around a center content area",
+    "slots": [
+      "header",
+      "center",
+      "footer"
+    ]
+  },
+  {
+    "name": "header-sidebar",
+    "aliases": [],
+    "summary": "Header above a menu sidebar and center content area",
+    "slots": [
+      "header",
+      "body",
+      "sidebar",
+      "center"
+    ]
+  },
+  {
+    "name": "sidebar-header",
+    "aliases": [
+      "app-shell"
+    ],
+    "summary": "Menu sidebar the full height, a header and the page beside it",
+    "slots": [
+      "sidebar",
+      "main",
+      "header",
+      "center"
+    ]
+  },
+  {
+    "name": "form-dialog",
+    "aliases": [
+      "form",
+      "dialog"
+    ],
+    "summary": "Title bar, fields, and a right-aligned action bar",
+    "slots": [
+      "title",
+      "fields",
+      "actions"
+    ]
+  },
+  {
+    "name": "form-2col",
+    "aliases": [],
+    "summary": "Title, full-width fields, and two equal form columns above actions",
+    "slots": [
+      "title",
+      "fields",
+      "form-columns",
+      "left",
+      "right",
+      "actions"
+    ]
+  },
+  {
+    "name": "confirm-dialog",
+    "aliases": [
+      "confirm"
+    ],
+    "summary": "Confirmation message with close and action areas",
+    "slots": [
+      "close",
+      "message",
+      "actions"
+    ]
+  },
+  {
+    "name": "list-page",
+    "aliases": [
+      "list"
+    ],
+    "summary": "Title and toolbar above a list body",
+    "slots": [
+      "title",
+      "toolbar",
+      "body"
+    ]
+  },
+  {
+    "name": "card",
+    "aliases": [],
+    "summary": "Card with a title, actions, and body",
+    "slots": [
+      "header",
+      "title",
+      "actions",
+      "body"
+    ]
+  },
+  {
+    "name": "master-detail",
+    "aliases": [],
+    "summary": "Side-by-side list and detail areas",
+    "slots": [
+      "list",
+      "detail"
+    ]
+  },
+  {
+    "name": "kpi-tile",
+    "aliases": [
+      "kpi"
+    ],
+    "summary": "Compact KPI title and centered value",
+    "slots": [
+      "title",
+      "value"
+    ]
+  },
+  {
+    "name": "filter-panel",
+    "aliases": [
+      "filters"
+    ],
+    "summary": "Fixed filters beside flexible content",
+    "slots": [
+      "filter-column",
+      "filters",
+      "filter-footer",
+      "content"
+    ]
+  },
+  {
+    "name": "tabs",
+    "aliases": [
+      "tab-page"
+    ],
+    "summary": "A title above a tab set; --tab Label=Mashup shows a mashup in each tab",
+    "slots": [
+      "title",
+      "tabs"
+    ]
+  },
+  {
+    "name": "tab-content",
+    "aliases": [],
+    "summary": "Toolbar and body for a tab; the host supplies the title and 24px gutter",
+    "slots": [
+      "toolbar",
+      "body"
+    ]
+  },
+  {
+    "name": "dashboard",
+    "aliases": [],
+    "summary": "A title, a row of four KPI tiles, and a side panel beside a main panel",
+    "slots": [
+      "title",
+      "tiles",
+      "tile-1",
+      "tile-2",
+      "tile-3",
+      "tile-4",
+      "panels",
+      "side",
+      "main"
+    ]
+  }
+]
+=== twaco mashup templates blank
+blank: A single responsive center container
+  page       
+with --master, the page mashup container goes in center
+=== twaco mashup templates blank --json
+{
+  "name": "blank",
+  "aliases": [],
+  "summary": "A single responsive center container",
+  "slots": [
+    "center"
+  ],
+  "page": {},
+  "master_slot": "center",
+  "children": []
+}
+=== twaco mashup templates sidebar
+sidebar: Menu sidebar beside a center content area
+  page       row
+    sidebar    row, holds ptcsmenubar
+    center     column, fills
+with --master, the page mashup container goes in center
+=== twaco mashup templates sidebar --json
+{
+  "name": "sidebar",
+  "aliases": [],
+  "summary": "Menu sidebar beside a center content area",
+  "slots": [
+    "sidebar",
+    "center"
+  ],
+  "page": {
+    "flex-direction": "row",
+    "align-items": "stretch"
+  },
+  "master_slot": "center",
+  "children": [
+    {
+      "slot": "sidebar",
+      "children": [],
+      "widget": "ptcsmenubar",
+      "fixed": null,
+      "divider": false,
+      "flex-direction": "row",
+      "flex-grow": 0,
+      "align-items": "stretch"
+    },
+    {
+      "slot": "center",
+      "children": [],
+      "widget": null,
+      "fixed": null,
+      "divider": false,
+      "flex-direction": "column",
+      "flex-grow": 1,
+      "align-items": "stretch"
+    }
+  ]
+}
+=== twaco mashup templates header-footer
+header-footer: Fixed header and footer around a center content area
+  page       column
+    header     row, fixed 50px
+    center     column, fills
+    footer     row, fixed 40px
+with --master, the page mashup container goes in center
+=== twaco mashup templates header-footer --json
+{
+  "name": "header-footer",
+  "aliases": [],
+  "summary": "Fixed header and footer around a center content area",
+  "slots": [
+    "header",
+    "center",
+    "footer"
+  ],
+  "page": {
+    "flex-direction": "column",
+    "align-items": "stretch"
+  },
+  "master_slot": "center",
+  "children": [
+    {
+      "slot": "header",
+      "children": [],
+      "widget": null,
+      "fixed": "50px",
+      "divider": false,
+      "flex-direction": "row",
+      "align-items": "center"
+    },
+    {
+      "slot": "center",
+      "children": [],
+      "widget": null,
+      "fixed": null,
+      "divider": false,
+      "flex-direction": "column",
+      "flex-grow": 1,
+      "align-items": "stretch"
+    },
+    {
+      "slot": "footer",
+      "children": [],
+      "widget": null,
+      "fixed": "40px",
+      "divider": false,
+      "flex-direction": "row",
+      "align-items": "center"
+    }
+  ]
+}
+=== twaco mashup templates header-sidebar
+header-sidebar: Header above a menu sidebar and center content area
+  page       column
+    header     row, space-between, fixed 50px
+    body       row, fills
+      sidebar    row, holds ptcsmenubar
+      center     column, fills
+with --master, the page mashup container goes in center
+=== twaco mashup templates header-sidebar --json
+{
+  "name": "header-sidebar",
+  "aliases": [],
+  "summary": "Header above a menu sidebar and center content area",
+  "slots": [
+    "header",
+    "body",
+    "sidebar",
+    "center"
+  ],
+  "page": {
+    "flex-direction": "column",
+    "align-items": "stretch"
+  },
+  "master_slot": "center",
+  "children": [
+    {
+      "slot": "header",
+      "children": [],
+      "widget": null,
+      "fixed": "50px",
+      "divider": false,
+      "flex-direction": "row",
+      "align-items": "center",
+      "justify-content": "space-between"
+    },
+    {
+      "slot": "body",
+      "children": [
+        {
+          "slot": "sidebar",
+          "children": [],
+          "widget": "ptcsmenubar",
+          "fixed": null,
+          "divider": false,
+          "flex-direction": "row",
+          "flex-grow": 0,
+          "align-items": "stretch"
+        },
+        {
+          "slot": "center",
+          "children": [],
+          "widget": null,
+          "fixed": null,
+          "divider": false,
+          "flex-direction": "column",
+          "flex-grow": 1,
+          "align-items": "stretch"
+        }
+      ],
+      "widget": null,
+      "fixed": null,
+      "divider": false,
+      "flex-direction": "row",
+      "flex-grow": 1,
+      "align-items": "stretch"
+    }
+  ]
+}
+=== twaco mashup templates sidebar-header
+sidebar-header: Menu sidebar the full height, a header and the page beside it
+aliases: app-shell
+  page       row
+    sidebar    row, holds ptcsmenubar
+    main       column, fills
+      header     row, space-between, fixed 50px
+      divider    fixed 1px
+      center     column, fills
+with --master, the page mashup container goes in center
+=== twaco mashup templates sidebar-header --json
+{
+  "name": "sidebar-header",
+  "aliases": [
+    "app-shell"
+  ],
+  "summary": "Menu sidebar the full height, a header and the page beside it",
+  "slots": [
+    "sidebar",
+    "main",
+    "header",
+    "center"
+  ],
+  "page": {
+    "flex-direction": "row",
+    "align-items": "stretch"
+  },
+  "master_slot": "center",
+  "children": [
+    {
+      "slot": "sidebar",
+      "children": [],
+      "widget": "ptcsmenubar",
+      "fixed": null,
+      "divider": false,
+      "flex-direction": "row",
+      "flex-grow": 0,
+      "align-items": "stretch"
+    },
+    {
+      "slot": "main",
+      "children": [
+        {
+          "slot": "header",
+          "children": [],
+          "widget": null,
+          "fixed": "50px",
+          "divider": false,
+          "flex-direction": "row",
+          "align-items": "center",
+          "justify-content": "space-between"
+        },
+        {
+          "slot": null,
+          "children": [],
+          "widget": null,
+          "fixed": null,
+          "divider": true
+        },
+        {
+          "slot": "center",
+          "children": [],
+          "widget": null,
+          "fixed": null,
+          "divider": false,
+          "flex-direction": "column",
+          "flex-grow": 1,
+          "align-items": "stretch"
+        }
+      ],
+      "widget": null,
+      "fixed": null,
+      "divider": false,
+      "flex-direction": "column",
+      "flex-grow": 1,
+      "align-items": "stretch"
+    }
+  ]
+}
+=== twaco mashup templates form-dialog
+form-dialog: Title bar, fields, and a right-aligned action bar
+aliases: form, dialog
+  page       column
+    title      row, fixed 50px
+    fields     column, fills
+    actions    row, flex-end, fixed 50px
+with --master, the page mashup container goes in fields
+=== twaco mashup templates form-dialog --json
+{
+  "name": "form-dialog",
+  "aliases": [
+    "form",
+    "dialog"
+  ],
+  "summary": "Title bar, fields, and a right-aligned action bar",
+  "slots": [
+    "title",
+    "fields",
+    "actions"
+  ],
+  "page": {
+    "flex-direction": "column",
+    "align-items": "stretch"
+  },
+  "master_slot": "fields",
+  "children": [
+    {
+      "slot": "title",
+      "children": [],
+      "widget": null,
+      "fixed": "50px",
+      "divider": false,
+      "flex-direction": "row",
+      "align-items": "center"
+    },
+    {
+      "slot": "fields",
+      "children": [],
+      "widget": null,
+      "fixed": null,
+      "divider": false,
+      "flex-direction": "column",
+      "flex-grow": 1,
+      "align-items": "stretch"
+    },
+    {
+      "slot": "actions",
+      "children": [],
+      "widget": null,
+      "fixed": "50px",
+      "divider": false,
+      "flex-direction": "row",
+      "justify-content": "flex-end",
+      "align-items": "center"
+    }
+  ]
+}
+=== twaco mashup templates form-2col
+form-2col: Title, full-width fields, and two equal form columns above actions
+  page       column
+    title      row, fixed 50px
+    fields     column
+    form-columns row, fills
+      left       column, fills
+      right      column, fills
+    actions    row, flex-end, fixed 50px
+with --master, the page mashup container goes in fields
+=== twaco mashup templates form-2col --json
+{
+  "name": "form-2col",
+  "aliases": [],
+  "summary": "Title, full-width fields, and two equal form columns above actions",
+  "slots": [
+    "title",
+    "fields",
+    "form-columns",
+    "left",
+    "right",
+    "actions"
+  ],
+  "page": {
+    "flex-direction": "column",
+    "align-items": "stretch"
+  },
+  "master_slot": "fields",
+  "children": [
+    {
+      "slot": "title",
+      "children": [],
+      "widget": null,
+      "fixed": "50px",
+      "divider": false,
+      "flex-direction": "row",
+      "align-items": "center"
+    },
+    {
+      "slot": "fields",
+      "children": [],
+      "widget": null,
+      "fixed": null,
+      "divider": false,
+      "flex-direction": "column",
+      "flex-grow": 0,
+      "align-items": "stretch"
+    },
+    {
+      "slot": "form-columns",
+      "children": [
+        {
+          "slot": "left",
+          "children": [],
+          "widget": null,
+          "fixed": null,
+          "divider": false,
+          "flex-direction": "column",
+          "flex-grow": 1,
+          "flex-basis": "0px",
+          "align-items": "stretch"
+        },
+        {
+          "slot": "right",
+          "children": [],
+          "widget": null,
+          "fixed": null,
+          "divider": false,
+          "flex-direction": "column",
+          "flex-grow": 1,
+          "flex-basis": "0px",
+          "align-items": "stretch"
+        }
+      ],
+      "widget": null,
+      "fixed": null,
+      "divider": false,
+      "flex-direction": "row",
+      "align-items": "flex-start",
+      "flex-grow": 1
+    },
+    {
+      "slot": "actions",
+      "children": [],
+      "widget": null,
+      "fixed": "50px",
+      "divider": false,
+      "flex-direction": "row",
+      "justify-content": "flex-end",
+      "align-items": "center"
+    }
+  ]
+}
+=== twaco mashup templates confirm-dialog
+confirm-dialog: Confirmation message with close and action areas
+aliases: confirm
+  page       column
+    close      row, flex-end, fixed 42px
+    message    column, fills, center
+    actions    row, flex-end, fixed 50px
+with --master, the page mashup container goes in message
+=== twaco mashup templates confirm-dialog --json
+{
+  "name": "confirm-dialog",
+  "aliases": [
+    "confirm"
+  ],
+  "summary": "Confirmation message with close and action areas",
+  "slots": [
+    "close",
+    "message",
+    "actions"
+  ],
+  "page": {
+    "flex-direction": "column",
+    "align-items": "stretch"
+  },
+  "master_slot": "message",
+  "children": [
+    {
+      "slot": "close",
+      "children": [],
+      "widget": null,
+      "fixed": "42px",
+      "divider": false,
+      "flex-direction": "row",
+      "justify-content": "flex-end",
+      "align-items": "center"
+    },
+    {
+      "slot": "message",
+      "children": [],
+      "widget": null,
+      "fixed": null,
+      "divider": false,
+      "flex-direction": "column",
+      "flex-grow": 1,
+      "justify-content": "center",
+      "align-items": "stretch"
+    },
+    {
+      "slot": "actions",
+      "children": [],
+      "widget": null,
+      "fixed": "50px",
+      "divider": false,
+      "flex-direction": "row",
+      "justify-content": "flex-end",
+      "align-items": "center"
+    }
+  ]
+}
+=== twaco mashup templates list-page
+list-page: Title and toolbar above a list body
+aliases: list
+  page       column
+    title      row, fixed 70px
+    toolbar    row, fixed 50px
+    body       column, fills
+with --master, the page mashup container goes in body
+=== twaco mashup templates list-page --json
+{
+  "name": "list-page",
+  "aliases": [
+    "list"
+  ],
+  "summary": "Title and toolbar above a list body",
+  "slots": [
+    "title",
+    "toolbar",
+    "body"
+  ],
+  "page": {
+    "flex-direction": "column",
+    "align-items": "stretch",
+    "Margin": "24"
+  },
+  "master_slot": "body",
+  "children": [
+    {
+      "slot": "title",
+      "children": [],
+      "widget": null,
+      "fixed": "70px",
+      "divider": false,
+      "flex-direction": "row",
+      "align-items": "center"
+    },
+    {
+      "slot": "toolbar",
+      "children": [],
+      "widget": null,
+      "fixed": "50px",
+      "divider": false,
+      "style": {
+        "background": "#F7F7F7"
+      },
+      "flex-direction": "row",
+      "align-items": "center"
+    },
+    {
+      "slot": "body",
+      "children": [],
+      "widget": null,
+      "fixed": null,
+      "divider": false,
+      "flex-direction": "column",
+      "flex-grow": 1,
+      "align-items": "stretch"
+    }
+  ]
+}
+=== twaco mashup templates card
+card: Card with a title, actions, and body
+  page       column
+    header     row, fixed 50px
+      title      row, fills
+      actions    row, flex-end, fixed 46px
+    body       column, fills
+with --master, the page mashup container goes in body
+=== twaco mashup templates card --json
+{
+  "name": "card",
+  "aliases": [],
+  "summary": "Card with a title, actions, and body",
+  "slots": [
+    "header",
+    "title",
+    "actions",
+    "body"
+  ],
+  "page": {
+    "flex-direction": "column",
+    "align-items": "stretch"
+  },
+  "master_slot": "body",
+  "children": [
+    {
+      "slot": "header",
+      "children": [
+        {
+          "slot": "title",
+          "children": [],
+          "widget": null,
+          "fixed": null,
+          "divider": false,
+          "flex-direction": "row",
+          "align-items": "center",
+          "flex-grow": 1
+        },
+        {
+          "slot": "actions",
+          "children": [],
+          "widget": null,
+          "fixed": "46px",
+          "divider": false,
+          "flex-direction": "row",
+          "justify-content": "flex-end",
+          "align-items": "center"
+        }
+      ],
+      "widget": null,
+      "fixed": "50px",
+      "divider": false,
+      "flex-direction": "row",
+      "align-items": "center"
+    },
+    {
+      "slot": "body",
+      "children": [],
+      "widget": null,
+      "fixed": null,
+      "divider": false,
+      "flex-direction": "column",
+      "flex-grow": 1,
+      "align-items": "stretch"
+    }
+  ]
+}
+=== twaco mashup templates master-detail
+master-detail: Side-by-side list and detail areas
+  page       row
+    list       column, fills
+    divider    fixed 1px
+    detail     column, fills
+with --master, the page mashup container goes in detail
+=== twaco mashup templates master-detail --json
+{
+  "name": "master-detail",
+  "aliases": [],
+  "summary": "Side-by-side list and detail areas",
+  "slots": [
+    "list",
+    "detail"
+  ],
+  "page": {
+    "flex-direction": "row",
+    "align-items": "stretch"
+  },
+  "master_slot": "detail",
+  "children": [
+    {
+      "slot": "list",
+      "children": [],
+      "widget": null,
+      "fixed": null,
+      "divider": false,
+      "flex-direction": "column",
+      "flex-grow": 1,
+      "align-items": "stretch"
+    },
+    {
+      "slot": null,
+      "children": [],
+      "widget": null,
+      "fixed": null,
+      "divider": true
+    },
+    {
+      "slot": "detail",
+      "children": [],
+      "widget": null,
+      "fixed": null,
+      "divider": false,
+      "flex-direction": "column",
+      "flex-grow": 1,
+      "align-items": "stretch"
+    }
+  ]
+}
+=== twaco mashup templates kpi-tile
+kpi-tile: Compact KPI title and centered value
+aliases: kpi
+  page       column
+    title      row, fixed 40px
+    divider    fixed 1px
+    value      column, fills, center
+with --master, the page mashup container goes in value
+=== twaco mashup templates kpi-tile --json
+{
+  "name": "kpi-tile",
+  "aliases": [
+    "kpi"
+  ],
+  "summary": "Compact KPI title and centered value",
+  "slots": [
+    "title",
+    "value"
+  ],
+  "page": {
+    "flex-direction": "column",
+    "align-items": "stretch"
+  },
+  "master_slot": "value",
+  "children": [
+    {
+      "slot": "title",
+      "children": [],
+      "widget": null,
+      "fixed": "40px",
+      "divider": false,
+      "flex-direction": "row",
+      "align-items": "center"
+    },
+    {
+      "slot": null,
+      "children": [],
+      "widget": null,
+      "fixed": null,
+      "divider": true
+    },
+    {
+      "slot": "value",
+      "children": [],
+      "widget": null,
+      "fixed": null,
+      "divider": false,
+      "flex-direction": "column",
+      "flex-grow": 1,
+      "justify-content": "center",
+      "align-items": "center"
+    }
+  ]
+}
+=== twaco mashup templates filter-panel
+filter-panel: Fixed filters beside flexible content
+aliases: filters
+  page       row
+    filter-column column, fixed 276px
+      filters    column, fills
+      divider    fixed 1px
+      filter-footer row, space-between
+    divider    fixed 1px
+    content    column, fills
+with --master, the page mashup container goes in content
+=== twaco mashup templates filter-panel --json
+{
+  "name": "filter-panel",
+  "aliases": [
+    "filters"
+  ],
+  "summary": "Fixed filters beside flexible content",
+  "slots": [
+    "filter-column",
+    "filters",
+    "filter-footer",
+    "content"
+  ],
+  "page": {
+    "flex-direction": "row",
+    "align-items": "stretch"
+  },
+  "master_slot": "content",
+  "children": [
+    {
+      "slot": "filter-column",
+      "children": [
+        {
+          "slot": "filters",
+          "children": [],
+          "widget": null,
+          "fixed": null,
+          "divider": false,
+          "style": {
+            "background": "inherit"
+          },
+          "flex-direction": "column",
+          "align-items": "flex-start",
+          "flex-size": "range",
+          "flex-min-width": "240px",
+          "flex-max-width": "240px",
+          "flex-shrink": 0,
+          "Margin": "",
+          "flex-grow": 1
+        },
+        {
+          "slot": null,
+          "children": [],
+          "widget": null,
+          "fixed": null,
+          "divider": true,
+          "style": {
+            "background": "#E4E7E9"
+          },
+          "flex-min-width": "276px",
+          "flex-max-width": "276px"
+        },
+        {
+          "slot": "filter-footer",
+          "children": [],
+          "widget": null,
+          "fixed": null,
+          "divider": false,
+          "style": {
+            "background": "inherit"
+          },
+          "flex-direction": "row",
+          "align-items": "center",
+          "justify-content": "space-between",
+          "flex-grow": 0,
+          "flex-shrink": 0,
+          "Margin": "24",
+          "flex-size": "range",
+          "flex-min-width": "228px",
+          "flex-max-width": "228px"
+        }
+      ],
+      "widget": null,
+      "fixed": "276px",
+      "divider": false,
+      "style": {
+        "background": "#F7F7F7"
+      },
+      "flex-direction": "column",
+      "align-items": "center",
+      "EnableExpandCollapse": true,
+      "ShowExpandCollapseTab": true,
+      "ExpandCollapseTabLocation": "outside"
+    },
+    {
+      "slot": null,
+      "children": [],
+      "widget": null,
+      "fixed": null,
+      "divider": true
+    },
+    {
+      "slot": "content",
+      "children": [],
+      "widget": null,
+      "fixed": null,
+      "divider": false,
+      "style": {
+        "background": "#ffffff"
+      },
+      "flex-direction": "column",
+      "flex-grow": 1,
+      "align-items": "stretch",
+      "Margin": "24"
+    }
+  ]
+}
+=== twaco mashup templates tabs
+tabs: A title above a tab set; --tab Label=Mashup shows a mashup in each tab
+aliases: tab-page
+  page       column
+    title      row, fixed 70px
+    tabs       row, fills, holds ptcstabset
+=== twaco mashup templates tabs --json
+{
+  "name": "tabs",
+  "aliases": [
+    "tab-page"
+  ],
+  "summary": "A title above a tab set; --tab Label=Mashup shows a mashup in each tab",
+  "slots": [
+    "title",
+    "tabs"
+  ],
+  "page": {
+    "flex-direction": "column",
+    "align-items": "stretch",
+    "Margin": "24"
+  },
+  "master_slot": null,
+  "children": [
+    {
+      "slot": "title",
+      "children": [],
+      "widget": null,
+      "fixed": "70px",
+      "divider": false,
+      "flex-direction": "row",
+      "align-items": "center"
+    },
+    {
+      "slot": "tabs",
+      "children": [],
+      "widget": "ptcstabset",
+      "fixed": null,
+      "divider": false,
+      "flex-direction": "row",
+      "Scrolling": "auto-scroll",
+      "flex-grow": 1,
+      "align-items": "stretch"
+    }
+  ]
+}
+=== twaco mashup templates tab-content
+tab-content: Toolbar and body for a tab; the host supplies the title and 24px gutter
+  page       column
+    toolbar    row, fixed 48px
+    body       column, fills
+=== twaco mashup templates tab-content --json
+{
+  "name": "tab-content",
+  "aliases": [],
+  "summary": "Toolbar and body for a tab; the host supplies the title and 24px gutter",
+  "slots": [
+    "toolbar",
+    "body"
+  ],
+  "page": {
+    "flex-direction": "column",
+    "align-items": "stretch",
+    "Margin": ""
+  },
+  "master_slot": null,
+  "children": [
+    {
+      "slot": "toolbar",
+      "children": [],
+      "widget": null,
+      "fixed": "48px",
+      "divider": false,
+      "style": {
+        "background": "#F7F7F7"
+      },
+      "flex-direction": "row",
+      "align-items": "center",
+      "Margin": ""
+    },
+    {
+      "slot": "body",
+      "children": [],
+      "widget": null,
+      "fixed": null,
+      "divider": false,
+      "flex-direction": "column",
+      "flex-grow": 1,
+      "align-items": "stretch",
+      "Margin": ""
+    }
+  ]
+}
+=== twaco mashup templates dashboard
+dashboard: A title, a row of four KPI tiles, and a side panel beside a main panel
+  page       column
+    title      row, fixed 40px
+    tiles      row, fixed 240px
+      tile-1     column, fills
+      tile-2     column, fills
+      tile-3     column, fills
+      tile-4     column, fills
+    panels     row, fills
+      side       column, fills
+      main       column
+with --master, the page mashup container goes in main
+=== twaco mashup templates dashboard --json
+{
+  "name": "dashboard",
+  "aliases": [],
+  "summary": "A title, a row of four KPI tiles, and a side panel beside a main panel",
+  "slots": [
+    "title",
+    "tiles",
+    "tile-1",
+    "tile-2",
+    "tile-3",
+    "tile-4",
+    "panels",
+    "side",
+    "main"
+  ],
+  "page": {
+    "flex-direction": "column",
+    "align-items": "stretch",
+    "Margin": "24"
+  },
+  "master_slot": "main",
+  "children": [
+    {
+      "slot": "title",
+      "children": [],
+      "widget": null,
+      "fixed": "40px",
+      "divider": false,
+      "flex-direction": "row",
+      "align-items": "center"
+    },
+    {
+      "slot": "tiles",
+      "children": [
+        {
+          "slot": "tile-1",
+          "children": [],
+          "widget": null,
+          "fixed": null,
+          "divider": false,
+          "flex-direction": "column",
+          "flex-grow": 1,
+          "align-items": "stretch"
+        },
+        {
+          "slot": "tile-2",
+          "children": [],
+          "widget": null,
+          "fixed": null,
+          "divider": false,
+          "flex-direction": "column",
+          "flex-grow": 1,
+          "align-items": "stretch"
+        },
+        {
+          "slot": "tile-3",
+          "children": [],
+          "widget": null,
+          "fixed": null,
+          "divider": false,
+          "flex-direction": "column",
+          "flex-grow": 1,
+          "align-items": "stretch"
+        },
+        {
+          "slot": "tile-4",
+          "children": [],
+          "widget": null,
+          "fixed": null,
+          "divider": false,
+          "flex-direction": "column",
+          "flex-grow": 1,
+          "align-items": "stretch"
+        }
+      ],
+      "widget": null,
+      "fixed": "240px",
+      "divider": false,
+      "flex-direction": "row",
+      "align-items": "stretch"
+    },
+    {
+      "slot": "panels",
+      "children": [
+        {
+          "slot": "side",
+          "children": [],
+          "widget": null,
+          "fixed": null,
+          "divider": false,
+          "flex-direction": "column",
+          "flex-grow": 1,
+          "align-items": "stretch"
+        },
+        {
+          "slot": "main",
+          "children": [],
+          "widget": null,
+          "fixed": null,
+          "divider": false,
+          "flex-direction": "column",
+          "flex-grow": 3,
+          "align-items": "stretch"
+        }
+      ],
+      "widget": null,
+      "fixed": null,
+      "divider": false,
+      "flex-direction": "row",
+      "flex-grow": 1,
+      "align-items": "stretch"
+    }
+  ]
+}

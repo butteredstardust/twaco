@@ -1,0 +1,48 @@
+version: 1
+rules: v1
+page:
+  name: Acme.BenchSpecK_MU
+  template: blank
+  data:
+    metrics:
+      service: Acme.BenchData.FilterMetrics
+      on: load
+      params:
+        query: {bind: query.Text}
+        category: {bind: category.SelectedText}
+        status: {bind: status.SelectedText}
+        version: {bind: version.SelectedText}
+        startDate: {bind: filter_dates.StartDate}
+        endDate: {bind: filter_dates.EndDate}
+    versions: {service: Acme.BenchData.GetFilterOptions, on: load, params: {kind: version}}
+    statuses: {service: Acme.BenchData.GetFilterOptions, on: load, params: {kind: status}}
+    categories: {service: Acme.BenchData.GetFilterOptions, on: load, params: {kind: category}}
+  slots:
+    center:
+      - filter_panel:
+          id: filters
+          fields:
+            - heading: {id: filter_title, text: Filter, props: {HorizontalAlignment: left}}
+            - text_field: {id: query, hint: Search..., props: {Label: Version, Width: 228}}
+            - date_range: {id: filter_dates, props: {Label: Date, Width: 228, FormatToken: DD-MM-YY}}
+            - dropdown: {id: version, options: versions, display: Value, props: {Label: Version, Width: 228}}
+            - dropdown: {id: status, options: statuses, display: Value, props: {Label: Status, Width: 228}}
+            - dropdown: {id: category, options: categories, display: Value, props: {Label: Category, Width: 228}}
+          footer: [apply, reset]
+          children:
+            - page_header: {id: header, title: Admin Metrics}
+            - toolbar:
+                id: tools
+                children:
+                  - text_field: {id: search, hint: Search..., props: {Icon: 'cds:icon_search', Width: 240}}
+                  - dropdown: {id: toolbar_category, options: categories, display: Value, props: {Width: 240}}
+                  - date_range: {id: dates, props: {DateRange: false, Width: 273}}
+                  - spacer: {id: space}
+                  - button: {id: details, label: View Details, props: {ButtonType: tertiary}}
+            - grid:
+                id: results
+                data: metrics
+                columns: [ThingName, Type, Title, Version, {field: Status, status: Acme.BenchStatus_ST}, Category, Count]
+            - pagination: {id: pages, for: results}
+  events:
+    - {on: filters--apply.Clicked, invoke: metrics}

@@ -27,6 +27,7 @@ mod on;
 mod parameter;
 mod recipes;
 mod remove;
+pub(crate) mod session;
 mod set;
 mod source;
 pub(crate) mod state_format;
@@ -124,6 +125,7 @@ struct ExistingMashup {
     entity_before: Vec<u8>,
     assets: mashup::Assets,
     sidecars: Option<(PathBuf, Vec<u8>, PathBuf, Vec<u8>)>,
+    deterministic: bool,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -217,6 +219,7 @@ fn load_existing(solution: &Solution, mashup_name: &str) -> Result<ExistingMashu
         ),
     };
     Ok(ExistingMashup {
+        deterministic: false,
         mashup: mashup_name.to_string(),
         entity_path: entity.path,
         entity_before,
@@ -227,12 +230,17 @@ fn load_existing(solution: &Solution, mashup_name: &str) -> Result<ExistingMashu
 
 /// The loaded mashup's content as an editable document; a content twaco cannot edit names its mashup.
 fn parse_loaded(loaded: &ExistingMashup) -> Result<MashupDocument, AuthoringError> {
-    mashup::edit::parse(&loaded.assets.content).map_err(|error| match error {
-        EditError::Invalid(message) => {
-            AuthoringError::Edit(EditError::Invalid(format!("{}: {message}", loaded.mashup)))
-        }
-        other => AuthoringError::Edit(other),
-    })
+    let mut document =
+        mashup::edit::parse(&loaded.assets.content).map_err(|error| match error {
+            EditError::Invalid(message) => {
+                AuthoringError::Edit(EditError::Invalid(format!("{}: {message}", loaded.mashup)))
+            }
+            other => AuthoringError::Edit(other),
+        })?;
+    if loaded.deterministic {
+        document.set_uuid_generator(crate::core::mashup::page::ids::uuid);
+    }
+    Ok(document)
 }
 
 /// Put the changed content back through sync and prove that the entity holds precisely that content.

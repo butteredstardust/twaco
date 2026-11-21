@@ -1,0 +1,14 @@
+version: 1
+rules: v1
+page:
+  name: Acme.Elements_MU
+  template: blank
+  data:
+    rows: {service: Acme.Data.GetRows, on: load}
+  slots:
+    center:
+      - kpi_row:
+          id: summary
+          tiles:
+            - {id: total, label: Total, value: {bind: rows.Count}, unit: alerts, color: '#123456'}
+            - {id: active, label: Active, value: {bind: rows.Count}, unit: alerts}

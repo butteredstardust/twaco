@@ -9,7 +9,6 @@ use crate::core::mashup::address::{parse_address, Address};
 use crate::core::mashup::edit::MashupDocument;
 use crate::core::{mashup, types, widgets};
 use serde_json::{json, Map, Value};
-use uuid::Uuid;
 
 #[derive(Clone, Debug)]
 pub struct OnRequest {
@@ -108,7 +107,11 @@ fn route_child_event(
     insert(&mut map, "TargetPropertyBaseType", json!(base));
     insert(&mut map, "TargetPropertyType", json!("property"));
     let mut binding = Map::new();
-    insert(&mut binding, "Id", json!(Uuid::new_v4().to_string()));
+    insert(
+        &mut binding,
+        "Id",
+        json!(document.uuid(&format!("router:{}:{name}", found.id))),
+    );
     insert(&mut binding, "PropertyMaps", json!([Value::Object(map)]));
     insert(&mut binding, "SourceArea", json!("UI"));
     insert(&mut binding, "SourceDetails", json!(""));
@@ -301,7 +304,11 @@ pub(super) fn on_in(
         "EventTriggerSection",
         Value::String(trigger.section),
     );
-    insert(&mut event, "Id", Value::String(Uuid::new_v4().to_string()));
+    insert(
+        &mut event,
+        "Id",
+        Value::String(document.uuid(&format!("event:{event_raw}:{invoke_raw}"))),
+    );
     document.events_mut().push(Value::Object(event));
     Ok(new_source)
 }

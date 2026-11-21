@@ -1,0 +1,7 @@
+<Entities><DataShapes><DataShape name="Acme.Focus_DS" projectName="Acme.Bench"><FieldDefinitions>
+                <FieldDefinition aspect.isPrimaryKey="false" baseType="NUMBER" description="" name="Invites" ordinal="4" />
+                <FieldDefinition aspect.isPrimaryKey="false" baseType="NUMBER" description="" name="Measures" ordinal="2" />
+                <FieldDefinition aspect.isPrimaryKey="false" baseType="NUMBER" description="" name="Objective" ordinal="1" />
+                <FieldDefinition aspect.isPrimaryKey="false" baseType="NUMBER" description="" name="Targets" ordinal="3" />
+            </FieldDefinitions>
+        </DataShape></DataShapes></Entities>

@@ -21,6 +21,8 @@ use std::process::Command;
 /// One scenario: its file name, and the arguments after `twaco`.
 const SCENARIOS: &[(&str, &[&str])] = &[
     ("usage", &[]),
+    ("mashup_build_help", &["mashup", "build", "--help"]),
+    ("mashup_build_missing_operand", &["mashup", "build"]),
     ("mashup_gap_help", &["mashup", "gap", "--help"]),
     ("mashup_gap_missing_operands", &["mashup", "gap"]),
     (

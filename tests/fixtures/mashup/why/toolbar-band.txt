@@ -1,0 +1,54 @@
+=== twaco mashup why Acme.Case_MU toolbar
+Acme.Case_MU flexcontainer-4 (flexcontainer, toolbar)
+  slot "toolbar" of template list-page; rules: legacy
+  surface               #F7F7F7             rule surface.toolbar-band (rule table)
+    now: background=#F7F7F7 [agrees]
+  size                  fixed 50px          rule size.toolbar-50 (rule table)
+    now: flex-size=fixed, flex-min-height=50px, flex-max-height=50px [agrees]
+  align                 center              rule align.bar (rule table)
+    now: align-items=center [agrees]
+override:
+  twaco mashup set Acme.Case_MU flexcontainer-4 --style background=<colour>
+  twaco mashup set Acme.Case_MU flexcontainer-4 --prop flex-grow=<n> (any flex-*, Width or Height setting marks the size as authored)
+  twaco mashup set Acme.Case_MU flexcontainer-4 --prop align-items=<flex-start|center|flex-end|stretch>
+=== twaco mashup why Acme.Case_MU toolbar --json
+{
+  "mashup": "Acme.Case_MU",
+  "widget": "flexcontainer-4",
+  "widget_type": "flexcontainer",
+  "display_name": "toolbar",
+  "origin": "slot \"toolbar\" of template list-page",
+  "inferred": false,
+  "rules": "legacy",
+  "decisions": [
+    {
+      "name": "surface",
+      "value": "#F7F7F7",
+      "rule": "surface.toolbar-band",
+      "source": "rule_table",
+      "current": "background=#F7F7F7",
+      "agrees": true,
+      "override_with": "twaco mashup set Acme.Case_MU flexcontainer-4 --style background=<colour>"
+    },
+    {
+      "name": "size",
+      "value": "fixed 50px",
+      "rule": "size.toolbar-50",
+      "source": "rule_table",
+      "current": "flex-size=fixed, flex-min-height=50px, flex-max-height=50px",
+      "agrees": true,
+      "override_with": "twaco mashup set Acme.Case_MU flexcontainer-4 --prop flex-grow=<n> (any flex-*, Width or Height setting marks the size as authored)"
+    },
+    {
+      "name": "align",
+      "value": "center",
+      "rule": "align.bar",
+      "source": "rule_table",
+      "current": "align-items=center",
+      "agrees": true,
+      "override_with": "twaco mashup set Acme.Case_MU flexcontainer-4 --prop align-items=<flex-start|center|flex-end|stretch>"
+    }
+  ],
+  "enclosing": null,
+  "notes": []
+}

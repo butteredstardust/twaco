@@ -1,0 +1,70 @@
+version: 1
+rules: v1
+page:
+  name: Acme.BenchSpecA_MU
+  template: blank
+  data:
+    focus: {service: Acme.Cards.GetFocus, on: load}
+    history: {service: Acme.Cards.GetHistory, on: load}
+  slots:
+    center:
+      - page_header: {id: header, title: Asset KPI}
+      - kpi_row:
+          id: overview
+          children:
+            - trend_tile: {id: objective, label: Area of Focus 01, value: {bind: focus.Objective}, unit: '%', trend: up}
+            - trend_tile: {id: measures, label: Area of Focus 02, value: {bind: focus.Measures}, unit: '%', trend: down}
+      - widget:
+          id: focus_row
+          type: flexcontainer
+          size: fit
+          props: {flex-direction: row, align-items: stretch}
+          children:
+            - card:
+                id: focus_1
+                title: Area of Focus 01
+                children:
+                  - detail_pair: {id: focus_1_objective, label: Objective, value: {bind: focus.Objective}, kind: ok}
+                  - detail_pair: {id: focus_1_measures, label: Measures, value: {bind: focus.Measures}, kind: ok}
+                  - detail_pair: {id: focus_1_targets, label: Targets, value: {bind: focus.Targets}, kind: error}
+                  - detail_pair: {id: focus_1_invites, label: Invites, value: {bind: focus.Invites}, kind: warning}
+            - card:
+                id: focus_2
+                title: Area of Focus 02
+                children:
+                  - detail_pair: {id: focus_2_objective, label: Objective, value: {bind: focus.Objective}, kind: ok}
+                  - detail_pair: {id: focus_2_measures, label: Measures, value: {bind: focus.Measures}, kind: ok}
+                  - detail_pair: {id: focus_2_targets, label: Targets, value: {bind: focus.Targets}, kind: error}
+                  - detail_pair: {id: focus_2_invites, label: Invites, value: {bind: focus.Invites}, kind: warning}
+            - card:
+                id: focus_3
+                title: Area of Focus 03
+                children:
+                  - detail_pair: {id: focus_3_objective, label: Objective, value: {bind: focus.Objective}, kind: ok}
+                  - detail_pair: {id: focus_3_measures, label: Measures, value: {bind: focus.Measures}, kind: ok}
+                  - detail_pair: {id: focus_3_targets, label: Targets, value: {bind: focus.Targets}, kind: error}
+                  - detail_pair: {id: focus_3_invites, label: Invites, value: {bind: focus.Invites}, kind: warning}
+      - widget:
+          id: charts
+          type: flexcontainer
+          size: fill
+          props: {flex-direction: row, align-items: stretch}
+          children:
+            - panel:
+                id: distribution_panel
+                toolbar:
+                  - date_range: {id: distribution_date, props: {DateRange: false, Width: 273}}
+                children:
+                  - chart: {id: distribution, kind: pie, data: history, x: year, value: Value}
+            - panel:
+                id: trend_panel
+                props: {flex-grow: 2}
+                toolbar:
+                  - date_range: {id: trend_dates}
+                children:
+                  - chart:
+                      id: trend
+                      kind: combo
+                      data: history
+                      x: year
+                      series: [{field: Value, kind: bar}, {field: Value02, kind: line}]

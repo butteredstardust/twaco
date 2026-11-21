@@ -1,0 +1,15 @@
+version: 1
+rules: v1
+page:
+  name: Acme.Elements_MU
+  template: blank
+  data:
+    rows: {service: Acme.Data.GetRows, on: load}
+  slots:
+    center:
+      - filter_panel:
+          id: filters
+          fields:
+            - text_field: {id: query, hint: Search}
+            - date_range: {id: dates}
+          footer: [apply, reset]
