@@ -187,12 +187,22 @@ pub(crate) fn plan_bundles(
         })
         .collect();
 
-    let (mut pool, selection_notes) = super::super::bundle::select_entities(
-        solution,
-        pool,
-        options.changed_since,
-        options.exclude,
-    )?;
+    let mut exclude = options.exclude.to_vec();
+    let excluded: Vec<_> = pool
+        .iter()
+        .filter(|entity| {
+            let label = format!("{}/{}", entity.info.collection, entity.info.name);
+            exclude
+                .iter()
+                .any(|pattern| super::super::glob::matches(pattern, &label))
+        })
+        .cloned()
+        .collect();
+    if options.with_dependents {
+        notes.extend(exclusion_dependents(&pool, &mut exclude));
+    }
+    let (mut pool, selection_notes) =
+        super::super::bundle::select_entities(solution, pool, options.changed_since, &exclude)?;
     notes.extend(selection_notes);
 
     if !options.only.is_empty() {
@@ -210,6 +220,19 @@ pub(crate) fn plan_bundles(
             }
         }
         pool = narrowed;
+    }
+    if !options.with_dependents {
+        let references: Vec<_> = super::excluded::referrers(&pool, &excluded)
+            .into_iter()
+            .map(|(entity, referrers)| format!(
+                "excluded {entity} is still referenced by {}: the import will fail on the server; add --with-dependents to leave those out too",
+                referrers.join(", ")
+            ))
+            .collect();
+        if options.apply && !references.is_empty() {
+            return Err(format!("{}; nothing was imported", references.join("; ")));
+        }
+        notes.extend(references);
     }
     if pool.is_empty() {
         return Err("the deploy selection contains no entities".to_string());
@@ -484,4 +507,31 @@ fn role_member_changes(
             Vec::new(),
         )
     })
+}
+
+/// Extend exclusions to their structural referrers before narrowing the selection.
+fn exclusion_dependents(
+    pool: &[super::workspace::EntityFile],
+    exclude: &mut Vec<String>,
+) -> Vec<String> {
+    let left_out = |entity: &super::workspace::EntityFile| {
+        let label = format!("{}/{}", entity.info.collection, entity.info.name);
+        exclude
+            .iter()
+            .any(|pattern| super::super::glob::matches(pattern, &label))
+    };
+    let (excluded, remaining): (Vec<_>, Vec<_>) =
+        pool.iter().cloned().partition(|entity| left_out(entity));
+    if excluded.is_empty() {
+        return Vec::new();
+    }
+    let mut notes = Vec::new();
+    for (entity, referrers) in super::excluded::referrers(&remaining, &excluded) {
+        notes.push(format!(
+            "excluding {entity} also excludes what references it: {}",
+            referrers.join(", ")
+        ));
+        exclude.extend(referrers);
+    }
+    notes
 }

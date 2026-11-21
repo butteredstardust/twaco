@@ -719,13 +719,15 @@ help:
 |                               remove a Network connection, never the Thing; plan unless --apply
 |   network import <Network> --file <path> [--create-things] [--move] [--outside] [--apply] [--json]
 |                                 map CSV assets into a Network hierarchy; plan unless --apply
-|   entity status [<entity>|--all] [--detail] [--record] [--ancestor <export.xml>]
+|   entity status [<entity>|--all] [--detail] [--record] [--ancestor <export.xml>] [--json]
 |                               entity: full name, last dotted segment, or Collection/Name
 |       --against <export.xml>   compare the export with repository XML offline; defaults to its scope
 |                               same, different, only-in-export, only-in-repository (not deletion)
 |                               no profile or baseline; not with --record, --ancestor or --profile
-|       --json                   offline --against result as JSON; --detail includes differing paths
-|       --record                 record matching working/server hashes as baseline
+|       --json                   live or offline result as JSON, including pruned baseline addresses
+|                               --detail includes hashes (live) or differing paths (offline)
+|       --record                 record matching working/server hashes as baseline; with --all it
+|                               also prunes baseline entries of entities in neither place
 |       --ancestor <export.xml>  use that export as the common ancestor instead of the baseline
 |                               for LIVE server status; reads only, not with --record or --against
 |       --all                    also lists declared-project entities found only on the server
@@ -830,7 +832,9 @@ help:
 |       --backend-only          exclude configured UI collections
 |       --only <entity>         include only these entities (comma-separated or repeatable)
 |       --changed-since <git-rev>  include entities changed since this revision
-|       --exclude <entity-or-glob> leave out this Collection/Name selector (repeatable)
+|       --exclude <entity-or-glob> leave out this Collection/Name selector (repeatable); the plan
+|                               names what still references it, which the import would refuse
+|       --with-dependents       with --exclude, leave out what references the excluded entities too
 |       --only-projects <a,b>   include only these projects
 |       --skip-checks           skip the gates, server requirements too; scripts are still parsed
 |       --no-backup             with --force, do not save the server's copies first
@@ -942,7 +946,8 @@ help:
 |       --json                  the calls run as JSON
 |   ext list [--json]           the server's extension packages
 |   ext show <package>          one package: its extensions, and which are in use
-|   ext import <zip>            validate a package on the server; --apply installs it
+|   ext import <zip>            validate a package on the server; --apply installs it; a zip of
+|                               extension zips imports each in dependsOn order, skipping installed
 |   ext remove <package>        plan removing a package (refused while in use); --apply removes it
 |   ext check [<root>] [--json] a Java extension project, offline: metadata.xml against the Java
 |                               source, its jars, widgets and version; needs no solution
@@ -4027,6 +4032,17 @@ arg --skip-checks
     index: -
     other: -
     given twice: accepted
+arg --with-dependents
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
 help:
 |   deploy [--apply] [--force] [--json]
 |                               check, bundle, live-parse, conflict-check, import; a blocking gate
@@ -4034,7 +4050,9 @@ help:
 |       --backend-only          exclude configured UI collections
 |       --only <entity>         include only these entities (comma-separated or repeatable)
 |       --changed-since <git-rev>  include entities changed since this revision
-|       --exclude <entity-or-glob> leave out this Collection/Name selector (repeatable)
+|       --exclude <entity-or-glob> leave out this Collection/Name selector (repeatable); the plan
+|                               names what still references it, which the import would refuse
+|       --with-dependents       with --exclude, leave out what references the excluded entities too
 |       --only-projects <a,b>   include only these projects
 |       --skip-checks           skip the gates, server requirements too; scripts are still parsed
 |       --no-backup             with --force, do not save the server's copies first
@@ -4261,13 +4279,15 @@ arg --log-file
 help:
 | usage: twaco entity <command>
 | 
-|   entity status [<entity>|--all] [--detail] [--record] [--ancestor <export.xml>]
+|   entity status [<entity>|--all] [--detail] [--record] [--ancestor <export.xml>] [--json]
 |                               entity: full name, last dotted segment, or Collection/Name
 |       --against <export.xml>   compare the export with repository XML offline; defaults to its scope
 |                               same, different, only-in-export, only-in-repository (not deletion)
 |                               no profile or baseline; not with --record, --ancestor or --profile
-|       --json                   offline --against result as JSON; --detail includes differing paths
-|       --record                 record matching working/server hashes as baseline
+|       --json                   live or offline result as JSON, including pruned baseline addresses
+|                               --detail includes hashes (live) or differing paths (offline)
+|       --record                 record matching working/server hashes as baseline; with --all it
+|                               also prunes baseline entries of entities in neither place
 |       --ancestor <export.xml>  use that export as the common ancestor instead of the baseline
 |                               for LIVE server status; reads only, not with --record or --against
 |       --all                    also lists declared-project entities found only on the server
@@ -5286,7 +5306,7 @@ help:
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
 
 == twaco entity status
-usage: twaco entity status [<entity>|--all] [--detail] [--record] [--ancestor <export.xml>]
+usage: twaco entity status [<entity>|--all] [--detail] [--record] [--ancestor <export.xml>] [--json]
 settings: disable-version-flag disable-help-subcommand
 subcommands: 
 arg --against
@@ -5426,13 +5446,15 @@ arg <operands>
     index: 1
     other: -
 help:
-|   entity status [<entity>|--all] [--detail] [--record] [--ancestor <export.xml>]
+|   entity status [<entity>|--all] [--detail] [--record] [--ancestor <export.xml>] [--json]
 |                               entity: full name, last dotted segment, or Collection/Name
 |       --against <export.xml>   compare the export with repository XML offline; defaults to its scope
 |                               same, different, only-in-export, only-in-repository (not deletion)
 |                               no profile or baseline; not with --record, --ancestor or --profile
-|       --json                   offline --against result as JSON; --detail includes differing paths
-|       --record                 record matching working/server hashes as baseline
+|       --json                   live or offline result as JSON, including pruned baseline addresses
+|                               --detail includes hashes (live) or differing paths (offline)
+|       --record                 record matching working/server hashes as baseline; with --all it
+|                               also prunes baseline entries of entities in neither place
 |       --ancestor <export.xml>  use that export as the common ancestor instead of the baseline
 |                               for LIVE server status; reads only, not with --record or --against
 |       --all                    also lists declared-project entities found only on the server
@@ -5847,7 +5869,8 @@ arg <operands>
 help:
 |   ext list [--json]           the server's extension packages
 |   ext show <package>          one package: its extensions, and which are in use
-|   ext import <zip>            validate a package on the server; --apply installs it
+|   ext import <zip>            validate a package on the server; --apply installs it; a zip of
+|                               extension zips imports each in dependsOn order, skipping installed
 |   ext remove <package>        plan removing a package (refused while in use); --apply removes it
 |   ext check [<root>] [--json] a Java extension project, offline: metadata.xml against the Java
 |                               source, its jars, widgets and version; needs no solution

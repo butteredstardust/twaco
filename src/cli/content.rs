@@ -1145,9 +1145,26 @@ pub(crate) fn ext_cmd(solution: &Solution, args: &Ext) -> u8 {
             )
             .map_err(|e| e.to_string())?;
             print_notices(&notices);
-            let command::ExtensionOutcome::Imported { imported, .. } = outcome else {
-                unreachable!()
+            let imported = match outcome {
+                command::ExtensionOutcome::Imported { imported, .. } => imported,
+                command::ExtensionOutcome::Bundle { entries, .. } => {
+                    println!("a bundle of {} extension package(s)", entries.len());
+                    for entry in &entries {
+                        println!("  {}", entry.line());
+                    }
+                    if entries.iter().any(|entry| entry.failed()) {
+                        return Err("the bundle import stopped at a failed package; fix it and run the import again, which skips what is installed".to_string());
+                    }
+                    if !args.apply.apply {
+                        println!("the server validated what it could and installed nothing (pass --apply)");
+                    }
+                    return Ok(());
+                }
+                _ => unreachable!(),
             };
+            if imported.retried {
+                println!("the install hit a transient Windows error (CSS resources in use) and was sent once more");
+            }
             if imported.queued {
                 println!(
                     "queued: {}; the server installs it at its next restart",

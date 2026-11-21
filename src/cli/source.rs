@@ -711,6 +711,8 @@ pub(crate) struct Deploy {
     pub(crate) changed_since: Option<String>,
     #[arg(long = "exclude", value_name = "entity-or-glob")]
     pub(crate) exclude: Vec<String>,
+    #[arg(long = "with-dependents")]
+    pub(crate) with_dependents: bool,
     #[command(flatten)]
     pub(crate) only_projects: OnlyProjects,
     #[arg(long = "skip-checks")]
@@ -738,6 +740,7 @@ pub(crate) fn deploy_cmd(solution: &Solution, args: &Deploy) -> u8 {
         backend_only: args.backend_only,
         changed_since: args.changed_since.clone(),
         exclude: args.exclude.clone(),
+        with_dependents: args.with_dependents,
         profile: args.profile.name().to_string(),
         lock_label: "deploy",
         redeploy_blocks: args.redeploy_blocks,

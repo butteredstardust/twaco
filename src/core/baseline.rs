@@ -76,11 +76,36 @@ pub(crate) struct Baseline {
 impl Baseline {
     /// A baseline belongs to both the normaliser version and this entity's ownership policy.
     pub(crate) fn get_for(&self, collection: &str, name: &str, working: &str) -> Option<&Entry> {
-        let scope = working.rsplit_once(':')?.0;
+        self.get_in_scope(collection, name, working.rsplit_once(':')?.0)
+    }
+
+    /// The entry recorded under exactly this hash scope (see `normalise::scope_with_grants`):
+    /// the one definition of "recorded" that status and doctor share.
+    pub(crate) fn get_in_scope(&self, collection: &str, name: &str, scope: &str) -> Option<&Entry> {
         self.get(collection, name).filter(|entry| {
             entry.local.rsplit_once(':').map(|p| p.0) == Some(scope)
                 && entry.server.rsplit_once(':').map(|p| p.0) == Some(scope)
         })
+    }
+
+    /// Every recorded address as (collection, name), whatever version recorded it.
+    pub(crate) fn addresses(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.entities
+            .iter()
+            .flat_map(|(c, items)| items.keys().map(move |n| (c.as_str(), n.as_str())))
+    }
+
+    /// Remove the entries `keep` rejects and return their `Collection/Name` addresses.
+    pub(crate) fn prune(&mut self, keep: impl Fn(&str, &str) -> bool) -> Vec<String> {
+        let stale: Vec<(String, String)> = self
+            .addresses()
+            .filter(|(c, n)| !keep(c, n))
+            .map(|(c, n)| (c.to_string(), n.to_string()))
+            .collect();
+        for (collection, name) in &stale {
+            self.remove(collection, name);
+        }
+        stale.into_iter().map(|(c, n)| format!("{c}/{n}")).collect()
     }
     /// The ancestor to compare against: [`Baseline::get_for`], and, when the entry was recorded
     /// under another server-owned policy, the same entry restated for the current one where that
@@ -144,6 +169,7 @@ impl Baseline {
     }
 
     /// How many entries were recorded under another normalisation version.
+    #[cfg(test)]
     pub(crate) fn outdated(&self) -> usize {
         self.entities
             .values()
@@ -471,6 +497,19 @@ mod tests {
         assert_eq!(baseline.get("Things", "Half"), None);
         assert!(baseline.get("Things", "New").is_some());
         assert_eq!(baseline.outdated(), 2);
+    }
+
+    #[test]
+    fn prune_removes_only_what_keep_rejects_and_names_it() {
+        let mut baseline: Baseline = serde_json::from_slice(
+            br#"{"entities":{"Things":{"Acme.Gone":"v10:old","Acme.Kept":"v13:a"},"Users":{"Acme.User":"v13:b"}}}"#,
+        )
+        .unwrap();
+        let pruned = baseline.prune(|_, name| name != "Acme.Gone");
+        assert_eq!(pruned, ["Things/Acme.Gone"]);
+        assert!(baseline.contains("Things", "Acme.Kept"));
+        assert!(baseline.contains("Users", "Acme.User"));
+        assert!(!baseline.contains("Things", "Acme.Gone"));
     }
 
     #[test]

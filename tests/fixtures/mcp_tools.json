@@ -852,6 +852,24 @@
             "type": "string"
           }
         },
+        "pruned": {
+          "description": "How many stale baseline entries a full record removed (entities in neither the\nrepository nor on the server); absent when none.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "pruned_entries": {
+          "description": "The removed entries as `Collection/Name`, including without detail.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
         "server_only": {
           "type": [
             "array",
@@ -2911,6 +2929,11 @@
           "items": {
             "type": "string"
           }
+        },
+        "with_dependents": {
+          "description": "With exclude: also leave out the entities that reference an excluded one, which the import would otherwise refuse.",
+          "type": "boolean",
+          "default": false
         },
         "only_projects": {
           "type": "array",
@@ -10406,6 +10429,21 @@
         "applied": {
           "type": "boolean"
         },
+        "retried": {
+          "description": "The install was sent once more after a transient Windows error (import).",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "packages": {
+          "description": "A bundle import: each inner package and what became of it.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
         "note": {
           "type": [
             "string",
@@ -12192,6 +12230,16 @@
               },
               "detail": {
                 "type": "string"
+              },
+              "entries": {
+                "description": "The entries the detail names in part, all of them; absent when there are none.",
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "string"
+                }
               }
             },
             "required": [

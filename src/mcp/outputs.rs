@@ -237,6 +237,11 @@ pub(crate) struct StatusResult {
     counts: BTreeMap<String, u64>,
     failures: Vec<String>,
     unreadable: Vec<String>,
+    /// How many stale baseline entries a full record removed (entities in neither the
+    /// repository nor on the server); absent when none.
+    pruned: Option<u64>,
+    /// The removed entries as `Collection/Name`, including without detail.
+    pruned_entries: Option<Vec<String>>,
     server_only: Option<Vec<ServerOnly>>,
     server_notes: Option<Vec<String>>,
     notes: Option<Vec<String>>,
@@ -793,6 +798,10 @@ pub(crate) struct ExtensionWriteResult {
     dry_run: bool,
     change: Value,
     applied: bool,
+    /// The install was sent once more after a transient Windows error (import).
+    retried: Option<bool>,
+    /// A bundle import: each inner package and what became of it.
+    packages: Option<Vec<Value>>,
     note: Option<String>,
     notices: Notices,
 }
@@ -1040,6 +1049,8 @@ struct DoctorItem {
     health: String,
     subject: String,
     detail: String,
+    /// The entries the detail names in part, all of them; absent when there are none.
+    entries: Option<Vec<String>>,
 }
 
 /// Each action answers with different members; `ok` is the one they share.

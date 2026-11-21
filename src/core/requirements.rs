@@ -370,16 +370,16 @@ pub(crate) fn collect_in(
             if tag == b"Owner" {
                 continue;
             }
-            for (name, collection) in [
-                ("thingTemplate", "ThingTemplates"),
-                ("baseThingTemplate", "ThingTemplates"),
-                ("aspect.thingTemplate", "ThingTemplates"),
-                ("aspect.thingShape", "ThingShapes"),
-                ("baseDataShape", "DataShapes"),
-                ("aspect.dataShape", "DataShapes"),
-                ("dataShape", "DataShapes"),
-            ] {
-                out.add(collection, &attr(name)?, &from);
+            for attribute in scan::attributes(&bytes, token).map_err(|error| {
+                Error(format!(
+                    "{}: {error}; fix the entity XML",
+                    file.path.display()
+                ))
+            })? {
+                if let Some(collection) = reference_attribute(attribute.name.of(&bytes)) {
+                    let name = String::from_utf8_lossy(attribute.name.of(&bytes));
+                    out.add(collection, &attr(&name)?, &from);
+                }
             }
             if tag == b"ConfigurationTable" {
                 out.add("DataShapes", &attr("dataShapeName")?, &from);
@@ -964,6 +964,18 @@ pub(crate) fn server_check(
         } else {
             report.finding("unmet", format!("{collection}/{name}"), message, refs);
         }
+    }
+}
+
+/// Typed entity-reference attributes shared by requirements and deploy exclusion checks.
+pub(crate) fn reference_attribute(name: &[u8]) -> Option<&'static str> {
+    match name {
+        b"thingTemplate" | b"baseThingTemplate" | b"aspect.thingTemplate" => Some("ThingTemplates"),
+        b"aspect.thingShape" => Some("ThingShapes"),
+        b"baseDataShape" | b"aspect.dataShape" | b"dataShape" => Some("DataShapes"),
+        b"queueProvider" => Some("QueueProviders"),
+        b"iotStream" | b"valueStream" => Some("Things"),
+        _ => None,
     }
 }
 

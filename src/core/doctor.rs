@@ -8,8 +8,10 @@
 
 use super::baseline::{Baseline, LEGACY_RELATIVE_PATH};
 use super::config::Solution;
+use super::permissions::derived::Derived;
 use super::{fmt, gitignore, lock, profile, server, workspace};
 use serde_json::{json, Value};
+use std::collections::BTreeSet;
 use std::path::Path;
 use std::time::Instant;
 
@@ -27,6 +29,8 @@ pub struct Item {
     pub health: Health,
     pub subject: String,
     pub detail: String,
+    /// What the detail names in part, all of it (empty for most items).
+    pub entries: Vec<String>,
 }
 
 /// The stable report shared by the command line and MCP adapters.
@@ -43,11 +47,17 @@ pub fn report_json(items: &[Item]) -> Value {
     json!({
         "ok": failed == 0,
         "failed": failed,
-        "items": items.iter().map(|item| json!({
-            "health": word(item.health),
-            "subject": item.subject,
-            "detail": item.detail,
-        })).collect::<Vec<_>>(),
+        "items": items.iter().map(|item| {
+            let mut value = json!({
+                "health": word(item.health),
+                "subject": item.subject,
+                "detail": item.detail,
+            });
+            if !item.entries.is_empty() {
+                value["entries"] = json!(item.entries);
+            }
+            value
+        }).collect::<Vec<_>>(),
     })
 }
 
@@ -56,6 +66,7 @@ fn item(health: Health, subject: impl Into<String>, detail: impl Into<String>) -
         health,
         subject: subject.into(),
         detail: detail.into(),
+        entries: Vec::new(),
     }
 }
 
@@ -260,6 +271,7 @@ pub fn diagnose(root: &Path, profile_name: &str) -> Vec<Item> {
     ));
 
     let started = Instant::now();
+    let local = is_local_url(&profile.url);
     let client = server::Client::new(profile);
     match client.check_script("") {
         Ok(_) => {
@@ -273,9 +285,30 @@ pub fn diagnose(root: &Path, profile_name: &str) -> Vec<Item> {
             ));
             items.push(platform_item(super::help::server_version(&client)));
         }
-        Err(error) => items.push(item(Health::Fail, "server", error.to_string())),
+        Err(error) => {
+            let mut detail = error.to_string();
+            if local && matches!(error, server::ServerError::Http { status: 401, .. }) {
+                detail.push_str(PORTABLE_PASSWORD_HINT);
+            }
+            items.push(item(Health::Fail, "server", detail));
+        }
     }
     items
+}
+
+/// Said after a 401 from a local server. It names the settings key only, never its value.
+const PORTABLE_PASSWORD_HINT: &str = ". On a fresh portable ThingWorx the Administrator password is AdministratorUserSettings.InitialPassword in the instance's platform-settings.json, not the one the start banner prints";
+
+fn is_local_url(url: &str) -> bool {
+    let rest = url.split_once("://").map_or(url, |(_, rest)| rest);
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    let host = authority.rsplit_once('@').map_or(authority, |(_, h)| h);
+    let host = if host.starts_with('[') {
+        host.split_once(']').map_or(host, |(h, _)| &h[1..])
+    } else {
+        host.split(':').next().unwrap_or(host)
+    };
+    matches!(host, "localhost" | "127.0.0.1" | "::1")
 }
 
 fn script_style_item(solution: &Solution) -> Item {
@@ -373,40 +406,82 @@ fn platform_item(version: Result<String, String>) -> Item {
     }
 }
 
+/// How many entries a doctor line names before it says "and N more"; `--json` lists all.
+const NAMED: usize = 3;
+
 fn baseline_item(solution: &Solution, found: &workspace::Discovery, profile_name: &str) -> Item {
     let subject = format!("baseline {profile_name}");
     let baseline = match Baseline::load(&solution.root, profile_name) {
         Ok(baseline) => baseline,
         Err(error) => return item(Health::Fail, subject, error.to_string()),
     };
-    let mut recorded = 0;
-    let mut outdated = baseline.outdated();
+    let derived = match Derived::read(&found.entities) {
+        Ok(derived) => derived,
+        Err(error) => return item(Health::Fail, subject, error.to_string()),
+    };
     let rules = solution.server_owned_for(profile_name);
+    let mut recorded = 0;
+    let mut incompatible = Vec::new();
+    let mut present = BTreeSet::new();
     for entity in &found.entities {
         let (collection, name) = (&entity.info.collection, &entity.info.name);
+        present.insert((collection.as_str(), name.as_str()));
         let parts = super::server_owned::parts(&rules, collection, name);
-        let hash = format!("{}:", super::normalise::hash_scope(&parts));
-        if baseline.get_for(collection, name, &hash).is_some() {
+        let scope = super::normalise::scope_with_grants(&parts, &derived.target(collection, name));
+        if baseline.get_in_scope(collection, name, &scope).is_some() {
             recorded += 1;
-        } else if baseline.get(collection, name).is_some() {
-            outdated += 1;
+        } else if baseline.contains(collection, name) {
+            incompatible.push(format!("{collection}/{name}"));
         }
     }
+    let orphans: Vec<String> = baseline
+        .addresses()
+        .filter(|address| !present.contains(address))
+        .map(|(collection, name)| format!("{collection}/{name}"))
+        .collect();
     let total = found.entities.len();
-    if outdated == 0 {
-        return item(
-            Health::Ok,
-            subject,
-            format!("{recorded} of {total} entities recorded"),
-        );
+    let mut line = format!("{recorded} of {total} entities recorded");
+    let mut entries = Vec::new();
+    if !incompatible.is_empty() {
+        line.push_str(&format!(
+            "; {} incompatible entries count as unrecorded (hash version or server-owned rules changed: {}): `twaco entity status --all --record --profile {profile_name}` records again those that match the server, so check they match first",
+            incompatible.len(),
+            named(&incompatible)
+        ));
+        entries.extend(incompatible.iter().map(|a| format!("incompatible {a}")));
     }
-    item(
-        Health::Warn,
+    if !orphans.is_empty() {
+        line.push_str(&format!(
+            "; {} entries are for entities not in the repository ({}): `twaco entity status --all --record --profile {profile_name}` prunes those the server no longer has",
+            orphans.len(),
+            named(&orphans)
+        ));
+        entries.extend(orphans.iter().map(|a| format!("orphan {a}")));
+    }
+    let mut result = item(
+        if entries.is_empty() {
+            Health::Ok
+        } else {
+            Health::Warn
+        },
         subject,
-        format!(
-            "{recorded} of {total} entities recorded; {outdated} incompatible entries count as              unrecorded (hash version or server-owned rules changed): `twaco entity status --all              --record --profile {profile_name}` records again those that match the server"
-        ),
-    )
+        line,
+    );
+    result.entries = entries;
+    result
+}
+
+fn named(addresses: &[String]) -> String {
+    let mut text = addresses
+        .iter()
+        .take(NAMED)
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(", ");
+    if addresses.len() > NAMED {
+        text.push_str(&format!(", and {} more", addresses.len() - NAMED));
+    }
+    text
 }
 
 fn server_owned_advice(
@@ -723,5 +798,148 @@ parts=['members', 'property-values', 'run-time-permissions']
             .unwrap();
         assert_eq!(legacy.health, Health::Warn);
         assert!(legacy.detail.contains("can be deleted"));
+    }
+
+    #[test]
+    fn names_incompatible_and_orphan_entries_and_says_what_fixes_each() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("twaco.toml"),
+            "[[project]]
+name = \"P\"
+",
+        )
+        .unwrap();
+        std::fs::create_dir_all(dir.path().join("Things")).unwrap();
+        std::fs::write(
+            dir.path().join("Things/P.T.xml"),
+            "<Entities><Things><Thing name=\"P.T\" projectName=\"P\"/></Things></Entities>",
+        )
+        .unwrap();
+        let mut baseline = Baseline::default();
+        baseline.set("Things", "P.T", "v7:x".into(), "v7:x".into());
+        for n in 1..=5 {
+            baseline.set(
+                "Users",
+                &format!("Acme.Gone{n}"),
+                "v10:x".into(),
+                "v10:x".into(),
+            );
+        }
+        baseline.write(dir.path(), "default").unwrap();
+
+        let items = diagnose(dir.path(), "missing");
+        let item = items
+            .iter()
+            .find(|item| item.subject == "baseline default")
+            .unwrap();
+        assert_eq!(item.health, Health::Warn);
+        assert!(item.detail.contains("Things/P.T"), "{}", item.detail);
+        assert!(item
+            .detail
+            .contains("5 entries are for entities not in the repository"));
+        assert!(item.detail.contains("and 2 more"), "{}", item.detail);
+        assert!(
+            !item.detail.contains("  "),
+            "no stray runs of spaces: {}",
+            item.detail
+        );
+        assert!(item.detail.contains("entity status --all --record"));
+        assert_eq!(item.entries.len(), 6);
+        assert!(item
+            .entries
+            .contains(&"orphan Users/Acme.Gone5".to_string()));
+        let json = report_json(&items);
+        let listed = json["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|i| i["subject"] == "baseline default")
+            .unwrap();
+        assert_eq!(listed["entries"].as_array().unwrap().len(), 6);
+    }
+
+    #[test]
+    fn a_local_address_is_recognised_for_the_portable_password_hint() {
+        for local in [
+            "http://localhost:8080/Thingworx/",
+            "http://127.0.0.1/Thingworx",
+            "http://[::1]:8080/Thingworx/",
+            "https://user:pw@localhost/Thingworx/",
+        ] {
+            assert!(is_local_url(local), "{local}");
+        }
+        for remote in [
+            "https://thingworx.example.com/Thingworx/",
+            "http://localhost.example.com/Thingworx/",
+        ] {
+            assert!(!is_local_url(remote), "{remote}");
+        }
+        assert!(PORTABLE_PASSWORD_HINT.contains("AdministratorUserSettings.InitialPassword"));
+    }
+
+    #[test]
+    fn a_401_from_a_local_server_names_the_portable_password_setting() {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let serving = std::thread::spawn(move || {
+            for stream in listener.incoming().take(1) {
+                let mut stream = stream.unwrap();
+                let mut request = Vec::new();
+                let mut buffer = [0u8; 4096];
+                let header_end = loop {
+                    let read = stream.read(&mut buffer).unwrap();
+                    assert!(read > 0);
+                    request.extend_from_slice(&buffer[..read]);
+                    if let Some(at) = request.windows(4).position(|w| w == b"\r\n\r\n") {
+                        break at + 4;
+                    }
+                };
+                let headers = String::from_utf8_lossy(&request[..header_end]).to_ascii_lowercase();
+                let length = headers
+                    .lines()
+                    .find_map(|line| line.strip_prefix("content-length:"))
+                    .map(|value| value.trim().parse::<usize>().unwrap())
+                    .unwrap_or(0);
+                while request.len() < header_end + length {
+                    let read = stream.read(&mut buffer).unwrap();
+                    assert!(read > 0);
+                    request.extend_from_slice(&buffer[..read]);
+                }
+                stream.write_all(b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
+            }
+        });
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("twaco.toml"),
+            "[[project]]
+name = \"P\"
+",
+        )
+        .unwrap();
+        std::fs::create_dir_all(dir.path().join(".twaco/profiles")).unwrap();
+        std::fs::write(
+            dir.path().join(".twaco/profiles/default.toml"),
+            format!(
+                "url = \"http://127.0.0.1:{port}/Thingworx/\"
+username = \"u\"
+password = \"p\"
+"
+            ),
+        )
+        .unwrap();
+        let items = diagnose(dir.path(), "default");
+        let server = items.iter().find(|i| i.subject == "server").unwrap();
+        assert_eq!(server.health, Health::Fail);
+        assert!(server.detail.contains("401"), "{}", server.detail);
+        assert!(
+            server
+                .detail
+                .contains("AdministratorUserSettings.InitialPassword"),
+            "{}",
+            server.detail
+        );
+        serving.join().unwrap();
     }
 }

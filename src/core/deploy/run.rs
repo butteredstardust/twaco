@@ -323,6 +323,15 @@ pub(crate) fn run_with_progress(
                         "the server log could not be read for the cause: {why}"
                     )],
                 };
+                if let ServerError::Http {
+                    status: 406, body, ..
+                }
+                | ServerError::Rejected { body, .. } = &source
+                {
+                    let mut reasons = notes.clone();
+                    reasons.push(body.clone());
+                    notes.extend(refused_entity_hint(project, &reasons));
+                }
                 notes.extend(super::ai_order::after_failed_import(
                     remote,
                     &narrowed,
@@ -694,4 +703,29 @@ pub(crate) fn record_permission_group_targets(
         ));
     }
     Ok((recorded, notes))
+}
+
+/// When the server's reason names an entity this project imported, how to leave it out. A name
+/// counts only as a whole word, and the longest name wins.
+fn refused_entity_hint(project: &ProjectBundle, notes: &[String]) -> Option<String> {
+    let word = |c: char| c.is_alphanumeric() || c == '_' || c == '.';
+    let named = |text: &str, name: &str| {
+        text.match_indices(name).any(|(at, _)| {
+            !text[..at].chars().next_back().is_some_and(word)
+                && !text[at + name.len()..].chars().next().is_some_and(word)
+        })
+    };
+    project
+        .entities
+        .iter()
+        .filter(|entity| {
+            !entity.name.is_empty() && notes.iter().any(|note| named(note, &entity.name))
+        })
+        .max_by_key(|entity| entity.name.len())
+        .map(|entity| {
+            format!(
+                "the server refused {}/{}: `--exclude {}/{} --with-dependents` leaves it and what references it out of the import",
+                entity.collection, entity.name, entity.collection, entity.name
+            )
+        })
 }

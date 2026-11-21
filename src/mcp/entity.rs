@@ -5,8 +5,8 @@ use super::requests::entity::{
     PullRequest, PushRequest, StatusRequest,
 };
 use super::{
-    add_notices, backup, carry, commands, delete, json, outcome_key, push, server, status, Coded,
-    ErrorCode, Map, Mode, Progress, Solution, ToolError, Value,
+    add_notices, backup, carry, commands, delete, json, outcome_key, push, server, Coded,
+    ErrorCode, Mode, Progress, Solution, ToolError, Value,
 };
 
 pub(crate) fn status_tool(
@@ -90,45 +90,10 @@ pub(crate) fn status_tool(
         }
         Err(error) => return Err(ToolError::coded(error)),
     };
-    let counts: Map<String, Value> = status::counts(&outcome.statuses)
-        .into_iter()
-        .map(|(v, n)| (v.label().to_string(), json!(n)))
-        .collect();
-    let detail = request.detail;
-    let listed: Vec<Value> = outcome.statuses
-        .iter()
-        .filter(|s| detail || s.verdict.is_drift())
-        .map(|s| {
-            let mut entry = json!({ "entity": format!("{}/{}", s.collection, s.name), "verdict": s.verdict.label() });
-            if detail {
-                entry["working"] = json!(s.working);
-                entry["server"] = json!(s.server);
-                entry["baseline_local"] = json!(s.local_baseline);
-                entry["baseline_server"] = json!(s.server_baseline);
-                entry["server_owned"] = json!(s.server_owned);
-            }
-            entry
-        })
-        .collect();
-    let mut result = json!({
-        "ok": outcome.failures.is_empty() && outcome.statuses.iter().all(|s| !s.verdict.is_drift()),
-        "recorded": outcome.recorded,
-        "entities": outcome.statuses.len(),
-        "counts": counts,
-        "failures": outcome.failures,
-        "unreadable": outcome.unreadable,
-        "server_only": outcome.server_only.iter().map(|entity| json!({
-            "entity": entity.entity,
-            "project": entity.project,
-            "note": entity.note,
-        })).collect::<Vec<_>>(),
-        "server_notes": outcome.server_notes,
-    });
+    let mut result = outcome.json(request.detail);
     if let (Some(file), Some(entities)) = (request.ancestor.as_deref(), outcome.ancestor) {
         result["ancestor"] = json!({ "file": file, "entities": entities });
     }
-    // Summary: only what needs attention. Detail: every entity, with its hashes.
-    result[if detail { "statuses" } else { "attention" }] = json!(listed);
     add_notices(&mut result, &notices);
     Ok(result)
 }

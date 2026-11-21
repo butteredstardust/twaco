@@ -689,6 +689,20 @@ fn labelled_children(element: &Element) -> Vec<(String, &Element)> {
         .collect()
 }
 
+/// The scope a recorded hash carries for an entity: [`hash_scope`], and `pg1` when derived
+/// principals apply, exactly as [`hash_with_grants`] writes it.
+pub(crate) fn scope_with_grants(
+    parts: &[super::server_owned::Part],
+    grants: &super::permissions::Sets,
+) -> String {
+    let scope = hash_scope(parts);
+    if grants.is_empty() {
+        scope
+    } else {
+        format!("{scope}:pg1")
+    }
+}
+
 /// Hash version and selector policy, excluding the content digest.
 pub(crate) fn hash_scope(parts: &[super::server_owned::Part]) -> String {
     if parts.is_empty() {

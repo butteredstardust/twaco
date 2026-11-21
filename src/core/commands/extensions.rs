@@ -47,6 +47,12 @@ pub enum ExtensionOutcome {
         mode: Mode,
         effects: Effects,
     },
+    /// A zip of extension packages, imported one by one in dependency order.
+    Bundle {
+        entries: Vec<extensions::BundleEntry>,
+        mode: Mode,
+        effects: Effects,
+    },
     Removed {
         plan: String,
         mode: Mode,
@@ -61,6 +67,7 @@ impl ExtensionOutcome {
             Self::Listed { effects, .. }
             | Self::Shown { effects, .. }
             | Self::Imported { effects, .. }
+            | Self::Bundle { effects, .. }
             | Self::Removed { effects, .. } => *effects,
         }
     }
@@ -112,25 +119,43 @@ where
             file_name,
             zip,
             mode,
-        } => Ok(ExtensionOutcome::Imported {
-            imported: extensions::import_with_progress(
-                &remote,
-                file_name,
-                zip,
-                matches!(mode, Mode::Apply),
-                progress,
-            )
-            .map_err(ExtensionCommandError::Extension)?,
-            mode: *mode,
-            effects: Effects::new(
+        } => {
+            let effects = Effects::new(
                 Access::None,
                 if matches!(mode, Mode::Apply) {
                     Access::Write
                 } else {
                     Access::Read
                 },
-            ),
-        }),
+            );
+            if let Some(members) =
+                extensions::bundle_members(zip).map_err(ExtensionCommandError::Extension)?
+            {
+                return Ok(ExtensionOutcome::Bundle {
+                    entries: extensions::import_bundle_with_progress(
+                        &remote,
+                        members,
+                        matches!(mode, Mode::Apply),
+                        progress,
+                    )
+                    .map_err(ExtensionCommandError::Extension)?,
+                    mode: *mode,
+                    effects,
+                });
+            }
+            Ok(ExtensionOutcome::Imported {
+                imported: extensions::import_with_progress(
+                    &remote,
+                    file_name,
+                    zip,
+                    matches!(mode, Mode::Apply),
+                    progress,
+                )
+                .map_err(ExtensionCommandError::Extension)?,
+                mode: *mode,
+                effects,
+            })
+        }
         ExtensionAction::Remove { name, mode } => Ok(ExtensionOutcome::Removed {
             plan: extensions::remove(&remote, name, matches!(mode, Mode::Apply))
                 .map_err(ExtensionCommandError::Extension)?,

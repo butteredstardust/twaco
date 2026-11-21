@@ -393,6 +393,15 @@ fn hand_written_tools() -> Vec<Value> {
         "type": "boolean",
         "default": false
     });
+    let deploy = tools
+        .iter_mut()
+        .find(|tool| tool["name"] == "deploy")
+        .unwrap();
+    deploy["inputSchema"]["properties"]["with_dependents"] = json!({
+        "description": "With exclude: also leave out the entities that reference an excluded one, which the import would otherwise refuse.",
+        "type": "boolean",
+        "default": false
+    });
     let new = tools
         .iter_mut()
         .find(|tool| tool["name"] == "mashup_new")

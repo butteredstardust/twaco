@@ -6,6 +6,20 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `deploy --exclude` now names, in the plan, the repository entities that still structurally reference each excluded entity (transitively, preserving collection identity and ignoring prose), with a warning that the import will fail; `--with-dependents` (and `with_dependents` over MCP) leaves them out too. A refused import whose server response body or log reason names an entity suggests `--exclude <it> --with-dependents`.
+- `ext import` takes a zip of extension zips (such as a solutions-common bundle): each inner package is read, ordered by `dependsOn` (a cycle or a dependency neither in the bundle nor installed is refused before anything is sent), skipped when the server holds that version or a newer one, and imported one by one, reporting imported, skipped or failed for each. A plan validates what it can and marks packages waiting for the bundle. Queued prerequisites defer their dependents until restart. Unsupported or overflowing versions and Windows-style inner zip paths are refused before upload.
+- `entity status --all --record` prunes baseline entries of entities in neither the repository nor on the server, and says how many (names with `--detail` or live `--json`; `pruned` and `pruned_entries` over MCP without needing detail). `twaco doctor` names incompatible and orphan baseline entries (all of them in `--json` as `entries`) and which command fixes each.
+
+### Fixed
+
+- Deploy apply (CLI and MCP) refuses before importing when selected entities still reference an excluded entity, naming the referrers and suggesting `--with-dependents`; dry runs keep the plan note.
+- Extension bundle plans defer server validation when a dependency needs an earlier package's planned install or upgrade, report its name and version, and continue planning. Dependencies already installed at the required versions still allow validation.
+- `twaco doctor` counted entities with derived PermissionGroup grants as unrecorded right after a full `--record`: it compared a different hash scope than status writes. Both now share one definition, and the broken spacing in its message is gone.
+- `ext import --apply` sends the install once more after about 3 seconds when the server reports "An error occurred while registering CSS resources" (Runtime/index.html in use by an antivirus or indexer on Windows), announcing the retry before waiting even if the second attempt fails.
+- `twaco doctor` explains a 401 from a local profile: on a fresh portable server the Administrator password is the `AdministratorUserSettings.InitialPassword` setting in `platform-settings.json`, not the one the start banner prints.
+
 ## [0.1.70] - 2026-11-20
 
 ### Added
