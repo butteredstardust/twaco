@@ -1,0 +1,54 @@
+{
+  "version": "legacy",
+  "rules": [
+    { "id": "align.page", "when": { "element": "page" }, "decisions": { "align": "stretch" } },
+    { "id": "align.kpi-value", "when": { "template": "kpi-tile", "slot": "value" }, "decisions": { "align": "center" } },
+    { "id": "align.filter-column", "when": { "template": "filter-panel", "slot": ["filter-column", "filter-footer"] }, "decisions": { "align": "center" } },
+    { "id": "align.start", "when": { "template": ["filter-panel", "form-2col"], "slot": ["filters", "form-columns"] }, "decisions": { "align": "flex-start" } },
+    { "id": "align.bar", "when": { "element": "slot", "slot": ["title", "header", "footer", "toolbar", "actions", "close"] }, "decisions": { "align": "center" } },
+    { "id": "align.slot", "when": { "element": "slot" }, "decisions": { "align": "stretch" } },
+
+    { "id": "justify.header-bar", "when": { "template": ["header-sidebar", "sidebar-header"], "slot": "header" }, "decisions": { "justify": "space-between" } },
+    { "id": "justify.filter-footer", "when": { "template": "filter-panel", "slot": "filter-footer" }, "decisions": { "justify": "space-between" } },
+    { "id": "justify.end", "when": { "element": "slot", "slot": ["actions", "close"] }, "decisions": { "justify": "flex-end" } },
+    { "id": "justify.centred-content", "when": { "template": ["kpi-tile", "confirm-dialog"], "slot": ["value", "message"] }, "decisions": { "justify": "center" } },
+
+    { "id": "gutter.page-padded", "when": { "template": ["list-page", "tabs", "dashboard"], "element": "page" }, "decisions": { "gutter": "24" } },
+    { "id": "gutter.page-hosted", "when": { "template": "tab-content", "element": "page" }, "decisions": { "gutter": "" } },
+    { "id": "gutter.tab-content-slot", "when": { "template": "tab-content", "element": "slot" }, "decisions": { "gutter": "" } },
+    { "id": "gutter.filters", "when": { "template": "filter-panel", "slot": "filters" }, "decisions": { "gutter": "" } },
+    { "id": "gutter.filter-footer", "when": { "template": "filter-panel", "slot": ["filter-footer", "content"] }, "decisions": { "gutter": "24" } },
+    { "id": "gutter.tab-set", "when": { "element": "widget", "widget": "ptcstabset" }, "decisions": { "gutter": "" } },
+
+    { "id": "surface.toolbar-band", "when": { "template": ["list-page", "tab-content"], "slot": "toolbar" }, "decisions": { "surface": { "background": "#F7F7F7" } } },
+    { "id": "surface.filter-column", "when": { "template": "filter-panel", "slot": "filter-column" }, "decisions": { "surface": { "background": "#F7F7F7" } } },
+    { "id": "surface.filter-children", "when": { "template": "filter-panel", "slot": ["filters", "filter-footer"] }, "decisions": { "surface": { "background": "inherit" } } },
+    { "id": "surface.filter-rule", "when": { "template": "filter-panel", "element": "divider", "parent": "filter-column" }, "decisions": { "surface": { "background": "#E4E7E9" } } },
+    { "id": "surface.filter-content", "when": { "template": "filter-panel", "slot": "content" }, "decisions": { "surface": { "background": "#ffffff" } } },
+
+    { "id": "size.divider", "when": { "element": "divider" }, "decisions": { "size": { "fixed": "1px" } } },
+    { "id": "size.title-70", "when": { "template": ["list-page", "tabs"], "slot": "title" }, "decisions": { "size": { "fixed": "70px" } } },
+    { "id": "size.toolbar-50", "when": { "template": "list-page", "slot": "toolbar" }, "decisions": { "size": { "fixed": "50px" } } },
+    { "id": "size.toolbar-48", "when": { "template": "tab-content", "slot": "toolbar" }, "decisions": { "size": { "fixed": "48px" } } },
+    { "id": "size.header-50", "when": { "template": ["header-footer", "header-sidebar", "sidebar-header", "card"], "slot": "header" }, "decisions": { "size": { "fixed": "50px" } } },
+    { "id": "size.form-bar-50", "when": { "template": ["form-dialog", "form-2col"], "slot": ["title", "actions"] }, "decisions": { "size": { "fixed": "50px" } } },
+    { "id": "size.confirm-actions-50", "when": { "template": "confirm-dialog", "slot": "actions" }, "decisions": { "size": { "fixed": "50px" } } },
+    { "id": "size.confirm-close-42", "when": { "template": "confirm-dialog", "slot": "close" }, "decisions": { "size": { "fixed": "42px" } } },
+    { "id": "size.title-40", "when": { "template": ["kpi-tile", "dashboard"], "slot": "title" }, "decisions": { "size": { "fixed": "40px" } } },
+    { "id": "size.footer-40", "when": { "template": "header-footer", "slot": "footer" }, "decisions": { "size": { "fixed": "40px" } } },
+    { "id": "size.card-actions-46", "when": { "template": "card", "slot": "actions" }, "decisions": { "size": { "fixed": "46px" } } },
+    { "id": "size.dashboard-tiles", "when": { "template": "dashboard", "slot": "tiles" }, "decisions": { "size": { "fixed": "240px" } } },
+    { "id": "size.filter-column", "when": { "template": "filter-panel", "slot": "filter-column" }, "decisions": { "size": { "fixed": "276px" } } },
+    { "id": "size.dashboard-main", "when": { "template": "dashboard", "slot": "main" }, "decisions": { "size": { "fill": 3 } } },
+    { "id": "size.content-sidebar", "when": { "element": "slot", "slot": "sidebar" }, "decisions": { "size": "content" } },
+    { "id": "size.content-fields", "when": { "template": "form-2col", "slot": "fields" }, "decisions": { "size": "content" } },
+    { "id": "size.content-filter-footer", "when": { "template": "filter-panel", "slot": "filter-footer" }, "decisions": { "size": "content" } },
+    { "id": "size.fill", "when": { "element": "slot" }, "decisions": { "size": "fill" } },
+
+    { "id": "props.filter-range", "when": { "template": "filter-panel", "slot": ["filters", "filter-footer"] }, "decisions": { "props": { "flex-size": "range", "flex-shrink": 0 } } },
+    { "id": "props.filters-width", "when": { "template": "filter-panel", "slot": "filters" }, "decisions": { "props": { "flex-min-width": "240px", "flex-max-width": "240px" } } },
+    { "id": "props.filter-footer-width", "when": { "template": "filter-panel", "slot": "filter-footer" }, "decisions": { "props": { "flex-min-width": "228px", "flex-max-width": "228px" } } },
+    { "id": "props.filter-rule-width", "when": { "template": "filter-panel", "element": "divider", "parent": "filter-column" }, "decisions": { "props": { "flex-min-width": "276px", "flex-max-width": "276px" } } },
+    { "id": "props.form-column-basis", "when": { "template": "form-2col", "slot": ["left", "right"] }, "decisions": { "props": { "flex-basis": "0px" } } }
+  ]
+}

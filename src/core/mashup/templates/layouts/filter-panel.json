@@ -6,55 +6,48 @@
   ],
   "page": {
     "flex-direction": "row",
-    "align-items": "stretch"
+    "align-items": "@rule"
   },
   "master_slot": "content",
   "children": [
     {
       "slot": "filter-column",
       "flex-direction": "column",
-      "align-items": "center",
-      "fixed": "276px",
-      "style": {
-        "background": "#F7F7F7"
-      },
+      "align-items": "@rule",
+      "fixed": "@rule",
+      "style": "@rule",
       "children": [
         {
           "slot": "filters",
           "flex-direction": "column",
-          "align-items": "flex-start",
-          "flex-size": "range",
-          "flex-min-width": "240px",
-          "flex-max-width": "240px",
-          "flex-shrink": 0,
-          "Margin": "",
-          "style": {
-            "background": "inherit"
-          },
-          "flex-grow": 1
+          "align-items": "@rule",
+          "flex-size": "@rule",
+          "flex-min-width": "@rule",
+          "flex-max-width": "@rule",
+          "flex-shrink": "@rule",
+          "Margin": "@rule",
+          "style": "@rule",
+          "flex-grow": "@rule"
         },
         {
           "divider": true,
-          "style": {
-            "background": "#E4E7E9"
-          },
-          "flex-min-width": "276px",
-          "flex-max-width": "276px"
+          "style": "@rule",
+          "flex-min-width": "@rule",
+          "flex-max-width": "@rule",
+          "thickness": "@rule"
         },
         {
           "slot": "filter-footer",
           "flex-direction": "row",
-          "align-items": "center",
-          "justify-content": "space-between",
-          "flex-grow": 0,
-          "flex-shrink": 0,
-          "Margin": "24",
-          "style": {
-            "background": "inherit"
-          },
-          "flex-size": "range",
-          "flex-min-width": "228px",
-          "flex-max-width": "228px"
+          "align-items": "@rule",
+          "justify-content": "@rule",
+          "flex-grow": "@rule",
+          "flex-shrink": "@rule",
+          "Margin": "@rule",
+          "style": "@rule",
+          "flex-size": "@rule",
+          "flex-min-width": "@rule",
+          "flex-max-width": "@rule"
         }
       ],
       "EnableExpandCollapse": true,
@@ -62,17 +55,16 @@
       "ExpandCollapseTabLocation": "outside"
     },
     {
-      "divider": true
+      "divider": true,
+      "thickness": "@rule"
     },
     {
       "slot": "content",
       "flex-direction": "column",
-      "flex-grow": 1,
-      "align-items": "stretch",
-      "Margin": "24",
-      "style": {
-        "background": "#ffffff"
-      }
+      "flex-grow": "@rule",
+      "align-items": "@rule",
+      "Margin": "@rule",
+      "style": "@rule"
     }
   ]
 }

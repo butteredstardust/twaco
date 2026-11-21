@@ -4,24 +4,25 @@
   "aliases": [],
   "page": {
     "flex-direction": "row",
-    "align-items": "stretch"
+    "align-items": "@rule"
   },
   "master_slot": "detail",
   "children": [
     {
       "slot": "list",
       "flex-direction": "column",
-      "flex-grow": 1,
-      "align-items": "stretch"
+      "flex-grow": "@rule",
+      "align-items": "@rule"
     },
     {
-      "divider": true
+      "divider": true,
+      "thickness": "@rule"
     },
     {
       "slot": "detail",
       "flex-direction": "column",
-      "flex-grow": 1,
-      "align-items": "stretch"
+      "flex-grow": "@rule",
+      "align-items": "@rule"
     }
   ]
 }

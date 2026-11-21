@@ -4,27 +4,27 @@
   "aliases": [],
   "page": {
     "flex-direction": "column",
-    "align-items": "stretch"
+    "align-items": "@rule"
   },
   "master_slot": "center",
   "children": [
     {
       "slot": "header",
       "flex-direction": "row",
-      "align-items": "center",
-      "fixed": "50px"
+      "align-items": "@rule",
+      "fixed": "@rule"
     },
     {
       "slot": "center",
       "flex-direction": "column",
-      "flex-grow": 1,
-      "align-items": "stretch"
+      "flex-grow": "@rule",
+      "align-items": "@rule"
     },
     {
       "slot": "footer",
       "flex-direction": "row",
-      "align-items": "center",
-      "fixed": "40px"
+      "align-items": "@rule",
+      "fixed": "@rule"
     }
   ]
 }
