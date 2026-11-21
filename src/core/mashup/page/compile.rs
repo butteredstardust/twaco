@@ -24,6 +24,10 @@ pub(crate) struct Artifacts {
 }
 
 pub(crate) fn compile(solution: &Solution, project: &str, text: &str) -> Result<Artifacts, Error> {
+    super::deep(|| compile_nested(solution, project, text))
+}
+
+fn compile_nested(solution: &Solution, project: &str, text: &str) -> Result<Artifacts, Error> {
     let spec = schema::parse(text)?;
     let page = &spec.page.value;
     if solution.project(project).is_none() {

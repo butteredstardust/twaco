@@ -8,6 +8,8 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Fixed
 
+- `mashup new --spec` overflowed the stack on specs with a few nested containers (tabs in a column in a row): parsing and placing recurse with large frames, so the page work now runs on a 64 MiB thread; over-deep YAML is refused by the parser's depth budget with a located error. A page header with help and actions collapsed to zero height in a column (the spacer rule left a 0px flex basis); it now keeps `auto`. The v1 header golden changes deliberately; legacy output is unchanged.
+
 - Page-spec v1 inline tabs no longer reserve an empty toolbar band. Nested charts stay in their panels and share remaining height with a floor for short viewports; cards and KPI rows size to content. Filter footers fit equal buttons inside their gutters, and bound date filters start empty unless explicitly initialized to today. Legacy layout output is unchanged.
 
 - Page-spec v1 blank pages now own a 24px gutter; toolbar bands stay 48px with centered controls, spacers push later controls right, and date ranges use the kit's 340px width and short dates. Explicit sizes and props remain overrides; legacy output is unchanged.

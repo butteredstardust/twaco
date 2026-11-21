@@ -86,7 +86,7 @@
 
     { "id": "props.icon-fixed", "when": { "op": "set-flex-size", "facts": ["size-fixed"] }, "decisions": { "props": { "iconClass": "widgets-flexcontainer-fixed" } } },
     { "id": "props.icon-flex", "when": { "op": "set-flex-size" }, "decisions": { "props": { "iconClass": "widgets-flexcontainer" } } },
-    { "id": "props.page-header", "when": { "op": "page-header" }, "decisions": { "props": { "flex-direction": "row", "align-items": "center", "flex-grow": 0 } } },
+    { "id": "props.page-header", "when": { "op": "page-header" }, "decisions": { "props": { "flex-direction": "row", "align-items": "center", "flex-grow": 0, "flex-basis": "auto" } } },
     { "id": "props.page-kpi-row", "when": { "op": "page-kpi-row" }, "decisions": { "siblings": "equal", "props": { "flex-direction": "row", "align-items": "stretch" } } },
     { "id": "props.page-card", "when": { "op": "page-card" }, "decisions": { "props": { "flex-direction": "column" } } },
     { "id": "props.page-card-caption", "when": { "op": "page-card-caption" }, "decisions": { "props": { "LabelType": "label" } } },

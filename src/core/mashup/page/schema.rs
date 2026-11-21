@@ -297,6 +297,10 @@ pub(crate) struct Event {
 }
 
 pub(crate) fn parse(text: &str) -> Result<Spec, Error> {
+    super::deep(|| parse_nested(text))
+}
+
+fn parse_nested(text: &str) -> Result<Spec, Error> {
     let mut spec: Spec = serde_saphyr::from_str(text).map_err(|error| {
         Error::at(
             error.location().unwrap_or(serde_saphyr::Location::UNKNOWN),

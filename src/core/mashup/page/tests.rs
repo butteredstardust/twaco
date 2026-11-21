@@ -1171,6 +1171,66 @@ fn benchmark_n_golden() {
 fn benchmark_o_golden() {
     benchmark("o");
 }
+#[test]
+fn benchmark_q1_golden() {
+    benchmark("q1");
+}
+
+#[test]
+fn page_header_with_help_and_actions_keeps_its_height_in_a_column() {
+    let (_dir, solution) = element_solution();
+    let folder =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/mashup/pages");
+    let text = std::fs::read_to_string(folder.join("page_header.page.yaml")).unwrap();
+    let built = compile(&solution, "Acme", &text).unwrap();
+    let doc = mashup::edit::parse(&built.content).unwrap();
+    let header = doc.find_exact(&built.ids["header"]).unwrap();
+    let props = &doc.at(&header.path)["Properties"];
+    // The spacer's grow rule gave the header a 0px basis, which collapsed a row in a column.
+    assert_eq!(props["flex-basis"], "auto");
+    assert_eq!(props["flex-grow"], 0);
+}
+
+#[test]
+fn nested_tabs_with_a_status_grid_compile_on_a_small_stack_and_runaway_nesting_is_a_located_error()
+{
+    let folder =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/mashup/pages");
+    let solution = Solution::load(&folder.join("bench_solution/twaco.toml")).unwrap();
+    let spec = std::fs::read_to_string(folder.join("bench_q1/page.yaml")).unwrap();
+    // The main thread has 1 MiB; the page worker must not depend on the caller's stack.
+    let small = std::thread::Builder::new()
+        .stack_size(256 << 10)
+        .spawn(move || compile(&solution, "Acme.Bench", &spec).is_ok())
+        .unwrap()
+        .join()
+        .unwrap();
+    assert!(small);
+    let mut text = String::from(
+        "version: 1
+rules: v1
+page:
+  name: Acme.Deep_MU
+  template: blank
+  slots:
+    center:
+",
+    );
+    let mut pad = String::from("      ");
+    for level in 0..40 {
+        text.push_str(&format!(
+            "{pad}- widget:
+{pad}    id: w{level}
+{pad}    type: flexcontainer
+{pad}    children:
+"
+        ));
+        pad.push_str("      ");
+    }
+    let error = schema::parse(&text).unwrap_err();
+    assert!(error.message.contains("budget"), "{error}");
+    assert!(error.line > 1, "{error}");
+}
 
 #[test]
 fn alerts_layout_has_one_gutter_centered_fixed_band_and_only_spacer_grows() {
