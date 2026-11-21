@@ -10,6 +10,7 @@ use super::{bundle, config, sidecar, workspace};
 mod ai_order;
 mod calls;
 mod error;
+mod excluded;
 mod framework;
 mod model;
 mod plan;

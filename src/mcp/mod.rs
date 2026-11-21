@@ -21,7 +21,7 @@ use crate::core::progress::{self as core_progress, Progress};
 use crate::core::{
     adopt, backup, catalog, check, config_table, db, deploy, docs, export, extensions, guide, help,
     impact, imports, javadoc, logs, newblock, profile, push, relocate, rename, repo, retemplate,
-    server, settings, status, types, unused, workspace,
+    server, settings, types, unused, workspace,
 };
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;

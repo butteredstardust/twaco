@@ -1043,3 +1043,18 @@ with min/max labels shown (true or absent). With labels hidden, button Margin
 to the slider-container height. Non-default button sizes, vertical sliders and
 filled controls are outside the measured contract. `mashup recipe slider-action`
 uses these values and keeps range sizing without a maximum height.
+
+## An extension install can fail once while Runtime/index.html is in use (Windows)
+
+On a Windows server, an extension install can fail with "An error occurred while registering CSS
+resources" while an antivirus or indexer holds `Runtime/index.html`. The same import sent a few
+seconds later succeeds. `twaco ext import --apply` sends the install once more after about 3
+seconds when the server's report carries that text, and says so; a second failure is reported as
+it came.
+
+## A fresh portable server's Administrator password is not the banner's (10.2.1)
+
+On a fresh portable 10.2.1 the Administrator password is the `AdministratorUserSettings.InitialPassword`
+setting in the instance's `platform-settings.json`, not the password the start banner prints, so
+the first sign-in with the banner's password is a 401. `twaco doctor` names the setting after a
+401 from a local profile; it never reads the value.

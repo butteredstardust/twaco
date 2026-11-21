@@ -149,4 +149,7 @@ pub(crate) struct PlanOptions<'a> {
     pub(crate) backend_only: bool,
     pub(crate) changed_since: Option<&'a str>,
     pub(crate) exclude: &'a [String],
+    /// Leave out what references an excluded entity too, which the Importer would refuse.
+    pub(crate) with_dependents: bool,
+    pub(crate) apply: bool,
 }

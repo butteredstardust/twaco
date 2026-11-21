@@ -151,6 +151,9 @@ pub(crate) struct DeployRequest {
     /// Remove matching Collection/Name selectors from the selected entities.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub exclude: Absent<Vec<String>>,
+    /// With exclude: also leave out the entities that reference an excluded one, which the import would otherwise refuse.
+    #[serde(default)]
+    pub with_dependents: bool,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub only_projects: Absent<Vec<String>>,
     #[serde(default)]

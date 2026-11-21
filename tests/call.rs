@@ -74,6 +74,215 @@ fn answer(stream: &mut std::net::TcpStream, status: &str, content_type: &str, bo
 }
 
 #[test]
+fn deploy_apply_refuses_excluded_referrers_before_contacting_the_server() {
+    deploy_excluded_referrers(false, true);
+}
+
+#[test]
+fn deploy_plan_notes_excluded_referrers_without_importing() {
+    deploy_excluded_referrers(false, false);
+}
+
+#[test]
+fn mcp_deploy_apply_refuses_excluded_referrers_before_contacting_the_server() {
+    deploy_excluded_referrers(true, true);
+}
+
+#[test]
+fn mcp_deploy_plan_notes_excluded_referrers_without_importing() {
+    deploy_excluded_referrers(true, false);
+}
+
+fn deploy_excluded_referrers(mcp: bool, apply: bool) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let (_dir, root) = temp("deploy-excluded-referrers");
+    std::fs::write(root.join("twaco.toml"), "[[project]]\nname='Acme.App'\n").unwrap();
+    profile(&root, listener.local_addr().unwrap());
+    for (collection, name, body) in [
+        ("ThingShapes", "Acme.Shape", ""),
+        (
+            "Things",
+            "Acme.Pump",
+            "<ImplementedShapes><ImplementedShape name=\"Acme.Shape\"/></ImplementedShapes>",
+        ),
+    ] {
+        std::fs::create_dir_all(root.join(collection)).unwrap();
+        let tag = if collection == "Things" {
+            "Thing"
+        } else {
+            "ThingShape"
+        };
+        std::fs::write(root.join(format!("{collection}/{name}.xml")), format!(
+            "<Entities><{collection}><{tag} name=\"{name}\" projectName=\"Acme.App\">{body}</{tag}></{collection}></Entities>"
+        )).unwrap();
+    }
+    let (stop, stopped) = std::sync::mpsc::channel();
+    let server = std::thread::spawn(move || {
+        let mut requests = Vec::new();
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while stopped.try_recv().is_err() && Instant::now() < deadline {
+            match listener.accept() {
+                Ok((mut stream, _)) => {
+                    stream.set_nonblocking(false).unwrap();
+                    stream
+                        .set_read_timeout(Some(Duration::from_secs(5)))
+                        .unwrap();
+                    let request = receive(&mut stream);
+                    let line = String::from_utf8_lossy(&request)
+                        .lines()
+                        .next()
+                        .unwrap()
+                        .to_string();
+                    if line.contains("/Projects/Acme.App") {
+                        answer(
+                            &mut stream,
+                            "200 OK",
+                            "text/xml",
+                            r#"<Entities><Projects><Project name="Acme.App"/></Projects></Entities>"#,
+                        );
+                    } else {
+                        answer(&mut stream, "404 Not Found", "text/plain", "absent");
+                    }
+                    requests.push(line);
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                Err(error) => panic!("{error}"),
+            }
+        }
+        requests
+    });
+    let (failed, text) = if mcp {
+        let mut arguments =
+            serde_json::json!({"exclude":["ThingShapes/Acme.Shape"], "skip_checks":true});
+        if apply {
+            arguments["dry_run"] = serde_json::json!(false);
+        }
+        let input = serde_json::json!({"jsonrpc":"2.0", "id":1, "method":"tools/call", "params":{"name":"deploy", "arguments":arguments}}).to_string() + "\n";
+        let mut output = Vec::new();
+        twaco::mcp::serve_tools(
+            &root,
+            &twaco::mcp::Selection::ALL,
+            input.as_bytes(),
+            &mut output,
+        )
+        .unwrap();
+        let response: serde_json::Value = serde_json::from_slice(&output).unwrap();
+        (
+            response["result"]["isError"].as_bool().unwrap_or(false),
+            response.to_string(),
+        )
+    } else {
+        let mut args = vec![
+            "deploy",
+            "--exclude",
+            "ThingShapes/Acme.Shape",
+            "--skip-checks",
+        ];
+        if apply {
+            args.push("--apply");
+        }
+        let output = run(&root, &args);
+        if apply {
+            assert_eq!(output.status.code(), Some(2), "{output:?}");
+        }
+        (
+            !output.status.success(),
+            format!(
+                "{}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            ),
+        )
+    };
+    stop.send(()).unwrap();
+    let requests = server.join().unwrap();
+    assert_eq!(failed, apply, "{text}; requests: {requests:?}");
+    assert!(
+        text.contains("excluded ThingShapes/Acme.Shape is still referenced by Things/Acme.Pump"),
+        "{text}"
+    );
+    assert!(text.contains("--with-dependents"), "{text}");
+    if apply {
+        assert!(requests.is_empty(), "{requests:?}");
+        assert!(text.contains("nothing was imported"), "{text}");
+    } else {
+        assert!(!requests.is_empty());
+        assert!(
+            requests.iter().all(|request| request.starts_with("GET ")),
+            "{requests:?}"
+        );
+    }
+}
+
+#[test]
+fn live_status_record_json_lists_pruned_entries_without_detail() {
+    status_record_json(false);
+}
+
+#[test]
+fn mcp_status_record_lists_pruned_entries_without_detail() {
+    status_record_json(true);
+}
+
+fn status_record_json(mcp: bool) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let (_dir, root) = temp("status-record-json");
+    std::fs::write(root.join("twaco.toml"), "[[project]]\nname='Acme.App'\n").unwrap();
+    profile(&root, listener.local_addr().unwrap());
+    std::fs::create_dir(root.join("Things")).unwrap();
+    let xml = r#"<Entities><Things><Thing name="Acme.Manager" projectName="Acme.App"/></Things></Entities>"#;
+    std::fs::write(root.join("Things/Acme.Manager.xml"), xml).unwrap();
+    std::fs::create_dir_all(root.join(".twaco/baselines")).unwrap();
+    std::fs::write(
+        root.join(".twaco/baselines/default.json"),
+        r#"{"entities":{"Users":{"Acme.Gone":{"local":"v10:a","server":"v10:a"}}}}"#,
+    )
+    .unwrap();
+    let server = std::thread::spawn(move || {
+        for _ in 0..5 {
+            let (mut stream, _) = listener.accept().unwrap();
+            let request = receive(&mut stream);
+            let request = String::from_utf8_lossy(&request);
+            if request.contains("/Things/Acme.Manager") {
+                answer(&mut stream, "200 OK", "text/xml", xml);
+            } else if request.contains("/Users/Acme.Gone") {
+                answer(&mut stream, "404 Not Found", "text/plain", "absent");
+            } else {
+                answer(&mut stream, "200 OK", "application/json", r#"{"rows":[]}"#);
+            }
+        }
+    });
+    let result: serde_json::Value = if mcp {
+        let input = serde_json::json!({"jsonrpc":"2.0", "id":1, "method":"tools/call", "params":{"name":"status", "arguments":{"all":true,"record":true}}}).to_string() + "\n";
+        let mut output = Vec::new();
+        twaco::mcp::serve_tools(
+            &root,
+            &twaco::mcp::Selection::ALL,
+            input.as_bytes(),
+            &mut output,
+        )
+        .unwrap();
+        let response: serde_json::Value = serde_json::from_slice(&output).unwrap();
+        response["result"]["structuredContent"].clone()
+    } else {
+        let output = run(&root, &["entity", "status", "--all", "--record", "--json"]);
+        assert!(output.status.success(), "{output:?}");
+        serde_json::from_slice(&output.stdout).unwrap()
+    };
+    assert_eq!(result["recorded"], 1);
+    assert_eq!(result["pruned"], 1);
+    assert_eq!(
+        result["pruned_entries"],
+        serde_json::json!(["Users/Acme.Gone"])
+    );
+    assert_eq!(result["counts"]["in-sync"], 1);
+    server.join().unwrap();
+}
+
+#[test]
 fn status_record_prints_post_record_verdicts_and_returns_their_exit_code() {
     for matches in [true, false] {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();

@@ -385,10 +385,6 @@ pub(crate) fn entity_status(solution: &Solution, args: &EntityStatus) -> u8 {
             }
         };
     }
-    if args.json.json {
-        eprintln!("{} --json needs --against <export.xml>", style::prefix());
-        return FAILED;
-    }
     let request = commands::status::StatusRequest {
         target: if args.selection.all {
             commands::status::StatusTarget::All
@@ -426,6 +422,20 @@ pub(crate) fn entity_status(solution: &Solution, args: &EntityStatus) -> u8 {
         }
     };
     print_notices(&notices);
+    if args.json.json {
+        let mut result = outcome.json(args.detail.detail);
+        if let (Some(file), Some(entities)) = (&args.ancestor, outcome.ancestor) {
+            result["ancestor"] = serde_json::json!({ "file": file, "entities": entities });
+        }
+        println!("{}", serde_json::to_string_pretty(&result).unwrap());
+        return if !outcome.failures.is_empty() {
+            FAILED
+        } else if outcome.statuses.iter().any(|s| s.verdict.is_drift()) {
+            DRIFT
+        } else {
+            OK
+        };
+    }
     if !outcome.failures.is_empty() {
         for failure in &outcome.failures {
             eprintln!("{} {failure}", style::prefix());
@@ -472,6 +482,22 @@ pub(crate) fn entity_status(solution: &Solution, args: &EntityStatus) -> u8 {
                 "baseline recorded for {recorded} entit{}",
                 if recorded == 1 { "y" } else { "ies" }
             );
+        }
+    }
+    if !outcome.pruned.is_empty() {
+        println!(
+            "pruned {} stale baseline entr{} (in neither the repository nor the server)",
+            outcome.pruned.len(),
+            if outcome.pruned.len() == 1 {
+                "y"
+            } else {
+                "ies"
+            }
+        );
+        if args.detail.detail {
+            for entity in &outcome.pruned {
+                println!("  {entity}");
+            }
         }
     }
     if args.detail.detail {

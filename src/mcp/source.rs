@@ -430,6 +430,7 @@ pub(crate) fn deploy_tool(
         backend_only: arguments.backend_only,
         changed_since,
         exclude,
+        with_dependents: arguments.with_dependents,
         profile: arguments.profile,
         lock_label: "mcp deploy",
         redeploy_blocks: arguments.redeploy_blocks,

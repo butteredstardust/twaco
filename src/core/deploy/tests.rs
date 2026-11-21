@@ -111,6 +111,7 @@ struct Fake {
     import_values: BTreeMap<String, Vec<Entity>>,
     call_values: BTreeMap<String, Vec<Entity>>,
     fail_import: Option<String>,
+    import_body: Option<String>,
     fail_service: Option<String>,
     fetch_failures: BTreeSet<(String, String)>,
     read_back_failures: BTreeSet<(String, String)>,
@@ -161,9 +162,11 @@ impl push::Remote for Fake {
             .unwrap()
             .push((file_name.to_string(), xml.to_vec()));
         if self.fail_import.as_deref() == Some(file_name) {
-            return Err(ServerError::Rejected {
+            return Err(ServerError::Http {
+                method: super::super::server::Method::Post,
+                status: 406,
                 url: "http://server/Importer".to_string(),
-                body: "failed".to_string(),
+                body: self.import_body.clone().unwrap_or_else(|| "failed".into()),
             });
         }
         let mut documents: Vec<((String, String), Vec<u8>)> =
@@ -1086,6 +1089,8 @@ fn a_profile_patch_reaches_the_bundle_and_its_entity_but_not_the_file() {
         backend_only: false,
         changed_since: None,
         exclude: &[],
+        with_dependents: false,
+        apply: false,
     };
     let solution = super::super::config::Solution::load(&root.join("twaco.toml")).unwrap();
 
@@ -1121,6 +1126,8 @@ fn only_and_changed_since_are_two_ways_of_choosing_and_are_refused_together() {
             backend_only: false,
             changed_since: Some("HEAD"),
             exclude: &[],
+            with_dependents: false,
+            apply: false,
         },
     )
     .unwrap_err();
@@ -1933,6 +1940,8 @@ fn deploy_only_accepts_comma_lists_and_repeated_names() {
             backend_only: false,
             changed_since: None,
             exclude: &[],
+            with_dependents: false,
+            apply: false,
         },
     )
     .unwrap();
@@ -2079,4 +2088,185 @@ fn a_failure_after_an_import_names_the_projects_the_server_holds() {
     };
     assert_eq!(after.imported(), ["P"]);
     assert!(DeployError::Conflicts(vec![]).imported().is_empty());
+}
+
+/// A workspace whose queue provider, stream and thing form a chain: the thing names the stream,
+/// the stream names the provider.
+fn queue_chain() -> (tempfile::TempDir, super::super::config::Solution) {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"P\"\n").unwrap();
+    let write = |collection: &str, name: &str, body: &str| {
+        std::fs::create_dir_all(root.join(collection)).unwrap();
+        std::fs::write(root.join(collection).join(format!("{name}.xml")), body).unwrap();
+    };
+    write(
+        "QueueProviders",
+        "Acme.Queue",
+        r#"<Entities><QueueProviders><QueueProvider name="Acme.Queue" projectName="P"/></QueueProviders></Entities>"#,
+    );
+    write(
+        "Things",
+        "Acme.Stream",
+        r#"<Entities><Things><Thing name="Acme.Stream" projectName="P" thingTemplate="Stream" queueProvider="Acme.Queue"/></Things></Entities>"#,
+    );
+    write(
+        "Things",
+        "Acme.Pump",
+        r#"<Entities><Things><Thing name="Acme.Pump" projectName="P" iotStream="Acme.Stream"/></Things></Entities>"#,
+    );
+    write(
+        "Things",
+        "Acme.Plain",
+        r#"<Entities><Things><Thing name="Acme.Plain" projectName="P"/></Things></Entities>"#,
+    );
+    let solution = super::super::config::Solution::load(&root.join("twaco.toml")).unwrap();
+    (dir, solution)
+}
+
+fn planned_names(projects: &[ProjectBundle]) -> Vec<String> {
+    projects
+        .iter()
+        .flat_map(|p| p.entities.iter().map(|e| e.name.clone()))
+        .collect()
+}
+
+#[test]
+fn an_excluded_entity_that_others_reference_is_warned_about_before_anything_is_sent() {
+    let (_dir, solution) = queue_chain();
+    let exclude = ["QueueProviders/Acme.Queue".to_string()];
+    let (projects, notes) = plan_bundles(
+        &solution,
+        "default",
+        PlanOptions {
+            exclude: &exclude,
+            ..PlanOptions::default()
+        },
+    )
+    .unwrap();
+    let warning = notes
+        .iter()
+        .find(|note| note.contains("still referenced"))
+        .unwrap_or_else(|| panic!("{notes:?}"));
+    assert!(
+        warning.contains("Things/Acme.Stream") && warning.contains("Things/Acme.Pump"),
+        "{warning}"
+    );
+    assert!(warning.contains("--with-dependents"), "{warning}");
+    assert!(!warning.contains("Acme.Plain"), "{warning}");
+    assert!(planned_names(&projects).contains(&"Acme.Stream".to_string()));
+}
+
+#[test]
+fn applying_exclusions_refuses_referrers_only_in_the_selected_entities() {
+    let (_dir, solution) = queue_chain();
+    let exclude = ["QueueProviders/Acme.Queue".to_string()];
+    let options = PlanOptions {
+        exclude: &exclude,
+        apply: true,
+        ..PlanOptions::default()
+    };
+    let error = plan_bundles(&solution, "default", options).unwrap_err();
+    assert!(
+        error.contains("Things/Acme.Stream") && error.contains("Things/Acme.Pump"),
+        "{error}"
+    );
+    assert!(
+        error.contains("--with-dependents") && error.contains("nothing was imported"),
+        "{error}"
+    );
+
+    let (projects, notes) = plan_bundles(
+        &solution,
+        "default",
+        PlanOptions {
+            only: &["Things/Acme.Plain".to_string()],
+            ..options
+        },
+    )
+    .unwrap();
+    assert_eq!(planned_names(&projects), ["Acme.Plain"]);
+    assert!(
+        !notes.iter().any(|note| note.contains("still referenced")),
+        "{notes:?}"
+    );
+
+    let (projects, _) = plan_bundles(
+        &solution,
+        "default",
+        PlanOptions {
+            with_dependents: true,
+            ..options
+        },
+    )
+    .unwrap();
+    assert_eq!(planned_names(&projects), ["Acme.Plain"]);
+}
+
+#[test]
+fn with_dependents_leaves_out_the_whole_chain_and_nothing_else() {
+    let (_dir, solution) = queue_chain();
+    let exclude = ["QueueProviders/Acme.Queue".to_string()];
+    let (projects, notes) = plan_bundles(
+        &solution,
+        "default",
+        PlanOptions {
+            exclude: &exclude,
+            with_dependents: true,
+            ..PlanOptions::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(planned_names(&projects), ["Acme.Plain"]);
+    assert!(
+        notes.iter().any(|note| note.contains("also excludes")),
+        "{notes:?}"
+    );
+}
+
+#[test]
+fn a_refused_import_that_names_an_entity_says_how_to_leave_it_out() {
+    let projects = [project(
+        "A",
+        vec![target("A.Short", "a();"), target("A.Short.Longer", "b();")],
+        vec![],
+    )];
+    let remote = Fake {
+        fail_import: Some("A.xml".to_string()),
+        import_failures: vec!["Invalid Queue Provider for A.Short.Longer".to_string()],
+        ..Fake::default()
+    };
+    let error = run_test(&remote, &MemoryBaseline::default(), &projects, true, false).unwrap_err();
+    let text = error.to_string();
+    assert!(
+        text.contains("`--exclude Things/A.Short.Longer --with-dependents`"),
+        "{text}"
+    );
+
+    let quiet = Fake {
+        fail_import: Some("A.xml".to_string()),
+        import_failures: vec!["Failed to connect to [kafka:9092]".to_string()],
+        ..Fake::default()
+    };
+    let text = run_test(&quiet, &MemoryBaseline::default(), &projects, true, false)
+        .unwrap_err()
+        .to_string();
+    assert!(!text.contains("--with-dependents"), "{text}");
+}
+
+#[test]
+fn a_406_body_alone_names_the_refused_entity_without_server_logs() {
+    let projects = [project("Acme", vec![target("Acme.Queue", "a();")], vec![])];
+    let remote = Fake {
+        fail_import: Some("Acme.xml".into()),
+        import_body: Some("Invalid Queue Provider Acme.Queue".into()),
+        ..Fake::default()
+    };
+    let text = run_test(&remote, &MemoryBaseline::default(), &projects, true, false)
+        .unwrap_err()
+        .to_string();
+    assert!(
+        text.contains("--exclude Things/Acme.Queue --with-dependents"),
+        "{text}"
+    );
 }

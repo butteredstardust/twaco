@@ -47,6 +47,9 @@ pub struct StatusOutcome {
     pub failures: Vec<String>,
     pub(crate) unreadable: Vec<String>,
     pub recorded: Option<usize>,
+    /// `Collection/Name` of the baseline entries a full `--record` removed: entities in neither
+    /// the repository nor on the server.
+    pub pruned: Vec<String>,
     /// How many entities the `ancestor` export held, when one was given.
     pub ancestor: Option<usize>,
     pub server_only: Vec<ServerOnly>,
@@ -69,6 +72,50 @@ pub struct ServerOnly {
 pub const SERVER_ONLY_HINT: &str = "twaco init --from-server <project> --missing takes them";
 
 impl StatusOutcome {
+    /// Shared live-status JSON, including every pruned address even without detail.
+    pub fn json(&self, detail: bool) -> Value {
+        let outcome = self;
+        let counts: serde_json::Map<String, Value> = status::counts(&outcome.statuses)
+            .into_iter()
+            .map(|(v, n)| (v.label().to_string(), serde_json::json!(n)))
+            .collect();
+        let listed: Vec<Value> = outcome.statuses
+        .iter()
+        .filter(|s| detail || s.verdict.is_drift())
+        .map(|s| {
+            let mut entry = serde_json::json!({ "entity": format!("{}/{}", s.collection, s.name), "verdict": s.verdict.label() });
+            if detail {
+                entry["working"] = serde_json::json!(s.working);
+                entry["server"] = serde_json::json!(s.server);
+                entry["baseline_local"] = serde_json::json!(s.local_baseline);
+                entry["baseline_server"] = serde_json::json!(s.server_baseline);
+                entry["server_owned"] = serde_json::json!(s.server_owned);
+            }
+            entry
+        })
+        .collect();
+        let mut result = serde_json::json!({
+            "ok": outcome.failures.is_empty() && outcome.statuses.iter().all(|s| !s.verdict.is_drift()),
+            "recorded": outcome.recorded,
+            "entities": outcome.statuses.len(),
+            "counts": counts,
+            "failures": outcome.failures,
+            "unreadable": outcome.unreadable,
+            "server_only": outcome.server_only.iter().map(|entity| serde_json::json!({
+                "entity": entity.entity,
+                "project": entity.project,
+                "note": entity.note,
+            })).collect::<Vec<_>>(),
+            "server_notes": outcome.server_notes,
+        });
+        if !outcome.pruned.is_empty() {
+            result["pruned"] = serde_json::json!(outcome.pruned.len());
+            result["pruned_entries"] = serde_json::json!(outcome.pruned);
+        }
+        result[if detail { "statuses" } else { "attention" }] = serde_json::json!(listed);
+        result
+    }
+
     #[allow(
         dead_code,
         reason = "the command facade's Effects (COMMAND_FACADE.md); no adapter reads it yet"
@@ -334,14 +381,19 @@ where
             failures,
             unreadable: found.unreadable,
             recorded: None,
+            pruned: Vec::new(),
             ancestor,
             server_only,
             server_notes,
             effects: Effects::new(Access::Read, Access::Read),
         });
     }
+    let mut pruned = Vec::new();
     let recorded = if request.record {
         let recorded = status::record_matching(&mut baseline, &mut statuses);
+        if matches!(request.target, StatusTarget::All) && request.project.is_none() {
+            pruned = prune_stale(&mut baseline, &remote, &repository_entities, &server_only);
+        }
         baseline
             .write(&solution.root, &request.profile)
             .map_err(StatusCommandError::Baseline)?;
@@ -359,10 +411,35 @@ where
         failures,
         unreadable: found.unreadable,
         recorded,
+        pruned,
         ancestor,
         server_only,
         server_notes,
         effects: Effects::new(workspace, Access::Read),
+    })
+}
+
+/// Drop the baseline entries of entities that are in neither the repository nor the server
+/// inventory just read. A candidate is also fetched by name, so an entity outside every declared
+/// project, or one whose read fails, is kept.
+fn prune_stale(
+    baseline: &mut Baseline,
+    remote: &(dyn push::Remote + Sync),
+    repository: &[workspace::EntityFile],
+    server_only: &[ServerOnly],
+) -> Vec<String> {
+    let on_server: BTreeSet<&str> = server_only.iter().map(|o| o.entity.as_str()).collect();
+    let in_repository: BTreeSet<(&str, &str)> = repository
+        .iter()
+        .map(|e| (e.info.collection.as_str(), e.info.name.as_str()))
+        .collect();
+    baseline.prune(|collection, name| {
+        in_repository.contains(&(collection, name))
+            || on_server.contains(format!("{collection}/{name}").as_str())
+            || !matches!(
+                EntityKey::address(collection, name).map(|key| remote.fetch(&key)),
+                Ok(Ok(None))
+            )
     })
 }
 
@@ -962,6 +1039,228 @@ mod tests {
         assert!(outcome.server_only.is_empty());
         assert_eq!(outcome.statuses.len(), 1);
         assert!(outcome.server_notes[0].contains("could not list server entities"));
+    }
+
+    /// The server holds exactly the entities named here.
+    struct ByName(std::collections::BTreeMap<String, Vec<u8>>);
+
+    impl push::Remote for ByName {
+        fn fetch(&self, key: &EntityKey) -> Result<Option<Vec<u8>>, ServerError> {
+            Ok(self.0.get(key.name()).cloned())
+        }
+        fn import(&self, _: &str, _: &[u8]) -> Result<(), ServerError> {
+            unreachable!("status never imports")
+        }
+    }
+
+    fn full_request(record: bool, project: Option<&str>) -> StatusRequest {
+        StatusRequest {
+            target: StatusTarget::All,
+            project: project.map(str::to_string),
+            record,
+            profile: "default".to_string(),
+            lock_label: "status",
+            refuse_unreadable: true,
+            refuse_record_failures: false,
+            ancestor: None,
+        }
+    }
+
+    fn record_with(
+        solution: &Solution,
+        server: &[(&str, &str)],
+        request: &StatusRequest,
+    ) -> StatusOutcome {
+        let held = server
+            .iter()
+            .map(|(name, xml)| (name.to_string(), xml.as_bytes().to_vec()))
+            .collect();
+        execute(
+            solution,
+            request,
+            |_| ByName(held),
+            &mut Notices::default(),
+            &crate::core::progress::NONE,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn a_full_record_prunes_entries_for_entities_in_neither_place_and_names_them() {
+        let (_dir, solution) = without_baseline(&thing("local"));
+        let mut baseline = Baseline::default();
+        baseline.set("Users", "Acme.Gone", "v10:a".into(), "v10:a".into());
+        baseline.set(
+            "QueueProviders",
+            "Acme.Elsewhere",
+            "v13:a".into(),
+            "v13:a".into(),
+        );
+        baseline.write(&solution.root, "default").unwrap();
+        let server = [("P.T", thing("local")), ("Acme.Elsewhere", "<x/>".into())];
+        let server: Vec<(&str, &str)> = server.iter().map(|(n, x)| (*n, x.as_str())).collect();
+
+        let narrowed = record_with(&solution, &server, &full_request(true, Some("P")));
+        assert!(narrowed.pruned.is_empty(), "a narrowed record never prunes");
+        assert!(Baseline::load(&solution.root, "default")
+            .unwrap()
+            .contains("Users", "Acme.Gone"));
+
+        let outcome = record_with(&solution, &server, &full_request(true, None));
+        assert_eq!(outcome.pruned, ["Users/Acme.Gone"]);
+        for detail in [false, true] {
+            let result = outcome.json(detail);
+            assert_eq!(result["pruned"], 1);
+            assert_eq!(
+                result["pruned_entries"],
+                serde_json::json!(["Users/Acme.Gone"])
+            );
+        }
+        let after = Baseline::load(&solution.root, "default").unwrap();
+        assert!(!after.contains("Users", "Acme.Gone"));
+        assert!(
+            after.contains("QueueProviders", "Acme.Elsewhere"),
+            "on the server"
+        );
+        assert!(after.contains("Things", "P.T"));
+
+        let again = record_with(&solution, &server, &full_request(true, None));
+        assert!(again.pruned.is_empty());
+    }
+
+    struct PruneRemote {
+        working: Vec<u8>,
+        inventory: Option<Value>,
+    }
+
+    impl push::Remote for PruneRemote {
+        fn fetch(&self, key: &EntityKey) -> Result<Option<Vec<u8>>, ServerError> {
+            match key.name() {
+                "P.T" => Ok(Some(self.working.clone())),
+                "Acme.Unreadable" => Err(ServerError::InvalidUrl("read unavailable".into())),
+                _ => Ok(None),
+            }
+        }
+        fn project_entities(&self, _: &str) -> Result<Value, ServerError> {
+            self.inventory
+                .clone()
+                .ok_or_else(|| ServerError::InvalidUrl("inventory unavailable".into()))
+        }
+        fn import(&self, _: &str, _: &[u8]) -> Result<(), ServerError> {
+            unreachable!("status never imports")
+        }
+    }
+
+    #[test]
+    fn a_failed_candidate_fetch_keeps_the_baseline_entry() {
+        let mut baseline = Baseline::default();
+        baseline.set("Things", "Acme.Unreadable", "v10:a".into(), "v10:a".into());
+        let remote = PruneRemote {
+            working: vec![],
+            inventory: None,
+        };
+        assert!(prune_stale(&mut baseline, &remote, &[], &[]).is_empty());
+        assert!(baseline.contains("Things", "Acme.Unreadable"));
+    }
+
+    #[test]
+    fn failed_or_partial_inventory_requires_confirmed_absence_before_pruning() {
+        for inventory in [
+            None,
+            Some(Value::Null),
+            Some(serde_json::json!({"rows": [{"name":"Acme.Bad"}]})),
+        ] {
+            let (_dir, solution) = without_baseline(&thing("current"));
+            let mut baseline = Baseline::default();
+            for name in ["Acme.Gone", "Acme.Unreadable"] {
+                baseline.set("Things", name, "v10:a".into(), "v10:a".into());
+            }
+            baseline.write(&solution.root, "default").unwrap();
+            let outcome = execute(
+                &solution,
+                &full_request(true, None),
+                |_| PruneRemote {
+                    working: thing("current").into_bytes(),
+                    inventory,
+                },
+                &mut Notices::default(),
+                &crate::core::progress::NONE,
+            )
+            .unwrap();
+            assert!(!outcome.server_notes.is_empty());
+            assert_eq!(outcome.pruned, ["Things/Acme.Gone"]);
+            let saved = Baseline::load(&solution.root, "default").unwrap();
+            assert!(saved.contains("Things", "Acme.Unreadable"));
+            assert!(saved.contains("Things", "P.T"));
+        }
+    }
+
+    #[test]
+    fn inventory_membership_preserves_an_entry_even_when_fetch_would_say_absent() {
+        let mut baseline = Baseline::default();
+        baseline.set("Things", "Acme.Listed", "v10:a".into(), "v10:a".into());
+        let inventory = [ServerOnly {
+            entity: "Things/Acme.Listed".into(),
+            project: "Acme".into(),
+            note: None,
+        }];
+        let remote = PruneRemote {
+            working: vec![],
+            inventory: None,
+        };
+        assert!(push::Remote::fetch(
+            &remote,
+            &EntityKey::address("Things", "Acme.Listed").unwrap()
+        )
+        .unwrap()
+        .is_none());
+        assert!(prune_stale(&mut baseline, &remote, &[], &inventory).is_empty());
+        assert!(baseline.contains("Things", "Acme.Listed"));
+    }
+
+    #[test]
+    fn doctor_agrees_with_a_full_record_for_entities_with_derived_grants() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        for folder in ["Things", "PermissionGroups", ".twaco/profiles"] {
+            std::fs::create_dir_all(root.join(folder)).unwrap();
+        }
+        std::fs::write(
+            root.join("twaco.toml"),
+            "[[project]]
+name = \"P\"
+",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join(".twaco/profiles/default.toml"),
+            "url = \"http://example.invalid/Thingworx/\"
+username = \"u\"
+password = \"p\"
+",
+        )
+        .unwrap();
+        let target = r#"<Entities><Things><Thing name="Acme.Target" projectName="P"><VisibilityPermissions/></Thing></Things></Entities>"#;
+        let group = r#"<Entities><PermissionGroups><PermissionGroup name="Acme.Access" projectName="P"><EntityPermissions><EntityPermission entityType="Thing" entityName="Acme.Target" permissionCategory="Visibility" permissionName="Visibility" resourceName="" isPermitted="true" onInstances="false"/></EntityPermissions></PermissionGroup></PermissionGroups></Entities>"#;
+        let served = r#"<Entities><Things><Thing name="Acme.Target" projectName="P"><VisibilityPermissions><Visibility><Principal type="PermissionGroup" name="Acme.Access" isPermitted="true"/></Visibility></VisibilityPermissions></Thing></Things></Entities>"#;
+        std::fs::write(root.join("Things/Acme.Target.xml"), target).unwrap();
+        std::fs::write(root.join("PermissionGroups/Acme.Access.xml"), group).unwrap();
+        let solution = Solution::load(&root.join("twaco.toml")).unwrap();
+
+        let outcome = record_with(
+            &solution,
+            &[("Acme.Target", served), ("Acme.Access", group)],
+            &full_request(true, None),
+        );
+        assert_eq!(outcome.recorded, Some(2));
+
+        let report = crate::core::doctor::diagnose(root, "missing");
+        let baseline = report
+            .iter()
+            .find(|item| item.subject == "baseline default")
+            .unwrap();
+        assert_eq!(baseline.detail, "2 of 2 entities recorded");
+        assert!(baseline.entries.is_empty());
     }
 
     #[test]

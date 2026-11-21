@@ -1303,14 +1303,34 @@ pub(crate) fn extension_write_tool(
                 progress,
             )
             .map_err(ToolError::coded)?;
-            let command::ExtensionOutcome::Imported { imported, .. } = outcome else {
-                unreachable!()
+            let imported = match outcome {
+                command::ExtensionOutcome::Imported { imported, .. } => imported,
+                command::ExtensionOutcome::Bundle { entries, .. } => {
+                    let ok = !entries.iter().any(|entry| entry.failed());
+                    let mut result = json!({
+                        "ok": ok,
+                        "dry_run": dry_run,
+                        "applied": !dry_run,
+                        "change": format!("a bundle of {} extension package(s)", entries.len()),
+                        "packages": entries.iter().map(|entry| json!({
+                            "package": entry.name,
+                            "version": entry.version,
+                            "file": entry.file,
+                            "result": entry.line(),
+                        })).collect::<Vec<_>>(),
+                        "note": if ok && entries.iter().any(|entry| entry.waits_for_restart()) { "a bundle: some packages wait on a restart; restart ThingWorx, then run the same import again" } else if ok { "a bundle: packages imported in dependency order; those already installed at the same or a newer version were skipped" } else { "a package failed and the rest were not sent; run it again after fixing it, which skips what is installed" },
+                    });
+                    add_notices(&mut result, &notices);
+                    return Ok(result);
+                }
+                _ => unreachable!(),
             };
             let mut result = json!({
                 "ok": true,
                 "dry_run": dry_run,
                 "change": imported.plan,
                 "applied": imported.applied,
+                "retried": imported.retried,
                 "note": if imported.queued { "queued: the server installs it at its next restart" } else if imported.applied { "installed; the package list shows it" } else { "the server validated it and installed nothing; pass dry_run: false" },
             });
             add_notices(&mut result, &notices);

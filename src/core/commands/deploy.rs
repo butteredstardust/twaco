@@ -23,6 +23,8 @@ pub struct DeployRequest {
     pub backend_only: bool,
     pub changed_since: Option<String>,
     pub exclude: Vec<String>,
+    /// Also exclude the entities that reference an excluded one.
+    pub with_dependents: bool,
     pub profile: String,
     pub lock_label: &'static str,
     /// Run a building block's deploy step even when the framework has it Configured.
@@ -311,6 +313,8 @@ where
             backend_only: request.backend_only,
             changed_since: request.changed_since.as_deref(),
             exclude: &request.exclude,
+            with_dependents: request.with_dependents,
+            apply: matches!(request.mode, Mode::Apply),
         },
     ) {
         Ok(planned) => planned,
@@ -709,6 +713,7 @@ mod tests {
             backend_only: false,
             changed_since: None,
             exclude: Vec::new(),
+            with_dependents: false,
             profile: "default".to_string(),
             lock_label: "deploy",
             redeploy_blocks: false,
@@ -961,6 +966,7 @@ name = \"Acme.App\"
             backend_only: false,
             changed_since: None,
             exclude: Vec::new(),
+            with_dependents: false,
             profile: "default".to_string(),
             lock_label: "deploy",
             redeploy_blocks: false,
@@ -1481,6 +1487,7 @@ minimum = \"1.0.0\"
             backend_only: false,
             changed_since: None,
             exclude: Vec::new(),
+            with_dependents: false,
             profile: "default".to_string(),
             lock_label: "deploy",
             redeploy_blocks: false,

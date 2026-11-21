@@ -414,6 +414,11 @@ as adopt, including a single entity XML. `--against` refuses `--record`, `--prof
 `--ancestor` instead supplies the common ancestor for **live** server status; it does not
 turn status into an offline comparison.
 
+`twaco entity status --all --record --json` reports live status as JSON, including the
+`pruned` count and every removed address in `pruned_entries` when entries were removed.
+MCP status includes those addresses without requiring detail. Live JSON also works without
+`--record`; `--detail` adds hashes.
+
 `twaco entity status --all` compares each entity three ways: the repository, the server, and
 the baseline. The baseline holds two hashes per entity, the repository's and the server's,
 recorded at the last deploy or push (or by `--record`, below); each side is compared with its
@@ -439,6 +444,9 @@ v11 to v12), older baselines count as missing: run `twaco entity status --all --
 It records baselines only where the repository and server already agree. Entities listed as
 `no-baseline-differs` need investigation with `entity diff`, pull or adopt; `--record` does
 not resolve their differences.
+A full `--all --record` also prunes baseline entries of entities that are in neither the
+repository nor on the server; `twaco doctor` names incompatible and orphan entries and the command
+that fixes each.
 
 When only the server changed an entity, `twaco entity pull Acme.Thing --apply` takes that
 server version, preserving the repository file's layout and line endings, rewrites its sidecars,
@@ -526,7 +534,8 @@ one entity past an unrelated finding.
 
 When the Importer refuses an entity, it answers only HTTP 406. twaco then reads the server's
 ApplicationLog for that moment and adds the reason it logged, such as a Thing whose template
-does not exist. When the log says nothing, or twaco may not read it, the error is the 406 alone.
+does not exist. If the response body or log reason names an entity in the import, twaco suggests
+`--exclude Collection/Name --with-dependents`, including when logs are unavailable.
 
 The localization tables are shared by every project, so a deploy of some projects or entities
 (`--only`, `--only-projects`) or of the backend only leaves them to `twaco localization push`.
@@ -539,6 +548,11 @@ including untracked files; it intersects with project and backend selections. `-
 exact `Collection/Name` selectors or the same globs used by `server_owned`. Deleted entities are
 reported but never deleted from a server. Both commands note repository references left outside a
 selection; nothing is added for them. `--only` and `--changed-since` are refused together.
+A deploy's import is all or nothing: when selected entities still reference an excluded entity,
+the plan names those referrers (transitively), and `--apply` refuses before importing anything.
+`deploy --with-dependents` leaves them out too; MCP deploy follows the same rules.
+These are typed structural references, including configuration-table CDATA;
+prose and service scripts are ignored, and equal names in different collections stay distinct.
 `bundle --out <file>` chooses its target (and `--check` reads it); `bundle --profile <name>`
 applies that profile's mashup patches (without it none apply), but a hand-imported bundle cannot
 preserve server-owned parts. `bundle --handoff` records the whole repository, so it is refused
@@ -2439,7 +2453,18 @@ An extension package is a ThingWorx extension zip: `metadata.xml` from `[package
 project's `depends_on`, then every entity. With `--editable`, its entities stay editable once
 installed; without it they are locked, as a shipped extension's are. Entity files go in byte
 for byte except that one attribute. `twaco ext import <zip>` has a server validate a project's
-package before anyone installs it.
+package before anyone installs it. A zip that holds only extension zips (no `metadata.xml` of its
+own) is a bundle: each package is imported in `dependsOn` order, those the server holds at the same
+or a newer version are skipped, and the first failure stops the run and names what was not sent.
+A plan validates packages whose dependencies are already installed at the required versions.
+When a dependency needs an earlier package's planned install or upgrade, it reports
+`would import after Acme.Base 10.2.0 (server validation waits for it)` and continues planning.
+Only `--apply` installs those prerequisites so the server can validate their dependents.
+A queued package does not satisfy its dependents until restart; they are reported as
+`waits for restart (needs X)`. Versions must use numeric dotted segments, and inner zip names
+must be root filenames without Windows separators or drive syntax.
+A transient Windows "registering CSS resources" failure announces one retry before waiting
+about three seconds, including when the retry fails.
 
 ## Updating twaco
 

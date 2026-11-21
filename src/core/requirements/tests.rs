@@ -47,6 +47,9 @@ fn every_structural_source_is_collected_with_referrers_and_xml_decoding() {
         ("baseDataShape", "DataShapes"),
         ("aspect.dataShape", "DataShapes"),
         ("dataShape", "DataShapes"),
+        ("queueProvider", "QueueProviders"),
+        ("iotStream", "Things"),
+        ("valueStream", "Things"),
     ];
     for (i, (attr, collection)) in sources.iter().enumerate() {
         entity(
