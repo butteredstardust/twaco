@@ -49,15 +49,29 @@ pub struct Change {
     pub after: Value,
 }
 
-pub(crate) fn plan_set(
-    solution: &Solution,
-    request: &SetRequest,
-) -> Result<SetPlan, AuthoringError> {
+fn validate_properties(request: &SetRequest) -> Result<(), AuthoringError> {
     for (_, value) in &request.properties {
         crate::core::repo::refuse_git_bash_value(value)
             .map_err(|error| AuthoringError::Invalid(error.to_string()))?;
     }
+    Ok(())
+}
+
+pub(crate) fn plan_set(
+    solution: &Solution,
+    request: &SetRequest,
+) -> Result<SetPlan, AuthoringError> {
+    validate_properties(request)?;
     let loaded = load_existing(solution, &request.mashup)?;
+    plan_set_loaded(solution, request, loaded)
+}
+
+pub(super) fn plan_set_loaded(
+    solution: &Solution,
+    request: &SetRequest,
+    loaded: super::ExistingMashup,
+) -> Result<SetPlan, AuthoringError> {
+    validate_properties(request)?;
     let mut document = parse_loaded(&loaded)?;
     let found = document
         .find_exact(&request.widget)
@@ -433,7 +447,7 @@ pub(crate) fn plan_set(
         {
             let node = layout::context::Node::op("set-flex-size", layout::Element::Container)
                 .fact("size-fixed", size == "fixed");
-            let decided = layout::current().evaluate(&node.context());
+            let decided = document.rules().evaluate(&node.context());
             for (key, value) in decided.patch() {
                 change_property(&mut document, &found.path, key, value, &mut changed);
             }

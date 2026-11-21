@@ -538,7 +538,7 @@ impl Work<'_> {
             "data:{}.{}{alias}.{search_param}",
             section.entity, call.target
         );
-        let rules = layout_rules::current();
+        let rules = self.document.rules();
         let group = |role: &str| {
             rules
                 .evaluate(
@@ -849,7 +849,7 @@ impl Work<'_> {
             ));
         }
         let target = widget_id(&self.document, &target.id)?;
-        let rules = layout_rules::current();
+        let rules = self.document.rules();
         let decided = |role: &str| {
             rules
                 .evaluate(
@@ -1471,6 +1471,14 @@ pub(crate) fn plan_recipe(
     request: &RecipeRequest,
 ) -> Result<RecipePlan, AuthoringError> {
     let loaded = load_existing(solution, &request.mashup)?;
+    plan_recipe_loaded(solution, request, loaded)
+}
+
+pub(super) fn plan_recipe_loaded(
+    solution: &Solution,
+    request: &RecipeRequest,
+    loaded: super::ExistingMashup,
+) -> Result<RecipePlan, AuthoringError> {
     let document = parse_loaded(&loaded)?;
     let parameters =
         mashup_parameters(&loaded.entity_before).map_err(AuthoringError::Unreadable)?;

@@ -126,9 +126,10 @@ pub struct Placed {
 }
 
 /// A mashup content document that has passed the checks an edit relies on.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub(crate) struct MashupDocument {
     value: Value,
+    uuid_generator: fn(&str) -> String,
 }
 
 /// Parse and check a `content.json`.
@@ -138,9 +139,36 @@ pub(crate) fn parse(content: &str) -> Result<MashupDocument, EditError> {
     MashupDocument::new(value)
 }
 
+impl PartialEq for MashupDocument {
+    fn eq(&self, other: &Self) -> bool {
+        self.value == other.value && std::ptr::fn_addr_eq(self.uuid_generator, other.uuid_generator)
+    }
+}
+
+fn random_uuid(_: &str) -> String {
+    uuid::Uuid::new_v4().to_string()
+}
+
 impl MashupDocument {
+    pub(crate) fn set_uuid_generator(&mut self, generator: fn(&str) -> String) {
+        self.uuid_generator = generator;
+    }
+    pub(crate) fn uuid(&self, role: &str) -> String {
+        (self.uuid_generator)(role)
+    }
+    pub(crate) fn rules(&self) -> &'static layout::RuleSet {
+        layout::RuleSet::embedded(if self.value["twacoPageRules"] == "v1" {
+            layout::Version::V1
+        } else {
+            layout::Version::Legacy
+        })
+    }
+
     pub(crate) fn new(value: Value) -> Result<Self, EditError> {
-        let document = Self { value };
+        let document = Self {
+            value,
+            uuid_generator: random_uuid,
+        };
         document.check()?;
         Ok(document)
     }
@@ -866,7 +894,7 @@ impl MashupDocument {
         let row = self.at(parent);
         let facts = row_facts(row);
         let node = layout::context::Node::op("equal-siblings", layout::Element::Row).facts(&facts);
-        let decided = layout::current().evaluate(&node.context());
+        let decided = self.rules().evaluate(&node.context());
         if decided.siblings.as_ref().map(|hit| hit.value) != Some(layout::Siblings::Equal) {
             return;
         }
@@ -1425,7 +1453,7 @@ impl MashupDocument {
             let facts = flow.facts(row);
             let node =
                 layout::context::Node::op("natural-height", layout::Element::Row).facts(&facts);
-            let decided = layout::current().evaluate(&node.context());
+            let decided = self.rules().evaluate(&node.context());
             let shrink = decided
                 .prop("flex-shrink")
                 .and_then(Value::as_u64)
@@ -1631,7 +1659,7 @@ impl MashupDocument {
             &[]
         };
         let node = layout::context::Node::op("control-row", layout::Element::Row).facts(facts);
-        let decided = layout::current().evaluate(&node.context());
+        let decided = self.rules().evaluate(&node.context());
         if let Some(align) = &decided.align {
             self.set_property(path, "align-items", Value::from(align.value.as_str()));
             let patch: Vec<(String, Value)> = decided

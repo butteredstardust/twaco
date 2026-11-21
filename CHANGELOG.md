@@ -8,6 +8,8 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- Internal page-spec compiler: strict, located YAML diagnostics, stable widget IDs and deterministic source/binding IDs; compiles grid, text, button and raw-widget specs to entity XML and sidecars through shared authoring operations. No build command yet.
+
 - `mashup why <mashup> <widget>` (MCP `mashup_why`) explains a widget's layout: each decision with the rule that made it, rule table versus an explicit authored setting, what the mashup holds now, and the `mashup set` command that overrides it; containers twaco did not record are explained as inferred. `mashup validate` reports a template slot or a row of cards that contradicts its rule as an advisory (`layout-slot-size`, `layout-siblings`).
 - The layout rules gain `op`, `label` and `facts` predicates and a `siblings` decision. Authoring (add, add-contained, set, the toolbar, card, panel and label-pairs recipes, equal card widths, natural row heights, mixed control rows) now asks one evaluator; output is unchanged.
 

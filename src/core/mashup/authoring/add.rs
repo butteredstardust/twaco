@@ -227,15 +227,29 @@ pub(crate) fn function_property(
 /// The design kits' row separator colour.
 const SEPARATOR_COLOUR: &str = "#C2C7CE";
 
-pub(crate) fn plan_add(
-    solution: &Solution,
-    request: &AddRequest,
-) -> Result<AddPlan, AuthoringError> {
+fn validate_properties(request: &AddRequest) -> Result<(), AuthoringError> {
     for (_, value) in &request.properties {
         crate::core::repo::refuse_git_bash_value(&Value::String(value.clone()))
             .map_err(|error| AuthoringError::Invalid(error.to_string()))?;
     }
+    Ok(())
+}
+
+pub(crate) fn plan_add(
+    solution: &Solution,
+    request: &AddRequest,
+) -> Result<AddPlan, AuthoringError> {
+    validate_properties(request)?;
     let loaded = load_existing(solution, &request.mashup)?;
+    plan_add_loaded(solution, request, loaded)
+}
+
+pub(super) fn plan_add_loaded(
+    solution: &Solution,
+    request: &AddRequest,
+    loaded: super::ExistingMashup,
+) -> Result<AddPlan, AuthoringError> {
+    validate_properties(request)?;
     let mut document = parse_loaded(&loaded)?;
     // A platform widget first, then one of the solution's own extension projects defines.
     let defined;
@@ -391,7 +405,7 @@ pub(crate) fn plan_add(
         Some(label) => node.label(label),
         None => node,
     };
-    let decided = layout::current().evaluate(&node.context());
+    let decided = document.rules().evaluate(&node.context());
     for (key, value) in decided.patch() {
         document.set_property(&placed_path, key, value);
     }

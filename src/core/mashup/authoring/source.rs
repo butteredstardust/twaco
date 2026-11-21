@@ -10,7 +10,6 @@ use crate::core::mashup::describe::mashup_parameters;
 use crate::core::{bindings, catalog, types};
 use serde::Serialize;
 use serde_json::{Map, Value};
-use uuid::Uuid;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SourceKind {
@@ -163,6 +162,14 @@ pub(crate) fn plan_source_add(
         }
     }
     let loaded = load_existing(solution, &request.mashup)?;
+    plan_source_add_loaded(solution, request, loaded)
+}
+
+pub(super) fn plan_source_add_loaded(
+    solution: &Solution,
+    request: &SourceAddRequest,
+    loaded: super::ExistingMashup,
+) -> Result<SourceAddPlan, AuthoringError> {
     let mut document = parse_loaded(&loaded)?;
     let (model, _) = types::load_model(solution);
     let platform = types::cached_platform(solution);
@@ -249,7 +256,7 @@ pub(crate) fn plan_source_add(
         insert(
             &mut section,
             "Id",
-            Value::String(Uuid::new_v4().to_string()),
+            Value::String(document.uuid(&format!("source:{key}"))),
         );
         insert(&mut section, "RefreshInterval", Value::from(0));
         insert(&mut section, "Services", Value::Array(Vec::new()));
@@ -257,6 +264,10 @@ pub(crate) fn plan_source_add(
             .data_mut()
             .insert(key.clone(), Value::Object(section));
     }
+    let call_uuid = document.uuid(&format!(
+        "call:{key}:{}:{:?}",
+        request.service, request.alias
+    ));
     let services = document
         .data_mut()
         .get_mut(&key)
@@ -313,7 +324,7 @@ pub(crate) fn plan_source_add(
         );
         insert(&mut value, "Caching", Value::Object(caching));
     }
-    insert(&mut value, "Id", Value::String(Uuid::new_v4().to_string()));
+    insert(&mut value, "Id", Value::String(call_uuid));
     insert(&mut value, "Name", Value::String(call.clone()));
     insert(&mut value, "Parameters", Value::Object(fixed));
     insert(

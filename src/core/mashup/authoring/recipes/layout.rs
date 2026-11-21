@@ -302,7 +302,7 @@ impl Work<'_> {
         let target = widget_id(&self.document, container)?;
         self.layout_container(&target, "row")?;
         self.checked_styles(&target.id)?;
-        let decided = layout::current().evaluate(
+        let decided = self.document.rules().evaluate(
             &layout::context::Node::op("toolbar-band", layout::Element::Container).context(),
         );
         self.layout_set(&target, &decided.patch())?;
@@ -342,7 +342,7 @@ impl Work<'_> {
             ));
         }
         self.checked_styles(&target.id)?;
-        let decided = layout::current().evaluate(
+        let decided = self.document.rules().evaluate(
             &layout::context::Node::op("card-recipe", layout::Element::Container).context(),
         );
         self.layout_set(&target, &decided.patch())?;
@@ -499,7 +499,7 @@ impl Work<'_> {
         let node = layout::context::Node::op("panel-recipe", layout::Element::Container)
             .fact("style-card", style == "card")
             .fact("fit-content", fit == "content");
-        let decided = layout::current().evaluate(&node.context());
+        let decided = self.document.rules().evaluate(&node.context());
         let mut patch = decided.patch();
         patch.push(("CustomClass", json!(classes)));
         self.layout_set(&target, &patch)?;
