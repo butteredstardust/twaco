@@ -6,6 +6,8 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.1.73] - 2026-11-21
+
 ### Changed
 
 - Page specs support `row`/`column`, proportional fill weights and gaps, equal chart widths,
@@ -2166,6 +2168,7 @@ The first public release.
 - `mcp` serves 39 tools over stdio to MCP clients, with compact summaries, validated arguments
   and dry runs by default for tools that can write to a server.
 
+[0.1.73]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.73
 [0.1.72]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.72
 [0.1.71]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.71
 [0.1.70]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.70
