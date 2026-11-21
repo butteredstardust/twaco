@@ -49,7 +49,7 @@ All notable changes to twaco are recorded here. The format follows
 
 - Entity push shows only gate findings, once each, and ends with one gate summary in plans and applies.
 
-- Single-entity push runs scoped deploy gates and server script parsing in plans and applies; blocking findings import nothing, advisories remain visible, and `--skip-checks` reports skipped gates independently of `--force`.
+- Behaviour change: `entity push` now runs scoped deploy gates and server script parsing in plans and applies, so an entity with an existing blocking finding is refused until it is fixed or `--skip-checks` is given; blocking findings import nothing, advisories remain visible, and `--skip-checks` reports skipped gates independently of `--force`.
 - Missing push dependencies name the prerequisite entity and suggest pushing it first or deploying the solution.
 - MCP `entity_new` rejects options outside the selected kind's CLI grammar.
 - Managed panel CSS preserves existing CRLF and recognises only whole trimmed marker lines.

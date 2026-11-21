@@ -400,12 +400,28 @@ impl Work<'_> {
         )?;
         inputs.push(("page".into(), format!("ui:{}.PageNumber", pager.id)));
         let slice = self.computed("expression2", "result = table && table.rows ? {dataShape: table.dataShape, rows: table.rows.slice((Math.max(1, page || 1) - 1) * Math.max(1, size || 10), Math.max(1, page || 1) * Math.max(1, size || 10))} : {dataShape: {}, rows: []};", Some("INFOTABLE"), &inputs, true)?;
+        let mut replaced = Vec::new();
         for binding in self.document.bindings_mut() {
             if binding["TargetId"] == grid.id {
+                let source = binding["SourceId"].as_str().unwrap_or_default().to_string();
                 if let Some(maps) = binding["PropertyMaps"].as_array_mut() {
-                    maps.retain(|map| map["TargetProperty"] != "Data");
+                    maps.retain(|map| {
+                        let data = map["TargetProperty"] == "Data";
+                        if data {
+                            let property = map["SourceProperty"].as_str().unwrap_or_default();
+                            replaced.push(format!("{source}.{property}"));
+                        }
+                        !data
+                    });
                 }
             }
+        }
+        if !replaced.is_empty() {
+            self.notes.push(format!(
+                "{}.Data now comes from the page slice; replaced binding(s) from {}",
+                grid.id,
+                replaced.join(", ")
+            ));
         }
         self.document.bindings_mut().retain(|binding| {
             binding["PropertyMaps"]

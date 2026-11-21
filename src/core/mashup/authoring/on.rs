@@ -178,7 +178,8 @@ pub(crate) fn plan_on(solution: &Solution, request: &OnRequest) -> Result<OnPlan
         .as_array()
         .map_or(0, Vec::len);
     let new_source = on_in(&mut document, &context, &request.event, &request.invoke)?;
-    refuse_unknown_cell_menu_item(solution, &document, &request.event)?;
+    let event = mashup::address::imply_ui(&document, &request.event);
+    refuse_unknown_cell_menu_item(solution, &document, &event)?;
     // Only a binding this call added; older ones were reported when they were made.
     let warnings = crate::core::bindings::selected_rows_hints(document.value())
         .into_iter()
