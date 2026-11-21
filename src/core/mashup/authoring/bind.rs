@@ -81,6 +81,10 @@ pub(super) fn bind_in(
     from_raw: &str,
     to_raw: &str,
 ) -> Result<BindIn, AuthoringError> {
+    let (from_raw, to_raw) = (
+        &mashup::address::imply_ui(document, from_raw),
+        &mashup::address::imply_ui(document, to_raw),
+    );
     let from_address =
         parse_address(from_raw).map_err(|e| AuthoringError::Invalid(e.to_string()))?;
     let to_address = parse_address(to_raw).map_err(|e| AuthoringError::Invalid(e.to_string()))?;

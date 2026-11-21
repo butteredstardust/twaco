@@ -498,7 +498,7 @@ pub(crate) const USAGE: &[Usage] = &[
         group: 1,
         text: r#"  lint [--entity <name>] [--service <name>] [--rule <id>]... [--json]
                               report configurable script rules; advisory gates do not change severity
-      --entity <name>         Collection/Name glob
+      --entity <name>         Collection/Name glob, or an entity name alone
       --service <name>        service folder glob
       --rule <id>             rule id or group (format, traps, order, comments), repeatable
       --explain <id>          explain a rule id or group
@@ -511,9 +511,9 @@ pub(crate) const USAGE: &[Usage] = &[
         text: r#"  lint fix-headers [--entity <name>] [--service <name>] [--apply] [--json]
                               bring each service's JSDoc header to its definition.xml: @function,
                               @param in ordinal order, @returns; plans by default
-      --entity <name>         Collection/Name glob
+      --entity <name>         Collection/Name glob, or an entity name alone
       --service <name>        service folder glob
-      --apply                 write the repaired scripts
+      --apply                 write the repaired scripts, then sync their entities' XML
       --json                  print the plan or result as JSON"#,
     },
     Usage {
@@ -767,7 +767,8 @@ pub(crate) const USAGE: &[Usage] = &[
       [--preset cards] [--menu <state-definition>]
       [--in <container> | --right-of <widget> | --left-of <widget> | --above <widget> | --below <widget>] [--apply] [--json]
                               add a collection that renders a cell mashup once per service-result row; plan unless --apply
-      --data <address>        an existing whole service result from mashup source add
+      --data <address>        an existing service result from mashup source add: data:<Entity>.<Service>, or
+                              data:<Entity>.<Service>[SelectedRows] for the rows selected in another widget
       --map <value>           map result fields to cell mashup parameters as row-field=cell-parameter,
                               separated by commas
       --uid <row-field>       the row field that identifies each cell
@@ -947,8 +948,8 @@ pub(crate) const USAGE: &[Usage] = &[
         group: 1,
         text: r#"  mashup recipe <recipe> <mashup> [<widget>] [<button>] [recipe flags] [--apply] [--json] [--detail]
                               write the wiring real mashups repeat, in one edit; plan unless --apply
-      panel <container> [--compact <768|960>] [--fit <fill|content>] [--style <style>]
-                              grey column with managed CSS; --style grey (default) or white bordered card; optional compact viewport gutters
+      panel <container> [--compact <768|960>] [--fit <fill|content>] [--style <grey|card>]
+                              grey column with managed CSS; --style grey (default) or card (white bordered card); optional compact viewport gutters
       --fit <fill|content>    fill (default) grows; content uses no grow and height auto
       slider-action <slider> <button>
                               align the button centre to the horizontal slider track (default 34px button)
@@ -973,8 +974,9 @@ pub(crate) const USAGE: &[Usage] = &[
                               run the call again every so often
       validate <widget>|--on <event> --if <condition> [--input name=<address>]... --then <handler>
           [--else-say <text>]   run the handler when the condition holds, else show the text
-      chart <chart> --data <data call> --x <field> [--value <field>] [--kind <chart type>]
+      chart <chart> --data <data call> --x <field> [--value <field>] [--kind <bar|column|linechart|areachart>]
           [--title <text>] [--x-title <text>] [--y-title <text>] [--stacked]
+      --kind                  bar or column on a bar chart; linechart or areachart on a line chart
       --stacked              bar chart series stacked with SeriesDisplay=auto
       --x-title <text>        explicit X-axis name; catalogue placeholders are cleared
       --y-title <text>        explicit Y-axis name; authored names are preserved
@@ -1196,10 +1198,12 @@ pub(crate) const USAGE: &[Usage] = &[
       [--returns <TYPE>[:<DataShape>]] [--description <text>] [--category <text>] [--private]
       [--then <code> | --script <file.js>] [--apply] [--json]
   thing service remove <Entity> <Name> [--force] [--apply] [--json]
+  thing service set <Entity> <Name> (--script <file.js> | --then <code>) [--apply] [--json]
   thing service override <Entity> <Name> [--script <file.js> | --from-parent] [--apply] [--json]
   thing service override --revert <Entity> <Name> [--apply] [--json]
-                              add or remove an own script service, or override an inherited one
-                              with a script-only sidecar; plan unless --apply
+                              add or remove an own script service, replace its body (set keeps
+                              the signature and callers), or override an inherited one with a
+                              script-only sidecar; plan unless --apply
       --param                 a parameter in declaration order
       --returns               result type, NOTHING by default
       --private               make the service private

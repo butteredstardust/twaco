@@ -3877,3 +3877,75 @@ fn subscription_warns_for_extension_java_events_unknown_offline() {
     assert_eq!(plan.warnings.len(), 1);
     assert!(plan.warnings[0].contains("Java package"));
 }
+
+#[test]
+fn service_set_replaces_the_body_and_keeps_the_signature() {
+    let (_dir, solution) = fixture();
+    family(&solution);
+    let mut add = service("ReadRows", "result = 1;");
+    add.parameters = vec!["limit:INTEGER".into()];
+    add.returns = Some("NUMBER".into());
+    run(&solution, "Acme.Orders.Press", Action::ServiceAdd(add));
+    let folder = solution
+        .src_root()
+        .join("Acme.Orders.Press/services/ReadRows");
+    let definition = std::fs::read_to_string(folder.join("definition.xml")).unwrap();
+    let planned = plan_of(
+        &solution,
+        "Acme.Orders.Press",
+        Action::ServiceSet {
+            name: "ReadRows".into(),
+            code: "result = limit * 2;".into(),
+        },
+    )
+    .unwrap();
+    assert_eq!(planned.summary, "set the script of service ReadRows");
+    assert!(!file(&solution, "Things", "Acme.Orders.Press").contains("limit * 2"));
+    run(
+        &solution,
+        "Acme.Orders.Press",
+        Action::ServiceSet {
+            name: "ReadRows".into(),
+            code: "result = limit * 2;".into(),
+        },
+    );
+    let script = std::fs::read_to_string(folder.join("script.js")).unwrap();
+    assert!(script.contains("result = limit * 2;"), "{script}");
+    assert!(!script.contains("result = 1;"), "{script}");
+    assert_eq!(
+        std::fs::read_to_string(folder.join("definition.xml")).unwrap(),
+        definition,
+        "the signature stays"
+    );
+    assert!(file(&solution, "Things", "Acme.Orders.Press").contains("result = limit * 2;"));
+    assert_in_step(&solution);
+}
+
+#[test]
+fn service_set_refuses_a_missing_service_an_override_and_an_unsynced_sidecar() {
+    let (_dir, solution) = fixture();
+    family(&solution);
+    run(
+        &solution,
+        "Acme.Orders.Press",
+        Action::ServiceAdd(service("Run", "result = 1;")),
+    );
+    let set = |name: &str| Action::ServiceSet {
+        name: name.into(),
+        code: "result = 2;".into(),
+    };
+    assert_eq!(
+        code(plan_of(&solution, "Acme.Orders.Press", set("Nope"))),
+        ErrorCode::UnknownEntity
+    );
+    let script = solution
+        .src_root()
+        .join("Acme.Orders.Press/services/Run/script.js");
+    std::fs::write(&script, "result = 99;").unwrap();
+    let error = plan_of(&solution, "Acme.Orders.Press", set("Run")).unwrap_err();
+    assert!(
+        error.to_string().contains("differs from the XML"),
+        "{error}"
+    );
+    assert_eq!(std::fs::read_to_string(&script).unwrap(), "result = 99;");
+}

@@ -234,6 +234,10 @@ pub(super) fn on_in(
     event_raw: &str,
     invoke_raw: &str,
 ) -> Result<Option<String>, AuthoringError> {
+    let (event_raw, invoke_raw) = (
+        &mashup::address::imply_ui(document, event_raw),
+        &mashup::address::imply_ui(document, invoke_raw),
+    );
     let routed = route_child_event(document, event_raw)?;
     let event_raw = routed.as_deref().unwrap_or(event_raw);
     let trigger = resolve_trigger(document, context.model, context.platform, event_raw)?;

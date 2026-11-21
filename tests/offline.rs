@@ -2272,6 +2272,91 @@ fn thing_service_override_and_revert_from_the_command_line() {
     assert!(!root.join("src/Acme.Press/services/Read").exists());
 }
 
+/// `thing service set` swaps a body and keeps the signature; a stray operand from a split
+/// argument is explained.
+#[test]
+fn thing_service_set_replaces_a_body_from_the_command_line() {
+    let root_guard = tempfile::tempdir().unwrap();
+    let root = root_guard.path();
+    std::fs::write(root.join("twaco.toml"), "[[project]]\nname = \"Acme\"\n").unwrap();
+    let twaco = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_twaco"))
+            .args(args)
+            .current_dir(root)
+            .env_clear()
+            .output()
+            .unwrap()
+    };
+    let ok = |args: &[&str]| {
+        let out = twaco(args);
+        assert!(out.status.success(), "{args:?}: {out:?}");
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    };
+    ok(&["new", "thing", "Acme.Press", "--apply"]);
+    ok(&[
+        "thing",
+        "service",
+        "add",
+        "Acme.Press",
+        "Read",
+        "--param",
+        "limit:NUMBER",
+        "--returns",
+        "NUMBER",
+        "--then",
+        "result = 1;",
+        "--apply",
+    ]);
+    let folder = root.join("src/Acme.Press/services/Read");
+    let definition = std::fs::read_to_string(folder.join("definition.xml")).unwrap();
+    ok(&[
+        "thing",
+        "service",
+        "set",
+        "Acme.Press",
+        "Read",
+        "--then",
+        "result = limit + 1;",
+    ]);
+    assert!(!std::fs::read_to_string(folder.join("script.js"))
+        .unwrap()
+        .contains("limit + 1"));
+    ok(&[
+        "thing",
+        "service",
+        "set",
+        "Acme.Press",
+        "Read",
+        "--then",
+        "result = limit + 1;",
+        "--apply",
+    ]);
+    assert!(std::fs::read_to_string(folder.join("script.js"))
+        .unwrap()
+        .contains("result = limit + 1;"));
+    assert_eq!(
+        std::fs::read_to_string(folder.join("definition.xml")).unwrap(),
+        definition
+    );
+    let refused = twaco(&["thing", "service", "set", "Acme.Press", "Read"]);
+    assert!(!refused.status.success());
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("--then <code> or --script"));
+    let split = twaco(&[
+        "mashup",
+        "set",
+        "Acme.Page_MU",
+        "ptcslabel-3",
+        "Black\"",
+        "--style",
+        "font-family=\"Arial",
+    ]);
+    assert!(!split.status.success());
+    assert!(
+        String::from_utf8_lossy(&split.stderr).contains("font-family='Arial Black'"),
+        "{split:?}"
+    );
+}
+
 #[test]
 fn mashup_add_reports_which_widgets_new_containers_hold() {
     let root_guard = tempfile::tempdir().unwrap();

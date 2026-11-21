@@ -10,6 +10,7 @@ I want to ... -> command (use --help for flags; most writers plan until --apply)
 - Lay out widgets -> `twaco mashup recipe --help`
 - Bind widget data -> `twaco mashup bind --help`
 - Add a service -> `twaco thing service add <Entity> <Name>`
+- Replace a service body, signature kept -> `twaco thing service set <Entity> <Name> --script <file.js>`
 - Add a property -> `twaco thing property add <Entity> <name>:<TYPE>`
 - Add a subscription -> `twaco thing subscription --help`
 - Create a DataShape with fields -> `twaco new data-shape <name> --field <name:TYPE>`
@@ -19,3 +20,5 @@ I want to ... -> command (use --help for flags; most writers plan until --apply)
 - Read server logs -> `twaco logs`
 - Compare with the server -> `twaco entity status <entity>`
 - Manage permissions -> `twaco permissions --help`
+- Colour, font or custom CSS on a widget -> `twaco mashup set <mashup> <widget> --style color=#fff` (guide: styling)
+- Theme the whole mashup -> `twaco new theme <name> --from <StyleTheme>`; apply it with `mashup new --theme` (guide: styling)

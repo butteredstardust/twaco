@@ -3651,6 +3651,47 @@ fn entity_edit_overrides_an_inherited_service_then_reverts_it() {
 }
 
 #[test]
+fn entity_edit_sets_a_service_body_and_keeps_the_signature() {
+    let (_dir, root) = solution_dir();
+    let created = call(
+        &root,
+        "entity_new",
+        json!({"kind": "thing", "name": "P.Press", "dry_run": false}),
+    );
+    assert_eq!(created["isError"], false, "{created}");
+    let added = call(
+        &root,
+        "entity_edit",
+        json!({"action": "service_add", "entity": "P.Press", "name": "Read", "returns": "NUMBER", "then": "result = 1;", "dry_run": false}),
+    );
+    assert_eq!(added["isError"], false, "{added}");
+    let script = root.join("src/P.Press/services/Read/script.js");
+    let planned = call(
+        &root,
+        "entity_edit",
+        json!({"action": "service_set", "entity": "P.Press", "name": "Read", "then": "result = 2;"}),
+    );
+    assert_eq!(planned["isError"], false, "{planned}");
+    assert!(!std::fs::read_to_string(&script).unwrap().contains("= 2;"));
+    let set = call(
+        &root,
+        "entity_edit",
+        json!({"action": "service_set", "entity": "P.Press", "name": "Read", "then": "result = 2;", "dry_run": false}),
+    );
+    assert_eq!(set["isError"], false, "{set}");
+    assert!(std::fs::read_to_string(&script)
+        .unwrap()
+        .contains("result = 2;"));
+    for refused in [
+        json!({"action": "service_set", "entity": "P.Press", "name": "Read"}),
+        json!({"action": "service_set", "entity": "P.Press", "name": "Read", "then": "x", "returns": "STRING"}),
+    ] {
+        let result = call(&root, "entity_edit", refused);
+        assert_eq!(result["isError"], true, "{result}");
+    }
+}
+
+#[test]
 fn trace_reports_a_service_and_refuses_an_unknown_one() {
     let (_dir, root) = solution_dir();
     let created = call(

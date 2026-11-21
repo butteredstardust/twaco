@@ -14291,3 +14291,104 @@ fn n5_recipe_options_refuse_wrong_recipe_and_bad_values() {
         assert!(Recipe::from_args(name, &args).is_err(), "{name}: {args:?}");
     }
 }
+
+#[test]
+fn a_bare_widget_property_is_a_ui_address_when_one_widget_has_that_name() {
+    let (_dir, solution) = bind_fixture();
+    let plan = bind(
+        &solution,
+        "data:Acme.Orders.Manager.GetOrders",
+        "ptcsgrid-5.Data",
+    )
+    .unwrap();
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    let described: Vec<(String, String)> =
+        crate::core::mashup::describe::describe(&solution, "Acme.Orders_MU")
+            .unwrap()
+            .bindings
+            .into_iter()
+            .map(|b| (b.from, b.to))
+            .collect();
+    assert_eq!(
+        described,
+        [(
+            "data:Acme.Orders.Manager.GetOrders".to_string(),
+            "ui:ptcsgrid-5.Data".to_string()
+        )]
+    );
+    let plan = on(
+        &solution,
+        "ptcstextfield-3.Changed",
+        "data:Acme.Orders.Manager.GetOrders",
+    )
+    .unwrap();
+    assert_eq!(plan.event, "ptcstextfield-3.Changed");
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    let content: Value = serde_json::from_str(&sidecar_content(&solution)).unwrap();
+    assert_eq!(content["Events"][0]["EventTriggerArea"], "UI");
+    assert_eq!(content["Events"][0]["EventTriggerId"], "ptcstextfield-3");
+}
+
+#[test]
+fn a_bare_address_that_names_no_widget_says_ui_or_data() {
+    let (_dir, solution) = bind_fixture();
+    let error = bind(&solution, "nope-9.Text", "ui:ptcsgrid-5.Data")
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("ui:nope-9.Text (a widget property) or data:nope-9.Text"),
+        "{error}"
+    );
+}
+
+#[test]
+fn a_service_the_mashup_cannot_resolve_shows_the_alias_syntax() {
+    let (_dir, solution) = bind_fixture();
+    let error = bind(
+        &solution,
+        "data:Acme.Orders.Manager.version",
+        "ui:ptcsgrid-5.Data",
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(
+        error.contains("data:<Entity>.<Service>[as <alias>]"),
+        "{error}"
+    );
+}
+
+#[test]
+fn collection_add_accepts_the_selected_rows_of_a_call() {
+    let (_dir, solution) = collection_fixture();
+    let mut request = collection_request(&[("id", "Id")]);
+    request.data = "data:Acme.Orders.Manager.GetOrders[SelectedRows]".into();
+    let plan = plan_collection_add(&solution, &request).unwrap();
+    assert!(
+        plan.notes
+            .iter()
+            .all(|note| !note.contains("[SelectedRows]")),
+        "{:?}",
+        plan.notes
+    );
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    let described: Vec<(String, String)> =
+        crate::core::mashup::describe::describe(&solution, "Acme.Orders_MU")
+            .unwrap()
+            .bindings
+            .into_iter()
+            .map(|b| (b.from, b.to))
+            .collect();
+    assert!(
+        described.contains(&(
+            "data:Acme.Orders.Manager.GetOrders[SelectedRows]".to_string(),
+            format!("ui:{}.Data", plan.id)
+        )),
+        "{described:?}"
+    );
+    let mut field = collection_request(&[("id", "Id")]);
+    field.data = "data:Acme.Orders.Manager.GetOrders[EntityName]".into();
+    let error = plan_collection_add(&solution, &field)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("[SelectedRows]"), "{error}");
+}

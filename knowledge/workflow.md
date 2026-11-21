@@ -56,6 +56,8 @@ which of its parts are fragile.
    still be added or deleted with `twaco sync <entity> --allow-add-remove`; an empty `services/`
    directory means zero managed services until Git drops it, so the command is safer for removing
    the last one.
+   To replace the body of an existing own service and keep its signature and callers: `twaco thing
+   service set <Entity> <Name> (--script <file.js> | --then <code>) --apply`.
 2. `twaco sync <entity> --check` shows what would change; `twaco sync <entity>` writes it.
 3. **Run the gates:** `twaco check`. `twaco types --check` type-checks every service against the
    entities' declarations; `twaco check --live` also has the server parse each script.

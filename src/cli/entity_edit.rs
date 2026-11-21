@@ -348,10 +348,10 @@ impl Thing {
     }
 }
 
-/// `thing service add|remove|override`.
+/// `thing service add|remove|set|override`.
 fn service(args: &ThingService) -> Result<(String, Action), String> {
     let [action, entity, name] = args.operands.as_slice() else {
-        return Err("thing service needs <add|remove|override> <Entity> <name>".into());
+        return Err("thing service needs <add|remove|set|override> <Entity> <name>".into());
     };
     if args.from_parent && action != "override" {
         return Err("--from-parent belongs to thing service override".into());
@@ -374,6 +374,32 @@ fn service(args: &ThingService) -> Result<(String, Action), String> {
                 private: args.private,
                 code,
             })
+        }
+        "set" => {
+            if !args.parameters.is_empty()
+                || args.returns.is_some()
+                || args.description.is_some()
+                || args.category.is_some()
+                || args.private
+                || args.force
+                || args.revert
+                || args.from_parent
+            {
+                return Err(
+                    "thing service set takes only --script or --then, --apply and --json: the signature stays"
+                        .into(),
+                );
+            }
+            let code = match (&args.then, &args.script) {
+                (Some(code), None) => code.clone(),
+                (None, Some(path)) => std::fs::read_to_string(path)
+                    .map_err(|error| format!("{}: {error}", path.display()))?,
+                _ => return Err("give the new script as --then <code> or --script <file>".into()),
+            };
+            Action::ServiceSet {
+                name: name.clone(),
+                code,
+            }
         }
         "remove" => Action::ServiceRemove {
             name: name.clone(),
@@ -423,7 +449,7 @@ fn service(args: &ThingService) -> Result<(String, Action), String> {
         }
         other => {
             return Err(format!(
-                "thing service {other}: say add, remove or override"
+                "thing service {other}: say add, remove, set or override"
             ))
         }
     };

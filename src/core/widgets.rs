@@ -103,8 +103,15 @@ const fn yes() -> bool {
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum CatalogError {
-    #[error("no widget is called `{word}` in the ThingWorx {PLATFORM} catalogue{}", hint(.close))]
+    #[error("no widget is called `{word}` in the ThingWorx {PLATFORM} catalogue{}{}", hint(.close), absent(.word))]
     Unknown { word: String, close: Vec<String> },
+}
+
+/// What the catalogue lacks on purpose (Gauge, Web Frame): the closest widget it has.
+fn absent(word: &str) -> String {
+    super::widgets_view::absent_note(word)
+        .map(|note| format!(". {note}"))
+        .unwrap_or_default()
 }
 
 fn hint(close: &[String]) -> String {

@@ -1,6 +1,7 @@
 //! The small, deliberately lexical language used to name mashup binding ends.
 
 use crate::core::codes::{Coded, ErrorCode};
+use crate::core::mashup::edit::MashupDocument;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Address {
@@ -30,11 +31,48 @@ pub(crate) fn address_help(text: &str) -> String {
     let suggestion = if let Some(event) = text.strip_prefix("mashup-root.") {
         format!("mashup:{event}")
     } else if !text.contains(':') && text.contains('.') {
-        format!("data:{text}")
+        match text.rsplit_once('.') {
+            // One segment before the last dot reads as a widget; `Entity.Service` can be too.
+            Some((head, _)) if !head.contains('.') => {
+                format!("ui:{text} (a widget property) or data:{text} (a service call)")
+            }
+            _ => format!("data:{text}"),
+        }
     } else {
         "data:Acme.Cards.GetAssets".into()
     };
     format!("invalid mashup address `{text}`; accepted forms: data:<Entity>.<Service>, ui:<widget>.<property>, mashup:<parameter> (events: mashup:Loaded); did you mean {suggestion}?")
+}
+
+/// A bare `widget.property` names a widget property when exactly one widget of the document has
+/// that id or display name; every other text is returned unchanged, for `parse_address` to judge.
+pub(crate) fn imply_ui(document: &MashupDocument, text: &str) -> String {
+    if text.contains(':') {
+        return text.to_string();
+    }
+    let Some((widget, property)) = text.rsplit_once('.') else {
+        return text.to_string();
+    };
+    if widget.is_empty() || property.is_empty() {
+        return text.to_string();
+    }
+    let all = document.widgets();
+    let named = |by_id: bool| {
+        all.iter()
+            .filter(|w| {
+                if by_id {
+                    w.id == widget
+                } else {
+                    w.display_name == widget
+                }
+            })
+            .count()
+    };
+    if named(true) == 1 || (named(true) == 0 && named(false) == 1) {
+        format!("ui:{text}")
+    } else {
+        text.to_string()
+    }
 }
 
 impl Coded for AddressError {

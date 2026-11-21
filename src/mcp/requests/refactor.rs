@@ -626,6 +626,8 @@ pub(crate) enum EntityEditAction {
     ServiceAdd,
     #[serde(rename = "service_remove")]
     ServiceRemove,
+    #[serde(rename = "service_set")]
+    ServiceSet,
     #[serde(rename = "service_override")]
     ServiceOverride,
     #[serde(rename = "service_revert")]
@@ -720,7 +722,7 @@ pub(crate) struct EntityEditRequest {
     /// subscription_add: the property a DataChange subscription watches.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) source_property: Absent<String>,
-    /// subscription_add / service_add / service_override: the script (service_add: absent means an empty body).
+    /// subscription_add / service_add / service_set / service_override: the script (service_add: absent means an empty body).
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) then: Absent<String>,
     /// service_override: copy the script of the implementation the entity inherits, from the repository; not with then.

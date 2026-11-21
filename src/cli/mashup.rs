@@ -520,7 +520,7 @@ pub(crate) struct MashupRecipe {
     pub(crate) style: Option<String>,
     #[arg(long = "initial-step", value_name = "n")]
     pub(crate) initial_step: Option<u32>,
-    #[arg(long = "step-size", value_name = "size")]
+    #[arg(long = "step-size", value_name = "small|medium|large")]
     pub(crate) step_size: Option<String>,
     #[arg(long = "host", value_name = "widget")]
     pub(crate) host: Option<String>,
@@ -546,7 +546,7 @@ pub(crate) struct MashupRecipe {
     pub(crate) on: Option<String>,
     #[arg(long = "mashup", value_name = "name")]
     pub(crate) mashup: Option<String>,
-    #[arg(long = "window", value_name = "type")]
+    #[arg(long = "window", value_name = "modal-popup|popup|replace|new")]
     pub(crate) window: Option<String>,
     #[arg(long = "size", value_name = "WxH")]
     pub(crate) size: Option<String>,
@@ -1398,10 +1398,33 @@ fn placement_flags(place: &Place) -> Vec<(&'static str, &String)> {
     .collect()
 }
 
+/// What a command with the wrong number of operands says. Extra operands usually mean the shell
+/// split one argument at its spaces, or dropped its double quotes (Windows shells do both), so say so.
+fn operand_problem(command: &str, needs: &str, operands: &[String], expected: usize) -> String {
+    if operands.len() <= expected {
+        return format!("{command} needs {needs}");
+    }
+    let extra: Vec<String> = operands[expected..]
+        .iter()
+        .map(|operand| format!("`{operand}`"))
+        .collect();
+    format!(
+        "{command} needs {needs} but got {} operands; the extra {} {} probably the rest of a value the shell split at a space or at double quotes it removed. Put the whole argument in double quotes and single quotes inside the CSS value: --style \"font-family='Arial Black'\"",
+        operands.len(),
+        if extra.len() == 1 { "operand" } else { "operands" },
+        extra.join(" ")
+            + if extra.len() == 1 { " is" } else { " are" }
+    )
+}
+
 /// `twaco mashup add <mashup> <widget>`: plan a catalogue widget insertion, or apply it.
 pub(crate) fn mashup_add_cmd(solution: &Solution, args: &MashupAdd) -> u8 {
     let [mashup, widget] = args.operands.as_slice() else {
-        eprintln!("{} mashup add needs <mashup> and <widget>", style::prefix());
+        eprintln!(
+            "{} {}",
+            style::prefix(),
+            operand_problem("mashup add", "<mashup> and <widget>", &args.operands, 2)
+        );
         return FAILED;
     };
     let Ok(placement) = placement_from_flags(&args.place, args.end, args.bottom, args.in_column)
@@ -1749,7 +1772,11 @@ pub(crate) fn mashup_collection_add_cmd(solution: &Solution, args: &MashupCollec
 /// `twaco mashup set <mashup> <widget>`: set checked widget properties in one edit.
 pub(crate) fn mashup_set_cmd(solution: &Solution, args: &MashupSet) -> u8 {
     let [mashup_name, widget] = args.operands.as_slice() else {
-        eprintln!("{} mashup set needs <mashup> and <widget>", style::prefix());
+        eprintln!(
+            "{} {}",
+            style::prefix(),
+            operand_problem("mashup set", "<mashup> and <widget>", &args.operands, 2)
+        );
         return FAILED;
     };
     let properties = match args
@@ -2970,4 +2997,37 @@ pub(crate) fn recipe_columns_hint(args: &[String]) -> Option<&'static str> {
         value.is_some_and(|value| value.parse::<u32>().is_err())
     });
     bad.then_some("recipe columns takes --column field[:Title[:width]] (repeatable); --columns <n> is label-pairs' column count")
+}
+
+#[cfg(test)]
+mod operand_tests {
+    use super::operand_problem;
+
+    fn operands(words: &[&str]) -> Vec<String> {
+        words.iter().map(|word| word.to_string()).collect()
+    }
+
+    #[test]
+    fn a_missing_operand_keeps_the_short_message() {
+        assert_eq!(
+            operand_problem("mashup set", "<mashup> and <widget>", &operands(&["A"]), 2),
+            "mashup set needs <mashup> and <widget>"
+        );
+    }
+
+    #[test]
+    fn a_split_value_is_explained_with_the_single_quote_form() {
+        let message = operand_problem(
+            "mashup set",
+            "<mashup> and <widget>",
+            &operands(&["Acme.Page_MU", "ptcslabel-3", "Black\""]),
+            2,
+        );
+        assert!(message.contains("got 3 operands"), "{message}");
+        assert!(message.contains("`Black\"` is probably"), "{message}");
+        assert!(
+            message.contains("--style \"font-family='Arial Black'\""),
+            "{message}"
+        );
+    }
 }

@@ -328,6 +328,22 @@ pub(crate) fn entity_edit_tool(
             name: need(&arguments.name, "name")?,
             force: arguments.force,
         },
+        EntityEditAction::ServiceSet => {
+            if !arguments.params.is_absent()
+                || !arguments.returns.is_absent()
+                || !arguments.description.is_absent()
+                || arguments.private
+                || arguments.force
+            {
+                return Err(ToolError::invalid(
+                    "service_set takes name and then only: the signature stays",
+                ));
+            }
+            Action::ServiceSet {
+                name: need(&arguments.name, "name")?,
+                code: need(&arguments.then, "then (the new script)")?,
+            }
+        }
         EntityEditAction::ServiceOverride => {
             // The signature is the ancestor's: as on the command line, these are refused.
             if !arguments.params.is_absent()
@@ -1419,7 +1435,15 @@ pub(crate) fn widgets_tool(arguments: WidgetsRequest) -> Result<Value, ToolError
             .map(|detail| serde_json::to_value(detail).expect("a widget serialises"))
             .map_err(ToolError::coded),
         (None, search) => {
-            Ok(json!({ "widgets": crate::core::widgets_view::list(search.map(String::as_str)) }))
+            let widgets = crate::core::widgets_view::list(search.map(String::as_str));
+            let mut result = json!({ "widgets": widgets });
+            if let (true, Some(note)) = (
+                widgets.is_empty(),
+                search.and_then(|text| crate::core::widgets_view::absent_note(text)),
+            ) {
+                result["note"] = json!(note);
+            }
+            Ok(result)
         }
     }
 }

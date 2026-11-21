@@ -206,8 +206,9 @@ fn fix_headers(solution: &Solution, args: &FixHeaders) -> u8 {
                 outcome.examined
             ),
             (_, true) => println!(
-                "fixed {changed} of {} header(s); `twaco sync` writes them into the entity XML",
-                outcome.examined
+                "fixed {changed} of {} header(s); synced {} entity file(s)",
+                outcome.examined,
+                outcome.synced.len()
             ),
         }
     }

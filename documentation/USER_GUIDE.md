@@ -359,8 +359,8 @@ select all prose rules with `--rule comments.prose`, and tune their thresholds a
 `[lint.rules]`. The comment-header rules also hold the leading JSDoc to `definition.xml`; `twaco
 lint fix-headers` shows contract repairs, and `twaco lint fix-headers --apply` writes them to
 sidecar `script.js` files, correcting `@function`, moving each existing tag whole and generating
-only what is missing (see [Configuration](CONFIGURATION.md#service-headers)). `twaco sync` then
-writes them into the XML.
+only what is missing (see [Configuration](CONFIGURATION.md#service-headers)), then syncs the
+entities it changed so the XML follows. `--entity` takes `Collection/Name` or just the entity name.
 
 #### Adopting house-v1 in an existing solution
 
@@ -370,7 +370,7 @@ A solution without `[lint]` keeps today's gates (`checks-v1`). To take up the fu
    `comment budget`, `comment prose` or `comment header`, remove it first: twaco now runs that
    gate itself, and refuses a hook with its name.
 2. `twaco lint --rule comments` lists what the comment rules find, by rule.
-3. `twaco lint fix-headers` shows the header repairs; `--apply` writes them, then `twaco sync`.
+3. `twaco lint fix-headers` shows the header repairs; `--apply` writes them and syncs their entities.
 4. Fix the rest by hand, or keep a legacy entity out of a rule with `[[lint.override]]`, and set
    a rule you do not want to `warn` or `off` in `[lint.rules]`.
 5. Every script the repair or a reworded comment changes differs from the server until deployed.
@@ -1141,6 +1141,7 @@ twaco thing property set Acme.Orders.Machine_TT Speed --no-logged --category Mot
 twaco thing property remove Acme.Orders.Machine_TT Speed --apply
 twaco thing service add Acme.Orders.Machine_TT ReadSpeed --returns NUMBER --then "result = me.Speed;" --apply
 twaco thing service remove Acme.Orders.Machine_TT ReadSpeed --apply
+twaco thing service set Acme.Orders.Machine_TT ReadSpeed --script read-speed.js --apply
 twaco thing service override Acme.Orders.Press ReadSpeed --script press-read-speed.js --apply
 twaco thing service override --revert Acme.Orders.Press ReadSpeed --apply
 twaco thing subscription add Acme.Orders.Press OnSpeed --event DataChange --source-property Speed --then "me.Check();" --apply
@@ -1169,6 +1170,13 @@ into the entity through the same synchronizer as sidecar changes. Parameters are
 an own script service, its run-time permission and sidecar folder. Both refuse inherited clashes;
 remove also refuses callers unless `--force` lists and accepts them. MCP exposes the same work as
 `entity_edit` actions `service_add` and `service_remove`.
+
+`thing service set <Entity> <Name> (--script <file.js> | --then <code>)` replaces the body of an own
+service and leaves its definition, so its signature and callers stay. The script gets the JSDoc
+header the definition implies when the contract rule is on. It refuses a service the entity does not
+define, an override (use `thing service override --revert`, or edit its `script.js` and `sync`), and
+a `script.js` that differs from the XML (run `sync` first, or the edit would be lost). MCP:
+`entity_edit` action `service_set`.
 
 `thing service override` adds a Script implementation, but no local definition, for a service an
 ancestor defines. Its `services/<Service>/` folder therefore has only `script.js`; the script gets
@@ -1582,7 +1590,7 @@ twaco mashup collection add Acme.App.Orders_MU Acme.App.OrderCell_MU \
 ```
 
 The command adds the collection, records the field-to-parameter mapping as an object, and binds
-the result to `Data` in one edit. It reports when nothing invokes the source call. See
+the result to `Data` in one edit. It reports when nothing invokes the source call. `--data` is the whole result, `data:<Entity>.<Service>`, or a call's selected rows, `data:<Entity>.<Service>[SelectedRows]`, when another widget picks the rows to show. See
 [Collections: the serialized contract](MASHUP_COLLECTIONS.md) for the stored properties and
 runtime behaviour.
 
@@ -1699,7 +1707,7 @@ twaco mashup on Acme.App.Orders_MU --event mashup:Loaded --invoke data:Acme.App.
 twaco mashup on Acme.App.Orders_MU --event data:Acme.App.Orders.Manager.SaveOrder.ServiceInvokeCompleted --invoke data:Acme.App.Orders.Manager.GetOrders --apply
 ```
 
-`mashup on` makes one event run a service, until `--apply` only a plan. The event is a widget's
+`mashup on` makes one event run a service, until `--apply` only a plan. A widget address may drop its `ui:` prefix (`ptcsbutton-6.Clicked`) when exactly one widget has that id or display name; the same holds for `mashup bind` and the recipes' addresses. The event is a widget's
 (`ui:<widget>.<Event>`, one its catalogue contract lists, such as a button's `Clicked`), the
 page's `mashup:Loaded`, or a call's `ServiceInvokeCompleted`, `Data_Error`, `AllDataChanged` or
 `SelectedRowsChanged` for a call the mashup already has. It runs a data service, added as a call
@@ -2109,6 +2117,10 @@ server. Search by type, Composer label or alias; name one widget to see the prop
 bind, their base types and directions, and its events and services. `--json` gives the same data
 to automation. A container with no binding contract is marked so it can be placed without being
 mistaken for a bindable widget.
+
+A word for a widget Composer has but the catalogue lacks (`gauge`, `webframe`) finds nothing, and
+says so with the closest native widget: the KPI dial `ptcskpidial` for a gauge, a Link or a popup
+for a Web Frame. `mashup add` names it in its refusal too.
 
 ### Reading a mashup's wiring
 

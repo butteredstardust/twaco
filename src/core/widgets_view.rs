@@ -68,6 +68,20 @@ pub fn list(search: Option<&str>) -> Vec<WidgetSummary> {
     }
 }
 
+/// Why a searched word finds nothing although Composer knows the thing it names, and the closest
+/// native widget to use instead.
+pub fn absent_note(search: &str) -> Option<&'static str> {
+    let wanted = search.to_ascii_lowercase();
+    let has = |words: &[&str]| words.iter().any(|word| wanted.contains(word));
+    if has(&["gauge", "dial", "meter"]) {
+        Some("ThingWorx 10.2 has a legacy `gauge` type that twaco cannot author (no contract); the closest native widget is ptcskpidial, the KPI dial: twaco widgets ptcskpidial")
+    } else if has(&["webframe", "web frame", "iframe", "frame"]) {
+        Some("Web Frame (`webframe`) is a legacy widget twaco cannot author (no contract). To show a page or a document, open it from a Link (ptcslink), or a navigation function with twaco mashup recipe popup; an image can go in ptcsimage")
+    } else {
+        None
+    }
+}
+
 /// One widget's bindable surface, named by type or alias.
 pub fn detail(word: &str) -> Result<WidgetDetail, CatalogError> {
     let widget = catalog().resolve(word)?;
@@ -147,6 +161,19 @@ fn direction(contract: &PropertyContract) -> String {
 mod tests {
     use super::*;
     use crate::core::codes::{Coded, ErrorCode};
+
+    #[test]
+    fn a_widget_composer_has_but_the_catalogue_lacks_names_the_closest_one() {
+        for word in ["gauge", "webframe", "Web Frame", "iframe"] {
+            assert!(list(Some(word)).is_empty(), "{word}");
+        }
+        assert!(absent_note("gauge").unwrap().contains("ptcskpidial"));
+        assert!(absent_note("webframe").unwrap().contains("ptcslink"));
+        assert!(absent_note("grid").is_none());
+        let error = catalog().resolve("webframe").unwrap_err().to_string();
+        assert!(error.contains("legacy widget"), "{error}");
+        assert!(!list(Some("kpi")).is_empty());
+    }
 
     #[test]
     fn list_keeps_catalogue_order_and_searches_names_ignoring_case() {

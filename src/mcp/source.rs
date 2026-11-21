@@ -211,8 +211,9 @@ pub(crate) fn lint_fix_headers_tool(
             outcome.examined
         ),
         (_, true) => format!(
-            "fixed {changed} of {} header(s); sync writes them into the entity XML",
-            outcome.examined
+            "fixed {changed} of {} header(s); synced {} entity file(s)",
+            outcome.examined,
+            outcome.synced.len()
         ),
     };
     let mut result = json!({

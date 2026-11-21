@@ -21,10 +21,18 @@ All notable changes to twaco are recorded here. The format follows
 - `deploy --exclude` now names, in the plan, the repository entities that still structurally reference each excluded entity (transitively, preserving collection identity and ignoring prose), with a warning that the import will fail; `--with-dependents` (and `with_dependents` over MCP) leaves them out too. A refused import whose server response body or log reason names an entity suggests `--exclude <it> --with-dependents`.
 - `ext import` takes a zip of extension zips (such as a solutions-common bundle): each inner package is read, ordered by `dependsOn` (a cycle or a dependency neither in the bundle nor installed is refused before anything is sent), skipped when the server holds that version or a newer one, and imported one by one, reporting imported, skipped or failed for each. A plan validates what it can and marks packages waiting for the bundle. Queued prerequisites defer their dependents until restart. Unsupported or overflowing versions and Windows-style inner zip paths are refused before upload.
 - `entity status --all --record` prunes baseline entries of entities in neither the repository nor on the server, and says how many (names with `--detail` or live `--json`; `pruned` and `pruned_entries` over MCP without needing detail). `twaco doctor` names incompatible and orphan baseline entries (all of them in `--json` as `entries`) and which command fixes each.
+- `thing service set <Entity> <Name> (--script <file.js> | --then <code>)` replaces the body of an own service and keeps its signature and callers (MCP `entity_edit` action `service_set`); it refuses an override, a missing service and a sidecar that differs from the XML.
+- A `styling` guide topic and task-index lines for `mashup set --style`, themes and custom CSS, so `guide --search "custom CSS"`, "style" and "colour" find them.
+- `widgets --search gauge` and `webframe` name the closest native widget (the KPI dial, a link or popup) when the 10.2 catalogue has no such widget, instead of only "no widget matches".
 
 ### Changed
 
 - Clarify that `mashup new --master` creates a master mashup with a page container filling the center.
+- A bare `widget.property` in `mashup bind`, `on` and recipes is read as `ui:widget.property` when exactly one widget has that id or display name; otherwise the error offers `ui:` and `data:`. An unresolved `data:` service says to write the alias as `data:<Entity>.<Service>[as <alias>]`.
+- `mashup collection add --data` accepts `data:<Entity>.<Service>[SelectedRows]` as well as the whole result.
+- `lint fix-headers --apply` syncs the repaired scripts into the entity XML, and `--entity` (also on `lint`) takes an entity name without its collection.
+- Usage text lists the accepted values of `recipe panel --style` (`grey|card`), `--step-size`, `--window` and chart `--kind`.
+- `mashup set` and `mashup add` explain a split argument (a double-quoted CSS value on Windows) and show the single-quote form.
 
 ### Fixed
 
