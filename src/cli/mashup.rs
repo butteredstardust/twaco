@@ -478,6 +478,12 @@ pub(crate) enum ParamVerb {
 #[derive(Debug, clap::Args)]
 #[group(skip)]
 pub(crate) struct MashupRecipe {
+    #[arg(long = "fit", value_name = "fill|content")]
+    pub(crate) fit: Option<String>,
+    #[arg(long = "stacked")]
+    pub(crate) stacked: bool,
+    #[arg(long = "band")]
+    pub(crate) band: bool,
     #[command(flatten)]
     pub(crate) detail: super::flags::Detail,
     #[arg(long = "compact", value_name = "768|960")]
@@ -878,6 +884,9 @@ pub(crate) fn mashup_recipe_cmd(solution: &Solution, args: &MashupRecipe) -> u8 
         return FAILED;
     }
     let recipe_args = mashup::authoring::RecipeArgs {
+        fit: args.fit.clone(),
+        stacked: args.stacked,
+        band: args.band,
         compact: args.compact,
         button,
         search_param: args.search_param.clone(),
@@ -1973,6 +1982,9 @@ pub(crate) fn mashup_add_contained_cmd(solution: &Solution, args: &MashupAddCont
         outcome.plan.placed.id,
         outcome.plan.child
     );
+    for note in &outcome.plan.notes {
+        println!("  {note}");
+    }
     let parameters = outcome
         .plan
         .parameters

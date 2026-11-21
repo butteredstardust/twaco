@@ -408,7 +408,15 @@ pub(crate) fn plan_new(
     }
     Ok(NewPlan {
         name: request.name.clone(),
-        notes: page_notes(solution, request),
+        notes: page_notes(solution, request)
+            .into_iter()
+            .chain(tabs.iter().filter_map(|(_, child)| {
+                let child = child.as_ref()?;
+                let loaded = load_existing(solution, child).ok()?;
+                let document = parse_loaded(&loaded).ok()?;
+                super::add::contained_page_warning(child, &document)
+            }))
+            .collect(),
         from: None,
         copy_summary: None,
         project: project.name.clone(),
@@ -1176,6 +1184,7 @@ fn build_tabs(
         let number = document.allocate();
         let mut tab = mashup::edit::new_widget(container, number, true);
         tab["Properties"]["DisplayName"] = json!(format!("{tabset_name} #{}", index + 1));
+        tab["Properties"]["ExpandCollapseTabLocation"] = json!("inside");
         mashup::edit::insert_sorted(
             mashup::edit::properties_mut(&mut tab),
             "userCannotRemove",
@@ -1198,6 +1207,8 @@ fn build_tabs(
             let mut widget = mashup::edit::new_widget(contained, document.allocate(), true);
             let properties = mashup::edit::properties_mut(&mut widget);
             mashup::edit::insert_sorted(properties, "Name", json!(child));
+            mashup::edit::insert_sorted(properties, "Width", json!(400));
+            mashup::edit::insert_sorted(properties, "Height", json!(300));
             mashup::edit::insert_sorted(
                 properties,
                 "MashupParameters",
@@ -1291,6 +1302,7 @@ pub(super) fn sync_tabs(
     for index in existing..count {
         let mut tab = mashup::edit::new_widget(container, document.allocate(), true);
         tab["Properties"]["DisplayName"] = json!(format!("{tabset_name} #{}", index + 1));
+        tab["Properties"]["ExpandCollapseTabLocation"] = json!("inside");
         mashup::edit::insert_sorted(
             mashup::edit::properties_mut(&mut tab),
             "userCannotRemove",

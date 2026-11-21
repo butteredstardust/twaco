@@ -26,6 +26,10 @@ pub enum Recipe {
         container: String,
         compact: Option<u32>,
         style: String,
+        fit: String,
+    },
+    ToolbarBand {
+        container: String,
     },
     SliderAction {
         slider: String,
@@ -146,6 +150,7 @@ pub enum Recipe {
         title: Option<String>,
         x_title: Option<String>,
         y_title: Option<String>,
+        stacked: bool,
     },
     /// A grid's columns, in order, with titles and widths, rendered by each field's base type.
     Columns {
@@ -217,7 +222,7 @@ impl Recipe {
         match self {
             Self::Panel { .. } => "panel",
             Self::SliderAction { .. } => "slider-action",
-            Self::Toolbar { .. } => "toolbar",
+            Self::Toolbar { .. } | Self::ToolbarBand { .. } => "toolbar",
             Self::LabelPairs { .. } => "label-pairs",
             Self::Collapsible { .. } => "collapsible",
             Self::EnableWhen { .. } => "enable-when",
@@ -1360,6 +1365,7 @@ pub(crate) fn plan_recipe(
             container,
             compact,
             style,
+            fit,
         } => {
             let original_css = loaded
                 .sidecars
@@ -1370,8 +1376,9 @@ pub(crate) fn plan_recipe(
                     )
                 })
                 .unwrap_or(&loaded.assets.css);
-            css = Some(work.panel(container, *compact, style, original_css)?);
+            css = Some(work.panel(container, *compact, style, fit, original_css)?);
         }
+        Recipe::ToolbarBand { container } => work.toolbar_band(container)?,
         Recipe::SliderAction { slider, button } => work.slider_action(slider, button)?,
         Recipe::Toolbar {
             container,
@@ -1901,6 +1908,7 @@ pub(crate) fn plan_recipe(
             title,
             x_title,
             y_title,
+            stacked,
         } => {
             let target = widget_id(&work.document, widget)?;
             let pie = matches!(target.type_id.as_str(), "ptcschartpie");
@@ -1955,6 +1963,15 @@ pub(crate) fn plan_recipe(
                 Vec::new()
             };
             let mut properties = Vec::new();
+            if *stacked {
+                if target.type_id != "ptcschartbar" {
+                    return Err(AuthoringError::Invalid(format!(
+                        "{}: --stacked needs a bar chart",
+                        target.id
+                    )));
+                }
+                properties.push(("SeriesDisplay", json!("auto")));
+            }
             for (key, field) in &series {
                 properties.push((key.as_str(), json!(field)));
             }
@@ -2522,6 +2539,9 @@ pub(crate) fn plan_recipe(
 /// What a recipe can be given, as the command line and MCP both pass it.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct RecipeArgs {
+    pub fit: Option<String>,
+    pub stacked: bool,
+    pub band: bool,
     pub compact: Option<u32>,
     pub style: Option<String>,
     pub initial_step: Option<u32>,
@@ -2681,6 +2701,37 @@ fn required(value: &Option<String>, what: &str, recipe: &str) -> Result<String, 
 impl Recipe {
     /// Build a recipe from its name and arguments, refusing what it does not take.
     pub fn from_args(name: &str, args: &RecipeArgs) -> Result<Recipe, AuthoringError> {
+        for (given, flag, recipe) in [
+            (args.fit.is_some(), "--fit", "panel"),
+            (args.stacked, "--stacked", "chart"),
+            (args.band, "--band", "toolbar"),
+        ] {
+            if given && name != recipe {
+                return Err(AuthoringError::Invalid(format!(
+                    "{flag} is for recipe {recipe}"
+                )));
+            }
+        }
+        if args
+            .fit
+            .as_deref()
+            .is_some_and(|fit| !["fill", "content"].contains(&fit))
+        {
+            return Err(AuthoringError::Invalid(
+                "panel: --fit is fill or content".into(),
+            ));
+        }
+        if args.band {
+            let mut rest = args.clone();
+            rest.band = false;
+            rest.widget = None;
+            if rest != RecipeArgs::default() {
+                return Err(AuthoringError::Invalid("toolbar --band takes only a responsive container; add date picker and buttons with mashup add".into()));
+            }
+            return Ok(Recipe::ToolbarBand {
+                container: required(&args.widget, "a responsive row", name)?,
+            });
+        }
         if args.compact.is_some() && name != "panel" {
             return Err(AuthoringError::Invalid(
                 "--compact is for recipe panel".into(),
@@ -2698,6 +2749,7 @@ impl Recipe {
             rest.compact = None;
             if name == "panel" {
                 rest.style = None;
+                rest.fit = None;
             }
             if rest != RecipeArgs::default() {
                 return Err(AuthoringError::Invalid(format!(
@@ -2799,6 +2851,7 @@ impl Recipe {
                     container: widget("a responsive column")?,
                     compact: args.compact,
                     style: args.style.clone().unwrap_or_else(|| "grey".into()),
+                    fit: args.fit.clone().unwrap_or_else(|| "fill".into()),
                 }
             }
             "slider-action" => Recipe::SliderAction {
@@ -2998,6 +3051,7 @@ impl Recipe {
                 value: args.value.clone(),
                 kind: args.kind.clone(),
                 title: args.title.clone(),
+                stacked: args.stacked,
                 x_title: args.x_title.clone(),
                 y_title: args.y_title.clone(),
             },

@@ -2027,10 +2027,27 @@ impl MashupDocument {
             )));
         }
         let mut below_row = None;
+        if !in_column && side.axis() == "column" {
+            for depth in (1..anchor.path.len()).rev() {
+                let path = &anchor.path[..depth];
+                let row = self.at(path);
+                if row["Properties"]["Type"] == "flexcontainer"
+                    && row["Properties"]["flex-direction"] == "row"
+                    && row["Properties"]["flex-size"] == "fixed"
+                    && row["Properties"]["flex-max-height"]
+                        .as_str()
+                        .is_some_and(|height| !height.is_empty())
+                {
+                    below_row = Some(widget_id(row).to_string());
+                    anchor = self.find(below_row.as_ref().unwrap())?;
+                    break;
+                }
+            }
+        }
         if !in_column && side == Side::Below && is_panel(self.at(&anchor.path)) {
             let parent = &anchor.path[..anchor.path.len() - 1];
             let row = self.at(parent);
-            if is_generated_container(row)
+            if (is_generated_container(row) || row["Properties"]["DisplayName"] == "body")
                 && row["Properties"]["flex-direction"] == "row"
                 && children(row).len() > 1
                 && children(row)

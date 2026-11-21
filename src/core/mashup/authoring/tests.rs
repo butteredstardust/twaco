@@ -13914,3 +13914,375 @@ fn two_column_form_keeps_upper_textarea_and_divider_above_stacked_fields() {
         .iter()
         .any(|rule| rule == "wrapped-row-clipping"));
 }
+
+#[test]
+fn n5_fixed_title_row_places_new_content_as_a_sibling() {
+    use mashup::edit::Side;
+    let (_dir, solution) = one_project();
+    let new = plan_new(
+        &solution,
+        &NewRequest {
+            template: "tabs".into(),
+            ..request("Acme.Details_MU")
+        },
+    )
+    .unwrap();
+    apply_new(&solution, &new, &lock(&solution)).unwrap();
+    let title = add_at(
+        &solution,
+        "Acme.Details_MU",
+        "label",
+        Placement::In("title".into()),
+    );
+    for side in [Side::Above, Side::Below] {
+        let mut add = add_request("Acme.Details_MU", "flexcontainer");
+        add.placement = Some(beside_of(&title, side));
+        let plan = plan_add(&solution, &add).unwrap();
+        assert!(plan.notes.iter().any(|note| note.contains("sibling row")));
+        apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+        let loaded = load_existing(&solution, "Acme.Details_MU").unwrap();
+        let doc = parse_loaded(&loaded).unwrap();
+        let title_row = doc.find("title").unwrap();
+        let added = doc.find(&plan.placed.id).unwrap();
+        assert_eq!(added.path.len(), title_row.path.len());
+        assert_eq!(
+            &added.path[..added.path.len() - 1],
+            &title_row.path[..title_row.path.len() - 1]
+        );
+        assert_eq!(
+            doc.at(&title_row.path)["Properties"]["flex-max-height"],
+            "70px"
+        );
+    }
+}
+
+#[test]
+fn n5_list_page_cards_below_start_another_row() {
+    use mashup::edit::Side;
+    let template = mashup::templates::layout("list-page").unwrap().unwrap();
+    let mut doc = new_document(&template, false, DEFAULT_THEME).unwrap();
+    let catalog = widgets::catalog();
+    let container = catalog.resolve("container").unwrap();
+    let first = doc
+        .place(container, &Placement::In("body".into()))
+        .unwrap()
+        .id;
+    let second = doc
+        .place(container, &beside_of(&first, Side::Right))
+        .unwrap()
+        .id;
+    let third = doc
+        .place(container, &beside_of(&first, Side::Below))
+        .unwrap()
+        .id;
+    let fourth = doc
+        .place(container, &beside_of(&third, Side::Right))
+        .unwrap()
+        .id;
+    let parent = |id: &str| {
+        let mut path = doc.find(id).unwrap().path;
+        path.pop();
+        path
+    };
+    assert_eq!(parent(&first), parent(&second));
+    assert_eq!(parent(&third), parent(&fourth));
+    assert_ne!(parent(&first), parent(&third));
+    assert_eq!(parent(&first).len(), parent(&third).len());
+    assert!(doc.problems().is_empty());
+}
+
+#[test]
+fn n5_panel_fit_content_is_auto_height_including_compact_css() {
+    let (dir, solution) = recipe_fixture();
+    let panel = add_at(
+        &solution,
+        "Acme.Orders_MU",
+        "container",
+        Placement::In("center".into()),
+    );
+    let path = parse_loaded(&load_existing(&solution, "Acme.Orders_MU").unwrap())
+        .unwrap()
+        .find(&panel)
+        .unwrap()
+        .path;
+    let set = plan_set(
+        &solution,
+        &SetRequest {
+            mashup: "Acme.Orders_MU".into(),
+            widget: panel.clone(),
+            properties: vec![("flex-direction".into(), json!("column"))],
+            style_from: None,
+            styles: vec![],
+        },
+    )
+    .unwrap();
+    if let Some(edit) = &set.edit {
+        apply_edit(&solution, edit, &lock(&solution)).unwrap();
+    }
+    for fit in ["content", "fill", "content"] {
+        let args = RecipeArgs {
+            widget: Some(panel.clone()),
+            fit: Some(fit.into()),
+            compact: Some(768),
+            ..Default::default()
+        };
+        let plan = recipe(&solution, "panel", args.clone()).unwrap();
+        assert!(plan
+            .notes
+            .iter()
+            .any(|note| note.contains(&format!("panel fit {fit}"))));
+        let loaded = load_existing(&solution, "Acme.Orders_MU").unwrap();
+        let doc = parse_loaded(&loaded).unwrap();
+        assert_eq!(
+            doc.at(&path)["Properties"]["flex-grow"],
+            if fit == "content" { 0 } else { 1 }
+        );
+        let css = std::fs::read_to_string(dir.path().join("src/Acme.Orders_MU/mashup/custom.css"))
+            .unwrap();
+        if fit == "content" {
+            assert!(css.contains("flex: 0 1 auto !important"));
+            assert_eq!(css.matches("height: auto !important").count(), 2);
+            assert!(!css.contains("height: calc("));
+        }
+        recipe(&solution, "panel", args).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("src/Acme.Orders_MU/mashup/custom.css"))
+                .unwrap(),
+            css
+        );
+    }
+    let label = add_at(
+        &solution,
+        "Acme.Orders_MU",
+        "label",
+        Placement::In(panel.clone()),
+    );
+    add_at(
+        &solution,
+        "Acme.Orders_MU",
+        "button",
+        beside_of(&label, mashup::edit::Side::Below),
+    );
+    let doc = mashup::edit::parse(&sidecar_content(&solution)).unwrap();
+    assert_eq!(
+        doc.at(&doc.find(&panel).unwrap().path)["Properties"]["flex-grow"],
+        0
+    );
+}
+
+#[test]
+fn n5_toolbar_band_keeps_controls_and_uses_kit_style() {
+    let (_dir, solution) = recipe_fixture();
+    let row = add_at(
+        &solution,
+        "Acme.Orders_MU",
+        "container",
+        Placement::In("center".into()),
+    );
+    let date = add_at(
+        &solution,
+        "Acme.Orders_MU",
+        "datepicker",
+        Placement::In(row.clone()),
+    );
+    let button = add_at(
+        &solution,
+        "Acme.Orders_MU",
+        "button",
+        beside_of(&date, mashup::edit::Side::Right),
+    );
+    let set = plan_set(
+        &solution,
+        &SetRequest {
+            mashup: "Acme.Orders_MU".into(),
+            widget: row.clone(),
+            properties: vec![("flex-direction".into(), json!("row"))],
+            style_from: None,
+            styles: vec![],
+        },
+    )
+    .unwrap();
+    if let Some(edit) = &set.edit {
+        apply_edit(&solution, edit, &lock(&solution)).unwrap();
+    }
+    let args = RecipeArgs {
+        widget: Some(row.clone()),
+        band: true,
+        ..Default::default()
+    };
+    recipe(&solution, "toolbar", args.clone()).unwrap();
+    let content = sidecar_content(&solution);
+    let doc = mashup::edit::parse(&content).unwrap();
+    assert!(doc.find(&date).is_ok());
+    assert!(doc.find(&button).is_ok());
+    let props = &doc.at(&doc.find(&row).unwrap().path)["Properties"];
+    assert_eq!(props["flex-min-height"], "48px");
+    assert_eq!(props["flex-grow"], 1);
+    assert_eq!(props["flex-max-height"], "48px");
+    assert_eq!(props["flex-size"], "fixed");
+    assert_eq!(props["justify-content"], "space-between");
+    assert_eq!(props["ExpandCollapseTabLocation"], "inside");
+    let style = &doc.root_properties()["StyleProperties"]["data"][&row]["parts"]["$"]["$"];
+    assert_eq!(style["background"], "#F7F7F7");
+    assert_eq!(style["border-style"], "none");
+    assert_eq!(style["padding-top"], "");
+    recipe(&solution, "toolbar", args).unwrap();
+    assert_eq!(sidecar_content(&solution), content);
+}
+
+#[test]
+fn n5_stacked_bar_uses_catalogue_series_display_auto() {
+    let (_dir, solution) = recipe_fixture();
+    let bar = add_at(
+        &solution,
+        "Acme.Orders_MU",
+        "bar-chart",
+        Placement::In("center".into()),
+    );
+    let args = RecipeArgs {
+        widget: Some(bar.clone()),
+        data: Some("data:Acme.Orders.Manager.GetOrders".into()),
+        x: Some("note".into()),
+        stacked: true,
+        ..Default::default()
+    };
+    recipe(&solution, "chart", args.clone()).unwrap();
+    let doc = mashup::edit::parse(&sidecar_content(&solution)).unwrap();
+    assert_eq!(
+        doc.at(&doc.find(&bar).unwrap().path)["Properties"]["SeriesDisplay"],
+        "auto"
+    );
+    let property = &widgets::catalog().by_type("ptcschartbar").unwrap().defaults["SeriesDisplay"];
+    assert_eq!(property, "grouped");
+    let line = add_at(
+        &solution,
+        "Acme.Orders_MU",
+        "line-chart",
+        Placement::In("center".into()),
+    );
+    assert!(recipe(
+        &solution,
+        "chart",
+        RecipeArgs {
+            widget: Some(line),
+            ..args
+        }
+    )
+    .unwrap_err()
+    .to_string()
+    .contains("--stacked needs a bar chart"));
+}
+
+#[test]
+fn n5_tabs_and_add_contained_use_kit_sizing_without_child_floor() {
+    let (_dir, solution) = one_project();
+    let child = plan_new(
+        &solution,
+        &NewRequest {
+            template: "list-page".into(),
+            ..request("Acme.History_MU")
+        },
+    )
+    .unwrap();
+    apply_new(&solution, &child, &lock(&solution)).unwrap();
+    let new = plan_new(
+        &solution,
+        &NewRequest {
+            template: "tabs".into(),
+            tabs: vec!["History=Acme.History_MU".into(), "Other".into()],
+            ..request("Acme.Details_MU")
+        },
+    )
+    .unwrap();
+    assert!(new
+        .notes
+        .iter()
+        .any(|note| note.contains("Acme.History_MU: page template")));
+    apply_new(&solution, &new, &lock(&solution)).unwrap();
+    let loaded = load_existing(&solution, "Acme.Details_MU").unwrap();
+    let doc = parse_loaded(&loaded).unwrap();
+    let tabs = doc
+        .widgets()
+        .into_iter()
+        .find(|widget| widget.type_id == "ptcstabset")
+        .unwrap();
+    let children = &doc.at(&tabs.path)["Widgets"];
+    let tab_id = children[1]["Properties"]["Id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let built = children[0]["Widgets"][0]["Properties"].clone();
+    let plan = plan_add_contained(
+        &solution,
+        &AddContainedRequest {
+            mashup: "Acme.Details_MU".into(),
+            child: "Acme.History_MU".into(),
+            placement: Some(Placement::In(tab_id.clone())),
+            settings: vec![],
+        },
+    )
+    .unwrap();
+    assert!(plan.notes.iter().any(|note| note.contains("page template")));
+    assert!(!add_contained_plan_json(&solution, &plan, false)["notes"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    let loaded = load_existing(&solution, "Acme.Details_MU").unwrap();
+    let doc = parse_loaded(&loaded).unwrap();
+    let p = &doc.at(&doc.find(&plan.placed.id).unwrap().path)["Properties"];
+    for key in ["ResponsiveLayout", "Width", "Height", "Name"] {
+        assert_eq!(p[key], built[key], "{key}");
+    }
+    let p = &doc.at(&doc.find(&tab_id).unwrap().path)["Properties"];
+    assert_eq!(p["flex-direction"], "row");
+    assert_eq!(p["flex-grow"], 1);
+    assert_eq!(p["flex-min-height"], "");
+    assert_eq!(p["flex-max-height"], "");
+    assert_eq!(p["ExpandCollapseTabLocation"], "inside");
+    assert!(doc.problems().is_empty());
+}
+
+#[test]
+fn n5_recipe_options_refuse_wrong_recipe_and_bad_values() {
+    for (name, args) in [
+        (
+            "panel",
+            RecipeArgs {
+                fit: Some("page".into()),
+                ..Default::default()
+            },
+        ),
+        (
+            "chart",
+            RecipeArgs {
+                fit: Some("content".into()),
+                ..Default::default()
+            },
+        ),
+        (
+            "panel",
+            RecipeArgs {
+                stacked: true,
+                ..Default::default()
+            },
+        ),
+        (
+            "panel",
+            RecipeArgs {
+                band: true,
+                ..Default::default()
+            },
+        ),
+        (
+            "toolbar",
+            RecipeArgs {
+                band: true,
+                then: Some("data:Acme.Manager.Read".into()),
+                ..Default::default()
+            },
+        ),
+    ] {
+        assert!(Recipe::from_args(name, &args).is_err(), "{name}: {args:?}");
+    }
+}

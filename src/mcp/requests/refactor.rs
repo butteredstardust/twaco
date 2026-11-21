@@ -1061,6 +1061,16 @@ pub(crate) struct MashupRecipeRequest {
     /// panel: inclusive viewport breakpoint for 12px gutters; 768 or 960.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) compact: Absent<u32>,
+    /// panel: fill (default) or content height without growing.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    #[schemars(extend("enum" = ["fill", "content"]))]
+    pub(crate) fit: Absent<String>,
+    /// chart: stack bar series with SeriesDisplay=auto.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) stacked: Absent<bool>,
+    /// toolbar: style a row as a grey band, retaining its controls.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) band: Absent<bool>,
     /// slider-action: the button after the slider named by widget.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) button: Absent<String>,

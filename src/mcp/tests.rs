@@ -445,6 +445,23 @@ fn hand_written_tools() -> Vec<Value> {
         "description": "panel: inclusive viewport breakpoint for 12px gutters; 768 or 960.",
         "type": "integer", "minimum": 0
     });
+    recipe["inputSchema"]["properties"]["fit"] = json!({
+        "description": "panel: fill (default) or content height without growing.",
+        "type": "string", "enum": ["fill", "content"]
+    });
+    for (name, description) in [
+        (
+            "stacked",
+            "chart: stack bar series with SeriesDisplay=auto.",
+        ),
+        (
+            "band",
+            "toolbar: style a row as a grey band, retaining its controls.",
+        ),
+    ] {
+        recipe["inputSchema"]["properties"][name] =
+            json!({"description": description, "type": "boolean"});
+    }
     recipe["inputSchema"]["properties"]["button"] = json!({
         "description": "slider-action: the button after the slider named by widget.",
         "type": "string"

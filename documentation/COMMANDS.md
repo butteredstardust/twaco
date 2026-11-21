@@ -335,8 +335,9 @@ mashup param <add|set|remove> <mashup> <name> [--type <BASETYPE>] [--direction <
     --force                  remove bindings when removing a parameter
 mashup recipe <recipe> <mashup> [<widget>] [<button>] [recipe flags] [--apply] [--json] [--detail]
                             write the wiring real mashups repeat, in one edit; plan unless --apply
-    panel <container> [--compact <768|960>] [--style <style>]
-                            grey growing column with managed CSS; --style grey (default) or white bordered card; optional compact viewport gutters
+    panel <container> [--compact <768|960>] [--fit <fill|content>] [--style <style>]
+                            grey column with managed CSS; --style grey (default) or white bordered card; optional compact viewport gutters
+    --fit <fill|content>    fill (default) grows; content uses no grow and height auto
     slider-action <slider> <button>
                             align the button centre to the horizontal slider track (default 34px button)
     collapsible <container> [--toggle <button> | --add-toggle --in <container>]
@@ -361,7 +362,8 @@ mashup recipe <recipe> <mashup> [<widget>] [<button>] [recipe flags] [--apply] [
     validate <widget>|--on <event> --if <condition> [--input name=<address>]... --then <handler>
         [--else-say <text>]   run the handler when the condition holds, else show the text
     chart <chart> --data <data call> --x <field> [--value <field>] [--kind <chart type>]
-        [--title <text>] [--x-title <text>] [--y-title <text>]
+        [--title <text>] [--x-title <text>] [--y-title <text>] [--stacked]
+    --stacked              bar chart series stacked with SeriesDisplay=auto
     --x-title <text>        explicit X-axis name; catalogue placeholders are cleared
     --y-title <text>        explicit Y-axis name; authored names are preserved
                             draw a service result: the category field (a pie: label and value)
@@ -371,6 +373,8 @@ mashup recipe <recipe> <mashup> [<widget>] [<button>] [recipe flags] [--apply] [
                             --column-editor <field=editor> chooses a typed cell editor (repeatable)
                             --date-format <pattern> formats DATETIME columns (default yyyy-MM-dd HH:mm:ss for new columns)
                             --preserve-whitespace <field> keeps newlines and spaces when shown (repeatable)
+    toolbar <container> --band
+    --band                 grey #F7F7F7 toolbar band (fixed 48px); keeps existing date picker/buttons; no search wiring
     toolbar <container> --then <data call> --search-param <param>
         [--hint <text>] [--width <px>] [--run-on change|enter|both] [--button Label=<handler>]...
                             fill an empty responsive container with a 48px search row; STRING input;

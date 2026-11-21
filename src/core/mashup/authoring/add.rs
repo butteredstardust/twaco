@@ -56,6 +56,7 @@ pub struct AddContainedRequest {
 
 #[derive(Debug)]
 pub struct AddContainedPlan {
+    pub notes: Vec<String>,
     pub(crate) edit: EditPlan,
     pub placed: mashup::edit::Placed,
     pub child: String,
@@ -521,7 +522,8 @@ pub(crate) fn plan_add(
     if let Some(row) = &placed.below_row {
         let found = document.find_exact(row).map_err(AuthoringError::Edit)?;
         notes.push(format!(
-            "below row {} ({row}); use --in-column to stack within the panel",
+            "{} row {} ({row}); new content is a sibling row; fixed rows keep their height; use --in-column to stack within the panel",
+            if matches!(&request.placement, Some(Placement::Beside { side: mashup::edit::Side::Above, .. })) { "above" } else { "below" },
             found.display_name
         ));
     }
@@ -575,6 +577,14 @@ pub(crate) fn plan_add(
     })
 }
 
+pub(super) fn contained_page_warning(child: &str, document: &MashupDocument) -> Option<String> {
+    let page = document
+        .widgets()
+        .iter()
+        .any(|widget| widget.display_name == "page");
+    page.then(|| format!("{child}: page template fills its own page and may scroll inside this tab; use a responsive content mashup with one growing layout, as in the kit History, and check nested scrolling at runtime"))
+}
+
 /// Plan adding a child mashup as Composer's contained-mashup builder does.  The child is read
 /// from the repository, never from a server, so the cache is deterministic and reviewable.
 pub(crate) fn plan_add_contained(
@@ -617,9 +627,40 @@ pub(crate) fn plan_add_contained(
         .map_err(AuthoringError::Edit)?
         .path;
     document.set_property(&path, "Name", json!(request.child));
+    let tab_parent = (1..path.len()).find_map(|depth| {
+        let parent = &path[..depth];
+        (document.at(&parent[..parent.len() - 1])["Properties"]["Type"] == "ptcstabset")
+            .then(|| parent.to_vec())
+    });
+    let mut notes = Vec::new();
+    if let Some(tab) = &tab_parent {
+        for (key, value) in [
+            ("flex-direction", json!("row")),
+            ("flex-grow", json!(1)),
+            ("flex-shrink", json!(1)),
+            ("flex-basis", json!("auto")),
+            ("flex-size", json!("default")),
+            ("flex-min-height", json!("")),
+            ("flex-max-height", json!("")),
+            ("ExpandCollapseTabLocation", json!("inside")),
+        ] {
+            document.set_property(tab, key, value);
+        }
+        for (key, value) in [
+            ("ResponsiveLayout", json!(true)),
+            ("Width", json!(400)),
+            ("Height", json!(300)),
+        ] {
+            document.set_property(&path, key, value);
+        }
+        notes.extend(contained_page_warning(&request.child, &child_document));
+    }
     // Placement floored the row at Composer's 300px drop height; the child's own rows say how
     // tall it really is, so a KPI tile is neither clipped nor padded out when the page is short.
-    if let Some(height) = child_document.natural_page_height() {
+    if let Some(height) = child_document
+        .natural_page_height()
+        .filter(|_| tab_parent.is_none())
+    {
         document.floor_contained_row(&placed.id, height, &placed.containers);
     }
     document.set_property(
@@ -676,6 +717,7 @@ pub(crate) fn plan_add_contained(
         settings.push(name.clone());
     }
     Ok(AddContainedPlan {
+        notes,
         edit: finish_edit(loaded, document, "mashup add-contained")?,
         placed,
         child: request.child.clone(),
@@ -870,7 +912,7 @@ pub fn add_contained_plan_json(
         files.push(relative(&sidecars.content_path));
     }
     json!({
-        "notes": [], "applied": applied, "mashup": plan.edit.mashup, "child": plan.child,
+        "notes": plan.notes, "applied": applied, "mashup": plan.edit.mashup, "child": plan.child,
         "widget": "mashupcontainer", "id": plan.placed.id,
         "containers": plan.placed.containers, "flipped": plan.placed.flipped,
         "wrapped": plan.placed.wrapped, "parameters": plan.parameters.iter().map(|parameter| json!({

@@ -8,6 +8,9 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- Mashup panel `--fit content` keeps details headers at natural height; default `--fit fill` still grows. Plans report the choice. Toolbar `--band` styles existing date-picker/button rows with the kit?s grey band. Chart `--stacked` uses the bar widget?s `SeriesDisplay=auto`.
+- Above/below placement promotes fixed title rows, and below-panel placement promotes template body rows. Tab-contained mashups use responsive kit sizing without a child-height floor, with warnings for inner page templates.
+
 - Share a short task index across top-level help, `guide tasks` (CLI/MCP) and generated agent guidance; MCP instructions name authoring tools.
 - `init --agents` adds or refreshes marked guidance in existing AGENTS.md and CLAUDE.md, preserving human text and CRLF and reporting changes per file. Doctor points out missing or stale blocks.
 - Widget search hints find display-only HTML (`ptcsrte`, ReadOnly and HideToolbar) and the collapsible recipe; mashup add reports describe next steps in text, JSON and MCP.

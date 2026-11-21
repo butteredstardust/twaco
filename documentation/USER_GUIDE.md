@@ -1768,6 +1768,33 @@ twaco mashup recipe tracker Acme.App.Wizard_MU new --data data:Acme.App.Wizard.M
 twaco mashup recipe set-on-click Acme.App.Wizard_MU ptcsbutton-6 --param CurrentStep --expr "CurrentStep + 1" --input CurrentStep=mashup:CurrentStep --apply
 ```
 
+For a details header above tabs, use `mashup recipe panel Acme.App.Details_MU <container>
+--fit content`: the panel uses `flex-grow: 0`, basis `auto`, and managed `height: auto`
+at both normal and compact widths. The default `--fit fill` grows to fill the available
+height. The choice appears in plan notes and JSON/MCP. The grey preset keeps the kit's
+`#F7F7F7` background and `24 24 12` margins.
+
+Adding above or below a widget in a fixed-height title row creates a sibling row outside
+that fixed row; the plan says which row was promoted. Below a panel in a template body row
+also starts a new row, so chaining `--right-of`, `--below`, `--right-of` makes a 2 by 2 card
+layout. `--in-column` retains the explicit within-column placement.
+
+`mashup new Acme.App.Details_MU --template tabs --tab History=Acme.App.History_MU`
+and `mashup add-contained ... --in <tab-container>` use the kit's responsive contained
+mashup in a growing row, with no child-derived minimum height on the tab. They keep the
+inner mashup's responsive layout intact. A contained page template produces a warning:
+check its own filling/scrolling at runtime; prefer a responsive content layout. The kit's
+History is itself responsive and scrolls, so scrolling alone is not grounds to rewrite it.
+
+Use `mashup recipe toolbar Acme.App.History_MU <row> --band` to style an existing responsive
+row as the kit's date-picker band: `#F7F7F7`, no border or padding, fixed 48px. Add a date
+picker and buttons into that row with `mashup add --in`. This form retains existing
+controls and does not require a search call.
+
+For stacked bars, add `--stacked` to `mashup recipe chart`: it sets the bar widget's real
+`SeriesDisplay` property to `auto` (the kit's stacked bar), rather than `grouped`. The option
+refuses other chart types. All these commands plan by default; add `--apply` to write.
+
 `columns` accepts repeatable `--column field[:Title[:width[:format]]]` entries.
 New DATETIME columns use `yyyy-MM-dd HH:mm:ss`, without milliseconds; existing
 column formats are preserved. `--date-format dd-MM-yyyy` sets the format for listed
@@ -1845,7 +1872,8 @@ structured output and `--apply` to write. MCP uses `mashup_recipe`, `recipe: "to
 and `buttons` (an array of `Label=handler`); `dry_run` defaults to true.
 
 `mashup recipe panel` styles an existing responsive column as a full-width grey
-(`#F7F7F7`) growing panel with 24/24/12 gutters. Default descendant wrappers
+(`#F7F7F7`) panel with 24/24/12 gutters. It grows by default (`--fit fill`);
+`--fit content` keeps it at natural content height. Default descendant wrappers
 without a background inherit it; explicit backgrounds (including white), descendant
 margins, borders and leaf styles survive. Contained mashups are boundaries.
 

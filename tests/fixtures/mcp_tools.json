@@ -7649,6 +7649,22 @@
           "type": "integer",
           "minimum": 0
         },
+        "fit": {
+          "description": "panel: fill (default) or content height without growing.",
+          "type": "string",
+          "enum": [
+            "fill",
+            "content"
+          ]
+        },
+        "stacked": {
+          "description": "chart: stack bar series with SeriesDisplay=auto.",
+          "type": "boolean"
+        },
+        "band": {
+          "description": "toolbar: style a row as a grey band, retaining its controls.",
+          "type": "boolean"
+        },
         "button": {
           "description": "slider-action: the button after the slider named by widget.",
           "type": "string"

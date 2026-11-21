@@ -17,7 +17,8 @@
     },
     {
       "slot": "tabs",
-      "flex-direction": "column",
+      "flex-direction": "row",
+      "Scrolling": "auto-scroll",
       "flex-grow": 1,
       "align-items": "stretch",
       "widget": "ptcstabset"

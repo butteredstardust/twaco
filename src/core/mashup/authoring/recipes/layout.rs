@@ -297,11 +297,41 @@ impl Work<'_> {
         Ok(true)
     }
 
+    pub(super) fn toolbar_band(&mut self, container: &str) -> Result<(), AuthoringError> {
+        let target = widget_id(&self.document, container)?;
+        self.layout_container(&target, "row")?;
+        self.checked_styles(&target.id)?;
+        self.layout_set(
+            &target,
+            &[
+                ("Margin", json!("")),
+                ("UseTheme", json!(true)),
+                ("flex-direction", json!("row")),
+                ("align-items", json!("center")),
+                ("align-content", json!("flex-start")),
+                ("justify-content", json!("space-between")),
+                ("flex-wrap", json!("nowrap")),
+                ("ExpandCollapseTabLocation", json!("inside")),
+                ("flex-size", json!("fixed")),
+                ("flex-min-height", json!("48px")),
+                ("flex-max-height", json!("48px")),
+                ("flex-grow", json!(1)),
+                ("flex-shrink", json!(1)),
+                ("flex-basis", json!("auto")),
+                ("ShowVerticalScrollbar", json!(false)),
+            ],
+        )?;
+        self.background(&target, Some("grey"), false)?;
+        self.notes.push("toolbar band: #F7F7F7, border none, fixed 48px; add date picker and buttons in this row".into());
+        Ok(())
+    }
+
     pub(super) fn panel(
         &mut self,
         container: &str,
         compact: Option<u32>,
         style: &str,
+        fit: &str,
         css: &str,
     ) -> Result<String, AuthoringError> {
         if !["grey", "card"].contains(&style) {
@@ -357,7 +387,33 @@ impl Work<'_> {
         } else {
             format!("{classes} {token}")
         };
-        let block = panel_css_for(&target.id, compact, style);
+        if !["fill", "content"].contains(&fit) {
+            return Err(refuse(container, "--fit is fill or content"));
+        }
+        let mut block = panel_css_for(&target.id, compact, style);
+        if fit == "content" {
+            block = block.replace("flex: 1 1 auto", "flex: 0 1 auto");
+            block = block
+                .lines()
+                .map(|line| {
+                    if line.trim_start().starts_with("height:") {
+                        "  height: auto !important;"
+                    } else {
+                        line
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+                + "\n";
+        }
+        self.notes.push(format!(
+            "panel fit {fit}: {}",
+            if fit == "content" {
+                "no grow; height auto"
+            } else {
+                "fill available height"
+            }
+        ));
         let css = managed_css(css, &target.id, &block)?;
         self.layout_set(
             &target,
@@ -373,10 +429,16 @@ impl Work<'_> {
                 ("align-items", json!("flex-start")),
                 ("align-content", json!("flex-start")),
                 ("justify-content", json!("flex-start")),
-                ("flex-size", json!("range")),
-                ("flex-min-height", json!("0px")),
+                (
+                    "flex-size",
+                    json!(if fit == "content" { "default" } else { "range" }),
+                ),
+                (
+                    "flex-min-height",
+                    json!(if fit == "content" { "" } else { "0px" }),
+                ),
                 ("flex-max-height", json!("")),
-                ("flex-grow", json!(1)),
+                ("flex-grow", json!(if fit == "content" { 0 } else { 1 })),
                 ("flex-shrink", json!(1)),
                 ("flex-basis", json!("auto")),
                 ("iconClass", json!("widgets-flexcontainer")),
