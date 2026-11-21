@@ -1318,7 +1318,7 @@ pub(crate) fn extension_write_tool(
                             "file": entry.file,
                             "result": entry.line(),
                         })).collect::<Vec<_>>(),
-                        "note": if ok { "a bundle: packages imported in dependency order; those already installed at the same or a newer version were skipped" } else { "a package failed and the rest were not sent; run it again after fixing it, which skips what is installed" },
+                        "note": if ok && entries.iter().any(|entry| entry.waits_for_restart()) { "a bundle: some packages wait on a restart; restart ThingWorx, then run the same import again" } else if ok { "a bundle: packages imported in dependency order; those already installed at the same or a newer version were skipped" } else { "a package failed and the rest were not sent; run it again after fixing it, which skips what is installed" },
                     });
                     add_notices(&mut result, &notices);
                     return Ok(result);

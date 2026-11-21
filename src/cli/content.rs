@@ -1157,6 +1157,14 @@ pub(crate) fn ext_cmd(solution: &Solution, args: &Ext) -> u8 {
                     }
                     if !args.apply.apply {
                         println!("the server validated what it could and installed nothing (pass --apply)");
+                    } else {
+                        let waiting = entries
+                            .iter()
+                            .filter(|entry| entry.waits_for_restart())
+                            .count();
+                        if waiting > 0 {
+                            println!("restart ThingWorx, then run the same import again for the {waiting} package(s) waiting on a restart");
+                        }
                     }
                     return Ok(());
                 }

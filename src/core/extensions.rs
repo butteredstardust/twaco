@@ -573,6 +573,15 @@ impl BundleEntry {
     pub fn failed(&self) -> bool {
         matches!(self.status, BundleStatus::Failed(_))
     }
+
+    /// Queued for the next restart, or waiting on a package that is.
+    pub fn waits_for_restart(&self) -> bool {
+        match &self.status {
+            BundleStatus::WaitsForRestart { .. } => true,
+            BundleStatus::Imported(done) => done.queued,
+            _ => false,
+        }
+    }
 }
 
 /// A zip of extension packages: no metadata.xml at its root, and nothing but `*.zip` files, each
