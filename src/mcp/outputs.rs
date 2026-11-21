@@ -1403,6 +1403,7 @@ struct ContainerContents {
 /// What `mashup_add` and `mashup_add_contained` report: the widget placed and where.
 #[derive(Serialize, JsonSchema)]
 pub(crate) struct MashupAddResult {
+    next_steps: Option<Vec<String>>,
     notes: Vec<String>,
     applied: bool,
     dry_run: bool,

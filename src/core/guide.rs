@@ -1,7 +1,7 @@
 //! The knowledge an agent needs besides the CLI and the XML.
 //!
 //! Two kinds of topic, read and searched alike. The built-in ones ship inside twaco: how to work
-//! with it (`workflow`), the platform's verified-live quirks (`quirks`) and the service-code
+//! with it (`workflow`), the task-to-command index (`tasks`), the platform's verified-live quirks (`quirks`) and the service-code
 //! reference (`service-code`). The solution's own are its markdown files, by default AGENTS.md,
 //! CLAUDE.md and everything under `docs/`, which `[knowledge] paths` in twaco.toml replaces.
 //! A topic is searched per `##` section, because a search should find the one section about
@@ -12,7 +12,10 @@ use super::config::Solution;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-const BUILTIN: [(&str, &str); 3] = [
+pub const TASKS: &str = include_str!("../../knowledge/tasks.md");
+
+const BUILTIN: [(&str, &str); 4] = [
+    ("tasks", TASKS),
     ("workflow", include_str!("../../knowledge/workflow.md")),
     ("quirks", include_str!("../../knowledge/quirks.md")),
     (
@@ -518,7 +521,7 @@ mod tests {
         assert!(problems.is_empty());
         assert_eq!(
             topics.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(),
-            ["workflow", "quirks", "service-code"]
+            ["tasks", "workflow", "quirks", "service-code"]
         );
         let quirks = find(&topics, "quirks").unwrap();
         assert!(sections(&quirks.text).len() >= 50, "one section per quirk");
@@ -664,7 +667,7 @@ mod tests {
         let (topics, problems) = super::topics(Some(&solution));
         assert!(problems.is_empty(), "{problems:?}");
         let ids: Vec<&str> = topics.iter().map(|t| t.id.as_str()).collect();
-        assert_eq!(&ids[3..], ["AGENTS", "docs/deep/GUIDE"]);
+        assert_eq!(&ids[4..], ["AGENTS", "docs/deep/GUIDE"]);
         assert_eq!(
             find(&topics, "guide").unwrap().id,
             "docs/deep/GUIDE",
@@ -679,7 +682,7 @@ mod tests {
         .unwrap();
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
         let (topics, problems) = super::topics(Some(&solution));
-        assert_eq!(topics.len(), 3);
+        assert_eq!(topics.len(), 4);
         assert_eq!(problems.len(), 2, "{problems:?}");
     }
 }

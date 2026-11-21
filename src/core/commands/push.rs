@@ -182,6 +182,22 @@ where
     R: Remote,
     F: FnOnce(profile::Profile) -> R,
 {
+    execute_with_gate_reporter(solution, request, open, notices, progress, None)
+}
+
+/// Execute a push with structured gate reports instead of gate notices when a reporter is supplied.
+pub fn execute_with_gate_reporter<R, F>(
+    solution: &Solution,
+    request: &PushRequest,
+    open: F,
+    notices: &mut Notices,
+    progress: &dyn Progress,
+    mut reporter: Option<&mut dyn FnMut(&crate::core::check::CheckReport)>,
+) -> Result<PushOutcome, PushCommandError>
+where
+    R: Remote,
+    F: FnOnce(profile::Profile) -> R,
+{
     let _lock = match request.mode {
         Mode::Plan => None,
         Mode::Apply => {
@@ -208,7 +224,7 @@ where
         Some(crate::core::check::run_entity(solution, entity))
     };
     if let Some(report) = &gates {
-        report_gates(report, notices)?;
+        report_gates(report, notices, &mut reporter)?;
     }
     let profile =
         profile::load(&solution.root, &request.profile).map_err(PushCommandError::Profile)?;
@@ -254,7 +270,7 @@ where
             &entity.path,
             &bytes,
         ));
-        report_gates(report, notices)?;
+        report_gates(report, notices, &mut reporter)?;
     }
     let index = crate::core::index::Index::build(solution);
     let mut dependencies = std::collections::BTreeSet::new();
@@ -386,6 +402,7 @@ fn missing_dependency_hint(message: &str) -> Option<String> {
 fn report_gates(
     report: &crate::core::check::CheckReport,
     notices: &mut Notices,
+    reporter: &mut Option<&mut dyn FnMut(&crate::core::check::CheckReport)>,
 ) -> Result<(), PushCommandError> {
     let mut lines = Vec::new();
     for gate in &report.gates {
@@ -414,7 +431,11 @@ fn report_gates(
             lines.push(format!("{} skipped: {why}", gate.name));
         }
     }
-    notices.extend(lines.clone());
+    if let Some(reporter) = reporter {
+        reporter(report);
+    } else if !report.blocks() {
+        notices.extend(lines.clone());
+    }
     if report.blocks() {
         return Err(PushCommandError::Gates(format!("gates block entity push; nothing was imported; fix the findings or pass --skip-checks\n{}", lines.join("\n"))));
     }
@@ -617,6 +638,55 @@ mod tests {
         let error = execute(&solution, &request, |_| fake.clone()).unwrap_err();
         assert!(error.to_string().contains("rhino"), "{error}");
         assert_eq!(fake.imports(), 0);
+    }
+
+    #[test]
+    fn structured_reports_include_offline_and_live_gates_without_gate_notices() {
+        for mode in [Mode::Plan, Mode::Apply] {
+            for fail_parse in [false, true] {
+                let (_guard, root, solution, fake) = setup(None, None);
+                std::fs::write(
+                    root.join("Things/Acme.T.xml"),
+                    service_document("var result = 1;"),
+                )
+                .unwrap();
+                fake.state.lock().unwrap().fail_parse = fail_parse;
+                let mut request = request(mode, false, false);
+                request.skip_checks = false;
+                let mut notices = Notices::default();
+                let mut counts = Vec::new();
+                let mut findings = Vec::new();
+                let mut reporter = |report: &crate::core::check::CheckReport| {
+                    counts.push(report.gates.len());
+                    findings.extend(
+                        report
+                            .gates
+                            .iter()
+                            .filter(|gate| gate.name == "live parse")
+                            .flat_map(|gate| gate.findings.iter().map(ToString::to_string)),
+                    );
+                };
+                let result = execute_with_gate_reporter(
+                    &solution,
+                    &request,
+                    |_| fake.clone(),
+                    &mut notices,
+                    &progress::NONE,
+                    Some(&mut reporter),
+                );
+                assert_eq!(counts, [16, 1]);
+                assert!(notices.is_empty(), "{:?}", notices.lines());
+                assert_eq!(result.is_err(), fail_parse);
+                if fail_parse {
+                    assert_eq!(findings.len(), 1);
+                    assert!(findings[0].contains("Things/Acme.T.xml:2"));
+                    assert_eq!(fake.imports(), 0);
+                } else {
+                    assert!(findings.is_empty());
+                    assert_eq!(fake.imports(), usize::from(mode == Mode::Apply));
+                }
+            }
+        }
     }
 
     #[test]

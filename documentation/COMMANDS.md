@@ -11,9 +11,9 @@ Describe a solution, check the environment, serve agents, update twaco.
 
 ```text
 init [--write]              propose a twaco.toml from the repository's own entities; --write
-                            also writes AGENTS.md and CLAUDE.md where absent, and adds the
-                            lines twaco needs to .gitignore
-init --agents               write only those, where absent
+                            also adds/refreshes marked guidance in AGENTS.md and CLAUDE.md,
+                            and adds the lines twaco needs to .gitignore
+init --agents               add/refresh agent guidance and .gitignore; report each file
 init --from-server <project>... [--missing] [--profile <name>] [--apply] [--json]
                             start a repository in an empty folder, or add projects to this one,
                             from server projects; plans by default
@@ -173,6 +173,7 @@ reproject <entity>... --to <project> [--apply] [--json]
                             outside the deploy order, with the depends_on that allows it
     --to <project>          the project they move to
 widgets [<widget>] [--search <text>] [--json]
+                            --search html finds display-only HTML; collapsible finds its recipe
 widgets --icons [<filter>] [--json]
                             the embedded ThingWorx 10.2 widget catalogue: types, Composer labels,
                             aliases, containers and editable or bindable properties with defaults, events and services
@@ -1002,8 +1003,9 @@ url <entity> [--tab <tab>] [--profile <name>] [--json]
                             services for Thing, ThingTemplate or ThingShape
     --profile <name>        server profile (default: default)
     --json                  print {url}
-guide                       the knowledge topics: twaco's workflow, the platform's verified quirks,
+guide                       the knowledge topics: tasks, twaco's workflow, the platform's verified quirks,
                             the service-code reference, and the solution's own markdown
+guide tasks                 the task-to-command index for creating, changing and reading
 guide <topic> [--section <heading>]  read one (a long one gives its outline)
 guide --search <words>      the sections that best match; extra operands extend the search
                             common English stopwords are ignored unless they are the whole query

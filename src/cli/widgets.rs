@@ -117,6 +117,9 @@ fn print_summary(widget: &WidgetSummary) {
         print!(" [no contract]");
     }
     println!();
+    if let Some(hint) = &widget.hint {
+        println!("    {hint}");
+    }
 }
 
 fn print_detail(detail: &WidgetDetail) {

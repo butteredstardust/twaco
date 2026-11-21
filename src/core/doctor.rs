@@ -72,6 +72,22 @@ fn item(health: Health, subject: impl Into<String>, detail: impl Into<String>) -
     }
 }
 
+fn agent_guidance_advice(root: &Path) -> Vec<Item> {
+    ["AGENTS.md", "CLAUDE.md"]
+        .into_iter()
+        .filter_map(|file| {
+            let text = std::fs::read_to_string(root.join(file)).ok()?;
+            super::init::agent_guidance_stale(file, &text).then(|| {
+                item(
+                    Health::Info,
+                    file,
+                    "run `twaco init --agents` to add/refresh twaco's agent guidance",
+                )
+            })
+        })
+        .collect()
+}
+
 fn tooling_source(root: &Path, name: &str, value: Option<&std::ffi::OsStr>) -> Item {
     let Some(value) = value.filter(|value| !value.is_empty()) else {
         return item(Health::Info, name, "not set (optional)");
@@ -135,6 +151,8 @@ pub fn diagnose(root: &Path, profile_name: &str) -> Vec<Item> {
         "solution",
         format!("{name} at {}", solution.root.display()),
     ));
+
+    items.extend(agent_guidance_advice(&solution.root));
 
     match solution.deploy_order() {
         Ok(order) => items.push(item(
@@ -1013,5 +1031,29 @@ mod tooling_tests {
         let report = tooling_source(temp.path(), "TWACO_STRUCTURE_XSD", Some(jar.as_os_str()));
         assert_eq!(report.health, Health::Warn);
         assert!(report.detail.contains("has no"));
+    }
+}
+
+#[cfg(test)]
+mod agent_guidance_tests {
+    use super::*;
+
+    #[test]
+    fn guidance_advice_reports_only_existing_missing_or_stale_blocks() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        assert!(agent_guidance_advice(root).is_empty());
+        std::fs::write(root.join("AGENTS.md"), "# Acme guidance\n").unwrap();
+        std::fs::write(
+            root.join("CLAUDE.md"),
+            "<!-- twaco:begin -->old<!-- twaco:end -->",
+        )
+        .unwrap();
+        let advice = agent_guidance_advice(root);
+        assert_eq!(advice.len(), 2);
+        assert!(advice.iter().all(|item| item.health == Health::Info
+            && item.detail == "run `twaco init --agents` to add/refresh twaco's agent guidance"));
+        super::super::init::write_agent_files(root, "Acme", &[]).unwrap();
+        assert!(agent_guidance_advice(root).is_empty());
     }
 }

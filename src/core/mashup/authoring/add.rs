@@ -847,6 +847,7 @@ pub fn add_plan_json(solution: &Solution, plan: &AddPlan, applied: bool) -> Valu
         "applied": applied,
         "mashup": plan.edit.mashup,
         "notes": plan.notes,
+        "next_steps": [format!("{}see the result: twaco mashup describe {}", if applied { "" } else { "after --apply, " }, plan.edit.mashup)],
         "widget": plan.widget,
         "id": plan.placed.id,
         "containers": plan.placed.containers,

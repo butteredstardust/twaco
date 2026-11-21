@@ -1513,3 +1513,39 @@ fn source_add_accepts_service_without_selection_options() {
     );
     assert!(!args.apply.apply);
 }
+
+#[test]
+fn task_index_precedes_the_full_listing_and_names_real_commands() {
+    let tasks = twaco::core::guide::TASKS;
+    let listing = spec::listing();
+    assert!(listing.find(tasks).unwrap() < listing.find("The full listing follows.").unwrap());
+    assert!(listing.contains("twaco <family> --help lists every subcommand of a family"));
+    assert!(
+        listing
+            .find("Create a mashup -> `twaco mashup new")
+            .unwrap()
+            < listing
+                .lines()
+                .take(40)
+                .map(|line| line.len() + 1)
+                .sum::<usize>()
+    );
+    for line in tasks.lines().filter(|line| line.starts_with("- ")) {
+        let plain = line.replace('`', "");
+        let command = plain
+            .split_once("twaco ")
+            .expect("a task names a command")
+            .1;
+        let words = command
+            .split_whitespace()
+            .take_while(|word| !word.starts_with(['<', '-', '(']))
+            .collect::<Vec<_>>();
+        let path = words.join(" ");
+        assert!(
+            USAGE.iter().any(|usage| path == usage.path
+                || path.starts_with(&format!("{} ", usage.path))
+                || usage.path.starts_with(&format!("{path} "))),
+            "unknown task command: {line}"
+        );
+    }
+}

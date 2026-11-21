@@ -852,6 +852,7 @@ fn generated_schemas_mean_what_the_hand_written_ones_did() {
                         | "entity_edit"
                         | "mashup_new"
                         | "widgets"
+                        | "guide"
                 )
             {
                 continue;
@@ -5236,4 +5237,60 @@ fn presentation_next_steps_are_returned_by_mcp_plans_and_applies() {
     );
     assert!(!failed, "{cards}");
     assert!(cards["notes"].to_string().contains("--menu"));
+}
+
+#[test]
+fn tasks_and_widget_discovery_are_available_through_mcp() {
+    let definitions = tool_definitions();
+    for name in [
+        "entity_new",
+        "entity_edit",
+        "mashup_new",
+        "mashup_add",
+        "mashup_recipe",
+        "mashup_bind",
+    ] {
+        assert!(INSTRUCTIONS.contains(name));
+        assert!(definitions.iter().any(|tool| tool["name"] == name));
+    }
+    assert!(INSTRUCTIONS.contains("`guide` topic `tasks`"));
+    let (_dir, root) = solution_dir();
+    let (failed, tasks) = call_tool(&root, "guide", json!({"topic":"tasks"}));
+    assert!(!failed, "{tasks}");
+    assert!(tasks.to_string().contains("twaco mashup new"));
+    for (search, expected) in [
+        ("html", "ReadOnly=true"),
+        ("collapsible", "mashup recipe collapsible"),
+    ] {
+        let (failed, result) = call_tool(&root, "widgets", json!({"search":search}));
+        assert!(!failed && result.to_string().contains(expected), "{result}");
+    }
+}
+
+#[test]
+fn mashup_add_next_steps_cover_plans_and_applies() {
+    let (_dir, root) = solution_dir();
+    let (failed, created) = call_tool(
+        &root,
+        "mashup_new",
+        json!({"name":"Acme.Tasks_MU", "dry_run":false}),
+    );
+    assert!(!failed, "{created}");
+    for dry_run in [true, false] {
+        let (failed, result) = call_tool(
+            &root,
+            "mashup_add",
+            json!({"mashup":"Acme.Tasks_MU", "widget":"label", "dry_run":dry_run}),
+        );
+        assert!(!failed, "{result}");
+        let expected = format!(
+            "{}see the result: twaco mashup describe Acme.Tasks_MU",
+            if dry_run { "after --apply, " } else { "" }
+        );
+        assert_eq!(result["next_steps"], json!([expected]));
+        assert!(jsonschema::draft202012::is_valid(
+            &output_schema_of("mashup_add"),
+            &result
+        ));
+    }
 }

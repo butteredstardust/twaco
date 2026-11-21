@@ -344,7 +344,9 @@ pub(crate) fn listing() -> String {
         out.push_str(line.trim_end());
         out.push('\n');
     }
-    out.push_str("twaco <command> --help shows one command; the full listing follows.\n\n");
+    out.push_str("twaco <family> --help lists every subcommand of a family\n\n");
+    out.push_str(twaco::core::guide::TASKS);
+    out.push_str("\nThe full listing follows.\n\n");
     for group in 0..GROUPS.len() {
         for command in USAGE.iter().filter(|c| c.group == group) {
             out.push_str(command.text);
@@ -408,9 +410,9 @@ pub(crate) const USAGE: &[Usage] = &[
         path: "init",
         group: 0,
         text: r#"  init [--write]              propose a twaco.toml from the repository's own entities; --write
-                              also writes AGENTS.md and CLAUDE.md where absent, and adds the
-                              lines twaco needs to .gitignore
-  init --agents               write only those, where absent
+                              also adds/refreshes marked guidance in AGENTS.md and CLAUDE.md,
+                              and adds the lines twaco needs to .gitignore
+  init --agents               add/refresh agent guidance and .gitignore; report each file
   init --from-server <project>... [--missing] [--profile <name>] [--apply] [--json]
                               start a repository in an empty folder, or add projects to this one,
                               from server projects; plans by default
@@ -699,6 +701,7 @@ pub(crate) const USAGE: &[Usage] = &[
         path: "widgets",
         group: 1,
         text: r#"  widgets [<widget>] [--search <text>] [--json]
+                              --search html finds display-only HTML; collapsible finds its recipe
   widgets --icons [<filter>] [--json]
                               the embedded ThingWorx 10.2 widget catalogue: types, Composer labels,
                               aliases, containers and editable or bindable properties with defaults, events and services
@@ -1981,8 +1984,9 @@ pub(crate) const USAGE: &[Usage] = &[
     Usage {
         path: "guide",
         group: 6,
-        text: r#"  guide                       the knowledge topics: twaco's workflow, the platform's verified quirks,
+        text: r#"  guide                       the knowledge topics: tasks, twaco's workflow, the platform's verified quirks,
                               the service-code reference, and the solution's own markdown
+  guide tasks                 the task-to-command index for creating, changing and reading
   guide <topic> [--section <heading>]  read one (a long one gives its outline)
   guide --search <words>      the sections that best match; extra operands extend the search
                               common English stopwords are ignored unless they are the whole query

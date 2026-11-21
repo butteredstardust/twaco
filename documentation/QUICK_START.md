@@ -47,8 +47,9 @@ twaco init --write
 twaco projects
 ```
 
-`--write` creates `twaco.toml`, and an `AGENTS.md` and `CLAUDE.md` for AI agents where none
-exist. Add `depends_on` to a project in `twaco.toml` when it must deploy after another.
+`--write` creates `twaco.toml` and adds or refreshes marked AI guidance in `AGENTS.md` and
+`CLAUDE.md`, creating them when absent. Human text outside the markers stays intact.
+Add `depends_on` to a project in `twaco.toml` when it must deploy after another.
 [Configuration](CONFIGURATION.md) lists every setting.
 
 ## 4. Put the scripts in files

@@ -2,23 +2,6 @@ $ twaco entity push Acme.Orders.Manager
 exit: 2
 
 --- stdout
-
+16 gate(s) passed
 --- stderr
-twaco: line endings: 0 finding(s), 0 advisory finding(s)
-twaco: sidecars: 0 finding(s), 0 advisory finding(s)
-twaco: formatting: 0 finding(s), 0 advisory finding(s)
-twaco: script traps: 0 finding(s), 0 advisory finding(s)
-twaco: code order: 0 finding(s), 0 advisory finding(s)
-twaco: project: 0 finding(s), 0 advisory finding(s)
-twaco: configuration tables: 0 finding(s), 0 advisory finding(s)
-twaco: mashup bindings: 0 finding(s), 0 advisory finding(s)
-twaco: mashup content: 0 finding(s), 0 advisory finding(s) (advisory)
-twaco: contained mashups: 0 finding(s), 0 advisory finding(s)
-twaco: localization tokens: 0 finding(s), 0 advisory finding(s)
-twaco: result shapes: 0 finding(s), 0 advisory finding(s)
-twaco: networks: 0 finding(s), 0 advisory finding(s)
-twaco: menus: 0 finding(s), 0 advisory finding(s)
-twaco: ai references: 0 finding(s), 0 advisory finding(s)
-twaco: structure: 0 finding(s), 0 advisory finding(s) (advisory)
-twaco: structure skipped: no XSD source configured
 twaco: profile "default" was not found (looked in <ROOT>/.twaco/profiles/default.toml) and the environment is incomplete

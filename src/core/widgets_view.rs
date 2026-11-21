@@ -13,6 +13,8 @@ pub struct WidgetSummary {
     pub container: bool,
     pub bindable: bool,
     pub(crate) auto_resize: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hint: Option<String>,
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
@@ -40,10 +42,24 @@ pub struct WidgetDetail {
     pub note: Option<String>,
 }
 
-/// List the catalogue in Composer's order, optionally narrowing it by type, label or alias.
+/// List the catalogue in Composer's order, optionally narrowing it by type, label, alias or discovery hint.
 pub fn list(search: Option<&str>) -> Vec<WidgetSummary> {
     match search {
-        Some(text) => catalog().search(text).into_iter().map(summary).collect(),
+        Some(text) => {
+            let wanted = text.trim().to_ascii_lowercase();
+            catalog()
+                .widgets
+                .iter()
+                .filter(|widget| {
+                    widget
+                        .names()
+                        .chain(std::iter::once(widget.type_display_name.as_str()))
+                        .chain(discovery_hint(&widget.type_id))
+                        .any(|name| name.to_ascii_lowercase().contains(&wanted))
+                })
+                .map(summary)
+                .collect()
+        }
         None => catalog().widgets.iter().map(summary).collect(),
     }
 }
@@ -69,6 +85,16 @@ pub fn detail(word: &str) -> Result<WidgetDetail, CatalogError> {
     })
 }
 
+fn discovery_hint(type_id: &str) -> Option<&'static str> {
+    match type_id {
+        "ptcsrte" => Some("Display-only HTML: set ReadOnly=true and HideToolbar=true on ptcsrte."),
+        "flexcontainer" => {
+            Some("For a collapsible container, see twaco mashup recipe collapsible --help.")
+        }
+        _ => None,
+    }
+}
+
 fn summary(widget: &Widget) -> WidgetSummary {
     WidgetSummary {
         type_id: widget.type_id.clone(),
@@ -77,6 +103,7 @@ fn summary(widget: &Widget) -> WidgetSummary {
         container: widget.container,
         bindable: widget.has_contract(),
         auto_resize: widget.auto_resize,
+        hint: discovery_hint(&widget.type_id).map(str::to_string),
     }
 }
 
@@ -201,5 +228,47 @@ mod settings_tests {
                 .as_deref(),
             Some("BOOLEAN")
         );
+    }
+}
+
+#[cfg(test)]
+mod discovery_tests {
+    use super::*;
+
+    #[test]
+    fn html_and_collapsible_are_discovery_hints_without_authoring_aliases() {
+        let html = list(Some("HTML"));
+        let rte = html
+            .iter()
+            .find(|widget| widget.type_id == "ptcsrte")
+            .unwrap();
+        let hint = rte.hint.as_deref().unwrap();
+        assert!(hint.contains("ReadOnly=true") && hint.contains("HideToolbar=true"));
+        let collapsible = list(Some("collapsible"));
+        assert!(collapsible.iter().any(|widget| widget
+            .hint
+            .as_deref()
+            .unwrap_or_default()
+            .contains("twaco mashup recipe collapsible")));
+        assert!(catalog().resolve("html").is_err());
+        assert!(catalog().resolve("collapsible").is_err());
+        let tabs = catalog().by_type("ptcstabset").unwrap();
+        for property in [
+            "NumberOfTabs",
+            "Tab1Name",
+            "Tab2Name",
+            "Tab3Name",
+            "TabStyle",
+        ] {
+            assert!(
+                tabs.property(property).is_some() || tabs.defaults.contains_key(property),
+                "{property}"
+            );
+        }
+        assert!(tabs
+            .property("TabStyle")
+            .unwrap()
+            .options
+            .contains(&serde_json::json!("contained-tabs")));
     }
 }

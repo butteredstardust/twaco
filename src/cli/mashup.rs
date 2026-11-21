@@ -1505,6 +1505,9 @@ pub(crate) fn mashup_add_cmd(solution: &Solution, args: &MashupAdd) -> u8 {
     if !outcome.applied {
         println!("run again with --apply to write it");
     }
+    for step in report["next_steps"].as_array().into_iter().flatten() {
+        println!("{}", step.as_str().expect("a next step is text"));
+    }
     OK
 }
 

@@ -8,6 +8,11 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- Share a short task index across top-level help, `guide tasks` (CLI/MCP) and generated agent guidance; MCP instructions name authoring tools.
+- `init --agents` adds or refreshes marked guidance in existing AGENTS.md and CLAUDE.md, preserving human text and CRLF and reporting changes per file. Doctor points out missing or stale blocks.
+- Widget search hints find display-only HTML (`ptcsrte`, ReadOnly and HideToolbar) and the collapsible recipe; mashup add reports describe next steps in text, JSON and MCP.
+- Document DataShape sidecar field edits, tab container properties, row placement and explicit baseline recording across hash or ownership policy changes.
+
 - `doctor` reports optional SDK/XSD setup, archive schema availability and inferred 10.0/10.2 schema generation.
 - Record attributed ThingWorx 10.2.1 field quirks separately from maintainer-verified observations.
 - `deploy --exclude` now names, in the plan, the repository entities that still structurally reference each excluded entity (transitively, preserving collection identity and ignoring prose), with a warning that the import will fail; `--with-dependents` (and `with_dependents` over MCP) leaves them out too. A refused import whose server response body or log reason names an entity suggests `--exclude <it> --with-dependents`.
@@ -19,6 +24,8 @@ All notable changes to twaco are recorded here. The format follows
 - Clarify that `mashup new --master` creates a master mashup with a page container filling the center.
 
 ### Fixed
+
+- Entity push shows only gate findings, once each, and ends with one gate summary in plans and applies.
 
 - Single-entity push runs scoped deploy gates and server script parsing in plans and applies; blocking findings import nothing, advisories remain visible, and `--skip-checks` reports skipped gates independently of `--force`.
 - Missing push dependencies name the prerequisite entity and suggest pushing it first or deploying the solution.

@@ -3,6 +3,20 @@
 How twaco sees a solution, and how to do each part of the work with it. [Quick
 start](QUICK_START.md) gets a repository set up; [Commands](COMMANDS.md) lists every flag.
 
+## Finding the right command
+
+`twaco guide tasks` is the short task-to-command index, also shown near the top of
+`twaco --help` and available through MCP `guide` with `topic: "tasks"`.
+`twaco <family> --help` lists every subcommand of a family: start with `twaco new --help`
+for entity creation or `twaco mashup --help` for mashup authoring.
+
+`twaco init --agents` immediately adds or refreshes twaco guidance in AGENTS.md and
+CLAUDE.md and reports each file as created, appended, refreshed or unchanged. Existing
+files receive a block between `<!-- twaco:begin -->` and `<!-- twaco:end -->`; later runs
+replace only that block. Human text outside the markers, including project context and
+lessons learned, stays byte-for-byte intact; existing CRLF files keep CRLF. Doctor gives
+an info item when an existing file needs this guidance added or refreshed.
+
 ## How twaco works
 
 The repository holds the entity XML that ThingWorx exports, and twaco keeps the parts you
@@ -275,6 +289,16 @@ contract and type checks wait for `twaco types --platform`; `[validate] inherite
 only suppress that unresolved case. When the full ancestry is known and nobody defines the
 service, `check` says to revert the override or restore the parent definition.
 
+To change a DataShape's fields, edit `src/<DataShape>/fields.json`, then preview and sync:
+
+```sh
+twaco sync Acme.Asset_DS --check --allow-add-remove
+twaco sync Acme.Asset_DS --allow-add-remove
+```
+
+The second command writes immediately. `twaco extract Acme.Asset_DS` adopts the fields
+from entity XML into the sidecar; use it when XML is the version to keep.
+
 A service or a DataShape field appearing or disappearing is a bigger change than an edit, so
 `sync` refuses it unless given `--allow-add-remove`. With it, a new service folder holding a
 `definition.xml` and a `script.js` adds the service, its Script implementation laid out like
@@ -441,7 +465,11 @@ recorded; counts, detail and the exit status reflect the updated baseline.
 
 After upgrading to a release that changes the comparison hash version (this release moves from
 v11 to v12), older baselines count as missing: run `twaco entity status --all --record`.
-It records baselines only where the repository and server already agree. Entities listed as
+It records baselines only where the repository and server already agree. The same applies
+to baselines from another ownership policy: `twaco entity status <entity> --record` or
+`twaco entity status --all --record` records matching current hashes. For example, 41
+outdated baselines need an explicit `--record`; neither status nor doctor migrates them
+automatically. Entities listed as
 `no-baseline-differs` need investigation with `entity diff`, pull or adopt; `--record` does
 not resolve their differences.
 A full `--all --record` also prunes baseline entries of entities that are in neither the
@@ -1275,6 +1303,25 @@ may declare scalar parameters with repeatable `--param name:TYPE[:IN|OUT|BOTH]`;
 parameters need a DataShape and are added with `mashup param add --data-shape`.
 
 ### Adding widgets
+
+`twaco widgets --search html` finds `ptcsrte`: set `ReadOnly=true` and
+`HideToolbar=true` for display-only HTML. `--search collapsible` points at the existing
+`mashup recipe collapsible`; these are discovery hints, with no authoring aliases or presets.
+After `mashup add`, the result suggests `twaco mashup describe <mashup>` to inspect the
+layout (after `--apply` for a plan). JSON and MCP return this in `next_steps`.
+
+For a tab container, the catalogue's property names and style value are:
+
+```sh
+twaco mashup add Acme.App.Orders_MU ptcstabset --in center \
+  --prop NumberOfTabs=3 --prop Tab1Name=Overview --prop Tab2Name=Details \
+  --prop Tab3Name=History --prop TabStyle=contained-tabs --apply
+```
+
+To place controls into an existing row, use `--in <row>` for the first, then chain
+`--right-of <new id>` using each returned widget id. For example, add a button with
+`--in <row>` and place the next button with `--right-of <id returned by that add>`.
+
 
 ```sh
 twaco mashup add Acme.App.Orders_MU grid --apply
