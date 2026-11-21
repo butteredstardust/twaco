@@ -20,7 +20,7 @@ page:
                       - dropdown: {id: severity, options: severities, display: Value, hint: Severity...}
                       - date_range: {id: dates}
                       - spacer: {id: space}
-                      - button: {id: form, label: Form, props: {ButtonType: tertiary, Icon: "cds:icon_clipboard"}}
+                      - button: {id: form, label: Form, variant: transparent, icon: 'cds:icon_clipboard'}
                 - grid:
                     id: alerts
                     data: assets

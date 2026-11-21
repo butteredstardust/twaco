@@ -767,7 +767,7 @@ fn every_element_and_mixed_nesting_match_golden_artifacts() {
         .filter(|p| p.to_string_lossy().ends_with(".page.yaml"))
         .collect();
     paths.sort();
-    assert_eq!(paths.len(), 16);
+    assert_eq!(paths.len(), 19);
     for path in paths {
         let text = std::fs::read_to_string(&path).unwrap();
         let built =
@@ -1232,21 +1232,15 @@ fn dashboard_charts_stay_in_their_panels_and_share_remaining_height() {
         assert_eq!(doc.at(&tools.path)["Properties"]["flex-min-height"], "48px");
         assert_eq!(doc.at(&tools.path)["Properties"]["align-items"], "center");
     }
+    // Tiles and detail cards size to content (about 130px and 170px with their captions).
+    for name in ["overview", "focus_row"] {
+        let node = doc.find_exact(&built.ids[name]).unwrap();
+        let props = &doc.at(&node.path)["Properties"];
+        assert_eq!(props["flex-grow"], 0, "{name}");
+        assert_eq!(props["flex-shrink"], 0, "{name}");
+    }
     // One shared chart row fits at 900; its floor survives a shorter viewport.
-    let minimum = ["overview", "focus_row", "charts"]
-        .iter()
-        .map(|name| {
-            let node = doc.find_exact(&built.ids[*name]).unwrap();
-            doc.at(&node.path)["Properties"]["flex-min-height"]
-                .as_str()
-                .unwrap()
-                .trim_end_matches("px")
-                .parse::<u32>()
-                .unwrap()
-        })
-        .sum::<u32>()
-        + 48
-        + 43;
+    let minimum = 348 + 130 + 170 + 48 + 43;
     assert!(minimum < 900);
     assert!(minimum > 717);
 }
@@ -1357,4 +1351,194 @@ fn explicit_date_initialization_overrides_the_bound_filter_default() {
         doc.at(&dates.path)["Properties"]["InitializeWithCurrentDateTime"],
         true
     );
+}
+
+fn element_fixture(name: &str) -> String {
+    std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join(format!("tests/fixtures/mashup/pages/{name}.page.yaml")),
+    )
+    .unwrap()
+}
+
+fn element_props(built: &super::compile::Artifacts, id: &str) -> Value {
+    let doc = mashup::edit::parse(&built.content).unwrap();
+    let widget = doc.find_exact(&built.ids[id]).unwrap();
+    doc.at(&widget.path)["Properties"].clone()
+}
+
+fn error_page(body: &str, tail: &str) -> String {
+    format!(
+        "version: 1\nrules: v1\npage:\n  name: Acme.Errors_MU\n  template: blank\n  data:\n    rows: {{service: Acme.Data.GetRows, on: load}}\n  slots:\n    center:\n      - {body}\n{tail}"
+    )
+}
+
+#[test]
+fn trend_tiles_carry_value_unit_direction_and_delta_in_one_centred_row() {
+    let (_dir, solution) = element_solution();
+    let built = compile(&solution, "Acme", &element_fixture("trend_tile")).unwrap();
+    let card = element_props(&built, "total");
+    assert_eq!(card["align-items"], "stretch");
+    assert_eq!(card["flex-direction"], "column");
+    let figure = element_props(&built, "total--figure");
+    assert_eq!(figure["justify-content"], "center");
+    assert_eq!(figure["align-items"], "center");
+    assert_eq!(
+        element_props(&built, "total--value")["LabelType"],
+        "large-header"
+    );
+    assert_eq!(element_props(&built, "total--unit")["LabelText"], "alerts");
+    assert_eq!(
+        element_props(&built, "total--arrow")["LabelText"],
+        "\u{25B2}"
+    );
+    assert_eq!(
+        element_props(&built, "stable--arrow")["LabelText"],
+        "\u{25AC}"
+    );
+    let content: Value = serde_json::from_str(&built.content).unwrap();
+    let styles = &content["UI"]["Properties"]["StyleProperties"]["data"];
+    for id in ["total--arrow", "total--delta"] {
+        assert_eq!(
+            styles[&built.ids[id]]["parts"]["label"]["$"]["color"],
+            "#3C9A5F"
+        );
+    }
+    for (field, id) in [("Count", "total--value"), ("Name", "total--delta")] {
+        assert!(content["DataBindings"].as_array().unwrap().iter().any(|b| {
+            b["TargetId"] == built.ids[id]
+                && b["PropertyMaps"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|p| p["SourceProperty"] == field && p["TargetProperty"] == "LabelText")
+        }));
+    }
+}
+
+#[test]
+fn trend_tile_errors_are_located() {
+    let (_dir, solution) = element_solution();
+    for body in [
+        "trend_tile: {id: tile, value: {bind: rows.Count}}",
+        "trend_tile: {id: tile, label: Total}",
+        "trend_tile: {id: tile, label: Total, value: 3}",
+        "trend_tile: {id: tile, label: Total, value: {bind: rows.Count}, trend: sideways}",
+        "trend_tile: {id: tile, label: Total, value: {bind: rows.Count}, delta: 3}",
+        "card: {id: tile, title: Total, trend: up}",
+    ] {
+        let error = compile(&solution, "Acme", &error_page(body, "")).unwrap_err();
+        assert!(error.line >= 10 && error.column > 0, "{body}: {error}");
+    }
+}
+
+#[test]
+fn detail_pairs_share_a_content_height_row_with_caption_left_and_value_right() {
+    let (_dir, solution) = element_solution();
+    let built = compile(&solution, "Acme", &element_fixture("detail_pair")).unwrap();
+    assert_eq!(element_props(&built, "details")["align-items"], "stretch");
+    for id in ["first", "second"] {
+        let row = element_props(&built, id);
+        assert_eq!(row["flex-direction"], "row");
+        assert_eq!(row["flex-grow"], 0);
+        assert_eq!(row["flex-shrink"], 0);
+        assert_eq!(row["flex-max-height"], "");
+        let caption = element_props(&built, &format!("{id}--caption"));
+        assert_eq!(caption["HorizontalAlignment"], "left");
+        let value = element_props(&built, &format!("{id}--value"));
+        assert_eq!(value["HorizontalAlignment"], "right");
+        assert_eq!(
+            element_props(&built, &format!("{id}--spacer"))["flex-grow"],
+            1
+        );
+    }
+    assert!(built.ids.contains_key("first--dot"));
+    assert!(!built.ids.contains_key("second--dot"));
+    let content: Value = serde_json::from_str(&built.content).unwrap();
+    assert_eq!(
+        content["UI"]["Properties"]["StyleProperties"]["data"][&built.ids["first--dot"]]["parts"]
+            ["label"]["$"]["color"],
+        "#4CAF50"
+    );
+}
+
+#[test]
+fn buttons_take_a_variant_an_icon_and_a_selection_gate() {
+    let (_dir, solution) = element_solution();
+    let built = compile(&solution, "Acme", &element_fixture("button_options")).unwrap();
+    let preview = element_props(&built, "preview");
+    assert_eq!(preview["ButtonType"], "transparent");
+    assert_eq!(preview["SVGIcon"], "cds:icon_view");
+    assert_eq!(element_props(&built, "save")["ButtonType"], "primary");
+    let content: Value = serde_json::from_str(&built.content).unwrap();
+    let bindings = content["DataBindings"].as_array().unwrap();
+    let expression = bindings
+        .iter()
+        .find(|b| b["SourceId"] == built.ids["results"])
+        .and_then(|b| b["TargetId"].as_str())
+        .unwrap()
+        .to_string();
+    assert!(expression.starts_with("expression2-"));
+    assert!(bindings.iter().any(|b| b["SourceId"] == expression
+        && b["TargetId"] == built.ids["preview"]
+        && b["PropertyMaps"][0]["TargetProperty"] == "Disabled"));
+    assert!(bindings
+        .iter()
+        .any(|b| b["SourceId"] == built.ids["results"]
+            && b["PropertyMaps"][0]["SourceProperty"] == "RowSelected"));
+    assert_eq!(
+        compile(&solution, "Acme", &element_fixture("button_options")).unwrap(),
+        built
+    );
+}
+
+#[test]
+fn button_option_errors_are_located() {
+    let (_dir, solution) = element_solution();
+    let grid = "      - grid: {id: results, data: rows, columns: [Name]}\n";
+    for body in [
+        "button: {id: b, label: B, variant: loud}",
+        "button: {id: b, label: B, icon: 'cds:icon_no_such_thing'}",
+        "button: {id: b, label: B, enabled_when: results.picked}",
+        "button: {id: b, label: B, enabled_when: missing.selected}",
+        "label: {id: b, text: B, variant: primary}",
+    ] {
+        let error = compile(&solution, "Acme", &error_page(body, grid)).unwrap_err();
+        assert!(error.line >= 10 && error.column > 0, "{body}: {error}");
+    }
+}
+
+#[test]
+fn narrow_date_ranges_use_short_hints_and_wide_ones_keep_the_automatic_hint() {
+    let built = compiled_benchmark("k");
+    let narrow = element_props(&built, "filter_dates");
+    assert_eq!(narrow["StartDateHintText"], "From");
+    assert_eq!(narrow["EndDateHintText"], "To");
+    assert_eq!(
+        element_props(&built, "dates")["StartDateHintText"],
+        "Autohint"
+    );
+    let (_dir, solution) = element_solution();
+    let wide = compile(&solution, "Acme", &element_fixture("date_range")).unwrap();
+    assert_eq!(
+        element_props(&wide, "dates")["StartDateHintText"],
+        "Autohint"
+    );
+}
+
+#[test]
+fn benchmark_specs_use_the_kit_button_and_selection_conventions() {
+    let built = compiled_benchmark("n");
+    for (id, icon) in [
+        ("preview", "cds:icon_view"),
+        ("download", "cds:icon_download"),
+    ] {
+        let props = element_props(&built, id);
+        assert_eq!(props["ButtonType"], "transparent");
+        assert_eq!(props["SVGIcon"], icon);
+    }
+    assert!(!built.ids.contains_key("refresh"));
+    let built = compiled_benchmark("h");
+    assert!(built.ids.contains_key("pages"));
+    assert_eq!(element_props(&built, "details")["ButtonType"], "tertiary");
 }

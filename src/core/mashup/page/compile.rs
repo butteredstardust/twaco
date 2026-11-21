@@ -192,6 +192,21 @@ pub(crate) fn compile(solution: &Solution, project: &str, text: &str) -> Result<
     for node in pagination {
         wire_pagination(solution, &mut session, &mut allocator, page, &mut ids, node)?;
     }
+    fn gated<'a>(node: &'a Node, out: &mut Vec<&'a Node>) {
+        if matches!(node, Node::Button(_)) && node.body().enabled_when.is_some() {
+            out.push(node);
+        }
+        for child in descendants(node) {
+            gated(child, out);
+        }
+    }
+    let mut gates = vec![];
+    for node in page.slots.values().flat_map(|s| &s.value) {
+        gated(node, &mut gates);
+    }
+    for node in gates {
+        wire_enabled(solution, &mut session, &mut allocator, &ids, node)?;
+    }
     for node in page.slots.values().flat_map(|s| &s.value) {
         wire_values(
             solution,
@@ -298,7 +313,7 @@ fn add(
         Node::PageHeader(_) => Some("page-header"),
         Node::Toolbar(_) => Some("toolbar"),
         Node::KpiRow(_) => Some("page-kpi-row"),
-        Node::Card(_) => Some("page-card"),
+        Node::Card(_) | Node::TrendTile(_) => Some("page-card"),
         _ => None,
     };
     match node {
@@ -383,7 +398,7 @@ fn add(
                 container: placed.clone(),
             },
         ),
-        Node::Card(_) => session.recipe(
+        Node::Card(_) | Node::TrendTile(_) => session.recipe(
             solution,
             authoring::Recipe::Card {
                 container: placed.clone(),
@@ -931,7 +946,7 @@ pub(super) fn address(
     Err(Error::at(loc, format!("unknown reference {text}")))
 }
 
-fn find_grid<'a>(page: &'a Page, name: &str) -> Option<&'a str> {
+pub(super) fn find_grid<'a>(page: &'a Page, name: &str) -> Option<&'a str> {
     fn find<'a>(node: &'a Node, name: &str) -> Option<&'a str> {
         if matches!(node, Node::Grid(_)) && node.body().id.value == name {
             return node.body().data.as_ref().map(|d| d.value.as_str());
@@ -1019,6 +1034,55 @@ fn wire(
     for child in descendants(node) {
         wire(solution, session, model, platform, page, ids, child)?;
     }
+    Ok(())
+}
+
+/// `enabled_when: <grid>.selected`: the kit's expression from the grid's `RowSelected` into the
+/// button's `Disabled`, through the enable-when recipe.
+fn wire_enabled(
+    solution: &Solution,
+    session: &mut Session,
+    allocator: &mut Ids,
+    ids: &BTreeMap<String, String>,
+    node: &Node,
+) -> Result<(), Error> {
+    let body = node.body();
+    let gate = body.enabled_when.as_ref().expect("gated button");
+    let grid = gate
+        .value
+        .strip_suffix(".selected")
+        .expect("validated gate");
+    let old: BTreeSet<_> = session
+        .document
+        .widgets()
+        .into_iter()
+        .map(|w| w.id)
+        .collect();
+    session
+        .recipe(
+            solution,
+            authoring::Recipe::EnableWhen {
+                widget: ids[&body.id.value].clone(),
+                condition: "selected".into(),
+                inputs: vec![("selected".into(), format!("ui:{}.RowSelected", ids[grid]))],
+            },
+        )
+        .map_err(|e| Error::at(gate.referenced, e))?;
+    let placed = session
+        .document
+        .widgets()
+        .into_iter()
+        .find(|w| !old.contains(&w.id) && w.type_id == "expression2")
+        .expect("enable-when adds its expression")
+        .id;
+    stabilize(
+        session,
+        allocator,
+        &old,
+        &placed,
+        &format!("{}--enabled", body.id.value),
+        gate.referenced,
+    )?;
     Ok(())
 }
 

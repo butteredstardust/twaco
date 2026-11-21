@@ -82,6 +82,8 @@ numeric `Count` fields. Bindings and events use authored IDs, including tile and
 | `page_header` | heading/label/button authoring; v1 header row | `- page_header: {id: header, title: Alerts, help: Current alerts, actions: [{id: refresh, label: Refresh}]}` |
 | `toolbar` | row authoring and `recipe toolbar --band` | `- toolbar: {id: tools, children: [{text_field: {id: search, hint: Search}}, {spacer: {id: space}}, {button: {id: refresh, label: Refresh}}]}` |
 | `kpi_row` | `recipe card`, label bindings and equal panel widths | `- kpi_row: {id: totals, tiles: [{id: total, label: Total, value: {bind: rows.Count}, unit: alerts, color: '#123456'}]}` |
+| `trend_tile` | `recipe card` caption, value/unit/arrow labels in one centred row | `- trend_tile: {id: total, label: Total, value: {bind: rows.Count}, unit: '%', trend: up, delta: {bind: rows.Name}}` |
+| `detail_pair` | row container, caption/spacer/value labels, optional status dot | `- detail_pair: {id: first, label: Name, value: {bind: rows.Name}, kind: ok}` |
 | `card` | `recipe card` | `- card: {id: state, title: Status, value: {bind: rows.Count}, status: Healthy, kind: ok, children: [{label: {id: detail, text: Details}}]}` |
 | `filter_panel` | filter-panel template and filter-footer authoring rules | `- filter_panel: {id: filters, fields: [{text_field: {id: query, hint: Search}}], footer: [apply, reset]}` |
 | `tabs` | tabset authoring (`sync_tabs`), tab-content template, add-contained | `- tabs: {id: views, tabs: [{label: Overview, content: [{label: {id: overview, text: Overview}}]}, {label: Details, mashup: Acme.Child_MU}]}` |
@@ -94,7 +96,7 @@ numeric `Count` fields. Bindings and events use authored IDs, including tile and
 | `grid` | grid authoring and `recipe columns` | `- grid: {id: results, data: rows, columns: [Name, {field: Count, title: Total}]}` |
 | `label` | label authoring | `- label: {id: note, text: Details}` |
 | `heading` | label authoring with header LabelType | `- heading: {id: title, text: Alerts}` |
-| `button` | button authoring | `- button: {id: refresh, label: Refresh}` |
+| `button` | button authoring, `recipe enable-when` | `- button: {id: preview, label: Preview, variant: transparent, icon: 'cds:icon_view', enabled_when: results.selected}` |
 | `widget` | catalogue authoring | `- widget: {id: input, type: ptcstextfield, props: {Text: Acme}}` |
 
 Toolbar `band` defaults to true: the existing recipe supplies the grey 48px band. Set
@@ -114,15 +116,36 @@ toolbar provides the single band at any nesting depth. A pie chart requires `val
 through the chart recipe, and `stacked: true` requires bar. Pagination names a grid with data
 and creates the same local slicing expressions and reset bindings as the pagination recipe.
 
+Trend tiles go in a `kpi_row` through `children` (a `kpi_row` takes `tiles` or `children`). A
+`trend_tile` has a caption (`label`), a bound `value` and optional `unit`, `trend` (`up`, `down`
+or `flat`) and `delta` (text or `{bind: ...}`). Value, unit, direction glyph and delta sit in one
+centred row under the caption, as in the kit's AssetKPI tiles. The direction glyph and delta are
+coloured labels (green, red, grey); `ptcsicon` has no known styler, so it cannot carry the colour.
+Direction is static: it does not follow a data field.
+
+A `detail_pair` is a content-height row: optional status dot, caption left, spacer, bound value
+right. Place it in a `card`, which then stretches its children. `kind` (`ok`, `warning`, `error`,
+`info`) colours the dot. There is no StateDefinition mapping yet, so the dot colour is fixed.
+Rows have no fixed height, which removes the inner overflow of the old card plus label rows.
+
+A `button` accepts `variant` (`primary`, `secondary`, `tertiary`, `transparent`, `danger`, written
+to `ButtonType`), `icon` (a `cds:` name checked against the 10.2 list, written to `SVGIcon`, as the
+kit does) and `enabled_when: <grid>.selected`. The gate is the enable-when recipe: an expression
+from the grid's `RowSelected` into the button's `Disabled`, with a stable widget ID derived from
+the button.
+
+Date ranges narrower than 300px (an explicit `Width` below that) get the hints `From` and `To`
+instead of the automatic `DD-MM-YY`, which truncates in two short inputs. Explicit hint props win.
+
 ## Planned elements
 
-These are proposals for A's remaining gaps, not implemented elements. They compose native
-widgets and named parts; no bitmap chart or custom HTML is needed.
+These are proposals, not implemented elements. They compose native widgets and named parts; no
+bitmap chart or custom HTML is needed.
 
 | Proposed element | Native widgets and parts | Contract to add |
 | --- | --- | --- |
-| `trend_tile` | `flexcontainer` card surface (`$` background/border/padding), `ptcslabel` caption/value/unit (`label` color/font), `ptcsicon` direction indicator (`icon` color), compact `ptcschartline` sparkline (plot/series, axes and legend hidden) | Value and trend bindings, direction/color, series field, period caption; content-height card with a bounded sparkline. Replaces A's contained trend doodads. |
-| `detail_pair` | Row `flexcontainer`, two `ptcslabel` widgets (`label` alignment/color), optional `ptcsicon` dot (`icon` color) | Caption, bound value, optional status and `Acme.Status_ST` mapping; equal caption/value tracks and a reserved status-dot cell. Replaces A's plain inline detail rows. |
+| `trend_tile` sparkline | compact `ptcschartline` (plot/series, axes and legend hidden) | Series field and period caption; a bounded sparkline under the value. |
+| `detail_pair` status mapping | `Acme.Status_ST` StateDefinition | Map a bound status to the dot colour. |
 | `chart: {kind: combo}` | `ptcschartcombo` with native bar and line series, primary/secondary axes and legend; chart/plot/legend parts for spacing and theme styling | Per-series field, bar/line kind, axis and label; reuse INFOTABLE binding and chart recipe validation. Replaces A's line-only approximation. |
 
 Part selectors and compact chart settings must be checked against the embedded platform
@@ -175,11 +198,11 @@ CI also checks both front ends, rebuilds, retained hand edits and conflicts.
 
 | Benchmark / kit | Spec | Remaining differences from the kit |
 | --- | --- | --- |
-| A / AssetKPI | [KPI dashboard](../tests/fixtures/mashup/pages/bench_a/page.yaml) | Numeric KPI cards replace contained trend doodads; inline detail rows use native labels without status dots; line chart replaces the combo chart. No intent-level trend, inline detail-pair or combo-chart element yet. |
-| H / AssetListTopFilter | [Asset list](../tests/fixtures/mashup/pages/bench_h/page.yaml) | Search and refresh invoke SearchAssets. Its contract has only query, so category/date filtering needs another service contract. View Details navigation is outside the event subset. |
+| A / AssetKPI | [KPI dashboard](../tests/fixtures/mashup/pages/bench_a/page.yaml) | Native trend tiles replace the contained trend doodads (static direction, no sparkline); detail pairs carry status dots with fixed colours; a line chart replaces the combo chart. |
+| H / AssetListTopFilter | [Asset list](../tests/fixtures/mashup/pages/bench_h/page.yaml) | Search and refresh invoke SearchAssets. Its contract has only query, so category/date filtering needs another service contract. View Details is selection-gated but navigation is outside the event subset. Pagination slices the grid locally. |
 | J / AlertsAndNotifications | [Alerts tabs](../tests/fixtures/mashup/pages/bench_j/page.yaml) | Asset fields substitute for a dedicated alert contract. Severity/date controls need filtering services; Form is styled but cannot open a popup through spec events yet. Application uses a second grid over the same source. |
 | K / AdminMetrics | [Metrics filters](../tests/fixtures/mashup/pages/bench_k/page.yaml) | Apply binds all side-filter values; Reset is present but has no reset recipe in specs. The template chevron is retained; no collapsible recipe is exposed. Toolbar search/category/date and View Details are visual controls awaiting separate filter/navigation wiring. Pagination uses the existing local slicing recipe. |
-| N / Documents | [Document actions](../tests/fixtures/mashup/pages/bench_n/page.yaml) | Grid selection and refresh work; Preview stays disabled. Selection-gated inversion needs typed function inputs or a condition recipe, neither exposed in specs. Preview window and download actions need navigation/download event support. |
+| N / Documents | [Document actions](../tests/fixtures/mashup/pages/bench_n/page.yaml) | Transparent icon buttons as in the kit; Preview is enabled by the grid's selection. Preview window and download actions need navigation/download event support. |
 
 These are offline acceptance fixtures, not newly measured visual scores. A and H still require
 live comparison at 1440x900 and 1440x717 before claiming their previous score floor.

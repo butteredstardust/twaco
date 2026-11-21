@@ -10,14 +10,10 @@ page:
       - toolbar:
           id: tools
           children:
-            - button: {id: preview, label: Preview, props: {ButtonType: tertiary, Disabled: true}}
-            - button: {id: download, label: Download, props: {ButtonType: tertiary}}
-            - spacer: {id: space}
-            - button: {id: refresh, label: Refresh, props: {ButtonType: tertiary}}
+            - button: {id: preview, label: Preview, variant: transparent, icon: 'cds:icon_view', enabled_when: documents_grid.selected}
+            - button: {id: download, label: Download, variant: transparent, icon: 'cds:icon_download'}
       - grid:
           id: documents_grid
           data: documents
           props: {RowSelection: single}
           columns: [Title, FileName, Description, URL]
-  events:
-    - {on: refresh.Clicked, invoke: documents}

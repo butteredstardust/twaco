@@ -11,124 +11,39 @@ page:
       - page_header: {id: header, title: Asset KPI}
       - kpi_row:
           id: overview
-          size: {fixed: 150}
-          tiles:
-            - {id: objective, label: Area of Focus 01, value: {bind: focus.Objective}, unit: '%'}
-            - {id: measures, label: Area of Focus 02, value: {bind: focus.Measures}, unit: '%'}
+          children:
+            - trend_tile: {id: objective, label: Area of Focus 01, value: {bind: focus.Objective}, unit: '%', trend: up}
+            - trend_tile: {id: measures, label: Area of Focus 02, value: {bind: focus.Measures}, unit: '%', trend: down}
       - widget:
           id: focus_row
           type: flexcontainer
-          size: {fixed: 170}
+          size: fit
           props: {flex-direction: row, align-items: stretch}
           children:
             - card:
                 id: focus_1
                 title: Area of Focus 01
                 children:
-                  - widget:
-                      id: focus_1_objective_row
-                      type: flexcontainer
-                      size: {fixed: 28}
-                      props: {flex-direction: row}
-                      children:
-                        - label: {id: focus_1_objective_caption, text: Objective, props: {HorizontalAlignment: left, Margin: '0'}}
-                        - label: {id: focus_1_objective, props: {LabelText: {bind: focus.Objective}, HorizontalAlignment: right, Margin: '0'}}
-                  - widget:
-                      id: focus_1_measures_row
-                      type: flexcontainer
-                      size: {fixed: 28}
-                      props: {flex-direction: row}
-                      children:
-                        - label: {id: focus_1_measures_caption, text: Measures, props: {HorizontalAlignment: left, Margin: '0'}}
-                        - label: {id: focus_1_measures, props: {LabelText: {bind: focus.Measures}, HorizontalAlignment: right, Margin: '0'}}
-                  - widget:
-                      id: focus_1_targets_row
-                      type: flexcontainer
-                      size: {fixed: 28}
-                      props: {flex-direction: row}
-                      children:
-                        - label: {id: focus_1_targets_caption, text: Targets, props: {HorizontalAlignment: left, Margin: '0'}}
-                        - label: {id: focus_1_targets, props: {LabelText: {bind: focus.Targets}, HorizontalAlignment: right, Margin: '0'}}
-                  - widget:
-                      id: focus_1_invites_row
-                      type: flexcontainer
-                      size: {fixed: 28}
-                      props: {flex-direction: row}
-                      children:
-                        - label: {id: focus_1_invites_caption, text: Invites, props: {HorizontalAlignment: left, Margin: '0'}}
-                        - label: {id: focus_1_invites, props: {LabelText: {bind: focus.Invites}, HorizontalAlignment: right, Margin: '0'}}
+                  - detail_pair: {id: focus_1_objective, label: Objective, value: {bind: focus.Objective}, kind: ok}
+                  - detail_pair: {id: focus_1_measures, label: Measures, value: {bind: focus.Measures}, kind: ok}
+                  - detail_pair: {id: focus_1_targets, label: Targets, value: {bind: focus.Targets}, kind: error}
+                  - detail_pair: {id: focus_1_invites, label: Invites, value: {bind: focus.Invites}, kind: warning}
             - card:
                 id: focus_2
                 title: Area of Focus 02
                 children:
-                  - widget:
-                      id: focus_2_objective_row
-                      type: flexcontainer
-                      size: {fixed: 28}
-                      props: {flex-direction: row}
-                      children:
-                        - label: {id: focus_2_objective_caption, text: Objective, props: {HorizontalAlignment: left, Margin: '0'}}
-                        - label: {id: focus_2_objective, props: {LabelText: {bind: focus.Objective}, HorizontalAlignment: right, Margin: '0'}}
-                  - widget:
-                      id: focus_2_measures_row
-                      type: flexcontainer
-                      size: {fixed: 28}
-                      props: {flex-direction: row}
-                      children:
-                        - label: {id: focus_2_measures_caption, text: Measures, props: {HorizontalAlignment: left, Margin: '0'}}
-                        - label: {id: focus_2_measures, props: {LabelText: {bind: focus.Measures}, HorizontalAlignment: right, Margin: '0'}}
-                  - widget:
-                      id: focus_2_targets_row
-                      type: flexcontainer
-                      size: {fixed: 28}
-                      props: {flex-direction: row}
-                      children:
-                        - label: {id: focus_2_targets_caption, text: Targets, props: {HorizontalAlignment: left, Margin: '0'}}
-                        - label: {id: focus_2_targets, props: {LabelText: {bind: focus.Targets}, HorizontalAlignment: right, Margin: '0'}}
-                  - widget:
-                      id: focus_2_invites_row
-                      type: flexcontainer
-                      size: {fixed: 28}
-                      props: {flex-direction: row}
-                      children:
-                        - label: {id: focus_2_invites_caption, text: Invites, props: {HorizontalAlignment: left, Margin: '0'}}
-                        - label: {id: focus_2_invites, props: {LabelText: {bind: focus.Invites}, HorizontalAlignment: right, Margin: '0'}}
+                  - detail_pair: {id: focus_2_objective, label: Objective, value: {bind: focus.Objective}, kind: ok}
+                  - detail_pair: {id: focus_2_measures, label: Measures, value: {bind: focus.Measures}, kind: ok}
+                  - detail_pair: {id: focus_2_targets, label: Targets, value: {bind: focus.Targets}, kind: error}
+                  - detail_pair: {id: focus_2_invites, label: Invites, value: {bind: focus.Invites}, kind: warning}
             - card:
                 id: focus_3
                 title: Area of Focus 03
                 children:
-                  - widget:
-                      id: focus_3_objective_row
-                      type: flexcontainer
-                      size: {fixed: 28}
-                      props: {flex-direction: row}
-                      children:
-                        - label: {id: focus_3_objective_caption, text: Objective, props: {HorizontalAlignment: left, Margin: '0'}}
-                        - label: {id: focus_3_objective, props: {LabelText: {bind: focus.Objective}, HorizontalAlignment: right, Margin: '0'}}
-                  - widget:
-                      id: focus_3_measures_row
-                      type: flexcontainer
-                      size: {fixed: 28}
-                      props: {flex-direction: row}
-                      children:
-                        - label: {id: focus_3_measures_caption, text: Measures, props: {HorizontalAlignment: left, Margin: '0'}}
-                        - label: {id: focus_3_measures, props: {LabelText: {bind: focus.Measures}, HorizontalAlignment: right, Margin: '0'}}
-                  - widget:
-                      id: focus_3_targets_row
-                      type: flexcontainer
-                      size: {fixed: 28}
-                      props: {flex-direction: row}
-                      children:
-                        - label: {id: focus_3_targets_caption, text: Targets, props: {HorizontalAlignment: left, Margin: '0'}}
-                        - label: {id: focus_3_targets, props: {LabelText: {bind: focus.Targets}, HorizontalAlignment: right, Margin: '0'}}
-                  - widget:
-                      id: focus_3_invites_row
-                      type: flexcontainer
-                      size: {fixed: 28}
-                      props: {flex-direction: row}
-                      children:
-                        - label: {id: focus_3_invites_caption, text: Invites, props: {HorizontalAlignment: left, Margin: '0'}}
-                        - label: {id: focus_3_invites, props: {LabelText: {bind: focus.Invites}, HorizontalAlignment: right, Margin: '0'}}
+                  - detail_pair: {id: focus_3_objective, label: Objective, value: {bind: focus.Objective}, kind: ok}
+                  - detail_pair: {id: focus_3_measures, label: Measures, value: {bind: focus.Measures}, kind: ok}
+                  - detail_pair: {id: focus_3_targets, label: Targets, value: {bind: focus.Targets}, kind: error}
+                  - detail_pair: {id: focus_3_invites, label: Invites, value: {bind: focus.Invites}, kind: warning}
       - widget:
           id: charts
           type: flexcontainer

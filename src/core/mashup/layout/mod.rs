@@ -564,7 +564,7 @@ mod tests {
             .iter()
             .filter(|rule| !legacy.rules.iter().any(|old| old.id == rule.id))
             .collect();
-        assert_eq!(additions.len(), 11);
+        assert_eq!(additions.len(), 12);
         assert_eq!(additions[0].id, "gutter.filter-actions");
         for (rule, op) in additions[1..].iter().zip([
             "page-header",
@@ -573,6 +573,7 @@ mod tests {
             "page-control-row",
             "page-control-member",
             "page-date-range",
+            "page-date-range-narrow",
             "page-chart-region",
             "page-content-height",
             "page-panel-width",

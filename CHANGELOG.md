@@ -14,6 +14,8 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- Page-spec v1 `trend_tile` and `detail_pair` elements, button `variant`, `icon` and `enabled_when: <grid>.selected`, and short `From`/`To` hints for narrow date ranges. The A, H, J, K and N benchmark specs use them (kit transparent icon buttons, selection-gated Preview and View Details, pagination); legacy output is unchanged.
+
 - Five reproducible page-spec benchmark examples (A, H, J, K, N), offline Acme contracts, artifact goldens and CLI/MCP rebuild/hand-edit coverage. Page-spec worked examples document remaining kit gaps.
 
 - Page-spec v1 elements: page headers, toolbar bands and spacers, equal KPI rows, cards, filter panels, tabs, line/bar/pie charts, date ranges, dropdowns, text fields and grid pagination through existing authoring helpers. Grid columns accept bare field names.

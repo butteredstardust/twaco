@@ -1,0 +1,15 @@
+version: 1
+rules: v1
+page:
+  name: Acme.Elements_MU
+  template: blank
+  data:
+    rows: {service: Acme.Data.GetRows, on: load}
+  slots:
+    center:
+      - toolbar:
+          id: tools
+          children:
+            - button: {id: preview, label: Preview, variant: transparent, icon: 'cds:icon_view', enabled_when: results.selected}
+            - button: {id: save, label: Save, variant: primary}
+      - grid: {id: results, data: rows, columns: [Name, Count]}

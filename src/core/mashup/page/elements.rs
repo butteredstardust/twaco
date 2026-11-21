@@ -13,6 +13,66 @@ fn generated(parent: &Body, role: &str, kind: &str, props: serde_json::Value) ->
     node
 }
 
+fn relocate(node: &mut Node, at: serde_saphyr::Location) {
+    let b = node.body_mut();
+    b.id.referenced = at;
+    for prop in b.props.values_mut() {
+        prop.referenced = at;
+        prop.defined = at;
+    }
+    for child in &mut b.children {
+        relocate(child, at);
+    }
+}
+
+fn child(parent: &Body, role: &str, kind: &str, props: serde_json::Value) -> Node {
+    let mut node = generated(parent, role, kind, props);
+    relocate(&mut node, parent.id.referenced);
+    node
+}
+
+fn default_prop(body: &mut Body, key: &str, value: serde_json::Value) {
+    let at = body.id.referenced;
+    body.props
+        .entry(key.to_string())
+        .or_insert_with(|| serde_saphyr::Spanned::new(value, at, at));
+}
+
+/// A label body showing a literal, or bound to a source field.
+fn text_or_bind(value: &serde_json::Value) -> serde_json::Value {
+    match super::compile::binding(value) {
+        Some(_) => json!({"props": {"LabelText": value}}),
+        None => json!({"text": super::compile::scalar(value)}),
+    }
+}
+
+fn merge(mut label: serde_json::Value, props: serde_json::Value) -> serde_json::Value {
+    let object = label.as_object_mut().expect("label object");
+    let merged = object
+        .entry("props")
+        .or_insert_with(|| json!({}))
+        .as_object_mut()
+        .expect("props object");
+    for (key, value) in props.as_object().expect("props") {
+        merged.insert(key.clone(), value.clone());
+    }
+    label
+}
+
+/// Trend direction: glyph and colour (kit trend tiles show a grey triangle; ptcsicon has no
+/// known styler, so a coloured label glyph carries the direction).
+const DIRECTIONS: [(&str, &str, &str); 3] = [
+    ("up", "\u{25B2}", "#3C9A5F"),
+    ("down", "\u{25BC}", "#D64545"),
+    ("flat", "\u{25AC}", "#8A949B"),
+];
+const DOTS: [(&str, &str); 4] = [
+    ("ok", "#4CAF50"),
+    ("warning", "#F2A93B"),
+    ("error", "#E0575B"),
+    ("info", "#8D96A0"),
+];
+
 pub(super) fn expand(page: &mut Page) -> Result<(), Error> {
     fn nodes(list: &mut [Node]) -> Result<(), Error> {
         for node in list {
@@ -35,9 +95,144 @@ pub(super) fn expand(page: &mut Page) -> Result<(), Error> {
                             .extend(std::mem::take(&mut b.actions).into_iter().map(Node::Button));
                     }
                 }
+                Node::TrendTile(b) => {
+                    let loc = b.id.referenced;
+                    let caption = b.title.take().or_else(|| b.text.take());
+                    let (Some(caption), Some(value)) = (caption, b.value.take()) else {
+                        return Err(Error::at(
+                            loc,
+                            "trend_tile needs label and value: {bind: source.field}",
+                        ));
+                    };
+                    if super::compile::binding(&value.value).is_none() {
+                        return Err(Error::at(
+                            value.referenced,
+                            "trend_tile value must be {bind: source.field}",
+                        ));
+                    }
+                    b.title = Some(caption);
+                    let mut labels = vec![(
+                        "value",
+                        merge(
+                            text_or_bind(&value.value),
+                            json!({"LabelType": "large-header", "Margin": "0 6 0 0"}),
+                        ),
+                    )];
+                    if let Some(unit) = b.unit.take() {
+                        labels.push((
+                            "unit",
+                            json!({"text": unit, "props": {"LabelType": "title", "Margin": "0 8 0 0"}}),
+                        ));
+                    }
+                    let trend = b.trend.take();
+                    let delta = b.delta.take();
+                    if let Some(trend) = trend {
+                        let Some((_, glyph, colour)) =
+                            DIRECTIONS.iter().find(|(name, _, _)| *name == trend.value)
+                        else {
+                            return Err(Error::at(
+                                trend.referenced,
+                                "trend must be up, down or flat",
+                            ));
+                        };
+                        let style = json!([format!("label:color={colour}")]);
+                        labels.push((
+                            "arrow",
+                            json!({"text": glyph, "props": {"Margin": "0 4 0 0"}, "style": style}),
+                        ));
+                        if let Some(delta) = delta {
+                            let mut label =
+                                merge(text_or_bind(&delta.value), json!({"Margin": "0"}));
+                            label["style"] = style;
+                            labels.push(("delta", label));
+                        }
+                    } else if let Some(delta) = delta {
+                        return Err(Error::at(delta.referenced, "delta needs trend"));
+                    }
+                    let kids: Vec<_> = labels
+                        .into_iter()
+                        .map(|(role, mut label)| {
+                            label["id"] = json!(format!("{}--{role}", b.id.value));
+                            json!({"label": label})
+                        })
+                        .collect();
+                    b.children.push(child(
+                        b,
+                        "figure",
+                        "widget",
+                        json!({"type": "flexcontainer", "children": kids, "props": {
+                            "flex-direction": "row", "align-items": "center",
+                            "justify-content": "center", "flex-grow": 1, "flex-shrink": 0,
+                            "flex-size": "range", "flex-min-height": "56px", "Margin": "8 0"}}),
+                    ));
+                    default_prop(b, "align-items", json!("stretch"));
+                }
+                Node::DetailPair(b) => {
+                    let loc = b.id.referenced;
+                    let (Some(caption), Some(value)) = (b.text.take(), b.value.take()) else {
+                        return Err(Error::at(loc, "detail_pair needs label and value"));
+                    };
+                    let dot = match b.chart_kind.take() {
+                        None => None,
+                        Some(kind) => Some(
+                            DOTS.iter()
+                                .find(|(name, _)| *name == kind)
+                                .map(|(_, colour)| *colour)
+                                .ok_or_else(|| {
+                                    Error::at(loc, "detail_pair kind is ok, warning, error or info")
+                                })?,
+                        ),
+                    };
+                    if let Some(colour) = dot {
+                        let style = format!("label:color={colour}");
+                        let label = json!({"text": "\u{25CF}", "props": {"Margin": "0 8 0 0"}, "style": [style]});
+                        b.children.push(child(b, "dot", "label", label));
+                    }
+                    b.children.push(child(
+                        b,
+                        "caption",
+                        "label",
+                        json!({"text": caption, "props": {"Margin": "0", "HorizontalAlignment": "left"}}),
+                    ));
+                    b.children.push(child(b, "spacer", "spacer", json!({})));
+                    let label = merge(
+                        text_or_bind(&value.value),
+                        json!({"Margin": "0", "HorizontalAlignment": "right"}),
+                    );
+                    b.children.push(child(b, "value", "label", label));
+                    default_prop(b, "flex-direction", json!("row"));
+                    default_prop(b, "align-items", json!("center"));
+                    default_prop(b, "Margin", json!("4 0"));
+                }
+                Node::Card(b) => {
+                    if b.children.iter().any(|c| matches!(c, Node::DetailPair(_))) {
+                        default_prop(b, "align-items", json!("stretch"));
+                    }
+                }
+                Node::Button(b) => {
+                    if let Some(variant) = b.variant.take() {
+                        if !["primary", "secondary", "tertiary", "transparent", "danger"]
+                            .contains(&variant.value.as_str())
+                        {
+                            return Err(Error::at(
+                                variant.referenced,
+                                "variant is primary, secondary, tertiary, transparent or danger",
+                            ));
+                        }
+                        default_prop(b, "ButtonType", json!(variant.value));
+                    }
+                    if let Some(icon) = b.icon.take() {
+                        crate::core::cds_icons::check(&icon.value)
+                            .map_err(|e| Error::at(icon.referenced, e))?;
+                        default_prop(b, "SVGIcon", json!(icon.value));
+                    }
+                }
                 Node::KpiRow(b) => {
-                    if b.tiles.is_empty() {
-                        return Err(Error::at(b.id.referenced, "kpi_row needs tiles"));
+                    if b.tiles.is_empty() && b.children.is_empty() {
+                        return Err(Error::at(
+                            b.id.referenced,
+                            "kpi_row needs tiles or children",
+                        ));
                     }
                     for mut tile in std::mem::take(&mut b.tiles) {
                         if tile
@@ -104,7 +299,10 @@ fn fields(node: &Node) -> Result<(), Error> {
     let checks = [
         (
             b.title.is_some(),
-            matches!(node, Node::PageHeader(_) | Node::Card(_) | Node::Chart(_)),
+            matches!(
+                node,
+                Node::PageHeader(_) | Node::Card(_) | Node::Chart(_) | Node::TrendTile(_)
+            ),
             "title",
         ),
         (
@@ -126,18 +324,36 @@ fn fields(node: &Node) -> Result<(), Error> {
         (!b.tabs.is_empty(), matches!(node, Node::Tabs(_)), "tabs"),
         (
             b.chart_kind.is_some(),
-            matches!(node, Node::Chart(_) | Node::Card(_)),
+            matches!(node, Node::Chart(_) | Node::Card(_) | Node::DetailPair(_)),
             "kind",
         ),
         (
             b.value.is_some(),
-            matches!(node, Node::Chart(_) | Node::Card(_)),
+            matches!(
+                node,
+                Node::Chart(_) | Node::Card(_) | Node::TrendTile(_) | Node::DetailPair(_)
+            ),
             "value",
         ),
         (
-            b.status.is_some() || b.color.is_some() || b.unit.is_some(),
+            b.status.is_some() || b.color.is_some(),
             matches!(node, Node::Card(_)),
-            "status/color/unit",
+            "status/color",
+        ),
+        (
+            b.unit.is_some(),
+            matches!(node, Node::Card(_) | Node::TrendTile(_)),
+            "unit",
+        ),
+        (
+            b.trend.is_some() || b.delta.is_some(),
+            matches!(node, Node::TrendTile(_)),
+            "trend/delta",
+        ),
+        (
+            b.variant.is_some() || b.icon.is_some() || b.enabled_when.is_some(),
+            matches!(node, Node::Button(_)),
+            "variant/icon/enabled_when",
         ),
         (
             b.x.is_some() || b.stacked.is_some(),
@@ -174,7 +390,7 @@ pub(super) fn validate(node: &Node, page: &Page) -> Result<(), Error> {
     let b = node.body();
     let fail = |s| Error::at(b.id.referenced, s);
     match node {
-        Node::Card(_) if b.title.is_none() => {
+        Node::Card(_) | Node::TrendTile(_) if b.title.is_none() => {
             return Err(fail("card needs title (tile needs label)"))
         }
         Node::Chart(_) if b.data.is_none() || b.x.is_none() => {
@@ -185,6 +401,16 @@ pub(super) fn validate(node: &Node, page: &Page) -> Result<(), Error> {
         }
         Node::Pagination(_) if b.grid.is_none() => {
             return Err(fail("pagination needs for: <grid>"))
+        }
+        Node::Button(_) if b.enabled_when.is_some() => {
+            let gate = b.enabled_when.as_ref().expect("checked");
+            let grid = gate.value.strip_suffix(".selected").unwrap_or_default();
+            if super::compile::find_grid(page, grid).is_none() {
+                return Err(Error::at(
+                    gate.referenced,
+                    "enabled_when must be <grid>.selected naming a grid with data",
+                ));
+            }
         }
         Node::Tabs(_) => {
             if !(1..=16).contains(&b.tabs.len()) {
@@ -406,6 +632,19 @@ pub(super) fn finish_layout(
             .path;
         if matches!(node, Node::DateRange(_)) {
             patch(&mut session.document, &path, "page-date-range");
+            let range = body
+                .props
+                .get("DateRange")
+                .is_none_or(|v| v.value != json!(false) && v.value != json!("false"));
+            let width = body
+                .props
+                .get("Width")
+                .and_then(|v| v.value.as_u64())
+                .unwrap_or(340);
+            // The empty range hint "DD-MM-YY" truncates in two inputs narrower than ~300px.
+            if range && width < 300 {
+                patch(&mut session.document, &path, "page-date-range-narrow");
+            }
             if page.data.values().any(|source| {
                 source.value.params.values().any(|value| {
                     super::compile::binding(&value.value).is_some_and(|from| {
@@ -420,7 +659,9 @@ pub(super) fn finish_layout(
                     .set_property(&path, "InitializeWithCurrentDateTime", json!(false));
             }
         }
-        if matches!(node, Node::KpiRow(_) | Node::Card(_)) && body.size.is_none() {
+        if matches!(node, Node::KpiRow(_) | Node::Card(_) | Node::TrendTile(_))
+            && body.size.is_none()
+        {
             let parent = &path[..path.len() - 1];
             let op = if session.document.at(parent)["Properties"]["flex-direction"] == "row" {
                 "page-panel-width"
@@ -471,6 +712,9 @@ pub(super) fn finish_layout(
             .map(|key| (key, session.document.at(&path)["Properties"][key].clone()))
             .collect();
             controls(&mut session.document, &path, &spacers);
+            if matches!(node, Node::DetailPair(_)) {
+                patch(&mut session.document, &path, "page-content-height");
+            }
             if matches!(node, Node::Toolbar(_)) && body.band.unwrap_or(true) {
                 patch(&mut session.document, &path, "toolbar-band");
             } else if matches!(node, Node::PageHeader(_)) {

@@ -56,6 +56,8 @@ pub(crate) enum Node {
     Dropdown(Body),
     TextField(Body),
     Pagination(Body),
+    TrendTile(Body),
+    DetailPair(Body),
 }
 
 impl Node {
@@ -77,7 +79,9 @@ impl Node {
             | Self::DateRange(b)
             | Self::Dropdown(b)
             | Self::TextField(b)
-            | Self::Pagination(b) => b,
+            | Self::Pagination(b)
+            | Self::TrendTile(b)
+            | Self::DetailPair(b) => b,
         }
     }
     pub(crate) fn body_mut(&mut self) -> &mut Body {
@@ -98,7 +102,9 @@ impl Node {
             | Self::DateRange(b)
             | Self::Dropdown(b)
             | Self::TextField(b)
-            | Self::Pagination(b) => b,
+            | Self::Pagination(b)
+            | Self::TrendTile(b)
+            | Self::DetailPair(b) => b,
         }
     }
     pub(crate) fn widget(&self) -> Result<&str, Error> {
@@ -108,6 +114,8 @@ impl Node {
             | Self::KpiRow(_)
             | Self::Card(_)
             | Self::FilterPanel(_)
+            | Self::TrendTile(_)
+            | Self::DetailPair(_)
             | Self::Spacer(_) => "flexcontainer",
             Self::Tabs(_) => "ptcstabset",
             Self::Chart(b) => match b.chart_kind.as_deref() {
@@ -153,6 +161,11 @@ pub(crate) struct Body {
     pub(crate) value: Option<Spanned<Value>>,
     pub(crate) status: Option<Spanned<Value>>,
     pub(crate) unit: Option<String>,
+    pub(crate) variant: Option<Spanned<String>>,
+    pub(crate) icon: Option<Spanned<String>>,
+    pub(crate) enabled_when: Option<Spanned<String>>,
+    pub(crate) trend: Option<Spanned<String>>,
+    pub(crate) delta: Option<Spanned<Value>>,
     pub(crate) color: Option<String>,
     pub(crate) options: Option<Spanned<String>>,
     pub(crate) display: Option<String>,

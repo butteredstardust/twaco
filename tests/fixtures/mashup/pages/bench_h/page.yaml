@@ -17,10 +17,12 @@ page:
             - date_range: {id: dates}
             - spacer: {id: space}
             - button: {id: refresh, label: Refresh, props: {ButtonType: tertiary}}
+            - button: {id: details, label: View Details, variant: tertiary, enabled_when: assets_grid.selected}
       - grid:
           id: assets_grid
           data: assets
           columns: [{field: ThingName, title: Device Name}, {field: Status, status: Acme.BenchStatus_ST}, Category, Model, Date]
+      - pagination: {id: pages, for: assets_grid}
   events:
     - {on: search.Changed, invoke: assets}
     - {on: refresh.Clicked, invoke: assets}
