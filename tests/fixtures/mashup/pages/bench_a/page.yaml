@@ -1,0 +1,157 @@
+version: 1
+rules: v1
+page:
+  name: Acme.BenchSpecA_MU
+  template: blank
+  data:
+    focus: {service: Acme.Cards.GetFocus, on: load}
+    history: {service: Acme.Cards.GetHistory, on: load}
+  slots:
+    center:
+      - page_header: {id: header, title: Asset KPI}
+      - kpi_row:
+          id: overview
+          size: {fixed: 150}
+          tiles:
+            - {id: objective, label: Area of Focus 01, value: {bind: focus.Objective}, unit: '%'}
+            - {id: measures, label: Area of Focus 02, value: {bind: focus.Measures}, unit: '%'}
+      - widget:
+          id: focus_row
+          type: flexcontainer
+          size: {fixed: 170}
+          props: {flex-direction: row, align-items: stretch}
+          children:
+            - card:
+                id: focus_1
+                title: Area of Focus 01
+                children:
+                  - widget:
+                      id: focus_1_objective_row
+                      type: flexcontainer
+                      size: {fixed: 28}
+                      props: {flex-direction: row}
+                      children:
+                        - label: {id: focus_1_objective_caption, text: Objective, props: {HorizontalAlignment: left, Margin: '0'}}
+                        - label: {id: focus_1_objective, props: {LabelText: {bind: focus.Objective}, HorizontalAlignment: right, Margin: '0'}}
+                  - widget:
+                      id: focus_1_measures_row
+                      type: flexcontainer
+                      size: {fixed: 28}
+                      props: {flex-direction: row}
+                      children:
+                        - label: {id: focus_1_measures_caption, text: Measures, props: {HorizontalAlignment: left, Margin: '0'}}
+                        - label: {id: focus_1_measures, props: {LabelText: {bind: focus.Measures}, HorizontalAlignment: right, Margin: '0'}}
+                  - widget:
+                      id: focus_1_targets_row
+                      type: flexcontainer
+                      size: {fixed: 28}
+                      props: {flex-direction: row}
+                      children:
+                        - label: {id: focus_1_targets_caption, text: Targets, props: {HorizontalAlignment: left, Margin: '0'}}
+                        - label: {id: focus_1_targets, props: {LabelText: {bind: focus.Targets}, HorizontalAlignment: right, Margin: '0'}}
+                  - widget:
+                      id: focus_1_invites_row
+                      type: flexcontainer
+                      size: {fixed: 28}
+                      props: {flex-direction: row}
+                      children:
+                        - label: {id: focus_1_invites_caption, text: Invites, props: {HorizontalAlignment: left, Margin: '0'}}
+                        - label: {id: focus_1_invites, props: {LabelText: {bind: focus.Invites}, HorizontalAlignment: right, Margin: '0'}}
+            - card:
+                id: focus_2
+                title: Area of Focus 02
+                children:
+                  - widget:
+                      id: focus_2_objective_row
+                      type: flexcontainer
+                      size: {fixed: 28}
+                      props: {flex-direction: row}
+                      children:
+                        - label: {id: focus_2_objective_caption, text: Objective, props: {HorizontalAlignment: left, Margin: '0'}}
+                        - label: {id: focus_2_objective, props: {LabelText: {bind: focus.Objective}, HorizontalAlignment: right, Margin: '0'}}
+                  - widget:
+                      id: focus_2_measures_row
+                      type: flexcontainer
+                      size: {fixed: 28}
+                      props: {flex-direction: row}
+                      children:
+                        - label: {id: focus_2_measures_caption, text: Measures, props: {HorizontalAlignment: left, Margin: '0'}}
+                        - label: {id: focus_2_measures, props: {LabelText: {bind: focus.Measures}, HorizontalAlignment: right, Margin: '0'}}
+                  - widget:
+                      id: focus_2_targets_row
+                      type: flexcontainer
+                      size: {fixed: 28}
+                      props: {flex-direction: row}
+                      children:
+                        - label: {id: focus_2_targets_caption, text: Targets, props: {HorizontalAlignment: left, Margin: '0'}}
+                        - label: {id: focus_2_targets, props: {LabelText: {bind: focus.Targets}, HorizontalAlignment: right, Margin: '0'}}
+                  - widget:
+                      id: focus_2_invites_row
+                      type: flexcontainer
+                      size: {fixed: 28}
+                      props: {flex-direction: row}
+                      children:
+                        - label: {id: focus_2_invites_caption, text: Invites, props: {HorizontalAlignment: left, Margin: '0'}}
+                        - label: {id: focus_2_invites, props: {LabelText: {bind: focus.Invites}, HorizontalAlignment: right, Margin: '0'}}
+            - card:
+                id: focus_3
+                title: Area of Focus 03
+                children:
+                  - widget:
+                      id: focus_3_objective_row
+                      type: flexcontainer
+                      size: {fixed: 28}
+                      props: {flex-direction: row}
+                      children:
+                        - label: {id: focus_3_objective_caption, text: Objective, props: {HorizontalAlignment: left, Margin: '0'}}
+                        - label: {id: focus_3_objective, props: {LabelText: {bind: focus.Objective}, HorizontalAlignment: right, Margin: '0'}}
+                  - widget:
+                      id: focus_3_measures_row
+                      type: flexcontainer
+                      size: {fixed: 28}
+                      props: {flex-direction: row}
+                      children:
+                        - label: {id: focus_3_measures_caption, text: Measures, props: {HorizontalAlignment: left, Margin: '0'}}
+                        - label: {id: focus_3_measures, props: {LabelText: {bind: focus.Measures}, HorizontalAlignment: right, Margin: '0'}}
+                  - widget:
+                      id: focus_3_targets_row
+                      type: flexcontainer
+                      size: {fixed: 28}
+                      props: {flex-direction: row}
+                      children:
+                        - label: {id: focus_3_targets_caption, text: Targets, props: {HorizontalAlignment: left, Margin: '0'}}
+                        - label: {id: focus_3_targets, props: {LabelText: {bind: focus.Targets}, HorizontalAlignment: right, Margin: '0'}}
+                  - widget:
+                      id: focus_3_invites_row
+                      type: flexcontainer
+                      size: {fixed: 28}
+                      props: {flex-direction: row}
+                      children:
+                        - label: {id: focus_3_invites_caption, text: Invites, props: {HorizontalAlignment: left, Margin: '0'}}
+                        - label: {id: focus_3_invites, props: {LabelText: {bind: focus.Invites}, HorizontalAlignment: right, Margin: '0'}}
+      - widget:
+          id: charts
+          type: flexcontainer
+          size: fill
+          props: {flex-direction: row, align-items: stretch}
+          children:
+            - widget:
+                id: distribution_panel
+                type: flexcontainer
+                props: {flex-direction: column, flex-grow: 1, flex-basis: '0px'}
+                children:
+                  - toolbar:
+                      id: distribution_tools
+                      children:
+                        - date_range: {id: distribution_date, props: {DateRange: false, Width: 273}}
+                  - chart: {id: distribution, kind: pie, data: history, x: year, value: Value}
+            - widget:
+                id: trend_panel
+                type: flexcontainer
+                props: {flex-direction: column, flex-grow: 2, flex-basis: '0px'}
+                children:
+                  - toolbar:
+                      id: trend_tools
+                      children:
+                        - date_range: {id: trend_dates}
+                  - chart: {id: trend, kind: line, data: history, x: year}

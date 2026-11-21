@@ -239,6 +239,7 @@ pub(crate) fn compile(solution: &Solution, project: &str, text: &str) -> Result<
             apply_size(solution, &mut session, page, &ids, node)?;
         }
     }
+    super::elements::finish_layout(&mut session, page, &ids)?;
     session
         .sync()
         .map_err(|e| Error::at(spec.page.referenced, e))?;

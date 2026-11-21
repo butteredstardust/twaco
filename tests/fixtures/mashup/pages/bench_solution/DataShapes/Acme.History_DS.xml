@@ -1,0 +1,6 @@
+<Entities><DataShapes><DataShape name="Acme.History_DS" projectName="Acme.Bench"><FieldDefinitions>
+                <FieldDefinition aspect.isPrimaryKey="false" baseType="NUMBER" description="" name="Value" ordinal="2" />
+                <FieldDefinition aspect.isPrimaryKey="false" baseType="NUMBER" description="" name="Value02" ordinal="3" />
+                <FieldDefinition aspect.isPrimaryKey="false" baseType="STRING" description="" name="year" ordinal="1" />
+            </FieldDefinitions>
+        </DataShape></DataShapes></Entities>

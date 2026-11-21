@@ -1,0 +1,9 @@
+<Entities><Things><Thing name="Acme.Cards" projectName="Acme.Bench" thingTemplate="GenericThing"><ThingShape><ServiceDefinitions><ServiceDefinition name="GetAssets"><ParameterDefinitions />
+                    <ResultType baseType="INFOTABLE" aspect.dataShape="Acme.Asset_DS"/></ServiceDefinition><ServiceDefinition name="GetCategories"><ParameterDefinitions />
+                    <ResultType baseType="INFOTABLE" aspect.dataShape="Acme.Option_DS"/></ServiceDefinition><ServiceDefinition name="GetFocus"><ParameterDefinitions />
+                    <ResultType baseType="INFOTABLE" aspect.dataShape="Acme.Focus_DS"/></ServiceDefinition><ServiceDefinition name="SearchAssets"><ParameterDefinitions>
+                            <FieldDefinition baseType="STRING" description="" name="query" ordinal="1" />
+                        </ParameterDefinitions>
+                    <ResultType baseType="INFOTABLE" aspect.dataShape="Acme.Asset_DS"/></ServiceDefinition><ServiceDefinition name="GetHistory"><ParameterDefinitions>
+                    </ParameterDefinitions>
+                <ResultType baseType="INFOTABLE" aspect.dataShape="Acme.History_DS"/></ServiceDefinition></ServiceDefinitions></ThingShape></Thing></Things></Entities>

@@ -1,0 +1,35 @@
+version: 1
+rules: v1
+page:
+  name: Acme.BenchSpecJ_MU
+  template: blank
+  data:
+    assets: {service: Acme.Cards.GetAssets, on: load}
+    severities: {service: Acme.Cards.GetCategories, on: load}
+  slots:
+    center:
+      - page_header: {id: header, title: Alerts & Notifications}
+      - tabs:
+          id: views
+          tabs:
+            - label: Device
+              content:
+                - toolbar:
+                    id: tools
+                    children:
+                      - dropdown: {id: severity, options: severities, display: Value, hint: Severity...}
+                      - date_range: {id: dates}
+                      - spacer: {id: space}
+                      - button: {id: form, label: Form, props: {ButtonType: tertiary, Icon: "cds:icon_clipboard"}}
+                - grid:
+                    id: alerts
+                    data: assets
+                    columns:
+                      - {field: ThingName, title: Device Name}
+                      - {field: Status, status: Acme.BenchStatus_ST}
+                      - Category
+                      - Model
+                      - Date
+            - label: Application
+              content:
+                - grid: {id: apps, data: assets, columns: [ThingName, Status]}

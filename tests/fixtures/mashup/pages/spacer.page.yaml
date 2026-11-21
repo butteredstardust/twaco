@@ -7,4 +7,11 @@ page:
     rows: {service: Acme.Data.GetRows, on: load}
   slots:
     center:
-      - spacer: {id: space}
+      - widget:
+          id: row
+          type: flexcontainer
+          props: {flex-direction: row}
+          children:
+            - label: {id: left, text: Left}
+            - spacer: {id: space}
+            - button: {id: right, label: Right}

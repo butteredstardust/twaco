@@ -239,7 +239,10 @@ fn spec_matches_new_add_set_command_structure() {
     )
     .unwrap();
     let expected = mashup::extract(&add.edit.entity_after).unwrap();
-    assert_eq!(normalized(&built.content), normalized(&expected.content));
+    let mut expected = normalized(&expected.content);
+    // The unversioned primitive retains its legacy gutter; specs use the v1 page gutter.
+    expected["UI"]["Widgets"][0]["Properties"]["Margin"] = serde_json::json!("24");
+    assert_eq!(normalized(&built.content), expected);
 }
 
 #[test]
@@ -1090,4 +1093,104 @@ fn column_shorthand_is_identical_to_explicit_fields() {
         )
         .unwrap()
     );
+}
+
+fn benchmark(id: &str) {
+    let folder =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/mashup/pages");
+    let solution = Solution::load(&folder.join("bench_solution/twaco.toml")).unwrap();
+    let spec = std::fs::read_to_string(folder.join(format!("bench_{id}/page.yaml"))).unwrap();
+    let built = compile(&solution, "Acme.Bench", &spec).unwrap();
+    assert_eq!(built, compile(&solution, "Acme.Bench", &spec).unwrap());
+    let mut problems = vec![];
+    mashup::validate::check_content(&built.content, &mut problems);
+    assert!(
+        !problems
+            .iter()
+            .any(|p| p.severity == mashup::validate::Severity::Error),
+        "{problems:?}"
+    );
+    let actual = serde_json::to_string_pretty(&serde_json::json!({
+        "entity": String::from_utf8(built.entity).unwrap(),
+        "content": serde_json::from_str::<Value>(&built.content).unwrap(),
+        "css": built.css, "ids": built.ids
+    }))
+    .unwrap()
+        + "\n";
+    let golden = folder.join(format!("bench_{id}/page.golden.json"));
+    if std::env::var_os("TWACO_BLESS").is_some() {
+        std::fs::write(&golden, &actual).unwrap();
+    }
+    assert_eq!(
+        actual,
+        std::fs::read_to_string(golden)
+            .unwrap()
+            .replace("\r\n", "\n")
+    );
+}
+
+#[test]
+fn benchmark_a_golden() {
+    benchmark("a");
+}
+#[test]
+fn benchmark_h_golden() {
+    benchmark("h");
+}
+#[test]
+fn benchmark_j_golden() {
+    benchmark("j");
+}
+#[test]
+fn benchmark_k_golden() {
+    benchmark("k");
+}
+#[test]
+fn benchmark_n_golden() {
+    benchmark("n");
+}
+
+#[test]
+fn alerts_layout_has_one_gutter_centered_fixed_band_and_only_spacer_grows() {
+    let folder =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/mashup/pages");
+    let solution = Solution::load(&folder.join("bench_solution/twaco.toml")).unwrap();
+    let spec = std::fs::read_to_string(folder.join("bench_j/page.yaml")).unwrap();
+    let built = compile(&solution, "Acme.Bench", &spec).unwrap();
+    let doc = mashup::edit::parse(&built.content).unwrap();
+    let root = doc.find("center").unwrap();
+    assert_eq!(doc.at(&root.path)["Properties"]["Margin"], "24");
+    let toolbar = doc.find_exact(&built.ids["tools"]).unwrap();
+    let props = &doc.at(&toolbar.path)["Properties"];
+    assert_eq!(props["flex-min-height"], "48px");
+    assert_eq!(props["flex-max-height"], "48px");
+    assert_eq!(props["flex-grow"], 0);
+    assert_eq!(props["flex-shrink"], 0);
+    assert_eq!(props["align-items"], "center");
+    let spacer = doc.find_exact(&built.ids["space"]).unwrap();
+    for widget in doc.widgets().into_iter().filter(|w| {
+        w.path.starts_with(&toolbar.path) && w.path != toolbar.path && w.type_id == "flexcontainer"
+    }) {
+        let props = &doc.at(&widget.path)["Properties"];
+        let grows = spacer.path.starts_with(&widget.path);
+        assert_eq!(
+            props["flex-grow"],
+            if grows { 1 } else { 0 },
+            "{}",
+            widget.id
+        );
+        if widget.path != spacer.path {
+            assert_eq!(props["align-items"], "center", "{}", widget.id);
+        }
+    }
+    let date = doc.find_exact(&built.ids["dates"]).unwrap();
+    assert_eq!(doc.at(&date.path)["Properties"]["Width"], 340);
+    assert_eq!(doc.at(&date.path)["Properties"]["FormatToken"], "DD-MM-YY");
+    for widget in doc
+        .widgets()
+        .into_iter()
+        .filter(|w| w.display_name == "body")
+    {
+        assert_eq!(doc.at(&widget.path)["Properties"]["Margin"], "");
+    }
 }

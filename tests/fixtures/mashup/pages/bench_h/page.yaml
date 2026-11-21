@@ -1,0 +1,26 @@
+version: 1
+rules: v1
+page:
+  name: Acme.BenchSpecH_MU
+  template: blank
+  data:
+    assets: {service: Acme.Cards.SearchAssets, on: load, params: {query: {bind: search.Text}}}
+    categories: {service: Acme.Cards.GetCategories, on: load}
+  slots:
+    center:
+      - page_header: {id: header, title: Asset List Top Filter}
+      - toolbar:
+          id: tools
+          children:
+            - text_field: {id: search, hint: Search..., props: {Icon: 'cds:icon_search', Width: 240}}
+            - dropdown: {id: category, options: categories, display: Value, hint: Category..., props: {Width: 240}}
+            - date_range: {id: dates}
+            - spacer: {id: space}
+            - button: {id: refresh, label: Refresh, props: {ButtonType: tertiary}}
+      - grid:
+          id: assets_grid
+          data: assets
+          columns: [{field: ThingName, title: Device Name}, {field: Status, status: Acme.BenchStatus_ST}, Category, Model, Date]
+  events:
+    - {on: search.Changed, invoke: assets}
+    - {on: refresh.Clicked, invoke: assets}

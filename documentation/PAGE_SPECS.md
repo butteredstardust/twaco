@@ -145,3 +145,31 @@ XML, content.json, custom.css and the baseline (plus the copied spec for new mas
 are rechecked before any installation, including unchanged files; stale plans are refused.
 Transaction failures roll back, and the existing workspace-lock recovery handles interrupted
 transactions. Build changes local files only; deploy remains a separate command.
+
+
+## Worked examples
+
+The benchmark pages use the small offline [Acme solution](../tests/fixtures/mashup/pages/bench_solution/twaco.toml).
+Copy that directory to a scratch workspace and pass one of these specs to
+`twaco mashup new <page.name> --project Acme.Bench --spec <file>` to review a plan.
+Add `--apply` to create local files, then `twaco mashup build <page.name>` should plan no changes.
+Deployment is separate. Golden files beside each spec record XML, content, CSS and stable IDs;
+CI also checks both front ends, rebuilds, retained hand edits and conflicts.
+
+| Benchmark / kit | Spec | Remaining differences from the kit |
+| --- | --- | --- |
+| A / AssetKPI | [KPI dashboard](../tests/fixtures/mashup/pages/bench_a/page.yaml) | Numeric KPI cards replace contained trend doodads; inline detail rows use native labels without status dots; line chart replaces the combo chart. No intent-level trend, inline detail-pair or combo-chart element yet. |
+| H / AssetListTopFilter | [Asset list](../tests/fixtures/mashup/pages/bench_h/page.yaml) | Search and refresh invoke SearchAssets. Its contract has only query, so category/date filtering needs another service contract. View Details navigation is outside the event subset. |
+| J / AlertsAndNotifications | [Alerts tabs](../tests/fixtures/mashup/pages/bench_j/page.yaml) | Asset fields substitute for a dedicated alert contract. Severity/date controls need filtering services; Form is styled but cannot open a popup through spec events yet. Application uses a second grid over the same source. |
+| K / AdminMetrics | [Metrics filters](../tests/fixtures/mashup/pages/bench_k/page.yaml) | Apply binds all side-filter values; Reset is present but has no reset recipe in specs. The template chevron is retained; no collapsible recipe is exposed. Toolbar search/category/date and View Details are visual controls awaiting separate filter/navigation wiring. Pagination uses the existing local slicing recipe. |
+| N / Documents | [Document actions](../tests/fixtures/mashup/pages/bench_n/page.yaml) | Grid selection and refresh work; Preview stays disabled. Selection-gated inversion needs typed function inputs or a condition recipe, neither exposed in specs. Preview window and download actions need navigation/download event support. |
+
+These are offline acceptance fixtures, not newly measured visual scores. A and H still require
+live comparison at 1440x900 and 1440x717 before claiming their previous score floor.
+All examples use native widgets. Their service contracts are synthetic and contain no live data.
+
+Spec-built blank pages own a 24px gutter; inline tab bodies own none. Toolbar bands use a fixed
+48px height with centered controls. Responsive placement wrappers size to content, while the
+spacer branch alone grows. Date ranges default to the kit's 340px width, date-only mode and
+`DD-MM-YY`; explicit props (for example a narrow filter's Width) still win. Existing unversioned
+mashups continue using legacy rules and unchanged legacy goldens.

@@ -35,6 +35,22 @@ impl Session {
             ));
         }
         let mut document = super::new::new_document(&template, false, theme)?;
+        if template.name == "blank" {
+            let context = mashup::layout::Context {
+                template: "blank",
+                element: mashup::layout::Element::Page,
+                slot: None,
+                parent: None,
+                widget: None,
+                op: None,
+                label: None,
+                facts: &[],
+            };
+            if let Some(gutter) = rules.evaluate(&context).gutter {
+                let center = document.find("center").map_err(AuthoringError::Edit)?;
+                document.set_property(&center.path, "Margin", serde_json::json!(gutter.value));
+            }
+        }
         document.root_mut().remove("CustomMashupCss");
         document.set_top("twacoPageRules", serde_json::json!("v1"));
         document.set_uuid_generator(crate::core::mashup::page::ids::uuid);

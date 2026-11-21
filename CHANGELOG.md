@@ -6,7 +6,13 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Page-spec v1 blank pages now own a 24px gutter; toolbar bands stay 48px with centered controls, spacers push later controls right, and date ranges use the kit's 340px width and short dates. Explicit sizes and props remain overrides; legacy output is unchanged.
+
 ### Added
+
+- Five reproducible page-spec benchmark examples (A, H, J, K, N), offline Acme contracts, artifact goldens and CLI/MCP rebuild/hand-edit coverage. Page-spec worked examples document remaining kit gaps.
 
 - Page-spec v1 elements: page headers, toolbar bands and spacers, equal KPI rows, cards, filter panels, tabs, line/bar/pie charts, date ranges, dropdowns, text fields and grid pagination through existing authoring helpers. Grid columns accept bare field names.
 - Page widget IDs now use stable four to six digit suffixes with collision refusal. Baselines record ID policy v2 and refuse incompatible older policies without renumbering.

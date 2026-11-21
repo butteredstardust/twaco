@@ -326,3 +326,118 @@ pub(super) fn wire_values(
     }
     Ok(())
 }
+
+pub(super) fn finish_layout(
+    session: &mut crate::core::mashup::authoring::session::Session,
+    page: &Page,
+    ids: &std::collections::BTreeMap<String, String>,
+) -> Result<(), Error> {
+    use crate::core::mashup::{
+        edit::MashupDocument,
+        layout::{self, context},
+    };
+    fn patch(document: &mut MashupDocument, path: &[usize], op: &'static str) {
+        let node = context::Node::op(op, layout::Element::Container);
+        for (key, value) in document.rules().evaluate(&node.context()).patch() {
+            document.set_property(path, key, value);
+        }
+    }
+    fn controls(
+        document: &mut MashupDocument,
+        path: &[usize],
+        spacers: &std::collections::BTreeSet<String>,
+    ) -> bool {
+        let id = document.at(path)["Properties"]["Id"]
+            .as_str()
+            .unwrap_or("")
+            .to_string();
+        if spacers.contains(&id) {
+            patch(document, path, "page-spacer");
+            return true;
+        }
+        let count = document.at(path)["Widgets"].as_array().map_or(0, Vec::len);
+        let mut grows = false;
+        for index in 0..count {
+            let child = [path, &[index]].concat();
+            grows |= controls(document, &child, spacers);
+        }
+        if document.at(path)["Properties"]["Type"] == "flexcontainer" {
+            patch(document, path, "page-control-row");
+            patch(document, path, "page-control-member");
+            if grows {
+                patch(document, path, "page-spacer");
+            }
+        }
+        grows
+    }
+    fn finish(
+        session: &mut crate::core::mashup::authoring::session::Session,
+        node: &Node,
+        ids: &std::collections::BTreeMap<String, String>,
+    ) -> Result<(), Error> {
+        let body = node.body();
+        for child in super::compile::descendants(node) {
+            finish(session, child, ids)?;
+        }
+        let path = session
+            .document
+            .find_exact(&ids[&body.id.value])
+            .map_err(|e| Error::at(body.id.referenced, e))?
+            .path;
+        if matches!(node, Node::DateRange(_)) {
+            patch(&mut session.document, &path, "page-date-range");
+            for (key, value) in &body.props {
+                if super::compile::binding(&value.value).is_none() {
+                    session
+                        .document
+                        .set_property(&path, key, value.value.clone());
+                }
+            }
+        }
+        if matches!(node, Node::Toolbar(_) | Node::PageHeader(_))
+            || (session.document.at(&path)["Properties"]["flex-direction"] == "row"
+                && body.children.iter().any(|n| matches!(n, Node::Spacer(_))))
+        {
+            let spacers = body
+                .children
+                .iter()
+                .filter(|n| matches!(n, Node::Spacer(_)))
+                .map(|n| ids[&n.body().id.value].clone())
+                .collect();
+            // Primitive placement adds responsive wrappers; only the spacer's branch may grow.
+            let authored_size: Vec<_> = [
+                "flex-size",
+                "flex-min-height",
+                "flex-max-height",
+                "flex-grow",
+                "flex-shrink",
+                "flex-basis",
+            ]
+            .into_iter()
+            .filter(|_| body.size.is_some())
+            .map(|key| (key, session.document.at(&path)["Properties"][key].clone()))
+            .collect();
+            controls(&mut session.document, &path, &spacers);
+            if matches!(node, Node::Toolbar(_)) && body.band.unwrap_or(true) {
+                patch(&mut session.document, &path, "toolbar-band");
+            } else if matches!(node, Node::PageHeader(_)) {
+                patch(&mut session.document, &path, "page-header");
+            }
+            for (key, value) in authored_size {
+                session.document.set_property(&path, key, value);
+            }
+            for (key, value) in &body.props {
+                if super::compile::binding(&value.value).is_none() {
+                    session
+                        .document
+                        .set_property(&path, key, value.value.clone());
+                }
+            }
+        }
+        Ok(())
+    }
+    for node in page.slots.values().flat_map(|s| &s.value) {
+        finish(session, node, ids)?;
+    }
+    Ok(())
+}

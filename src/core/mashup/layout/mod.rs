@@ -537,22 +537,32 @@ mod tests {
     }
 
     #[test]
-    fn v1_preserves_legacy_rules_and_adds_only_page_element_operations() {
+    fn v1_changes_only_reviewed_page_rules() {
         let legacy = RuleSet::embedded(Version::Legacy);
         let v1 = RuleSet::embedded(Version::V1);
-        assert_eq!(legacy.rules, v1.rules[..legacy.rules.len()]);
+        for (old, new) in legacy.rules.iter().zip(&v1.rules) {
+            assert_eq!(old.id, new.id);
+            if !["gutter.page-padded", "props.toolbar-band"].contains(&old.id.as_str()) {
+                assert_eq!(old, new, "{}", old.id);
+            } else {
+                assert_ne!(old, new, "{}", old.id);
+            }
+        }
         let additions = &v1.rules[legacy.rules.len()..];
-        assert_eq!(additions.len(), 4);
-        for (rule, op) in
-            additions
-                .iter()
-                .zip(["page-header", "page-kpi-row", "page-card", "page-spacer"])
-        {
+        assert_eq!(additions.len(), 7);
+        for (rule, op) in additions.iter().zip([
+            "page-header",
+            "page-kpi-row",
+            "page-card",
+            "page-control-row",
+            "page-control-member",
+            "page-date-range",
+            "page-spacer",
+        ]) {
             assert!(matches!(&rule.when.op,Some(Names::One(name)) if name == op));
         }
         assert_eq!(legacy.version, "legacy");
         assert_eq!(v1.version, "v1");
-        assert!(!legacy.rules.is_empty());
     }
 
     #[test]

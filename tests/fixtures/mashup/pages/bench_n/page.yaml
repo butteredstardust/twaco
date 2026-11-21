@@ -1,0 +1,23 @@
+version: 1
+rules: v1
+page:
+  name: Acme.BenchSpecN_MU
+  template: blank
+  data:
+    documents: {service: Acme.BenchData.GetDocuments, on: load}
+  slots:
+    center:
+      - toolbar:
+          id: tools
+          children:
+            - button: {id: preview, label: Preview, props: {ButtonType: tertiary, Disabled: true}}
+            - button: {id: download, label: Download, props: {ButtonType: tertiary}}
+            - spacer: {id: space}
+            - button: {id: refresh, label: Refresh, props: {ButtonType: tertiary}}
+      - grid:
+          id: documents_grid
+          data: documents
+          props: {RowSelection: single}
+          columns: [Title, FileName, Description, URL]
+  events:
+    - {on: refresh.Clicked, invoke: documents}

@@ -13,7 +13,7 @@
     { "id": "justify.end", "when": { "element": "slot", "slot": ["actions", "close"] }, "decisions": { "justify": "flex-end" } },
     { "id": "justify.centred-content", "when": { "template": ["kpi-tile", "confirm-dialog"], "slot": ["value", "message"] }, "decisions": { "justify": "center" } },
 
-    { "id": "gutter.page-padded", "when": { "template": ["list-page", "tabs", "dashboard"], "element": "page" }, "decisions": { "gutter": "24" } },
+    { "id": "gutter.page-padded", "when": { "template": ["blank", "list-page", "tabs", "dashboard"], "element": "page" }, "decisions": { "gutter": "24" } },
     { "id": "gutter.page-hosted", "when": { "template": "tab-content", "element": "page" }, "decisions": { "gutter": "" } },
     { "id": "gutter.tab-content-slot", "when": { "template": "tab-content", "element": "slot" }, "decisions": { "gutter": "" } },
     { "id": "gutter.filters", "when": { "template": "filter-panel", "slot": "filters" }, "decisions": { "gutter": "" } },
@@ -61,7 +61,7 @@
 
     { "id": "align.mixed-label-row", "when": { "op": "control-row", "facts": ["mixed-label-controls"] }, "decisions": { "align": "flex-end", "member_props": { "Margin": "0" } } },
 
-    { "id": "props.toolbar-band", "when": { "op": "toolbar-band" }, "decisions": { "props": { "Margin": "", "UseTheme": true, "flex-direction": "row", "align-items": "center", "align-content": "flex-start", "justify-content": "space-between", "flex-wrap": "nowrap", "ExpandCollapseTabLocation": "inside", "flex-size": "fixed", "flex-min-height": "48px", "flex-max-height": "48px", "flex-grow": 1, "flex-shrink": 1, "flex-basis": "auto", "ShowVerticalScrollbar": false } } },
+    { "id": "props.toolbar-band", "when": { "op": "toolbar-band" }, "decisions": { "props": { "Margin": "", "UseTheme": true, "flex-direction": "row", "align-items": "center", "align-content": "flex-start", "justify-content": "flex-start", "flex-wrap": "nowrap", "ExpandCollapseTabLocation": "inside", "flex-size": "fixed", "flex-min-height": "48px", "flex-max-height": "48px", "flex-grow": 0, "flex-shrink": 0, "flex-basis": "auto", "ShowVerticalScrollbar": false } } },
     { "id": "props.card-recipe", "when": { "op": "card-recipe" }, "decisions": { "props": { "Margin": "8", "UseTheme": true, "flex-direction": "column", "flex-wrap": "nowrap", "align-items": "flex-start", "justify-content": "flex-start", "ExpandCollapseTabLocation": "inside", "ShowVerticalScrollbar": false, "flex-size": "default", "flex-min-height": "", "flex-max-height": "", "flex-grow": 1, "flex-shrink": 1, "flex-basis": "0px" } } },
     { "id": "props.panel-card-gutter", "when": { "op": "panel-recipe", "facts": ["style-card"] }, "decisions": { "props": { "Margin": "" } } },
     { "id": "props.panel-content-fit", "when": { "op": "panel-recipe", "facts": ["fit-content"] }, "decisions": { "props": { "flex-size": "default", "flex-min-height": "", "flex-grow": 0 } } },
@@ -88,6 +88,9 @@
     { "id": "props.page-header", "when": { "op": "page-header" }, "decisions": { "props": { "flex-direction": "row", "align-items": "center", "flex-grow": 0 } } },
     { "id": "props.page-kpi-row", "when": { "op": "page-kpi-row" }, "decisions": { "siblings": "equal", "props": { "flex-direction": "row", "align-items": "stretch" } } },
     { "id": "props.page-card", "when": { "op": "page-card" }, "decisions": { "props": { "flex-direction": "column" } } },
+    { "id": "props.page-control-row", "when": { "op": "page-control-row" }, "decisions": { "props": { "align-items": "center", "align-content": "center", "justify-content": "flex-start", "flex-wrap": "nowrap", "flex-min-height": "0px", "flex-max-height": "", "flex-size": "default" } } },
+    { "id": "props.page-control-member", "when": { "op": "page-control-member" }, "decisions": { "props": { "flex-grow": 0, "flex-shrink": 0, "flex-basis": "auto" } } },
+    { "id": "props.page-date-range", "when": { "op": "page-date-range" }, "decisions": { "props": { "Width": 340, "DateOnly": true, "FormatToken": "DD-MM-YY" } } },
     { "id": "props.page-spacer", "when": { "op": "page-spacer" }, "decisions": { "props": { "flex-grow": 1, "flex-basis": "0px" } } }
 
   ]

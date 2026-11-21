@@ -2769,3 +2769,22 @@ field names (`columns: [Name, Count]`). See the [element reference](PAGE_SPECS.m
 for one example of each. These elements reuse the command recipes, templates and native
 widgets, with layout from the pinned v1 rules. Widget IDs keep stable hash suffixes in a readable
 four to six digit range; old ID-policy baselines require their compatible twaco version.
+
+
+## Build a page from a spec
+
+Write a YAML page spec with `version: 1`, `rules: v1`, a page name, template,
+data services and slot elements. Start with the [worked examples](PAGE_SPECS.md#worked-examples).
+Services resolve from your local solution; building needs no server.
+
+```sh
+twaco mashup new Acme.Alerts_MU --project Acme --spec alerts.page.yaml
+twaco mashup new Acme.Alerts_MU --project Acme --spec alerts.page.yaml --apply
+twaco mashup build Acme.Alerts_MU
+```
+
+Creation copies the spec to `src/Acme.Alerts_MU/page.yaml`. Edit it and plan another build;
+add `--apply` to write local changes. Commit the spec and `.page-baseline.json` beside the
+mashup sidecars. Builds retain independent hand edits and report conflicts without writing.
+Use your normal deploy workflow after reviewing the generated files. MCP offers the same
+operations through `mashup_new` (`spec`) and `mashup_build`, with `dry_run: true` by default.
