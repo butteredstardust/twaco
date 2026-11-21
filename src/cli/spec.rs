@@ -423,6 +423,7 @@ pub(crate) const USAGE: &[Usage] = &[
         path: "doctor",
         group: 0,
         text: r#"  doctor [--profile <name>] [--json]  what resolved, what is reachable, what is missing
+      Checks optional TWACO_SDK and TWACO_STRUCTURE_XSD paths and schema generation.
       --json                  print the report as JSON"#,
     },
     Usage {
@@ -1045,7 +1046,7 @@ pub(crate) const USAGE: &[Usage] = &[
       --menu-entity <Menu>    a Menu in the solution for a template's menu bar instead (no service)
       --secondary-menu        optional INFOTABLE service result for a template's menu bar
       --theme <StyleTheme>    a StyleTheme in the solution (default: PTC Convergence Theme)
-      --master                a master mashup, with a page container filling the center
+      --master                create a master mashup (a page container fills the center)
       --visibility            Organization/<name> or OrganizationalUnit/<organization>:<unit>, repeatable;
                               none unless given
       --tab                   with --template tabs: a tab's label and the mashup it shows, repeatable
@@ -1068,7 +1069,7 @@ pub(crate) const USAGE: &[Usage] = &[
       --menu-entity <Menu>    a Menu in the solution for a template's menu bar instead (no service)
       --secondary-menu        optional INFOTABLE service result for a template's menu bar
       --theme <StyleTheme>    a StyleTheme in the solution (default: PTC Convergence Theme)
-      --master                a master mashup, with a page container filling the center
+      --master                create a master mashup (a page container fills the center)
       --visibility            Organization/<name> or OrganizationalUnit/<organization>:<unit>, repeatable;
                               none unless given
       --tab                   with --template tabs: a tab's label and the mashup it shows, repeatable
@@ -1581,8 +1582,9 @@ pub(crate) const USAGE: &[Usage] = &[
         path: "entity push",
         group: 2,
         text: r#"  entity push <entity> [--apply] [--json]
-                              import one entity, refusing if the server changed
+                              check and import one entity, refusing if gates fail or the server changed
       --apply                 actually push (without it, report what would happen)
+      --skip-checks           skip per-entity deploy gates and live script parse; report skipped gates
       --force                 push over a server-side change; the server's copy is saved first
       --no-backup             with --force, do not save the server's copy first"#,
     },

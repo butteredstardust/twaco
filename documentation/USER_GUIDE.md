@@ -558,7 +558,15 @@ applies that profile's mashup patches (without it none apply), but a hand-import
 preserve server-owned parts. `bundle --handoff` records the whole repository, so it is refused
 with any of these.
 
-`twaco entity push <Entity>` imports a single entity, with the same conflict check.
+`twaco entity push Things/Acme.Orders` runs the per-entity deploy gates in plans and applies:
+lint and script traps, sidecar consistency, validation and the configured structure XSD.
+It also parses that entity's service scripts on the server before import. Blocking findings
+name their file and line and import nothing; advisories are reported without blocking.
+`--force` only overrides server conflicts. `--skip-checks` skips these gates and the script
+parse and lists what was skipped (MCP: `skip_checks: true`). A missing referenced entity
+names the required order: `twaco entity push DataShapes/Acme.Rows --apply` first, or use
+`twaco deploy --apply` for an ordered deployment.
+The same conflict check applies.
 
 ## Taking in a designer's or another backend developer's work
 
@@ -1215,8 +1223,8 @@ are INFOTABLE-returning services. Their menu-bar data bindings and page-loaded s
 exactly those `mashup bind` and `mashup on` would create. The menu bar shows a tree of `MenuEntry`
 rows: one root row (`linkType` `Menu`, a `menuId` such as `topMenu`) and items whose `parentMenuId` is
 that id, with `linkType` and `linkTarget` `Mashup` and the mashup in `linkDestination`. Rows without
-the root show nothing, and twaco cannot check that from the service definition. `--master` makes a master mashup instead,
-with a page container filling the template's master slot for the pages it shows. The theme is ThingWorx's default unless `--theme` names a
+the root show nothing, and twaco cannot check that from the service definition. `--master` creates a master mashup (a page container fills the center)
+for the pages it shows. The theme is ThingWorx's default unless `--theme` names a
 StyleTheme in the solution; twaco never creates one. Nothing is granted visibility unless
 `--visibility` names an `Organization/<name>` or an `OrganizationalUnit/<organization>:<unit>`.
 `--project` may be left out when the solution has one project. A name that is already a mashup, or
@@ -2566,6 +2574,20 @@ strings; it plans unless `dry_run` is false. Deploy imports the repository XML.
 `entity delete DirectoryServices/Acme.Directory --apply` uses REST DELETE with the usual
 dependency guards, backup and absence verification.
 
-`config-table set` replaces the table. Its plan lists live columns that currently contain a
-value but are absent from every supplied row, for example `would be cleared: runAsUser, schedule`.
-JSON and MCP results include a `warnings` array; applying still replaces the rows.
+JSON and MCP configuration-table results include a `warnings` array; applying still replaces the rows.
+
+`twaco doctor` reports whether optional `TWACO_SDK` and `TWACO_STRUCTURE_XSD` are set and their
+paths exist. It reads the configured XSD or jar/zip with the same reader as the structure
+gate, checks for `schema.xsd` in archives, and infers the platform schema generation from
+Roles, PermissionGroups and MCPNamespaces (absent in 10.0, present in 10.2). Unset is
+informational; a broken configured path or archive is a warning.
+
+MCP `entity_new` refuses arguments outside the selected kind's CLI grammar, including
+explicit empty lists and false switches. Pass only options accepted by `twaco new <kind>`.
+Panel recipes preserve existing CRLF when adding or replacing managed CSS; only whole,
+trimmed marker lines delimit a managed block.
+
+`config-table set` replaces all rows. Its plan and apply warn for valued columns omitted
+from every supplied row, columns supplied in some rows but omitted in others (those cells
+are cleared), and existing rows omitted from the replacement. With a primary key, dropped
+rows are identified by that key; without one, the warning reports a reduction in row count.

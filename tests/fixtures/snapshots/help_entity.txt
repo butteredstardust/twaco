@@ -35,8 +35,9 @@ usage: twaco entity <command>
       --member <name>         that property, service or event only
       --values                with each property's current value (a Thing; what this profile may read)
   entity push <entity> [--apply] [--json]
-                              import one entity, refusing if the server changed
+                              check and import one entity, refusing if gates fail or the server changed
       --apply                 actually push (without it, report what would happen)
+      --skip-checks           skip per-entity deploy gates and live script parse; report skipped gates
       --force                 push over a server-side change; the server's copy is saved first
       --no-backup             with --force, do not save the server's copy first
   entity delete <entity>...   plan guarded server deletion; Collection/Name or a bare server name

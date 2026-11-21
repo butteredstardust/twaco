@@ -116,6 +116,75 @@ impl Kind {
         }
     }
 
+    /// Whether the CLI grammar accepts this option for this entity kind.
+    pub(crate) fn accepts_option(self, option: &str) -> bool {
+        if matches!(option, "description" | "name" | "kind" | "dry_run") {
+            return true;
+        }
+        if option == "project" {
+            return self != Self::Project;
+        }
+        let options: &[&str] = match self {
+            Self::Project => &["depends_on"],
+            Self::ThingGroup => &["member"],
+            Self::Notification => &["content", "event", "recipient"],
+            Self::NotificationContent => &["handler", "handler_id", "field", "set"],
+            Self::DirectoryService => &["type", "host", "port", "priority"],
+            Self::Thing => &["visibility", "template", "shape", "value_stream"],
+            Self::ThingTemplate => &["visibility", "base", "shape"],
+            Self::ThingShape => &["visibility"],
+            Self::DataShape => &["visibility", "base", "field"],
+            Self::Timer => &[
+                "visibility",
+                "every",
+                "run_as",
+                "disabled",
+                "then",
+                "script",
+            ],
+            Self::Scheduler => &["visibility", "cron", "run_as", "disabled", "then", "script"],
+            Self::DataTable => &["data_shape", "index"],
+            Self::Stream => &["data_shape"],
+            Self::Media => &["file"],
+            Self::Style => &[
+                "background",
+                "foreground",
+                "secondary_background",
+                "line_color",
+                "line_style",
+                "line_thickness",
+                "bold",
+                "italic",
+                "underline",
+                "text_size",
+                "image",
+                "display_string",
+            ],
+            Self::State => &["type", "state"],
+            Self::Menu => &["icon", "item", "default", "label"],
+            Self::Theme => &["from", "prop"],
+            Self::McpNamespace => &[
+                "tool",
+                "service_resource",
+                "file_resource",
+                "prompt",
+                "describe",
+            ],
+            Self::AiAgent => &[
+                "namespace",
+                "skill",
+                "resolver",
+                "taxonomy",
+                "instructions",
+                "instructions_file",
+                "agent_description",
+                "display_name",
+            ],
+            _ => &[],
+        };
+        options.contains(&option)
+    }
+
     pub(crate) fn collection(self) -> &'static str {
         match self {
             Self::Project => "Projects",

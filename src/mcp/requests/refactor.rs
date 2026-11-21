@@ -494,8 +494,8 @@ pub(crate) struct EntityNewRequest {
     pub(crate) cron: Absent<String>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) run_as: Absent<String>,
-    #[serde(default)]
-    pub(crate) disabled: bool,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) disabled: Absent<bool>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) then: Absent<String>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
@@ -518,12 +518,12 @@ pub(crate) struct EntityNewRequest {
     pub(crate) line_style: Absent<String>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) line_thickness: Absent<String>,
-    #[serde(default)]
-    pub(crate) bold: bool,
-    #[serde(default)]
-    pub(crate) italic: bool,
-    #[serde(default)]
-    pub(crate) underline: bool,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) bold: Absent<bool>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) italic: Absent<bool>,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) underline: Absent<bool>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) text_size: Absent<String>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
@@ -545,8 +545,8 @@ pub(crate) struct EntityNewRequest {
     pub(crate) state: Absent<Vec<String>>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) item: Absent<Vec<String>>,
-    #[serde(default)]
-    pub(crate) default: bool,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) default: Absent<bool>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) label: Absent<String>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]

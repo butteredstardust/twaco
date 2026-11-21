@@ -348,6 +348,10 @@ fn as_configured(solution: &Solution, mut gate: GateResult) -> GateResult {
 
 /// Run every gate the solution declares, built in and configured alike.
 pub fn run(solution: &Solution) -> CheckReport {
+    run_with_hooks(solution, true)
+}
+
+fn run_with_hooks(solution: &Solution, hooks: bool) -> CheckReport {
     let discovery = workspace::discover(solution);
     let (model, _) = types::load_model(solution);
     let lint = solution.effective_lint();
@@ -396,8 +400,47 @@ pub fn run(solution: &Solution) -> CheckReport {
             as_configured(solution, comment_header_with(solution, &discovery, &lint)),
         );
     }
-    for hook in &solution.checks {
-        report.gates.push(run_hook(solution, hook));
+    if hooks {
+        for hook in &solution.checks {
+            report.gates.push(run_hook(solution, hook));
+        }
+    }
+    report
+}
+
+pub(crate) fn entity_gate_names(solution: &Solution) -> Vec<&'static str> {
+    let lint = solution.effective_lint();
+    BUILT_IN_GATES
+        .iter()
+        .copied()
+        .filter(|name| {
+            !matches!(*name, "requirements" | "project dependencies")
+                && (!name.starts_with("comment ") || lint.gate_enabled(name))
+        })
+        .chain(std::iter::once("live parse"))
+        .collect()
+}
+
+/// The deploy gates that apply to one entity, without solution-wide hooks or requirements.
+pub(crate) fn run_entity(solution: &Solution, entity: &workspace::EntityFile) -> CheckReport {
+    let mut report = run_with_hooks(solution, false);
+    report
+        .gates
+        .retain(|gate| gate.name != "requirements" && gate.name != "project dependencies");
+    report.scope_to_entities(
+        solution,
+        &BTreeSet::from([solution.relative(&entity.path).replace('\\', "/")]),
+    );
+    let owners = file_owners(solution);
+    for gate in &mut report.gates {
+        gate.prose.clear();
+        gate.warnings.retain(|finding| {
+            owner_of(&owners, &finding.file)
+                .and_then(|owner| owner.entity.as_ref())
+                .is_none_or(|owner| {
+                    owner.file == solution.relative(&entity.path).replace('\\', "/")
+                })
+        });
     }
     report
 }
@@ -548,13 +591,27 @@ pub fn live_parse_with_progress(
     checker: Result<&dyn ScriptChecker, String>,
     progress: &dyn Progress,
 ) -> GateResult {
-    as_configured(solution, live_parse_gate(solution, checker, progress))
+    as_configured(solution, live_parse_gate(solution, checker, progress, None))
+}
+
+pub(crate) fn live_parse_entity(
+    solution: &Solution,
+    checker: &dyn ScriptChecker,
+    progress: &dyn Progress,
+    entity: &Path,
+    bytes: &[u8],
+) -> GateResult {
+    as_configured(
+        solution,
+        live_parse_gate(solution, Ok(checker), progress, Some((entity, bytes))),
+    )
 }
 
 fn live_parse_gate(
     solution: &Solution,
     checker: Result<&dyn ScriptChecker, String>,
     progress: &dyn Progress,
+    only: Option<(&Path, &[u8])>,
 ) -> GateResult {
     const GATE: &str = "live parse";
     let mut result = GateResult::passed(GATE, 0);
@@ -572,11 +629,19 @@ fn live_parse_gate(
         sidecar: PathBuf,
         service: String,
         source: String,
+        xml_line: usize,
     }
     let mut scripts = Vec::new();
     for entity in workspace::discover(solution).entities {
-        let Ok(bytes) = std::fs::read(&entity.path) else {
+        if only.is_some_and(|(path, _)| path != entity.path) {
             continue;
+        }
+        let bytes = match only {
+            Some((_, bytes)) => bytes.to_vec(),
+            None => match std::fs::read(&entity.path) {
+                Ok(bytes) => bytes,
+                Err(_) => continue,
+            },
         };
         // A document that will not parse is the project gate's finding, not this one's.
         let Ok(services) = super::sidecar::script_services(&bytes) else {
@@ -589,6 +654,10 @@ fn live_parse_gate(
                 entity_file: entity.path.clone(),
                 sidecar: services_dir.join(&service.name).join("script.js"),
                 service: service.name,
+                xml_line: String::from_utf8_lossy(&bytes)
+                    .find(&service.script)
+                    .map(|at| bytes[..at].iter().filter(|b| **b == b'\n').count())
+                    .unwrap_or(0),
                 source: service.script,
             });
         }
@@ -625,7 +694,7 @@ fn live_parse_gate(
             Finding {
                 gate: GATE.to_string(),
                 file: relative(solution, &script.entity_file),
-                line: 0,
+                line: script.xml_line + checked.line_number.max(1),
                 rule: "rhino".to_string(),
                 message: format!(
                     "service {} line {} column {}: {message}",
@@ -1082,6 +1151,33 @@ fn scripts(solution: &Solution, result: &mut GateResult) -> Vec<(PathBuf, String
             Err(error) => {
                 let file = relative(solution, &path);
                 result.findings.push(unreadable(&result.name, file, error));
+            }
+        }
+    }
+    if result.name == "script traps" {
+        for entity in workspace::discover(solution).entities {
+            let Ok(bytes) = std::fs::read(&entity.path) else {
+                continue;
+            };
+            let Ok(services) = super::sidecar::script_services(&bytes) else {
+                continue;
+            };
+            for service in services {
+                let sidecar = workspace::services_dir(solution, &entity)
+                    .join(&service.name)
+                    .join("script.js");
+                if sidecar.is_file() {
+                    continue;
+                }
+                let source = String::from_utf8_lossy(&bytes);
+                let offset = source
+                    .find(&service.script)
+                    .map(|at| source[..at].bytes().filter(|b| *b == b'\n').count())
+                    .unwrap_or(0);
+                read.push((
+                    entity.path.clone(),
+                    format!("{}{}", "\n".repeat(offset), service.script),
+                ));
             }
         }
     }

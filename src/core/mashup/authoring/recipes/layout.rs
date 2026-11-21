@@ -41,13 +41,15 @@ fn panel_css_for(id: &str, compact: Option<u32>, style: &str) -> String {
 }
 
 fn managed_css(css: &str, id: &str, block: &str) -> Result<String, AuthoringError> {
+    let newline = crate::core::workspace::line_ending(css);
+    let block = block.replace("\r\n", "\n").replace('\n', newline);
     let mut open = None;
     let mut seen = std::collections::BTreeSet::new();
     let mut owned = None;
     let mut offset = 0;
     for line in css.split_inclusive('\n') {
-        if line.contains("twaco:panel:") {
-            let marker = line.trim_end_matches(['\r', '\n']);
+        let marker = line.trim();
+        if marker.starts_with("/* twaco:panel:") && marker.ends_with(" */") {
             let Some(inner) = marker
                 .strip_prefix("/* twaco:panel:")
                 .and_then(|s| s.strip_suffix(" */"))
@@ -91,7 +93,7 @@ fn managed_css(css: &str, id: &str, block: &str) -> Result<String, AuthoringErro
     }
     if let Some(range) = owned {
         let mut result = css.to_string();
-        result.replace_range(range, block);
+        result.replace_range(range, &block);
         Ok(result)
     } else {
         Ok(format!(
@@ -99,7 +101,7 @@ fn managed_css(css: &str, id: &str, block: &str) -> Result<String, AuthoringErro
             if css.is_empty() || css.ends_with('\n') {
                 ""
             } else {
-                "\n"
+                newline
             }
         ))
     }
@@ -589,5 +591,23 @@ mod tests {
             }
         )
         .is_err());
+    }
+}
+
+#[cfg(test)]
+mod css_tests {
+    use super::*;
+
+    #[test]
+    fn managed_blocks_keep_crlf_and_ignore_embedded_markers() {
+        let css =
+            "a { content: \"/* twaco:panel:x:start */\"; }\r\n/* example twaco:panel:x:end */\r\n";
+        let block = panel_css("x", None);
+        let inserted = managed_css(css, "x", &block).unwrap();
+        assert!(inserted.starts_with(css));
+        assert!(!inserted.replace("\r\n", "").contains('\n'));
+        assert_eq!(managed_css(&inserted, "x", &block).unwrap(), inserted);
+        let indented = "  /* twaco:panel:x:start */\nold\n  /* twaco:panel:x:end */\n";
+        assert_eq!(managed_css(indented, "x", &block).unwrap(), block);
     }
 }

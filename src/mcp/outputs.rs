@@ -1045,7 +1045,7 @@ pub(crate) struct DoctorResult {
 
 #[derive(Serialize, JsonSchema)]
 struct DoctorItem {
-    /// ok, warn or fail.
+    /// info, ok, warn or fail.
     health: String,
     subject: String,
     detail: String,

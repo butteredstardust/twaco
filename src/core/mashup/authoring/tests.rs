@@ -13720,6 +13720,23 @@ fn panel_card_matches_focus_export_and_inherits_on_wrappers() {
     recipe(&solution, "panel", args).unwrap();
     assert_eq!(sidecar_content(&solution), before);
     assert_eq!(std::fs::read_to_string(css_path).unwrap(), css);
+    let css_path = dir.path().join("src/Acme.Orders_MU/mashup/custom.css");
+    let crlf = css.replace('\n', "\r\n");
+    std::fs::write(&css_path, &crlf).unwrap();
+    recipe(
+        &solution,
+        "panel",
+        RecipeArgs {
+            widget: Some(panel),
+            style: Some("card".into()),
+            compact: Some(768),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let updated = std::fs::read_to_string(css_path).unwrap();
+    assert!(updated.contains("@media"));
+    assert!(!updated.replace("\r\n", "").contains('\n'));
 }
 
 #[test]

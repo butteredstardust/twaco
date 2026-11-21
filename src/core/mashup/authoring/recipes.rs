@@ -1361,7 +1361,16 @@ pub(crate) fn plan_recipe(
             compact,
             style,
         } => {
-            css = Some(work.panel(container, *compact, style, &loaded.assets.css)?);
+            let original_css = loaded
+                .sidecars
+                .as_ref()
+                .map(|(_, _, _, bytes)| {
+                    crate::core::workspace::without_bom(
+                        std::str::from_utf8(bytes).expect("CSS read as UTF-8"),
+                    )
+                })
+                .unwrap_or(&loaded.assets.css);
+            css = Some(work.panel(container, *compact, style, original_css)?);
         }
         Recipe::SliderAction { slider, button } => work.slider_action(slider, button)?,
         Recipe::Toolbar {

@@ -1413,6 +1413,11 @@
       "additionalProperties": false,
       "type": "object",
       "properties": {
+        "skip_checks": {
+          "description": "Skip per-entity deploy gates and the server script parse; reports the skipped gates.",
+          "type": "boolean",
+          "default": false
+        },
         "entity": {
           "type": "string"
         },
@@ -4106,8 +4111,7 @@
           "type": "string"
         },
         "disabled": {
-          "type": "boolean",
-          "default": false
+          "type": "boolean"
         },
         "then": {
           "type": "string"
@@ -4146,16 +4150,13 @@
           "type": "string"
         },
         "bold": {
-          "type": "boolean",
-          "default": false
+          "type": "boolean"
         },
         "italic": {
-          "type": "boolean",
-          "default": false
+          "type": "boolean"
         },
         "underline": {
-          "type": "boolean",
-          "default": false
+          "type": "boolean"
         },
         "text_size": {
           "type": "string"
@@ -4195,8 +4196,7 @@
           }
         },
         "default": {
-          "type": "boolean",
-          "default": false
+          "type": "boolean"
         },
         "label": {
           "type": "string"
@@ -12222,7 +12222,7 @@
             "type": "object",
             "properties": {
               "health": {
-                "description": "ok, warn or fail.",
+                "description": "info, ok, warn or fail.",
                 "type": "string"
               },
               "subject": {

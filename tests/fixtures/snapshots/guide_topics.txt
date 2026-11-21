@@ -3,7 +3,7 @@ exit: 0
 
 --- stdout
 workflow      built in  Working on a ThingWorx solution with twaco
-quirks        built in  ThingWorx platform quirks (verified live)
+quirks        built in  ThingWorx platform quirks
 service-code  built in  ThingWorx service code reference
 --- stderr
 read one: twaco guide <topic>; search all: twaco guide --search <words>

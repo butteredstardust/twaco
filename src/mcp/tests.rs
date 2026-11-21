@@ -402,6 +402,11 @@ fn hand_written_tools() -> Vec<Value> {
         "type": "boolean",
         "default": false
     });
+    let push = tools
+        .iter_mut()
+        .find(|tool| tool["name"] == "push")
+        .unwrap();
+    push["inputSchema"]["properties"]["skip_checks"] = json!({"type":"boolean", "default":false, "description":"Skip per-entity deploy gates and the server script parse; reports the skipped gates."});
     let new = tools
         .iter_mut()
         .find(|tool| tool["name"] == "mashup_new")
@@ -582,6 +587,12 @@ fn hand_written_tools() -> Vec<Value> {
         .iter_mut()
         .find(|tool| tool["name"] == "entity_new")
         .unwrap();
+    for flag in ["disabled", "bold", "italic", "underline", "default"] {
+        new["inputSchema"]["properties"][flag]
+            .as_object_mut()
+            .unwrap()
+            .remove("default");
+    }
     new["description"] = json!(new["description"].as_str().unwrap().replace(
         "repository XML file: Projects, Groups, common Things",
         "repository XML file: Projects, Groups, Roles, PermissionGroups, common Things"

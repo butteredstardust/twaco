@@ -599,6 +599,8 @@ mod status_tests {
 #[derive(Debug, clap::Args)]
 #[group(skip)]
 pub(crate) struct EntityPush {
+    #[arg(long = "skip-checks")]
+    pub(crate) skip_checks: bool,
     #[command(flatten)]
     pub(crate) json: Json,
     #[command(flatten)]
@@ -630,6 +632,7 @@ pub(crate) fn entity_push(solution: &Solution, args: &EntityPush) -> u8 {
             Mode::Plan
         },
         force: args.force,
+        skip_checks: args.skip_checks,
         backup: !args.no_backup,
         profile: args.profile.name().to_string(),
     };
@@ -644,7 +647,8 @@ pub(crate) fn entity_push(solution: &Solution, args: &EntityPush) -> u8 {
     );
     print_notices(&notices);
     if args.json.json {
-        let (value, code) = push_json(result, request.force);
+        let (mut value, code) = push_json(result, request.force);
+        value["notices"] = serde_json::json!(notices.lines());
         println!(
             "{}",
             serde_json::to_string_pretty(&value).expect("push result is JSON")

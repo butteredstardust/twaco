@@ -612,6 +612,7 @@ fn doctor_cmd(parsed: &Doctor) -> u8 {
     }
     for item in &items {
         let mark = match item.health {
+            twaco::core::doctor::Health::Info => "info",
             twaco::core::doctor::Health::Ok => "ok  ",
             twaco::core::doctor::Health::Warn => "warn",
             twaco::core::doctor::Health::Fail => "FAIL",

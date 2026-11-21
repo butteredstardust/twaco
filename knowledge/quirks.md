@@ -1,6 +1,7 @@
-# ThingWorx platform quirks (verified live)
+# ThingWorx platform quirks
 
-These are behaviours measured on live ThingWorx servers from 9.5 through 10.2. They are not a
+These are behaviours measured on live ThingWorx servers from 9.5 through 10.2, plus explicitly
+attributed field reports that have not been re-verified by twaco maintainers. They are not a
 substitute for testing the target server. Examples use Acme.Orders names.
 
 ## PermissionGroup rows also become target principals (verified on 10.2.0-b75, 2026-11-19)
@@ -1058,3 +1059,162 @@ On a fresh portable 10.2.1 the Administrator password is the `AdministratorUserS
 setting in the instance's `platform-settings.json`, not the password the start banner prints, so
 the first sign-in with the banner's password is a 401. `twaco doctor` names the setting after a
 401 from a local profile; it never reads the value.
+
+## Rich text normalises HTML
+
+Reported from a field session on ThingWorx 10.2.1, not re-verified.
+
+`ptcsrte` sanitises and normalises authored HTML. The field session observed `b` becoming
+`strong`, `i` becoming `em`, inline width/height surviving, and `max-width` being removed. Check the rendered result after saving rich text.
+
+## Numeric textfield bounds do not clamp
+
+Reported from a field session on ThingWorx 10.2.1, not re-verified.
+
+`ptcstextfield` in `NumericInputMode` accepts values outside `Min`/`Max`; those properties
+do not clamp the input. Validate the value before using it in a service.
+
+## Debugger variables declared with const cannot be edited
+
+Reported from a field session on ThingWorx 10.2.1, not re-verified.
+
+The service debugger cannot edit variables declared with `const`. Use a mutable declaration
+when a debugging session needs to change the variable.
+
+## Collection load-once cells can still unload
+
+Reported from a field session on ThingWorx 10.2.1, not re-verified.
+
+`ptcscollection` with load-once item loading still unloads cells when `CellUnloadDelay`
+elapses. Load-once does not guarantee that an offscreen cell stays instantiated.
+
+## Composer breakpoints persist per user
+
+Reported from a field session on ThingWorx 10.2.1, not re-verified.
+
+Composer service breakpoints persist for the user across sessions. Check existing breakpoints
+when a later service debugging session stops unexpectedly.
+
+## Grid delayed rows need a service binding
+
+Reported from a field session on ThingWorx 10.2.1, not re-verified.
+
+For grid row lazy loading, bind a service to `RowDelayedData`. The reported calls supply
+`index`, `reset`, `sort`, `filter` and `selected`; an empty result ends loading. Bind the
+same service to `Data` for the first chunk. For example, `Acme.Orders.LoadRows` must accept
+the delayed-row inputs as well as provide the initial rows.
+
+## Tabs can unload their contents
+
+Reported from a field session on ThingWorx 10.2.1, not re-verified.
+
+Tab containers with both `LazyLoading` and `EnableContainerUnload` avoid loading every
+tab at startup and unload inactive contents. The field session reduced startup service
+calls from 27 to 4; that count describes its mashup, not a general performance guarantee.
+
+## Even tab widths can truncate titles
+
+Reported from a field session on ThingWorx 10.2.1, not re-verified.
+
+`TabWidthConfig=even` can truncate tab titles. Check long labels at the target viewport width.
+
+## Batched property writes take batches
+
+Reported from a field session on ThingWorx 10.2.1, not re-verified.
+
+`UpdatePropertyValuesBatched` takes a `batches` input with DataShape
+`NamedValueAndQualityBatch`. A flat property-value object is not the reported input contract.
+
+## VALUE skips identical property writes
+
+Reported from a field session on ThingWorx 10.2.1, not re-verified.
+
+A property with data-change type `VALUE` skips an identical value written again. Use
+`ALWAYS` when every write must trigger data-change handling, even if the value is unchanged.
+
+## Saving an entity resets subscription JSONState
+
+Reported from a field session on ThingWorx 10.2.1, not re-verified.
+
+Saving the entity resets `thisSub.JSONState`. Subscription state stored there must tolerate
+reinitialisation after a Composer save.
+
+## Video Thumbnail supplies the poster
+
+Reported from a field session on ThingWorx 10.2.1, not re-verified.
+
+`ptcsvideo.Thumbnail` supplies the video poster image shown before playback.
+
+## Runtime favicon updates from an expression
+
+Reported from a field session on ThingWorx 10.2.1, not re-verified.
+
+The field session updated the runtime favicon by calling `TW.Runtime.updateFavicon` from
+a secure expression. The report does not specify its argument contract; consult the target
+platform API before wiring a call.
+
+## Performance metrics do not include CPU
+
+Reported from a field session on ThingWorx 10.2.1, not re-verified.
+
+`GetPerformanceMetrics` reports memory, queue and uptime metrics in the field session,
+but no CPU metric. Do not derive CPU usage from those values.
+
+## Rich text links combined with code can be removed
+
+Reported from a field session on ThingWorx 10.2.1, not re-verified.
+
+In read-only `ptcsrte`, the sanitizer removes an anchor with `href` when combined with
+`code`, with either element nested inside the other. A plain anchor survives. Check
+rendered links after adding code styling.
+
+## Property display has a group part and a value width cap
+
+Reported from a field session on ThingWorx 10.2.1, not re-verified.
+
+`ptcspropertydisplay` has a `::part(property-group)` surface in addition to its outer
+surface. Clear that part too when removing the grouped background. The reported
+`ValueMaxWidth` setting of 250 also caps rendered values.
+
+## Textarea text uses the text-value part
+
+Reported from a field session on ThingWorx 10.2.1, not re-verified.
+
+The reported CSS part for the editable text in `ptcstextarea` is `::part(text-value)`.
+
+## Fixed-height containers clip wrapped property displays
+
+Reported from a field session on ThingWorx 10.2.1, not re-verified.
+
+A wrapped property display can exceed a fixed-height container and be clipped. Check
+its rendered height after changing the available width or the displayed values.
+
+## Filled widgets ignore parent padding
+
+Reported from a field session on ThingWorx 10.2.1, not re-verified.
+
+Filled widgets are positioned absolutely and ignore their parent padding. The field
+session used an inner margin and `calc()` dimensions to inset them.
+
+## Builder subproperty filtering still shows matching infotables
+
+Reported from a field session on ThingWorx 10.2.1, not re-verified.
+
+With Mashup Builder "Include Subproperties in Filter" off, matching INFOTABLE parameters
+still appear as collapsed entries. The field session reported this after re-checking the
+behaviour on every Builder load.
+
+## Dragging a Builder splitter saves a user workspace
+
+Reported from a field session on ThingWorx 10.2.1, not re-verified.
+
+Dragging a Mashup Builder splitter saves a per-user "Custom" workspace on the server.
+
+## Wrapping responsive rows can keep the first-line height
+
+Reported from a field session on ThingWorx 10.2.1, not re-verified.
+
+A responsive flexcontainer row with `flex-wrap: wrap` was sized to its first line, leaving
+the next line overflowing. This also occurred when filling a wrapping row after layout.
+The field workaround applied `height:auto`, `min-height:0` and `max-height:none` with
+`!important` to the row box, its inner `.widget-flexcontainer` and ancestors up to the panel.

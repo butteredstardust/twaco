@@ -5,6 +5,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct PushRequest {
+    /// Skip per-entity deploy gates and the server script parse; reports the skipped gates.
+    #[serde(default)]
+    pub(crate) skip_checks: bool,
     pub entity: String,
     #[serde(default = "default_true")]
     pub(crate) dry_run: bool,
