@@ -1193,4 +1193,168 @@ fn alerts_layout_has_one_gutter_centered_fixed_band_and_only_spacer_grows() {
     {
         assert_eq!(doc.at(&widget.path)["Properties"]["Margin"], "");
     }
+    assert!(!doc.widgets().iter().any(|w| w.display_name == "toolbar"));
+}
+
+fn compiled_benchmark(id: &str) -> super::compile::Artifacts {
+    let folder =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/mashup/pages");
+    let solution = Solution::load(&folder.join("bench_solution/twaco.toml")).unwrap();
+    let spec = std::fs::read_to_string(folder.join(format!("bench_{id}/page.yaml"))).unwrap();
+    compile(&solution, "Acme.Bench", &spec).unwrap()
+}
+
+#[test]
+fn dashboard_charts_stay_in_their_panels_and_share_remaining_height() {
+    let built = compiled_benchmark("a");
+    let doc = mashup::edit::parse(&built.content).unwrap();
+    let charts = doc.find_exact(&built.ids["charts"]).unwrap();
+    let props = &doc.at(&charts.path)["Properties"];
+    assert_eq!(props["flex-size"], "range");
+    assert_eq!(props["flex-min-height"], "348px");
+    assert_eq!(props["flex-max-height"], "");
+    assert_eq!(props["flex-grow"], 1);
+    assert_eq!(props["flex-shrink"], 0);
+    assert_eq!(props["ShowVerticalScrollbar"], false);
+    for (chart, panel, tools) in [
+        ("distribution", "distribution_panel", "distribution_tools"),
+        ("trend", "trend_panel", "trend_tools"),
+    ] {
+        let chart = doc.find_exact(&built.ids[chart]).unwrap();
+        let panel = doc.find_exact(&built.ids[panel]).unwrap();
+        assert!(chart.path.starts_with(&panel.path));
+        assert!(panel.path.starts_with(&charts.path));
+        assert_eq!(
+            doc.at(&panel.path)["Properties"]["flex-min-height"],
+            "348px"
+        );
+        let tools = doc.find_exact(&built.ids[tools]).unwrap();
+        assert_eq!(doc.at(&tools.path)["Properties"]["flex-min-height"], "48px");
+        assert_eq!(doc.at(&tools.path)["Properties"]["align-items"], "center");
+    }
+    // One shared chart row fits at 900; its floor survives a shorter viewport.
+    let minimum = ["overview", "focus_row", "charts"]
+        .iter()
+        .map(|name| {
+            let node = doc.find_exact(&built.ids[*name]).unwrap();
+            doc.at(&node.path)["Properties"]["flex-min-height"]
+                .as_str()
+                .unwrap()
+                .trim_end_matches("px")
+                .parse::<u32>()
+                .unwrap()
+        })
+        .sum::<u32>()
+        + 48
+        + 43;
+    assert!(minimum < 900);
+    assert!(minimum > 717);
+}
+
+#[test]
+fn filter_footer_buttons_fit_inside_the_column_gutters() {
+    let built = compiled_benchmark("k");
+    let doc = mashup::edit::parse(&built.content).unwrap();
+    let footer = doc.find("filter-footer").unwrap();
+    let props = &doc.at(&footer.path)["Properties"];
+    assert_eq!(props["flex-min-width"], "280px");
+    assert_eq!(props["flex-max-width"], "280px");
+    assert_eq!(props["Margin"], "20");
+    let mut widths = vec![];
+    for name in ["filters--apply", "filters--reset"] {
+        let button = doc.find_exact(&built.ids[name]).unwrap();
+        assert_eq!(&button.path[..button.path.len() - 1], footer.path);
+        let props = &doc.at(&button.path)["Properties"];
+        assert_eq!(props["Margin"], "0");
+        widths.push(props["Width"].as_u64().unwrap());
+    }
+    assert_eq!(widths, [120, 120]);
+    assert_eq!(widths.iter().sum::<u64>() + 2 * 20, 280);
+}
+
+#[test]
+fn metrics_load_and_apply_keep_all_filters_but_unset_dates_stay_empty() {
+    let built = compiled_benchmark("k");
+    let doc = mashup::edit::parse(&built.content).unwrap();
+    let dates = doc.find_exact(&built.ids["filter_dates"]).unwrap();
+    assert_eq!(
+        doc.at(&dates.path)["Properties"]["InitializeWithCurrentDateTime"],
+        false
+    );
+    for name in ["version", "status", "category"] {
+        let field = doc.find_exact(&built.ids[name]).unwrap();
+        let props = &doc.at(&field.path)["Properties"];
+        assert_eq!(props["SelectedText"], "");
+        assert_eq!(props["AutoSelectFirstRow"], false);
+    }
+    let content: Value = serde_json::from_str(&built.content).unwrap();
+    let calls = content["Data"]["Things_Acme.BenchData"]["Services"]
+        .as_array()
+        .unwrap();
+    assert!(calls
+        .iter()
+        .any(|c| c["Name"] == "metrics" && c["Target"] == "FilterMetrics"));
+    let events = content["Events"].as_array().unwrap();
+    assert!(events
+        .iter()
+        .any(|e| e["EventTriggerEvent"] == "Loaded" && e["EventHandlerService"] == "metrics"));
+    assert!(events
+        .iter()
+        .any(|e| e["EventTriggerId"] == built.ids["filters--apply"]
+            && e["EventHandlerService"] == "metrics"));
+    for (field, source, param) in [
+        ("query", "Text", "query"),
+        ("version", "SelectedText", "version"),
+        ("status", "SelectedText", "status"),
+        ("category", "SelectedText", "category"),
+        ("filter_dates", "StartDate", "startDate"),
+        ("filter_dates", "EndDate", "endDate"),
+    ] {
+        assert!(content["DataBindings"].as_array().unwrap().iter().any(|b| {
+            b["SourceId"] == built.ids[field]
+                && b["TargetId"] == "metrics"
+                && b["PropertyMaps"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|p| p["SourceProperty"] == source && p["TargetProperty"] == param)
+        }));
+    }
+}
+
+#[test]
+fn content_cards_and_kpi_rows_do_not_take_chart_height() {
+    let (_dir, solution) = element_solution();
+    let folder =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/mashup/pages");
+    for (fixture, name) in [("card", "card"), ("kpi_row", "summary")] {
+        let text = std::fs::read_to_string(folder.join(format!("{fixture}.page.yaml"))).unwrap();
+        let built = compile(&solution, "Acme", &text).unwrap();
+        let doc = mashup::edit::parse(&built.content).unwrap();
+        let node = doc.find_exact(&built.ids[name]).unwrap();
+        let props = &doc.at(&node.path)["Properties"];
+        assert_eq!(props["flex-grow"], 0);
+        assert_eq!(props["flex-shrink"], 0);
+        assert_eq!(props["flex-basis"], "auto");
+    }
+}
+
+#[test]
+fn explicit_date_initialization_overrides_the_bound_filter_default() {
+    let folder =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/mashup/pages");
+    let solution = Solution::load(&folder.join("bench_solution/twaco.toml")).unwrap();
+    let spec = std::fs::read_to_string(folder.join("bench_k/page.yaml"))
+        .unwrap()
+        .replace(
+            "Label: Date, Width: 228",
+            "Label: Date, InitializeWithCurrentDateTime: true, Width: 228",
+        );
+    let built = compile(&solution, "Acme.Bench", &spec).unwrap();
+    let doc = mashup::edit::parse(&built.content).unwrap();
+    let dates = doc.find_exact(&built.ids["filter_dates"]).unwrap();
+    assert_eq!(
+        doc.at(&dates.path)["Properties"]["InitializeWithCurrentDateTime"],
+        true
+    );
 }

@@ -323,13 +323,13 @@ fn add(
             .document
             .find_exact(parent)
             .map_err(|e| Error::at(loc, e))?;
-        Placement::Beside {
-            anchor: anchor.into(),
-            side: if session.document.at(&parent.path)["Properties"]["flex-direction"] == "row" {
-                Side::Right
-            } else {
-                Side::Below
-            },
+        if session.document.at(&parent.path)["Properties"]["flex-direction"] == "row" {
+            Placement::Beside {
+                anchor: anchor.into(),
+                side: Side::Right,
+            }
+        } else {
+            Placement::BelowInColumn(anchor.into())
         }
     } else {
         Placement::In(parent.into())
@@ -502,6 +502,18 @@ fn add(
                     &role,
                     tab.label.referenced,
                 )?;
+                // Inline specs supply their own toolbar; do not reserve a second band.
+                let toolbar = session
+                    .document
+                    .widgets()
+                    .into_iter()
+                    .find(|w| w.path.starts_with(&tab_path) && w.display_name == "toolbar")
+                    .expect("tab toolbar");
+                let index = *toolbar.path.last().expect("toolbar parent");
+                session.document.at_mut(&tab_path)["Widgets"]
+                    .as_array_mut()
+                    .expect("tab children")
+                    .remove(index);
                 add_children(
                     solution,
                     session,
@@ -680,7 +692,14 @@ fn apply_size(
                 return Err(Error::at(size.referenced, "fixed size must be above zero"))
             }
             Size::Fit => sizing.push(("flex-grow".into(), json!(0))),
-            Size::Fill => sizing.push(("flex-grow".into(), json!(1))),
+            Size::Fill => sizing.extend([
+                ("flex-size".into(), json!("range")),
+                ("flex-min-height".into(), json!("0px")),
+                ("flex-max-height".into(), json!("")),
+                ("flex-grow".into(), json!(1)),
+                ("flex-shrink".into(), json!(1)),
+                ("flex-basis".into(), json!("0px")),
+            ]),
         }
         if !sizing.is_empty() {
             session

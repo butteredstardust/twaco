@@ -258,13 +258,29 @@ mod tests {
     }
 
     #[test]
-    fn every_template_resolves_and_v1_equals_legacy_for_now() {
+    fn every_template_resolves_and_only_reviewed_v1_templates_differ() {
         let legacy = layouts().unwrap();
         let v1 = layouts_with(RuleSet::embedded(Version::V1)).unwrap();
         assert_eq!(legacy.len(), LAYOUTS.len());
         let text = serde_json::to_string(&legacy).unwrap();
-        assert_eq!(text, serde_json::to_string(&v1).unwrap());
+        for (old, new) in legacy.iter().zip(&v1) {
+            assert_eq!(old.name, new.name);
+            if old.name == "filter-panel" {
+                assert_ne!(
+                    serde_json::to_value(old).unwrap(),
+                    serde_json::to_value(new).unwrap()
+                );
+                assert_eq!(old.children[0].fixed.as_deref(), Some("276px"));
+                assert_eq!(new.children[0].fixed.as_deref(), Some("280px"));
+            } else {
+                assert_eq!(
+                    serde_json::to_value(old).unwrap(),
+                    serde_json::to_value(new).unwrap()
+                );
+            }
+        }
         assert!(!text.contains("@rule"), "a placeholder was left unresolved");
+        assert!(!serde_json::to_string(&v1).unwrap().contains("@rule"));
         let list_page = legacy.iter().find(|t| t.name == "list-page").unwrap();
         assert_eq!(list_page.children[1].fixed.as_deref(), Some("50px"));
     }

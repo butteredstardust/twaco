@@ -540,23 +540,42 @@ mod tests {
     fn v1_changes_only_reviewed_page_rules() {
         let legacy = RuleSet::embedded(Version::Legacy);
         let v1 = RuleSet::embedded(Version::V1);
-        for (old, new) in legacy.rules.iter().zip(&v1.rules) {
-            assert_eq!(old.id, new.id);
-            if !["gutter.page-padded", "props.toolbar-band"].contains(&old.id.as_str()) {
+        for old in &legacy.rules {
+            let new = v1.rules.iter().find(|rule| rule.id == old.id).unwrap();
+            if ![
+                "gutter.page-padded",
+                "gutter.filter-footer",
+                "size.filter-column",
+                "props.filter-footer-width",
+                "props.filter-rule-width",
+                "props.toolbar-band",
+                "props.card-recipe",
+                "props.filter-footer-button",
+            ]
+            .contains(&old.id.as_str())
+            {
                 assert_eq!(old, new, "{}", old.id);
             } else {
                 assert_ne!(old, new, "{}", old.id);
             }
         }
-        let additions = &v1.rules[legacy.rules.len()..];
-        assert_eq!(additions.len(), 7);
-        for (rule, op) in additions.iter().zip([
+        let additions: Vec<_> = v1
+            .rules
+            .iter()
+            .filter(|rule| !legacy.rules.iter().any(|old| old.id == rule.id))
+            .collect();
+        assert_eq!(additions.len(), 11);
+        assert_eq!(additions[0].id, "gutter.filter-actions");
+        for (rule, op) in additions[1..].iter().zip([
             "page-header",
             "page-kpi-row",
             "page-card",
             "page-control-row",
             "page-control-member",
             "page-date-range",
+            "page-chart-region",
+            "page-content-height",
+            "page-panel-width",
             "page-spacer",
         ]) {
             assert!(matches!(&rule.when.op,Some(Names::One(name)) if name == op));

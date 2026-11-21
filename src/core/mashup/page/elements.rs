@@ -370,14 +370,34 @@ pub(super) fn finish_layout(
         }
         grows
     }
+    fn height_floor(widget: &serde_json::Value) -> u32 {
+        let props = &widget["Properties"];
+        let minimum = props["flex-min-height"]
+            .as_str()
+            .and_then(|s| s.strip_suffix("px"))
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0);
+        let heights = widget["Widgets"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(height_floor);
+        let content = if props["flex-direction"] == "row" {
+            heights.max().unwrap_or(0)
+        } else {
+            heights.sum()
+        };
+        minimum.max(content)
+    }
     fn finish(
         session: &mut crate::core::mashup::authoring::session::Session,
+        page: &Page,
         node: &Node,
         ids: &std::collections::BTreeMap<String, String>,
     ) -> Result<(), Error> {
         let body = node.body();
         for child in super::compile::descendants(node) {
-            finish(session, child, ids)?;
+            finish(session, page, child, ids)?;
         }
         let path = session
             .document
@@ -386,13 +406,46 @@ pub(super) fn finish_layout(
             .path;
         if matches!(node, Node::DateRange(_)) {
             patch(&mut session.document, &path, "page-date-range");
-            for (key, value) in &body.props {
-                if super::compile::binding(&value.value).is_none() {
-                    session
-                        .document
-                        .set_property(&path, key, value.value.clone());
-                }
+            if page.data.values().any(|source| {
+                source.value.params.values().any(|value| {
+                    super::compile::binding(&value.value).is_some_and(|from| {
+                        ["StartDate", "EndDate"]
+                            .iter()
+                            .any(|property| from == format!("{}.{property}", body.id.value))
+                    })
+                })
+            }) {
+                session
+                    .document
+                    .set_property(&path, "InitializeWithCurrentDateTime", json!(false));
             }
+        }
+        if matches!(node, Node::KpiRow(_) | Node::Card(_)) && body.size.is_none() {
+            let parent = &path[..path.len() - 1];
+            let op = if session.document.at(parent)["Properties"]["flex-direction"] == "row" {
+                "page-panel-width"
+            } else {
+                "page-content-height"
+            };
+            patch(&mut session.document, &path, op);
+        }
+        if matches!(node, Node::Widget(_))
+            && session.document.at(&path)["Properties"]["Type"] == "flexcontainer"
+            && !matches!(
+                body.size.as_ref().map(|s| &s.value),
+                Some(super::schema::Size::Fixed(_))
+            )
+            && session
+                .document
+                .widgets()
+                .iter()
+                .any(|w| w.path.starts_with(&path) && w.type_id.starts_with("ptcschart"))
+        {
+            let minimum = height_floor(session.document.at(&path));
+            patch(&mut session.document, &path, "page-chart-region");
+            session
+                .document
+                .set_property(&path, "flex-min-height", json!(format!("{minimum}px")));
         }
         if matches!(node, Node::Toolbar(_) | Node::PageHeader(_))
             || (session.document.at(&path)["Properties"]["flex-direction"] == "row"
@@ -426,18 +479,18 @@ pub(super) fn finish_layout(
             for (key, value) in authored_size {
                 session.document.set_property(&path, key, value);
             }
-            for (key, value) in &body.props {
-                if super::compile::binding(&value.value).is_none() {
-                    session
-                        .document
-                        .set_property(&path, key, value.value.clone());
-                }
+        }
+        for (key, value) in &body.props {
+            if super::compile::binding(&value.value).is_none() {
+                session
+                    .document
+                    .set_property(&path, key, value.value.clone());
             }
         }
         Ok(())
     }
     for node in page.slots.values().flat_map(|s| &s.value) {
-        finish(session, node, ids)?;
+        finish(session, page, node, ids)?;
     }
     Ok(())
 }

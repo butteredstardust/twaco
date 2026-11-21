@@ -104,13 +104,30 @@ unit label; `color` styles the value label. Card `kind` defaults to `info` and a
 `ok`, `warning`, `error`; value and status accept text or `{bind: ...}`.
 
 Filter fields go in the template's filters slot; footer accepts `apply` and `reset` and uses
-the existing primary/tertiary button rules. Their generated IDs are `<id>--apply` and
+the existing primary/tertiary button rules. The 280px column includes the footer's 20px
+gutters, leaving 120px for each button. Their generated IDs are `<id>--apply` and
 `<id>--reset`, so events can invoke services through those names. Optional children go in the
 flexible content slot. Tabs require 1?16 unique labels and exactly one of `mashup` or `content`
 per tab. Inline content uses tab-content's body slot; contained mashups use the shared offline
-parameter checks. A pie chart requires `value: Count`; line and bar charts draw numeric series
+parameter checks. Inline specs do not reserve the template's unused toolbar slot; an authored
+toolbar provides the single band at any nesting depth. A pie chart requires `value: Count`; line and bar charts draw numeric series
 through the chart recipe, and `stacked: true` requires bar. Pagination names a grid with data
 and creates the same local slicing expressions and reset bindings as the pagination recipe.
+
+## Planned elements
+
+These are proposals for A's remaining gaps, not implemented elements. They compose native
+widgets and named parts; no bitmap chart or custom HTML is needed.
+
+| Proposed element | Native widgets and parts | Contract to add |
+| --- | --- | --- |
+| `trend_tile` | `flexcontainer` card surface (`$` background/border/padding), `ptcslabel` caption/value/unit (`label` color/font), `ptcsicon` direction indicator (`icon` color), compact `ptcschartline` sparkline (plot/series, axes and legend hidden) | Value and trend bindings, direction/color, series field, period caption; content-height card with a bounded sparkline. Replaces A's contained trend doodads. |
+| `detail_pair` | Row `flexcontainer`, two `ptcslabel` widgets (`label` alignment/color), optional `ptcsicon` dot (`icon` color) | Caption, bound value, optional status and `Acme.Status_ST` mapping; equal caption/value tracks and a reserved status-dot cell. Replaces A's plain inline detail rows. |
+| `chart: {kind: combo}` | `ptcschartcombo` with native bar and line series, primary/secondary axes and legend; chart/plot/legend parts for spacing and theme styling | Per-series field, bar/line kind, axis and label; reuse INFOTABLE binding and chart recipe validation. Replaces A's line-only approximation. |
+
+Part selectors and compact chart settings must be checked against the embedded platform
+metadata and kit exports when implemented; the plot/series names above describe native
+parts to expose, not additional accepted `style` keys today.
 
 ## Baseline and hand edits
 
@@ -171,5 +188,10 @@ All examples use native widgets. Their service contracts are synthetic and conta
 Spec-built blank pages own a 24px gutter; inline tab bodies own none. Toolbar bands use a fixed
 48px height with centered controls. Responsive placement wrappers size to content, while the
 spacer branch alone grows. Date ranges default to the kit's 340px width, date-only mode and
-`DD-MM-YY`; explicit props (for example a narrow filter's Width) still win. Existing unversioned
+`DD-MM-YY`; a date range bound to a service parameter starts empty so an unset filter does
+not silently restrict results to today. Set `InitializeWithCurrentDateTime: true` explicitly
+to opt in. Explicit props (for example a narrow filter's Width) still win. Cards and KPI rows
+default to content height; charts stay inside their authored panels and share the remaining
+height, retaining their minimum height so a short page scrolls above the chart region.
+Existing unversioned
 mashups continue using legacy rules and unchanged legacy goldens.
