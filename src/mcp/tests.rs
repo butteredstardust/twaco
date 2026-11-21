@@ -1565,6 +1565,7 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
             "mashup_event",
             "mashup_validate",
             "mashup_describe",
+            "mashup_why",
             "mashup_diff",
             "reproject",
             "retemplate",
@@ -2692,6 +2693,10 @@ fn what_the_offline_tools_return_fits_the_output_schema_they_publish() {
         ("widgets", json!({"widget": "button"})),
         ("mashup_validate", json!({"all": true})),
         ("mashup_describe", json!({"mashup": "P.Board_MU"})),
+        (
+            "mashup_why",
+            json!({"mashup": "P.Board_MU", "widget": "flexcontainer-2"}),
+        ),
         (
             "mashup_diff",
             json!({"mashup_a": "P.Board_MU", "mashup_b": "P.Board_MU"}),

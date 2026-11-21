@@ -12,6 +12,7 @@
 //! every id already used, and the root's `id_index` moves on to `n`.
 
 use crate::core::codes::{Coded, ErrorCode};
+use crate::core::mashup::layout;
 use crate::core::widgets::{self, Widget};
 use serde_json::{Map, Value};
 use std::collections::BTreeSet;
@@ -863,33 +864,31 @@ impl MashupDocument {
             return;
         };
         let row = self.at(parent);
-        if !(is_generated_container(row) || is_panel(row))
-            || authored_layout(row)
-            || row["Properties"]["flex-direction"] != "row"
-            || children(row).len() < 2
-            || !children(row).iter().all(is_panel)
-        {
+        let facts = row_facts(row);
+        let node = layout::context::Node::op("equal-siblings", layout::Element::Row).facts(&facts);
+        let decided = layout::current().evaluate(&node.context());
+        if decided.siblings.as_ref().map(|hit| hit.value) != Some(layout::Siblings::Equal) {
             return;
         }
+        let patch: Vec<(String, Value)> = decided
+            .member_patch()
+            .into_iter()
+            .map(|(key, value)| (key.to_string(), value))
+            .collect();
         let members = children(row).to_vec();
         for (index, member) in members.iter().enumerate() {
-            let p = &member["Properties"];
-            if authored_layout(member)
-                || p["flex-size"] == "fixed"
-                || p.get("Width").is_some()
-                || p["flex-basis"]
-                    .as_str()
-                    .is_some_and(|basis| !matches!(basis, "" | "auto" | "0" | "0px"))
-                || ["flex-min-width", "flex-max-width"]
-                    .iter()
-                    .any(|key| p[*key].as_str().is_some_and(|s| !s.is_empty()))
-            {
+            if !takes_equal_width(member) {
                 continue;
             }
             let path = [parent, &[index]].concat();
-            self.set_flex_factor(&path, "flex-grow", 1);
-            self.set_flex_factor(&path, "flex-shrink", 1);
-            self.set_property(&path, "flex-basis", Value::from("0px"));
+            for (key, value) in &patch {
+                match (key.as_str(), value.as_u64()) {
+                    ("flex-grow" | "flex-shrink", Some(factor)) => {
+                        self.set_flex_factor(&path, key, u8::try_from(factor).unwrap_or(u8::MAX))
+                    }
+                    _ => self.set_property(&path, key, value.clone()),
+                }
+            }
         }
     }
 
@@ -1397,28 +1396,15 @@ impl MashupDocument {
     /// fixed rows, named template slots, a container that was there before (Composer names its
     /// own `container-N` too) and flex factors someone set to another value are left alone.
     fn keep_natural_heights(&mut self, column_path: &[usize], made: &[String]) {
-        let rows = children(self.at(column_path)).to_vec();
-        let styles = self.value["UI"]["Properties"]["StyleProperties"]["data"].clone();
-        let control_stack = is_control_stack(self.at(column_path), &styles);
-        // A menubar row that may grow takes the spare height; a fixed header holding one does not.
-        let navigation_row =
-            |row: &Value| holds_menubar(row) && row["Properties"]["flex-size"] != "fixed";
-        let navigation = rows.iter().any(navigation_row);
-        let grows = |row: &Value| {
-            if navigation {
-                navigation_row(row)
-            } else {
-                holds_growing_filler(row, control_stack, &styles)
-            }
-        };
-        let column_fills = rows.iter().any(|row| !is_spacer(row) && grows(row));
+        let flow = self.column_flow(column_path);
+        let rows = &flow.rows;
         for (index, row) in rows.iter().enumerate() {
             let fills = holds_filler(row);
-            let compact = fills && !grows(row);
+            let compact = fills && !flow.grows(row);
             if is_spacer(row)
                 || !(is_generated_container(row) || is_panel(row))
                 || !(made.iter().any(|id| id == widget_id(row))
-                    || ((compact || navigation || holds_panel(row))
+                    || ((compact || flow.navigation || holds_panel(row))
                         && row["Properties"]["flex-shrink"] == 0))
                 || authored_layout(row)
             {
@@ -1432,17 +1418,60 @@ impl MashupDocument {
             // Once a form stops growing, its floor must fit the taller column, including
             // controls stacked there after the textarea created the first floor.
             if fills && (size.is_null() || size == "default" || (compact && size == "range")) {
-                if let Some(floor) = filler_floor(row, &styles) {
+                if let Some(floor) = filler_floor(row, &flow.styles) {
                     self.floor_row(&path, floor);
                 }
             }
-            self.set_flex_factor(&path, "flex-shrink", 0);
+            let facts = flow.facts(row);
+            let node =
+                layout::context::Node::op("natural-height", layout::Element::Row).facts(&facts);
+            let decided = layout::current().evaluate(&node.context());
+            let shrink = decided
+                .prop("flex-shrink")
+                .and_then(Value::as_u64)
+                .expect("the layout rules decide a natural-height row's shrink; a test checks it");
+            let grow = decided
+                .grow()
+                .expect("the layout rules decide a natural-height row's growth; a test checks it");
             self.set_flex_factor(
                 &path,
-                "flex-grow",
-                u8::from(!compact && (fills || !column_fills)),
+                "flex-shrink",
+                u8::try_from(shrink).unwrap_or(u8::MAX),
             );
+            self.set_flex_factor(&path, "flex-grow", u8::try_from(grow).unwrap_or(u8::MAX));
         }
+    }
+
+    /// What `keep_natural_heights` and `mashup why` read of one column's rows.
+    fn column_flow(&self, column_path: &[usize]) -> ColumnFlow {
+        let rows = children(self.at(column_path)).to_vec();
+        let styles = self.value["UI"]["Properties"]["StyleProperties"]["data"].clone();
+        let control_stack = is_control_stack(self.at(column_path), &styles);
+        // A menubar row that may grow takes the spare height; a fixed header holding one does not.
+        let navigation = rows.iter().any(ColumnFlow::navigation_row);
+        let column_fills = rows.iter().any(|row| {
+            !is_spacer(row) && ColumnFlow::grow_of(row, navigation, control_stack, &styles)
+        });
+        ColumnFlow {
+            rows,
+            styles,
+            control_stack,
+            navigation,
+            column_fills,
+        }
+    }
+
+    /// The facts of the row at `index` of the column at `column_path`, for the layout rules.
+    pub(crate) fn natural_height_facts(
+        &self,
+        column_path: &[usize],
+        index: usize,
+    ) -> Vec<&'static str> {
+        let flow = self.column_flow(column_path);
+        flow.rows
+            .get(index)
+            .map(|row| flow.facts(row))
+            .unwrap_or_default()
     }
 
     /// Set `flex-grow` or `flex-shrink` to 0 or 1 unless it holds a value of someone's own.
@@ -1596,8 +1625,20 @@ impl MashupDocument {
 
     fn align_control_row(&mut self, path: &[usize]) {
         // A row that stops being mixed keeps its prior alignment.
-        if mixed_label_controls(self.at(path)).is_some() {
-            self.set_property(path, "align-items", Value::from("flex-end"));
+        let facts: &[&'static str] = if mixed_label_controls(self.at(path)).is_some() {
+            &["mixed-label-controls"]
+        } else {
+            &[]
+        };
+        let node = layout::context::Node::op("control-row", layout::Element::Row).facts(facts);
+        let decided = layout::current().evaluate(&node.context());
+        if let Some(align) = &decided.align {
+            self.set_property(path, "align-items", Value::from(align.value.as_str()));
+            let patch: Vec<(String, Value)> = decided
+                .member_patch()
+                .into_iter()
+                .map(|(key, value)| (key.to_string(), value))
+                .collect();
             let members = children(self.at(path)).to_vec();
             for (index, member) in members.iter().enumerate() {
                 let Some(widget) =
@@ -1605,11 +1646,13 @@ impl MashupDocument {
                 else {
                     continue;
                 };
-                let margin = &member["Properties"]["Margin"];
-                if margin.is_null() || widget.defaults.get("Margin") == Some(margin) {
-                    let mut child = path.to_vec();
-                    child.push(index);
-                    self.set_property(&child, "Margin", Value::from("0"));
+                for (key, value) in &patch {
+                    let current = &member["Properties"][key.as_str()];
+                    if current.is_null() || widget.defaults.get(key) == Some(current) {
+                        let mut child = path.to_vec();
+                        child.push(index);
+                        self.set_property(&child, key, value.clone());
+                    }
                 }
             }
         }
@@ -3298,6 +3341,83 @@ fn is_label_value_row(widget: &Value) -> bool {
                 && children(widget).iter().all(text_or_mark))
     }
     is_split_row(widget) && children(widget).iter().all(text_or_mark)
+}
+
+/// Whether a card of a row of cards takes an equal share: not one someone sized.
+pub(crate) fn takes_equal_width(member: &Value) -> bool {
+    let p = &member["Properties"];
+    !(authored_layout(member)
+        || p["flex-size"] == "fixed"
+        || p.get("Width").is_some()
+        || p["flex-basis"]
+            .as_str()
+            .is_some_and(|basis| !matches!(basis, "" | "auto" | "0" | "0px"))
+        || ["flex-min-width", "flex-max-width"]
+            .iter()
+            .any(|key| p[*key].as_str().is_some_and(|s| !s.is_empty())))
+}
+
+/// One column's rows and what decides which of them grow.
+struct ColumnFlow {
+    rows: Vec<Value>,
+    styles: Value,
+    control_stack: bool,
+    navigation: bool,
+    column_fills: bool,
+}
+
+impl ColumnFlow {
+    fn navigation_row(row: &Value) -> bool {
+        holds_menubar(row) && row["Properties"]["flex-size"] != "fixed"
+    }
+
+    fn grow_of(row: &Value, navigation: bool, control_stack: bool, styles: &Value) -> bool {
+        if navigation {
+            Self::navigation_row(row)
+        } else {
+            holds_growing_filler(row, control_stack, styles)
+        }
+    }
+
+    fn grows(&self, row: &Value) -> bool {
+        Self::grow_of(row, self.navigation, self.control_stack, &self.styles)
+    }
+
+    fn facts(&self, row: &Value) -> Vec<&'static str> {
+        let fills = holds_filler(row);
+        let compact = fills && !self.grows(row);
+        [
+            fills.then_some("fills"),
+            compact.then_some("compact"),
+            self.column_fills.then_some("column-fills"),
+        ]
+        .into_iter()
+        .flatten()
+        .collect()
+    }
+}
+
+/// What the layout rules may ask of a container: twaco's own markers and what it holds.
+pub(crate) fn row_facts(row: &Value) -> Vec<&'static str> {
+    let kids = children(row);
+    let mut facts = Vec::new();
+    if authored_layout(row) {
+        facts.push("authored");
+    }
+    if row.get("twacoLayoutHeight").is_some() {
+        facts.push("measured");
+    }
+    if (is_generated_container(row) || is_panel(row))
+        && row["Properties"]["flex-direction"] == "row"
+        && kids.len() >= 2
+        && kids.iter().all(is_panel)
+    {
+        facts.push("row-of-panels");
+    }
+    if mixed_label_controls(row).is_some() {
+        facts.push("mixed-label-controls");
+    }
+    facts
 }
 
 /// A container with a `CustomClass` or a style other than the default one: a panel of its own.

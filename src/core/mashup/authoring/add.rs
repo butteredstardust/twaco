@@ -8,6 +8,7 @@ use super::{
 };
 use crate::core::config::Solution;
 use crate::core::mashup::edit::{MashupDocument, Placement};
+use crate::core::mashup::layout;
 use crate::core::{extension_widgets, mashup, widgets};
 use serde_json::{json, Value};
 use std::path::Path;
@@ -375,49 +376,24 @@ pub(crate) fn plan_add(
         .find(&placed.id)
         .map_err(AuthoringError::Edit)?
         .path;
-    if widget.type_id == "ptcsbutton"
-        && (1..placed_path.len()).any(|depth| {
-            document.at(&placed_path[..depth])["Properties"]["DisplayName"] == "filter-footer"
-        })
-    {
-        document.set_property(&placed_path, "Width", json!(110));
-        document.set_property(&placed_path, "Margin", json!("0"));
-        if let Some(label) = request.label.as_deref() {
-            if let Some(kind) = match label {
-                "Apply" => Some("primary"),
-                "Reset" => Some("tertiary"),
-                _ => None,
-            } {
-                document.set_property(&placed_path, "ButtonType", json!(kind));
-            }
-        }
-    }
-    if widget.type_id == "ptcsdatepicker" {
-        let path = document
-            .find(&placed.id)
-            .map_err(AuthoringError::Edit)?
-            .path;
-        let narrow = (1..path.len()).any(|depth| {
-            let p = &document.at(&path[..depth])["Properties"];
-            let px = |key: &str| {
-                p[key]
-                    .as_str()
-                    .and_then(|width| width.trim_end_matches("px").parse::<u32>().ok())
-            };
-            matches!(p["DisplayName"].as_str(), Some("filters" | "filter-column"))
-                || px("flex-max-width").is_some_and(|width| width <= NARROW_COLUMN)
-                || (p["flex-size"] == "fixed"
-                    && px("flex-basis").is_some_and(|width| width <= NARROW_COLUMN))
-                || (p["Type"] == "flexcontainer"
-                    && p["ResponsiveLayout"] == false
-                    && p["Width"]
-                        .as_u64()
-                        .is_some_and(|width| width <= u64::from(NARROW_COLUMN)))
-        });
-        if narrow {
-            document.set_property(&path, "FormatToken", json!("DD-MM-YY"));
-            document.set_property(&path, "DateOnly", json!(true));
-        }
+    let node = layout::context::Node::op("add", layout::Element::Widget)
+        .widget(&widget.type_id)
+        .fact(
+            "in-filter-footer",
+            layout::context::in_filter_footer(&document, &placed_path),
+        )
+        .fact(
+            "narrow-column",
+            widget.type_id == "ptcsdatepicker"
+                && layout::context::narrow_column(&document, &placed_path),
+        );
+    let node = match request.label.as_deref() {
+        Some(label) => node.label(label),
+        None => node,
+    };
+    let decided = layout::current().evaluate(&node.context());
+    for (key, value) in decided.patch() {
+        document.set_property(&placed_path, key, value);
     }
     let mut properties = request
         .properties
@@ -622,9 +598,6 @@ pub(crate) fn plan_add(
     })
 }
 
-/// A column this narrow cannot show a long date: its pickers default to a short format.
-const NARROW_COLUMN: u32 = 320;
-
 /// Whether a property fixes a container's size, which twaco then leaves as it was set. The
 /// direction and wrapping only say how its content runs: a row added with them still takes its
 /// content's height.
@@ -690,23 +663,15 @@ pub(crate) fn plan_add_contained(
     });
     let mut notes = Vec::new();
     if let Some(tab) = &tab_parent {
-        for (key, value) in [
-            ("flex-direction", json!("row")),
-            ("flex-grow", json!(1)),
-            ("flex-shrink", json!(1)),
-            ("flex-basis", json!("auto")),
-            ("flex-size", json!("default")),
-            ("flex-min-height", json!("")),
-            ("flex-max-height", json!("")),
-            ("ExpandCollapseTabLocation", json!("inside")),
-        ] {
+        let rules = layout::current();
+        let in_tab =
+            |element| layout::context::Node::op("add-contained", element).fact("in-tab", true);
+        let tab_node = in_tab(layout::Element::Tab);
+        for (key, value) in rules.evaluate(&tab_node.context()).patch() {
             document.set_property(tab, key, value);
         }
-        for (key, value) in [
-            ("ResponsiveLayout", json!(true)),
-            ("Width", json!(400)),
-            ("Height", json!(300)),
-        ] {
+        let held = in_tab(layout::Element::Widget).widget("mashupcontainer");
+        for (key, value) in rules.evaluate(&held.context()).patch() {
             document.set_property(&path, key, value);
         }
         notes.extend(contained_page_warning(&request.child, &child_document));

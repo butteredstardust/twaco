@@ -1315,6 +1315,20 @@ pub(crate) struct MashupDescribeResult {
 }
 
 #[derive(Serialize, JsonSchema)]
+pub(crate) struct MashupWhyResult {
+    mashup: String,
+    widget: String,
+    widget_type: String,
+    display_name: String,
+    origin: String,
+    inferred: bool,
+    rules: String,
+    decisions: Vec<Value>,
+    enclosing: Option<Value>,
+    notes: Vec<String>,
+}
+
+#[derive(Serialize, JsonSchema)]
 pub(crate) struct MashupDiffResult {
     a: String,
     b: String,

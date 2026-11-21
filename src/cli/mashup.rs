@@ -11,6 +11,7 @@ use twaco::core::mashup::edit::{Placement, Side};
 pub(crate) enum Mashup {
     Validate(MashupValidate),
     Describe(MashupDescribe),
+    Why(MashupWhy),
     Diff(MashupDiff),
     Add(MashupAdd),
     Collection(MashupCollection),
@@ -38,6 +39,7 @@ impl Mashup {
         match self {
             Mashup::Validate(_) => "mashup validate",
             Mashup::Describe(_) => "mashup describe",
+            Mashup::Why(_) => "mashup why",
             Mashup::Diff(_) => "mashup diff",
             Mashup::Add(_) => "mashup add",
             Mashup::Collection(collection) => collection.path(),
@@ -244,6 +246,16 @@ pub(crate) struct MashupValidate {
 pub(crate) struct MashupDescribe {
     #[command(flatten)]
     pub(crate) detail: super::flags::Detail,
+    #[command(flatten)]
+    pub(crate) json: Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
+/// `twaco mashup why <mashup> <widget>`.
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct MashupWhy {
     #[command(flatten)]
     pub(crate) json: Json,
     #[arg(id = "operands", value_name = "operand")]
@@ -2795,6 +2807,31 @@ pub(crate) fn mashup_describe_cmd(solution: &Solution, args: &MashupDescribe) ->
                 );
             } else {
                 print!("{}", twaco::core::mashup::describe::render(&description));
+            }
+            OK
+        }
+        Err(error) => {
+            eprintln!("{} {error}", style::prefix());
+            FAILED
+        }
+    }
+}
+
+/// `twaco mashup why <mashup> <widget>`: read-only.
+pub(crate) fn mashup_why_cmd(solution: &Solution, args: &MashupWhy) -> u8 {
+    let [name, widget] = args.operands.as_slice() else {
+        eprintln!("{} mashup why needs <mashup> and <widget>", style::prefix());
+        return FAILED;
+    };
+    match twaco::core::mashup::why::why(solution, name, widget) {
+        Ok(why) => {
+            if args.json.json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&why).expect("an explanation serialises")
+                );
+            } else {
+                print!("{}", twaco::core::mashup::why::render(&why));
             }
             OK
         }

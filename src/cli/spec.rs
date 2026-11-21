@@ -726,6 +726,15 @@ pub(crate) const USAGE: &[Usage] = &[
       --detail                show non-default widget properties and widget bindings"#,
     },
     Usage {
+        path: "mashup why",
+        group: 1,
+        text: r#"  mashup why <mashup> <widget> [--json]
+                              what the layout rules decide for one widget (size, gutter, alignment, surface,
+                              equal siblings), the rule that decided each, what the mashup holds now, and the
+                              mashup set command that overrides it; a container twaco did not record is
+                              explained as inferred; read-only"#,
+    },
+    Usage {
         path: "mashup diff",
         group: 1,
         text: r#"  mashup diff <a> <b> [--tier <tier>] [--json]

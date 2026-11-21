@@ -7,6 +7,7 @@ use super::{
 };
 use crate::core::config::Solution;
 use crate::core::mashup::edit::{insert_sorted, ROOT_ID};
+use crate::core::mashup::layout;
 use crate::core::{mashup, widgets};
 use serde_json::{json, Map, Value};
 
@@ -430,18 +431,12 @@ pub(crate) fn plan_set(
             .find(|change| change.property == "flex-size")
             .map(|change| change.after.clone())
         {
-            let icon = if size == "fixed" {
-                "widgets-flexcontainer-fixed"
-            } else {
-                "widgets-flexcontainer"
-            };
-            change_property(
-                &mut document,
-                &found.path,
-                "iconClass",
-                Value::String(icon.into()),
-                &mut changed,
-            );
+            let node = layout::context::Node::op("set-flex-size", layout::Element::Container)
+                .fact("size-fixed", size == "fixed");
+            let decided = layout::current().evaluate(&node.context());
+            for (key, value) in decided.patch() {
+                change_property(&mut document, &found.path, key, value, &mut changed);
+            }
         }
     }
     if found.type_id == "flexcontainer"

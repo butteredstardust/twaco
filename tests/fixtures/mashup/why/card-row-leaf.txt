@@ -1,0 +1,50 @@
+=== twaco mashup why Acme.Case_MU ptcslabel-6
+Acme.Case_MU ptcslabel-6 (ptcslabel, ptcs-label-6)
+  not laid out by a twaco rule; rules: legacy (inferred)
+inside flexcontainer-8 (generated container)
+  size                  fill                rule size.row-natural (inferred)
+    now: flex-grow=0 [differs]
+  prop flex-shrink      0                   rule size.row-natural (inferred)
+    now: flex-shrink=1 [differs]
+note: twaco did not record how this container was made, so these are the rules' answers now (inferred), not provenance
+override:
+  twaco mashup set Acme.Case_MU flexcontainer-8 --prop flex-grow=<n> (any flex-*, Width or Height setting marks the size as authored)
+  twaco mashup set Acme.Case_MU flexcontainer-8 --prop flex-shrink=<value>
+=== twaco mashup why Acme.Case_MU ptcslabel-6 --json
+{
+  "mashup": "Acme.Case_MU",
+  "widget": "ptcslabel-6",
+  "widget_type": "ptcslabel",
+  "display_name": "ptcs-label-6",
+  "origin": "not laid out by a twaco rule",
+  "inferred": true,
+  "rules": "legacy",
+  "decisions": [],
+  "enclosing": {
+    "widget": "flexcontainer-8",
+    "origin": "generated container",
+    "decisions": [
+      {
+        "name": "size",
+        "value": "fill",
+        "rule": "size.row-natural",
+        "source": "inferred",
+        "current": "flex-grow=0",
+        "agrees": false,
+        "override_with": "twaco mashup set Acme.Case_MU flexcontainer-8 --prop flex-grow=<n> (any flex-*, Width or Height setting marks the size as authored)"
+      },
+      {
+        "name": "prop flex-shrink",
+        "value": "0",
+        "rule": "size.row-natural",
+        "source": "inferred",
+        "current": "flex-shrink=1",
+        "agrees": false,
+        "override_with": "twaco mashup set Acme.Case_MU flexcontainer-8 --prop flex-shrink=<value>"
+      }
+    ]
+  },
+  "notes": [
+    "twaco did not record how this container was made, so these are the rules' answers now (inferred), not provenance"
+  ]
+}

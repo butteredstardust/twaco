@@ -188,6 +188,11 @@ mashup describe <mashup> [--detail] [--json]
                             each service it calls with what sets each parameter (or that nothing does),
                             each binding and each event, in the addresses mashup bind and on take
     --detail                show non-default widget properties and widget bindings
+mashup why <mashup> <widget> [--json]
+                            what the layout rules decide for one widget (size, gutter, alignment, surface,
+                            equal siblings), the rule that decided each, what the mashup holds now, and the
+                            mashup set command that overrides it; a container twaco did not record is
+                            explained as inferred; read-only
 mashup diff <a> <b> [--tier <tier>] [--json]
                             compare two repository mashups by executable wiring, responsive layout and visual
                             content; ignores Composer-generated identifiers; exits 1 when the selected tier differs

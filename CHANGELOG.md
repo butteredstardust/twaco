@@ -6,6 +6,11 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `mashup why <mashup> <widget>` (MCP `mashup_why`) explains a widget's layout: each decision with the rule that made it, rule table versus an explicit authored setting, what the mashup holds now, and the `mashup set` command that overrides it; containers twaco did not record are explained as inferred. `mashup validate` reports a template slot or a row of cards that contradicts its rule as an advisory (`layout-slot-size`, `layout-siblings`).
+- The layout rules gain `op`, `label` and `facts` predicates and a `siblings` decision. Authoring (add, add-contained, set, the toolbar, card, panel and label-pairs recipes, equal card widths, natural row heights, mixed control rows) now asks one evaluator; output is unchanged.
+
 ## [0.1.72] - 2026-11-21
 
 ## [0.1.71] - 2026-11-21

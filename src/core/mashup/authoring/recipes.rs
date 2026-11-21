@@ -13,6 +13,7 @@ use crate::core::mashup;
 use crate::core::mashup::address::parse_address;
 use crate::core::mashup::describe::mashup_parameters;
 use crate::core::mashup::edit::MashupDocument;
+use crate::core::mashup::layout as layout_rules;
 use crate::core::{bindings, types, widgets};
 use serde_json::{json, Value};
 
@@ -537,28 +538,23 @@ impl Work<'_> {
             "data:{}.{}{alias}.{search_param}",
             section.entity, call.target
         );
-        let common = [
-            ("Margin", json!("")),
-            ("UseTheme", json!(true)),
-            ("ExpandCollapseTabLocation", json!("inside")),
-            ("ShowVerticalScrollbar", json!(false)),
-            ("flex-direction", json!("row")),
-            ("align-items", json!("center")),
-            ("align-content", json!("flex-start")),
-            ("flex-wrap", json!("nowrap")),
-            ("justify-content", json!("flex-start")),
-        ];
-        let mut row_properties = common.to_vec();
-        row_properties.extend([
-            ("flex-size", json!("fixed")),
-            ("flex-min-height", json!("48px")),
-            ("flex-max-height", json!("48px")),
-            ("iconClass", json!("widgets-flexcontainer-fixed")),
-        ]);
-        let row = self.add_in(&target.path, "flexcontainer", &row_properties);
+        let rules = layout_rules::current();
+        let group = |role: &str| {
+            rules
+                .evaluate(
+                    &layout_rules::context::Node::op("toolbar", layout_rules::Element::Container)
+                        .slot(role)
+                        .context(),
+                )
+                .patch()
+                .into_iter()
+                .map(|(key, value)| (key.to_string(), value))
+                .collect::<Vec<_>>()
+        };
+        let row = self.add_in(&target.path, "flexcontainer", &as_pairs(&group("row")));
         self.toolbar_band(&row)?;
         let row_path = widget_id(&self.document, &row)?.path;
-        let left = self.add_in(&row_path, "flexcontainer", &common);
+        let left = self.add_in(&row_path, "flexcontainer", &as_pairs(&group("left")));
         let left_path = widget_id(&self.document, &left)?.path;
         let field = self.add_in(
             &left_path,
@@ -573,9 +569,7 @@ impl Work<'_> {
                 ("UseTheme", json!(true)),
             ],
         );
-        let mut right_properties = common.to_vec();
-        right_properties.push(("justify-content", json!("flex-end")));
-        let right = self.add_in(&row_path, "flexcontainer", &right_properties);
+        let right = self.add_in(&row_path, "flexcontainer", &as_pairs(&group("right")));
         let right_path = widget_id(&self.document, &right)?.path;
         self.bind(&format!("ui:{field}.Text"), &parameter)?;
         if run_on != "enter" {
@@ -855,32 +849,27 @@ impl Work<'_> {
             ));
         }
         let target = widget_id(&self.document, &target.id)?;
-        self.set(
-            &target,
-            &[
-                ("flex-direction", json!("column")),
-                ("flex-wrap", json!("nowrap")),
-            ],
-        );
-        let row_properties = [
-            ("Margin", json!("")),
-            ("UseTheme", json!(true)),
-            ("ExpandCollapseTabLocation", json!("inside")),
-            ("ShowVerticalScrollbar", json!(false)),
-            ("flex-direction", json!("row")),
-            ("align-items", json!("flex-start")),
-            ("align-content", json!("flex-start")),
-            ("flex-wrap", json!("wrap")),
-            ("flex-size", json!("range")),
-            ("flex-min-height", json!("0px")),
-            ("flex-max-height", json!("")),
-            ("flex-grow", json!(0)),
-            ("flex-shrink", json!(0)),
-        ];
+        let rules = layout_rules::current();
+        let decided = |role: &str| {
+            rules
+                .evaluate(
+                    &layout_rules::context::Node::op(
+                        "label-pairs",
+                        layout_rules::Element::Container,
+                    )
+                    .slot(role)
+                    .context(),
+                )
+                .patch()
+                .into_iter()
+                .map(|(key, value)| (key.to_string(), value))
+                .collect::<Vec<_>>()
+        };
+        self.set(&target, &as_pairs(&decided("target")));
+        let row_decided = decided("row");
+        let row_properties = as_pairs(&row_decided);
         if let Some(title) = title {
-            let mut header_properties = row_properties.to_vec();
-            header_properties.extend([("Margin", json!("6 12 0")), ("flex-wrap", json!("nowrap"))]);
-            let header = self.add_in(&target.path, "flexcontainer", &header_properties);
+            let header = self.add_in(&target.path, "flexcontainer", &as_pairs(&decided("header")));
             let path = widget_id(&self.document, &header)?.path;
             self.add_in(
                 &path,
@@ -902,18 +891,7 @@ impl Work<'_> {
         // Like the kit, one column per pair by default; never more columns than pairs.
         let count = columns.map_or(picked.len(), |n| picked.len().min(n as usize));
         for _ in 0..count {
-            let id = self.add_in(
-                &row_path,
-                "flexcontainer",
-                &[
-                    ("Margin", json!("0 12 12")),
-                    ("flex-direction", json!("column")),
-                    ("flex-wrap", json!("nowrap")),
-                    ("UseTheme", json!(true)),
-                    ("ExpandCollapseTabLocation", json!("inside")),
-                    ("ShowVerticalScrollbar", json!(false)),
-                ],
-            );
+            let id = self.add_in(&row_path, "flexcontainer", &as_pairs(&decided("column")));
             paths.push(widget_id(&self.document, &id)?.path);
         }
         let alias = if call.instance == call.target {
@@ -3665,6 +3643,14 @@ fn field_maps_for(
         return Err(AuthoringError::Invalid(format!("{recipe} has unmatched field maps: {}; give --field-map Property=field for each (MCP field_maps); available fields: {}", unmatched.join("; "), fields.iter().map(|(name, _)| name.as_str()).collect::<Vec<_>>().join(", "))));
     }
     Ok(maps)
+}
+
+/// A decided property list as the `(name, value)` pairs the writers take.
+fn as_pairs(properties: &[(String, Value)]) -> Vec<(&str, Value)> {
+    properties
+        .iter()
+        .map(|(key, value)| (key.as_str(), value.clone()))
+        .collect()
 }
 
 #[cfg(test)]

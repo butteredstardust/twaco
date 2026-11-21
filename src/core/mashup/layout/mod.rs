@@ -24,6 +24,9 @@ use serde_json::{json, Map, Value};
 use std::collections::BTreeSet;
 use std::sync::OnceLock;
 
+pub(crate) mod context;
+pub(crate) mod resolve;
+
 const LEGACY: &str = include_str!("legacy.json");
 const V1: &str = include_str!("v1.json");
 const PLACEHOLDER: &str = "@rule";
@@ -46,6 +49,12 @@ impl Version {
     }
 }
 
+/// The rule set every authoring and validation decision uses. Existing mashups follow `legacy`;
+/// `v1` takes over when new mashups pin it.
+pub(crate) fn current() -> &'static RuleSet {
+    RuleSet::embedded(Version::Legacy)
+}
+
 /// What a rule applies to.
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -56,9 +65,35 @@ pub(crate) enum Element {
     Slot,
     /// A one-pixel rule between slots.
     Divider,
-    /// The widget a slot holds.
+    /// The widget a slot holds, or a widget in a document.
     Widget,
+    /// A container in a document that no template names.
+    Container,
+    /// A row of a column twaco lays out.
+    Row,
+    /// A child of a row whose siblings are decided together.
+    Member,
+    /// The tab container a contained mashup sits in.
+    Tab,
 }
+
+/// The closed vocabulary of `facts`: what a document node can be asked about. A rule naming
+/// another fact is refused.
+pub(crate) const FACTS: &[&str] = &[
+    "authored",
+    "measured",
+    "row-of-panels",
+    "mixed-label-controls",
+    "in-tab",
+    "in-filter-footer",
+    "narrow-column",
+    "size-fixed",
+    "style-card",
+    "fit-content",
+    "compact",
+    "fills",
+    "column-fills",
+];
 
 /// One name or a list of names.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
@@ -95,6 +130,14 @@ struct When {
     parent: Option<Names>,
     /// The widget type the slot holds.
     widget: Option<Names>,
+    /// The operation deciding: a rule with an `op` applies only to it, one without only outside.
+    op: Option<Names>,
+    /// The label the widget is given.
+    label: Option<Names>,
+    /// Facts that must all hold.
+    facts: Option<Vec<String>>,
+    /// Facts that must all be absent.
+    without: Option<Vec<String>>,
 }
 
 /// A container's own look: the colour it draws.
@@ -123,6 +166,15 @@ enum Size {
     Fixed { fixed: String },
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum Siblings {
+    /// Siblings share their parent's main axis equally.
+    Equal,
+    /// Each sibling takes its content's size.
+    Content,
+}
+
 /// The decisions a rule makes. Each is optional; a rule makes at least one.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -135,8 +187,13 @@ struct Decisions {
     align: Option<String>,
     /// `justify-content`.
     justify: Option<String>,
-    /// Composer properties no typed decision covers, each decided on its own.
+    /// Composer properties no typed decision covers, each decided on its own. Keys are listed in
+    /// write order: the last matching rule that names a key sets its place, the first its value.
     props: Option<Map<String, Value>>,
+    /// Whether the children of a row are equal or content-sized.
+    siblings: Option<Siblings>,
+    /// The properties each child of a row, or each control of a control row, takes.
+    member_props: Option<Map<String, Value>>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -156,6 +213,10 @@ pub(crate) struct Context<'a> {
     pub(crate) slot: Option<&'a str>,
     pub(crate) parent: Option<&'a str>,
     pub(crate) widget: Option<&'a str>,
+    /// The operation deciding, or none for a template skeleton and `why`.
+    pub(crate) op: Option<&'a str>,
+    pub(crate) label: Option<&'a str>,
+    pub(crate) facts: &'a [&'static str],
 }
 
 impl Context<'_> {
@@ -183,6 +244,19 @@ impl When {
             && names(&self.slot, context.slot)
             && names(&self.parent, context.parent)
             && names(&self.widget, context.widget)
+            && self.op.is_some() == context.op.is_some()
+            && names(&self.op, context.op)
+            && names(&self.label, context.label)
+            && self
+                .facts
+                .iter()
+                .flatten()
+                .all(|fact| context.facts.contains(&fact.as_str()))
+            && !self
+                .without
+                .iter()
+                .flatten()
+                .any(|fact| context.facts.contains(&fact.as_str()))
     }
 }
 
@@ -227,7 +301,9 @@ impl RuleSet {
                 && decisions.gutter.is_none()
                 && decisions.align.is_none()
                 && decisions.justify.is_none()
+                && decisions.siblings.is_none()
                 && decisions.props.as_ref().is_none_or(Map::is_empty)
+                && decisions.member_props.as_ref().is_none_or(Map::is_empty)
             {
                 return Err(format!("layout rules: rule `{id}` makes no decision"));
             }
@@ -238,6 +314,13 @@ impl RuleSet {
                 .any(Names::is_blank)
             {
                 return Err(format!("layout rules: rule `{id}` has an empty name"));
+            }
+            for fact in when.facts.iter().chain(&when.without).flatten() {
+                if !FACTS.contains(&fact.as_str()) {
+                    return Err(format!(
+                        "layout rules: rule `{id}` names unknown fact `{fact}`"
+                    ));
+                }
             }
             if let Some(Size::Fixed { fixed }) = &decisions.size {
                 if fixed.is_empty() {
@@ -295,6 +378,9 @@ impl RuleSet {
                 slot: None,
                 parent: None,
                 widget: None,
+                op: None,
+                label: None,
+                facts: &[],
             };
             self.resolve_properties(page, &context)?;
         }
@@ -334,6 +420,9 @@ impl RuleSet {
             slot: slot.as_deref(),
             parent,
             widget: None,
+            op: None,
+            label: None,
+            facts: &[],
         };
         let held = Context {
             element: Element::Widget,
@@ -547,6 +636,9 @@ mod tests {
             slot: Some("bar"),
             parent: None,
             widget: None,
+            op: None,
+            label: None,
+            facts: &[],
         };
         assert_eq!(
             set.decide(&context, |d| d.size.as_ref()).map(|(id, _)| id),

@@ -273,6 +273,15 @@ pub(crate) struct MashupDescribeRequest {
 
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct MashupWhyRequest {
+    /// The mashup's name.
+    pub(crate) mashup: String,
+    /// The widget: its id, or a display name or type that names exactly one.
+    pub(crate) widget: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct MashupDiffRequest {
     /// The left repository mashup name.
     pub(crate) mashup_a: String,

@@ -7,9 +7,9 @@ use super::requests::refactor::{
     MashupOffRequest, MashupOnRequest, MashupParameterAction, MashupParameterRequest,
     MashupRecipeRequest, MashupRemoveRequest, MashupSetRequest, MashupSourceAddRequest,
     MashupSourceListRequest, MashupSourceRemoveRequest, MashupSourceRetargetRequest,
-    MashupTemplatesRequest, MashupUnbindRequest, MashupValidateRequest, MoveMemberAction,
-    MoveMemberRequest, NewBuildingBlockRequest, RenameRequest, ReprojectRequest, RetemplateRequest,
-    WidgetsRequest,
+    MashupTemplatesRequest, MashupUnbindRequest, MashupValidateRequest, MashupWhyRequest,
+    MoveMemberAction, MoveMemberRequest, NewBuildingBlockRequest, RenameRequest, ReprojectRequest,
+    RetemplateRequest, WidgetsRequest,
 };
 use super::source::add_types_refresh;
 use super::{
@@ -539,6 +539,19 @@ pub(crate) fn mashup_describe_tool(
     )
     .map_err(ToolError::coded)?;
     Ok(serde_json::to_value(description).expect("a description serialises"))
+}
+
+pub(crate) fn mashup_why_tool(
+    solution: &Solution,
+    arguments: MashupWhyRequest,
+) -> Result<Value, ToolError> {
+    let why = crate::core::mashup::why::why(
+        solution,
+        nonempty(&arguments.mashup, "mashup")?,
+        nonempty(&arguments.widget, "widget")?,
+    )
+    .map_err(ToolError::coded)?;
+    Ok(serde_json::to_value(why).expect("an explanation serialises"))
 }
 
 pub(crate) fn mashup_diff_tool(
