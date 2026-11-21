@@ -3,26 +3,24 @@
   "summary": "Toolbar and body for a tab; the host supplies the title and 24px gutter",
   "page": {
     "flex-direction": "column",
-    "align-items": "stretch",
-    "Margin": ""
+    "align-items": "@rule",
+    "Margin": "@rule"
   },
   "children": [
     {
       "slot": "toolbar",
       "flex-direction": "row",
-      "align-items": "center",
-      "fixed": "48px",
-      "Margin": "",
-      "style": {
-        "background": "#F7F7F7"
-      }
+      "align-items": "@rule",
+      "fixed": "@rule",
+      "Margin": "@rule",
+      "style": "@rule"
     },
     {
       "slot": "body",
       "flex-direction": "column",
-      "flex-grow": 1,
-      "align-items": "stretch",
-      "Margin": ""
+      "flex-grow": "@rule",
+      "align-items": "@rule",
+      "Margin": "@rule"
     }
   ]
 }

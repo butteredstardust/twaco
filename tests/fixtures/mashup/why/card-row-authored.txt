@@ -1,0 +1,44 @@
+=== twaco mashup why Acme.Case_MU container-10
+Acme.Case_MU flexcontainer-10 (flexcontainer, container-10)
+  generated container; rules: legacy
+  size                  as set              no rule (explicit authored setting)
+    now: flex-grow=1
+  siblings              as set              no rule (explicit authored setting)
+note: a setting someone made on this container (twacoLayoutAuthored) wins over the rule table; the rules do not change it
+override:
+  twaco mashup set Acme.Case_MU flexcontainer-10 --prop flex-grow=<n> (any flex-*, Width or Height setting marks the size as authored)
+  twaco mashup set Acme.Case_MU <member> --prop flex-grow=<n> (a flex-* setting marks that member as authored, so the row stops equalising it)
+=== twaco mashup why Acme.Case_MU container-10 --json
+{
+  "mashup": "Acme.Case_MU",
+  "widget": "flexcontainer-10",
+  "widget_type": "flexcontainer",
+  "display_name": "container-10",
+  "origin": "generated container",
+  "inferred": false,
+  "rules": "legacy",
+  "decisions": [
+    {
+      "name": "size",
+      "value": "as set",
+      "rule": null,
+      "source": "authored",
+      "current": "flex-grow=1",
+      "agrees": null,
+      "override_with": "twaco mashup set Acme.Case_MU flexcontainer-10 --prop flex-grow=<n> (any flex-*, Width or Height setting marks the size as authored)"
+    },
+    {
+      "name": "siblings",
+      "value": "as set",
+      "rule": null,
+      "source": "authored",
+      "current": null,
+      "agrees": null,
+      "override_with": "twaco mashup set Acme.Case_MU <member> --prop flex-grow=<n> (a flex-* setting marks that member as authored, so the row stops equalising it)"
+    }
+  ],
+  "enclosing": null,
+  "notes": [
+    "a setting someone made on this container (twacoLayoutAuthored) wins over the rule table; the rules do not change it"
+  ]
+}

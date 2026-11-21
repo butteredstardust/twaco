@@ -1,0 +1,15 @@
+version: 1
+rules: v1
+page:
+  name: Acme.Elements_MU
+  template: blank
+  data:
+    rows: {service: Acme.Data.GetRows, on: load}
+  slots:
+    center:
+      - card:
+          id: details
+          title: Details
+          children:
+            - detail_pair: {id: first, label: Name, value: {bind: rows.Name}, kind: ok}
+            - detail_pair: {id: second, label: Count, value: {bind: rows.Count}}

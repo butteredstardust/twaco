@@ -139,6 +139,7 @@ const ADDITIVE: &[&str] = &[
 
 /// Writing tools that, called again with the same arguments, change nothing more.
 const IDEMPOTENT: &[&str] = &[
+    "mashup_build",
     "mashup_gap",
     "mashup_move",
     "types",
@@ -710,6 +711,20 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             refactor::mashup_describe_tool,
         )
         .with_output::<outputs::MashupDescribeResult>(),
+        solution_tool::<refactor_requests::MashupBuildRequest>(
+            "mashup_build",
+            "Compile page.yaml and three-way merge with the last generated baseline. Independent hand edits survive; conflicts write nothing. Plans by default; dry_run:false applies all files atomically.",
+            false,
+            refactor::mashup_build_tool,
+        )
+        .with_output::<outputs::MashupBuildResult>(),
+        solution_tool::<refactor_requests::MashupWhyRequest>(
+            "mashup_why",
+            "Explain the layout of one widget of a repository mashup: for each decision (size, gutter, align, justify, surface, equal siblings, and the properties a rule sets) the value, the rule that decided it, whether it came from the rule table or an explicit authored setting, what the mashup holds now and whether that agrees, and the mashup_set call that overrides it. A container twaco did not record how it made is explained as inferred. Read-only.",
+            true,
+            refactor::mashup_why_tool,
+        )
+        .with_output::<outputs::MashupWhyResult>(),
         solution_tool::<refactor_requests::MashupDiffRequest>(
             "mashup_diff",
             "Compare two repository mashups by executable wiring, layout and visual content. Composer-generated widget and UUID identifiers are ignored; arrays retain their authored order. tier is executable, layout, visual or all (the default). Read-only.",
@@ -1132,6 +1147,8 @@ pub(crate) const GROUPS: &[(&str, &[&str])] = &[
             "mashup_event",
             "mashup_validate",
             "mashup_describe",
+            "mashup_build",
+            "mashup_why",
             "mashup_diff",
         ],
     ),

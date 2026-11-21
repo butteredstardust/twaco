@@ -1,0 +1,15 @@
+version: 1
+rules: v1
+page:
+  name: Acme.Elements_MU
+  template: blank
+  data:
+    rows: {service: Acme.Data.GetRows, on: load}
+  slots:
+    center:
+      - toolbar:
+          id: tools
+          children:
+            - text_field: {id: search, hint: Search}
+            - spacer: {id: space}
+            - button: {id: refresh, label: Refresh}

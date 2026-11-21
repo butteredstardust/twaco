@@ -4,66 +4,66 @@
   "aliases": [],
   "page": {
     "flex-direction": "column",
-    "align-items": "stretch",
-    "Margin": "24"
+    "align-items": "@rule",
+    "Margin": "@rule"
   },
   "master_slot": "main",
   "children": [
     {
       "slot": "title",
       "flex-direction": "row",
-      "align-items": "center",
-      "fixed": "40px"
+      "align-items": "@rule",
+      "fixed": "@rule"
     },
     {
       "slot": "tiles",
       "flex-direction": "row",
-      "align-items": "stretch",
-      "fixed": "240px",
+      "align-items": "@rule",
+      "fixed": "@rule",
       "children": [
         {
           "slot": "tile-1",
           "flex-direction": "column",
-          "flex-grow": 1,
-          "align-items": "stretch"
+          "flex-grow": "@rule",
+          "align-items": "@rule"
         },
         {
           "slot": "tile-2",
           "flex-direction": "column",
-          "flex-grow": 1,
-          "align-items": "stretch"
+          "flex-grow": "@rule",
+          "align-items": "@rule"
         },
         {
           "slot": "tile-3",
           "flex-direction": "column",
-          "flex-grow": 1,
-          "align-items": "stretch"
+          "flex-grow": "@rule",
+          "align-items": "@rule"
         },
         {
           "slot": "tile-4",
           "flex-direction": "column",
-          "flex-grow": 1,
-          "align-items": "stretch"
+          "flex-grow": "@rule",
+          "align-items": "@rule"
         }
       ]
     },
     {
       "slot": "panels",
       "flex-direction": "row",
-      "flex-grow": 1,
-      "align-items": "stretch",
+      "flex-grow": "@rule",
+      "align-items": "@rule",
       "children": [
         {
           "slot": "side",
           "flex-direction": "column",
-          "flex-grow": 1,
-          "align-items": "stretch"
+          "flex-grow": "@rule",
+          "align-items": "@rule"
         },
         {
           "slot": "main",
           "flex-direction": "column",
-          "flex-grow": 3,
-          "align-items": "stretch"
+          "flex-grow": "@rule",
+          "align-items": "@rule"
         }
       ]
     }

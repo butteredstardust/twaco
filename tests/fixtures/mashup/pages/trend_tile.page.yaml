@@ -1,0 +1,14 @@
+version: 1
+rules: v1
+page:
+  name: Acme.Elements_MU
+  template: blank
+  data:
+    rows: {service: Acme.Data.GetRows, on: load}
+  slots:
+    center:
+      - kpi_row:
+          id: summary
+          children:
+            - trend_tile: {id: total, label: Total, value: {bind: rows.Count}, unit: alerts, trend: up, delta: {bind: rows.Name}}
+            - trend_tile: {id: stable, label: Stable, value: {bind: rows.Count}, unit: '%', trend: flat}

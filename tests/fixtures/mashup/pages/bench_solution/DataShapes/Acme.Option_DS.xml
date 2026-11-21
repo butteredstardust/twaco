@@ -1,0 +1,4 @@
+<Entities><DataShapes><DataShape name="Acme.Option_DS" projectName="Acme.Bench"><FieldDefinitions>
+                <FieldDefinition aspect.isPrimaryKey="true" baseType="STRING" description="" name="Value" ordinal="1" />
+            </FieldDefinitions>
+        </DataShape></DataShapes></Entities>

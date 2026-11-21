@@ -1,0 +1,36 @@
+version: 1
+rules: v1
+page:
+  name: Acme.Elements_MU
+  template: blank
+  data:
+    rows: {service: Acme.Data.GetRows, on: load}
+  slots:
+    center:
+      - tabs:
+          id: views
+          tabs:
+            - label: Overview
+              content:
+                - page_header: {id: header, title: Alerts}
+                - toolbar:
+                    id: tools
+                    children:
+                      - dropdown: {id: choice, options: rows, display: Name}
+                      - spacer: {id: space}
+                      - date_range: {id: dates}
+                - kpi_row:
+                    id: summary
+                    tiles:
+                      - {id: total, label: Total, value: {bind: rows.Count}, unit: alerts}
+                      - {id: open, label: Open, value: {bind: rows.Count}, unit: alerts}
+                - card: {id: state, title: State, status: Healthy}
+                - grid: {id: results, data: rows, columns: [Name, Count]}
+                - pagination: {id: pages, for: results}
+            - label: Filters
+              content:
+                - filter_panel:
+                    id: filters
+                    fields: [{text_field: {id: query, hint: Search}}]
+                    footer: [apply, reset]
+                - chart: {id: trend, kind: line, data: rows, x: Name}

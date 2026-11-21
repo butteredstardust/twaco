@@ -963,3 +963,31 @@ pub fn parameter(
         }
     }
 }
+
+/// Compile a page and conservatively merge it with its last generated baseline.
+pub fn build(
+    solution: &Solution,
+    name: &str,
+    project: Option<&str>,
+    spec: Option<&std::path::Path>,
+    mode: Mode,
+    notices: &mut Notices,
+) -> Result<serde_json::Value, MashupCommandError> {
+    let lock = if mode == Mode::Apply {
+        Some(lock_workspace(solution, "mashup build", notices).map_err(MashupCommandError::Lock)?)
+    } else {
+        None
+    };
+    let reloaded = Solution::load(&solution.root.join(config::CONFIG_FILE))
+        .map_err(MashupCommandError::Config)?;
+    let mut plan = mashup::page::build::plan(&reloaded, name, project, spec)
+        .map_err(MashupCommandError::Authoring)?;
+    if let Some(lock) = lock {
+        if !plan.conflicts() {
+            plan.apply(&reloaded, &lock)
+                .map_err(MashupCommandError::Authoring)?;
+        }
+    }
+    plan.report["dry_run"] = serde_json::json!(mode == Mode::Plan);
+    Ok(plan.report)
+}

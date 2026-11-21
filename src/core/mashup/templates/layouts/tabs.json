@@ -6,23 +6,24 @@
   ],
   "page": {
     "flex-direction": "column",
-    "align-items": "stretch",
-    "Margin": "24"
+    "align-items": "@rule",
+    "Margin": "@rule"
   },
   "children": [
     {
       "slot": "title",
       "flex-direction": "row",
-      "align-items": "center",
-      "fixed": "70px"
+      "align-items": "@rule",
+      "fixed": "@rule"
     },
     {
       "slot": "tabs",
       "flex-direction": "row",
       "Scrolling": "auto-scroll",
-      "flex-grow": 1,
-      "align-items": "stretch",
-      "widget": "ptcstabset"
+      "flex-grow": "@rule",
+      "align-items": "@rule",
+      "widget": "ptcstabset",
+      "widget_gutter": "@rule"
     }
   ]
 }

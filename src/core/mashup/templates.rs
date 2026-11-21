@@ -6,6 +6,7 @@
 //! a responsive mashup holding one `center` container; `master_root.json` is the root widget's
 //! properties for a master mashup.
 
+use crate::core::mashup::layout::{RuleSet, Version};
 use crate::core::scan::{escape_attribute, IllegalXmlChar};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -62,6 +63,12 @@ pub(crate) struct LayoutNode {
     pub(crate) fixed: Option<String>,
     #[serde(default)]
     pub(crate) divider: bool,
+    /// A divider's length across its parent, from the layout rules.
+    #[serde(default, skip_serializing)]
+    pub(crate) thickness: Option<String>,
+    /// The `Margin` of the widget this slot holds, from the layout rules.
+    #[serde(default, skip_serializing)]
+    pub(crate) widget_gutter: Option<String>,
     /// The container's own look, CSS property to value, written to the root StyleProperties as
     /// `mashup set --style` writes it. Kept apart so it never lands among Composer properties.
     #[serde(default, skip_serializing_if = "Map::is_empty")]
@@ -70,12 +77,22 @@ pub(crate) struct LayoutNode {
     pub(crate) properties: Map<String, Value>,
 }
 
-/// Parse the fixed, ordered set of templates embedded in this binary.
+/// Parse the fixed, ordered set of templates embedded in this binary, with the layout decisions
+/// of the `legacy` rule set that every existing mashup follows.
 pub(crate) fn layouts() -> Result<Vec<LayoutTemplate>, String> {
+    layouts_with(RuleSet::embedded(Version::Legacy))
+}
+
+/// The same templates with the decisions of another rule set.
+pub(crate) fn layouts_with(rules: &RuleSet) -> Result<Vec<LayoutTemplate>, String> {
     LAYOUTS
         .iter()
         .map(|text| {
-            serde_json::from_str(text).map_err(|error| format!("embedded mashup layout: {error}"))
+            let mut skeleton: Value = serde_json::from_str(text)
+                .map_err(|error| format!("embedded mashup layout: {error}"))?;
+            rules.resolve(&mut skeleton)?;
+            serde_json::from_value(skeleton)
+                .map_err(|error| format!("embedded mashup layout: {error}"))
         })
         .collect()
 }
@@ -238,6 +255,34 @@ mod tests {
         // A value is never searched for placeholders itself.
         let odd = entity_xml("Acme.@@PROJECT@@", "Acme", MashupKind::Mashup, &[]).unwrap();
         assert!(odd.contains("name=\"Acme.@@PROJECT@@\""));
+    }
+
+    #[test]
+    fn every_template_resolves_and_only_reviewed_v1_templates_differ() {
+        let legacy = layouts().unwrap();
+        let v1 = layouts_with(RuleSet::embedded(Version::V1)).unwrap();
+        assert_eq!(legacy.len(), LAYOUTS.len());
+        let text = serde_json::to_string(&legacy).unwrap();
+        for (old, new) in legacy.iter().zip(&v1) {
+            assert_eq!(old.name, new.name);
+            if old.name == "filter-panel" {
+                assert_ne!(
+                    serde_json::to_value(old).unwrap(),
+                    serde_json::to_value(new).unwrap()
+                );
+                assert_eq!(old.children[0].fixed.as_deref(), Some("276px"));
+                assert_eq!(new.children[0].fixed.as_deref(), Some("280px"));
+            } else {
+                assert_eq!(
+                    serde_json::to_value(old).unwrap(),
+                    serde_json::to_value(new).unwrap()
+                );
+            }
+        }
+        assert!(!text.contains("@rule"), "a placeholder was left unresolved");
+        assert!(!serde_json::to_string(&v1).unwrap().contains("@rule"));
+        let list_page = legacy.iter().find(|t| t.name == "list-page").unwrap();
+        assert_eq!(list_page.children[1].fixed.as_deref(), Some("50px"));
     }
 
     #[test]

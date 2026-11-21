@@ -6,38 +6,39 @@
   ],
   "page": {
     "flex-direction": "row",
-    "align-items": "stretch"
+    "align-items": "@rule"
   },
   "master_slot": "center",
   "children": [
     {
       "slot": "sidebar",
       "flex-direction": "row",
-      "flex-grow": 0,
-      "align-items": "stretch",
+      "flex-grow": "@rule",
+      "align-items": "@rule",
       "widget": "ptcsmenubar"
     },
     {
       "slot": "main",
       "flex-direction": "column",
-      "flex-grow": 1,
-      "align-items": "stretch",
+      "flex-grow": "@rule",
+      "align-items": "@rule",
       "children": [
         {
           "slot": "header",
           "flex-direction": "row",
-          "align-items": "center",
-          "justify-content": "space-between",
-          "fixed": "50px"
+          "align-items": "@rule",
+          "justify-content": "@rule",
+          "fixed": "@rule"
         },
         {
-          "divider": true
+          "divider": true,
+          "thickness": "@rule"
         },
         {
           "slot": "center",
           "flex-direction": "column",
-          "flex-grow": 1,
-          "align-items": "stretch"
+          "flex-grow": "@rule",
+          "align-items": "@rule"
         }
       ]
     }

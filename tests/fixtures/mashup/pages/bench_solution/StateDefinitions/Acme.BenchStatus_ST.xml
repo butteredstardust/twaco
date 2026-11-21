@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Entities
+ majorVersion="10"
+ minorVersion="1"
+ universal="password">
+    <StateDefinitions>
+        <StateDefinition
+         description=""
+         documentationContent=""
+         homeMashup=""
+         name="Acme.BenchStatus_ST"
+         projectName="Acme.Bench"
+         tags="">
+            <avatar></avatar>
+            <DesignTimePermissions></DesignTimePermissions>
+            <RunTimePermissions></RunTimePermissions>
+            <VisibilityPermissions></VisibilityPermissions>
+            <ConfigurationTableDefinitions></ConfigurationTableDefinitions>
+            <ConfigurationTables></ConfigurationTables>
+            <content>
+                <![CDATA[
+                {
+  "stateDefinitions" : [ {
+    "defaultStyleDefinition" : {
+      "backgroundColor" : "",
+      "displayString" : "",
+      "fontEmphasisBold" : false,
+      "fontEmphasisItalic" : false,
+      "fontEmphasisUnderline" : false,
+      "foregroundColor" : "",
+      "image" : "Acme.Good_MD",
+      "lineColor" : "",
+      "lineStyle" : "solid",
+      "lineThickness" : 1,
+      "secondaryBackgroundColor" : "",
+      "textSize" : "normal"
+    },
+    "defaultValue" : "Finished",
+    "description" : "",
+    "displayString" : "Finished",
+    "name" : "Finished"
+  }, {
+    "defaultStyleDefinition" : {
+      "backgroundColor" : "",
+      "displayString" : "",
+      "fontEmphasisBold" : false,
+      "fontEmphasisItalic" : false,
+      "fontEmphasisUnderline" : false,
+      "foregroundColor" : "",
+      "image" : "Acme.Ok_MD",
+      "lineColor" : "",
+      "lineStyle" : "solid",
+      "lineThickness" : 1,
+      "secondaryBackgroundColor" : "",
+      "textSize" : "normal"
+    },
+    "defaultValue" : "In Progress",
+    "description" : "",
+    "displayString" : "In Progress",
+    "name" : "In Progress"
+  }, {
+    "defaultStyleDefinition" : {
+      "backgroundColor" : "",
+      "displayString" : "",
+      "fontEmphasisBold" : false,
+      "fontEmphasisItalic" : false,
+      "fontEmphasisUnderline" : false,
+      "foregroundColor" : "",
+      "image" : "Acme.Poor_MD",
+      "lineColor" : "",
+      "lineStyle" : "solid",
+      "lineThickness" : 1,
+      "secondaryBackgroundColor" : "",
+      "textSize" : "normal"
+    },
+    "defaultValue" : "Waiting",
+    "description" : "",
+    "displayString" : "Waiting",
+    "name" : "Waiting"
+  } ],
+  "stateType" : "string"
+}
+                ]]>
+            </content>
+        </StateDefinition>
+    </StateDefinitions>
+</Entities>

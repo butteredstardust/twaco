@@ -1,0 +1,66 @@
+=== twaco mashup why Acme.Case_MU toolbar
+Acme.Case_MU flexcontainer-3 (flexcontainer, toolbar)
+  slot "toolbar" of template tab-content; rules: legacy
+  surface               #F7F7F7             rule surface.toolbar-band (rule table)
+    now: background=#F7F7F7 [agrees]
+  size                  fixed 48px          rule size.toolbar-48 (rule table)
+    now: flex-size=fixed, flex-min-height=48px, flex-max-height=48px [agrees]
+  gutter                none                rule gutter.tab-content-slot (rule table)
+    now: Margin=none [agrees]
+  align                 center              rule align.bar (rule table)
+    now: align-items=center [agrees]
+override:
+  twaco mashup set Acme.Case_MU flexcontainer-3 --style background=<colour>
+  twaco mashup set Acme.Case_MU flexcontainer-3 --prop flex-grow=<n> (any flex-*, Width or Height setting marks the size as authored)
+  twaco mashup set Acme.Case_MU flexcontainer-3 --prop Margin="<top right bottom left>"
+  twaco mashup set Acme.Case_MU flexcontainer-3 --prop align-items=<flex-start|center|flex-end|stretch>
+=== twaco mashup why Acme.Case_MU toolbar --json
+{
+  "mashup": "Acme.Case_MU",
+  "widget": "flexcontainer-3",
+  "widget_type": "flexcontainer",
+  "display_name": "toolbar",
+  "origin": "slot \"toolbar\" of template tab-content",
+  "inferred": false,
+  "rules": "legacy",
+  "decisions": [
+    {
+      "name": "surface",
+      "value": "#F7F7F7",
+      "rule": "surface.toolbar-band",
+      "source": "rule_table",
+      "current": "background=#F7F7F7",
+      "agrees": true,
+      "override_with": "twaco mashup set Acme.Case_MU flexcontainer-3 --style background=<colour>"
+    },
+    {
+      "name": "size",
+      "value": "fixed 48px",
+      "rule": "size.toolbar-48",
+      "source": "rule_table",
+      "current": "flex-size=fixed, flex-min-height=48px, flex-max-height=48px",
+      "agrees": true,
+      "override_with": "twaco mashup set Acme.Case_MU flexcontainer-3 --prop flex-grow=<n> (any flex-*, Width or Height setting marks the size as authored)"
+    },
+    {
+      "name": "gutter",
+      "value": "none",
+      "rule": "gutter.tab-content-slot",
+      "source": "rule_table",
+      "current": "Margin=none",
+      "agrees": true,
+      "override_with": "twaco mashup set Acme.Case_MU flexcontainer-3 --prop Margin=\"<top right bottom left>\""
+    },
+    {
+      "name": "align",
+      "value": "center",
+      "rule": "align.bar",
+      "source": "rule_table",
+      "current": "align-items=center",
+      "agrees": true,
+      "override_with": "twaco mashup set Acme.Case_MU flexcontainer-3 --prop align-items=<flex-start|center|flex-end|stretch>"
+    }
+  ],
+  "enclosing": null,
+  "notes": []
+}

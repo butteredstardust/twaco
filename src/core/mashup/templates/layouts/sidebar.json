@@ -4,22 +4,22 @@
   "aliases": [],
   "page": {
     "flex-direction": "row",
-    "align-items": "stretch"
+    "align-items": "@rule"
   },
   "master_slot": "center",
   "children": [
     {
       "slot": "sidebar",
       "flex-direction": "row",
-      "flex-grow": 0,
-      "align-items": "stretch",
+      "flex-grow": "@rule",
+      "align-items": "@rule",
       "widget": "ptcsmenubar"
     },
     {
       "slot": "center",
       "flex-direction": "column",
-      "flex-grow": 1,
-      "align-items": "stretch"
+      "flex-grow": "@rule",
+      "align-items": "@rule"
     }
   ]
 }

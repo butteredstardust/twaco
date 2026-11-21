@@ -1,0 +1,10 @@
+version: 1
+rules: v1
+page:
+  name: Acme.Elements_MU
+  template: blank
+  data:
+    rows: {service: Acme.Data.GetRows, on: load}
+  slots:
+    center:
+      - chart: {id: share, kind: pie, data: rows, x: Name, value: Count}

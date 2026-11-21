@@ -5261,6 +5261,10 @@
       "additionalProperties": false,
       "type": "object",
       "properties": {
+        "spec": {
+          "description": "Create from a page spec file; exclusive with other creation options except project.",
+          "type": "string"
+        },
         "gadget": {
           "description": "Create a fixed-size dashboard gadget; layout defaults to 1x1 (columns x rows).",
           "type": "boolean",
@@ -5348,23 +5352,43 @@
     },
     "outputSchema": {
       "required": [
-        "notes",
         "applied",
         "dry_run",
         "mashup",
         "project",
         "template",
-        "layout",
         "slots",
-        "master",
-        "visibility",
-        "files",
-        "widgets",
-        "menus"
+        "files"
       ],
       "properties": {
+        "nodes": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
+        "hand_edits_kept": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "conflicts": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
         "notes": {
-          "type": "array",
+          "type": [
+            "array",
+            "null"
+          ],
           "items": {
             "type": "string"
           }
@@ -5394,7 +5418,10 @@
           "type": "string"
         },
         "layout": {
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "slots": {
           "type": "array",
@@ -5403,7 +5430,10 @@
           }
         },
         "master": {
-          "type": "boolean"
+          "type": [
+            "boolean",
+            "null"
+          ]
         },
         "theme": {
           "type": [
@@ -5412,7 +5442,10 @@
           ]
         },
         "visibility": {
-          "type": "array",
+          "type": [
+            "array",
+            "null"
+          ],
           "items": {
             "type": "string"
           }
@@ -5424,11 +5457,17 @@
           }
         },
         "widgets": {
-          "type": "array",
+          "type": [
+            "array",
+            "null"
+          ],
           "items": true
         },
         "menus": {
-          "type": "array",
+          "type": [
+            "array",
+            "null"
+          ],
           "items": true
         },
         "notices": {
@@ -8289,6 +8328,149 @@
           "items": true
         },
         "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "mashup_build",
+    "description": "Compile page.yaml and three-way merge with the last generated baseline. Independent hand edits survive; conflicts write nothing. Plans by default; dry_run:false applies all files atomically.",
+    "inputSchema": {
+      "required": [
+        "mashup"
+      ],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "mashup": {
+          "type": "string"
+        },
+        "dry_run": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "openWorldHint": false,
+      "destructiveHint": true,
+      "idempotentHint": true
+    },
+    "outputSchema": {
+      "required": [
+        "mashup",
+        "applied",
+        "dry_run",
+        "nodes",
+        "hand_edits_kept",
+        "conflicts",
+        "files"
+      ],
+      "properties": {
+        "mashup": {
+          "type": "string"
+        },
+        "applied": {
+          "type": "boolean"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "nodes": {
+          "type": "array",
+          "items": true
+        },
+        "hand_edits_kept": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "conflicts": {
+          "type": "array",
+          "items": true
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "mashup_why",
+    "description": "Explain the layout of one widget of a repository mashup: for each decision (size, gutter, align, justify, surface, equal siblings, and the properties a rule sets) the value, the rule that decided it, whether it came from the rule table or an explicit authored setting, what the mashup holds now and whether that agrees, and the mashup_set call that overrides it. A container twaco did not record how it made is explained as inferred. Read-only.",
+    "inputSchema": {
+      "required": [
+        "mashup",
+        "widget"
+      ],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "mashup": {
+          "description": "The mashup's name.",
+          "type": "string"
+        },
+        "widget": {
+          "description": "The widget: its id, or a display name or type that names exactly one.",
+          "type": "string"
+        }
+      }
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "mashup",
+        "widget",
+        "widget_type",
+        "display_name",
+        "origin",
+        "inferred",
+        "rules",
+        "decisions",
+        "notes"
+      ],
+      "properties": {
+        "mashup": {
+          "type": "string"
+        },
+        "widget": {
+          "type": "string"
+        },
+        "widget_type": {
+          "type": "string"
+        },
+        "display_name": {
+          "type": "string"
+        },
+        "origin": {
+          "type": "string"
+        },
+        "inferred": {
+          "type": "boolean"
+        },
+        "rules": {
+          "type": "string"
+        },
+        "decisions": {
+          "type": "array",
+          "items": true
+        },
+        "enclosing": true,
+        "notes": {
           "type": "array",
           "items": {
             "type": "string"

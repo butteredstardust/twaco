@@ -2226,6 +2226,20 @@
     }
   },
   {
+    "name": "mashup_why",
+    "description": "Explain the layout of one widget of a repository mashup: for each decision (size, gutter, align, justify, surface, equal siblings, and the properties a rule sets) the value, the rule that decided it, whether it came from the rule table or an explicit authored setting, what the mashup holds now and whether that agrees, and the mashup_set call that overrides it. A container twaco did not record how it made is explained as inferred. Read-only.",
+    "inputSchema": {
+      "required": ["mashup", "widget"],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "mashup": { "description": "The mashup's name.", "type": "string" },
+        "widget": { "description": "The widget: its id, or a display name or type that names exactly one.", "type": "string" }
+      }
+    },
+    "annotations": { "readOnlyHint": true, "openWorldHint": false }
+  },
+  {
     "name": "mashup_diff",
     "description": "Compare two repository mashups by executable wiring, layout and visual content. Composer-generated widget and UUID identifiers are ignored; arrays retain their authored order. tier is executable, layout, visual or all (the default). Read-only.",
     "inputSchema": {

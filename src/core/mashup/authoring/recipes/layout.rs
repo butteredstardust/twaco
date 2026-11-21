@@ -1,5 +1,6 @@
 use super::{widget_id, AuthoringError, Work};
 use crate::core::mashup::edit::{children, insert_sorted, WidgetRef};
+use crate::core::mashup::layout;
 use serde_json::{json, Value};
 
 fn refuse(id: &str, reason: &str) -> AuthoringError {
@@ -301,26 +302,10 @@ impl Work<'_> {
         let target = widget_id(&self.document, container)?;
         self.layout_container(&target, "row")?;
         self.checked_styles(&target.id)?;
-        self.layout_set(
-            &target,
-            &[
-                ("Margin", json!("")),
-                ("UseTheme", json!(true)),
-                ("flex-direction", json!("row")),
-                ("align-items", json!("center")),
-                ("align-content", json!("flex-start")),
-                ("justify-content", json!("space-between")),
-                ("flex-wrap", json!("nowrap")),
-                ("ExpandCollapseTabLocation", json!("inside")),
-                ("flex-size", json!("fixed")),
-                ("flex-min-height", json!("48px")),
-                ("flex-max-height", json!("48px")),
-                ("flex-grow", json!(1)),
-                ("flex-shrink", json!(1)),
-                ("flex-basis", json!("auto")),
-                ("ShowVerticalScrollbar", json!(false)),
-            ],
-        )?;
+        let decided = self.document.rules().evaluate(
+            &layout::context::Node::op("toolbar-band", layout::Element::Container).context(),
+        );
+        self.layout_set(&target, &decided.patch())?;
         self.background(&target, Some("grey"), false)?;
         self.notes.push("toolbar band: #F7F7F7, border none, fixed 48px; add date picker and buttons in this row".into());
         Ok(())
@@ -357,25 +342,10 @@ impl Work<'_> {
             ));
         }
         self.checked_styles(&target.id)?;
-        self.layout_set(
-            &target,
-            &[
-                ("Margin", json!("8")),
-                ("UseTheme", json!(true)),
-                ("flex-direction", json!("column")),
-                ("flex-wrap", json!("nowrap")),
-                ("align-items", json!("flex-start")),
-                ("justify-content", json!("flex-start")),
-                ("ExpandCollapseTabLocation", json!("inside")),
-                ("ShowVerticalScrollbar", json!(false)),
-                ("flex-size", json!("default")),
-                ("flex-min-height", json!("")),
-                ("flex-max-height", json!("")),
-                ("flex-grow", json!(1)),
-                ("flex-shrink", json!(1)),
-                ("flex-basis", json!("0px")),
-            ],
-        )?;
+        let decided = self.document.rules().evaluate(
+            &layout::context::Node::op("card-recipe", layout::Element::Container).context(),
+        );
+        self.layout_set(&target, &decided.patch())?;
         self.background(&target, Some("card"), false)?;
         let is_address = |text: &str| text.starts_with("data:") || text.starts_with("ui:");
         let mut labels = vec![("caption", caption, "sub-header")];
@@ -526,36 +496,13 @@ impl Work<'_> {
             }
         ));
         let css = managed_css(css, &target.id, &block)?;
-        self.layout_set(
-            &target,
-            &[
-                ("Style", json!("DefaultContainerStyle")),
-                ("UseTheme", json!(true)),
-                (
-                    "Margin",
-                    json!(if style == "card" { "" } else { "24 24 12" }),
-                ),
-                ("flex-direction", json!("column")),
-                ("flex-wrap", json!("nowrap")),
-                ("align-items", json!("flex-start")),
-                ("align-content", json!("flex-start")),
-                ("justify-content", json!("flex-start")),
-                (
-                    "flex-size",
-                    json!(if fit == "content" { "default" } else { "range" }),
-                ),
-                (
-                    "flex-min-height",
-                    json!(if fit == "content" { "" } else { "0px" }),
-                ),
-                ("flex-max-height", json!("")),
-                ("flex-grow", json!(if fit == "content" { 0 } else { 1 })),
-                ("flex-shrink", json!(1)),
-                ("flex-basis", json!("auto")),
-                ("iconClass", json!("widgets-flexcontainer")),
-                ("CustomClass", json!(classes)),
-            ],
-        )?;
+        let node = layout::context::Node::op("panel-recipe", layout::Element::Container)
+            .fact("style-card", style == "card")
+            .fact("fit-content", fit == "content");
+        let decided = self.document.rules().evaluate(&node.context());
+        let mut patch = decided.patch();
+        patch.push(("CustomClass", json!(classes)));
+        self.layout_set(&target, &patch)?;
         self.background(&target, Some(style), false)?;
         let mut paths = vec![target.path.clone()];
         let mut inherited = 0;

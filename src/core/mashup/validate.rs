@@ -320,7 +320,9 @@ fn severity(rule: &str) -> Severity {
         | "slider-button-alignment"
         | "style-important"
         | "style-placement-property"
-        | "style-unknown-part" => Severity::Advisory,
+        | "style-unknown-part"
+        | "layout-siblings"
+        | "layout-slot-size" => Severity::Advisory,
         _ => Severity::Error,
     }
 }
@@ -453,6 +455,20 @@ pub(crate) fn check_content(content: &str, problems: &mut Vec<Problem>) {
         }
         if widget.type_id == "flexcontainer" {
             container_layout_problems(row, &widget.id, problems);
+            for found in mashup::why::contradictions(&document, &widget.path, &widget.id) {
+                let rule = found.rule.as_deref().unwrap_or("");
+                problems.push(problem(
+                    if found.name == "siblings" { "layout-siblings" } else { "layout-slot-size" },
+                    format!(
+                        "{}: layout rule {rule} decides {} {}, but the mashup has {}; `twaco mashup why <mashup> {}` explains it and how to override",
+                        widget.id,
+                        found.name,
+                        found.value,
+                        found.current.as_deref().unwrap_or("something else"),
+                        widget.id
+                    ),
+                ));
+            }
         }
         let alignment = &row["Properties"]["align-items"];
         if alignment.is_null() || alignment == "flex-start" {

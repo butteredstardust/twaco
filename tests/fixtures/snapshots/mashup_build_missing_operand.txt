@@ -1,0 +1,7 @@
+$ twaco mashup build
+exit: 2
+
+--- stdout
+
+--- stderr
+twaco: mashup build needs one <mashup>

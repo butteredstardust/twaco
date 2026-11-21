@@ -840,7 +840,7 @@ fn unknown_template(word: &str) -> String {
     format!("unknown template `{word}`; use {names}")
 }
 
-fn add_template_node(
+pub(super) fn add_template_node(
     document: &mut MashupDocument,
     parent: &[usize],
     node: &mashup::templates::LayoutNode,
@@ -881,7 +881,7 @@ fn add_template_node(
             &mut Vec::new(),
         );
     }
-    if let Some(fixed) = node.fixed.as_deref().or(node.divider.then_some("1px")) {
+    if let Some(fixed) = node.fixed.as_deref().or(node.thickness.as_deref()) {
         document.set_property(&child.path, "flex-size", json!("fixed"));
         document.set_property(
             &child.path,
@@ -906,8 +906,8 @@ fn add_template_node(
         })?;
         let number = document.allocate();
         let mut value = mashup::edit::new_widget(widget, number, true);
-        if type_id == "ptcstabset" {
-            value["Properties"]["Margin"] = json!("");
+        if let Some(gutter) = &node.widget_gutter {
+            value["Properties"]["Margin"] = json!(gutter);
         }
         document.push_child(&child.path, value);
     }
@@ -924,6 +924,11 @@ fn validate_node(
     if !node.divider && node.slot.as_deref().is_none_or(str::is_empty) {
         return Err(AuthoringError::Invalid(format!(
             "template {template}: a node needs slot"
+        )));
+    }
+    if node.divider && node.thickness.is_none() {
+        return Err(AuthoringError::Invalid(format!(
+            "template {template}: a divider needs a thickness from the layout rules"
         )));
     }
     for (property, value) in &node.style {
