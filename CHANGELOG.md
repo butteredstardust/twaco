@@ -6,6 +6,15 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Page specs support `row`/`column`, proportional fill weights and gaps, equal chart widths,
+  minimum chart heights and optional hidden legends. Overflow scrolls at the page so pagination
+  and content-height status cards stay in flow. Field-only filter panels no longer reserve an
+  empty content pane, and narrow date ranges fit their fields.
+- Page detail values can bind to `<grid>.selected.<Field>`; mixed detail pairs reserve the same
+  status-dot column. Added combined-layout Q1-Q4 examples and offline acceptance fixtures.
+
 ### Fixed
 
 - `mashup new --spec` overflowed the stack on specs with a few nested containers (tabs in a column in a row): parsing and placing recurse with large frames, so the page work now runs on a 64 MiB thread; over-deep YAML is refused by the parser's depth budget with a located error. A page header with help and actions collapsed to zero height in a column (the spacer rule left a 0px flex basis); it now keeps `auto`. The v1 header golden changes deliberately; legacy output is unchanged.

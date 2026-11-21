@@ -1,0 +1,40 @@
+# Q3 Dashboard mix: four trend tiles + row of three charts (pie | bar stacked | line) + toolbar band + grid + pagination
+version: 1
+rules: v1
+page:
+  name: Acme.BenchSpecQ3_MU
+  template: blank
+  data:
+    focus: {service: Acme.Cards.GetFocus, on: load}
+    history: {service: Acme.Cards.GetHistory, on: load}
+    assets: {service: Acme.Cards.GetAssets, on: load}
+  slots:
+    center:
+      - page_header: {id: header, title: Plant Dashboard}
+      - kpi_row:
+          id: kpis
+          children:
+            - trend_tile: {id: k1, label: Availability, value: {bind: focus.Objective}, unit: '%', trend: up}
+            - trend_tile: {id: k2, label: Performance, value: {bind: focus.Targets}, unit: '%', trend: flat}
+            - trend_tile: {id: k3, label: Quality, value: {bind: focus.Invites}, unit: '%', trend: down}
+            - trend_tile: {id: k4, label: Output, value: {bind: focus.Measures}, unit: pcs, trend: up}
+      - row:
+          id: charts
+          size: fill
+          children:
+            - chart: {id: c_pie, kind: pie, legend: false, data: history, x: year, value: Value}
+            - chart: {id: c_bar, kind: bar, legend: false, data: history, x: year, stacked: true}
+            - chart: {id: c_line, kind: line, legend: false, data: history, x: year}
+      - toolbar:
+          id: tools
+          children:
+            - text_field: {id: search, hint: Search...}
+            - date_range: {id: when}
+            - spacer: {id: space}
+            - button: {id: details, label: View Details, variant: transparent, icon: cds:icon_view, enabled_when: asset_grid.selected}
+      - grid:
+          id: asset_grid
+          size: fill
+          data: assets
+          columns: [ThingName, {field: Status, status: Acme.BenchStatus_ST}, Category, Model, Date]
+      - pagination: {id: pages, for: asset_grid}

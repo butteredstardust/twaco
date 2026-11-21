@@ -204,6 +204,10 @@ fn benchmark_lifecycle(id: &str) {
                 "H" => "Asset List Top Filter",
                 "J" => "Alerts & Notifications",
                 "O" => "Gauges & KPI",
+                "Q1" => "Operations Overview",
+                "Q2" => "Press 04",
+                "Q3" => "Plant Dashboard",
+                "Q4" => "Fleet",
                 _ => "Admin Metrics",
             },
         )
@@ -270,4 +274,21 @@ fn benchmark_n_frontends_and_rebuilds() {
 #[test]
 fn benchmark_o_frontends_and_rebuilds() {
     benchmark_lifecycle("O");
+}
+
+#[test]
+fn benchmark_q1_frontends_and_rebuilds() {
+    benchmark_lifecycle("Q1");
+}
+#[test]
+fn benchmark_q2_frontends_and_rebuilds() {
+    benchmark_lifecycle("Q2");
+}
+#[test]
+fn benchmark_q3_frontends_and_rebuilds() {
+    benchmark_lifecycle("Q3");
+}
+#[test]
+fn benchmark_q4_frontends_and_rebuilds() {
+    benchmark_lifecycle("Q4");
 }

@@ -1,0 +1,62 @@
+# Q2 Asset detail: header with actions + three detail cards + split row (chart 2/3 | status cards 1/3) + full-width grid
+version: 1
+rules: v1
+page:
+  name: Acme.BenchSpecQ2_MU
+  template: blank
+  data:
+    focus: {service: Acme.Cards.GetFocus, on: load}
+    history: {service: Acme.Cards.GetHistory, on: load}
+    metrics: {service: Acme.BenchData.GetMetrics, on: load}
+  slots:
+    center:
+      - page_header:
+          id: header
+          title: Press 04
+          help: Line 3 / Plant A
+          actions:
+            - {id: edit, label: Edit, variant: secondary}
+            - {id: report, label: Report, variant: primary}
+      - row:
+          id: details
+          size: fit
+          children:
+            - card:
+                id: identity
+                title: Identity
+                children:
+                  - detail_pair: {id: id_obj, label: Objective, value: {bind: focus.Objective}}
+                  - detail_pair: {id: id_meas, label: Measures, value: {bind: focus.Measures}}
+            - card:
+                id: health
+                title: Health
+                children:
+                  - detail_pair: {id: h_targets, label: Targets, value: {bind: focus.Targets}, kind: error}
+                  - detail_pair: {id: h_invites, label: Invites, value: {bind: focus.Invites}, kind: warning}
+            - card:
+                id: service
+                title: Service
+                children:
+                  - detail_pair: {id: s_obj, label: Last service, value: {bind: focus.Objective}, kind: ok}
+                  - detail_pair: {id: s_next, label: Next due, value: {bind: focus.Invites}, kind: info}
+      - row:
+          id: split
+          size: fill
+          children:
+            - column:
+                id: chart_side
+                weight: 2
+                children:
+                  - chart: {id: output_trend, kind: line, data: history, x: year}
+            - column:
+                id: status_side
+                weight: 1
+                children:
+                  - card: {id: st1, title: Hydraulics, status: Running, kind: ok}
+                  - card: {id: st2, title: Cooling, status: Watch, kind: warning}
+                  - card: {id: st3, title: Tooling, status: Fault, kind: error}
+      - grid:
+          id: metric_grid
+          size: fill
+          data: metrics
+          columns: [ThingName, Type, Title, Status, Category, Count]

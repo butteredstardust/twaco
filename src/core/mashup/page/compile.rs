@@ -211,6 +211,15 @@ fn compile_nested(solution: &Solution, project: &str, text: &str) -> Result<Arti
     for node in gates {
         wire_enabled(solution, &mut session, &mut allocator, &ids, node)?;
     }
+    wire_selections(
+        solution,
+        &mut session,
+        &model,
+        platform.as_ref(),
+        page,
+        &mut allocator,
+        &mut ids,
+    )?;
     for node in page.slots.values().flat_map(|s| &s.value) {
         wire_values(
             solution,
@@ -321,6 +330,8 @@ fn add(
         _ => None,
     };
     match node {
+        Node::Row(_) => props.push(("flex-direction".into(), "row".into())),
+        Node::Column(_) => props.push(("flex-direction".into(), "column".into())),
         Node::DateRange(_) => props.push(("DateRange".into(), "true".into())),
         Node::Tabs(_) => {
             props.push(("NumberOfTabs".into(), body.tabs.len().to_string()));
@@ -741,12 +752,14 @@ fn apply_size(
             Size::Fit => sizing.push(("flex-grow".into(), json!(0))),
             Size::Fill => sizing.extend([
                 ("flex-size".into(), json!("range")),
-                ("flex-min-height".into(), json!("0px")),
                 ("flex-max-height".into(), json!("")),
                 ("flex-grow".into(), json!(1)),
                 ("flex-shrink".into(), json!(1)),
                 ("flex-basis".into(), json!("0px")),
             ]),
+        }
+        if container && matches!(size.value, Size::Fill) {
+            sizing.push(("flex-min-height".into(), json!("0px")));
         }
         if !sizing.is_empty() {
             session
@@ -951,6 +964,106 @@ pub(super) fn call(page: &Page, alias: &str) -> String {
     format!("data:{}[as {alias}]", page.data[alias].value.service.value)
 }
 
+#[allow(clippy::too_many_arguments)]
+fn wire_selections(
+    solution: &Solution,
+    session: &mut Session,
+    model: &types::Model,
+    platform: Option<&types::Platform>,
+    page: &Page,
+    allocator: &mut Ids,
+    ids: &mut BTreeMap<String, String>,
+) -> Result<(), Error> {
+    fn collect(node: &Node, refs: &mut BTreeMap<String, Location>) {
+        let b = node.body();
+        for value in b
+            .props
+            .values()
+            .chain(b.value.iter())
+            .chain(b.status.iter())
+        {
+            if let Some(text) = binding(&value.value).filter(|s| s.contains(".selected.")) {
+                refs.insert(text.to_string(), value.referenced);
+            }
+        }
+        for child in descendants(node) {
+            collect(child, refs);
+        }
+    }
+    let mut refs = BTreeMap::new();
+    for node in page.slots.values().flat_map(|s| &s.value) {
+        collect(node, &mut refs);
+    }
+    for source in page.data.values() {
+        for value in source.value.params.values() {
+            if let Some(text) = binding(&value.value).filter(|s| s.contains(".selected.")) {
+                refs.insert(text.to_string(), value.referenced);
+            }
+        }
+    }
+    for (text, loc) in refs {
+        let (grid, field) = text.split_once(".selected.").expect("selection");
+        let data = find_grid(page, grid)
+            .ok_or_else(|| Error::at(loc, format!("{text} needs a grid with data")))?;
+        if field.is_empty() || field.contains('.') {
+            return Err(Error::at(loc, format!("{text} needs one field")));
+        }
+        let base = session
+            .source_type(
+                solution,
+                model,
+                platform,
+                &format!("{}.{field}", call(page, data)),
+            )
+            .map_err(|e| Error::at(loc, e))?;
+        let old = session
+            .document
+            .widgets()
+            .into_iter()
+            .map(|w| w.id)
+            .collect();
+        let field_key = serde_json::to_string(field).expect("field string");
+        let expression =
+            format!("var selected = rows && (rows.rows || rows); result = selected && selected.length ? selected[0][{field_key}] : undefined;");
+        let placed = session
+            .add(
+                solution,
+                &authoring::AddRequest {
+                    mashup: page.name.value.clone(),
+                    widget: "expression2".into(),
+                    inputs: vec!["rows:INFOTABLE".into()],
+                    placement: None,
+                    label: None,
+                    properties: vec![
+                        ("Expression".into(), expression),
+                        ("OutputBaseType".into(), base),
+                        ("AutoEvaluate".into(), "true".into()),
+                    ],
+                },
+            )
+            .map_err(|e| Error::at(loc, e))?;
+        let id = stabilize(
+            session,
+            allocator,
+            &old,
+            &placed,
+            &format!("{grid}--selected-{field}"),
+            loc,
+        )?;
+        session
+            .bind(
+                solution,
+                model,
+                platform,
+                &format!("ui:{}.SelectedRows", ids[grid]),
+                &format!("ui:{id}.rows"),
+            )
+            .map_err(|e| Error::at(loc, e))?;
+        ids.insert(text, id);
+    }
+    Ok(())
+}
+
 pub(super) fn address(
     page: &Page,
     ids: &BTreeMap<String, String>,
@@ -962,6 +1075,12 @@ pub(super) fn address(
     }
     if page.data.contains_key(text) {
         return Ok(call(page, text));
+    }
+    if text.contains(".selected.") {
+        return ids
+            .get(text)
+            .map(|id| format!("ui:{id}.Output"))
+            .ok_or_else(|| Error::at(loc, format!("unknown selection reference {text}")));
     }
     if let Some((node, property)) = text.split_once('.') {
         if let Some(id) = ids.get(node) {

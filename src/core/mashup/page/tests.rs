@@ -242,6 +242,7 @@ fn spec_matches_new_add_set_command_structure() {
     let mut expected = normalized(&expected.content);
     // The unversioned primitive retains its legacy gutter; specs use the v1 page gutter.
     expected["UI"]["Widgets"][0]["Properties"]["Margin"] = serde_json::json!("24");
+    expected["UI"]["Widgets"][0]["Properties"]["ShowVerticalScrollbar"] = serde_json::json!(true);
     assert_eq!(normalized(&built.content), expected);
 }
 
@@ -931,6 +932,7 @@ fn elements_match_equivalent_primitive_recipe_sequences() {
             )
             .unwrap();
         let data = "data:Acme.Data.GetRows[as rows]".to_string();
+        let target_id = target.clone();
         let recipe = match kind {
             "flexcontainer" => Recipe::Card {
                 container: target,
@@ -983,6 +985,17 @@ fn elements_match_equivalent_primitive_recipe_sequences() {
                 .document
                 .set_property(&caption, "LabelType", serde_json::json!("label"));
         }
+        let parsed = schema::parse(&text).unwrap();
+        let mut ids = std::collections::BTreeMap::from([("target".to_string(), target_id)]);
+        if let Some(widget) = primitive
+            .document
+            .widgets()
+            .into_iter()
+            .find(|w| w.type_id == "ptcspagination")
+        {
+            ids.insert("pager".to_string(), widget.id);
+        }
+        super::elements::finish_layout(&mut primitive, &parsed.page.value, &ids).unwrap();
         assert_eq!(
             canonical(&built.content),
             canonical(&primitive.document.to_content()),
@@ -1539,7 +1552,7 @@ fn detail_pairs_share_a_content_height_row_with_caption_left_and_value_right() {
         );
     }
     assert!(built.ids.contains_key("first--dot"));
-    assert!(!built.ids.contains_key("second--dot"));
+    assert!(built.ids.contains_key("second--dot"));
     let content: Value = serde_json::from_str(&built.content).unwrap();
     assert_eq!(
         content["UI"]["Properties"]["StyleProperties"]["data"][&built.ids["first--dot"]]["parts"]
@@ -1758,4 +1771,184 @@ fn panel_slider_dial_and_combo_errors_are_located() {
         let error = compile(&solution, "Acme", &error_page(body, "")).unwrap_err();
         assert!(error.line >= 10 && error.column > 0, "{body}: {error}");
     }
+}
+
+#[test]
+fn benchmark_q2_golden() {
+    benchmark("q2");
+}
+#[test]
+fn benchmark_q3_golden() {
+    benchmark("q3");
+}
+#[test]
+fn benchmark_q4_golden() {
+    benchmark("q4");
+}
+
+#[test]
+fn combined_columns_share_fill_without_collapsing_chart_or_status_cards() {
+    let built = compiled_benchmark("q2");
+    let doc = mashup::edit::parse(&built.content).unwrap();
+    for id in ["split", "metric_grid", "chart_side", "status_side"] {
+        let widget = doc.find_exact(&built.ids[id]).unwrap();
+        let path = if widget.type_id == "flexcontainer" {
+            widget.path
+        } else {
+            widget.path[..widget.path.len() - 1].to_vec()
+        };
+        let props = &doc.at(&path)["Properties"];
+        assert_eq!(props["flex-basis"], "0px", "{id}");
+        assert_eq!(
+            props["flex-grow"],
+            if id == "chart_side" { 2 } else { 1 },
+            "{id}"
+        );
+    }
+    for id in ["st1", "st2", "st3"] {
+        assert_eq!(element_props(&built, id)["flex-grow"], 0);
+        assert_eq!(element_props(&built, id)["flex-shrink"], 0);
+    }
+    let chart = doc.find_exact(&built.ids["output_trend"]).unwrap();
+    let minimum = doc.at(&chart.path[..chart.path.len() - 1])["Properties"]["flex-min-height"]
+        .as_str()
+        .unwrap()
+        .trim_end_matches("px")
+        .parse::<u32>()
+        .unwrap();
+    assert!(minimum >= 240);
+}
+
+#[test]
+fn combined_chart_row_is_equal_and_page_owns_overflow_through_pagination() {
+    let built = compiled_benchmark("q3");
+    let doc = mashup::edit::parse(&built.content).unwrap();
+    let mut parents = vec![];
+    for id in ["c_pie", "c_bar", "c_line"] {
+        let chart = doc.find_exact(&built.ids[id]).unwrap();
+        let path = chart.path[..chart.path.len() - 1].to_vec();
+        parents.push(path[..path.len() - 1].to_vec());
+        let props = &doc.at(&path)["Properties"];
+        assert_eq!(props["flex-grow"], 1);
+        assert_eq!(props["flex-basis"], "0px");
+        assert_eq!(element_props(&built, id)["LegendPosition"], "bottom");
+    }
+    assert!(parents.windows(2).all(|p| p[0] == p[1]));
+    let pager = doc.find_exact(&built.ids["pages"]).unwrap();
+    for length in 1..pager.path.len() {
+        let props = &doc.at(&pager.path[..length])["Properties"];
+        if props["Type"] == "flexcontainer" {
+            assert_eq!(props["ShowVerticalScrollbar"], length == 1);
+        }
+    }
+}
+
+#[test]
+fn field_only_filter_reserves_280px_and_keeps_footer_and_dates_inside() {
+    let built = compiled_benchmark("q1");
+    let props = element_props(&built, "filters");
+    assert_eq!(props["flex-basis"], "280px");
+    assert_eq!(props["flex-grow"], 0);
+    assert_eq!(element_props(&built, "main")["flex-grow"], 1);
+    let date = element_props(&built, "period");
+    assert_eq!(date["Width"], 240);
+    assert_eq!(date["StartDateHintText"], "From");
+    let doc = mashup::edit::parse(&built.content).unwrap();
+    let fields = doc.find("filters").unwrap();
+    assert_eq!(doc.at(&fields.path)["Properties"]["flex-grow"], 0);
+    assert_eq!(doc.at(&fields.path)["Properties"]["flex-shrink"], 0);
+}
+
+#[test]
+fn selected_fields_read_the_named_grid_and_preserve_field_types_and_dot_alignment() {
+    let built = compiled_benchmark("q4");
+    let doc = mashup::edit::parse(&built.content).unwrap();
+    assert_eq!(element_props(&built, "fleet")["RowSelection"], "single");
+    let value: Value = serde_json::from_str(&built.content).unwrap();
+    for field in ["ThingName", "Status", "Model"] {
+        let expression = &built.ids[&format!("fleet.selected.{field}")];
+        assert!(value["DataBindings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|b| b["SourceId"] == built.ids["fleet"]
+                && b["TargetId"] == *expression
+                && b["PropertyMaps"][0]["SourceProperty"] == "SelectedRows"));
+        let widget = doc.find_exact(expression).unwrap();
+        assert!(doc.at(&widget.path)["Properties"]["Expression"]
+            .as_str()
+            .unwrap()
+            .contains(&format!("[\"{field}\"]")));
+    }
+    for pair in ["d_name", "d_status", "d_model"] {
+        assert_eq!(element_props(&built, &format!("{pair}--dot"))["Width"], 16);
+    }
+}
+
+#[test]
+fn layout_options_and_selection_errors_are_located_and_raw_layout_remains_supported() {
+    let (_dir, solution) = element_solution();
+    for body in [
+        "row: {id: r, weight: 0}",
+        "column: {id: r, weight: -1}",
+        "label: {id: r, text: A, gap: 4}",
+        "label: {id: r, text: A, legend: false}",
+        "label: {id: r, props: {LabelText: {bind: missing.selected.Name}}}",
+        "label: {id: r, props: {LabelText: {bind: grid.selected.Missing}}}",
+    ] {
+        let text = error_page(body, "      - grid: {id: grid, data: rows}\n");
+        let error = compile(&solution, "Acme", &text).unwrap_err();
+        assert!(error.line >= 10 && error.column > 0, "{body}: {error}");
+    }
+    let text = error_page(
+        "row: {id: r, gap: 12, children: [{label: {id: a, text: A}}, {label: {id: b, text: B}}]}",
+        "",
+    );
+    let built = compile(&solution, "Acme", &text).unwrap();
+    assert_eq!(element_props(&built, "r")["flex-direction"], "row");
+    let raw = text.replace(
+        "row: {id: r, gap: 12,",
+        "widget: {id: r, type: flexcontainer, props: {flex-direction: row},",
+    );
+    compile(&solution, "Acme", &raw).unwrap();
+    let text = element_fixture("chart_line").replace("kind: line", "kind: line, legend: false");
+    let built = compile(&solution, "Acme", &text).unwrap();
+    assert!(built.content.contains("\"HideLegend\": true"));
+}
+
+#[test]
+fn selection_stays_on_its_grid_with_shared_data_and_pagination() {
+    let (_dir, solution) = element_solution();
+    let text = error_page("label: {id: selected, props: {LabelText: {bind: first.selected.Name}}}", "      - grid: {id: first, data: rows}\n      - pagination: {id: pager, for: first}\n      - grid: {id: second, data: rows}\n");
+    let built = compile(&solution, "Acme", &text).unwrap();
+    let value: Value = serde_json::from_str(&built.content).unwrap();
+    let expression = &built.ids["first.selected.Name"];
+    let sources: Vec<_> = value["DataBindings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|b| b["TargetId"] == *expression)
+        .collect();
+    assert_eq!(sources.len(), 1);
+    assert_eq!(sources[0]["SourceId"], built.ids["first"]);
+    assert_eq!(
+        sources[0]["PropertyMaps"][0]["SourceProperty"],
+        "SelectedRows"
+    );
+    assert_eq!(
+        sources[0]["PropertyMaps"][0]["SourcePropertyBaseType"],
+        "INFOTABLE"
+    );
+    assert!(built.content.contains("rows.rows || rows"));
+    assert_eq!(element_props(&built, "first")["RowSelection"], "single");
+    assert_eq!(built, compile(&solution, "Acme", &text).unwrap());
+}
+
+#[test]
+fn gap_and_explicit_minimum_props_override_layout_defaults() {
+    let (_dir, solution) = element_solution();
+    let text = error_page("row: {id: r, gap: 12, props: {flex-min-height: 123px}, children: [{label: {id: a, text: A}}, {label: {id: b, text: B}}]}", "");
+    let built = compile(&solution, "Acme", &text).unwrap();
+    assert_eq!(element_props(&built, "r")["flex-min-height"], "123px");
+    assert_eq!(element_props(&built, "b")["Margin"], "0 0 0 12");
 }

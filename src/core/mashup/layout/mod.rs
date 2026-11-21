@@ -564,7 +564,7 @@ mod tests {
             .iter()
             .filter(|rule| !legacy.rules.iter().any(|old| old.id == rule.id))
             .collect();
-        assert_eq!(additions.len(), 14);
+        assert_eq!(additions.len(), 19);
         assert_eq!(additions[0].id, "gutter.filter-actions");
         for (rule, op) in additions[1..].iter().zip([
             "page-header",
@@ -579,6 +579,11 @@ mod tests {
             "page-content-height",
             "page-panel-width",
             "page-slider-wrapper",
+            "page-fill",
+            "page-chart-minimum",
+            "page-chart-legend",
+            "page-overflow",
+            "page-filter-only",
             "page-spacer",
         ]) {
             assert!(matches!(&rule.when.op,Some(Names::One(name)) if name == op));

@@ -100,6 +100,7 @@ numeric `Count` fields. Bindings and events use authored IDs, including tile and
 | `label` | label authoring | `- label: {id: note, text: Details}` |
 | `heading` | label authoring with header LabelType | `- heading: {id: title, text: Alerts}` |
 | `button` | button authoring, `recipe enable-when` | `- button: {id: preview, label: Preview, variant: transparent, icon: 'cds:icon_view', enabled_when: results.selected}` |
+| `row` / `column` | responsive flex containers, equal fill or positive `weight`, optional pixel `gap` | `- row: {id: split, size: fill, gap: 12, children: [{column: {id: main, weight: 2}}, {column: {id: side, weight: 1}}]}` |
 | `widget` | catalogue authoring | `- widget: {id: input, type: ptcstextfield, props: {Text: Acme}}` |
 
 Toolbar `band` defaults to true: the existing recipe supplies the grey 48px band. Set
@@ -131,7 +132,7 @@ Direction is static: it does not follow a data field.
 
 A `detail_pair` is a content-height row: optional status dot, caption left, spacer, bound value
 right. Place it in a `card`, which then stretches its children. `kind` (`ok`, `warning`, `error`,
-`info`) colours the dot. There is no StateDefinition mapping yet, so the dot colour is fixed.
+`info`) colours the dot. If any direct pair in a card has a dot, every pair reserves the same 16px dot column. There is no StateDefinition mapping yet, so the dot colour is fixed.
 Rows have no fixed height, which removes the inner overflow of the old card plus label rows.
 
 A `button` accepts `variant` (`primary`, `secondary`, `tertiary`, `transparent`, `danger`, written
@@ -147,7 +148,7 @@ A `panel` is the kit's framed chart box: grey `#F7F7F7` fill, 1px `#E4E7E9` bord
 equal flexible width (`flex-grow: 1`, override with `props: {flex-grow: 2}`) and an 8px margin. An
 optional `title` becomes a regular-size label and `toolbar` a 48px band at the top of the panel
 (`<id>--title`, `<id>--toolbar`). Charts in a panel keep their minimum height and share the
-remaining height. Place panels in a row container such as `widget: {type: flexcontainer, size: fill}`.
+remaining height. Place panels in a `row: {id: charts, size: fill, children: [...]}`. Raw `widget` flexcontainers remain supported.
 
 A `slider` writes `Minimum`, `Maximum`, `Value`, `DisplayMinMaxLabels` (`labels`, default true) and a
 `Label` from `title`; it defaults to `size: fill` so its wrapper spans the row, with the kit's 110px
@@ -242,3 +243,36 @@ default to content height; charts stay inside their authored panels and share th
 height, retaining their minimum height so a short page scrolls above the chart region.
 Existing unversioned
 mashups continue using legacy rules and unchanged legacy goldens.
+
+## Combined layouts and selection
+
+Use `row` and `column` with `children` for responsive layouts. `size: fill` siblings share the
+available space equally; a positive numeric `weight` sets their proportions (for example 2:1).
+A weight also opts into fill sizing. `size: fit` keeps content height. `gap` is an optional
+nonnegative pixel spacing between children. Explicit widget props still override defaults.
+
+Charts in rows get equal widths, with a minimum height of 240px (a larger native minimum is
+retained). Charts and grids share remaining column space. Status cards keep their content height.
+Content minimums propagate through layout wrappers, and the page scrolls when those minimums
+exceed the viewport; pagination remains in the page flow. Explicit fixed sizes can still constrain
+content. A chart accepts `legend: false` to reclaim plot space in a dense chart row; legends
+otherwise retain native settings at the bottom. No custom chart HTML or rendering is used.
+
+A field-only `filter_panel` occupies 280px beside the main column. Its empty content pane is
+hidden, fields use content height and the footer stays in flow. A date range in its 240px field
+area defaults to that width and short From/To hints; explicit Width props win.
+
+Bind a detail value to a grid selection with `{bind: fleet.selected.ThingName}`, where `fleet`
+is a grid id with `data`. The compiler validates the field against that data service's result
+shape and creates a typed expression reading the named grid's `SelectedRows` first row. This
+enables single selection if selection was disabled, follows that grid even when another grid
+shares the service, and works with local pagination. No selection produces an undefined value;
+it does not substitute the first row of All Data. `enabled_when: fleet.selected` remains the
+boolean gate for buttons. Selection expressions have deterministic ids and rebuild without churn.
+
+The combined examples [Q1](../tests/fixtures/mashup/pages/bench_q1/page.yaml),
+[Q2](../tests/fixtures/mashup/pages/bench_q2/page.yaml),
+[Q3](../tests/fixtures/mashup/pages/bench_q3/page.yaml) and
+[Q4](../tests/fixtures/mashup/pages/bench_q4/page.yaml) use the same offline Acme solution.
+Q3 hides chart legends; Q4 follows the selected asset and aligns mixed status pairs.
+These are offline structural regressions, not measured visual scores.

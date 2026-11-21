@@ -1,4 +1,4 @@
-# Operations overview: tabs with a status grid inside a column inside a row container
+# Q1 Operations overview: filter column + KPI trend row + tabs (grid with toolbar/pagination | two charts)
 version: 1
 rules: v1
 page:
@@ -11,11 +11,9 @@ page:
     categories: {service: Acme.Cards.GetCategories, on: load}
   slots:
     center:
-      - widget:
+      - row:
           id: shell
-          type: flexcontainer
           size: fill
-          props: {flex-direction: row, align-items: stretch}
           children:
             - filter_panel:
                 id: filters
@@ -24,11 +22,10 @@ page:
                   - dropdown: {id: category, options: categories, display: Value}
                   - date_range: {id: period}
                 footer: [apply, reset]
-            - widget:
+            - column:
                 id: main
-                type: flexcontainer
                 size: fill
-                props: {flex-direction: column, align-items: stretch}
+
                 children:
                   - page_header: {id: header, title: Operations Overview}
                   - kpi_row:
@@ -50,6 +47,11 @@ page:
                                   - button: {id: export, label: Export, variant: transparent, icon: cds:icon_download}
                             - grid:
                                 id: asset_grid
+                                size: fill
                                 data: assets
                                 columns: [{field: ThingName, title: Asset}, {field: Status, status: Acme.BenchStatus_ST}, Category, Model, Date]
                             - pagination: {id: asset_pages, for: asset_grid}
+                        - label: Trends
+                          content:
+                            - chart: {id: trend_line, kind: line, data: history, x: year}
+                            - chart: {id: trend_bar, kind: bar, data: history, x: year, stacked: true}

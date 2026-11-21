@@ -1,0 +1,44 @@
+# Q4 Master-detail: asset grid left (selectable) | right column with detail card + history chart; header + toolbar
+version: 1
+rules: v1
+page:
+  name: Acme.BenchSpecQ4_MU
+  template: blank
+  data:
+    assets: {service: Acme.Cards.GetAssets, on: load}
+    focus: {service: Acme.Cards.GetFocus, on: load}
+    history: {service: Acme.Cards.GetHistory, on: load}
+  slots:
+    center:
+      - page_header: {id: header, title: Fleet}
+      - toolbar:
+          id: tools
+          children:
+            - text_field: {id: search, hint: Search assets...}
+            - spacer: {id: space}
+            - button: {id: compare, label: Compare, variant: tertiary, enabled_when: fleet.selected}
+      - row:
+          id: md
+          size: fill
+          children:
+            - column:
+                id: master
+                weight: 1
+                children:
+                  - grid:
+                      id: fleet
+                      size: fill
+                      data: assets
+                      columns: [{field: ThingName, title: Asset}, {field: Status, status: Acme.BenchStatus_ST}, Model]
+            - column:
+                id: detail
+                weight: 1
+                children:
+                  - card:
+                      id: selected
+                      title: Selected asset
+                      children:
+                        - detail_pair: {id: d_name, label: Asset, value: {bind: fleet.selected.ThingName}}
+                        - detail_pair: {id: d_status, label: Status, value: {bind: fleet.selected.Status}, kind: ok}
+                        - detail_pair: {id: d_model, label: Model, value: {bind: fleet.selected.Model}}
+                  - chart: {id: d_hist, kind: line, data: history, x: year}

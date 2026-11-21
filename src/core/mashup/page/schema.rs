@@ -44,6 +44,8 @@ pub(crate) enum Node {
     Heading(Body),
     Button(Body),
     Widget(Body),
+    Row(Body),
+    Column(Body),
     PageHeader(Body),
     Toolbar(Body),
     KpiRow(Body),
@@ -70,6 +72,8 @@ impl Node {
             | Self::Label(b)
             | Self::Heading(b)
             | Self::Button(b)
+            | Self::Row(b)
+            | Self::Column(b)
             | Self::Widget(b)
             | Self::PageHeader(b)
             | Self::Toolbar(b)
@@ -96,6 +100,8 @@ impl Node {
             | Self::Label(b)
             | Self::Heading(b)
             | Self::Button(b)
+            | Self::Row(b)
+            | Self::Column(b)
             | Self::Widget(b)
             | Self::PageHeader(b)
             | Self::Toolbar(b)
@@ -118,7 +124,9 @@ impl Node {
     }
     pub(crate) fn widget(&self) -> Result<&str, Error> {
         Ok(match self {
-            Self::PageHeader(_)
+            Self::Row(_)
+            | Self::Column(_)
+            | Self::PageHeader(_)
             | Self::Toolbar(_)
             | Self::KpiRow(_)
             | Self::Card(_)
@@ -215,6 +223,9 @@ pub(crate) struct Body {
     pub(crate) style: Vec<Spanned<String>>,
     pub(crate) surface: Option<bool>,
     pub(crate) size: Option<Spanned<Size>>,
+    pub(crate) weight: Option<Spanned<f64>>,
+    pub(crate) gap: Option<Spanned<u32>>,
+    pub(crate) legend: Option<bool>,
     #[serde(default)]
     pub(crate) children: Vec<Node>,
 }

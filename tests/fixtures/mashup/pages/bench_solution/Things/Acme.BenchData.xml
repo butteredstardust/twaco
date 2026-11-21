@@ -13,4 +13,4 @@
                         <FieldDefinition baseType="DATETIME" description="" name="startDate" ordinal="6" />
                         <FieldDefinition baseType="DATETIME" description="" name="endDate" ordinal="7" />
                     </ParameterDefinitions>
-                <ResultType baseType="INFOTABLE" aspect.dataShape="Acme.BenchMetric_DS"/></ServiceDefinition></ServiceDefinitions></ThingShape></Thing></Things></Entities>
+                <ResultType baseType="INFOTABLE" aspect.dataShape="Acme.BenchMetric_DS"/></ServiceDefinition><ServiceDefinition name="GetMetrics"><ParameterDefinitions/><ResultType baseType="INFOTABLE" aspect.dataShape="Acme.BenchMetric_DS"/></ServiceDefinition></ServiceDefinitions></ThingShape></Thing></Things></Entities>

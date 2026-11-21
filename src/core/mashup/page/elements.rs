@@ -101,8 +101,26 @@ const DIALS: [Dial; 4] = [
 pub(super) fn expand(page: &mut Page) -> Result<(), Error> {
     fn nodes(list: &mut [Node]) -> Result<(), Error> {
         for node in list {
+            if let Node::Card(b) = node {
+                if b.children
+                    .iter()
+                    .any(|n| matches!(n, Node::DetailPair(pair) if pair.chart_kind.is_some()))
+                {
+                    for pair in &mut b.children {
+                        if let Node::DetailPair(pair) = pair {
+                            if pair.chart_kind.is_none() {
+                                pair.children.push(child(pair, "dot", "label", json!({"text": "", "props": {"Width": 16, "Margin": "0 8 0 0"}})));
+                            }
+                        }
+                    }
+                }
+            }
             fields(node)?;
             match node {
+                Node::Row(b) | Node::Column(b) => {
+                    default_prop(b, "align-items", json!("stretch"));
+                    default_prop(b, "flex-wrap", json!("nowrap"));
+                }
                 Node::PageHeader(b) => {
                     let title = b
                         .title
@@ -210,7 +228,7 @@ pub(super) fn expand(page: &mut Page) -> Result<(), Error> {
                     };
                     if let Some(colour) = dot {
                         let style = format!("label:color={colour}");
-                        let label = json!({"text": "\u{25CF}", "props": {"Margin": "0 8 0 0"}, "style": [style]});
+                        let label = json!({"text": "\u{25CF}", "props": {"Width": 16, "Margin": "0 8 0 0"}, "style": [style]});
                         b.children.push(child(b, "dot", "label", label));
                     }
                     b.children.push(child(
@@ -410,7 +428,18 @@ pub(super) fn expand(page: &mut Page) -> Result<(), Error> {
 
 fn fields(node: &Node) -> Result<(), Error> {
     let b = node.body();
+    if let Some(weight) = &b.weight {
+        if !weight.value.is_finite() || weight.value <= 0.0 {
+            return Err(Error::at(weight.referenced, "weight must be above zero"));
+        }
+    }
     let checks = [
+        (
+            b.gap.is_some(),
+            matches!(node, Node::Row(_) | Node::Column(_)),
+            "gap",
+        ),
+        (b.legend.is_some(), matches!(node, Node::Chart(_)), "legend"),
         (
             b.title.is_some(),
             matches!(
@@ -804,10 +833,10 @@ pub(super) fn finish_layout(
             .into_iter()
             .flatten()
             .map(height_floor);
-        let content = if props["flex-direction"] == "row" {
+        let content = if props["flex-direction"] == "row" || props["Type"] == "ptcstabset" {
             heights.max().unwrap_or(0)
         } else {
-            heights.sum()
+            heights.fold(0u32, u32::saturating_add)
         };
         minimum.max(content)
     }
@@ -826,17 +855,70 @@ pub(super) fn finish_layout(
             .find_exact(&ids[&body.id.value])
             .map_err(|e| Error::at(body.id.referenced, e))?
             .path;
+        if session.document.at(&path)["Properties"]["flex-direction"] == "row"
+            && body.children.len() > 1
+            && body.children.iter().all(|n| matches!(n, Node::Chart(_)))
+        {
+            let mut charts = vec![];
+            for child in &body.children {
+                let chart = session
+                    .document
+                    .find_exact(&ids[&child.body().id.value])
+                    .map_err(|e| Error::at(child.body().id.referenced, e))?
+                    .path;
+                charts.push(session.document.at(&chart[..chart.len() - 1]).clone());
+            }
+            session.document.at_mut(&path)["Widgets"] = json!(charts);
+        }
+        if matches!(node, Node::FilterPanel(_)) {
+            let standalone = body.children.iter().all(|n| {
+                body.footer
+                    .iter()
+                    .any(|f| n.body().id.value == format!("{}--{}", body.id.value, f.value))
+            });
+            let slots: Vec<_> = session
+                .document
+                .widgets()
+                .into_iter()
+                .filter(|w| w.path.starts_with(&path))
+                .collect();
+            for slot in slots {
+                if slot.display_name == "filters" {
+                    patch(&mut session.document, &slot.path, "page-content-height");
+                }
+                if standalone
+                    && (slot.display_name == "content"
+                        || (slot.path.len() == path.len() + 1
+                            && slot.display_name.starts_with("divider-")))
+                {
+                    session
+                        .document
+                        .set_property(&slot.path, "Visible", json!(false));
+                }
+            }
+            if standalone {
+                patch(&mut session.document, &path, "page-filter-only");
+            }
+        }
         if matches!(node, Node::DateRange(_)) {
             patch(&mut session.document, &path, "page-date-range");
             let range = body
                 .props
                 .get("DateRange")
                 .is_none_or(|v| v.value != json!(false) && v.value != json!("false"));
+            let narrow = session
+                .document
+                .widgets()
+                .iter()
+                .any(|w| path.starts_with(&w.path) && w.display_name == "filters");
+            if narrow && !body.props.contains_key("Width") {
+                session.document.set_property(&path, "Width", json!(240));
+            }
             let width = body
                 .props
                 .get("Width")
                 .and_then(|v| v.value.as_u64())
-                .unwrap_or(340);
+                .unwrap_or(if narrow { 240 } else { 340 });
             // The empty range hint "DD-MM-YY" truncates in two inputs narrower than ~300px.
             if range && width < 300 {
                 patch(&mut session.document, &path, "page-date-range-narrow");
@@ -875,8 +957,10 @@ pub(super) fn finish_layout(
             };
             patch(&mut session.document, &path, op);
         }
-        if matches!(node, Node::Widget(_) | Node::Panel(_))
-            && session.document.at(&path)["Properties"]["Type"] == "flexcontainer"
+        if matches!(
+            node,
+            Node::Widget(_) | Node::Row(_) | Node::Column(_) | Node::Panel(_)
+        ) && session.document.at(&path)["Properties"]["Type"] == "flexcontainer"
             && !matches!(
                 body.size.as_ref().map(|s| &s.value),
                 Some(super::schema::Size::Fixed(_))
@@ -929,6 +1013,93 @@ pub(super) fn finish_layout(
                 session.document.set_property(&path, key, value);
             }
         }
+        let widget = session
+            .document
+            .find_exact(&ids[&body.id.value])
+            .map_err(|e| Error::at(body.id.referenced, e))?;
+        if widget.path.len() < 2
+            || crate::core::widgets::catalog()
+                .by_type(&widget.type_id)
+                .is_some_and(|w| w.function)
+        {
+            return Ok(());
+        }
+        let sizing = if widget.type_id == "flexcontainer" {
+            path.clone()
+        } else {
+            path[..path.len() - 1].to_vec()
+        };
+        let parent = &sizing[..sizing.len() - 1];
+        let horizontal = session.document.at(parent)["Properties"]["flex-direction"] == "row";
+        let fill = matches!(
+            body.size.as_ref().map(|s| &s.value),
+            Some(super::schema::Size::Fill)
+        ) || (body.size.is_none()
+            && matches!(node, Node::Grid(_) | Node::Chart(_) | Node::Tabs(_)))
+            || body.weight.is_some();
+        if fill {
+            patch(&mut session.document, &sizing, "page-fill");
+            session.document.set_property(
+                &sizing,
+                "flex-grow",
+                number(body.weight.as_ref().map_or(1.0, |w| w.value)),
+            );
+        }
+        if fill && matches!(node, Node::Grid(_)) && sizing.len() > 2 {
+            let group = sizing[..sizing.len() - 1].to_vec();
+            let has_pager = session
+                .document
+                .widgets()
+                .iter()
+                .any(|w| w.path.starts_with(&group) && w.type_id == "ptcspagination");
+            if has_pager {
+                patch(&mut session.document, &group, "page-fill");
+            }
+        }
+        if horizontal
+            && matches!(node, Node::Chart(_))
+            && body.size.is_none()
+            && body.weight.is_none()
+        {
+            patch(&mut session.document, &sizing, "page-panel-width");
+        }
+        if matches!(node, Node::Chart(_)) {
+            let minimum = height_floor(session.document.at(&sizing)).max(240);
+            patch(&mut session.document, &sizing, "page-chart-minimum");
+            session.document.set_property(
+                &sizing,
+                "flex-min-height",
+                json!(format!("{minimum}px")),
+            );
+            patch(&mut session.document, &path, "page-chart-legend");
+            session
+                .document
+                .set_property(&path, "HideLegend", json!(!body.legend.unwrap_or(true)));
+        }
+        if let Some(gap) = &body.gap {
+            let children: Vec<_> = body
+                .children
+                .iter()
+                .skip(1)
+                .map(|child| {
+                    session
+                        .document
+                        .find_exact(&ids[&child.body().id.value])
+                        .map(|w| w.path)
+                        .map_err(|e| Error::at(child.body().id.referenced, e))
+                })
+                .collect::<Result<_, _>>()?;
+            for child in children {
+                let margin = if matches!(node, Node::Row(_)) {
+                    format!("0 0 0 {}", gap.value)
+                } else {
+                    format!("{} 0 0 0", gap.value)
+                };
+                session
+                    .document
+                    .set_property(&child, "Margin", json!(margin));
+            }
+        }
         for (key, value) in &body.props {
             if super::compile::binding(&value.value).is_none() {
                 session
@@ -940,6 +1111,61 @@ pub(super) fn finish_layout(
     }
     for node in page.slots.values().flat_map(|s| &s.value) {
         finish(session, page, node, ids)?;
+    }
+    let mut containers: Vec<_> = session
+        .document
+        .widgets()
+        .into_iter()
+        .filter(|w| w.type_id == "flexcontainer")
+        .collect();
+    containers.sort_by_key(|w| std::cmp::Reverse(w.path.len()));
+    for container in containers {
+        let floor = height_floor(session.document.at(&container.path));
+        let fixed = session.document.at(&container.path)["Properties"]["flex-size"] == "fixed";
+        patch(&mut session.document, &container.path, "page-overflow");
+        if !fixed && floor > 0 && container.path.len() > 1 {
+            session.document.set_property(
+                &container.path,
+                "flex-min-height",
+                json!(format!("{floor}px")),
+            );
+        }
+    }
+    let roots: Vec<_> = session
+        .document
+        .widgets()
+        .into_iter()
+        .filter(|w| w.path.len() == 1 && w.type_id == "flexcontainer")
+        .collect();
+    for root in roots {
+        session
+            .document
+            .set_property(&root.path, "ShowVerticalScrollbar", json!(true));
+    }
+    fn overrides(
+        document: &mut MashupDocument,
+        node: &Node,
+        ids: &std::collections::BTreeMap<String, String>,
+    ) -> Result<(), Error> {
+        let body = node.body();
+        let path = document
+            .find_exact(&ids[&body.id.value])
+            .map_err(|e| Error::at(body.id.referenced, e))?
+            .path;
+        for key in ["flex-min-height", "ShowVerticalScrollbar"] {
+            if let Some(value) = body.props.get(key) {
+                if super::compile::binding(&value.value).is_none() {
+                    document.set_property(&path, key, value.value.clone());
+                }
+            }
+        }
+        for child in super::compile::descendants(node) {
+            overrides(document, child, ids)?;
+        }
+        Ok(())
+    }
+    for node in page.slots.values().flat_map(|s| &s.value) {
+        overrides(&mut session.document, node, ids)?;
     }
     Ok(())
 }

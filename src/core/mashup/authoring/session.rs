@@ -11,6 +11,30 @@ pub(crate) struct Session {
 }
 
 impl Session {
+    pub(crate) fn source_type(
+        &mut self,
+        solution: &Solution,
+        model: &types::Model,
+        platform: Option<&types::Platform>,
+        address: &str,
+    ) -> Result<String, AuthoringError> {
+        let address = mashup::address::parse_address(address)
+            .map_err(|e| AuthoringError::Invalid(e.to_string()))?;
+        let context = AuthoringContext {
+            parameters: &[],
+            model,
+            platform,
+        };
+        let end = super::resolve_end(
+            &mut self.document,
+            Some(solution),
+            &context,
+            address,
+            true,
+            &mut vec![],
+        )?;
+        Ok(super::base(&end).to_string())
+    }
     pub(crate) fn new(
         name: &str,
         project: &str,
