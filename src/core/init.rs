@@ -411,19 +411,36 @@ const AGENT_BEGIN: &str = "<!-- twaco:begin -->";
 const AGENT_END: &str = "<!-- twaco:end -->";
 
 fn agent_block(text: &str) -> std::io::Result<Option<&str>> {
-    match (text.find(AGENT_BEGIN), text.find(AGENT_END)) {
-        (None, None) => Ok(None),
-        (Some(start), Some(end)) if end > start
-            && text.matches(AGENT_BEGIN).count() == 1
-            && text.matches(AGENT_END).count() == 1 =>
-        {
-            Ok(Some(&text[start..end + AGENT_END.len()]))
+    let mut begin = None;
+    let mut end = None;
+    let mut offset = 0;
+    for line in text.split_inclusive('\n') {
+        let trimmed = line.trim();
+        let slot = match trimmed {
+            AGENT_BEGIN => Some(&mut begin),
+            AGENT_END => Some(&mut end),
+            _ => None,
+        };
+        if let Some(slot) = slot {
+            if slot.is_some() {
+                return Err(agent_marker_error());
+            }
+            *slot = Some(offset + line.find(trimmed).unwrap());
         }
-        _ => Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            "repair the incomplete or repeated twaco guidance markers before running `twaco init --agents`",
-        )),
+        offset += line.len();
     }
+    match (begin, end) {
+        (None, None) => Ok(None),
+        (Some(start), Some(end)) if end > start => Ok(Some(&text[start..end + AGENT_END.len()])),
+        _ => Err(agent_marker_error()),
+    }
+}
+
+fn agent_marker_error() -> std::io::Error {
+    std::io::Error::new(
+        std::io::ErrorKind::InvalidData,
+        "repair the incomplete or repeated twaco guidance markers before running `twaco init --agents`",
+    )
 }
 
 /// Whether existing guidance is missing or differs from the block this version writes.
@@ -446,28 +463,25 @@ pub struct AgentFileChange {
 }
 
 /// Add or refresh only the marked guidance, preserving all other bytes and existing CRLF.
-/// Refuses incomplete or repeated markers rather than guessing which text belongs to twaco.
+/// Validates both files before writing either, refusing incomplete, reversed or repeated markers.
 pub fn write_agent_files(
     root: &Path,
     solution_name: &str,
     projects: &[String],
 ) -> std::io::Result<Vec<AgentFileChange>> {
-    let mut changes = Vec::new();
+    let mut planned = Vec::new();
     for (file, template) in agent_files(solution_name, projects) {
         let path = root.join(file);
-        let result = (|| -> std::io::Result<AgentFileChange> {
+        let result = (|| -> std::io::Result<_> {
             let (text, action) = match std::fs::read_to_string(&path) {
                 Ok(old) => {
                     let newline = if old.contains("\r\n") { "\r\n" } else { "\n" };
                     let block = agent_block(&template)?.unwrap().replace('\n', newline);
                     if let Some(previous) = agent_block(&old)? {
                         if previous == block {
-                            return Ok(AgentFileChange {
-                                file,
-                                action: "unchanged twaco guidance",
-                            });
+                            return Ok((None, "unchanged twaco guidance"));
                         }
-                        let start = old.find(AGENT_BEGIN).unwrap();
+                        let start = previous.as_ptr() as usize - old.as_ptr() as usize;
                         let end = start + previous.len();
                         (
                             format!("{}{block}{}", &old[..start], &old[end..]),
@@ -492,13 +506,19 @@ pub fn write_agent_files(
                 }
                 Err(error) => return Err(error),
             };
-            super::workspace::atomic_replace(&path, text.as_bytes())?;
-            Ok(AgentFileChange { file, action })
+            Ok((Some(text), action))
         })();
-        changes.push(
-            result
-                .map_err(|error| std::io::Error::new(error.kind(), format!("{file}: {error}")))?,
-        );
+        let (text, action) = result
+            .map_err(|error| std::io::Error::new(error.kind(), format!("{file}: {error}")))?;
+        planned.push((file, text, action));
+    }
+    let mut changes = Vec::new();
+    for (file, text, action) in planned {
+        if let Some(text) = text {
+            super::workspace::atomic_replace(&root.join(file), text.as_bytes())
+                .map_err(|error| std::io::Error::new(error.kind(), format!("{file}: {error}")))?;
+        }
+        changes.push(AgentFileChange { file, action });
     }
     Ok(changes)
 }
@@ -691,8 +711,8 @@ mod tests {
     fn malformed_guidance_markers_refuse_to_overwrite_human_text() {
         for old in [
             AGENT_BEGIN.to_string(),
-            format!("{AGENT_END}{AGENT_BEGIN}"),
-            format!("{AGENT_BEGIN}{AGENT_BEGIN}{AGENT_END}"),
+            format!("{AGENT_END}\n{AGENT_BEGIN}"),
+            format!("{AGENT_BEGIN}\n{AGENT_BEGIN}\n{AGENT_END}"),
         ] {
             let dir = tempfile::tempdir().unwrap();
             let path = dir.path().join("AGENTS.md");
@@ -700,6 +720,54 @@ mod tests {
             let error = write_agent_files(dir.path(), "Acme", &[]).unwrap_err();
             assert!(error.to_string().contains("AGENTS.md"));
             assert_eq!(std::fs::read_to_string(path).unwrap(), old);
+        }
+    }
+
+    #[test]
+    fn prose_markers_are_preserved_and_only_trimmed_marker_lines_are_replaced() {
+        for newline in ["\n", "\r\n"] {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("AGENTS.md");
+            let prose = format!("Use {AGENT_BEGIN} and {AGENT_END} as markers{newline}");
+            std::fs::write(&path, &prose).unwrap();
+            write_agent_files(dir.path(), "Acme", &[]).unwrap();
+            let appended = std::fs::read_to_string(&path).unwrap();
+            assert!(appended.starts_with(&prose));
+            assert!(!agent_guidance_stale("AGENTS.md", &appended));
+            let old = format!("{prose}  {AGENT_BEGIN}{newline}old{newline}  {AGENT_END}{newline}Human tail{newline}");
+            std::fs::write(&path, old).unwrap();
+            write_agent_files(dir.path(), "Acme", &[]).unwrap();
+            let refreshed = std::fs::read_to_string(&path).unwrap();
+            assert!(refreshed.starts_with(&format!("{prose}  {AGENT_BEGIN}{newline}")));
+            assert!(refreshed.ends_with(&format!("{AGENT_END}{newline}Human tail{newline}")));
+            assert!(!refreshed.contains(&format!("{newline}old{newline}")));
+        }
+    }
+
+    #[test]
+    fn malformed_claude_guidance_changes_neither_file() {
+        for agents in [
+            None,
+            Some("Human guidance\n"),
+            Some("<!-- twaco:begin -->\nold\n<!-- twaco:end -->\n"),
+        ] {
+            for malformed in [
+                format!("{AGENT_END}\n{AGENT_BEGIN}\n"),
+                format!("{AGENT_BEGIN}\n{AGENT_END}\n{AGENT_END}\n"),
+                AGENT_BEGIN.to_string(),
+            ] {
+                let dir = tempfile::tempdir().unwrap();
+                let path = dir.path().join("AGENTS.md");
+                if let Some(old) = agents {
+                    std::fs::write(&path, old).unwrap();
+                }
+                let claude = dir.path().join("CLAUDE.md");
+                std::fs::write(&claude, &malformed).unwrap();
+                let error = write_agent_files(dir.path(), "Acme", &[]).unwrap_err();
+                assert!(error.to_string().contains("CLAUDE.md"));
+                assert_eq!(std::fs::read_to_string(path).ok().as_deref(), agents);
+                assert_eq!(std::fs::read_to_string(claude).unwrap(), malformed);
+            }
         }
     }
 

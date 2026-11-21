@@ -25,6 +25,10 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Fixed
 
+- Entity push retains blocking findings in consuming mashups caused by the pushed entity, and treats runtime script references as advisory while checking typed import prerequisites.
+- XML-only service scripts respect entity and service lint overrides.
+- Agent guidance refresh recognises only whole trimmed marker lines and validates AGENTS.md and CLAUDE.md before writing either.
+
 - Entity push shows only gate findings, once each, and ends with one gate summary in plans and applies.
 
 - Single-entity push runs scoped deploy gates and server script parsing in plans and applies; blocking findings import nothing, advisories remain visible, and `--skip-checks` reports skipped gates independently of `--force`.

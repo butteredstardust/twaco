@@ -11,6 +11,7 @@ mod ai_order;
 mod calls;
 mod error;
 mod excluded;
+pub(crate) use excluded::mentions as import_prerequisites;
 mod framework;
 mod model;
 mod plan;

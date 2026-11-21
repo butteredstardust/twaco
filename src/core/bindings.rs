@@ -14,6 +14,7 @@ pub(crate) const GATE: &str = "mashup bindings";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Problem {
+    pub(crate) related_entity: Option<String>,
     pub(crate) file: String,
     pub(crate) rule: String,
     pub(crate) message: String,
@@ -193,6 +194,7 @@ fn analyse_in(
             .replace('\\', "/");
         for (_, message) in selected_rows_hints(&content) {
             report.problems.push(Problem {
+                related_entity: None,
                 file: relative.clone(),
                 rule: SELECTED_ROWS_RULE.into(),
                 message,
@@ -209,6 +211,7 @@ fn analyse_in(
                             file: &relative,
                             mashup,
                             entity: &section.entity,
+                            collection: &section.collection,
                             service: &service.target,
                         };
                         check_parameter(&mut report, &site, parameter, found);
@@ -219,6 +222,7 @@ fn analyse_in(
                         file: &relative,
                         mashup,
                         entity: &section.entity,
+                        collection: &section.collection,
                         service: &service.target,
                     };
                     add_problem(
@@ -287,6 +291,7 @@ fn analyse_in(
                                     file: &relative,
                                     mashup,
                                     entity: &section.entity,
+                                    collection: &section.collection,
                                     service: &service.target,
                                 },
                                 name,
@@ -327,6 +332,7 @@ fn analyse_in(
                                         file: &relative,
                                         mashup,
                                         entity: &section.entity,
+                                        collection: &section.collection,
                                         service: &service.target,
                                     },
                                     name,
@@ -359,6 +365,7 @@ fn analyse_in(
                 file: &relative,
                 mashup,
                 entity: &section.entity,
+                collection: &section.collection,
                 service: &service.target,
             };
             for (property, field) in fields {
@@ -765,6 +772,7 @@ struct Site<'a> {
     file: &'a str,
     mashup: &'a str,
     entity: &'a str,
+    collection: &'a str,
     service: &'a str,
 }
 
@@ -1010,6 +1018,7 @@ fn add_problem(report: &mut Report, site: &Site<'_>, rule: &str, name: &str, mes
     );
     if report.seen.insert(key) {
         report.problems.push(Problem {
+            related_entity: Some(format!("{}/{}", site.collection, site.entity)),
             file: site.file.to_string(),
             rule: rule.to_string(),
             message,

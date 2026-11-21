@@ -273,15 +273,23 @@ where
         report_gates(report, notices, &mut reporter)?;
     }
     let index = crate::core::index::Index::build(solution);
-    let mut dependencies = std::collections::BTreeSet::new();
+    let prerequisites = crate::core::deploy::import_prerequisites(&bytes);
     for reference in index.references_from(&key) {
-        if reference.kind.confidence() < crate::core::index::Confidence::Resolved {
-            continue;
+        if reference.kind.confidence() >= crate::core::index::Confidence::Resolved
+            && reference.to != key.to_string()
+            && !prerequisites.contains(&reference.to)
+        {
+            notices.push(format!(
+                "{label}: reference {} is advisory; it is not an import prerequisite",
+                reference.to
+            ));
         }
-        let Ok(dependency) = EntityKey::parse(&reference.to) else {
+    }
+    for reference in prerequisites {
+        let Ok(dependency) = EntityKey::parse(&reference) else {
             continue;
         };
-        if dependency == key || !dependencies.insert(dependency.clone()) {
+        if dependency == key {
             continue;
         }
         if push::Remote::fetch(&remote, &dependency)
@@ -470,6 +478,7 @@ mod tests {
     }
 
     struct FakeState {
+        entities: Option<std::collections::BTreeMap<String, Vec<u8>>>,
         held: Option<Vec<u8>>,
         imports: usize,
         exports: usize,
@@ -483,6 +492,7 @@ mod tests {
         fn new(held: Option<Vec<u8>>) -> Self {
             Self {
                 state: Arc::new(Mutex::new(FakeState {
+                    entities: None,
                     held,
                     imports: 0,
                     exports: 0,
@@ -516,8 +526,12 @@ mod tests {
     }
 
     impl push::Remote for Fake {
-        fn fetch(&self, _: &EntityKey) -> Result<Option<Vec<u8>>, ServerError> {
-            Ok(self.state.lock().unwrap().held.clone())
+        fn fetch(&self, key: &EntityKey) -> Result<Option<Vec<u8>>, ServerError> {
+            let state = self.state.lock().unwrap();
+            Ok(match &state.entities {
+                Some(entities) => entities.get(&key.to_string()).cloned(),
+                None => state.held.clone(),
+            })
         }
 
         fn import(&self, _: &str, xml: &[u8]) -> Result<(), ServerError> {
@@ -525,6 +539,10 @@ mod tests {
             state.imports += 1;
             if state.fail_import {
                 return Err(ServerError::InvalidUrl("import failed".to_string()));
+            }
+            if let Some(entities) = &mut state.entities {
+                let info = crate::core::entity::parse(xml).unwrap();
+                entities.insert(format!("{}/{}", info.collection, info.name), xml.to_vec());
             }
             state.held = Some(xml.to_vec());
             Ok(())
@@ -759,6 +777,75 @@ mod tests {
                 .contains("DataShapes/Acme.External")
         );
         assert!(missing_dependency_hint("connection reset").is_none());
+    }
+
+    #[test]
+    fn mutually_calling_new_things_can_be_pushed_individually() {
+        for skip_checks in [false, true] {
+            let (_guard, root, solution, fake) = setup(None, None);
+            fake.state.lock().unwrap().entities = Some(Default::default());
+            for (name, other) in [("Acme.T", "Acme.Other"), ("Acme.Other", "Acme.T")] {
+                let xml =
+                    String::from_utf8(service_document(&format!("Things[\"{other}\"].Run();")))
+                        .unwrap();
+                let xml = xml.replacen("name=\"Acme.T\"", &format!("name=\"{name}\""), 1);
+                std::fs::write(root.join(format!("Things/{name}.xml")), xml).unwrap();
+            }
+            for (index, name) in ["Acme.T", "Acme.Other"].iter().enumerate() {
+                let mut request = request(Mode::Apply, false, false);
+                request.entity = name.to_string();
+                request.skip_checks = skip_checks;
+                let mut notices = Notices::default();
+                let outcome =
+                    super::execute(&solution, &request, |_| fake.clone(), &mut notices).unwrap();
+                assert!(matches!(
+                    outcome,
+                    PushOutcome::Applied {
+                        result: push::Outcome::Pushed { .. },
+                        ..
+                    }
+                ));
+                assert_eq!(fake.imports(), index + 1);
+                assert!(notices
+                    .lines()
+                    .iter()
+                    .any(|line| line.contains("reference") && line.contains("advisory")));
+            }
+            assert_eq!(
+                fake.state.lock().unwrap().entities.as_ref().unwrap().len(),
+                2
+            );
+        }
+    }
+
+    #[test]
+    fn typed_import_prerequisites_block_without_runtime_or_local_index_edges() {
+        for (body, dependency) in [
+            ("<ImplementedShapes><ImplementedShape name=\"Acme.Shape\"/></ImplementedShapes>", "ThingShapes/Acme.Shape"),
+            ("<ThingShape><PropertyDefinitions><PropertyDefinition name=\"Rows\" baseType=\"INFOTABLE\" aspect.dataShape=\"Acme.Rows\"/></PropertyDefinitions></ThingShape>", "DataShapes/Acme.Rows"),
+            ("<ConfigurationTables><ConfigurationTable name=\"Acme.Table\" dataShapeName=\"Acme.Rows\"/></ConfigurationTables>", "DataShapes/Acme.Rows"),
+            ("<ThingProperties><dataShape>Acme.Rows</dataShape></ThingProperties>", "DataShapes/Acme.Rows"),
+            ("<ThingProperties><valueStream>Acme.Values</valueStream></ThingProperties>", "Things/Acme.Values"),
+            ("<ConfigurationTables><ConfigurationTable name=\"StreamProcessingSettings\"><Rows><Row><queueProvider><![CDATA[Acme.Queue]]></queueProvider></Row></Rows></ConfigurationTable></ConfigurationTables>", "QueueProviders/Acme.Queue"),
+        ] {
+            for mode in [Mode::Plan, Mode::Apply] {
+                let (_guard, root, solution, fake) = setup(None, None);
+                std::fs::write(root.join("Things/Acme.T.xml"), format!("<Entities><Things><Thing name=\"Acme.T\" projectName=\"Acme\">{body}</Thing></Things></Entities>")).unwrap();
+                let error = execute(&solution, &request(mode, false, false), |_| fake.clone()).unwrap_err();
+                assert!(error.to_string().contains(dependency), "{error}");
+                assert_eq!(fake.imports(), 0);
+            }
+        }
+        for attribute in ["thingTemplate", "valueStream", "queueProvider"] {
+            let (_guard, root, solution, fake) = setup(None, None);
+            std::fs::write(root.join("Things/Acme.T.xml"), format!("<Entities><Things><Thing name=\"Acme.T\" projectName=\"Acme\" {attribute}=\"Acme.Required\"/></Things></Entities>")).unwrap();
+            let error = execute(&solution, &request(Mode::Apply, false, false), |_| {
+                fake.clone()
+            })
+            .unwrap_err();
+            assert!(error.to_string().contains("Acme.Required"), "{error}");
+            assert_eq!(fake.imports(), 0);
+        }
     }
 
     #[test]

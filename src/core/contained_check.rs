@@ -13,6 +13,7 @@ pub(crate) const GATE: &str = "contained mashups";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Problem {
+    pub(crate) related_entity: String,
     pub(crate) file: String,
     pub(crate) rule: String,
     pub(crate) message: String,
@@ -141,6 +142,7 @@ fn check_mashup(
                 )
             };
             report.problems.push(Problem {
+                related_entity: format!("Mashups/{child}"),
                 file: file.to_string(),
                 rule: rule.to_string(),
                 message,
