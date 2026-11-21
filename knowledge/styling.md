@@ -22,4 +22,6 @@ Colour, font, spacing and custom CSS for a mashup: which twaco command changes w
 
 - `mashup set --style` names a widget; the root `mashup-root` takes `--prop CustomMashupCss=` or `--prop StyleTheme=`, so to colour the page style its page container (the first flexcontainer under the root) instead.
 - An empty value removes a property.
-- Run `twaco mashup validate <mashup>` after styling; it reports what the runtime ignores.
+- Say a value without `!important`, and do not place a widget with style (`position`, `top`, `transform`, `flex`): Composer places it from its own properties (`Width`, `flex-grow`, a wrapper row's `align-items` and `justify-content`). A container's `--style flex...` is refused.
+- Run `twaco mashup validate <mashup>` after styling; it reports what the runtime is likely to ignore (`!important`, placement properties, parts a widget lacks). A chart's text, axes and bars are not styled through parts: set series colours with `mashup state-format set`.
+- One status card (caption, value, status chip in one bordered box): `twaco mashup recipe card <mashup> <container> --title <caption> --say <value> --status <text> --kind ok`.

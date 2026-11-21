@@ -24,6 +24,8 @@ All notable changes to twaco are recorded here. The format follows
 - `thing service set <Entity> <Name> (--script <file.js> | --then <code>)` replaces the body of an own service and keeps its signature and callers (MCP `entity_edit` action `service_set`); it refuses an override, a missing service and a sidecar that differs from the XML.
 - A `styling` guide topic and task-index lines for `mashup set --style`, themes and custom CSS, so `guide --search "custom CSS"`, "style" and "colour" find them.
 - `widgets --search gauge` and `webframe` name the closest native widget (the KPI dial, a link or popup) when the 10.2 catalogue has no such widget, instead of only "no widget matches".
+- `mashup recipe card <container> --title <caption> [--say <value>] [--status <text>] [--kind info|ok|warning|error]` fills an empty column with one bordered box: caption, value and a coloured status chip; `--say` and `--status` take text or a `data:`/`ui:` address. Cards in one row get equal flex.
+- `mashup validate` and `mashup set --style` advise on style settings the runtime is likely to ignore: values ending in `!important`, placement properties (`position`, `top`, `transform`, `flex`) on a widget's own part, and parts a widget does not have (a chart's text, axes and bars are not styled through parts). `widgets ptcstabset` documents the `Items` objects.
 
 ### Changed
 
@@ -33,9 +35,12 @@ All notable changes to twaco are recorded here. The format follows
 - `lint fix-headers --apply` syncs the repaired scripts into the entity XML, and `--entity` (also on `lint`) takes an entity name without its collection.
 - Usage text lists the accepted values of `recipe panel --style` (`grey|card`), `--step-size`, `--window` and chart `--kind`.
 - `mashup set` and `mashup add` explain a split argument (a double-quoted CSS value on Windows) and show the single-quote form.
+- `mashup set <mashup> mashup-root --style` names the page container to style instead. `--style flex*` on a container is refused: the runtime applied `flex: 0 0 74px` inside the header's own box and made it 74px wide; use `--prop flex-grow`, `flex-basis` or `flex-min-height`/`flex-max-height`.
 
 ### Fixed
 
+- A tab set added or created without tab names gets `Tab 1`, `Tab 2`... instead of `Tab Name 1`.
+- A row container added with only `--prop flex-direction=row` is no longer treated as an authored size, so a toolbar row keeps its buttons' height instead of sharing the spare height with the grid below; cards added into a container row share its width equally; a date picker in a column of up to 320px, or a fixed column of that width, defaults to the short `DD-MM-YY` format.
 - Mashup benchmark J/K follow-ups: multi-word widget alias search, actionable address errors and untriggered-call warnings; template toolbar `--end`; gutter-free `tab-content` children under 24px-gutter tabs; grid status icon/text formatting and hidden header dividers; filter title alignment, bottom action footer, native toggle reuse and short dates; grey search toolbars and a centred grid pagination recipe.
 
 - Entity push retains blocking findings in consuming mashups caused by the pushed entity, and treats runtime script references as advisory while checking typed import prerequisites.

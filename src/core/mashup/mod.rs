@@ -15,6 +15,7 @@ pub(crate) mod cell_menu;
 pub mod describe;
 pub mod diff;
 pub mod edit;
+pub(crate) mod style_check;
 pub(crate) mod templates;
 pub mod templates_view;
 pub mod validate;

@@ -951,6 +951,10 @@ pub(crate) const USAGE: &[Usage] = &[
       panel <container> [--compact <768|960>] [--fit <fill|content>] [--style <grey|card>]
                               grey column with managed CSS; --style grey (default) or card (white bordered card); optional compact viewport gutters
       --fit <fill|content>    fill (default) grows; content uses no grow and height auto
+      card <container> --title <caption> [--say <value>] [--status <text>] [--kind <info|ok|warning|error>]
+                              one bordered box in an empty column: caption, value and status chip; equal
+                              flex, so cards added to one row share its width; --say and --status take
+                              text or a data:/ui: address bound to the label
       slider-action <slider> <button>
                               align the button centre to the horizontal slider track (default 34px button)
       collapsible <container> [--toggle <button> | --add-toggle --in <container>]
@@ -976,7 +980,7 @@ pub(crate) const USAGE: &[Usage] = &[
           [--else-say <text>]   run the handler when the condition holds, else show the text
       chart <chart> --data <data call> --x <field> [--value <field>] [--kind <bar|column|linechart|areachart>]
           [--title <text>] [--x-title <text>] [--y-title <text>] [--stacked]
-      --kind                  bar or column on a bar chart; linechart or areachart on a line chart
+      --kind                  bar or column on a bar chart; linechart or areachart on a line chart; the card chip colour (info, ok, warning, error)
       --stacked              bar chart series stacked with SeriesDisplay=auto
       --x-title <text>        explicit X-axis name; catalogue placeholders are cleared
       --y-title <text>        explicit Y-axis name; authored names are preserved
@@ -1001,7 +1005,7 @@ pub(crate) const USAGE: &[Usage] = &[
           [--status <field> --status-state <name>]
       --row <first|selected>            first or selected; default selected with a selecting widget on this call, first otherwise
       --layout <inline|stacked>         inline (default) or stacked caption/value pairs
-      --status <field>         label-pairs: field driving a 12px circle per pair; columns: field=StateDefinition for icon plus text
+      --status <field>         label-pairs: field driving a 12px circle per pair; columns: field=StateDefinition for icon plus text; card: the chip text
       --status-state <name>   repository StateDefinition mapping the status field to colors
                               caption/value labels from an existing call's DataShape; field[:Caption]
                               picks/orders/renames; default all fields, a column each; first row unless

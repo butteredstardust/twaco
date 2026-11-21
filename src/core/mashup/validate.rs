@@ -121,6 +121,7 @@ pub(crate) fn validate_in(
                     chart_axis_problems(&file.info.name, &value, &resolver, &mut problems);
                     collection_problems(&value, discovered, &resolver, &mut problems);
                     state_format_problems(&value, discovered, &mut problems);
+                    style_problems(&value, &mut problems);
                     cell_menu_problems(&value, discovered, &mut problems);
                 }
             }
@@ -316,7 +317,10 @@ fn severity(rule: &str) -> Severity {
         | "wrapped-row-clipping"
         | "wrapped-content-clipping"
         | "remainder-not-last"
-        | "slider-button-alignment" => Severity::Advisory,
+        | "slider-button-alignment"
+        | "style-important"
+        | "style-placement-property"
+        | "style-unknown-part" => Severity::Advisory,
         _ => Severity::Error,
     }
 }
@@ -987,6 +991,16 @@ fn cell_menu_problems(
                     ),
                 ),
             );
+        }
+    }
+}
+
+/// Style settings the runtime is likely to ignore, from the root's StyleProperties.
+fn style_problems(content: &Value, problems: &mut Vec<Problem>) {
+    let styles = &content["UI"]["Properties"]["StyleProperties"]["data"];
+    for (id, entry) in styles.as_object().into_iter().flatten() {
+        for (rule, message) in mashup::style_check::entry_notes(id, entry) {
+            push_unique(problems, problem(rule, message));
         }
     }
 }
@@ -1731,5 +1745,23 @@ mod tests {
                 "unknown-entity-type"
             ]
         );
+    }
+}
+
+#[cfg(test)]
+mod style_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn style_settings_the_runtime_ignores_are_advisories() {
+        let content = json!({"UI": {"Properties": {"StyleProperties": {"data": {
+            "ptcstextfield-3": {"widget": "ptcs-textfield", "parts": {"$": {"$": {"top": "50%"}}}}
+        }}}}});
+        let mut problems = Vec::new();
+        style_problems(&content, &mut problems);
+        assert_eq!(problems.len(), 1);
+        assert_eq!(problems[0].rule, "style-placement-property");
+        assert_eq!(problems[0].severity, Severity::Advisory);
     }
 }

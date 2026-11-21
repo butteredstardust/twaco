@@ -1907,6 +1907,21 @@ structured output and `--apply` to write. MCP uses `mashup_recipe`, `recipe: "to
 `widget` for the container, `then`, `search_param`, optional `hint`, `width`, `run_on`,
 and `buttons` (an array of `Label=handler`); `dry_run` defaults to true.
 
+`mashup recipe card` turns an empty column into one small status card: a caption, a value and
+a coloured status chip in one bordered box, with equal flex so cards added to one row share its
+width. `--say` and `--status` take text or a `data:` or `ui:` address that is bound to the label.
+
+```sh
+twaco mashup recipe card Acme.Line_MU flexcontainer-9 --title "01 / CUTTING" --say "162 U/H" --status RUNNING --kind ok --apply
+```
+
+`mashup validate` and `mashup set --style` advise on style settings the runtime is likely to
+ignore. A value ending in `!important`, a placement property (`position`, `top`, `transform`,
+`flex`) on a widget's own part, and a part the widget does not have are named. A container's own
+`--style flex...` is refused: use `--prop flex-grow`, `flex-basis` or `flex-min-height`.
+`mashup set <mashup> mashup-root --style` names the page container to style instead. These notes
+come from comparing built pages with the kits, not from a specification.
+
 `mashup recipe panel` styles an existing responsive column as a full-width grey
 (`#F7F7F7`) panel with 24/24/12 gutters. It grows by default (`--fit fill`);
 `--fit content` keeps it at natural content height. Default descendant wrappers

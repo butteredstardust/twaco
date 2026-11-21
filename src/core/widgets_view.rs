@@ -97,10 +97,22 @@ pub fn detail(word: &str) -> Result<WidgetDetail, CatalogError> {
         events: widget.events.clone().unwrap_or_default(),
         services: widget.services.clone().unwrap_or_default(),
         defaults_count: widget.defaults.len(),
-        note: (!bindable).then(|| {
-            "no binding contract in the catalogue: it can be placed but not bound".to_string()
-        }),
+        note: if bindable {
+            schema_note(&widget.type_id).map(str::to_string)
+        } else {
+            Some("no binding contract in the catalogue: it can be placed but not bound".to_string())
+        },
     })
+}
+
+/// Structure of a property the catalogue types only as a JSON value.
+fn schema_note(type_id: &str) -> Option<&'static str> {
+    match type_id {
+        "ptcstabset" => Some(
+            "Items is a JSON array of objects, one per tab: [{\"name\":\"Orders\",\"value\":\"TabValue1\",\"visible\":true,\"disabled\":false}]. Tab<n>Name and Tab<n>Value carry the same text and value; NumberOfTabs says how many. mashup add keeps all of them in step and names an unnamed tab `Tab <n>`; set NumberOfTabs (not Items) to add or remove tabs.",
+        ),
+        _ => None,
+    }
 }
 
 fn discovery_hint(type_id: &str) -> Option<&'static str> {
@@ -173,6 +185,16 @@ mod tests {
         let error = catalog().resolve("webframe").unwrap_err().to_string();
         assert!(error.contains("legacy widget"), "{error}");
         assert!(!list(Some("kpi")).is_empty());
+    }
+
+    #[test]
+    fn the_tab_set_detail_documents_the_items_objects() {
+        let note = detail("tabs").unwrap().note.unwrap();
+        assert!(
+            note.contains(r#""name":"Orders""#) && note.contains("Tab <n>"),
+            "{note}"
+        );
+        assert!(detail("button").unwrap().note.is_none());
     }
 
     #[test]

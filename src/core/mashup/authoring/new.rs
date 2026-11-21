@@ -1168,7 +1168,7 @@ fn build_tabs(
         tabs.push((label.to_string(), child.map(str::to_string)));
     }
     if tabs.is_empty() {
-        tabs = (1..=2).map(|n| (format!("Tab Name {n}"), None)).collect();
+        tabs = (1..=2).map(|n| (format!("Tab {n}"), None)).collect();
     }
     if tabs.len() > 16 {
         return Err(AuthoringError::Invalid(
@@ -1330,8 +1330,8 @@ pub(super) fn sync_tabs(
         let properties = &document.at(&path)["Properties"];
         let name = properties[format!("Tab{n}Name")]
             .as_str()
-            .filter(|name| !name.is_empty())
-            .map_or_else(|| format!("Tab Name {n}"), str::to_string);
+            .filter(|name| !name.is_empty() && *name != "[[TabName]]")
+            .map_or_else(|| format!("Tab {n}"), str::to_string);
         let value = properties[format!("Tab{n}Value")]
             .as_str()
             .filter(|value| !value.is_empty())

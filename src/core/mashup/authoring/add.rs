@@ -399,11 +399,20 @@ pub(crate) fn plan_add(
             .path;
         let narrow = (1..path.len()).any(|depth| {
             let p = &document.at(&path[..depth])["Properties"];
-            p["DisplayName"] == "filters"
-                || p["flex-max-width"]
+            let px = |key: &str| {
+                p[key]
                     .as_str()
                     .and_then(|width| width.trim_end_matches("px").parse::<u32>().ok())
-                    .is_some_and(|width| width <= 300)
+            };
+            matches!(p["DisplayName"].as_str(), Some("filters" | "filter-column"))
+                || px("flex-max-width").is_some_and(|width| width <= NARROW_COLUMN)
+                || (p["flex-size"] == "fixed"
+                    && px("flex-basis").is_some_and(|width| width <= NARROW_COLUMN))
+                || (p["Type"] == "flexcontainer"
+                    && p["ResponsiveLayout"] == false
+                    && p["Width"]
+                        .as_u64()
+                        .is_some_and(|width| width <= u64::from(NARROW_COLUMN)))
         });
         if narrow {
             document.set_property(&path, "FormatToken", json!("DD-MM-YY"));
@@ -506,10 +515,7 @@ pub(crate) fn plan_add(
         document.set_property(&path, "DataSource", json!("menuentity"));
     }
     if widget.type_id == "flexcontainer"
-        && request
-            .properties
-            .iter()
-            .any(|(key, _)| key.starts_with("flex-") || matches!(key.as_str(), "Width" | "Height"))
+        && request.properties.iter().any(|(key, _)| sizes_layout(key))
     {
         let path = document
             .find_exact(&placed.id)
@@ -614,6 +620,17 @@ pub(crate) fn plan_add(
         function: widget.function,
         notes,
     })
+}
+
+/// A column this narrow cannot show a long date: its pickers default to a short format.
+const NARROW_COLUMN: u32 = 320;
+
+/// Whether a property fixes a container's size, which twaco then leaves as it was set. The
+/// direction and wrapping only say how its content runs: a row added with them still takes its
+/// content's height.
+fn sizes_layout(key: &str) -> bool {
+    (key.starts_with("flex-") && !matches!(key, "flex-direction" | "flex-wrap"))
+        || matches!(key, "Width" | "Height")
 }
 
 pub(super) fn contained_page_warning(child: &str, document: &MashupDocument) -> Option<String> {

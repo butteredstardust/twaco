@@ -1160,6 +1160,8 @@ fn an_added_tab_set_gets_tab_containers_and_numbered_tab_properties() {
         .as_str()
         .is_some_and(|name| !name.is_empty()));
     assert_eq!(widget["Properties"]["Items"].as_array().unwrap().len(), 2);
+    assert_eq!(widget["Properties"]["Tab1Name"], "Tab 1");
+    assert_eq!(widget["Properties"]["Items"][1]["name"], "Tab 2");
     let set = |properties: Vec<(&str, Value)>| {
         plan_set(
             &solution,
@@ -4156,10 +4158,7 @@ fn a_tabs_page_without_tabs_has_the_two_empty_tabs_a_dropped_tab_set_has() {
     let plan = plan_new(&solution, &tabs_request("Acme.Tabs_MU", &[])).unwrap();
     assert_eq!(
         plan.tabs,
-        [
-            ("Tab Name 1".to_string(), None),
-            ("Tab Name 2".to_string(), None)
-        ]
+        [("Tab 1".to_string(), None), ("Tab 2".to_string(), None)]
     );
     let document = mashup::edit::parse(&plan.assets.content).unwrap();
     let tabset = document.find("ptcstabset-5").unwrap();
@@ -14391,4 +14390,228 @@ fn collection_add_accepts_the_selected_rows_of_a_call() {
         .unwrap_err()
         .to_string();
     assert!(error.contains("[SelectedRows]"), "{error}");
+}
+
+/// A row container added with only a direction is not an authored size: once it holds buttons
+/// it takes their height instead of sharing the spare height with the grid below.
+#[test]
+fn a_toolbar_row_added_with_only_a_direction_keeps_its_content_height() {
+    let (_dir, solution) = one_project();
+    let name = "Acme.Orders_MU";
+    apply_new(
+        &solution,
+        &plan_new(&solution, &request(name)).unwrap(),
+        &lock(&solution),
+    )
+    .unwrap();
+    let mut row = add_request(name, "container");
+    row.properties = vec![("flex-direction".into(), "row".into())];
+    let row = plan_add(&solution, &row).unwrap();
+    apply_edit(&solution, &row.edit, &lock(&solution)).unwrap();
+    let mut button = add_request(name, "button");
+    button.placement = Some(Placement::In(row.placed.id.clone()));
+    let button = plan_add(&solution, &button).unwrap();
+    apply_edit(&solution, &button.edit, &lock(&solution)).unwrap();
+    let grid = plan_add(&solution, &add_request(name, "grid")).unwrap();
+    apply_edit(&solution, &grid.edit, &lock(&solution)).unwrap();
+    let document = mashup::edit::parse(&sidecar_content(&solution)).unwrap();
+    let properties = &document.at(&document.find_exact(&row.placed.id).unwrap().path)["Properties"];
+    assert_eq!(properties["flex-grow"], 0, "{properties}");
+    assert_eq!(properties["flex-shrink"], 0, "{properties}");
+}
+
+/// A caption row in the filter column stays at the left edge: only rows with controls centre.
+#[test]
+fn labels_added_to_the_filter_column_align_left() {
+    let (_dir, solution) = one_project();
+    let name = "Acme.Orders_MU";
+    let new = NewRequest {
+        template: "filter-panel".into(),
+        ..request(name)
+    };
+    apply_new(
+        &solution,
+        &plan_new(&solution, &new).unwrap(),
+        &lock(&solution),
+    )
+    .unwrap();
+    let mut ids = Vec::new();
+    for widget in ["label", "tabs", "label"] {
+        let mut add = add_request(name, widget);
+        add.placement = Some(Placement::In("filters".into()));
+        let plan = plan_add(&solution, &add).unwrap();
+        apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+        ids.push(plan.placed.id);
+    }
+    let document = mashup::edit::parse(&sidecar_content(&solution)).unwrap();
+    for id in [&ids[0], &ids[2]] {
+        let path = document.find_exact(id).unwrap().path;
+        let row = &document.at(&path[..path.len() - 1])["Properties"];
+        assert_eq!(row["justify-content"], "flex-start", "{id}: {row}");
+        assert_eq!(
+            document.at(&path)["Properties"]["HorizontalAlignment"],
+            "left"
+        );
+    }
+}
+
+#[test]
+fn style_on_the_mashup_root_names_the_page_container_and_odd_settings_are_noted() {
+    let (_dir, solution) = one_project();
+    let name = "Acme.Orders_MU";
+    apply_new(
+        &solution,
+        &plan_new(&solution, &request(name)).unwrap(),
+        &lock(&solution),
+    )
+    .unwrap();
+    let style = |widget: &str, styles: &[&str]| SetRequest {
+        mashup: name.into(),
+        widget: widget.into(),
+        properties: Vec::new(),
+        style_from: None,
+        styles: styles.iter().map(|text| text.to_string()).collect(),
+    };
+    let error = plan_set(&solution, &style("mashup-root", &["background=#fff"]))
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("mashup set Acme.Orders_MU flexcontainer-2 --style"),
+        "{error}"
+    );
+    let error = plan_set(&solution, &style("center", &["flex=0 0 74px"]))
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("--prop flex-grow="), "{error}");
+    let mut field = add_request(name, "textfield");
+    field.placement = Some(Placement::In("center".into()));
+    let field = plan_add(&solution, &field).unwrap();
+    apply_edit(&solution, &field.edit, &lock(&solution)).unwrap();
+    let plan = plan_set(
+        &solution,
+        &style(
+            &field.placed.id,
+            &[
+                "position=absolute",
+                "flex=1 1 0% !important",
+                "text-box:border-radius=20px",
+            ],
+        ),
+    )
+    .unwrap();
+    assert_eq!(plan.notes.len(), 3, "{:?}", plan.notes);
+    assert!(plan.notes.iter().any(|note| note.contains("!important")));
+    assert!(plan.notes.iter().any(|note| note.contains("position")));
+}
+
+/// Cards added to a row someone added themselves share its width equally, not by their content.
+#[test]
+fn cards_added_into_a_container_row_share_its_width_equally() {
+    let (_dir, solution) = one_project();
+    let name = "Acme.Orders_MU";
+    apply_new(
+        &solution,
+        &plan_new(&solution, &request(name)).unwrap(),
+        &lock(&solution),
+    )
+    .unwrap();
+    let mut row = add_request(name, "container");
+    row.properties = vec![("flex-direction".into(), "row".into())];
+    let row = plan_add(&solution, &row).unwrap();
+    apply_edit(&solution, &row.edit, &lock(&solution)).unwrap();
+    let mut cards = Vec::new();
+    for _ in 0..3 {
+        let mut card = add_request(name, "container");
+        card.placement = Some(Placement::In(row.placed.id.clone()));
+        let card = plan_add(&solution, &card).unwrap();
+        apply_edit(&solution, &card.edit, &lock(&solution)).unwrap();
+        cards.push(card.placed.id);
+    }
+    let document = mashup::edit::parse(&sidecar_content(&solution)).unwrap();
+    for id in &cards {
+        let card = &document.at(&document.find_exact(id).unwrap().path)["Properties"];
+        assert_eq!(card["flex-grow"], 1, "{id}: {card}");
+        assert_eq!(card["flex-basis"], "0px", "{id}: {card}");
+    }
+}
+
+#[test]
+fn a_date_picker_in_a_column_up_to_320px_wide_defaults_to_a_short_date() {
+    let (_dir, solution) = one_project();
+    let name = "Acme.Orders_MU";
+    apply_new(
+        &solution,
+        &plan_new(&solution, &request(name)).unwrap(),
+        &lock(&solution),
+    )
+    .unwrap();
+    let mut column = add_request(name, "container");
+    column.properties = vec![("flex-max-width".into(), "320px".into())];
+    let column = plan_add(&solution, &column).unwrap();
+    apply_edit(&solution, &column.edit, &lock(&solution)).unwrap();
+    let mut picker = add_request(name, "datepicker");
+    picker.placement = Some(Placement::In(column.placed.id.clone()));
+    let picker = plan_add(&solution, &picker).unwrap();
+    apply_edit(&solution, &picker.edit, &lock(&solution)).unwrap();
+    let document = mashup::edit::parse(&sidecar_content(&solution)).unwrap();
+    let properties =
+        &document.at(&document.find_exact(&picker.placed.id).unwrap().path)["Properties"];
+    assert_eq!(properties["FormatToken"], "DD-MM-YY");
+    let wide = plan_add(&solution, &add_request(name, "datepicker")).unwrap();
+    apply_edit(&solution, &wide.edit, &lock(&solution)).unwrap();
+    let document = mashup::edit::parse(&sidecar_content(&solution)).unwrap();
+    let properties =
+        &document.at(&document.find_exact(&wide.placed.id).unwrap().path)["Properties"];
+    assert_eq!(properties["FormatToken"], "");
+}
+
+#[test]
+fn card_recipe_builds_one_bordered_box_with_caption_value_and_status() {
+    let (_dir, solution) = recipe_fixture();
+    let column = add_at(
+        &solution,
+        "Acme.Orders_MU",
+        "container",
+        Placement::In("center".into()),
+    );
+    let set = plan_set(
+        &solution,
+        &SetRequest {
+            mashup: "Acme.Orders_MU".into(),
+            widget: column.clone(),
+            properties: vec![("flex-direction".into(), json!("column"))],
+            style_from: None,
+            styles: vec![],
+        },
+    )
+    .unwrap();
+    if let Some(edit) = &set.edit {
+        apply_edit(&solution, edit, &lock(&solution)).unwrap();
+    }
+    let args = RecipeArgs {
+        widget: Some(column.clone()),
+        title: Some("01 / CUTTING".into()),
+        say: Some("162 U/H".into()),
+        status: Some("RUNNING".into()),
+        kind: Some("ok".into()),
+        ..Default::default()
+    };
+    let plan = recipe(&solution, "card", args.clone()).unwrap();
+    assert_eq!(plan.added.len(), 3, "{plan:?}");
+    let doc = mashup::edit::parse(&sidecar_content(&solution)).unwrap();
+    let card = &doc.at(&doc.find(&column).unwrap().path);
+    assert_eq!(card["Properties"]["flex-basis"], "0px");
+    assert_eq!(card["Widgets"].as_array().unwrap().len(), 3);
+    assert_eq!(card["Widgets"][2]["Properties"]["LabelText"], "RUNNING");
+    let styles = &doc.root_properties()["StyleProperties"]["data"];
+    assert_eq!(styles[&column]["parts"]["$"]["$"]["border-style"], "solid");
+    let chip = card["Widgets"][2]["Properties"]["Id"].as_str().unwrap();
+    assert_eq!(styles[chip]["parts"]["$"]["$"]["background"], "#d2f2e0");
+    // A second run finds the container no longer empty.
+    assert!(recipe(&solution, "card", args.clone()).is_err());
+    let bad = RecipeArgs {
+        kind: Some("loud".into()),
+        ..args
+    };
+    assert!(recipe(&solution, "card", bad).is_err());
 }

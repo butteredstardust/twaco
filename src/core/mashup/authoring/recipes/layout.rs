@@ -326,6 +326,117 @@ impl Work<'_> {
         Ok(())
     }
 
+    /// One bordered box with a caption, a value and a status chip, for grids of small status cards.
+    /// `value` and `status` are text, or an address (`data:`, `ui:`) bound to the label's text.
+    pub(super) fn card(
+        &mut self,
+        container: &str,
+        caption: &str,
+        value: Option<&str>,
+        status: Option<&str>,
+        kind: &str,
+    ) -> Result<(), AuthoringError> {
+        let Some((fill, ink)) = [
+            ("info", ("#dbeafe", "#1e40af")),
+            ("ok", ("#d2f2e0", "#0b6b3a")),
+            ("warning", ("#ffe9c7", "#8a4b00")),
+            ("error", ("#fbd5d5", "#8a1c1c")),
+        ]
+        .into_iter()
+        .find_map(|(name, colours)| (name == kind).then_some(colours)) else {
+            return Err(AuthoringError::Invalid(
+                "card: --kind is info, ok, warning or error".into(),
+            ));
+        };
+        let target = widget_id(&self.document, container)?;
+        self.layout_container(&target, "column")?;
+        if !children(self.document.at(&target.path)).is_empty() {
+            return Err(refuse(
+                &target.id,
+                "card needs an empty container; it adds the caption, value and status itself",
+            ));
+        }
+        self.checked_styles(&target.id)?;
+        self.layout_set(
+            &target,
+            &[
+                ("Margin", json!("8")),
+                ("UseTheme", json!(true)),
+                ("flex-direction", json!("column")),
+                ("flex-wrap", json!("nowrap")),
+                ("align-items", json!("flex-start")),
+                ("justify-content", json!("flex-start")),
+                ("ExpandCollapseTabLocation", json!("inside")),
+                ("ShowVerticalScrollbar", json!(false)),
+                ("flex-size", json!("default")),
+                ("flex-min-height", json!("")),
+                ("flex-max-height", json!("")),
+                ("flex-grow", json!(1)),
+                ("flex-shrink", json!(1)),
+                ("flex-basis", json!("0px")),
+            ],
+        )?;
+        self.background(&target, Some("card"), false)?;
+        let is_address = |text: &str| text.starts_with("data:") || text.starts_with("ui:");
+        let mut labels = vec![("caption", caption, "sub-header")];
+        if let Some(value) = value {
+            labels.push(("value", value, "title"));
+        }
+        for (role, text, kind_of_label) in labels {
+            let literal = if is_address(text) { "" } else { text };
+            let id = self.add_in(
+                &target.path,
+                "ptcslabel",
+                &[
+                    ("LabelText", json!(literal)),
+                    ("LabelType", json!(kind_of_label)),
+                    ("HorizontalAlignment", json!("left")),
+                    ("Margin", json!("0 0 6")),
+                    ("UseTheme", json!(true)),
+                ],
+            );
+            if is_address(text) {
+                self.bind(text, &format!("ui:{id}.LabelText"))?;
+            }
+            self.notes.push(format!("{id}: card {role}"));
+        }
+        if let Some(status) = status {
+            let literal = if is_address(status) { "" } else { status };
+            let width = (literal.chars().count() * 9 + 28).clamp(96, 240);
+            let id = self.add_in(
+                &target.path,
+                "ptcslabel",
+                &[
+                    ("LabelText", json!(literal)),
+                    ("LabelType", json!("body")),
+                    ("HorizontalAlignment", json!("center")),
+                    ("Margin", json!("0")),
+                    ("Width", json!(width)),
+                    ("Height", json!(24)),
+                    ("UseTheme", json!(true)),
+                ],
+            );
+            if is_address(status) {
+                self.bind(status, &format!("ui:{id}.LabelText"))?;
+            }
+            super::super::set::copy_style_entry(
+                &mut self.document,
+                &id,
+                json!({"widget": "ptcs-label", "parts": {
+                    "$": {"$": {"background": fill, "border-radius": "3px"}},
+                    "label": {"$": {"color": ink}}}}),
+                None,
+                &mut Vec::new(),
+            );
+            self.notes.push(format!("{id}: card status chip ({kind})"));
+        }
+        self.notes.push(format!(
+            "{}: card; equal flex (grow 1, basis 0) so cards added to one row share its width",
+            target.id
+        ));
+        Ok(())
+    }
+
     pub(super) fn panel(
         &mut self,
         container: &str,

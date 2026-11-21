@@ -31,6 +31,13 @@ pub enum Recipe {
     ToolbarBand {
         container: String,
     },
+    Card {
+        container: String,
+        caption: String,
+        value: Option<String>,
+        status: Option<String>,
+        kind: String,
+    },
     SliderAction {
         slider: String,
         button: String,
@@ -226,6 +233,7 @@ impl Recipe {
     pub(crate) fn name(&self) -> &'static str {
         match self {
             Self::Panel { .. } => "panel",
+            Self::Card { .. } => "card",
             Self::SliderAction { .. } => "slider-action",
             Self::Toolbar { .. } | Self::ToolbarBand { .. } => "toolbar",
             Self::LabelPairs { .. } => "label-pairs",
@@ -1507,6 +1515,19 @@ pub(crate) fn plan_recipe(
             css = Some(work.panel(container, *compact, style, fit, original_css)?);
         }
         Recipe::ToolbarBand { container } => work.toolbar_band(container)?,
+        Recipe::Card {
+            container,
+            caption,
+            value,
+            status,
+            kind,
+        } => work.card(
+            container,
+            caption,
+            value.as_deref(),
+            status.as_deref(),
+            kind,
+        )?,
         Recipe::SliderAction { slider, button } => work.slider_action(slider, button)?,
         Recipe::Toolbar {
             container,
@@ -2837,6 +2858,7 @@ pub struct RecipeArgs {
 /// The recipe names, for help and errors.
 pub const RECIPES: &[&str] = &[
     "panel",
+    "card",
     "slider-action",
     "toolbar",
     "label-pairs",
@@ -2989,14 +3011,16 @@ impl Recipe {
                 "label-pairs: --row is first or selected; --layout is inline or stacked".into(),
             ));
         }
-        if name != "columns" && args.status.is_some() != args.status_state.is_some() {
+        if !["columns", "card"].contains(&name)
+            && args.status.is_some() != args.status_state.is_some()
+        {
             return Err(AuthoringError::Invalid("label-pairs: --status <field> and --status-state <StateDefinition> are required together".into()));
         }
         for (given, flag, recipe) in [
             (args.row.is_some(), "--row", "label-pairs"),
             (args.layout.is_some(), "--layout", "label-pairs"),
             (
-                args.status.is_some() && name != "columns",
+                args.status.is_some() && !["columns", "card"].contains(&name),
                 "--status",
                 "label-pairs",
             ),
@@ -3067,6 +3091,13 @@ impl Recipe {
                     fit: args.fit.clone().unwrap_or_else(|| "fill".into()),
                 }
             }
+            "card" => Recipe::Card {
+                container: widget("an empty responsive column")?,
+                caption: required(&args.title, "--title <caption>", name)?,
+                value: args.say.clone(),
+                status: args.status.clone(),
+                kind: args.kind.clone().unwrap_or_else(|| "info".into()),
+            },
             "slider-action" => Recipe::SliderAction {
                 slider: widget("a slider and button")?,
                 button: required(&args.button, "the fourth operand (button)", name)?,

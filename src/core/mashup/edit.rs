@@ -863,7 +863,8 @@ impl MashupDocument {
             return;
         };
         let row = self.at(parent);
-        if !is_generated_container(row)
+        if !(is_generated_container(row) || is_panel(row))
+            || authored_layout(row)
             || row["Properties"]["flex-direction"] != "row"
             || children(row).len() < 2
             || !children(row).iter().all(is_panel)
