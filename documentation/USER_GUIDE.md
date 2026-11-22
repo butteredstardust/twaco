@@ -1815,6 +1815,16 @@ empty text; for a list (which has none) it adds an eye-icon notice shown while
 several rows; its `SelectedItems` can feed another list. The page-spec `side_panel`, `list`,
 `collection` and `empty` elements run these recipes and `mashup collection add`.
 
+`recipe card-grid <mashup> <empty column> --per-row 3 --cells 6` makes the kit's gallery: rows of
+equal height holding equal growing cells (the last row is padded). `recipe section <mashup> <empty
+column> --title "Standard Input" [--align center]` makes the kit's framed card in a cell: a fixed
+40px title row over a body row that holds the content, centred with `--align center`.
+`recipe input-variant <mashup> <text field> --variant rounded|focus-background|focus-glow|focus-underline`
+styles the text box through native style parts. `mashup set --style` takes the page specs' colour
+names (`primary`, `ink`, `lime`, `pink`, `purple`, `orange`, `mint`) and `font-family=mono`.
+The page-spec `card_grid`, `card` with `align`, `text_field` `variant`, `heading`, `block` and `style`
+elements use the same code.
+
 
 ```sh
 twaco mashup recipe enable-when Acme.App.Edit_MU ptcsbutton-6 --if "note !== ''" --input note=ui:ptcstextfield-3.Text --apply

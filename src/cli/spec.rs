@@ -826,7 +826,8 @@ pub(crate) const USAGE: &[Usage] = &[
       --style <[part[@state]:]property=value>
                               set one CSS property of the widget's style, repeatable, after any
                               --style-from: background=#fff, border-style=solid, cell@hover:background=#eee;
-                              an empty value removes it"#,
+                              an empty value removes it; colours take the page specs' names (ink, lime,
+                              pink, purple, orange, mint, primary) and font-family takes mono or sans"#,
     },
     Usage {
         path: "mashup source add",
@@ -1056,6 +1057,14 @@ pub(crate) const USAGE: &[Usage] = &[
       empty-state <collection|grid|list> --say <text> [--data <address>]
                               the "No results." state: a collection's and a grid's own text; a list gets a
                               notice shown while --data (the rows it shows) is empty
+      section <container> --title <text> [--align start|center]
+                              the kit's framed card in an empty column: a fixed 40px title row over a body row
+                              for the content (centred on both axes with --align center)
+      card-grid <container> --per-row <n> --cells <n>
+                              the kit's gallery in an empty column: rows of equal height holding equal
+                              cells, the last row padded; fill each cell with recipe section
+      input-variant <textfield> --variant <rounded|focus-background|focus-glow|focus-underline>
+                              one of the kit's text field looks, as native style parts of the text box
                               recipes warn with a mashup on command when a bound call has no trigger"#,
     },
     Usage {

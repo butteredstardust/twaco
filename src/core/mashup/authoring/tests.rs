@@ -14706,3 +14706,22 @@ fn collapsible_filter_column_stacks_titled_fields_at_full_width() {
         4
     );
 }
+
+#[test]
+fn style_values_accept_the_colour_and_font_names_the_page_specs_use() {
+    let parse = |text: &str| set::parse_style(text).unwrap().value;
+    assert_eq!(parse("label:color=primary"), "#0088CE");
+    assert_eq!(parse("background=lime"), "#CCFF00");
+    assert_eq!(parse("button@hover:border-color=pink"), "#FF2E93");
+    assert!(parse("label:font-family=mono").contains("monospace"));
+    // Other values, and names in other properties, are kept as written.
+    assert_eq!(parse("background=#abcdef"), "#abcdef");
+    assert_eq!(parse("background=rgba(0,0,0,0.5)"), "rgba(0,0,0,0.5)");
+    assert_eq!(parse("content=lime"), "lime");
+    assert_eq!(colour("ink").unwrap(), "#0B0B0B");
+    assert!(colour("teal").unwrap_err().contains("unknown colour"));
+    assert!(colour("#12").is_err());
+    let variants = input_variant_styles("rounded").unwrap();
+    assert_eq!(variants, ["text-box:border-radius=20px"]);
+    assert!(input_variant_styles("flat").is_none());
+}

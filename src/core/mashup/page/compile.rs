@@ -415,6 +415,9 @@ fn add(
     if matches!(node, Node::Heading(_)) {
         props.push(("LabelType".into(), "header".into()));
     }
+    if matches!(node, Node::Text(_)) {
+        props.push(("LabelType".into(), "body".into()));
+    }
     let (parent, previous) = position;
     let placement = if let Some(anchor) = previous {
         let parent = session
@@ -481,6 +484,14 @@ fn add(
                 container: placed.clone(),
             },
         ),
+        Node::Card(_) if body.align.is_some() => session.recipe(
+            solution,
+            authoring::Recipe::Section {
+                container: placed.clone(),
+                title: body.title.clone().expect("validated title"),
+                center: body.align.as_ref().is_some_and(|a| a.value == "center"),
+            },
+        ),
         Node::Card(_) | Node::TrendTile(_) => session.recipe(
             solution,
             authoring::Recipe::Card {
@@ -522,7 +533,8 @@ fn add(
         _ => Ok(()),
     }
     .map_err(|e| Error::at(loc, e))?;
-    if matches!(node, Node::Card(_) | Node::TrendTile(_)) {
+    if (matches!(node, Node::Card(_)) && body.align.is_none()) || matches!(node, Node::TrendTile(_))
+    {
         // Kit card titles use the regular label size, not the recipe's sub-header.
         let path = session
             .document
@@ -616,6 +628,28 @@ fn add(
         let content = session.document.at(&tabset.path)["Widgets"][0]["Properties"]["Id"]
             .as_str()
             .expect("side panel tab content")
+            .to_string();
+        add_children(
+            solution,
+            session,
+            allocator,
+            ids,
+            page,
+            &body.children,
+            &content,
+        )?;
+    } else if matches!(node, Node::Card(_)) && body.align.is_some() {
+        // The section recipe's last container is the body its content goes in.
+        let root = session
+            .document
+            .find_exact(&id)
+            .map_err(|e| Error::at(loc, e))?
+            .path;
+        let content = session.document.at(&root)["Widgets"]
+            .as_array()
+            .and_then(|items| items.last())
+            .and_then(|item| item["Properties"]["Id"].as_str())
+            .expect("section body")
             .to_string();
         add_children(
             solution,
@@ -902,6 +936,7 @@ fn apply_size(
             Size::Fixed(_) => {
                 return Err(Error::at(size.referenced, "fixed size must be above zero"))
             }
+            Size::Sm | Size::Md | Size::Lg | Size::Display => {}
             Size::Fit => sizing.push(("flex-grow".into(), json!(0))),
             Size::Fill => sizing.extend([
                 ("flex-size".into(), json!("range")),

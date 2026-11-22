@@ -71,6 +71,9 @@ pub(crate) enum Node {
     List(Body),
     Collection(Body),
     NavMenu(Body),
+    CardGrid(Body),
+    Text(Body),
+    Block(Body),
 }
 
 impl Node {
@@ -103,6 +106,9 @@ impl Node {
             | Self::SidePanel(b)
             | Self::List(b)
             | Self::Collection(b)
+            | Self::CardGrid(b)
+            | Self::Text(b)
+            | Self::Block(b)
             | Self::NavMenu(b) => b,
         }
     }
@@ -135,6 +141,44 @@ impl Node {
             | Self::SidePanel(b)
             | Self::List(b)
             | Self::Collection(b)
+            | Self::CardGrid(b)
+            | Self::Text(b)
+            | Self::Block(b)
+            | Self::NavMenu(b) => b,
+        }
+    }
+    pub(crate) fn into_body(self) -> Body {
+        match self {
+            Self::Grid(b)
+            | Self::Label(b)
+            | Self::Heading(b)
+            | Self::Button(b)
+            | Self::Row(b)
+            | Self::Column(b)
+            | Self::Widget(b)
+            | Self::PageHeader(b)
+            | Self::Toolbar(b)
+            | Self::KpiRow(b)
+            | Self::Card(b)
+            | Self::FilterPanel(b)
+            | Self::Tabs(b)
+            | Self::Chart(b)
+            | Self::Spacer(b)
+            | Self::DateRange(b)
+            | Self::Dropdown(b)
+            | Self::TextField(b)
+            | Self::Pagination(b)
+            | Self::TrendTile(b)
+            | Self::DetailPair(b)
+            | Self::Panel(b)
+            | Self::Slider(b)
+            | Self::KpiDial(b)
+            | Self::SidePanel(b)
+            | Self::List(b)
+            | Self::Collection(b)
+            | Self::CardGrid(b)
+            | Self::Text(b)
+            | Self::Block(b)
             | Self::NavMenu(b) => b,
         }
     }
@@ -152,6 +196,8 @@ impl Node {
             | Self::Panel(_)
             | Self::SidePanel(_)
             | Self::NavMenu(_)
+            | Self::CardGrid(_)
+            | Self::Block(_)
             | Self::Spacer(_) => "flexcontainer",
             Self::List(_) => "ptcslist",
             Self::Collection(_) => "ptcscollection",
@@ -175,7 +221,7 @@ impl Node {
             Self::TextField(_) => "ptcstextfield",
             Self::Pagination(_) => "ptcspagination",
             Self::Grid(_) => "ptcsgrid",
-            Self::Label(_) | Self::Heading(_) => "ptcslabel",
+            Self::Label(_) | Self::Heading(_) | Self::Text(_) => "ptcslabel",
             Self::Button(_) => "ptcsbutton",
             Self::Widget(b) => b
                 .kind
@@ -245,7 +291,7 @@ pub(crate) struct Body {
     pub(crate) columns: Vec<Spanned<Column>>,
     #[serde(default)]
     pub(crate) props: BTreeMap<String, Spanned<Value>>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "style_list")]
     pub(crate) style: Vec<Spanned<String>>,
     pub(crate) surface: Option<bool>,
     pub(crate) size: Option<Spanned<Size>>,
@@ -274,6 +320,56 @@ pub(crate) struct Body {
     pub(crate) tab: Option<String>,
     #[serde(default)]
     pub(crate) children: Vec<Node>,
+    /// Alignment of a card's content: `center` puts it in the middle on both axes.
+    pub(crate) align: Option<Spanned<String>>,
+    /// The caption of a block.
+    pub(crate) caption: Option<String>,
+    /// A background colour behind a heading, label or text.
+    pub(crate) highlight: Option<Spanned<String>>,
+    /// Set while expanding card_grid: this node is one of its equal cells.
+    #[serde(skip)]
+    pub(crate) grid_cell: bool,
+}
+
+/// `style:` is a list of `--style` settings or a map of `background`, `color`, `border` and
+/// `font`; a map entry becomes `~key=value` here, and `elements::expand` turns it into settings
+/// once it knows the element.
+fn style_list<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<Spanned<String>>, D::Error> {
+    struct Visitor;
+    impl<'de> serde::de::Visitor<'de> for Visitor {
+        type Value = Vec<Spanned<String>>;
+        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            f.write_str("a list of style settings or a map of background, color, border and font")
+        }
+        fn visit_seq<A: serde::de::SeqAccess<'de>>(
+            self,
+            mut seq: A,
+        ) -> Result<Self::Value, A::Error> {
+            let mut out = vec![];
+            while let Some(item) = seq.next_element::<Spanned<String>>()? {
+                out.push(item);
+            }
+            Ok(out)
+        }
+        fn visit_map<A: serde::de::MapAccess<'de>>(
+            self,
+            mut map: A,
+        ) -> Result<Self::Value, A::Error> {
+            let mut out = vec![];
+            while let Some((key, value)) = map.next_entry::<String, String>()? {
+                out.push(Spanned::new(
+                    format!("~{key}={value}"),
+                    serde_saphyr::Location::UNKNOWN,
+                    serde_saphyr::Location::UNKNOWN,
+                ));
+            }
+            Ok(out)
+        }
+        fn visit_unit<E: serde::de::Error>(self) -> Result<Self::Value, E> {
+            Ok(vec![])
+        }
+    }
+    d.deserialize_any(Visitor)
 }
 
 #[derive(Debug, Deserialize)]
@@ -369,6 +465,11 @@ pub(crate) enum Size {
     Fixed(u32),
     Fit,
     Fill,
+    /// Text sizes of a heading, label or text; other elements refuse them.
+    Sm,
+    Md,
+    Lg,
+    Display,
 }
 
 #[derive(Debug, Deserialize)]

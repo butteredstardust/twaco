@@ -1,0 +1,22 @@
+# P Inputs gallery (kit WDK_Inputs content area, without the WDK shell): the title in the primary colour,
+# then a 2x3 gallery of equal cards, each a title and one centred text field in a style variant.
+# NEW: card_grid, card align: center, page_header color, text_field variant, text_field icon.
+version: 1
+rules: v1
+page:
+  name: Acme.BenchSpecP_MU
+  template: blank
+  slots:
+    center:
+      - page_header: {id: header, title: Inputs, color: primary}
+      - card_grid:                        # NEW: equal widths and heights, fills the page
+          id: gallery
+          size: fill
+          per_row: 3
+          children:
+            - card: {id: c1, title: Standard Input, align: center, children: [{text_field: {id: t1, hint: text here ...}}]}
+            - card: {id: c2, title: Input with border radius, align: center, children: [{text_field: {id: t2, hint: text here ..., variant: rounded}}]}
+            - card: {id: c3, title: Input with background focus, align: center, children: [{text_field: {id: t3, hint: text here ..., variant: focus-background}}]}
+            - card: {id: c4, title: Input with glow effect focus, align: center, children: [{text_field: {id: t4, hint: text here ..., variant: focus-glow}}]}
+            - card: {id: c5, title: Input with border bottom focus, align: center, children: [{text_field: {id: t5, hint: text here ..., variant: focus-underline}}]}
+            - card: {id: c6, title: Input with icon, align: center, children: [{text_field: {id: t6, hint: text here ..., icon: search}}]}

@@ -1148,7 +1148,7 @@ pub(crate) struct MashupRecipeRequest {
     pub(crate) tab: Absent<String>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) start: Absent<String>,
-    /// panel styles a responsive column; slider-action pairs widget (slider) with button. toolbar uses widget as the empty responsive container, then, search_param, hint, width, run_on and buttons. enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, sparkline, columns, pagination, picker, side-panel, empty-state, tracker, set-on-click, nested-menu, navigate-on-click or collapsible; label-pairs uses widget as the responsive container, data, fields, title, label_columns and replace.
+    /// panel styles a responsive column; slider-action pairs widget (slider) with button. toolbar uses widget as the empty responsive container, then, search_param, hint, width, run_on and buttons. enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, sparkline, columns, pagination, picker, side-panel, empty-state, section, card-grid, input-variant, tracker, set-on-click, nested-menu, navigate-on-click or collapsible; label-pairs uses widget as the responsive container, data, fields, title, label_columns and replace.
     pub(crate) recipe: String,
     /// The mashup to write it in.
     pub(crate) mashup: String,
@@ -1245,6 +1245,18 @@ pub(crate) struct MashupRecipeRequest {
     /// The tooltip of the help icon after a side panel title (recipe side-panel).
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) info: Absent<String>,
+    /// The body alignment of recipe section: start (default) or center.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) align: Absent<String>,
+    /// Cells in one row of recipe card-grid.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) per_row: Absent<u32>,
+    /// Cells in all of recipe card-grid; the last row is filled with empty cells.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) cells: Absent<u32>,
+    /// The text field look of recipe input-variant.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) variant: Absent<String>,
     /// Combo series as field:bar|line[:primary|secondary].
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) series: Absent<Vec<String>>,

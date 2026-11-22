@@ -38,6 +38,18 @@ All notable changes to twaco are recorded here. The format follows
   legends, and `recipe sparkline` adds the same 40px native trend chart. CLI and MCP
   expose the same options; legacy layout output is unchanged.
 
+- Page specs gain the elements of the kit's inputs gallery and a web-page layout: `card_grid`
+  (equal rows and cells that fill the page), `card` with `align: center` (the kit section: a
+  fixed 40px title row over a centred `LastContainer` body), `block` (a coloured KPI card),
+  `heading` with `size: sm|md|lg|display` and `highlight`, `text`, `page_header` with
+  `color: primary`, `text_field` with `variant: rounded|focus-background|focus-glow|focus-underline`
+  (native text box style parts), and `style: {background, color, border, font}` on label,
+  heading, text, block and chart. Benchmarks P and S as specs with offline Acme fixtures and
+  goldens; S has no theme or tokens yet.
+- Command-mode parity for them: `recipe section`, `recipe card-grid`, `recipe input-variant`,
+  and `mashup set --style` accepting the colour names (`primary`, `ink`, `lime`, `pink`,
+  `purple`, `orange`, `mint`) and `font-family=mono|sans`. CLI and MCP expose the same options.
+
 - Page specs support combo-chart series with `title` and `axis: secondary`, 40px trend-tile
   sparklines (`sparkline: {data, field, x}`), StateDefinition detail dots (`state`), and grid
   `auto_select` with first-row selection by default for selection-bound details.

@@ -524,6 +524,26 @@ fn hand_written_tools() -> Vec<Value> {
             "The tooltip of the help icon after a side panel title (recipe side-panel).",
             "string",
         ),
+        (
+            "align",
+            "The body alignment of recipe section: start (default) or center.",
+            "string",
+        ),
+        (
+            "per_row",
+            "Cells in one row of recipe card-grid.",
+            "integer",
+        ),
+        (
+            "cells",
+            "Cells in all of recipe card-grid; the last row is filled with empty cells.",
+            "integer",
+        ),
+        (
+            "variant",
+            "The text field look of recipe input-variant.",
+            "string",
+        ),
         ("menu", "The root Menu of recipe nested-menu.", "string"),
         (
             "no_auto_collapse",
@@ -591,7 +611,10 @@ fn hand_written_tools() -> Vec<Value> {
     recipe["inputSchema"]["properties"]["label_columns"] = json!({"description": "label-pairs: number of columns, one per field by default, above zero.", "type": "integer", "minimum": 0});
     recipe["inputSchema"]["properties"]["replace"] = json!({"description": "label-pairs: widget inside or beside the destination to remove with its bindings.", "type": "string"});
     recipe["inputSchema"]["properties"]["width"] = json!({"description": "nested-menu: column width (300); toolbar: search field width (240), in pixels.", "type": "integer", "minimum": 0});
-    recipe["inputSchema"]["properties"]["recipe"]["description"] = json!("panel styles a responsive column; slider-action pairs widget (slider) with button. toolbar uses widget as the empty responsive container, then, search_param, hint, width, run_on and buttons. enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, sparkline, columns, pagination, picker, side-panel, empty-state, tracker, set-on-click, nested-menu, navigate-on-click or collapsible; label-pairs uses widget as the responsive container, data, fields, title, label_columns and replace.");
+    for name in ["per_row", "cells"] {
+        recipe["inputSchema"]["properties"][name]["minimum"] = json!(0);
+    }
+    recipe["inputSchema"]["properties"]["recipe"]["description"] = json!("panel styles a responsive column; slider-action pairs widget (slider) with button. toolbar uses widget as the empty responsive container, then, search_param, hint, width, run_on and buttons. enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, sparkline, columns, pagination, picker, side-panel, empty-state, section, card-grid, input-variant, tracker, set-on-click, nested-menu, navigate-on-click or collapsible; label-pairs uses widget as the responsive container, data, fields, title, label_columns and replace.");
     let edit = tools
         .iter_mut()
         .find(|tool| tool["name"] == "entity_edit")

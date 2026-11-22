@@ -195,6 +195,8 @@ fn benchmark_lifecycle(id: &str) {
             .unwrap();
     let (node, prop, old) = if id == "N" {
         ("preview", "Label", "Preview")
+    } else if id == "S" {
+        ("brand", "LabelText", "LINE 03 LIVE")
     } else {
         (
             "header--title",
@@ -210,6 +212,7 @@ fn benchmark_lifecycle(id: &str) {
                 "Q4" => "Fleet",
                 "L" => "Compared Assets",
                 "M" => "Metrics List Side Filter",
+                "P" => "Inputs",
                 _ => "Admin Metrics",
             },
         )
@@ -302,6 +305,14 @@ fn benchmark_l_frontends_and_rebuilds() {
 #[test]
 fn benchmark_m_frontends_and_rebuilds() {
     benchmark_lifecycle("M");
+}
+#[test]
+fn benchmark_p_frontends_and_rebuilds() {
+    benchmark_lifecycle("P");
+}
+#[test]
+fn benchmark_s_frontends_and_rebuilds() {
+    benchmark_lifecycle("S");
 }
 
 #[test]

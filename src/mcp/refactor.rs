@@ -1153,6 +1153,10 @@ pub(crate) fn mashup_recipe_tool(
             .unwrap_or(false),
         multiple: arguments.multiple.as_ref().copied().unwrap_or(false),
         info: arguments.info.as_ref().cloned(),
+        align: arguments.align.as_ref().cloned(),
+        per_row: arguments.per_row.as_ref().copied(),
+        cells: arguments.cells.as_ref().copied(),
+        variant: arguments.variant.as_ref().cloned(),
         menu: arguments.menu.as_ref().cloned(),
         no_auto_collapse: arguments
             .no_auto_collapse

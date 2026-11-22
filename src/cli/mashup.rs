@@ -598,6 +598,14 @@ pub(crate) struct MashupRecipe {
     pub(crate) multiple: bool,
     #[arg(long = "info", value_name = "text")]
     pub(crate) info: Option<String>,
+    #[arg(long = "align", value_name = "start|center")]
+    pub(crate) align: Option<String>,
+    #[arg(long = "per-row", value_name = "n")]
+    pub(crate) per_row: Option<u32>,
+    #[arg(long = "cells", value_name = "n")]
+    pub(crate) cells: Option<u32>,
+    #[arg(long = "variant", value_name = "name")]
+    pub(crate) variant: Option<String>,
     #[arg(long = "menu", value_name = "Menu")]
     pub(crate) menu: Option<String>,
     #[arg(long = "no-auto-collapse")]
@@ -995,6 +1003,10 @@ pub(crate) fn mashup_recipe_cmd(solution: &Solution, args: &MashupRecipe) -> u8 
         auto_select_first: args.auto_select_first,
         multiple: args.multiple,
         info: args.info.clone(),
+        align: args.align.clone(),
+        per_row: args.per_row,
+        cells: args.cells,
+        variant: args.variant.clone(),
         menu: args.menu.clone(),
         no_auto_collapse: args.no_auto_collapse,
         width,

@@ -2,6 +2,7 @@
 //! `mashup add`, `mashup bind` and `mashup on` use. Counts are from 1,084 reference mashups.
 
 mod layout;
+pub(crate) use layout::{grid_cell_props, grid_row_props, input_variant_styles};
 
 use super::{
     bind_in, cache_entry, contained_parameters, finish_edit_with_css, load_existing,
@@ -206,6 +207,23 @@ pub enum Recipe {
         info: Option<String>,
         tab: String,
     },
+    /// A kit section: a title row over a body row, both in the container.
+    Section {
+        container: String,
+        title: String,
+        center: bool,
+    },
+    /// A kit gallery: rows of equal height holding equal growing cells.
+    CardGrid {
+        container: String,
+        per_row: u32,
+        cells: u32,
+    },
+    /// One of the kit's text field looks.
+    InputVariant {
+        widget: String,
+        variant: String,
+    },
     /// The kit's "No results." empty state of a collection, grid or list.
     EmptyState {
         widget: String,
@@ -284,6 +302,9 @@ impl Recipe {
             Self::Picker { .. } => "picker",
             Self::SidePanel { .. } => "side-panel",
             Self::EmptyState { .. } => "empty-state",
+            Self::Section { .. } => "section",
+            Self::CardGrid { .. } => "card-grid",
+            Self::InputVariant { .. } => "input-variant",
         }
     }
 }
@@ -2677,6 +2698,17 @@ pub(super) fn plan_recipe_loaded(
         Recipe::EmptyState { widget, text, data } => {
             work.empty_state(widget, text, data.as_deref())?
         }
+        Recipe::Section {
+            container,
+            title,
+            center,
+        } => work.section(container, title, *center)?,
+        Recipe::CardGrid {
+            container,
+            per_row,
+            cells,
+        } => work.card_grid(container, *per_row, *cells)?,
+        Recipe::InputVariant { widget, variant } => work.input_variant(widget, variant)?,
         Recipe::NestedMenu {
             menubar,
             menu,
@@ -3028,6 +3060,14 @@ pub struct RecipeArgs {
     pub info: Option<String>,
     /// picker: a list that selects several rows.
     pub multiple: bool,
+    /// section: `center` centres the body's content (`start` is the default).
+    pub align: Option<String>,
+    /// card-grid: cells in a row.
+    pub per_row: Option<u32>,
+    /// card-grid: cells in all.
+    pub cells: Option<u32>,
+    /// input-variant: the text field look.
+    pub variant: Option<String>,
 }
 
 /// The recipe names, for help and errors.
@@ -3059,6 +3099,9 @@ pub const RECIPES: &[&str] = &[
     "navigate-on-click",
     "side-panel",
     "empty-state",
+    "section",
+    "card-grid",
+    "input-variant",
 ];
 
 fn field_caption(name: &str) -> String {
@@ -3099,6 +3142,10 @@ fn pairs(flag: &str, values: &[String]) -> Result<Vec<(String, String)>, Authori
                 })
         })
         .collect()
+}
+
+fn required_number(value: Option<u32>, what: &str, recipe: &str) -> Result<u32, AuthoringError> {
+    value.ok_or_else(|| AuthoringError::Invalid(format!("{recipe} needs {what}")))
 }
 
 fn required(value: &Option<String>, what: &str, recipe: &str) -> Result<String, AuthoringError> {
@@ -3222,6 +3269,10 @@ impl Recipe {
                 "collapsible",
             ),
             (args.info.is_some(), "--info", "side-panel"),
+            (args.align.is_some(), "--align", "section"),
+            (args.per_row.is_some(), "--per-row", "card-grid"),
+            (args.cells.is_some(), "--cells", "card-grid"),
+            (args.variant.is_some(), "--variant", "input-variant"),
             (args.multiple, "--multiple", "picker"),
             (args.start.is_some(), "--start", "collapsible"),
             (args.action_label.is_some(), "--action-label", "confirm"),
@@ -3549,6 +3600,28 @@ impl Recipe {
                 widget: widget("the collection, grid or list")?,
                 text: required(&args.say, "--say <text>", name)?,
                 data: args.data.clone(),
+            },
+            "section" => Recipe::Section {
+                container: widget("an empty responsive column")?,
+                title: required(&args.title, "--title <text>", name)?,
+                center: match args.align.as_deref() {
+                    None | Some("start") => false,
+                    Some("center") => true,
+                    Some(_) => {
+                        return Err(AuthoringError::Invalid(
+                            "section: --align is start or center".into(),
+                        ))
+                    }
+                },
+            },
+            "card-grid" => Recipe::CardGrid {
+                container: widget("an empty responsive column")?,
+                per_row: required_number(args.per_row, "--per-row <n>", name)?,
+                cells: required_number(args.cells, "--cells <n>", name)?,
+            },
+            "input-variant" => Recipe::InputVariant {
+                widget: widget("the text field")?,
+                variant: required(&args.variant, "--variant <name>", name)?,
             },
             "nested-menu" => Recipe::NestedMenu {
                 menubar: widget("the menu bar")?,

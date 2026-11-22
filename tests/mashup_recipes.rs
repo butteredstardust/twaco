@@ -3044,3 +3044,209 @@ fn command_navigation_button_equivalent_keeps_compact_full_width_styling() {
         assert_eq!(style["$"]["$"]["background"], "#e4e7e9");
     }
 }
+
+#[test]
+fn command_card_grid_section_and_input_variant_build_the_kit_gallery() {
+    for mcp in [false, true] {
+        let dir = n7_fixture();
+        let root = dir.path();
+        n7_new(root, mcp, "blank");
+        let column = n7_add(root, mcp, "flexcontainer", "center");
+        let result = n7_recipe(
+            root,
+            mcp,
+            "card-grid",
+            &column,
+            &["--per-row", "2", "--cells", "3"],
+            json!({"per_row": 2, "cells": 3}),
+        );
+        assert_eq!(result["applied"], true, "{result}");
+        let c = n7_content(root);
+        let gallery = find_widget(&c["UI"], &column).unwrap();
+        let rows = gallery["Widgets"].as_array().unwrap();
+        assert_eq!(rows.len(), 2);
+        for row in rows {
+            assert_eq!(row["Properties"]["flex-grow"], 1);
+            assert_eq!(row["Properties"]["flex-basis"], "0px");
+            let cells = row["Widgets"].as_array().unwrap();
+            assert_eq!(cells.len(), 2);
+            for cell in cells {
+                assert_eq!(cell["Properties"]["flex-grow"], 1);
+                assert_eq!(cell["Properties"]["flex-basis"], "0px");
+            }
+        }
+        let cell = rows[0]["Widgets"][0]["Properties"]["Id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let result = n7_recipe(
+            root,
+            mcp,
+            "section",
+            &cell,
+            &["--title", "Standard Input", "--align", "center"],
+            json!({"title": "Standard Input", "align": "center"}),
+        );
+        assert_eq!(result["applied"], true, "{result}");
+        let c = n7_content(root);
+        let section = find_widget(&c["UI"], &cell).unwrap();
+        let [bar, body] = section["Widgets"].as_array().unwrap().as_slice() else {
+            panic!("section has a title row and a body row: {section}");
+        };
+        assert_eq!(bar["Properties"]["flex-min-height"], "40px");
+        assert_eq!(bar["Properties"]["flex-max-height"], "40px");
+        assert_eq!(bar["Widgets"][0]["Properties"]["LabelType"], "sub-header");
+        assert_eq!(
+            bar["Widgets"][0]["Properties"]["LabelText"],
+            "Standard Input"
+        );
+        assert_eq!(body["Properties"]["LastContainer"], true);
+        assert_eq!(body["Properties"]["justify-content"], "center");
+        assert_eq!(body["Properties"]["align-items"], "center");
+        assert_eq!(
+            c["UI"]["Properties"]["StyleProperties"]["data"][&cell]["parts"]["$"]["$"]
+                ["border-style"],
+            "solid"
+        );
+        let field = n7_add(
+            root,
+            mcp,
+            "text-field",
+            body["Properties"]["Id"].as_str().unwrap(),
+        );
+        let result = n7_recipe(
+            root,
+            mcp,
+            "input-variant",
+            &field,
+            &["--variant", "focus-glow"],
+            json!({"variant": "focus-glow"}),
+        );
+        assert_eq!(result["applied"], true, "{result}");
+        let parts = &n7_content(root)["UI"]["Properties"]["StyleProperties"]["data"][&field]
+            ["parts"]["text-box"];
+        assert_eq!(parts["focus"]["border-color"], "#0088CE");
+        assert!(parts["focus"]["box-shadow"]
+            .as_str()
+            .unwrap()
+            .contains("#0088CE"));
+        // A named colour in --style means the same as it does in a page spec.
+        let label = n7_add(
+            root,
+            mcp,
+            "label",
+            body["Properties"]["Id"].as_str().unwrap(),
+        );
+        invoke(
+            root,
+            mcp,
+            &[
+                "mashup",
+                "set",
+                "Acme.Layout_MU",
+                &label,
+                "--style",
+                "label:color=primary",
+                "--style",
+                "background=lime",
+                "--apply",
+            ],
+            "mashup_set",
+            json!({"mashup":"Acme.Layout_MU","widget":label,
+                "styles":["label:color=primary","background=lime"],"dry_run":false}),
+        );
+        let style =
+            &n7_content(root)["UI"]["Properties"]["StyleProperties"]["data"][&label]["parts"];
+        assert_eq!(style["label"]["$"]["color"], "#0088CE");
+        assert_eq!(style["$"]["$"]["background"], "#CCFF00");
+    }
+}
+
+#[test]
+fn command_gallery_recipes_refuse_unsafe_targets_and_other_recipes_flags() {
+    let dir = n7_fixture();
+    let root = dir.path();
+    n7_new(root, false, "blank");
+    let column = n7_add(root, false, "flexcontainer", "center");
+    let field = n7_add(root, false, "text-field", &column);
+    let run = |recipe: &str, widget: &str, flags: &[&str]| {
+        let mut args = vec!["mashup", "recipe", recipe, "Acme.Layout_MU", widget];
+        args.extend(flags);
+        args.push("--apply");
+        let output = Command::new(env!("CARGO_BIN_EXE_twaco"))
+            .current_dir(root)
+            .env_clear()
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(!output.status.success(), "{recipe} {flags:?}");
+        String::from_utf8_lossy(&output.stderr).to_string()
+    };
+    let other = n7_add(root, false, "flexcontainer", "center");
+    for (recipe, widget, flags, why) in [
+        (
+            "card",
+            &other,
+            vec!["--title", "T", "--align", "center"],
+            "--align is for recipe section",
+        ),
+        (
+            "card",
+            &other,
+            vec!["--title", "T", "--per-row", "2"],
+            "--per-row is for recipe card-grid",
+        ),
+        (
+            "card",
+            &other,
+            vec!["--title", "T", "--cells", "2"],
+            "--cells is for recipe card-grid",
+        ),
+        (
+            "card",
+            &other,
+            vec!["--title", "T", "--variant", "rounded"],
+            "--variant is for recipe input-variant",
+        ),
+        (
+            "section",
+            &other,
+            vec!["--title", "T", "--align", "middle"],
+            "--align is start or center",
+        ),
+        ("section", &other, vec![], "section needs --title"),
+        (
+            "card-grid",
+            &other,
+            vec!["--per-row", "2"],
+            "card-grid needs --cells",
+        ),
+        (
+            "card-grid",
+            &other,
+            vec!["--per-row", "0", "--cells", "2"],
+            "--per-row is 1 to 12",
+        ),
+        (
+            "card-grid",
+            &column,
+            vec!["--per-row", "2", "--cells", "2"],
+            "needs an empty container",
+        ),
+        (
+            "input-variant",
+            &field,
+            vec!["--variant", "glossy"],
+            "--variant is rounded",
+        ),
+        (
+            "input-variant",
+            &other,
+            vec!["--variant", "rounded"],
+            "needs a text field",
+        ),
+    ] {
+        let stderr = run(recipe, widget, &flags);
+        assert!(stderr.contains(why), "{recipe} {flags:?}: {stderr}");
+    }
+}

@@ -3073,3 +3073,341 @@ fn older_generated_cell_refreshes_a_placeholder_from_its_baseline() {
         .unwrap()
         .is_empty());
 }
+
+#[test]
+fn benchmark_p_golden() {
+    benchmark("p");
+}
+#[test]
+fn benchmark_s_golden() {
+    benchmark("s");
+}
+
+fn widget_entry(built: &super::compile::Artifacts, id: &str) -> Value {
+    widget_style(built, id)
+}
+
+#[test]
+fn card_grid_builds_equal_rows_and_cells_and_pads_the_last_row() {
+    let (_dir, solution) = element_solution();
+    let cards = (1..=5)
+        .map(|i| format!("{{card: {{id: c{i}, title: Card {i}, align: center}}}}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let built = compile(
+        &solution,
+        "Acme",
+        &error_page(
+            &format!("card_grid: {{id: gallery, size: fill, per_row: 3, children: [{cards}]}}"),
+            "",
+        ),
+    )
+    .unwrap();
+    let doc = doc_of(&built);
+    let gallery = doc.find_exact(&built.ids["gallery"]).unwrap();
+    let rows = doc.at(&gallery.path)["Widgets"].as_array().unwrap().clone();
+    assert_eq!(rows.len(), 2);
+    for row in &rows {
+        let p = &row["Properties"];
+        assert_eq!(p["flex-direction"], "row");
+        assert_eq!(p["flex-size"], "default");
+        assert_eq!(p["flex-grow"], 1);
+        assert_eq!(p["flex-basis"], "0px");
+        let cells = row["Widgets"].as_array().unwrap();
+        assert_eq!(cells.len(), 3);
+        for cell in cells {
+            let p = &cell["Properties"];
+            assert_eq!(p["flex-grow"], 1);
+            assert_eq!(p["flex-shrink"], 1);
+            assert_eq!(p["flex-basis"], "0px");
+            assert_eq!(p["Margin"], "10");
+        }
+    }
+    // The sixth cell is an empty grower, so the fifth card is as wide as the first.
+    assert_eq!(
+        rows[1]["Widgets"][2]["Widgets"].as_array().unwrap().len(),
+        0
+    );
+    // A card is a kit section: a fixed 40px title row over a LastContainer body, content centred.
+    let card = &rows[0]["Widgets"][0];
+    let [bar, body] = card["Widgets"].as_array().unwrap().as_slice() else {
+        panic!("section has a title row and a body row: {card}");
+    };
+    assert_eq!(bar["Properties"]["flex-min-height"], "40px");
+    assert_eq!(bar["Properties"]["flex-max-height"], "40px");
+    assert_eq!(bar["Widgets"][0]["Properties"]["LabelType"], "sub-header");
+    assert_eq!(body["Properties"]["LastContainer"], true);
+    assert_eq!(body["Properties"]["justify-content"], "center");
+    assert_eq!(body["Properties"]["align-items"], "center");
+    let frame = &widget_style(&built, "c1")["parts"]["$"]["$"];
+    assert_eq!(frame["border-style"], "solid");
+}
+
+#[test]
+fn a_card_with_align_matches_the_section_recipe_on_an_equivalent_primitive_column() {
+    use authoring::{session::Session, AddRequest, Recipe};
+    let (_dir, solution) = element_solution();
+    let text = error_page("card: {id: target, title: Compare, align: center}", "");
+    let built = compile(&solution, "Acme", &text).unwrap();
+    let mut primitive =
+        Session::new("Acme.Errors_MU", "Acme", "blank", "PTC Convergence Theme").unwrap();
+    let target = primitive
+        .add(
+            &solution,
+            &AddRequest {
+                mashup: "Acme.Errors_MU".into(),
+                widget: "flexcontainer".into(),
+                inputs: vec![],
+                placement: Some(mashup::edit::Placement::In("center".into())),
+                label: None,
+                properties: vec![("flex-direction".to_string(), "column".to_string())],
+            },
+        )
+        .unwrap();
+    primitive
+        .recipe(
+            &solution,
+            Recipe::Section {
+                container: target.clone(),
+                title: "Compare".into(),
+                center: true,
+            },
+        )
+        .unwrap();
+    let section = |document: &mashup::edit::MashupDocument, id: &str| {
+        let path = document.find_exact(id).unwrap().path;
+        let mut node = document.at(&path).clone();
+        fn strip(value: &mut Value) {
+            match value {
+                Value::Object(map) => {
+                    for key in ["Id", "DisplayName", "iconClass", "scrolling"] {
+                        map.remove(key);
+                    }
+                    map.values_mut().for_each(strip);
+                }
+                Value::Array(items) => items.iter_mut().for_each(strip),
+                _ => {}
+            }
+        }
+        strip(&mut node);
+        node["Widgets"].take()
+    };
+    assert_eq!(
+        section(&doc_of(&built), &built.ids["target"]),
+        section(&primitive.document, &target)
+    );
+}
+
+#[test]
+fn text_field_variants_match_the_input_variant_recipe() {
+    use authoring::{session::Session, AddRequest, Recipe};
+    let (_dir, solution) = element_solution();
+    for variant in [
+        "rounded",
+        "focus-background",
+        "focus-glow",
+        "focus-underline",
+    ] {
+        let built = compile(
+            &solution,
+            "Acme",
+            &error_page(&format!("text_field: {{id: t, variant: {variant}}}"), ""),
+        )
+        .unwrap();
+        let mut primitive =
+            Session::new("Acme.Errors_MU", "Acme", "blank", "PTC Convergence Theme").unwrap();
+        let field = primitive
+            .add(
+                &solution,
+                &AddRequest {
+                    mashup: "Acme.Errors_MU".into(),
+                    widget: "ptcstextfield".into(),
+                    inputs: vec![],
+                    placement: Some(mashup::edit::Placement::In("center".into())),
+                    label: None,
+                    properties: vec![],
+                },
+            )
+            .unwrap();
+        primitive
+            .recipe(
+                &solution,
+                Recipe::InputVariant {
+                    widget: field.clone(),
+                    variant: variant.into(),
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            widget_entry(&built, "t"),
+            primitive.document.root_properties()["StyleProperties"]["data"][&field],
+            "{variant}"
+        );
+    }
+    let error = compile(
+        &solution,
+        "Acme",
+        &error_page("text_field: {id: t, variant: glossy}", ""),
+    )
+    .unwrap_err();
+    assert!(
+        error.to_string().contains("rounded, focus-background"),
+        "{error}"
+    );
+}
+
+#[test]
+fn headings_labels_and_text_take_sizes_highlights_and_style_maps() {
+    let (_dir, solution) = element_solution();
+    let built = compile(
+        &solution,
+        "Acme",
+        &error_page(
+            "column: {id: col, children: [{page_header: {id: head, title: Inputs, color: primary}}, {heading: {id: big, text: Big, size: display, highlight: lime}}, {heading: {id: small, text: Small, size: sm}}, {text: {id: lead, text: Lead}}, {label: {id: tag, text: Tag, style: {background: ink, color: lime, font: mono, border: pink}}}]}",
+            "",
+        ),
+    )
+    .unwrap();
+    assert_eq!(element_props(&built, "big")["LabelType"], "large-header");
+    assert_eq!(element_props(&built, "small")["LabelType"], "title");
+    assert_eq!(element_props(&built, "lead")["LabelType"], "body");
+    let big = widget_style(&built, "big");
+    assert_eq!(big["parts"]["$"]["$"]["background"], "#CCFF00");
+    assert_eq!(big["parts"]["label"]["$"]["font-size"], "72px");
+    let tag = widget_style(&built, "tag");
+    assert_eq!(tag["parts"]["$"]["$"]["background"], "#0B0B0B");
+    assert_eq!(tag["parts"]["$"]["$"]["border-color"], "#FF2E93");
+    assert_eq!(tag["parts"]["$"]["$"]["border-width"], "2px");
+    assert_eq!(tag["parts"]["label"]["$"]["color"], "#CCFF00");
+    assert!(tag["parts"]["label"]["$"]["font-family"]
+        .as_str()
+        .unwrap()
+        .contains("monospace"));
+    assert_eq!(
+        widget_style(&built, "head--title")["parts"]["label"]["$"]["color"],
+        "#0088CE"
+    );
+}
+
+#[test]
+fn a_block_is_a_coloured_card_with_a_caption_and_a_bound_value() {
+    let (_dir, solution) = element_solution();
+    let built = compile(
+        &solution,
+        "Acme",
+        &error_page(
+            "block: {id: kpi, color: pink, caption: OEE, value: {bind: rows.Count}}",
+            "",
+        ),
+    )
+    .unwrap();
+    assert_eq!(
+        widget_style(&built, "kpi")["parts"]["$"]["$"]["background"],
+        "#FF2E93"
+    );
+    let doc = doc_of(&built);
+    let card = doc.find_exact(&built.ids["kpi"]).unwrap();
+    let labels: Vec<_> = doc
+        .widgets()
+        .into_iter()
+        .filter(|w| w.path.starts_with(&card.path) && w.type_id == "ptcslabel")
+        .collect();
+    assert_eq!(doc.at(&labels[0].path)["Properties"]["LabelText"], "OEE");
+    assert!(doc.value()["DataBindings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|b| b["TargetId"] == labels[1].id));
+}
+
+#[test]
+fn new_element_errors_are_located() {
+    let (_dir, solution) = element_solution();
+    for (body, expect) in [
+        (
+            "card_grid: {id: g, children: [{card: {id: c, title: A}}]}",
+            "needs per_row",
+        ),
+        (
+            "card_grid: {id: g, per_row: 0, children: [{card: {id: c, title: A}}]}",
+            "per_row is 1 to 12",
+        ),
+        ("card_grid: {id: g, per_row: 2}", "needs children"),
+        (
+            "card_grid: {id: g, per_row: 2, children: [{label: {id: l, text: A}}]}",
+            "card_grid cells are",
+        ),
+        (
+            "card: {id: c, title: A, align: middle}",
+            "align is start or center",
+        ),
+        (
+            "card: {id: c, title: A, align: center, value: 3}",
+            "holds children",
+        ),
+        (
+            "block: {id: b, caption: A, value: 1}",
+            "block needs color, caption and value",
+        ),
+        (
+            "block: {id: b, color: teal, caption: A, value: 1}",
+            "unknown colour",
+        ),
+        (
+            "heading: {id: h, text: A, highlight: teal}",
+            "unknown colour",
+        ),
+        (
+            "page_header: {id: h, title: A, color: teal}",
+            "unknown colour",
+        ),
+        (
+            "label: {id: h, text: A, style: {shadow: ink}}",
+            "style shadow is not supported",
+        ),
+        (
+            "chart: {id: c, kind: bar, data: rows, x: Name, style: {color: ink}}",
+            "belongs to heading, label and text",
+        ),
+        (
+            "grid: {id: g, data: rows, size: lg}",
+            "size sm, md, lg or display",
+        ),
+        (
+            "grid: {id: g, data: rows, style: {background: ink}}",
+            "style map",
+        ),
+        (
+            "button: {id: b, label: A, highlight: lime}",
+            "highlight does not belong",
+        ),
+        (
+            "heading: {id: h, text: A, align: center}",
+            "align does not belong",
+        ),
+        ("text_field: {id: t, caption: A}", "caption does not belong"),
+    ] {
+        let error = compile(&solution, "Acme", &error_page(body, "")).unwrap_err();
+        assert!(error.line >= 8, "{body}: {error}");
+        assert!(error.to_string().contains(expect), "{body}: {error}");
+    }
+}
+
+#[test]
+fn style_lists_and_headings_without_a_size_keep_their_result() {
+    let (_dir, solution) = element_solution();
+    let built = compile(
+        &solution,
+        "Acme",
+        &error_page(
+            "heading: {id: h, text: Plain, style: [\"label:color=#112233\"]}",
+            "",
+        ),
+    )
+    .unwrap();
+    assert_eq!(element_props(&built, "h")["LabelType"], "header");
+    assert_eq!(
+        widget_style(&built, "h")["parts"]["label"]["$"]["color"],
+        "#112233"
+    );
+}

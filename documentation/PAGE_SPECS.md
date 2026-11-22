@@ -81,12 +81,14 @@ numeric `Count` fields. Bindings and events use authored IDs, including tile and
 
 | Element | Existing operation reused | Example |
 | --- | --- | --- |
-| `page_header` | heading/label/button authoring; v1 header row | `- page_header: {id: header, title: Alerts, help: Current alerts, actions: [{id: refresh, label: Refresh}]}` |
+| `page_header` | heading/label/button authoring; v1 header row | `- page_header: {id: header, title: Alerts, color: primary, help: Current alerts, actions: [{id: refresh, label: Refresh}]}` |
 | `toolbar` | row authoring and `recipe toolbar --band` | `- toolbar: {id: tools, children: [{text_field: {id: search, hint: Search}}, {spacer: {id: space}}, {button: {id: refresh, label: Refresh}}]}` |
 | `kpi_row` | `recipe card`, label bindings and equal panel widths | `- kpi_row: {id: totals, tiles: [{id: total, label: Total, value: {bind: rows.Count}, unit: alerts, color: '#123456'}]}` |
 | `trend_tile` | `recipe card` caption, value/unit/arrow labels in one centred row | `- trend_tile: {id: total, label: Total, value: {bind: rows.Count}, unit: '%', trend: up, delta: {bind: rows.Name}}` |
 | `detail_pair` | row container, caption/spacer/value labels, optional status dot | `- detail_pair: {id: first, label: Name, value: {bind: rows.Name}, kind: ok}` |
-| `card` | `recipe card` | `- card: {id: state, title: Status, value: {bind: rows.Count}, status: Healthy, kind: ok, children: [{label: {id: detail, text: Details}}]}` |
+| `card_grid` | rows and equal cells; `recipe card-grid` | `- card_grid: {id: gallery, size: fill, per_row: 3, children: [{card: {id: one, title: One, align: center}}]}` |
+| `block` | `recipe card` with a background colour | `- block: {id: oee, color: pink, caption: OEE, value: {bind: rows.Count}}` |
+| `card` | `recipe card`; with `align`, `recipe section` | `- card: {id: state, title: Status, value: {bind: rows.Count}, status: Healthy, kind: ok, children: [{label: {id: detail, text: Details}}]}` |
 | `filter_panel` | filter-panel template and filter-footer authoring rules | `- filter_panel: {id: filters, fields: [{text_field: {id: query, hint: Search}}], footer: [apply, reset]}` |
 | `tabs` | tabset authoring (`sync_tabs`), tab-content template, add-contained | `- tabs: {id: views, tabs: [{label: Overview, content: [{label: {id: overview, text: Overview}}]}, {label: Details, mashup: Acme.Child_MU}]}` |
 | `chart` | `recipe chart` | `- chart: {id: counts, kind: bar, data: rows, x: Name, stacked: true}` or `kind: combo, series: [{field: Count, kind: bar}, {field: Total, kind: line}]` |
@@ -96,11 +98,12 @@ numeric `Count` fields. Bindings and events use authored IDs, including tile and
 | `spacer` | responsive container authoring and v1 spacer rule | `- spacer: {id: space}` |
 | `date_range` | datepicker authoring, `DateRange: true` | `- date_range: {id: dates}` |
 | `dropdown` | `recipe picker` | `- dropdown: {id: choice, options: rows, display: Name}` |
-| `text_field` | textfield authoring | `- text_field: {id: query, hint: Search}` |
+| `text_field` | textfield authoring; `variant`, `icon` | `- text_field: {id: query, hint: Search, variant: rounded}` |
 | `pagination` | `recipe pagination` | `- pagination: {id: pages, for: results}` |
 | `grid` | grid authoring and `recipe columns` | `- grid: {id: results, data: rows, columns: [Name, {field: Count, title: Total}]}` |
-| `label` | label authoring | `- label: {id: note, text: Details}` |
-| `heading` | label authoring with header LabelType | `- heading: {id: title, text: Alerts}` |
+| `label` | label authoring | `- label: {id: note, text: Details, style: {color: ink}}` |
+| `text` | label authoring with body LabelType | `- text: {id: lead, text: Four stations, one line.}` |
+| `heading` | label authoring with header LabelType; `size`, `highlight` | `- heading: {id: title, text: Alerts, size: lg}` |
 | `button` | button authoring, `recipe enable-when` | `- button: {id: preview, label: Preview, variant: transparent, icon: 'cds:icon_view', enabled_when: results.selected}` |
 | `row` / `column` | responsive flex containers, equal fill or positive `weight`, optional pixel `gap` | `- row: {id: split, size: fill, gap: 12, children: [{column: {id: main, weight: 2}}, {column: {id: side, weight: 1}}]}` |
 | `side_panel` | `recipe side-panel`; children go in its tab container | `- side_panel: {id: side, title: Compare, help: Pick assets, tab: Filters, children: [{label: {id: note, text: Hello}}]}` |
@@ -276,6 +279,49 @@ For a navigation item, use `mashup set <page> <button> --prop Size=standard
 Group captions use `--prop LabelType=label --style label:font-size=14px
 --style label:color=#6B7478`.
 
+## Gallery, text and style elements
+
+Batch 2b adds the elements of the inputs gallery (benchmark P) and of the layout-only version of
+the web page benchmark (S). Each has a command equivalent built on the same authoring code.
+
+| Spec | Result | Command equivalent |
+| --- | --- | --- |
+| `card_grid: {id, per_row, children}` | A column of equal rows, each holding `per_row` equal cells; the last row is padded with empty growing cells. Cells are `card`, `block`, `row`, `column`, `panel` or `trend_tile`. Add `size: fill` and the rows share the page's height | `mashup recipe card-grid <column> --per-row N --cells M`, then `recipe section` on each cell |
+| `card: {title, align: center, children}` | A kit section: a framed column holding a fixed 40px title row (`sub-header` label) over a `LastContainer` body row. `align: center` centres the content on both axes; `start` (default for align) keeps it top left. A card without `align` is unchanged | `mashup recipe section <column> --title T [--align center]`, then `mashup add --in <body>` |
+| `page_header: {color: primary}` | The title label's text colour | `mashup set <title label> --style label:color=primary` |
+| `text_field: {variant: rounded}` (also `focus-background`, `focus-glow`, `focus-underline`) | Managed style parts of the text box and its `focus` state | `mashup recipe input-variant <textfield> --variant rounded` |
+| `heading: {size: sm\|md\|lg\|display, highlight: lime}` | Label type `title`, `sub-header`, `header` (the heading default), `large-header`; `display` adds a 72px, weight 800 face by style; `highlight` is the background behind the label | `mashup add ptcslabel --label T --prop LabelType=header`, `mashup set --style background=lime` |
+| `text: {text}` / `label: {text, style}` | `ptcslabel` of type `body` / `label` | `mashup add ptcslabel` |
+| `block: {color, caption, value}` | A card with the colour as its background, a caption label and a value label that takes `{bind: ...}` | `mashup recipe card --title C --say V`, then `mashup set --style background=pink` |
+| `style: {background, color, border, font}` | On `label`, `heading`, `text`, `block` and `chart` (a chart takes `background` and `border`): managed style entries. `color` and `font` style the text, `border` is a 2px solid line | `mashup set --style background=ink --style label:color=lime ...` |
+
+A `style` list of `--style` settings still works; the map is the short form for these four keys.
+Colour names are `primary` (the kits' title blue), `ink`, `lime`, `pink`, `purple`, `orange`
+and `mint`, or a `#hex` value; `font` is `mono`, `sans` or a family list. The same names work in
+`mashup set --style` (`background=lime`, `label:color=primary`, `label:font-family=mono`). They are
+fixed hex values for now; the theme tokens of batch 4 replace them.
+
+Kit structures used (WDK_Inputs export): the page column (`default`, grow 1, `LastContainer`), a
+fixed 40px title row, two gallery rows of `default` growing columns, and a section column holding
+a fixed 40px title row (row, align-items center) over a `LastContainer` row (justify and align
+center) that holds the field. Equal cards come from equal growing siblings, not fixed sizes, and
+the centring from the body row.
+
+Differences from the kit, all in the cells: `flex-basis` is `0px` instead of `auto` so widths and
+heights stay equal whatever the cards hold, and section columns stretch their rows instead of using
+`align-items: flex-start`. The kit draws the card frame and its 20px gap with the master class
+`wdk_Section`, which is not in the mashup; the section carries a 1px #BEC6CA managed border and a
+10px margin instead. The kit's rounded input is the text box part's `border-radius: 20px`
+(exported StyleProperties), so `rounded` is kit-exact. The other three kit inputs are the master
+classes `wdk_Input2` to `wdk_Input4`, whose CSS is not exported; `focus-background`, `focus-glow` and
+`focus-underline` use the text box's `focus` state (`background`, `border-color` with `box-shadow`,
+`border-width: 0 0 2px 0`) and are an approximation that has not been compared with the kit at run
+time. Invented where no kit exists: the 72px `display` heading, the `highlight` fill, the colour
+names and the block, which has no kit equivalent; its card recipe is the existing one. S has no
+kit, so its rows reuse the structures above and the existing card and toolbar rules. A `theme` for S,
+token names in `style`, the underline of the active navigation label, hard shadows and chart bar
+colours are batch 4; the layout is verified offline only.
+
 ## Baseline and hand edits
 
 Commit `src/<Mashup>/.page-baseline.json` beside `page.yaml`. Format 1 records compiler
@@ -329,6 +375,8 @@ CI also checks both front ends, rebuilds, retained hand edits and conflicts.
 | O / WDK_Gauges | [Gauges and KPI](../tests/fixtures/mashup/pages/bench_o/page.yaml) | The kit's four needle gauges use a legacy `gauge` type with no authoring contract and no native widget; the native `ptcskpidial` (dial and half layouts) stands in, a recorded native deviation. Dials bind to one slider; the kit's absolute-positioned slider becomes a full-width slider with min/max labels. |
 | L / Compare | [Compare](../tests/fixtures/mashup/pages/bench_l/page.yaml) | The kit's side lists are collections over cell mashups; the spec uses native lists (selected items feed the second list) with an eye-icon notice for the empty state. The side panel's one tab and 276px column follow the kit; the cell page is a generated KPI tile (title over a dial) instead of the kit's detail card. Not yet measured live. |
 | M / Administrator | [Admin shell](../tests/fixtures/mashup/pages/bench_m/page.yaml) | The navigation is native buttons in a column (the first marked selected), not the kit's service-fed collection with section headers; the filter column's chevron is the kit's inside tab. Filters are not wired to the service, and Apply/Reset have no events in this spec. Not yet measured live. |
+| P / WDK Inputs | [Inputs gallery](../tests/fixtures/mashup/pages/bench_p/page.yaml) | The content area only, without the WDK shell. Equal cards come from growing `default` rows and columns and the centring from the body row, as in the export; `flex-basis` is 0 and the frame and gap are managed style and margin. `rounded` is kit-exact; the three focus looks are native approximations of the kit's master CSS classes. Not yet measured live. |
+| S / web page | [Line 03 live](../tests/fixtures/mashup/pages/bench_s/page.yaml) | Layout only: no kit exists for it, so rows reuse the kit structures, and colours are plain names. Theme tokens, the active-navigation underline, hard shadows and chart bar colours are batch 4. Not yet measured live. |
 | N / Documents | [Document actions](../tests/fixtures/mashup/pages/bench_n/page.yaml) | Transparent icon buttons as in the kit; Preview is enabled by the grid's selection. Preview window and download actions need navigation/download event support. |
 
 These are offline acceptance fixtures, not newly measured visual scores. A and H still require
