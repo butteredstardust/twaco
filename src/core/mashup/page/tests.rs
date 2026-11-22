@@ -963,6 +963,7 @@ fn elements_match_equivalent_primitive_recipe_sequences() {
                 selected: None,
                 no_none_row: false,
                 auto_select_first: false,
+                multiple: false,
             },
             _ => Recipe::Pagination {
                 widget: target,
@@ -1144,13 +1145,28 @@ fn benchmark(id: &str) {
             .any(|p| p.severity == mashup::validate::Severity::Error),
         "{problems:?}"
     );
-    let actual = serde_json::to_string_pretty(&serde_json::json!({
+    let mut golden_value = serde_json::json!({
         "entity": String::from_utf8(built.entity).unwrap(),
         "content": serde_json::from_str::<Value>(&built.content).unwrap(),
         "css": built.css, "ids": built.ids
-    }))
-    .unwrap()
-        + "\n";
+    });
+    if !built.cells.is_empty() {
+        golden_value["cells"] = built
+            .cells
+            .iter()
+            .map(|cell| {
+                serde_json::json!({
+                    "name": cell.name, "spec": cell.spec,
+                    "entity": String::from_utf8(cell.artifacts.entity.clone()).unwrap(),
+                    "content": serde_json::from_str::<Value>(&cell.artifacts.content).unwrap(),
+                    "css": cell.artifacts.css, "ids": cell.artifacts.ids
+                })
+            })
+            .collect();
+    }
+    let actual = serde_json::to_string_pretty(&golden_value).unwrap()
+        + "
+";
     let golden = folder.join(format!("bench_{id}/page.golden.json"));
     if std::env::var_os("TWACO_BLESS").is_some() {
         std::fs::write(&golden, &actual).unwrap();
@@ -2277,4 +2293,552 @@ fn fixed_detail_status_still_colours_its_dot() {
     )
     .unwrap();
     assert_eq!(element_props(&built, "d--dot")["LabelText"], "\u{25CF}");
+}
+
+fn doc_of(built: &super::compile::Artifacts) -> mashup::edit::MashupDocument {
+    mashup::edit::parse(&built.content).unwrap()
+}
+
+fn widget_style(built: &super::compile::Artifacts, id: &str) -> Value {
+    doc_of(built).root_properties()["StyleProperties"]["data"][&built.ids[id]].clone()
+}
+
+fn binding_between(built: &super::compile::Artifacts, from: &str, to: &str) -> Option<Value> {
+    doc_of(built).value()["DataBindings"]
+        .as_array()?
+        .iter()
+        .find(|b| b["SourceId"] == from && b["TargetId"] == to)
+        .cloned()
+}
+
+#[test]
+fn side_panel_is_a_grey_276px_column_whose_tab_holds_the_children() {
+    let (_dir, solution) = element_solution();
+    let built = compile(
+        &solution,
+        "Acme",
+        &error_page(
+            "row: {id: shell, children: [{side_panel: {id: side, title: Compare, help: Pick assets, tab: Filters, children: [{label: {id: note, text: Hello}}]}}]}",
+            "",
+        ),
+    )
+    .unwrap();
+    let side = element_props(&built, "side");
+    assert_eq!(side["flex-size"], "fixed");
+    assert_eq!(side["flex-min-width"], "276px");
+    assert_eq!(side["flex-max-width"], "276px");
+    assert_eq!(
+        widget_style(&built, "side")["parts"]["$"]["$"]["background"],
+        "#F7F7F7"
+    );
+    let doc = doc_of(&built);
+    let root = doc.find_exact(&built.ids["side"]).unwrap().path;
+    let inside: Vec<_> = doc
+        .widgets()
+        .into_iter()
+        .filter(|w| w.path.starts_with(&root))
+        .collect();
+    let title = inside
+        .iter()
+        .find(|w| doc.at(&w.path)["Properties"]["LabelText"] == "Compare")
+        .expect("title label");
+    assert_eq!(doc.at(&title.path)["Properties"]["LabelType"], "header");
+    let help = inside
+        .iter()
+        .find(|w| doc.at(&w.path)["Properties"]["TooltipField"] == "Pick assets")
+        .expect("help icon");
+    assert_eq!(
+        doc.at(&help.path)["Properties"]["SVGIcon"],
+        "cds:icon_help_circle"
+    );
+    let tabs = inside.iter().find(|w| w.type_id == "ptcstabset").unwrap();
+    let tabs_props = &doc.at(&tabs.path)["Properties"];
+    assert_eq!(tabs_props["NumberOfTabs"], 1);
+    assert_eq!(tabs_props["Tab1Name"], "Filters");
+    let note = doc.find_exact(&built.ids["note"]).unwrap();
+    assert!(
+        note.path.starts_with(&tabs.path),
+        "children live in the tab"
+    );
+    // No tab label or title is invented: the same spec without help has no icon button.
+    let plain = compile(
+        &solution,
+        "Acme",
+        &error_page("side_panel: {id: side, title: Compare}", ""),
+    )
+    .unwrap();
+    assert!(!doc_of(&plain)
+        .widgets()
+        .iter()
+        .any(|w| w.type_id == "ptcsbutton"));
+    assert_eq!(
+        compile(
+            &solution,
+            "Acme",
+            &error_page("side_panel: {id: side, title: Compare}", "")
+        )
+        .unwrap(),
+        plain
+    );
+}
+
+#[test]
+fn lists_feed_each_other_and_show_an_empty_notice() {
+    let (_dir, solution) = element_solution();
+    let built = compile(
+        &solution,
+        "Acme",
+        &error_page(
+            "column: {id: c, children: [{list: {id: all, data: rows, display: Name, selection: multiple, empty: No rows}}, {list: {id: picked, data: all.selected, display: Name}}]}",
+            "",
+        ),
+    )
+    .unwrap();
+    let all = element_props(&built, "all");
+    assert_eq!(all["MultiSelect"], true);
+    assert_eq!(all["DisplayField"], "Name");
+    assert_eq!(all["Label"], "");
+    assert_eq!(all["ClearSelectionItem"], false);
+    let picked = element_props(&built, "picked");
+    assert_eq!(picked["MultiSelect"], false);
+    let binding =
+        binding_between(&built, &built.ids["all"], &built.ids["picked"]).expect("selection source");
+    assert_eq!(
+        binding["PropertyMaps"][0]["SourceProperty"],
+        "SelectedItems"
+    );
+    assert_eq!(binding["PropertyMaps"][0]["TargetProperty"], "Data");
+    // The list has no empty-state property, so a notice shows while its rows are empty.
+    let doc = doc_of(&built);
+    let notice = doc
+        .widgets()
+        .into_iter()
+        .find(|w| doc.at(&w.path)["Properties"]["Label"] == "No rows")
+        .expect("empty notice");
+    assert_eq!(
+        doc.at(&notice.path)["Properties"]["SVGIcon"],
+        "cds:icon_not_visible"
+    );
+    assert!(
+        doc.value()["DataBindings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|b| b["TargetId"] == notice.id
+                && b["PropertyMaps"][0]["TargetProperty"] == "Visible")
+    );
+    assert_eq!(
+        compile(&solution, "Acme", &error_page("column: {id: c, children: [{list: {id: all, data: rows, display: Name, selection: multiple, empty: No rows}}, {list: {id: picked, data: all.selected, display: Name}}]}", "")).unwrap(),
+        built
+    );
+}
+
+#[test]
+fn info_icons_follow_headings_labels_and_page_headers() {
+    let (_dir, solution) = element_solution();
+    let built = compile(
+        &solution,
+        "Acme",
+        &error_page(
+            "column: {id: c, children: [{label: {id: l, text: Selected, info: Pick some}}, {heading: {id: h, text: Title, info: About}}, {page_header: {id: ph, title: Cards, info: Help text}}]}",
+            "",
+        ),
+    )
+    .unwrap();
+    for (id, icon, tip) in [
+        ("l--info", "cds:icon_info", "Pick some"),
+        ("h--info", "cds:icon_info", "About"),
+        ("ph--info", "cds:icon_help_circle", "Help text"),
+    ] {
+        let props = element_props(&built, id);
+        assert_eq!(props["SVGIcon"], icon, "{id}");
+        assert_eq!(props["TooltipField"], tip, "{id}");
+        assert_eq!(props["Disabled"], true, "{id}");
+    }
+    assert_eq!(element_props(&built, "l--title")["LabelType"], "label");
+    assert_eq!(element_props(&built, "h--title")["LabelType"], "header");
+    assert_eq!(element_props(&built, "l--title")["LabelText"], "Selected");
+    // The wrapper row keeps the authored id, so other references to it still hold.
+    assert_eq!(element_props(&built, "l")["flex-direction"], "row");
+}
+
+#[test]
+fn text_field_icons_and_filter_title_and_chevron() {
+    let (_dir, solution) = element_solution();
+    let built = compile(
+        &solution,
+        "Acme",
+        &error_page(
+            "column: {id: c, children: [{text_field: {id: a, icon: search}}, {text_field: {id: b, icon: 'cds:icon_search'}}]}",
+            "",
+        ),
+    )
+    .unwrap();
+    assert_eq!(element_props(&built, "a")["Icon"], "cds:icon_search");
+    assert_eq!(element_props(&built, "b")["Icon"], "cds:icon_search");
+    let error = compile(
+        &solution,
+        "Acme",
+        &error_page("text_field: {id: a, icon: nonesuch}", ""),
+    )
+    .unwrap_err();
+    assert!(error.line >= 10 && error.column > 0, "{error}");
+    let panel = |extra: &str| {
+        compile(
+            &solution,
+            "Acme",
+            &error_page(
+                &format!("filter_panel: {{id: f, title: Filter, {extra} fields: [{{text_field: {{id: q, hint: Find}}}}], footer: [apply]}}"),
+                "",
+            ),
+        )
+        .unwrap()
+    };
+    let chevron = panel("collapsible: true,");
+    assert_eq!(element_props(&chevron, "f--title")["LabelType"], "title");
+    assert_eq!(element_props(&chevron, "f--title")["LabelText"], "Filter");
+    let doc = doc_of(&chevron);
+    let column = doc
+        .widgets()
+        .into_iter()
+        .find(|w| w.display_name == "filter-column")
+        .unwrap();
+    let props = &doc.at(&column.path)["Properties"];
+    assert_eq!(props["EnableExpandCollapse"], true);
+    assert_eq!(props["ShowExpandCollapseTab"], true);
+    assert_eq!(props["ExpandCollapseTabLocation"], "inside");
+    let removed = panel("collapsible: false,");
+    let doc = doc_of(&removed);
+    let column = doc
+        .widgets()
+        .into_iter()
+        .find(|w| w.display_name == "filter-column")
+        .unwrap();
+    assert_eq!(
+        doc.at(&column.path)["Properties"]["ShowExpandCollapseTab"],
+        false
+    );
+}
+
+fn cell_solution() -> (tempfile::TempDir, Solution) {
+    let (dir, _) = element_solution();
+    let mut cell = authoring::session::Session::new(
+        "Acme.RowCell_MU",
+        "Acme",
+        "blank",
+        "PTC Convergence Theme",
+    )
+    .unwrap();
+    cell.add_parameter("Name:STRING:IN").unwrap();
+    std::fs::write(
+        dir.path().join("acme/Mashups/Acme.RowCell_MU.xml"),
+        cell.entity,
+    )
+    .unwrap();
+    let solution = Solution::load(&dir.path().join("twaco.toml")).unwrap();
+    (dir, solution)
+}
+
+#[test]
+fn collection_maps_rows_into_an_existing_cell_mashup() {
+    let (_dir, solution) = cell_solution();
+    let built = compile(
+        &solution,
+        "Acme",
+        &error_page(
+            "collection: {id: c, data: rows, mashup: Acme.RowCell_MU, map: {Name: Name}, per_row: 2, across: 800, empty: Nothing here}",
+            "",
+        ),
+    )
+    .unwrap();
+    assert!(built.cells.is_empty());
+    let props = element_props(&built, "c");
+    assert_eq!(props["Mashup"], "Acme.RowCell_MU");
+    assert_eq!(
+        props["MashupPropertyBinding"],
+        serde_json::json!({"Name": "Name"})
+    );
+    assert_eq!(props["NoDataText"], "Nothing here");
+    // Two cells fit 800px less the paddings, the scrollbar and the gaps (the collection's rule).
+    assert_eq!(props["CellWidth"], 319);
+    let doc = doc_of(&built);
+    assert!(doc.value()["DataBindings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(
+            |b| b["TargetId"] == built.ids["c"] && b["PropertyMaps"][0]["TargetProperty"] == "Data"
+        ));
+    for (body, why) in [
+        ("collection: {id: c, data: rows, mashup: Acme.RowCell_MU, map: {Missing: Name}}", "no field"),
+        ("collection: {id: c, data: rows, mashup: Acme.RowCell_MU, map: {Name: Nope}}", "no parameter"),
+        ("collection: {id: c, data: rows}", "needs exactly one"),
+        ("collection: {id: c, data: rows, mashup: Acme.RowCell_MU, cell: {title: Name}, map: {Name: Name}}", "needs exactly one"),
+        ("collection: {id: c, data: rows, mashup: Acme.RowCell_MU}", "needs map"),
+        ("collection: {id: c, data: rows, cell: {title: Name}, map: {Name: Name}}", "map belongs"),
+        ("collection: {id: c, data: rows, cell: {title: Name}, per_row: 0}", "above zero"),
+        ("collection: {id: c, data: rows, cell: {kpi_dial: Name}}", "numeric"),
+        ("collection: {id: c, data: rows, cell: {}}", "cell needs"),
+        ("collection: {id: c, mashup: Acme.RowCell_MU, map: {Name: Name}}", "needs data"),
+    ] {
+        let error = compile(&solution, "Acme", &error_page(body, "")).unwrap_err();
+        assert!(error.line >= 10 && error.column > 0, "{body}: {error}");
+        assert!(error.message.contains(why), "{body}: {error}");
+    }
+}
+
+#[test]
+fn collection_cell_is_a_generated_page_made_once() {
+    let (dir, solution) = element_solution();
+    let text = error_page(
+        "collection: {id: c, size: fill, data: rows, per_row: 2, cell: {title: Name, kpi_dial: Count}}",
+        "",
+    );
+    let built = compile(&solution, "Acme", &text).unwrap();
+    assert_eq!(built, compile(&solution, "Acme", &text).unwrap());
+    assert_eq!(built.cells.len(), 1);
+    let cell = &built.cells[0];
+    assert_eq!(cell.name, "Acme.ErrorsCell_MU");
+    let parsed = schema::parse(&cell.spec).expect("the generated spec is a valid page spec");
+    assert_eq!(parsed.page.value.parameters.len(), 2);
+    let params: std::collections::BTreeMap<_, _> =
+        crate::core::mashup::describe::mashup_parameters(&cell.artifacts.entity)
+            .unwrap()
+            .into_iter()
+            .map(|p| (p.name, p.base_type))
+            .collect();
+    assert_eq!(
+        params,
+        std::collections::BTreeMap::from([
+            ("Count".to_string(), "NUMBER".to_string()),
+            ("Name".to_string(), "STRING".to_string())
+        ])
+    );
+    let cell_doc = doc_of(&cell.artifacts);
+    let label = cell_doc
+        .widgets()
+        .into_iter()
+        .find(|w| w.type_id == "ptcslabel")
+        .unwrap();
+    let dial = cell_doc
+        .widgets()
+        .into_iter()
+        .find(|w| w.type_id == "ptcskpidial")
+        .unwrap();
+    let bound = |target: &str| {
+        cell_doc.value()["DataBindings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|b| b["SourceArea"] == "Mashup" && b["TargetId"] == target)
+    };
+    assert!(bound(&label.id) && bound(&dial.id));
+    let props = element_props(&built, "c");
+    assert_eq!(props["Mashup"], "Acme.ErrorsCell_MU");
+    assert_eq!(
+        props["MashupPropertyBinding"],
+        serde_json::json!({"Count": "Count", "Name": "Name"})
+    );
+    assert_eq!(props["CellHeight"], 270);
+    assert_eq!(
+        widget_style(&built, "c")["parts"]["cell"]["$"]["border-style"],
+        "solid"
+    );
+    // Once the cell exists in the solution it is the user's: nothing is generated again, and the
+    // page compiles to the same content against the mashup on disk.
+    std::fs::write(
+        dir.path().join("acme/Mashups/Acme.ErrorsCell_MU.xml"),
+        &cell.artifacts.entity,
+    )
+    .unwrap();
+    let again = compile(
+        &Solution::load(&dir.path().join("twaco.toml")).unwrap(),
+        "Acme",
+        &text,
+    )
+    .unwrap();
+    assert!(again.cells.is_empty());
+    assert_eq!(again.content, built.content);
+}
+
+#[test]
+fn nav_menu_lists_groups_and_selects_the_first_item() {
+    let (_dir, solution) = element_solution();
+    let built = compile(
+        &solution,
+        "Acme",
+        &error_page(
+            "nav_menu: {id: m, search: Search Menu..., groups: [{title: One, items: [A]}, {title: Two, items: [B, C]}]}",
+            "",
+        ),
+    )
+    .unwrap();
+    let search = element_props(&built, "m--search");
+    assert_eq!(search["HintText"], "Search Menu...");
+    assert_eq!(search["Icon"], "cds:icon_search");
+    assert_eq!(element_props(&built, "m--group-2")["LabelText"], "Two");
+    assert_eq!(element_props(&built, "m--item-2-2")["Label"], "C");
+    for id in ["m--item-1-1", "m--item-2-1", "m--item-2-2"] {
+        let props = element_props(&built, id);
+        assert_eq!(props["ButtonType"], "transparent", "{id}");
+        assert_eq!(props["Size"], "fill", "{id}");
+        assert_eq!(props["LabelAlignment"], "left", "{id}");
+    }
+    assert_eq!(
+        widget_style(&built, "m--item-1-1")["parts"]["$"]["$"]["background"],
+        "#E4E7E9"
+    );
+    assert!(widget_style(&built, "m--item-2-1").is_null());
+    let error = compile(&solution, "Acme", &error_page("nav_menu: {id: m}", "")).unwrap_err();
+    assert!(
+        error.line >= 10 && error.message.contains("needs groups"),
+        "{error}"
+    );
+}
+
+#[test]
+fn batch_2a_elements_report_located_errors() {
+    let (_dir, solution) = element_solution();
+    for (body, why) in [
+        ("side_panel: {id: s}", "needs title"),
+        (
+            "side_panel: {id: s, title: A, selection: single}",
+            "does not belong",
+        ),
+        ("list: {id: l, data: rows}", "needs data and display"),
+        (
+            "list: {id: l, data: rows, display: Name, selection: both}",
+            "single or multiple",
+        ),
+        ("list: {id: l, data: rows, display: Missing}", "Missing"),
+        (
+            "list: {id: l, data: nope.selected, display: Name}",
+            "names a list",
+        ),
+        ("grid: {id: g, data: rows.selected}", "feeds a list"),
+        ("label: {id: l, text: x, empty: no}", "does not belong"),
+        ("grid: {id: g, data: rows, info: x}", "does not belong"),
+        (
+            "button: {id: b, label: x, collapsible: true}",
+            "does not belong",
+        ),
+        ("text_field: {id: t, per_row: 2}", "does not belong"),
+    ] {
+        let error = compile(&solution, "Acme", &error_page(body, "")).unwrap_err();
+        assert!(error.line >= 10 && error.column > 0, "{body}: {error}");
+        assert!(error.message.contains(why), "{body}: {error}");
+    }
+}
+
+#[test]
+fn page_parameters_bind_into_a_page() {
+    let (_dir, solution) = element_solution();
+    let text = "version: 1\nrules: v1\npage:\n  name: Acme.Params_MU\n  template: blank\n  parameters: {Title: STRING}\n  data:\n    rows: {service: Acme.Data.GetRows, on: load}\n  slots:\n    center:\n      - label: {id: t, props: {LabelText: {bind: param.Title}}}\n";
+    let built = compile(&solution, "Acme", text).unwrap();
+    assert_eq!(
+        crate::core::mashup::describe::mashup_parameters(&built.entity).unwrap()[0].name,
+        "Title"
+    );
+    assert!(doc_of(&built).value()["DataBindings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|b| b["SourceArea"] == "Mashup" && b["TargetId"] == built.ids["t"]));
+    let unknown = text.replace("param.Title", "param.Nope");
+    let error = compile(&solution, "Acme", &unknown).unwrap_err();
+    assert!(error.line >= 11, "{error}");
+}
+
+#[test]
+fn list_and_side_panel_match_equivalent_primitive_sequences() {
+    use authoring::{session::Session, AddRequest, Recipe, SourceAddRequest};
+    let (_dir, solution) = element_solution();
+    for (body, kind, props) in [
+        (
+            "list: {id: target, data: rows, display: Name, selection: multiple}",
+            "ptcslist",
+            vec![],
+        ),
+        (
+            "side_panel: {id: target, title: Compare, help: Tip, tab: Filters}",
+            "flexcontainer",
+            vec![("flex-direction".to_string(), "column".to_string())],
+        ),
+    ] {
+        let text=format!("version: 1\nrules: v1\npage:\n  name: Acme.Elements_MU\n  template: blank\n  data:\n    rows: {{service: Acme.Data.GetRows, on: load}}\n  slots:\n    center:\n      - {body}\n");
+        let built = compile(&solution, "Acme", &text).unwrap();
+        let mut primitive =
+            Session::new("Acme.Elements_MU", "Acme", "blank", "PTC Convergence Theme").unwrap();
+        let target = primitive
+            .add(
+                &solution,
+                &AddRequest {
+                    mashup: "Acme.Elements_MU".into(),
+                    widget: kind.into(),
+                    inputs: vec![],
+                    placement: Some(mashup::edit::Placement::In("center".into())),
+                    label: None,
+                    properties: props,
+                },
+            )
+            .unwrap();
+        primitive
+            .source(
+                &solution,
+                &SourceAddRequest {
+                    mashup: "Acme.Elements_MU".into(),
+                    entity: "Acme.Data".into(),
+                    service: "GetRows".into(),
+                    dynamic: false,
+                    on_load: true,
+                    alias: Some("rows".into()),
+                    entity_from: None,
+                    refresh: None,
+                    cache: false,
+                    cache_keys: vec![],
+                    cache_strategy: None,
+                    max_result_sets: None,
+                    param_values: vec![],
+                },
+            )
+            .unwrap();
+        let target_id = target.clone();
+        let recipe = if kind == "ptcslist" {
+            Recipe::Picker {
+                widget: target,
+                data: "data:Acme.Data.GetRows[as rows]".into(),
+                display: "Name".into(),
+                value: None,
+                selected: None,
+                no_none_row: true,
+                auto_select_first: false,
+                multiple: true,
+            }
+        } else {
+            Recipe::SidePanel {
+                container: target,
+                title: "Compare".into(),
+                info: Some("Tip".into()),
+                tab: "Filters".into(),
+            }
+        };
+        primitive.recipe(&solution, recipe).unwrap();
+        let parsed = schema::parse(&text).unwrap();
+        let ids = std::collections::BTreeMap::from([("target".to_string(), target_id)]);
+        super::elements::finish_layout(&mut primitive, &parsed.page.value, &ids).unwrap();
+        assert_eq!(
+            canonical(&built.content),
+            canonical(&primitive.document.to_content()),
+            "{kind}"
+        );
+    }
+}
+
+#[test]
+fn benchmark_l_golden() {
+    benchmark("l");
+}
+#[test]
+fn benchmark_m_golden() {
+    benchmark("m");
 }

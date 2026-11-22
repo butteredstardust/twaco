@@ -21,6 +21,16 @@ pub(crate) struct Artifacts {
     pub(crate) content: String,
     pub(crate) css: String,
     pub(crate) ids: BTreeMap<String, String>,
+    /// Pages the spec generates for its collections, created beside it when absent.
+    pub(crate) cells: Vec<GeneratedCell>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct GeneratedCell {
+    pub(crate) name: String,
+    /// The page spec that built it; written as the cell's own `page.yaml`.
+    pub(crate) spec: String,
+    pub(crate) artifacts: Artifacts,
 }
 
 pub(crate) fn compile(solution: &Solution, project: &str, text: &str) -> Result<Artifacts, Error> {
@@ -50,8 +60,14 @@ fn compile_nested(solution: &Solution, project: &str, text: &str) -> Result<Arti
     })?;
     let mut session = Session::new(&page.name.value, project, &page.template.value, theme)
         .map_err(|e| Error::at(page.template.referenced, e))?;
+    for (name, base_type) in &page.parameters {
+        session
+            .add_parameter(&format!("{name}:{}:IN", base_type.value))
+            .map_err(|e| Error::at(base_type.referenced, e))?;
+    }
     let mut allocator = Ids::new(session.document.widgets().into_iter().map(|w| w.id));
     let mut ids = BTreeMap::new();
+    let mut cells = vec![];
     if let Some(title) = &page.title {
         let parent = match session.document.find("title") {
             Ok(slot) => slot.id,
@@ -181,6 +197,31 @@ fn compile_nested(solution: &Solution, project: &str, text: &str) -> Result<Arti
             )?;
         }
     }
+    fn collections<'a>(node: &'a Node, out: &mut Vec<&'a Node>) {
+        if matches!(node, Node::Collection(_)) {
+            out.push(node);
+        }
+        for child in descendants(node) {
+            collections(child, out);
+        }
+    }
+    let mut shown = vec![];
+    for node in page.slots.values().flat_map(|s| &s.value) {
+        collections(node, &mut shown);
+    }
+    for node in shown {
+        wire_collection(
+            solution,
+            project,
+            &mut session,
+            &model,
+            platform.as_ref(),
+            page,
+            &ids,
+            &mut cells,
+            node,
+        )?;
+    }
     fn pagers<'a>(node: &'a Node, out: &mut Vec<&'a Node>) {
         if matches!(node, Node::Pagination(_)) {
             out.push(node);
@@ -210,6 +251,21 @@ fn compile_nested(solution: &Solution, project: &str, text: &str) -> Result<Arti
     }
     for node in gates {
         wire_enabled(solution, &mut session, &mut allocator, &ids, node)?;
+    }
+    fn emptied<'a>(node: &'a Node, out: &mut Vec<&'a Node>) {
+        if node.body().empty.is_some() {
+            out.push(node);
+        }
+        for child in descendants(node) {
+            emptied(child, out);
+        }
+    }
+    let mut empties = vec![];
+    for node in page.slots.values().flat_map(|s| &s.value) {
+        emptied(node, &mut empties);
+    }
+    for node in empties {
+        wire_empty(solution, &mut session, &mut allocator, page, &ids, node)?;
     }
     for node in page.slots.values().flat_map(|s| &s.value) {
         wire_sparklines(
@@ -287,6 +343,7 @@ fn compile_nested(solution: &Solution, project: &str, text: &str) -> Result<Arti
         content: session.document.to_content(),
         css: session.css,
         ids,
+        cells,
     })
 }
 
@@ -450,7 +507,18 @@ fn add(
                 kind: body.chart_kind.clone().unwrap_or_else(|| "info".into()),
             },
         ),
-        Node::FilterPanel(_) => session.template_children(&placed, "filter-panel"),
+        Node::FilterPanel(_) => session
+            .template_children(&placed, "filter-panel")
+            .and_then(|()| filter_chevron(solution, session, &placed, body.collapsible)),
+        Node::SidePanel(_) => session.recipe(
+            solution,
+            authoring::Recipe::SidePanel {
+                container: placed.clone(),
+                title: body.title.clone().expect("validated title"),
+                info: body.help.clone(),
+                tab: body.tab.clone().unwrap_or_else(|| "Filters".into()),
+            },
+        ),
         _ => Ok(()),
     }
     .map_err(|e| Error::at(loc, e))?;
@@ -532,6 +600,32 @@ fn add(
                 target,
             )?;
         }
+    } else if matches!(node, Node::SidePanel(_)) {
+        // The recipe's one tab holds the panel's content.
+        let root = session
+            .document
+            .find_exact(&id)
+            .map_err(|e| Error::at(loc, e))?
+            .path;
+        let tabset = session
+            .document
+            .widgets()
+            .into_iter()
+            .find(|w| w.path.starts_with(&root) && w.type_id == "ptcstabset")
+            .expect("side panel tab strip");
+        let content = session.document.at(&tabset.path)["Widgets"][0]["Properties"]["Id"]
+            .as_str()
+            .expect("side panel tab content")
+            .to_string();
+        add_children(
+            solution,
+            session,
+            allocator,
+            ids,
+            page,
+            &body.children,
+            &content,
+        )?;
     } else if matches!(node, Node::Tabs(_)) {
         let path = session
             .document
@@ -602,6 +696,50 @@ fn add(
         add_children(solution, session, allocator, ids, page, &body.children, &id)?;
     }
     Ok(id)
+}
+
+/// The filter column's chevron: `collapsible: true` is the collapsible recipe with the tab inside
+/// the column's top-right edge, as the kits draw it; `false` removes the template's chevron.
+fn filter_chevron(
+    solution: &Solution,
+    session: &mut Session,
+    panel: &str,
+    collapsible: Option<bool>,
+) -> Result<(), authoring::AuthoringError> {
+    let Some(collapsible) = collapsible else {
+        return Ok(());
+    };
+    let root = session
+        .document
+        .find_exact(panel)
+        .map_err(authoring::AuthoringError::Edit)?
+        .path;
+    let column = session
+        .document
+        .widgets()
+        .into_iter()
+        .find(|w| w.path.starts_with(&root) && w.display_name == "filter-column")
+        .expect("filter-panel template column");
+    if collapsible {
+        session.recipe(
+            solution,
+            authoring::Recipe::Collapsible {
+                container: column.id,
+                toggle: None,
+                add_toggle_in: None,
+                tab: "inside".into(),
+                collapsed: false,
+            },
+        )
+    } else {
+        for (key, value) in [
+            ("EnableExpandCollapse", json!(false)),
+            ("ShowExpandCollapseTab", json!(false)),
+        ] {
+            session.document.set_property(&column.path, key, value);
+        }
+        Ok(())
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -871,6 +1009,20 @@ fn stabilize(
                 format!("divider:{parent_slot}:before:{next_slot}")
             } else if !widget.path.starts_with(&main.path) {
                 format!("wrapper:{child}")
+            } else if widget.path.len() > main.path.len() + 1
+                && session.document.at(&widget.path)["Widgets"]
+                    .as_array()
+                    .is_none_or(Vec::is_empty)
+            {
+                // Leaves nested in a recipe's own containers are told apart by position.
+                format!(
+                    "leaf:{}",
+                    widget.path[main.path.len()..]
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()
+                        .join(".")
+                )
             } else if widget.type_id == "ptcslabel" && widget.path.len() == main.path.len() + 1 {
                 format!(
                     "label:{}",
@@ -1161,6 +1313,12 @@ pub(super) fn address(
     if text == "load" {
         return Ok("mashup:Loaded".into());
     }
+    if let Some(name) = text
+        .strip_prefix("param.")
+        .filter(|name| page.parameters.contains_key(*name))
+    {
+        return Ok(format!("mashup:{name}"));
+    }
     if page.data.contains_key(text) {
         return Ok(call(page, text));
     }
@@ -1196,6 +1354,30 @@ fn find_grid_body<'a>(page: &'a Page, name: &str) -> Option<&'a schema::Body> {
         .values()
         .flat_map(|s| &s.value)
         .find_map(|n| find(n, name))
+}
+
+/// A list node with data, by id.
+pub(super) fn find_list<'a>(page: &'a Page, name: &str) -> Option<&'a schema::Body> {
+    fn find<'a>(node: &'a Node, name: &str) -> Option<&'a schema::Body> {
+        if matches!(node, Node::List(_)) && node.body().id.value == name {
+            return Some(node.body());
+        }
+        descendants(node).find_map(|n| find(n, name))
+    }
+    page.slots
+        .values()
+        .flat_map(|s| &s.value)
+        .find_map(|n| find(n, name))
+        .filter(|b| b.data.is_some())
+}
+
+/// What a `data:` field names as a binding source: a declared call, or the selected items of
+/// another list (`<list>.selected`).
+pub(super) fn data_address(page: &Page, ids: &BTreeMap<String, String>, text: &str) -> String {
+    match text.strip_suffix(".selected") {
+        Some(list) => format!("ui:{}.SelectedItems", ids[list]),
+        None => call(page, text),
+    }
 }
 
 pub(super) fn find_grid<'a>(page: &'a Page, name: &str) -> Option<&'a str> {
@@ -1354,6 +1536,207 @@ fn wire_enabled(
         &format!("{}--enabled", body.id.value),
         gate.referenced,
     )?;
+    Ok(())
+}
+
+/// A collection: its cell mashup and mapping through the `mashup collection add` code. With
+/// `cell:` the cell is a small page of its own, compiled by this same compiler and written beside
+/// this page the first time (an existing mashup of that name is used as it is).
+#[allow(clippy::too_many_arguments)]
+fn wire_collection(
+    solution: &Solution,
+    project: &str,
+    session: &mut Session,
+    model: &types::Model,
+    platform: Option<&types::Platform>,
+    page: &Page,
+    ids: &BTreeMap<String, String>,
+    cells: &mut Vec<GeneratedCell>,
+    node: &Node,
+) -> Result<(), Error> {
+    use authoring::session::CellSource;
+    let body = node.body();
+    let loc = body.id.referenced;
+    let data = &body.data.as_ref().expect("validated data").value;
+    let source = call(page, data);
+    let (cell, mappings, preset) = if let Some(existing) = &body.mashup {
+        (
+            CellSource::Existing(existing.value.clone()),
+            body.map
+                .iter()
+                .map(|(field, parameter)| (field.clone(), parameter.value.clone()))
+                .collect(),
+            body.preset.as_ref().map(|p| p.value.clone()),
+        )
+    } else {
+        let spec = body.cell.as_ref().expect("validated cell");
+        let base = page
+            .name
+            .value
+            .strip_suffix("_MU")
+            .unwrap_or(&page.name.value);
+        let name = format!("{base}Cell_MU");
+        let mut fields = vec![];
+        for (field, role) in [
+            (spec.value.title.as_ref(), "title"),
+            (spec.value.kpi_dial.as_ref(), "kpi_dial"),
+        ] {
+            let Some(field) = field else { continue };
+            let base_type = session
+                .source_type(solution, model, platform, &format!("{source}.{field}"))
+                .map_err(|e| Error::at(spec.referenced, e))?;
+            if role == "kpi_dial" && !["NUMBER", "INTEGER", "LONG"].contains(&base_type.as_str()) {
+                return Err(Error::at(
+                    spec.referenced,
+                    format!("cell kpi_dial field {field} must be numeric"),
+                ));
+            }
+            fields.push((role, field.clone(), base_type));
+        }
+        if fields.is_empty() {
+            return Err(Error::at(spec.referenced, "cell needs title or kpi_dial"));
+        }
+        let mappings = fields
+            .iter()
+            .map(|(_, f, _)| (f.clone(), f.clone()))
+            .collect();
+        let exists = crate::core::workspace::entities(solution)
+            .iter()
+            .any(|e| e.info.collection == "Mashups" && e.info.name == name);
+        let cell = if exists {
+            CellSource::Existing(name)
+        } else {
+            let text = cell_spec(page, &name, &fields);
+            let built = compile_nested(solution, project, &text)?;
+            let source = CellSource::Generated {
+                name: name.clone(),
+                entity: built.entity.clone(),
+                content: built.content.clone(),
+                css: built.css.clone(),
+            };
+            if !cells.iter().any(|c| c.name == name) {
+                cells.push(GeneratedCell {
+                    name,
+                    spec: text,
+                    artifacts: built,
+                });
+            }
+            source
+        };
+        (cell, mappings, Some("cards".to_string()))
+    };
+    let cell_name = match &cell {
+        CellSource::Existing(name) | CellSource::Generated { name, .. } => name.clone(),
+    };
+    let preset = match preset.as_deref() {
+        None => None,
+        Some("cards") => Some(authoring::CollectionPreset::Cards),
+        Some(_) => return Err(Error::at(loc, "preset is cards")),
+    };
+    session
+        .collection(
+            solution,
+            &authoring::CollectionAddRequest {
+                mashup: page.name.value.clone(),
+                cell: cell_name,
+                data: source,
+                mappings,
+                uid: None,
+                width: None,
+                height: None,
+                columns: body.per_row.as_ref().map(|n| n.value),
+                across: body.across.as_ref().map(|n| n.value),
+                preset,
+                menu: None,
+                placement: None,
+            },
+            &cell,
+            &ids[&body.id.value],
+        )
+        .map_err(|e| Error::at(loc, e))
+}
+
+/// The page spec of a generated KPI cell: a title over a dial, each bound to a parameter.
+fn cell_spec(page: &Page, name: &str, fields: &[(&str, String, String)]) -> String {
+    let parameters: serde_json::Map<_, _> = fields
+        .iter()
+        .map(|(_, field, base)| (field.clone(), json!(base)))
+        .collect();
+    let mut slots = serde_json::Map::new();
+    for (role, field, _) in fields {
+        let (slot, widget) = if *role == "title" {
+            (
+                "title",
+                json!({"label": {"id": "title", "props": {"LabelText": {"bind": format!("param.{field}")}}}}),
+            )
+        } else {
+            (
+                "value",
+                json!({"kpi_dial": {"id": "dial", "value": {"bind": format!("param.{field}")}}}),
+            )
+        };
+        slots.insert(slot.into(), json!([widget]));
+    }
+    let mut spec = json!({"version": 1, "rules": "v1", "page": {
+        "name": name, "template": "kpi-tile", "parameters": parameters, "slots": slots}});
+    if let Some(theme) = &page.theme {
+        spec["page"]["theme"] = json!(theme.value);
+    }
+    serde_json::to_string_pretty(&spec).expect("spec json")
+        + "
+"
+}
+
+/// `empty: <text>`: the empty-state recipe. A list has no such property, so the recipe adds a
+/// notice beside it, which takes stable ids like every other generated widget.
+fn wire_empty(
+    solution: &Solution,
+    session: &mut Session,
+    allocator: &mut Ids,
+    page: &Page,
+    ids: &BTreeMap<String, String>,
+    node: &Node,
+) -> Result<(), Error> {
+    let body = node.body();
+    let loc = body.id.referenced;
+    let text = body.empty.clone().expect("empty text");
+    let data = body
+        .data
+        .as_ref()
+        .map(|d| data_address(page, ids, &d.value));
+    let old: BTreeSet<_> = session
+        .document
+        .widgets()
+        .into_iter()
+        .map(|w| w.id)
+        .collect();
+    session
+        .recipe(
+            solution,
+            authoring::Recipe::EmptyState {
+                widget: ids[&body.id.value].clone(),
+                text,
+                data,
+            },
+        )
+        .map_err(|e| Error::at(loc, e))?;
+    if matches!(node, Node::List(_)) {
+        let placed = session
+            .document
+            .widgets()
+            .into_iter()
+            .find(|w| !old.contains(&w.id) && w.type_id == "ptcsbutton")
+            .expect("empty-state adds its notice")
+            .id;
+        stabilize(
+            session,
+            allocator,
+            &old,
+            &placed,
+            &format!("{}--empty", body.id.value),
+            loc,
+        )?;
+    }
     Ok(())
 }
 

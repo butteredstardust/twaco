@@ -2649,3 +2649,182 @@ fn creation_rules_survive_add_set_and_recipe_edits() {
         }
     }
 }
+
+#[test]
+fn command_side_panel_recipe_builds_the_kit_column() {
+    for mcp in [false, true] {
+        let dir = n7_fixture();
+        let root = dir.path();
+        n7_new(root, mcp, "blank");
+        let column = n7_add(root, mcp, "flexcontainer", "center");
+        let result = n7_recipe(
+            root,
+            mcp,
+            "side-panel",
+            &column,
+            &[
+                "--title",
+                "Compare",
+                "--info",
+                "Pick assets",
+                "--tab",
+                "Assets",
+            ],
+            json!({"title":"Compare","info":"Pick assets","tab":"Assets"}),
+        );
+        assert_eq!(result["applied"], true, "{result}");
+        let c = n7_content(root);
+        let panel = find_widget(&c["UI"], &column).unwrap();
+        assert_eq!(panel["Properties"]["flex-min-width"], "276px");
+        assert_eq!(panel["Properties"]["flex-max-width"], "276px");
+        assert_eq!(
+            c["UI"]["Properties"]["StyleProperties"]["data"][&column]["parts"]["$"]["$"]
+                ["background"],
+            "#F7F7F7"
+        );
+        let tabs = properties(panel, "ptcstabset").unwrap();
+        assert_eq!(tabs["Tab1Name"], "Assets");
+        assert_eq!(tabs["NumberOfTabs"], 1);
+        assert_eq!(
+            properties(panel, "ptcsbutton").unwrap()["TooltipField"],
+            "Pick assets"
+        );
+        // A second run is refused: the column is no longer empty.
+        let output = Command::new(env!("CARGO_BIN_EXE_twaco"))
+            .current_dir(root)
+            .env_clear()
+            .args([
+                "mashup",
+                "recipe",
+                "side-panel",
+                "Acme.Layout_MU",
+                &column,
+                "--title",
+                "Again",
+                "--apply",
+            ])
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        assert!(String::from_utf8_lossy(&output.stderr).contains("needs an empty container"));
+    }
+}
+
+#[test]
+fn command_empty_state_and_multiple_picker_serve_collections_grids_and_lists() {
+    for mcp in [false, true] {
+        let one = |kind: &str| {
+            let dir = n7_fixture();
+            n7_new(dir.path(), mcp, "blank");
+            let id = n7_add(dir.path(), mcp, kind, "center");
+            (dir, id)
+        };
+        let (dir, grid) = one("grid");
+        n7_recipe(
+            dir.path(),
+            mcp,
+            "empty-state",
+            &grid,
+            &["--say", "Nothing yet"],
+            json!({"say":"Nothing yet"}),
+        );
+        assert_eq!(
+            properties(&n7_content(dir.path())["UI"], "ptcsgrid").unwrap()["NoResultsLabel"],
+            "Nothing yet"
+        );
+        let (dir, collection) = one("collection");
+        n7_recipe(
+            dir.path(),
+            mcp,
+            "empty-state",
+            &collection,
+            &["--say", "No results."],
+            json!({"say":"No results."}),
+        );
+        let c = n7_content(dir.path());
+        let shown = properties(&c["UI"], "ptcscollection").unwrap();
+        assert_eq!(shown["NoDataText"], "No results.");
+        assert_eq!(shown["NoDataIcon"], "cds:icon_not_visible");
+        let (dir, list) = one("list");
+        let root = dir.path();
+        n7_recipe(
+            root,
+            mcp,
+            "picker",
+            &list,
+            &[
+                "--data",
+                "data:Acme.Manager.GetRows",
+                "--x",
+                "Severity",
+                "--multiple",
+                "--no-none-row",
+            ],
+            json!({"data":"data:Acme.Manager.GetRows","x":"Severity","multiple":true,"no_none_row":true}),
+        );
+        let result = n7_recipe(
+            root,
+            mcp,
+            "empty-state",
+            &list,
+            &[
+                "--say",
+                "No results.",
+                "--data",
+                "data:Acme.Manager.GetRows",
+            ],
+            json!({"say":"No results.","data":"data:Acme.Manager.GetRows"}),
+        );
+        assert_eq!(result["applied"], true, "{result}");
+        let c = n7_content(root);
+        let list = properties(&c["UI"], "ptcslist").unwrap();
+        assert_eq!(list["MultiSelect"], true);
+        assert_eq!(list["ClearSelectionItem"], false);
+        // The list's notice is a button shown while its rows are empty.
+        fn find<'a>(w: &'a Value, label: &str) -> Option<&'a Value> {
+            if w["Properties"]["Label"] == label {
+                return Some(w);
+            }
+            w["Widgets"].as_array()?.iter().find_map(|c| find(c, label))
+        }
+        let notice = find(&c["UI"], "No results.").expect("notice");
+        assert_eq!(notice["Properties"]["SVGIcon"], "cds:icon_not_visible");
+        assert!(c["DataBindings"].as_array().unwrap().iter().any(|b| {
+            b["TargetId"] == notice["Properties"]["Id"]
+                && b["PropertyMaps"][0]["TargetProperty"] == "Visible"
+        }));
+    }
+}
+
+#[test]
+fn command_recipe_flags_for_batch_2a_are_refused_on_other_recipes() {
+    let dir = n7_fixture();
+    let root = dir.path();
+    n7_new(root, false, "blank");
+    let grid = n7_add(root, false, "grid", "center");
+    for (flags, why) in [
+        (
+            vec!["card", "--multiple", "--title", "T"],
+            "--multiple is for recipe picker",
+        ),
+        (
+            vec!["card", "--info", "x", "--title", "T"],
+            "--info is for recipe side-panel",
+        ),
+    ] {
+        let mut args = vec!["mashup", "recipe", flags[0], "Acme.Layout_MU", &grid];
+        args.extend(&flags[1..]);
+        let output = Command::new(env!("CARGO_BIN_EXE_twaco"))
+            .current_dir(root)
+            .env_clear()
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(!output.status.success(), "{flags:?}");
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains(why),
+            "{flags:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}

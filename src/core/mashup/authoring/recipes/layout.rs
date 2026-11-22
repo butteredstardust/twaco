@@ -1,6 +1,7 @@
 use super::{widget_id, AuthoringError, Work};
-use crate::core::mashup::edit::{children, insert_sorted, WidgetRef};
+use crate::core::mashup::edit::{children, insert_sorted, Placement, WidgetRef};
 use crate::core::mashup::layout;
+use crate::core::widgets;
 use serde_json::{json, Value};
 
 fn refuse(id: &str, reason: &str) -> AuthoringError {
@@ -404,6 +405,211 @@ impl Work<'_> {
             "{}: card; equal flex (grow 1, basis 0) so cards added to one row share its width",
             target.id
         ));
+        Ok(())
+    }
+
+    /// The kit's grey left column (Compare, Administrator): 276px, a title row with an optional
+    /// help icon over a one-tab strip. The tab's container is the column's content area.
+    pub(super) fn side_panel(
+        &mut self,
+        container: &str,
+        title: &str,
+        info: Option<&str>,
+        tab: &str,
+    ) -> Result<(), AuthoringError> {
+        let target = widget_id(&self.document, container)?;
+        self.layout_container(&target, "column")?;
+        if !children(self.document.at(&target.path)).is_empty() {
+            return Err(refuse(
+                &target.id,
+                "side-panel needs an empty container; it adds the title row and the tab strip itself",
+            ));
+        }
+        if title.trim().is_empty() || tab.trim().is_empty() {
+            return Err(AuthoringError::Invalid(
+                "side-panel: --title and --tab cannot be empty".into(),
+            ));
+        }
+        self.checked_styles(&target.id)?;
+        self.layout_set(
+            &target,
+            &[
+                ("align-items", json!("stretch")),
+                ("flex-size", json!("fixed")),
+                ("flex-grow", json!(0)),
+                ("flex-shrink", json!(0)),
+                ("flex-min-width", json!("276px")),
+                ("flex-max-width", json!("276px")),
+                ("iconClass", json!("widgets-flexcontainer-fixed")),
+            ],
+        )?;
+        self.background(&target, Some("grey"), false)?;
+        let catalog = widgets::catalog();
+        let flex = catalog
+            .by_type("flexcontainer")
+            .expect("flexcontainer catalogue");
+        // The title row: a fixed 72px band, the label at the kit's header size.
+        let row = self
+            .document
+            .place(flex, &Placement::In(target.id.clone()))
+            .map_err(AuthoringError::Edit)?;
+        self.added.push(row.id.clone());
+        let row = widget_id(&self.document, &row.id)?;
+        for (key, value) in [
+            ("flex-direction", json!("row")),
+            ("align-items", json!("flex-start")),
+            ("flex-size", json!("fixed")),
+            ("flex-grow", json!(0)),
+            ("flex-min-height", json!("72px")),
+            ("flex-max-height", json!("72px")),
+            ("Margin", json!("0")),
+        ] {
+            self.document.set_property(&row.path, key, value);
+        }
+        self.background(&row, None, true)?;
+        let label = self.add_in(
+            &row.path,
+            "ptcslabel",
+            &[
+                ("LabelText", json!(title)),
+                ("LabelType", json!("header")),
+                ("HorizontalAlignment", json!("left")),
+                ("Margin", json!("18 0 18 18")),
+                ("UseTheme", json!(true)),
+            ],
+        );
+        self.notes.push(format!("{label}: side panel title"));
+        if let Some(info) = info {
+            let button = self.add_in(
+                &row.path,
+                "ptcsbutton",
+                &[
+                    ("ButtonType", json!("transparent")),
+                    ("Disabled", json!(true)),
+                    ("Label", json!("")),
+                    ("Margin", json!("15 0 0")),
+                    ("SVGIcon", json!("cds:icon_help_circle")),
+                    ("TooltipField", json!(info)),
+                ],
+            );
+            super::super::set::copy_style_entry(
+                &mut self.document,
+                &button,
+                json!({"widget": "ptcs-button", "parts": {"$": {"disabled": {"color": "#4E585A"}}}}),
+                None,
+                &mut Vec::new(),
+            );
+            self.notes.push(format!("{button}: side panel help icon"));
+        }
+        // The tab strip (one tab, as the kits have it) fills the rest of the column.
+        let tabs = self
+            .document
+            .place(
+                catalog.by_type("ptcstabset").expect("tabset catalogue"),
+                &Placement::In(target.id.clone()),
+            )
+            .map_err(AuthoringError::Edit)?;
+        self.added.push(tabs.id.clone());
+        let tabs = widget_id(&self.document, &tabs.id)?;
+        self.document
+            .set_property(&tabs.path, "Tab1Name", json!(tab));
+        let content = super::super::new::sync_tabs(&mut self.document, &tabs.id, 1)?;
+        super::super::set::copy_style_entry(
+            &mut self.document,
+            &tabs.id,
+            json!({"widget": "ptcs-tab-set", "parts": {
+                "pages": {"$": {"background": "inherit", "margin-bottom": "19px", "margin-left": "13px", "margin-right": "13px", "margin-top": "19px"}},
+                "tabs-header": {"$": {"background": "inherit", "padding-left": "18px"}},
+                "tabs-tab": {"selected": {"background": "inherit"}}}}),
+            None,
+            &mut Vec::new(),
+        );
+        let held = widget_id(&self.document, &content[0])?;
+        for (key, value) in [
+            ("flex-direction", json!("column")),
+            ("align-items", json!("stretch")),
+        ] {
+            self.document.set_property(&held.path, key, value);
+        }
+        self.background(&held, None, true)?;
+        self.wired.push(format!(
+            "{}: side panel, 276px, tab {tab:?} holds {}",
+            target.id, held.id
+        ));
+        Ok(())
+    }
+
+    /// The kit's "No results." state: a collection's and a grid's own text, or for a list (which
+    /// has no such property) an eye-icon notice shown while the rows it shows are empty.
+    pub(super) fn empty_state(
+        &mut self,
+        widget: &str,
+        text: &str,
+        data: Option<&str>,
+    ) -> Result<(), AuthoringError> {
+        let target = widget_id(&self.document, widget)?;
+        match target.type_id.as_str() {
+            "ptcscollection" => self.set(
+                &target,
+                &[
+                    ("NoDataText", json!(text)),
+                    ("NoDataIcon", json!("cds:icon_not_visible")),
+                ],
+            ),
+            "ptcsgrid" => self.set(&target, &[("NoResultsLabel", json!(text))]),
+            "ptcslist" => {
+                let data = data.ok_or_else(|| {
+                    AuthoringError::Invalid(
+                        "empty-state on a list needs --data <the address of the rows it shows>"
+                            .into(),
+                    )
+                })?;
+                let button = self
+                    .document
+                    .place(
+                        widgets::catalog()
+                            .by_type("ptcsbutton")
+                            .expect("button catalogue"),
+                        &Placement::BelowInColumn(target.id.clone()),
+                    )
+                    .map_err(AuthoringError::Edit)?;
+                self.added.push(button.id.clone());
+                let button = widget_id(&self.document, &button.id)?;
+                for (key, value) in [
+                    ("ButtonType", json!("transparent")),
+                    ("Disabled", json!(true)),
+                    ("IconPosition", json!("top")),
+                    ("Label", json!(text)),
+                    ("SVGIcon", json!("cds:icon_not_visible")),
+                    ("Margin", json!("24 0")),
+                ] {
+                    self.document.set_property(&button.path, key, value);
+                }
+                super::super::set::copy_style_entry(
+                    &mut self.document,
+                    &button.id,
+                    json!({"widget": "ptcs-button", "parts": {"$": {"disabled": {"color": "#000000"}}}}),
+                    None,
+                    &mut Vec::new(),
+                );
+                self.condition_gate(
+                    &button.id,
+                    false,
+                    "!(rows && (rows.rows || rows).length)",
+                    &[("rows".into(), data.to_string())],
+                )?;
+                self.notes.push(format!(
+                    "{}: empty-state notice, visible while the list's rows are empty",
+                    button.id
+                ));
+            }
+            other => {
+                return Err(AuthoringError::Invalid(format!(
+                    "{} is a {other}; empty-state needs a collection, grid or list",
+                    target.id
+                )))
+            }
+        }
         Ok(())
     }
 

@@ -47,12 +47,40 @@ fn text(bytes: &[u8]) -> Result<&str, AuthoringError> {
         .map_err(invalid)
 }
 
+/// A spec handed to a build: a file the user named, or a page the compiler generated for another.
+struct SpecInput {
+    path: PathBuf,
+    bytes: Vec<u8>,
+    generated: bool,
+}
+
 pub(crate) fn plan(
     solution: &Solution,
     name: &str,
     project: Option<&str>,
     spec_file: Option<&Path>,
 ) -> Result<Plan, AuthoringError> {
+    let spec = spec_file
+        .map(|path| {
+            read(path)?
+                .map(|bytes| SpecInput {
+                    path: path.to_path_buf(),
+                    bytes,
+                    generated: false,
+                })
+                .ok_or_else(|| invalid(format!("{}: missing page spec", path.display())))
+        })
+        .transpose()?;
+    plan_from(solution, name, project, spec)
+}
+
+fn plan_from(
+    solution: &Solution,
+    name: &str,
+    project: Option<&str>,
+    spec_input: Option<SpecInput>,
+) -> Result<Plan, AuthoringError> {
+    let spec_file = spec_input.as_ref().map(|s| s.path.as_path());
     entity::key::EntityKey::new("Mashups", name).map_err(invalid)?;
     let found = workspace::entities(solution);
     let existing = found
@@ -82,9 +110,14 @@ pub(crate) fn plan(
         .ok_or_else(|| invalid(format!("unknown project {project}")))?;
     let dir = solution.src_root().join(name);
     let page_path = dir.join("page.yaml");
-    let spec_path = spec_file.unwrap_or(&page_path);
-    let spec_bytes = read(spec_path)?
-        .ok_or_else(|| invalid(format!("{}: missing page spec", spec_path.display())))?;
+    let generated_spec = spec_input.as_ref().is_some_and(|s| s.generated);
+    let spec_path = spec_file.unwrap_or(&page_path).to_path_buf();
+    let spec_path = spec_path.as_path();
+    let spec_bytes = match spec_input.as_ref() {
+        Some(input) => input.bytes.clone(),
+        None => read(spec_path)?
+            .ok_or_else(|| invalid(format!("{}: missing page spec", spec_path.display())))?,
+    };
     let yaml = text(&spec_bytes)?;
     let spec = schema::parse(yaml).map_err(invalid)?;
     if spec.page.value.name.value != name {
@@ -372,16 +405,46 @@ pub(crate) fn plan(
     for f in &files {
         crate::core::transaction::check_inside(&solution.root, &f.path).map_err(invalid)?;
     }
+    let mut inputs = vec![
+        (
+            spec_path.to_path_buf(),
+            (!generated_spec).then(|| spec_bytes.clone()),
+        ),
+        (
+            solution.root.join("twaco.toml"),
+            read(&solution.root.join("twaco.toml"))?,
+        ),
+    ];
+    // Pages the spec generates for its collections are created beside it, once: a mashup that
+    // is already there is the user's from then on and the build leaves it alone.
+    let mut created_cells = Vec::new();
+    for cell in &generated.cells {
+        let page = solution.src_root().join(&cell.name).join("page.yaml");
+        let present = found
+            .iter()
+            .any(|e| e.info.collection == "Mashups" && e.info.name == cell.name)
+            || read(&page)?.is_some();
+        if present {
+            continue;
+        }
+        let sub = plan_from(
+            solution,
+            &cell.name,
+            Some(project),
+            Some(SpecInput {
+                path: page,
+                bytes: cell.spec.clone().into_bytes(),
+                generated: true,
+            }),
+        )?;
+        files.extend(sub.files);
+        inputs.extend(sub.inputs);
+        created_cells.push(cell.name.clone());
+    }
     Ok(Plan {
-        report: json!({"mashup":name,"project":project,"template":spec.page.value.template.value,"slots":spec.page.value.slots.keys().collect::<Vec<_>>(),"applied":false,"dry_run":true,"nodes":nodes,"hand_edits_kept":report.kept,"conflicts":conflicts,"files":files.iter().filter(|f| f.before.as_deref() != Some(&f.after)).map(|f| solution.relative(&f.path)).collect::<Vec<_>>()}),
+        report: json!({"mashup":name,"project":project,"template":spec.page.value.template.value,"slots":spec.page.value.slots.keys().collect::<Vec<_>>(),"applied":false,"dry_run":true,"nodes":nodes,"hand_edits_kept":report.kept,"conflicts":conflicts,"cells":created_cells,"files":files.iter().filter(|f| f.before.as_deref() != Some(&f.after)).map(|f| solution.relative(&f.path)).collect::<Vec<_>>()}),
         files,
-        inputs: vec![
-            (spec_path.to_path_buf(), Some(spec_bytes)),
-            (
-                solution.root.join("twaco.toml"),
-                read(&solution.root.join("twaco.toml"))?,
-            ),
-        ],
+        inputs,
     })
 }
 

@@ -1,0 +1,6 @@
+<Entities><DataShapes><DataShape name="Acme.Card_DS" projectName="Acme.Bench"><FieldDefinitions>
+                <FieldDefinition aspect.isPrimaryKey="false" baseType="NUMBER" description="" name="cardKpiDial" ordinal="2" />
+                <FieldDefinition aspect.isPrimaryKey="false" baseType="STRING" description="" name="cardTitle" ordinal="1" />
+                <FieldDefinition aspect.isPrimaryKey="true" baseType="STRING" description="" name="uid" ordinal="0" />
+            </FieldDefinitions>
+        </DataShape></DataShapes></Entities>

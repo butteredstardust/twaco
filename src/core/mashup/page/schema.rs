@@ -19,6 +19,10 @@ pub(crate) struct Page {
     pub(crate) template: Spanned<String>,
     pub(crate) title: Option<Spanned<String>>,
     pub(crate) theme: Option<Spanned<String>>,
+    /// Input parameters (name to base type) of a page that is shown inside another, such as a
+    /// collection cell; bind to one with `{bind: param.<name>}`.
+    #[serde(default)]
+    pub(crate) parameters: BTreeMap<String, Spanned<String>>,
     #[serde(default)]
     pub(crate) data: BTreeMap<String, Spanned<Source>>,
     #[serde(default)]
@@ -63,6 +67,10 @@ pub(crate) enum Node {
     Panel(Body),
     Slider(Body),
     KpiDial(Body),
+    SidePanel(Body),
+    List(Body),
+    Collection(Body),
+    NavMenu(Body),
 }
 
 impl Node {
@@ -91,7 +99,11 @@ impl Node {
             | Self::DetailPair(b)
             | Self::Panel(b)
             | Self::Slider(b)
-            | Self::KpiDial(b) => b,
+            | Self::KpiDial(b)
+            | Self::SidePanel(b)
+            | Self::List(b)
+            | Self::Collection(b)
+            | Self::NavMenu(b) => b,
         }
     }
     pub(crate) fn body_mut(&mut self) -> &mut Body {
@@ -119,7 +131,11 @@ impl Node {
             | Self::DetailPair(b)
             | Self::Panel(b)
             | Self::Slider(b)
-            | Self::KpiDial(b) => b,
+            | Self::KpiDial(b)
+            | Self::SidePanel(b)
+            | Self::List(b)
+            | Self::Collection(b)
+            | Self::NavMenu(b) => b,
         }
     }
     pub(crate) fn widget(&self) -> Result<&str, Error> {
@@ -134,7 +150,11 @@ impl Node {
             | Self::TrendTile(_)
             | Self::DetailPair(_)
             | Self::Panel(_)
+            | Self::SidePanel(_)
+            | Self::NavMenu(_)
             | Self::Spacer(_) => "flexcontainer",
+            Self::List(_) => "ptcslist",
+            Self::Collection(_) => "ptcscollection",
             Self::Slider(_) => "ptcsslider",
             Self::KpiDial(_) => "ptcskpidial",
             Self::Tabs(_) => "ptcstabset",
@@ -232,8 +252,43 @@ pub(crate) struct Body {
     pub(crate) weight: Option<Spanned<f64>>,
     pub(crate) gap: Option<Spanned<u32>>,
     pub(crate) legend: Option<bool>,
+    /// Tooltip of an information icon after a heading, page header or side panel title.
+    pub(crate) info: Option<String>,
+    /// The empty-state text of a list, collection or grid.
+    pub(crate) empty: Option<String>,
+    pub(crate) selection: Option<Spanned<String>>,
+    pub(crate) per_row: Option<Spanned<u32>>,
+    /// The width in pixels `per_row` is worked out for (1400 when absent).
+    pub(crate) across: Option<Spanned<u32>>,
+    pub(crate) preset: Option<Spanned<String>>,
+    pub(crate) cell: Option<Spanned<Cell>>,
+    /// An existing cell mashup of a collection, with `map` from row fields to its parameters.
+    pub(crate) mashup: Option<Spanned<String>>,
+    #[serde(default)]
+    pub(crate) map: BTreeMap<String, Spanned<String>>,
+    pub(crate) collapsible: Option<bool>,
+    pub(crate) search: Option<String>,
+    #[serde(default)]
+    pub(crate) groups: Vec<Spanned<Group>>,
+    /// The tab strip label of a side panel.
+    pub(crate) tab: Option<String>,
     #[serde(default)]
     pub(crate) children: Vec<Node>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Cell {
+    pub(crate) title: Option<String>,
+    pub(crate) kpi_dial: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Group {
+    pub(crate) title: String,
+    #[serde(default)]
+    pub(crate) items: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -379,19 +434,33 @@ fn parse_nested(text: &str) -> Result<Spec, Error> {
             }
             node.widget()?;
             if let Some(data) = &b.data {
-                if !page.data.contains_key(&data.value) {
+                if let Some((list, _)) = data.value.split_once(".selected") {
+                    let picked = super::compile::find_list(page, list);
+                    if !data.value.ends_with(".selected")
+                        || picked.is_none()
+                        || !matches!(node, Node::List(_))
+                    {
+                        return Err(Error::at(
+                            data.referenced,
+                            "<list>.selected feeds a list and names a list with data",
+                        ));
+                    }
+                } else if !page.data.contains_key(&data.value) {
                     return Err(Error::at(
                         data.referenced,
                         format!("unknown data {}", data.value),
                     ));
                 }
             }
-            if (!matches!(node, Node::Grid(_) | Node::Chart(_)) && b.data.is_some())
+            if (!matches!(
+                node,
+                Node::Grid(_) | Node::Chart(_) | Node::List(_) | Node::Collection(_)
+            ) && b.data.is_some())
                 || (!matches!(node, Node::Grid(_)) && !b.columns.is_empty())
             {
                 return Err(Error::at(
                     b.id.referenced,
-                    "data belongs to grid/chart; columns belong to grid",
+                    "data belongs to grid/chart/list/collection; columns belong to grid",
                 ));
             }
             if !matches!(node, Node::Widget(_)) && b.kind.is_some() {

@@ -1030,8 +1030,9 @@ pub(crate) const USAGE: &[Usage] = &[
                               picks/orders/renames; default all fields, a column each; first row unless
                               a selecting widget is bound to this call; empty responsive container unless --replace removes its only child
       picker <dropdown|list> --data <data call> --x <display field> [--value <field>]
-          [--selected <address>] [--no-none-row] [--auto-select-first]
+          [--selected <address>] [--no-none-row] [--auto-select-first] [--multiple]
       --auto-select-first    select the first row of a picker or grid (recipe columns: DefaultSelectedRows=1)
+      --multiple             a list that selects several rows (MultiSelect); its SelectedItems feed another widget
                               fill a dropdown or list from a service result; without the "(None)" row,
                               or selecting the first row
       tracker <widget|new> --data <data call> [--field-map Property=field]...
@@ -1048,6 +1049,13 @@ pub(crate) const USAGE: &[Usage] = &[
       navigate-on-click <collection|grid> --field <field> [--window replace|new|popup|modal-popup]
                               a click opens the mashup the selected row's field names; plan warns when
                               the widget selects its first row on load
+      side-panel <container> --title <text> [--info <tooltip>] [--tab <label>]
+                              the kit's grey left column in an empty responsive column: 276px wide, a title row
+                              with an optional help icon over a one-tab strip (default tab Filters) whose
+                              tab container holds the content
+      empty-state <collection|grid|list> --say <text> [--data <address>]
+                              the "No results." state: a collection's and a grid's own text; a list gets a
+                              notice shown while --data (the rows it shows) is empty
                               recipes warn with a mashup on command when a bound call has no trigger"#,
     },
     Usage {

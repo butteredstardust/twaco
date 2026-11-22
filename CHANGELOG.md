@@ -15,6 +15,17 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Added
 
+- Page specs gain the elements of the kit's Compare and Administrator pages: `side_panel`
+  (276px grey column with a title, help icon and one-tab strip), `list` (native list with
+  `selection: multiple`, whose rows feed another list through `<list>.selected`), `collection`
+  (a cell mashup and field map, or a generated KPI cell page `<page>Cell_MU` created once beside
+  the page), `nav_menu`, `empty: <text>` on lists, collections and grids, `info` icons on
+  labels, headings and page headers, `icon: search` on text fields, and `title` and
+  `collapsible` on `filter_panel`. A page may declare `parameters` and bind `{bind: param.Name}`.
+- Command-mode parity for them: `recipe side-panel`, `recipe empty-state`,
+  `recipe picker --multiple`, and the existing `mashup collection add`, `recipe collapsible
+  --tab inside` and `mashup new --param` run the same code. CLI and MCP expose the same options.
+- Benchmarks L and M as specs with offline Acme fixtures and goldens.
 - Command page-spec parity: `mashup new --rules v1` shares page scrolling and filter
   footer layout, `recipe columns --auto-select-first` selects the first grid row,
   `recipe chart --series field:kind[:axis]` configures combo secondary axes and compact

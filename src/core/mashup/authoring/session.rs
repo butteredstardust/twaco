@@ -3,6 +3,18 @@ use super::{AuthoringContext, AuthoringError, ExistingMashup};
 use crate::core::{config::Solution, mashup, types};
 use mashup::edit::MashupDocument;
 
+/// Where a collection's cell mashup comes from: the solution, or a page compiled in memory that
+/// the build writes beside the page.
+pub(crate) enum CellSource {
+    Existing(String),
+    Generated {
+        name: String,
+        entity: Vec<u8>,
+        content: String,
+        css: String,
+    },
+}
+
 pub(crate) struct Session {
     pub(crate) document: MashupDocument,
     pub(crate) entity: Vec<u8>,
@@ -94,6 +106,54 @@ impl Session {
         };
         session.sync()?;
         Ok(session)
+    }
+
+    /// An input parameter, written as `mashup new --param` writes it.
+    pub(crate) fn add_parameter(&mut self, text: &str) -> Result<(), AuthoringError> {
+        let definition = super::parse_new_parameter(text)?;
+        super::set_content_parameter(&mut self.document, &definition, false);
+        self.sync()?;
+        self.entity = super::splice_parameter_definition(&self.entity, &definition, None, false)?;
+        Ok(())
+    }
+
+    /// Configure a collection widget already in the page: its cell mashup, field mapping,
+    /// preset and data, through the code `mashup collection add` runs.
+    pub(crate) fn collection(
+        &mut self,
+        solution: &Solution,
+        request: &super::CollectionAddRequest,
+        cell: &CellSource,
+        widget: &str,
+    ) -> Result<(), AuthoringError> {
+        self.sync()?;
+        let cell = match cell {
+            CellSource::Existing(name) => super::load_existing(solution, name)?,
+            CellSource::Generated {
+                name,
+                entity,
+                content,
+                css,
+            } => ExistingMashup {
+                mashup: name.clone(),
+                entity_path: Default::default(),
+                entity_before: entity.clone(),
+                assets: mashup::Assets {
+                    content: content.clone(),
+                    css: css.clone(),
+                },
+                sidecars: None,
+                deterministic: true,
+            },
+        };
+        let plan = super::collection::plan_collection_configure_loaded(
+            solution,
+            request,
+            self.loaded(),
+            &cell,
+            widget,
+        )?;
+        self.accept(plan.edit)
     }
 
     pub(crate) fn sync(&mut self) -> Result<(), AuthoringError> {
@@ -232,8 +292,10 @@ impl Session {
         from: &str,
         to: &str,
     ) -> Result<(), AuthoringError> {
+        let parameters = mashup::describe::mashup_parameters(&self.entity)
+            .map_err(AuthoringError::Unreadable)?;
         let context = AuthoringContext {
-            parameters: &[],
+            parameters: &parameters,
             model,
             platform,
         };

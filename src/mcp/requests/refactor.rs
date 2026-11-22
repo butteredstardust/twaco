@@ -1148,7 +1148,7 @@ pub(crate) struct MashupRecipeRequest {
     pub(crate) tab: Absent<String>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) start: Absent<String>,
-    /// panel styles a responsive column; slider-action pairs widget (slider) with button. toolbar uses widget as the empty responsive container, then, search_param, hint, width, run_on and buttons. enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, sparkline, columns, pagination, picker, tracker, set-on-click, nested-menu, navigate-on-click or collapsible; label-pairs uses widget as the responsive container, data, fields, title, label_columns and replace.
+    /// panel styles a responsive column; slider-action pairs widget (slider) with button. toolbar uses widget as the empty responsive container, then, search_param, hint, width, run_on and buttons. enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, sparkline, columns, pagination, picker, side-panel, empty-state, tracker, set-on-click, nested-menu, navigate-on-click or collapsible; label-pairs uses widget as the responsive container, data, fields, title, label_columns and replace.
     pub(crate) recipe: String,
     /// The mashup to write it in.
     pub(crate) mashup: String,
@@ -1239,6 +1239,12 @@ pub(crate) struct MashupRecipeRequest {
     /// A picker or grid that selects its first row.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) auto_select_first: Absent<bool>,
+    /// A list that selects several rows (recipe picker).
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) multiple: Absent<bool>,
+    /// The tooltip of the help icon after a side panel title (recipe side-panel).
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) info: Absent<String>,
     /// Combo series as field:bar|line[:primary|secondary].
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) series: Absent<Vec<String>>,

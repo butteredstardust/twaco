@@ -103,6 +103,10 @@ numeric `Count` fields. Bindings and events use authored IDs, including tile and
 | `heading` | label authoring with header LabelType | `- heading: {id: title, text: Alerts}` |
 | `button` | button authoring, `recipe enable-when` | `- button: {id: preview, label: Preview, variant: transparent, icon: 'cds:icon_view', enabled_when: results.selected}` |
 | `row` / `column` | responsive flex containers, equal fill or positive `weight`, optional pixel `gap` | `- row: {id: split, size: fill, gap: 12, children: [{column: {id: main, weight: 2}}, {column: {id: side, weight: 1}}]}` |
+| `side_panel` | `recipe side-panel`; children go in its tab container | `- side_panel: {id: side, title: Compare, help: Pick assets, tab: Filters, children: [{label: {id: note, text: Hello}}]}` |
+| `list` | `recipe picker --multiple --no-none-row`, `recipe empty-state` | `- list: {id: picked, data: all.selected, display: Name, selection: multiple, empty: No results.}` |
+| `collection` | `mashup collection add` code (cell mashup, mapping, preset, `--columns`), `recipe empty-state` | `- collection: {id: cards, data: rows, per_row: 4, cell: {title: Name, kpi_dial: Count}}` or `mashup: Acme.Cell_MU, map: {Name: Name}` |
+| `nav_menu` | label, button and text-field authoring (`recipe nested-menu` for Menu entities) | `- nav_menu: {id: menu, search: Search Menu..., groups: [{title: Group 01, items: [Page 01]}, {title: Group 02, items: [Page 02, Page 03]}]}` |
 | `widget` | catalogue authoring | `- widget: {id: input, type: ptcstextfield, props: {Text: Acme}}` |
 
 Toolbar `band` defaults to true: the existing recipe supplies the grey 48px band. Set
@@ -183,6 +187,74 @@ for example the slider's `Value`. A `card` holding a dial stretches it.
 Card and trend-tile titles use the regular label size (`LabelType: label`), as the kit does, instead
 of the card recipe's sub-header; the recipe command keeps its own size.
 
+## Side panels, lists, collections and navigation
+
+These elements come from the kit's Compare and Administrator pages. Place a `side_panel` in a
+`row` beside the content column.
+
+A `side_panel` is the kit's grey left column: 276px wide, `#F7F7F7`, a 72px title row with the
+`title` at header size and an optional `help` icon (a disabled transparent button with the
+tooltip), over a one-tab strip (`tab`, default `Filters`). Its `children` go in the tab's
+container, which stacks them. It requires an empty column, as `recipe side-panel` does.
+
+An `info` icon (heading, label and `page_header`) is the same disabled button after the text: the
+heading or label becomes a row holding both and keeps its authored id (`<id>--title`,
+`<id>--info` name the parts). Headings and labels use `cds:icon_info`, `page_header` the
+`cds:icon_help_circle` help icon. `page_header` still takes `help` for a plain subtitle; `info` is the
+kit's icon.
+
+A `list` is a native `ptcslist` filled by `recipe picker`: it needs `data` and `display`, shows no
+caption and no "(None)" row, and `selection: multiple` turns on `MultiSelect`. A list's rows are
+also a data source: `data: <list>.selected` on another list binds the first list's
+`SelectedItems` to its `Data`, and the `display` field is checked on the first list's source.
+
+`empty: <text>` is the kit's "No results." state and works on a `list`, `collection` and `grid`
+through `recipe empty-state`. A collection and a grid carry it in their own properties
+(`NoDataText` with the eye icon, `NoResultsLabel`). A list has no such property, so the recipe
+adds a notice (the eye icon over the text) beside the list, shown while the list's rows are
+empty.
+
+A `collection` is a native `ptcscollection` configured by the `mashup collection add` code.
+Give either `mashup: <existing cell>` with `map: {row field: cell parameter}`, or `cell:
+{title: <field>, kpi_dial: <numeric field>}`. With `cell:` the compiler writes a second page
+for the cells: `<page>Cell_MU` (the page name without `_MU`, plus `Cell_MU`), a `kpi-tile`
+page whose title label and dial are bound to parameters named like the fields. It is a
+page spec of its own (`src/<page>Cell_MU/page.yaml`, built with the page spec's `parameters:`
+and `{bind: param.<name>}`) and `mashup new --spec` / `mashup build` create it only when no
+mashup of that name exists: after that it belongs to you, edit or rebuild it like any page, and
+the page's build neither rewrites nor conflicts with it. Delete its files to generate it again.
+`per_row` works the cell width out for a collection `across` pixels wide (default 1400, as
+`--columns` and `--across` do on the command) and a generated cell uses the `cards` preset
+(framed 270px cards, first card selected; `preset: cards` asks for it on a `mashup:` cell). A
+collection fills the remaining height by default, like a grid.
+
+A `nav_menu` is the kit's administration column drawn with native widgets: an optional search
+field (`search` is its hint, with the search icon), each group's grey caption over its items,
+and every item a full-width transparent button, the first drawn as the selected page. Item
+buttons are named `<id>--item-<group>-<item>` (1-based), so `events` can address them
+(`menu--item-1-1.Clicked`). The kit builds this list from a service-fed collection with two cell
+mashups and highlights the clicked row; the buttons only mark the first item (a recorded native
+deviation), so use `recipe nested-menu` over a Menu entity for a menu that tracks the selection.
+
+`filter_panel` takes `title` (the kit's "Filter" caption, a `title`-size label first in the
+fields) and `collapsible: true`, which runs `recipe collapsible --tab inside` on the filter
+column so the chevron sits on its top-right edge; `collapsible: false` removes the template's
+chevron. `text_field` takes `icon: search` (or `cds:icon_search`) for the field's icon, `button`
+accepts the short icon name too (`icon: view`). Data `params` with literal values already
+worked (`params: {kind: version}`). A page may declare `parameters: {Name: STRING}` (input
+parameters, base type each) and bind them with `{bind: param.Name}`, which is how a cell page
+reads its row.
+
+Command equivalents: `recipe side-panel <mashup> <empty column> --title Compare --info "Tip"
+--tab Filters`; `recipe picker <mashup> <list> --data ... --x Name --no-none-row --multiple`;
+`recipe empty-state <mashup> <widget> --say "No results." [--data <list rows>]`;
+`mashup collection add ... --columns 4 --across 1116 --preset cards`, with the cell made by
+`mashup new <cell> --template kpi-tile --param Name:STRING:IN` and `mashup bind mashup:Name
+ui:<label>.LabelText`; `recipe collapsible <mashup> <container> --tab inside`; a field's search icon is
+`mashup set ... --prop Icon=cds:icon_search`; an information
+icon is `mashup add ... button` with `--prop ButtonType=transparent --prop SVGIcon=cds:icon_info
+--prop Disabled=true --prop TooltipField="Tip"`.
+
 ## Baseline and hand edits
 
 Commit `src/<Mashup>/.page-baseline.json` beside `page.yaml`. Format 1 records compiler
@@ -220,7 +292,7 @@ transactions. Build changes local files only; deploy remains a separate command.
 
 ## Worked examples
 
-The benchmark pages (A, H, J, K, N, O) use the small offline [Acme solution](../tests/fixtures/mashup/pages/bench_solution/twaco.toml).
+The benchmark pages (A, H, J, K, L, M, N, O) use the small offline [Acme solution](../tests/fixtures/mashup/pages/bench_solution/twaco.toml).
 Copy that directory to a scratch workspace and pass one of these specs to
 `twaco mashup new <page.name> --project Acme.Bench --spec <file>` to review a plan.
 Add `--apply` to create local files, then `twaco mashup build <page.name>` should plan no changes.
@@ -234,6 +306,8 @@ CI also checks both front ends, rebuilds, retained hand edits and conflicts.
 | J / AlertsAndNotifications | [Alerts tabs](../tests/fixtures/mashup/pages/bench_j/page.yaml) | Asset fields substitute for a dedicated alert contract. Severity/date controls need filtering services; Form is styled but cannot open a popup through spec events yet. Application uses a second grid over the same source. |
 | K / AdminMetrics | [Metrics filters](../tests/fixtures/mashup/pages/bench_k/page.yaml) | Apply binds all side-filter values; Reset is present but has no reset recipe in specs. The template chevron is retained; no collapsible recipe is exposed. Toolbar search/category/date and View Details are visual controls awaiting separate filter/navigation wiring. Pagination uses the existing local slicing recipe. |
 | O / WDK_Gauges | [Gauges and KPI](../tests/fixtures/mashup/pages/bench_o/page.yaml) | The kit's four needle gauges use a legacy `gauge` type with no authoring contract and no native widget; the native `ptcskpidial` (dial and half layouts) stands in, a recorded native deviation. Dials bind to one slider; the kit's absolute-positioned slider becomes a full-width slider with min/max labels. |
+| L / Compare | [Compare](../tests/fixtures/mashup/pages/bench_l/page.yaml) | The kit's side lists are collections over cell mashups; the spec uses native lists (selected items feed the second list) with an eye-icon notice for the empty state. The side panel's one tab and 276px column follow the kit; the cell page is a generated KPI tile (title over a dial) instead of the kit's detail card. Not yet measured live. |
+| M / Administrator | [Admin shell](../tests/fixtures/mashup/pages/bench_m/page.yaml) | The navigation is native buttons in a column (the first marked selected), not the kit's service-fed collection with section headers; the filter column's chevron is the kit's inside tab. Filters are not wired to the service, and Apply/Reset have no events in this spec. Not yet measured live. |
 | N / Documents | [Document actions](../tests/fixtures/mashup/pages/bench_n/page.yaml) | Transparent icon buttons as in the kit; Preview is enabled by the grid's selection. Preview window and download actions need navigation/download event support. |
 
 These are offline acceptance fixtures, not newly measured visual scores. A and H still require

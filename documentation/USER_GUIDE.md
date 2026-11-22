@@ -1806,6 +1806,15 @@ adds a 40px line chart after the container's existing value content. It binds Al
 directly, hides axes, rulers and legend, and clears the chart theme's height floor and
 padding. The same properties and styles implement page-spec trend-tile sparklines.
 
+`recipe side-panel <mashup> <empty column> --title Compare [--info "Tip"] [--tab Filters]`
+makes the kit's grey left column: 276px wide, a title row with an optional help icon over a
+one-tab strip; add the content to the tab's container (`mashup describe` shows it).
+`recipe empty-state <mashup> <widget> --say "No results."` sets a collection's or grid's
+empty text; for a list (which has none) it adds an eye-icon notice shown while
+`--data <the rows the list shows>` is empty. `recipe picker ... --multiple` makes a list select
+several rows; its `SelectedItems` can feed another list. The page-spec `side_panel`, `list`,
+`collection` and `empty` elements run these recipes and `mashup collection add`.
+
 
 ```sh
 twaco mashup recipe enable-when Acme.App.Edit_MU ptcsbutton-6 --if "note !== ''" --input note=ui:ptcstextfield-3.Text --apply

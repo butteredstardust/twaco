@@ -47,6 +47,96 @@ fn default_prop(body: &mut Body, key: &str, value: serde_json::Value) {
         .or_insert_with(|| serde_saphyr::Spanned::new(value, at, at));
 }
 
+/// The kit's information icon: a disabled transparent button whose tooltip is the text.
+fn info_button(parent: &Body, role: &str, tooltip: &str, icon: &str) -> Node {
+    child(
+        parent,
+        role,
+        "button",
+        json!({"text": "", "props": {
+            "ButtonType": "transparent", "SVGIcon": icon, "Disabled": true,
+            "TooltipField": tooltip, "Margin": "0 0 0 4"}, "style": [INFO_STYLE]}),
+    )
+}
+
+/// A heading with an information icon after it: a row holding both.
+fn info_heading(b: &mut Body, kind: &str, tooltip: &str) -> Node {
+    let id = b.id.value.clone();
+    let props: serde_json::Map<_, _> = b
+        .props
+        .iter()
+        .map(|(key, value)| (key.clone(), value.value.clone()))
+        .collect();
+    let styles: Vec<_> = b.style.iter().map(|s| s.value.clone()).collect();
+    let mut row: Node = serde_saphyr::from_str(
+        &json!({"row": {"id": id, "props": {"align-items": "center"}, "children": [
+            {kind: {"id": format!("{id}--title"), "text": b.text.take().unwrap_or_default(),
+                "props": props, "style": styles}},
+            {"button": {"id": format!("{id}--info"), "text": "", "props": {
+                "ButtonType": "transparent", "SVGIcon": "cds:icon_info", "Disabled": true,
+                "TooltipField": tooltip, "Margin": "0 0 0 4"}, "style": [INFO_STYLE]}}]}})
+        .to_string(),
+    )
+    .expect("generated heading row schema");
+    relocate(&mut row, b.id.referenced);
+    row
+}
+
+/// A navigation column as the kits show their administration menu: an optional search field, then
+/// each group's grey caption over its items. Items are full-width transparent buttons, the first
+/// drawn as the selected page, so `<id>--item-<group>-<item>` (1-based) can be wired to events.
+fn nav_column(b: &mut Body) -> Result<Node, Error> {
+    let id = b.id.value.clone();
+    if b.groups.is_empty() {
+        return Err(Error::at(b.id.referenced, "nav_menu needs groups"));
+    }
+    let mut children = vec![];
+    if let Some(search) = b.search.take() {
+        children.push(json!({"text_field": {
+            "id": format!("{id}--search"), "hint": search, "icon": "search",
+            "props": {"Margin": "0 18 12"}}}));
+    }
+    let mut first = true;
+    for (g, group) in b.groups.iter().enumerate() {
+        children.push(json!({"label": {
+            "id": format!("{id}--group-{}", g + 1), "text": group.value.title,
+            "props": {"Margin": "12 0 6 18"}, "style": ["label:color=#6B7478"]}}));
+        for (i, item) in group.value.items.iter().enumerate() {
+            let mut body = json!({
+                "id": format!("{id}--item-{}-{}", g + 1, i + 1), "text": item,
+                "variant": "transparent",
+                "props": {"LabelAlignment": "left", "Size": "fill", "Margin": "0"}});
+            if std::mem::take(&mut first) {
+                body["style"] = json!(["background=#E4E7E9"]);
+            }
+            children.push(json!({"button": body}));
+        }
+    }
+    let props: serde_json::Map<_, _> = b
+        .props
+        .iter()
+        .map(|(key, value)| (key.clone(), value.value.clone()))
+        .collect();
+    let mut column: Node = serde_saphyr::from_str(
+        &json!({"column": {"id": id, "props": props, "children": children}}).to_string(),
+    )
+    .expect("generated nav column schema");
+    relocate(&mut column, b.id.referenced);
+    Ok(column)
+}
+
+/// An icon as the spec writes it: `search` or the full `cds:icon_search`.
+fn cds_name(icon: &str) -> String {
+    if icon.starts_with("cds:") {
+        icon.to_string()
+    } else {
+        format!("cds:icon_{icon}")
+    }
+}
+
+/// The disabled-state colour the kit gives its information buttons.
+const INFO_STYLE: &str = "$@disabled:color=#4E585A";
+
 /// A label body showing a literal, or bound to a source field.
 fn text_or_bind(value: &serde_json::Value) -> serde_json::Value {
     match super::compile::binding(value) {
@@ -101,6 +191,22 @@ const DIALS: [Dial; 4] = [
 pub(super) fn expand(page: &mut Page) -> Result<(), Error> {
     fn nodes(list: &mut [Node]) -> Result<(), Error> {
         for node in list {
+            let informed = match node {
+                Node::Heading(b) => b.info.take().map(|info| ("heading", info)),
+                Node::Label(b) => b.info.take().map(|info| ("label", info)),
+                _ => None,
+            };
+            let nav = match node {
+                Node::NavMenu(b) => Some(nav_column(b)?),
+                _ => None,
+            };
+            if let Some(column) = nav {
+                *node = column;
+            }
+            if let Some((kind, info)) = informed {
+                let replacement = info_heading(node.body_mut(), kind, &info);
+                *node = replacement;
+            }
             if let Node::Card(b) = node {
                 if b.children
                     .iter()
@@ -128,6 +234,10 @@ pub(super) fn expand(page: &mut Page) -> Result<(), Error> {
                         .ok_or_else(|| Error::at(b.id.referenced, "page_header needs title"))?;
                     b.children
                         .insert(0, generated(b, "title", "heading", json!({"text":title})));
+                    if let Some(info) = b.info.take() {
+                        let button = info_button(b, "info", &info, "cds:icon_help_circle");
+                        b.children.push(button);
+                    }
                     if let Some(help) = &b.help {
                         b.children
                             .push(generated(b, "help", "label", json!({"text":help})));
@@ -397,9 +507,10 @@ pub(super) fn expand(page: &mut Page) -> Result<(), Error> {
                         default_prop(b, "ButtonType", json!(variant.value));
                     }
                     if let Some(icon) = b.icon.take() {
-                        crate::core::cds_icons::check(&icon.value)
+                        let name = cds_name(&icon.value);
+                        crate::core::cds_icons::check(&name)
                             .map_err(|e| Error::at(icon.referenced, e))?;
-                        default_prop(b, "SVGIcon", json!(icon.value));
+                        default_prop(b, "SVGIcon", json!(name));
                     }
                 }
                 Node::KpiRow(b) => {
@@ -434,7 +545,37 @@ pub(super) fn expand(page: &mut Page) -> Result<(), Error> {
                         b.children.push(Node::Card(tile));
                     }
                 }
+                Node::TextField(b) => {
+                    if let Some(icon) = b.icon.take() {
+                        let name = cds_name(&icon.value);
+                        crate::core::cds_icons::check(&name)
+                            .map_err(|e| Error::at(icon.referenced, e))?;
+                        default_prop(b, "Icon", json!(name));
+                    }
+                }
+                Node::SidePanel(b) => {
+                    if b.title.is_none() {
+                        return Err(Error::at(b.id.referenced, "side_panel needs title"));
+                    }
+                    default_prop(b, "flex-direction", json!("column"));
+                }
+                Node::List(b) => {
+                    // The kit's lists carry no caption of their own.
+                    default_prop(b, "Label", json!(""));
+                }
                 Node::FilterPanel(b) => {
+                    if let Some(title) = b.title.take() {
+                        b.fields.insert(
+                            0,
+                            generated(
+                                b,
+                                "title",
+                                "heading",
+                                json!({"text": title, "props": {
+                                    "LabelType": "title", "HorizontalAlignment": "left"}}),
+                            ),
+                        );
+                    }
                     for action in &b.footer {
                         if !["apply", "reset"].contains(&action.value.as_str()) {
                             return Err(Error::at(
@@ -503,6 +644,8 @@ fn fields(node: &Node) -> Result<(), Error> {
             matches!(
                 node,
                 Node::PageHeader(_)
+                    | Node::FilterPanel(_)
+                    | Node::SidePanel(_)
                     | Node::Card(_)
                     | Node::Chart(_)
                     | Node::TrendTile(_)
@@ -513,9 +656,53 @@ fn fields(node: &Node) -> Result<(), Error> {
             "title",
         ),
         (
-            b.help.is_some() || !b.actions.is_empty(),
+            !b.actions.is_empty(),
             matches!(node, Node::PageHeader(_)),
-            "help/actions",
+            "actions",
+        ),
+        (
+            b.help.is_some(),
+            matches!(node, Node::PageHeader(_) | Node::SidePanel(_)),
+            "help",
+        ),
+        (
+            b.info.is_some(),
+            matches!(
+                node,
+                Node::Heading(_) | Node::Label(_) | Node::PageHeader(_)
+            ),
+            "info",
+        ),
+        (b.tab.is_some(), matches!(node, Node::SidePanel(_)), "tab"),
+        (
+            b.empty.is_some(),
+            matches!(node, Node::Grid(_) | Node::List(_) | Node::Collection(_)),
+            "empty",
+        ),
+        (
+            b.selection.is_some(),
+            matches!(node, Node::List(_)),
+            "selection",
+        ),
+        (
+            b.per_row.is_some()
+                || b.across.is_some()
+                || b.preset.is_some()
+                || b.cell.is_some()
+                || b.mashup.is_some()
+                || !b.map.is_empty(),
+            matches!(node, Node::Collection(_)),
+            "per_row/across/preset/cell/mashup/map",
+        ),
+        (
+            b.collapsible.is_some(),
+            matches!(node, Node::FilterPanel(_)),
+            "collapsible",
+        ),
+        (
+            b.search.is_some() || !b.groups.is_empty(),
+            matches!(node, Node::NavMenu(_)),
+            "search/groups",
         ),
         (b.band.is_some(), matches!(node, Node::Toolbar(_)), "band"),
         (
@@ -566,9 +753,14 @@ fn fields(node: &Node) -> Result<(), Error> {
             "trend/delta",
         ),
         (
-            b.variant.is_some() || b.icon.is_some() || b.enabled_when.is_some(),
+            b.variant.is_some() || b.enabled_when.is_some(),
             matches!(node, Node::Button(_)),
-            "variant/icon/enabled_when",
+            "variant/enabled_when",
+        ),
+        (
+            b.icon.is_some(),
+            matches!(node, Node::Button(_) | Node::TextField(_)),
+            "icon",
         ),
         (
             b.x.is_some() || b.stacked.is_some(),
@@ -576,9 +768,14 @@ fn fields(node: &Node) -> Result<(), Error> {
             "x/stacked",
         ),
         (
-            b.options.is_some() || b.display.is_some(),
+            b.options.is_some(),
             matches!(node, Node::Dropdown(_)),
-            "options/display",
+            "options",
+        ),
+        (
+            b.display.is_some(),
+            matches!(node, Node::Dropdown(_) | Node::List(_)),
+            "display",
         ),
         (b.grid.is_some(), matches!(node, Node::Pagination(_)), "for"),
         (
@@ -658,6 +855,40 @@ pub(super) fn validate(node: &Node, page: &Page) -> Result<(), Error> {
         Node::Pagination(_) if b.grid.is_none() => {
             return Err(fail("pagination needs for: <grid>"))
         }
+        Node::Collection(_) => {
+            if b.data.is_none() {
+                return Err(fail("collection needs data"));
+            }
+            if b.cell.is_some() == b.mashup.is_some() {
+                return Err(fail("collection needs exactly one of cell or mashup"));
+            }
+            if b.mashup.is_some() && b.map.is_empty() {
+                return Err(fail(
+                    "collection mashup needs map: {row field: cell parameter}",
+                ));
+            }
+            if b.cell.is_some() && !b.map.is_empty() {
+                return Err(fail("map belongs to a collection with mashup"));
+            }
+            for number in [&b.per_row, &b.across].into_iter().flatten() {
+                if number.value == 0 {
+                    return Err(Error::at(number.referenced, "must be above zero"));
+                }
+            }
+        }
+        Node::List(_) => {
+            if b.data.is_none() || b.display.is_none() {
+                return Err(fail("list needs data and display"));
+            }
+            if let Some(selection) = &b.selection {
+                if !["single", "multiple"].contains(&selection.value.as_str()) {
+                    return Err(Error::at(
+                        selection.referenced,
+                        "selection is single or multiple",
+                    ));
+                }
+            }
+        }
         Node::Button(_) if b.enabled_when.is_some() => {
             let gate = b.enabled_when.as_ref().expect("checked");
             let grid = gate.value.strip_suffix(".selected").unwrap_or_default();
@@ -702,8 +933,8 @@ pub(super) fn validate(node: &Node, page: &Page) -> Result<(), Error> {
 pub(super) fn wire(
     solution: &crate::core::config::Solution,
     session: &mut crate::core::mashup::authoring::session::Session,
-    _model: &crate::core::types::Model,
-    _platform: Option<&crate::core::types::Platform>,
+    model: &crate::core::types::Model,
+    platform: Option<&crate::core::types::Platform>,
     page: &Page,
     ids: &std::collections::BTreeMap<String, String>,
     node: &Node,
@@ -734,7 +965,36 @@ pub(super) fn wire(
             selected: None,
             no_none_row: false,
             auto_select_first: false,
+            multiple: false,
         }),
+        Node::List(_) => {
+            let data = &b.data.as_ref().expect("list data").value;
+            let display = b.display.clone().expect("list display");
+            if let Some((list, _)) = data.split_once(".selected") {
+                // The selected rows keep the rows' shape, so the field is checked on its source.
+                let source = super::compile::find_list(page, list)
+                    .and_then(|l| l.data.as_ref())
+                    .expect("validated list source");
+                session
+                    .source_type(
+                        solution,
+                        model,
+                        platform,
+                        &format!("{}.{display}", super::compile::call(page, &source.value)),
+                    )
+                    .map_err(|e| Error::at(loc, e))?;
+            }
+            Some(Recipe::Picker {
+                widget: id.clone(),
+                data: super::compile::data_address(page, ids, data),
+                display,
+                value: None,
+                selected: None,
+                no_none_row: true,
+                auto_select_first: false,
+                multiple: b.selection.as_ref().is_some_and(|s| s.value == "multiple"),
+            })
+        }
         _ => None,
     };
     if let Some(recipe) = recipe {
@@ -1164,7 +1424,10 @@ pub(super) fn finish_layout(
             body.size.as_ref().map(|s| &s.value),
             Some(super::schema::Size::Fill)
         ) || (body.size.is_none()
-            && matches!(node, Node::Grid(_) | Node::Chart(_) | Node::Tabs(_)))
+            && matches!(
+                node,
+                Node::Grid(_) | Node::Chart(_) | Node::Tabs(_) | Node::Collection(_)
+            ))
             || body.weight.is_some();
         if fill {
             patch(&mut session.document, &sizing, "page-fill");

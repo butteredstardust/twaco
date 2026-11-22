@@ -208,6 +208,8 @@ fn benchmark_lifecycle(id: &str) {
                 "Q2" => "Press 04",
                 "Q3" => "Plant Dashboard",
                 "Q4" => "Fleet",
+                "L" => "Compared Assets",
+                "M" => "Metrics List Side Filter",
                 _ => "Admin Metrics",
             },
         )
@@ -291,4 +293,78 @@ fn benchmark_q3_frontends_and_rebuilds() {
 #[test]
 fn benchmark_q4_frontends_and_rebuilds() {
     benchmark_lifecycle("Q4");
+}
+
+#[test]
+fn benchmark_l_frontends_and_rebuilds() {
+    benchmark_lifecycle("L");
+}
+#[test]
+fn benchmark_m_frontends_and_rebuilds() {
+    benchmark_lifecycle("M");
+}
+
+#[test]
+fn a_generated_cell_is_created_once_and_never_rewritten() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let fixtures =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/mashup/pages");
+    copy_fixture(&fixtures.join("bench_solution"), root);
+    std::fs::copy(
+        fixtures.join("bench_l/page.yaml"),
+        root.join("input.page.yaml"),
+    )
+    .unwrap();
+    let args = [
+        "mashup",
+        "new",
+        "Acme.BenchSpecL_MU",
+        "--project",
+        "Acme.Bench",
+        "--spec",
+        "input.page.yaml",
+        "--apply",
+        "--json",
+    ];
+    let applied = cli(root, &args);
+    assert_eq!(
+        applied["cells"],
+        serde_json::json!(["Acme.BenchSpecLCell_MU"])
+    );
+    let cell = root.join("src/Acme.BenchSpecLCell_MU");
+    assert!(cell.join("page.yaml").exists());
+    assert!(cell.join(".page-baseline.json").exists());
+    assert!(root.join("Mashups/Acme.BenchSpecLCell_MU.xml").exists());
+    // The cell is a page of its own: rebuilding it is a no-op, and a hand edit survives the
+    // page's rebuild, which does not touch it.
+    let rebuilt = cli(
+        root,
+        &["mashup", "build", "Acme.BenchSpecLCell_MU", "--json"],
+    );
+    assert_eq!(rebuilt["files"], serde_json::json!([]));
+    let content = cell.join("mashup/content.json");
+    let baseline: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(cell.join(".page-baseline.json")).unwrap()).unwrap();
+    let title = baseline["ids"]["title"].as_str().unwrap();
+    let original = std::fs::read_to_string(&content).unwrap();
+    cli(
+        root,
+        &[
+            "mashup",
+            "set",
+            "Acme.BenchSpecLCell_MU",
+            title,
+            "--prop",
+            "LabelType=title",
+            "--apply",
+            "--json",
+        ],
+    );
+    let handmade = std::fs::read_to_string(&content).unwrap();
+    assert_ne!(handmade, original);
+    let again = cli(root, &["mashup", "build", "Acme.BenchSpecL_MU", "--json"]);
+    assert_eq!(again["files"], serde_json::json!([]));
+    assert_eq!(again["cells"], serde_json::json!([]));
+    assert_eq!(std::fs::read_to_string(&content).unwrap(), handmade);
 }

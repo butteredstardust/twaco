@@ -163,6 +163,30 @@ pub(crate) fn plan_collection_add(
     solution: &Solution,
     request: &CollectionAddRequest,
 ) -> Result<CollectionAddPlan, AuthoringError> {
+    let cell = load_existing(solution, &request.cell)?;
+    let parent = load_existing(solution, &request.mashup)?;
+    plan_collection(solution, request, parent, &cell, None)
+}
+
+/// The same, for a collection widget already in the mashup (a page session adds the widget with
+/// the rest of the layout, and configures it once the data calls exist).
+pub(super) fn plan_collection_configure_loaded(
+    solution: &Solution,
+    request: &CollectionAddRequest,
+    parent: super::ExistingMashup,
+    cell: &super::ExistingMashup,
+    widget: &str,
+) -> Result<CollectionAddPlan, AuthoringError> {
+    plan_collection(solution, request, parent, cell, Some(widget))
+}
+
+fn plan_collection(
+    solution: &Solution,
+    request: &CollectionAddRequest,
+    parent: super::ExistingMashup,
+    cell: &super::ExistingMashup,
+    existing: Option<&str>,
+) -> Result<CollectionAddPlan, AuthoringError> {
     if request.mashup == request.cell {
         return Err(AuthoringError::Refused(
             "a mashup cannot use itself as a collection cell".into(),
@@ -225,7 +249,6 @@ pub(crate) fn plan_collection_add(
         }
     };
     let (cell_width, cell_height) = cell_size(request)?;
-    let cell = load_existing(solution, &request.cell)?;
     let cell_parameters =
         mashup_parameters(&cell.entity_before).map_err(AuthoringError::Unreadable)?;
     for (_, parameter) in &request.mappings {
@@ -242,7 +265,6 @@ pub(crate) fn plan_collection_add(
             )));
         }
     }
-    let parent = load_existing(solution, &request.mashup)?;
     let mut document = parse_loaded(&parent)?;
     let address =
         parse_address(&request.data).map_err(|error| AuthoringError::Invalid(error.to_string()))?;
@@ -341,7 +363,7 @@ pub(crate) fn plan_collection_add(
     for (field, parameter) in &request.mappings {
         property_binding.insert(field.clone(), Value::String(parameter.clone()));
     }
-    let mut properties = vec![
+    let mut properties: Vec<(String, String)> = vec![
         ("Mashup".into(), request.cell.clone()),
         (
             "MashupPropertyBinding".into(),
@@ -367,30 +389,49 @@ pub(crate) fn plan_collection_add(
     }
     // `plan_add` owns catalogue defaults, id allocation and responsive placement. Re-open its
     // pure result so the binding joins the same final sync and transaction.
-    let added = plan_add(
-        solution,
-        &super::AddRequest {
-            mashup: request.mashup.clone(),
-            widget: "ptcscollection".into(),
-            inputs: Vec::new(),
-            placement: request.placement.clone(),
-            label: None,
-            properties,
-        },
-    )?;
-    let assets = mashup::extract(&added.edit.entity_after).map_err(AuthoringError::Mashup)?;
-    document = mashup::edit::parse(&assets.content).map_err(AuthoringError::Edit)?;
+    let placed_id = if let Some(widget) = existing {
+        let found = document.find_exact(widget).map_err(AuthoringError::Edit)?;
+        if found.type_id != "ptcscollection" {
+            return Err(AuthoringError::Invalid(format!(
+                "{widget} is a {}, not a collection",
+                found.type_id
+            )));
+        }
+        let contract = widgets::catalog()
+            .by_type("ptcscollection")
+            .expect("the catalogue has the collection");
+        for (name, value) in properties {
+            let value = super::add::property_value(contract, &name, Value::String(value))?;
+            document.set_property(&found.path, &name, value);
+        }
+        found.id
+    } else {
+        let added = plan_add(
+            solution,
+            &super::AddRequest {
+                mashup: request.mashup.clone(),
+                widget: "ptcscollection".into(),
+                inputs: Vec::new(),
+                placement: request.placement.clone(),
+                label: None,
+                properties,
+            },
+        )?;
+        let assets = mashup::extract(&added.edit.entity_after).map_err(AuthoringError::Mashup)?;
+        document = mashup::edit::parse(&assets.content).map_err(AuthoringError::Edit)?;
+        added.placed.id
+    };
     if let Some(preset) = request.preset {
         super::set::style_properties(document.root_properties(), &request.mashup)?;
         super::set::copy_style_entry(
             &mut document,
-            &added.placed.id,
+            &placed_id,
             preset.style(),
             None,
             &mut Vec::new(),
         );
     }
-    let target = format!("ui:{}.Data", added.placed.id);
+    let target = format!("ui:{placed_id}.Data");
     bind_in(
         &mut document,
         Some(solution),
@@ -440,7 +481,7 @@ pub(crate) fn plan_collection_add(
     }
     Ok(CollectionAddPlan {
         edit: finish_edit(parent, document, "mashup collection add")?,
-        id: added.placed.id,
+        id: placed_id,
         cell: request.cell.clone(),
         mappings: request.mappings.clone(),
         uid: request.uid.clone(),

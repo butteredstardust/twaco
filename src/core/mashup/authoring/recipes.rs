@@ -195,6 +195,22 @@ pub enum Recipe {
         no_none_row: bool,
         /// AutoSelectFirstRow on.
         auto_select_first: bool,
+        /// A list that selects several rows (MultiSelect on).
+        multiple: bool,
+    },
+    /// The kit's grey left column: fixed 276px, a title row over a one-tab strip whose tab holds
+    /// the content.
+    SidePanel {
+        container: String,
+        title: String,
+        info: Option<String>,
+        tab: String,
+    },
+    /// The kit's "No results." empty state of a collection, grid or list.
+    EmptyState {
+        widget: String,
+        text: String,
+        data: Option<String>,
     },
     /// A menu bar showing a Menu of sub-Menus as an accordion, in a column of a fixed width.
     NestedMenu {
@@ -266,6 +282,8 @@ impl Recipe {
             Self::Columns { .. } => "columns",
             Self::Pagination { .. } => "pagination",
             Self::Picker { .. } => "picker",
+            Self::SidePanel { .. } => "side-panel",
+            Self::EmptyState { .. } => "empty-state",
         }
     }
 }
@@ -1206,6 +1224,31 @@ impl Work<'_> {
         Ok(())
     }
 
+    /// An expression into `Disabled` (enable-when) or `Visible` (show-when) of a widget,
+    /// evaluated on load and whenever its inputs change.
+    fn condition_gate(
+        &mut self,
+        target: &str,
+        enable: bool,
+        condition: &str,
+        inputs: &[(String, String)],
+    ) -> Result<(), AuthoringError> {
+        let expression = if enable {
+            format!("Output = !({condition});")
+        } else {
+            format!("Output = ({condition});")
+        };
+        let id = self.computed("expression2", &expression, Some("BOOLEAN"), inputs, true)?;
+        self.bind(
+            &format!("ui:{id}.Output"),
+            &format!(
+                "ui:{target}.{}",
+                if enable { "Disabled" } else { "Visible" }
+            ),
+        )?;
+        self.on("mashup:Loaded", &format!("ui:{id}.Evaluate"))
+    }
+
     fn on(&mut self, event: &str, invoke: &str) -> Result<(), AuthoringError> {
         on_in(&mut self.document, &self.context, event, invoke)?;
         self.wired.push(format!("{event} runs {invoke}"));
@@ -1749,21 +1792,7 @@ pub(super) fn plan_recipe_loaded(
         } => {
             let target = widget_id(&work.document, widget)?;
             let enable = matches!(request.recipe, Recipe::EnableWhen { .. });
-            let expression = if enable {
-                format!("Output = !({condition});")
-            } else {
-                format!("Output = ({condition});")
-            };
-            let id = work.computed("expression2", &expression, Some("BOOLEAN"), inputs, true)?;
-            work.bind(
-                &format!("ui:{id}.Output"),
-                &format!(
-                    "ui:{}.{}",
-                    target.id,
-                    if enable { "Disabled" } else { "Visible" }
-                ),
-            )?;
-            work.on("mashup:Loaded", &format!("ui:{id}.Evaluate"))?;
+            work.condition_gate(&target.id, enable, condition, inputs)?;
         }
         Recipe::Text {
             widget,
@@ -2599,6 +2628,7 @@ pub(super) fn plan_recipe_loaded(
             selected,
             no_none_row,
             auto_select_first,
+            multiple,
         } => {
             let target = widget_id(&work.document, widget)?;
             if !matches!(target.type_id.as_str(), "ptcsdropdown" | "ptcslist") {
@@ -2623,11 +2653,29 @@ pub(super) fn plan_recipe_loaded(
             if *auto_select_first {
                 properties.push(("AutoSelectFirstRow", json!(true)));
             }
+            if *multiple {
+                if target.type_id != "ptcslist" {
+                    return Err(AuthoringError::Invalid(format!(
+                        "{} is a {}; --multiple needs a list",
+                        target.id, target.type_id
+                    )));
+                }
+                properties.push(("MultiSelect", json!(true)));
+            }
             work.set(&target, &properties);
             work.bind(data, &format!("ui:{}.Data", target.id))?;
             if let Some(selected) = selected {
                 work.bind(selected, &format!("ui:{}.SelectedText", target.id))?;
             }
+        }
+        Recipe::SidePanel {
+            container,
+            title,
+            info,
+            tab,
+        } => work.side_panel(container, title, info.as_deref(), tab)?,
+        Recipe::EmptyState { widget, text, data } => {
+            work.empty_state(widget, text, data.as_deref())?
         }
         Recipe::NestedMenu {
             menubar,
@@ -2976,6 +3024,10 @@ pub struct RecipeArgs {
     pub width: Option<u32>,
     /// navigate-on-click: the field of the selected row that names the mashup.
     pub field: Option<String>,
+    /// side-panel: the tooltip of the information icon after the title.
+    pub info: Option<String>,
+    /// picker: a list that selects several rows.
+    pub multiple: bool,
 }
 
 /// The recipe names, for help and errors.
@@ -3005,6 +3057,8 @@ pub const RECIPES: &[&str] = &[
     "set-on-click",
     "nested-menu",
     "navigate-on-click",
+    "side-panel",
+    "empty-state",
 ];
 
 fn field_caption(name: &str) -> String {
@@ -3162,7 +3216,13 @@ impl Recipe {
             (args.toggle.is_some(), "--toggle", "collapsible"),
             (args.add_toggle, "--add-toggle", "collapsible"),
             (args.in_container.is_some(), "--in", "collapsible"),
-            (args.tab.is_some(), "--tab", "collapsible"),
+            (
+                args.tab.is_some() && name != "side-panel",
+                "--tab",
+                "collapsible",
+            ),
+            (args.info.is_some(), "--info", "side-panel"),
+            (args.multiple, "--multiple", "picker"),
             (args.start.is_some(), "--start", "collapsible"),
             (args.action_label.is_some(), "--action-label", "confirm"),
             (args.cancel_label.is_some(), "--cancel-label", "confirm"),
@@ -3477,6 +3537,18 @@ impl Recipe {
                 selected: args.selected.clone(),
                 no_none_row: args.no_none_row,
                 auto_select_first: args.auto_select_first,
+                multiple: args.multiple,
+            },
+            "side-panel" => Recipe::SidePanel {
+                container: widget("an empty responsive column")?,
+                title: required(&args.title, "--title <text>", name)?,
+                info: args.info.clone(),
+                tab: args.tab.clone().unwrap_or_else(|| "Filters".into()),
+            },
+            "empty-state" => Recipe::EmptyState {
+                widget: widget("the collection, grid or list")?,
+                text: required(&args.say, "--say <text>", name)?,
+                data: args.data.clone(),
             },
             "nested-menu" => Recipe::NestedMenu {
                 menubar: widget("the menu bar")?,

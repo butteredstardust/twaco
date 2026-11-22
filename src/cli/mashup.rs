@@ -594,6 +594,10 @@ pub(crate) struct MashupRecipe {
     pub(crate) no_none_row: bool,
     #[arg(long = "auto-select-first")]
     pub(crate) auto_select_first: bool,
+    #[arg(long = "multiple")]
+    pub(crate) multiple: bool,
+    #[arg(long = "info", value_name = "text")]
+    pub(crate) info: Option<String>,
     #[arg(long = "menu", value_name = "Menu")]
     pub(crate) menu: Option<String>,
     #[arg(long = "no-auto-collapse")]
@@ -989,6 +993,8 @@ pub(crate) fn mashup_recipe_cmd(solution: &Solution, args: &MashupRecipe) -> u8 
         no_none_row: args.no_none_row,
         series: args.series.clone(),
         auto_select_first: args.auto_select_first,
+        multiple: args.multiple,
+        info: args.info.clone(),
         menu: args.menu.clone(),
         no_auto_collapse: args.no_auto_collapse,
         width,
