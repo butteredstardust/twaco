@@ -624,6 +624,8 @@ pub(crate) struct MashupRecipe {
     pub(crate) x_title: Option<String>,
     #[arg(long = "y-title", value_name = "text")]
     pub(crate) y_title: Option<String>,
+    #[arg(long = "series", value_name = "field:kind[:axis]")]
+    pub(crate) series: Vec<String>,
 
     #[arg(long = "replace", value_name = "widget")]
     pub(crate) replace: Option<String>,
@@ -665,6 +667,8 @@ pub(crate) struct MashupNew {
     pub(crate) project: Project,
     #[arg(long = "template", value_name = "name")]
     pub(crate) template: Option<String>,
+    #[arg(long = "rules", value_name = "legacy|v1")]
+    pub(crate) rules: Option<String>,
     #[arg(long = "from", value_name = "address")]
     pub(crate) from: Option<String>,
     #[arg(long = "replace", value_name = "old=new")]
@@ -704,6 +708,7 @@ pub(crate) fn mashup_new_cmd(solution: &Solution, args: &MashupNew) -> u8 {
     if let Some(spec) = &args.spec {
         if args.gadget
             || args.template.is_some()
+            || args.rules.is_some()
             || args.from.is_some()
             || args.layout.is_some()
             || args.primary_menu.is_some()
@@ -772,6 +777,7 @@ pub(crate) fn mashup_new_cmd(solution: &Solution, args: &MashupNew) -> u8 {
             name: name.clone(),
             project: args.project.project.clone(),
             template,
+            rules: args.rules.clone(),
             gadget: args.gadget,
             layout: args.layout.clone().filter(|_| args.gadget),
             primary_menu: args.primary_menu.clone(),
@@ -981,6 +987,7 @@ pub(crate) fn mashup_recipe_cmd(solution: &Solution, args: &MashupRecipe) -> u8 
         column_editors: args.column_editors.clone(),
         preserve_whitespace: args.preserve_whitespace.clone(),
         no_none_row: args.no_none_row,
+        series: args.series.clone(),
         auto_select_first: args.auto_select_first,
         menu: args.menu.clone(),
         no_auto_collapse: args.no_auto_collapse,

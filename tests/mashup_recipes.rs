@@ -1044,7 +1044,14 @@ fn layout_fixture(root: &Path, slider: bool, edit: impl FnOnce(&mut Value)) {
     invoke(
         root,
         false,
-        &["mashup", "new", "Acme.Layout_MU", "--apply"],
+        &[
+            "mashup",
+            "new",
+            "Acme.Layout_MU",
+            "--rules",
+            "legacy",
+            "--apply",
+        ],
         "",
         json!({}),
     );
@@ -1995,7 +2002,7 @@ fn n7_columns_render_kit_status_icon_and_text_without_header_dividers() {
 }
 
 #[test]
-fn n7_filter_title_and_footer_match_kit_alignment_and_spacing() {
+fn default_v1_filter_title_and_footer_match_kit_alignment_and_spacing() {
     for mcp in [false, true] {
         let dir = n7_fixture();
         let root = dir.path();
@@ -2011,7 +2018,7 @@ fn n7_filter_title_and_footer_match_kit_alignment_and_spacing() {
             "left"
         );
         let footer = named(&content["UI"], "filter-footer").unwrap();
-        assert_eq!(footer["Properties"]["Margin"], "24");
+        assert_eq!(footer["Properties"]["Margin"], "0 20");
         assert_eq!(footer["Properties"]["flex-grow"], 0);
         let column = named(&content["UI"], "filter-column").unwrap();
         assert_eq!(
@@ -2194,5 +2201,451 @@ fn n7_narrow_date_picker_defaults_to_short_dates_and_explicit_format_wins() {
         );
         let content = n7_content(root);
         assert!(content.to_string().contains("YYYY-MM-DD"));
+    }
+}
+
+fn parity_new(root: &Path, mcp: bool, template: &str) {
+    invoke(
+        root,
+        mcp,
+        &[
+            "mashup",
+            "new",
+            "Acme.Layout_MU",
+            "--template",
+            template,
+            "--apply",
+        ],
+        "mashup_new",
+        json!({"name":"Acme.Layout_MU","template":template,"dry_run":false}),
+    );
+}
+
+#[test]
+fn command_default_v1_page_fit_preserves_tall_content_and_pagination() {
+    for mcp in [false, true] {
+        for template in ["blank", "list-page"] {
+            let dir = n7_fixture();
+            let root = dir.path();
+            parity_new(root, mcp, template);
+            let slot = if template == "blank" {
+                "center"
+            } else {
+                "body"
+            };
+            let grid = n7_add(root, mcp, "grid", slot);
+            n7_recipe(
+                root,
+                mcp,
+                "columns",
+                &grid,
+                &["--data", "data:Acme.Manager.GetRows", "--column", "Value"],
+                json!({"data":"data:Acme.Manager.GetRows","columns":["Value"]}),
+            );
+            invoke(
+                root,
+                mcp,
+                &[
+                    "mashup",
+                    "set",
+                    "Acme.Layout_MU",
+                    &grid,
+                    "--prop",
+                    "Height=1100",
+                    "--apply",
+                ],
+                "mashup_set",
+                json!({"mashup":"Acme.Layout_MU","widget":grid,"properties":{"Height":1100},"dry_run":false}),
+            );
+            n7_recipe(
+                root,
+                mcp,
+                "pagination",
+                &grid,
+                &["--data", "data:Acme.Manager.GetRows"],
+                json!({"data":"data:Acme.Manager.GetRows"}),
+            );
+            if template == "blank" {
+                n7_recipe(root, mcp, "panel", slot, &[], json!({}));
+                let css =
+                    std::fs::read_to_string(root.join("src/Acme.Layout_MU/mashup/custom.css"))
+                        .unwrap();
+                assert!(css.contains("height: auto !important"));
+                assert!(!css.contains("min-height: 0 !important"));
+                assert!(css.contains("flex: 1 0 auto"));
+            }
+            let c = n7_content(root);
+            fn check(node: &Value) {
+                if node["Properties"]["Type"] == "flexcontainer" {
+                    assert_eq!(node["Properties"]["ShowVerticalScrollbar"], false);
+                    assert_eq!(node["Properties"]["scrolling"], "no-scroll");
+                }
+                for child in node["Widgets"].as_array().into_iter().flatten() {
+                    check(child);
+                }
+            }
+            check(&c["UI"]);
+            assert!(properties(&c["UI"], "ptcspagination").is_some());
+            let page = &c["UI"]["Widgets"][0]["Properties"];
+            let floor = page["flex-min-height"]
+                .as_str()
+                .unwrap()
+                .trim_end_matches("px")
+                .parse::<u32>()
+                .unwrap();
+            assert!(floor >= 1100, "{page}");
+        }
+    }
+}
+
+#[test]
+fn command_default_v1_filter_fields_start_above_a_pinned_footer() {
+    for mcp in [false, true] {
+        let dir = n7_fixture();
+        let root = dir.path();
+        parity_new(root, mcp, "filter-panel");
+        n7_add(root, mcp, "textfield", "filters");
+        n7_add(root, mcp, "datepicker", "filters");
+        n7_add(root, mcp, "button", "filter-footer");
+        n7_add(root, mcp, "button", "filter-footer");
+        let c = n7_content(root);
+        let fields = &named(&c["UI"], "filters").unwrap()["Properties"];
+        assert_eq!(fields["justify-content"], "flex-start");
+        assert_eq!(fields["flex-grow"], 1);
+        assert_eq!(fields["flex-shrink"], 1);
+        assert_eq!(fields["flex-min-height"], "112px");
+        assert_eq!(fields["flex-basis"], "0px");
+        assert_eq!(
+            c["UI"]["Properties"]["StyleProperties"]["data"][named(&c["UI"], "filter-column")
+                .unwrap()["Properties"]["Id"]
+                .as_str()
+                .unwrap()]["parts"]["$"]["$"]["max-height"],
+            "100vh"
+        );
+        let footer = &named(&c["UI"], "filter-footer").unwrap()["Properties"];
+        assert_eq!(footer["flex-grow"], 0);
+        assert_eq!(footer["flex-min-height"], "34px");
+        assert_eq!(footer["flex-max-height"], "34px");
+        assert_eq!(fields["ShowVerticalScrollbar"], true);
+        assert_eq!(footer["ShowVerticalScrollbar"], false);
+    }
+}
+
+#[test]
+fn command_columns_can_select_the_first_row() {
+    for mcp in [false, true] {
+        let dir = n7_fixture();
+        let root = dir.path();
+        n7_new(root, mcp, "blank");
+        let grid = n7_add(root, mcp, "grid", "center");
+        n7_recipe(
+            root,
+            mcp,
+            "columns",
+            &grid,
+            &[
+                "--data",
+                "data:Acme.Manager.GetRows",
+                "--column",
+                "Value",
+                "--auto-select-first",
+            ],
+            json!({"data":"data:Acme.Manager.GetRows","columns":["Value"],"auto_select_first":true}),
+        );
+        let c = n7_content(root);
+        assert_eq!(
+            properties(&c["UI"], "ptcsgrid").unwrap()["DefaultSelectedRows"],
+            "1"
+        );
+    }
+}
+
+#[test]
+fn command_combo_series_share_secondary_axis_and_compact_legend_props() {
+    for mcp in [false, true] {
+        let dir = n7_fixture();
+        let root = dir.path();
+        n7_new(root, mcp, "blank");
+        let chart = n7_add(root, mcp, "ptcschartcombo", "center");
+        n7_recipe(
+            root,
+            mcp,
+            "chart",
+            &chart,
+            &[
+                "--data",
+                "data:Acme.Manager.GetRows",
+                "--x",
+                "Severity",
+                "--series",
+                "Value:bar",
+                "--series",
+                "Value:line:secondary",
+            ],
+            json!({"data":"data:Acme.Manager.GetRows","x":"Severity","series":["Value:bar","Value:line:secondary"]}),
+        );
+        let c = n7_content(root);
+        let p = properties(&c["UI"], "ptcschartcombo").unwrap();
+        assert_eq!(p["Series1Type"], "bar");
+        assert_eq!(p["Series2Type"], "line");
+        assert_eq!(p["DisplaySeries2On"], "yaxis2");
+        assert_eq!(p["NumberOfYaxes"], 2);
+        assert_eq!(p["YAxis2Label"], "Value");
+        assert_eq!(p["YAxis2Position"], "right");
+        assert_eq!(p["DisableLegendGrouping"], true);
+        assert_eq!(p["LegendPosition"], "bottom");
+        assert!(p["DataField3"].is_null() || p["DataField3"] == "");
+        n7_recipe(
+            root,
+            mcp,
+            "chart",
+            &chart,
+            &[
+                "--data",
+                "data:Acme.Manager.GetRows",
+                "--x",
+                "Severity",
+                "--series",
+                "Value:line",
+            ],
+            json!({"data":"data:Acme.Manager.GetRows","x":"Severity","series":["Value:line"]}),
+        );
+        let c = n7_content(root);
+        let p = properties(&c["UI"], "ptcschartcombo").unwrap();
+        assert_eq!(p["NumberOfYaxes"], 1);
+        assert_eq!(p["DataField2"], "");
+    }
+}
+
+#[test]
+fn command_sparkline_fits_40px_and_binds_service_rows_directly() {
+    for mcp in [false, true] {
+        let dir = n7_fixture();
+        let root = dir.path();
+        n7_new(root, mcp, "blank");
+        n7_add(root, mcp, "label", "center");
+        n7_recipe(
+            root,
+            mcp,
+            "sparkline",
+            "center",
+            &[
+                "--data",
+                "data:Acme.Manager.GetRows",
+                "--x",
+                "Severity",
+                "--value",
+                "Value",
+            ],
+            json!({"data":"data:Acme.Manager.GetRows","x":"Severity","value":"Value"}),
+        );
+        let c = n7_content(root);
+        let p = properties(&c["UI"], "ptcschartline").unwrap();
+        assert_eq!(p["LabelType"], "label");
+        for key in [
+            "HorizontalAxisMaxHeight",
+            "VerticalAxisMaxWidth",
+            "LegendMaxWidth",
+        ] {
+            assert_eq!(p[key], 0);
+        }
+        for key in [
+            "HorizontalZoom",
+            "HorizontalRangeZoom",
+            "HorizontalSliderZoom",
+            "VerticalZoom",
+            "VerticalSliderZoom",
+            "ShowZoomButtons",
+            "ShowHideLegend",
+        ] {
+            assert_eq!(p[key], false);
+        }
+        assert!(p.get("YAxisMinimumValues").is_none());
+        assert!(p.get("YAxisMaximumValues").is_none());
+        assert_eq!(p["Height"], 40);
+        assert_eq!(p["ResponsiveLayout"], true);
+        assert!(p.get("Width").is_none());
+        assert_eq!(p["SparkView"], true);
+        assert_eq!(p["HideXAxis"], true);
+        assert_eq!(p["HideYAxis"], true);
+        assert_eq!(p["HideLegend"], true);
+        assert_eq!(p["DataField1"], "Value");
+        assert_eq!(p["XAxisField"], "Severity");
+        fn wrapper<'a>(v: &'a Value, id: &Value) -> Option<&'a Value> {
+            if v["Widgets"]
+                .as_array()
+                .is_some_and(|a| a.iter().any(|c| c["Properties"]["Id"] == *id))
+            {
+                return Some(v);
+            }
+            v["Widgets"].as_array()?.iter().find_map(|c| wrapper(c, id))
+        }
+        let w = wrapper(&c["UI"], &p["Id"]).unwrap();
+        assert_eq!(w["Properties"]["flex-min-height"], "40px");
+        assert_eq!(w["Properties"]["flex-max-height"], "40px");
+        let parts =
+            &c["UI"]["Properties"]["StyleProperties"]["data"][p["Id"].as_str().unwrap()]["parts"];
+        assert_eq!(parts["$"]["$"]["min-height"], "0px");
+        assert_eq!(parts["chart-layout"]["$"]["padding-top"], "0px");
+        for part in [
+            "title-area",
+            "notes-area",
+            "legend-area",
+            "action-bar-area",
+            "zoom-xaxis",
+            "zoom-yaxis",
+            "xaxis",
+            "yaxis",
+            "yaxis2",
+        ] {
+            assert_eq!(parts[part]["$"]["display"], "none", "{part}");
+        }
+        let b = c["DataBindings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|b| b["TargetId"] == p["Id"])
+            .unwrap();
+        assert_eq!(b["SourceArea"], "Data");
+        assert_eq!(b["SourceDetails"], "AllData");
+        assert!(properties(&c["UI"], "ptcslabel").is_some());
+        assert!(properties(&c["UI"], "expression2").is_none());
+    }
+}
+
+#[test]
+fn command_chart_and_sparkline_errors_preserve_entity_and_sidecars() {
+    let dir = n7_fixture();
+    let root = dir.path();
+    n7_new(root, false, "blank");
+    let chart = n7_add(root, false, "ptcschartcombo", "center");
+    let content = root.join("src/Acme.Layout_MU/mashup/content.json");
+    let entity = root.join("Mashups/Acme.Layout_MU.xml");
+    let before = (
+        std::fs::read(&content).unwrap(),
+        std::fs::read(&entity).unwrap(),
+    );
+    for series in [
+        "Value:area",
+        "Value:line:tertiary",
+        "Missing:bar",
+        "Severity:line",
+        "Value:bar:primary:extra",
+    ] {
+        let out = Command::new(env!("CARGO_BIN_EXE_twaco"))
+            .current_dir(root)
+            .env_clear()
+            .args([
+                "mashup",
+                "recipe",
+                "chart",
+                "Acme.Layout_MU",
+                &chart,
+                "--data",
+                "data:Acme.Manager.GetRows",
+                "--x",
+                "Severity",
+                "--series",
+                series,
+                "--apply",
+            ])
+            .output()
+            .unwrap();
+        assert!(!out.status.success(), "{series}");
+        assert!(!out.stderr.is_empty());
+        assert_eq!(
+            (
+                std::fs::read(&content).unwrap(),
+                std::fs::read(&entity).unwrap()
+            ),
+            before
+        );
+    }
+    for value in ["Missing", "Severity"] {
+        let out = Command::new(env!("CARGO_BIN_EXE_twaco"))
+            .current_dir(root)
+            .env_clear()
+            .args([
+                "mashup",
+                "recipe",
+                "sparkline",
+                "Acme.Layout_MU",
+                "center",
+                "--data",
+                "data:Acme.Manager.GetRows",
+                "--x",
+                "Severity",
+                "--value",
+                value,
+                "--apply",
+            ])
+            .output()
+            .unwrap();
+        assert!(!out.status.success());
+        assert_eq!(
+            (
+                std::fs::read(&content).unwrap(),
+                std::fs::read(&entity).unwrap()
+            ),
+            before
+        );
+    }
+}
+
+#[test]
+fn creation_rules_survive_add_set_and_recipe_edits() {
+    for mcp in [false, true] {
+        for rules in [None, Some("v1"), Some("legacy")] {
+            let dir = n7_fixture();
+            let root = dir.path();
+            let mut cli = vec!["mashup", "new", "Acme.Layout_MU", "--apply"];
+            let mut arguments = json!({"name":"Acme.Layout_MU","dry_run":false});
+            if let Some(rules) = rules {
+                cli.extend(["--rules", rules]);
+                arguments["rules"] = json!(rules);
+            }
+            invoke(root, mcp, &cli, "mashup_new", arguments);
+            let v1 = rules != Some("legacy");
+            let check = || {
+                let content = n7_content(root);
+                assert_eq!(
+                    content.get("twacoPageRules"),
+                    v1.then(|| json!("v1")).as_ref()
+                );
+                let why = invoke(
+                    root,
+                    mcp,
+                    &["mashup", "why", "Acme.Layout_MU", "center"],
+                    "mashup_why",
+                    json!({"mashup":"Acme.Layout_MU","widget":"center"}),
+                );
+                assert_eq!(why["rules"], if v1 { "v1" } else { "legacy" });
+            };
+            check();
+            let label = n7_add(root, mcp, "label", "center");
+            check();
+            invoke(
+                root,
+                mcp,
+                &[
+                    "mashup",
+                    "set",
+                    "Acme.Layout_MU",
+                    &label,
+                    "--prop",
+                    "LabelText=Edited",
+                    "--apply",
+                ],
+                "mashup_set",
+                json!({"mashup":"Acme.Layout_MU","widget":label,"properties":{"LabelText":"Edited"},"dry_run":false}),
+            );
+            check();
+            n7_recipe(root, mcp, "panel", "center", &[], json!({}));
+            check();
+            let css =
+                std::fs::read_to_string(root.join("src/Acme.Layout_MU/mashup/custom.css")).unwrap();
+            assert_eq!(css.contains("height: auto !important"), v1, "{css}");
+            assert_eq!(css.contains("flex: 1 0 auto"), v1, "{css}");
+        }
     }
 }

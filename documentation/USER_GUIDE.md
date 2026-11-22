@@ -1777,6 +1777,36 @@ bindable properties include the parameters of the mashup it opens. The legacy `e
 
 ### Recipes
 
+Ordinary new mashups use the v1 page-spec layout rules by default:
+`twaco mashup new Acme.Dashboard_MU --template dashboard --apply`
+(or `--template blank`). v1 propagates content height to the page and disables inner
+container scrolling, so tall grids keep their pagination visible. Filter-panel fields
+start at the top, with Apply/Reset in `filter-footer` below the growing fields area.
+Panel recipes in v1 use automatic height and cannot shrink below their contents.
+Pass `--rules legacy` (MCP `rules: "legacy"`) to opt out at creation. Existing mashups
+keep their stored `twacoPageRules` for add, set and recipe edits; an absent marker
+means legacy. Copying with `--from` preserves the source rule set. Gadgets and masters
+keep their existing layout behavior.
+
+`recipe columns <mashup> <grid> --column Name --auto-select-first` sets
+`DefaultSelectedRows: "1"` and single-row selection; use it when the grid drives
+`label-pairs --row selected`. The existing picker flag keeps its native dropdown behavior.
+`label-pairs --status Severity --status-state Acme.Status_ST` keeps its offline
+StateDefinition mapping for status dots.
+
+For combo charts, repeat `--series Count:bar --series Total:line:secondary` on
+`recipe chart <mashup> <chart> --data data:Acme.Manager.GetRows --x Name`.
+The series order sets DataField/SeriesType slots, and secondary uses the right Y axis
+with the field name as its label. Legend groups are disabled and the legend sits
+at the bottom. An omitted axis means primary; only bar/line and primary/secondary
+are accepted. Without `--series`, existing automatic numeric-column selection remains.
+
+`recipe sparkline <mashup> <container> --data data:Acme.Manager.GetRows --x Name --value Count`
+adds a 40px line chart after the container's existing value content. It binds All Data
+directly, hides axes, rulers and legend, and clears the chart theme's height floor and
+padding. The same properties and styles implement page-spec trend-tile sparklines.
+
+
 ```sh
 twaco mashup recipe enable-when Acme.App.Edit_MU ptcsbutton-6 --if "note !== ''" --input note=ui:ptcstextfield-3.Text --apply
 twaco mashup recipe popup Acme.App.Orders_MU ptcsbutton-6 --mashup Acme.App.EditOrder_MU --pass orderId=data:Acme.App.Orders.Manager.GetOrders[SelectedRows].id --reload data:Acme.App.Orders.Manager.GetOrders --apply

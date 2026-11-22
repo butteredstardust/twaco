@@ -415,6 +415,11 @@ fn hand_written_tools() -> Vec<Value> {
         "Menu templates require primary_menu and may use secondary_menu.",
         "Menu templates require primary_menu (a service result) or menu_entity (a Menu in the solution); secondary_menu goes with primary_menu.",
     ));
+    new["description"] = json!(new["description"].as_str().unwrap().replace(
+        "template is a name or alias (blank by default); mashup_templates",
+        "Ordinary new mashups default to v1 layout rules; rules: legacy opts out. Existing mashup edits and from copies retain their stored rule set (no twacoPageRules means legacy). template is a name or alias (blank by default); mashup_templates",
+    ));
+    new["inputSchema"]["properties"]["rules"] = json!({"type":"string","enum":["legacy","v1"],"default":"v1","description":"Layout rules for a new ordinary mashup: v1 (default) or legacy to opt out."});
     new["inputSchema"]["properties"]["menu_entity"] = json!({
         "description": "A Menu entity in the solution as a sidebar's primary menu, instead of primary_menu.",
         "type": "string"
@@ -462,6 +467,7 @@ fn hand_written_tools() -> Vec<Value> {
         recipe["inputSchema"]["properties"][name] =
             json!({"description": description, "type": "boolean"});
     }
+    recipe["inputSchema"]["properties"]["series"] = json!({"type":"array","items":{"type":"string"},"description":"Combo series as field:bar|line[:primary|secondary]."});
     recipe["inputSchema"]["properties"]["button"] = json!({
         "description": "slider-action: the button after the slider named by widget.",
         "type": "string"
@@ -505,7 +511,7 @@ fn hand_written_tools() -> Vec<Value> {
         ),
         (
             "auto_select_first",
-            "A picker that selects its first row.",
+            "A picker or grid that selects its first row.",
             "boolean",
         ),
         ("menu", "The root Menu of recipe nested-menu.", "string"),
@@ -575,7 +581,7 @@ fn hand_written_tools() -> Vec<Value> {
     recipe["inputSchema"]["properties"]["label_columns"] = json!({"description": "label-pairs: number of columns, one per field by default, above zero.", "type": "integer", "minimum": 0});
     recipe["inputSchema"]["properties"]["replace"] = json!({"description": "label-pairs: widget inside or beside the destination to remove with its bindings.", "type": "string"});
     recipe["inputSchema"]["properties"]["width"] = json!({"description": "nested-menu: column width (300); toolbar: search field width (240), in pixels.", "type": "integer", "minimum": 0});
-    recipe["inputSchema"]["properties"]["recipe"]["description"] = json!("panel styles a responsive column; slider-action pairs widget (slider) with button. toolbar uses widget as the empty responsive container, then, search_param, hint, width, run_on and buttons. enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, pagination, picker, tracker, set-on-click, nested-menu, navigate-on-click or collapsible; label-pairs uses widget as the responsive container, data, fields, title, label_columns and replace.");
+    recipe["inputSchema"]["properties"]["recipe"]["description"] = json!("panel styles a responsive column; slider-action pairs widget (slider) with button. toolbar uses widget as the empty responsive container, then, search_param, hint, width, run_on and buttons. enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, sparkline, columns, pagination, picker, tracker, set-on-click, nested-menu, navigate-on-click or collapsible; label-pairs uses widget as the responsive container, data, fields, title, label_columns and replace.");
     let edit = tools
         .iter_mut()
         .find(|tool| tool["name"] == "entity_edit")

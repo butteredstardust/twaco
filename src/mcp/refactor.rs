@@ -602,6 +602,7 @@ pub(crate) fn mashup_new_tool(
     let dry_run = arguments.dry_run;
     if let Some(spec) = arguments.spec.as_ref() {
         if arguments.gadget
+            || !arguments.rules.is_absent()
             || !arguments.template.is_absent()
             || !arguments.from.is_absent()
             || !arguments.layout.is_absent()
@@ -663,6 +664,7 @@ pub(crate) fn mashup_new_tool(
             name: nonempty(&arguments.name, "name")?.to_string(),
             project: arguments.project.as_ref().cloned(),
             template,
+            rules: arguments.rules.as_ref().cloned(),
             gadget: arguments.gadget,
             layout: arguments
                 .layout
@@ -1143,6 +1145,7 @@ pub(crate) fn mashup_recipe_tool(
         column_editors: arguments.column_editors.items().to_vec(),
         preserve_whitespace: arguments.preserve_whitespace.items().to_vec(),
         no_none_row: arguments.no_none_row.as_ref().copied().unwrap_or(false),
+        series: arguments.series.items().to_vec(),
         auto_select_first: arguments
             .auto_select_first
             .as_ref()

@@ -12,8 +12,8 @@ page:
       - kpi_row:
           id: overview
           children:
-            - trend_tile: {id: objective, label: Area of Focus 01, value: {bind: focus.Objective}, unit: '%', trend: up}
-            - trend_tile: {id: measures, label: Area of Focus 02, value: {bind: focus.Measures}, unit: '%', trend: down}
+            - trend_tile: {id: objective, label: Area of Focus 01, value: {bind: focus.Objective}, unit: '%', trend: up, sparkline: {data: history, field: Value, x: year}}
+            - trend_tile: {id: measures, label: Area of Focus 02, value: {bind: focus.Measures}, unit: '%', trend: down, sparkline: {data: history, field: Value02, x: year}}
       - widget:
           id: focus_row
           type: flexcontainer
@@ -24,26 +24,26 @@ page:
                 id: focus_1
                 title: Area of Focus 01
                 children:
-                  - detail_pair: {id: focus_1_objective, label: Objective, value: {bind: focus.Objective}, kind: ok}
-                  - detail_pair: {id: focus_1_measures, label: Measures, value: {bind: focus.Measures}, kind: ok}
-                  - detail_pair: {id: focus_1_targets, label: Targets, value: {bind: focus.Targets}, kind: error}
-                  - detail_pair: {id: focus_1_invites, label: Invites, value: {bind: focus.Invites}, kind: warning}
+                  - detail_pair: {id: focus_1_objective, label: Objective, value: {bind: focus.Objective}, state: Acme.BenchKPI_State}
+                  - detail_pair: {id: focus_1_measures, label: Measures, value: {bind: focus.Measures}, state: Acme.BenchKPI_State}
+                  - detail_pair: {id: focus_1_targets, label: Targets, value: {bind: focus.Targets}, state: Acme.BenchKPI_State}
+                  - detail_pair: {id: focus_1_invites, label: Invites, value: {bind: focus.Invites}, state: Acme.BenchKPI_State}
             - card:
                 id: focus_2
                 title: Area of Focus 02
                 children:
-                  - detail_pair: {id: focus_2_objective, label: Objective, value: {bind: focus.Objective}, kind: ok}
-                  - detail_pair: {id: focus_2_measures, label: Measures, value: {bind: focus.Measures}, kind: ok}
-                  - detail_pair: {id: focus_2_targets, label: Targets, value: {bind: focus.Targets}, kind: error}
-                  - detail_pair: {id: focus_2_invites, label: Invites, value: {bind: focus.Invites}, kind: warning}
+                  - detail_pair: {id: focus_2_objective, label: Objective, value: {bind: focus.Objective}, state: Acme.BenchKPI_State}
+                  - detail_pair: {id: focus_2_measures, label: Measures, value: {bind: focus.Measures}, state: Acme.BenchKPI_State}
+                  - detail_pair: {id: focus_2_targets, label: Targets, value: {bind: focus.Targets}, state: Acme.BenchKPI_State}
+                  - detail_pair: {id: focus_2_invites, label: Invites, value: {bind: focus.Invites}, state: Acme.BenchKPI_State}
             - card:
                 id: focus_3
                 title: Area of Focus 03
                 children:
-                  - detail_pair: {id: focus_3_objective, label: Objective, value: {bind: focus.Objective}, kind: ok}
-                  - detail_pair: {id: focus_3_measures, label: Measures, value: {bind: focus.Measures}, kind: ok}
-                  - detail_pair: {id: focus_3_targets, label: Targets, value: {bind: focus.Targets}, kind: error}
-                  - detail_pair: {id: focus_3_invites, label: Invites, value: {bind: focus.Invites}, kind: warning}
+                  - detail_pair: {id: focus_3_objective, label: Objective, value: {bind: focus.Objective}, state: Acme.BenchKPI_State}
+                  - detail_pair: {id: focus_3_measures, label: Measures, value: {bind: focus.Measures}, state: Acme.BenchKPI_State}
+                  - detail_pair: {id: focus_3_targets, label: Targets, value: {bind: focus.Targets}, state: Acme.BenchKPI_State}
+                  - detail_pair: {id: focus_3_invites, label: Invites, value: {bind: focus.Invites}, state: Acme.BenchKPI_State}
       - widget:
           id: charts
           type: flexcontainer
@@ -67,4 +67,4 @@ page:
                       kind: combo
                       data: history
                       x: year
-                      series: [{field: Value, kind: bar}, {field: Value02, kind: line}]
+                      series: [{field: Value, kind: bar}, {field: Value02, kind: line, title: Secondary trend, axis: secondary}]

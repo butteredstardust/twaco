@@ -149,7 +149,14 @@ pub enum Recipe {
     },
     /// A chart drawing a service result: `Data` bound, the category field named (pie: label and
     /// value fields). Every other numeric column of a single source becomes a series.
+    Sparkline {
+        container: String,
+        data: String,
+        x: String,
+        value: String,
+    },
     Chart {
+        series: Vec<String>,
         widget: String,
         data: String,
         x: String,
@@ -162,6 +169,7 @@ pub enum Recipe {
     },
     /// A grid's columns, in order, with titles and widths, rendered by each field's base type.
     Columns {
+        auto_select_first: bool,
         widget: String,
         data: Option<String>,
         columns: Vec<String>,
@@ -253,6 +261,7 @@ impl Recipe {
             Self::Validate { .. } => "validate",
             Self::NestedMenu { .. } => "nested-menu",
             Self::NavigateOnClick { .. } => "navigate-on-click",
+            Self::Sparkline { .. } => "sparkline",
             Self::Chart { .. } => "chart",
             Self::Columns { .. } => "columns",
             Self::Pagination { .. } => "pagination",
@@ -936,7 +945,7 @@ impl Work<'_> {
                 super::state_format::inline(
                     &super::state_format::read_definition(&bytes)?,
                     name,
-                    "Data",
+                    status.unwrap_or("Data"),
                 )
             })
             .transpose()?;
@@ -2060,7 +2069,60 @@ pub(super) fn plan_recipe_loaded(
             }
             work.on(&format!("ui:{id}.Refresh"), call)?;
         }
+        Recipe::Sparkline {
+            container,
+            data,
+            x,
+            value,
+        } => {
+            let target = widget_id(&work.document, container)?;
+            if target.type_id != "flexcontainer" {
+                return Err(AuthoringError::Invalid(format!(
+                    "{container}: sparkline needs a responsive container"
+                )));
+            }
+            let fields = work.result_fields(data);
+            work.field(&fields, x)?;
+            let base = work.field(&fields, value)?;
+            // An unknown result type (or a malformed address) is reported by the bind below.
+            if !base.is_empty() && !["NUMBER", "INTEGER", "LONG"].contains(&base.as_str()) {
+                return Err(AuthoringError::Invalid(format!(
+                    "sparkline field {value} must be numeric"
+                )));
+            }
+            let props = sparkline_props(x, value);
+            let props: Vec<_> = props.iter().map(|(k, v)| (k.as_str(), v.clone())).collect();
+            let wrapper = work.add_in(&target.path, "flexcontainer", &[]);
+            let wrapper = widget_id(&work.document, &wrapper)?;
+            let node = layout_rules::context::Node::op(
+                "sparkline-height",
+                layout_rules::Element::Container,
+            );
+            for (key, value) in layout_rules::RuleSet::embedded(layout_rules::Version::V1)
+                .evaluate(&node.context())
+                .patch()
+            {
+                work.document.set_property(&wrapper.path, key, value);
+            }
+            let id = work.add_in(&wrapper.path, "ptcschartline", &props);
+            let chart = widget_id(&work.document, &id)?;
+            work.document
+                .set_property(&chart.path, "ResponsiveLayout", json!(true));
+            work.document.at_mut(&chart.path)["Properties"]
+                .as_object_mut()
+                .unwrap()
+                .remove("Width");
+            super::set::copy_style_entry(
+                &mut work.document,
+                &id,
+                sparkline_style(),
+                None,
+                &mut vec![],
+            );
+            work.bind(data, &format!("ui:{id}.Data"))?;
+        }
         Recipe::Chart {
+            series: configured,
             widget,
             data,
             x,
@@ -2191,9 +2253,58 @@ pub(super) fn plan_recipe_loaded(
                 }
             }
             work.set(&target, &properties);
+            if !configured.is_empty() {
+                if target.type_id != "ptcschartcombo" {
+                    return Err(AuthoringError::Invalid(
+                        "--series needs a combo chart".into(),
+                    ));
+                }
+                let mut selected = Vec::new();
+                for text in configured {
+                    let parts: Vec<_> = text.split(':').collect();
+                    if !(2..=3).contains(&parts.len())
+                        || parts[0].is_empty()
+                        || !["bar", "line"].contains(&parts[1])
+                        || parts
+                            .get(2)
+                            .is_some_and(|a| !["primary", "secondary"].contains(a))
+                    {
+                        return Err(AuthoringError::Invalid(format!(
+                            "--series {text:?} must be field:bar|line[:primary|secondary]"
+                        )));
+                    }
+                    let base = work.field(&fields, parts[0])?;
+                    if !["NUMBER", "INTEGER", "LONG"].contains(&base.as_str()) {
+                        return Err(AuthoringError::Invalid(format!(
+                            "--series {} must be numeric",
+                            parts[0]
+                        )));
+                    }
+                    selected.push((
+                        parts[0].to_string(),
+                        parts[1].to_string(),
+                        None,
+                        parts.get(2).map(|a| a.to_string()),
+                    ));
+                }
+                if selected.len() > MAX_COMBO_SERIES {
+                    return Err(AuthoringError::Invalid(
+                        "--series supports at most 24 series".into(),
+                    ));
+                }
+                let props = combo_props(&selected, &work.document.at(&target.path)["Properties"]);
+                work.set(
+                    &target,
+                    &props
+                        .iter()
+                        .map(|(k, v)| (k.as_str(), v.clone()))
+                        .collect::<Vec<_>>(),
+                );
+            }
             work.bind(data, &format!("ui:{}.Data", target.id))?;
         }
         Recipe::Columns {
+            auto_select_first,
             widget,
             data,
             columns,
@@ -2209,6 +2320,15 @@ pub(super) fn plan_recipe_loaded(
                     "{} is a {}, not a grid",
                     target.id, target.type_id
                 )));
+            }
+            if *auto_select_first {
+                work.set(
+                    &target,
+                    &[
+                        ("DefaultSelectedRows", json!("1")),
+                        ("RowSelection", json!("single")),
+                    ],
+                );
             }
             if columns.is_empty() {
                 return Err(AuthoringError::Invalid(
@@ -2845,8 +2965,9 @@ pub struct RecipeArgs {
     pub preserve_whitespace: Vec<String>,
     /// A picker without the "(None)" row.
     pub no_none_row: bool,
-    /// A picker that selects its first row.
+    /// A picker or grid that selects its first row.
     pub auto_select_first: bool,
+    pub series: Vec<String>,
     /// nested-menu: the root Menu.
     pub menu: Option<String>,
     /// nested-menu: leave several groups open at once.
@@ -2875,6 +2996,7 @@ pub const RECIPES: &[&str] = &[
     "auto-refresh",
     "validate",
     "chart",
+    "sparkline",
     "columns",
     "pagination",
     "picker",
@@ -3066,7 +3188,12 @@ impl Recipe {
                 "columns",
             ),
             (args.no_none_row, "--no-none-row", "picker"),
-            (args.auto_select_first, "--auto-select-first", "picker"),
+            (
+                args.auto_select_first && name != "columns",
+                "--auto-select-first",
+                "picker",
+            ),
+            (!args.series.is_empty(), "--series", "chart"),
             (args.menu.is_some(), "--menu", "nested-menu"),
             (args.no_auto_collapse, "--no-auto-collapse", "nested-menu"),
             (args.field.is_some(), "--field", "navigate-on-click"),
@@ -3290,7 +3417,14 @@ impl Recipe {
                 then: required(&args.then, "--then <handler>", name)?,
                 otherwise: args.else_say.clone(),
             },
+            "sparkline" => Recipe::Sparkline {
+                container: widget("a responsive container")?,
+                data: required(&args.data, "--data <service result>", name)?,
+                x: required(&args.x, "--x <field>", name)?,
+                value: required(&args.value, "--value <field>", name)?,
+            },
             "chart" => Recipe::Chart {
+                series: args.series.clone(),
                 widget: widget("the chart")?,
                 data: required(&args.data, "--data <service result>", name)?,
                 x: required(&args.x, "--x <field>", name)?,
@@ -3302,6 +3436,7 @@ impl Recipe {
                 y_title: args.y_title.clone(),
             },
             "columns" => Recipe::Columns {
+                auto_select_first: args.auto_select_first,
                 widget: widget("the grid")?,
                 data: args.data.clone(),
                 columns: args.columns.clone(),
@@ -3661,9 +3796,158 @@ fn as_pairs(properties: &[(String, Value)]) -> Vec<(&str, Value)> {
         .collect()
 }
 
+type ComboSeries = (String, String, Option<String>, Option<String>);
+
+pub(crate) fn combo_props(series: &[ComboSeries], current: &Value) -> Vec<(String, Value)> {
+    let mut props = vec![
+        ("NumberOfSeries".into(), json!(series.len())),
+        ("DisableLegendGrouping".into(), json!(true)),
+        ("LegendPosition".into(), json!("bottom")),
+        ("LegendAlignment".into(), json!("start")),
+        ("NumberOfYaxes".into(), json!(1)),
+        ("HideYAxis2".into(), json!(true)),
+    ];
+    for (i, (field, kind, title, axis)) in series.iter().enumerate() {
+        let n = i + 1;
+        props.extend([
+            (format!("DataField{n}"), json!(field)),
+            (format!("Series{n}Type"), json!(kind)),
+            (
+                format!("DisplaySeries{n}On"),
+                json!(if axis.as_deref() == Some("secondary") {
+                    "yaxis2"
+                } else {
+                    "yaxis1"
+                }),
+            ),
+        ]);
+        if let Some(title) = title {
+            props.push((format!("DataLabel{n}"), json!(title)));
+        }
+        if axis.as_deref() == Some("secondary") {
+            props.extend([
+                ("HideYAxis2".into(), json!(false)),
+                ("NumberOfYaxes".into(), json!(2)),
+                ("YAxis2Label".into(), json!(title.as_ref().unwrap_or(field))),
+                ("YAxis2Position".into(), json!("right")),
+            ]);
+        }
+    }
+    for n in series.len() + 1..=MAX_COMBO_SERIES {
+        let key = format!("DataField{n}");
+        if current[&key]
+            .as_str()
+            .is_some_and(|field| !field.is_empty())
+        {
+            props.push((key, json!("")));
+        }
+    }
+    props
+}
+
+pub(crate) fn sparkline_props(x: &str, value: &str) -> serde_json::Map<String, Value> {
+    json!({"XAxisField":x,"DataField1":value,"NumberOfSeries":1,
+        "Label":"","LabelType":"label","XAxisLabel":"","YAxisLabel":"","Notes":"","HideNotes":true,
+        "SparkView":true,"HideXAxis":true,"HideYAxis":true,"HideLegend":true,"ShowHideLegend":false,
+        "HorizontalAxisMaxHeight":0,"VerticalAxisMaxWidth":0,"LegendMaxWidth":0,
+        "ShowXAxisRuler":false,"ShowYAxisRuler":false,"ShowZeroValueRuler":false,
+        "HorizontalZoom":false,"HorizontalRangeZoom":false,"HorizontalSliderZoom":false,
+        "VerticalZoom":false,"VerticalSliderZoom":false,"ShowZoomButtons":false,
+        "ShowHorizontalAnchorPointControl":false,"HorizontalIntervalControl":"none",
+        "DirectSelectionZoom":"none","DragSelectionZoom":"none",
+        "HideValues":true,"HideMarkers":true,"MarkerSize":1,"ShowDataLoading":false,"Height":40,"Margin":"0"})
+    .as_object()
+    .unwrap()
+    .clone()
+}
+
+pub(crate) fn sparkline_styles() -> Vec<String> {
+    [
+        "min-height=0px",
+        "min-width=0px",
+        "height=40px",
+        "max-height=40px",
+        "margin=0px",
+        "padding=0px",
+        "chart-layout:min-height=0px",
+        "chart-layout:min-width=0px",
+        "chart-layout:margin=0px",
+        "chart-layout:box-sizing=border-box",
+        "chart-layout:padding-top=0px",
+        "chart-layout:padding-bottom=0px",
+        "chart-layout:padding-left=0px",
+        "chart-layout:padding-right=0px",
+        // The plot row is 1fr of the chart grid and keeps the core chart's own 155px floor;
+        // live, only fixed part heights let the line fill the 40px box.
+        "chart:min-height=0px",
+        "chart-slot:min-height=0px",
+        "chart-slot:height=40px",
+        "core-chart:height=40px",
+    ]
+    .into_iter()
+    .map(String::from)
+    .chain(
+        [
+            "title-area",
+            "notes-area",
+            "legend-area",
+            "action-bar-area",
+            "zoom-xaxis",
+            "zoom-yaxis",
+            "xaxis",
+            "yaxis",
+            "yaxis2",
+        ]
+        .into_iter()
+        .map(|part| format!("{part}:display=none")),
+    )
+    .collect()
+}
+
+fn sparkline_style() -> Value {
+    let mut entry =
+        json!({"widget":"ptcs-chart-line","parts":{"$":{"$":{}},"chart-layout":{"$":{}}}});
+    for text in sparkline_styles() {
+        let (key, value) = text.split_once('=').unwrap();
+        let (part, key) = key.split_once(':').unwrap_or(("$", key));
+        if entry["parts"].get(part).is_none() {
+            entry["parts"][part] = json!({"$": {}});
+        }
+        entry["parts"][part]["$"][key] = json!(value);
+    }
+    entry
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sparkline_overrides_use_native_chart_properties_and_automatic_bounds() {
+        let chart = widgets::catalog().by_type("ptcschartline").unwrap();
+        let props = sparkline_props("year", "Value");
+        for key in props.keys() {
+            assert!(
+                chart.property(key).is_some()
+                    || chart.defaults.contains_key(key)
+                    || chart.numbered_default(key).is_some(),
+                "{key}"
+            );
+        }
+        let styles = sparkline_styles();
+        for part in [
+            "chart-slot:height=40px",
+            "core-chart:height=40px",
+            "chart:min-height=0px",
+        ] {
+            assert!(styles.iter().any(|s| s == part), "{part}");
+        }
+        for bound in ["YAxisMinimumValues", "YAxisMaximumValues"] {
+            assert!(chart.property(bound).is_some());
+            assert!(!props.contains_key(bound));
+            assert!(!chart.defaults.contains_key(bound));
+        }
+    }
 
     #[test]
     fn tree_maps_cover_catalogue_and_require_parent_and_unambiguous_optional_color() {

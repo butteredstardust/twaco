@@ -210,6 +210,7 @@ fn spec_matches_new_add_set_command_structure() {
         name: "Acme.Simple_MU".into(),
         project: None,
         template: "blank".into(),
+        rules: None,
         gadget: false,
         layout: None,
         primary_menu: None,
@@ -242,7 +243,8 @@ fn spec_matches_new_add_set_command_structure() {
     let mut expected = normalized(&expected.content);
     // The unversioned primitive retains its legacy gutter; specs use the v1 page gutter.
     expected["UI"]["Widgets"][0]["Properties"]["Margin"] = serde_json::json!("24");
-    expected["UI"]["Widgets"][0]["Properties"]["ShowVerticalScrollbar"] = serde_json::json!(true);
+    expected["UI"]["Widgets"][0]["Properties"]["ShowVerticalScrollbar"] = serde_json::json!(false);
+    expected["UI"]["Widgets"][0]["Properties"]["scrolling"] = serde_json::json!("no-scroll");
     assert_eq!(normalized(&built.content), expected);
 }
 
@@ -942,6 +944,7 @@ fn elements_match_equivalent_primitive_recipe_sequences() {
                 kind: "ok".into(),
             },
             "ptcschartline" => Recipe::Chart {
+                series: vec![],
                 widget: target,
                 data,
                 x: "Name".into(),
@@ -1176,6 +1179,32 @@ fn benchmark_j_golden() {
 fn benchmark_k_golden() {
     benchmark("k");
 }
+
+#[test]
+fn filter_field_rows_keep_their_height_instead_of_growing() {
+    // Live (benchmark K): a growing or `default` size field row stretched to the area's minimum
+    // height and pushed the filter column into an inner scroll.
+    let folder =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/mashup/pages");
+    let solution = Solution::load(&folder.join("bench_solution/twaco.toml")).unwrap();
+    let spec = std::fs::read_to_string(folder.join("bench_k/page.yaml")).unwrap();
+    let built = compile(&solution, "Acme.Bench", &spec).unwrap();
+    let content: Value = serde_json::from_str(&built.content).unwrap();
+    fn find<'a>(w: &'a Value, name: &str) -> Option<&'a Value> {
+        if w["Properties"]["DisplayName"] == name {
+            return Some(w);
+        }
+        w["Widgets"].as_array()?.iter().find_map(|c| find(c, name))
+    }
+    let filters = find(&content["UI"], "filters").expect("filters area");
+    let rows = filters["Widgets"].as_array().unwrap();
+    assert!(!rows.is_empty());
+    for row in rows {
+        let p = &row["Properties"];
+        assert_ne!(p["flex-grow"], 1, "{}", p["Id"]);
+        assert_ne!(p["flex-size"], "default", "{}", p["Id"]);
+    }
+}
 #[test]
 fn benchmark_n_golden() {
     benchmark("n");
@@ -1352,7 +1381,8 @@ fn filter_footer_buttons_fit_inside_the_column_gutters() {
     let props = &doc.at(&footer.path)["Properties"];
     assert_eq!(props["flex-min-width"], "280px");
     assert_eq!(props["flex-max-width"], "280px");
-    assert_eq!(props["Margin"], "20");
+    // Vertical margin would eat the 34px footer and clip its buttons.
+    assert_eq!(props["Margin"], "0 20");
     let mut widths = vec![];
     for name in ["filters--apply", "filters--reset"] {
         let button = doc.find_exact(&built.ids[name]).unwrap();
@@ -1838,7 +1868,8 @@ fn combined_chart_row_is_equal_and_page_owns_overflow_through_pagination() {
     for length in 1..pager.path.len() {
         let props = &doc.at(&pager.path[..length])["Properties"];
         if props["Type"] == "flexcontainer" {
-            assert_eq!(props["ShowVerticalScrollbar"], length == 1);
+            assert_eq!(props["ShowVerticalScrollbar"], false);
+            assert_ne!(props["scrolling"], "scroll");
         }
     }
 }
@@ -1855,8 +1886,34 @@ fn field_only_filter_reserves_280px_and_keeps_footer_and_dates_inside() {
     assert_eq!(date["StartDateHintText"], "From");
     let doc = mashup::edit::parse(&built.content).unwrap();
     let fields = doc.find("filters").unwrap();
-    assert_eq!(doc.at(&fields.path)["Properties"]["flex-grow"], 0);
-    assert_eq!(doc.at(&fields.path)["Properties"]["flex-shrink"], 0);
+    assert_eq!(doc.at(&fields.path)["Properties"]["flex-grow"], 1);
+    assert_eq!(
+        doc.at(&fields.path)["Properties"]["justify-content"],
+        "flex-start"
+    );
+    let footer = doc.find("filter-footer").unwrap();
+    assert_eq!(doc.at(&footer.path)["Properties"]["flex-grow"], 0);
+    assert_eq!(
+        doc.at(&footer.path)["Properties"]["flex-max-height"],
+        "34px"
+    );
+    assert_eq!(doc.at(&fields.path)["Properties"]["flex-shrink"], 1);
+    assert_eq!(doc.at(&fields.path)["Properties"]["flex-basis"], "0px");
+    // Rows keep their height; the area scrolls only when the column is capped.
+    assert_eq!(
+        doc.at(&fields.path)["Properties"]["flex-min-height"],
+        "176px"
+    );
+    assert_eq!(
+        doc.at(&fields.path)["Properties"]["ShowVerticalScrollbar"],
+        true
+    );
+    let column = doc.find("filter-column").unwrap();
+    assert_eq!(
+        doc.root_properties()["StyleProperties"]["data"][&column.id]["parts"]["$"]["$"]
+            ["max-height"],
+        "calc(100vh - 48px)"
+    );
 }
 
 #[test]
@@ -1951,4 +2008,273 @@ fn gap_and_explicit_minimum_props_override_layout_defaults() {
     let built = compile(&solution, "Acme", &text).unwrap();
     assert_eq!(element_props(&built, "r")["flex-min-height"], "123px");
     assert_eq!(element_props(&built, "b")["Margin"], "0 0 0 12");
+}
+
+#[test]
+fn combo_secondary_axis_uses_native_axis_count_and_series_title() {
+    let (_dir, solution) = element_solution();
+    let text = error_page("chart: {id: c, kind: combo, data: rows, x: Name, series: [{field: Count, kind: line, title: Throughput, axis: secondary}]}", "");
+    let built = compile(&solution, "Acme", &text).unwrap();
+    let props = element_props(&built, "c");
+    assert_eq!(props["DisplaySeries1On"], "yaxis2");
+    assert_eq!(props["NumberOfYaxes"], 2);
+    assert_eq!(props["YAxis2Label"], "Throughput");
+    assert_eq!(props["HideYAxis2"], false);
+    assert_eq!(props["DisableLegendGrouping"], true);
+    assert_eq!(props["LegendPosition"], "bottom");
+    assert_eq!(props["HideLegend"], false);
+    let built = compile(&solution, "Acme", &text.replace(", title: Throughput", "")).unwrap();
+    assert_eq!(element_props(&built, "c")["YAxis2Label"], "Count");
+    let built = compile(&solution, "Acme", &text.replace("secondary", "primary")).unwrap();
+    assert_eq!(element_props(&built, "c")["DisplaySeries1On"], "yaxis1");
+    assert_eq!(element_props(&built, "c")["NumberOfYaxes"], 1);
+}
+
+#[test]
+fn sparkline_binds_service_rows_and_overrides_the_theme_height_floor() {
+    let (_dir, solution) = element_solution();
+    let text = error_page("trend_tile: {id: t, label: Total, value: {bind: rows.Count}, sparkline: {field: Count, x: Name}}", "");
+    let built = compile(&solution, "Acme", &text).unwrap();
+    let props = element_props(&built, "t--sparkline");
+    assert_eq!(props["Type"], "ptcschartline");
+    for key in [
+        "HideXAxis",
+        "HideYAxis",
+        "HideLegend",
+        "SparkView",
+        "HideValues",
+    ] {
+        assert_eq!(props[key], true, "{key}");
+    }
+    for key in ["ShowXAxisRuler", "ShowYAxisRuler", "ShowZeroValueRuler"] {
+        assert_eq!(props[key], false, "{key}");
+    }
+    let doc = mashup::edit::parse(&built.content).unwrap();
+    let chart = doc.find_exact(&built.ids["t--sparkline"]).unwrap();
+    let wrapper = &doc.at(&chart.path[..chart.path.len() - 1])["Properties"];
+    assert_eq!(wrapper["flex-min-height"], "40px");
+    assert_eq!(wrapper["flex-max-height"], "40px");
+    assert_eq!(wrapper["flex-size"], "fixed");
+    assert_eq!(props["Height"], 40);
+    assert_eq!(props["DataField1"], "Count");
+    assert_eq!(props["NumberOfSeries"], 1);
+    assert_eq!(props["XAxisField"], "Name");
+    assert_eq!(props["Label"], "");
+    assert_eq!(props["LabelType"], "label");
+    for key in [
+        "HorizontalAxisMaxHeight",
+        "VerticalAxisMaxWidth",
+        "LegendMaxWidth",
+    ] {
+        assert_eq!(props[key], 0, "{key}");
+    }
+    for key in [
+        "HorizontalZoom",
+        "HorizontalRangeZoom",
+        "HorizontalSliderZoom",
+        "VerticalZoom",
+        "VerticalSliderZoom",
+        "ShowZoomButtons",
+        "ShowHideLegend",
+    ] {
+        assert_eq!(props[key], false, "{key}");
+    }
+    assert!(props.get("YAxisMinimumValues").is_none());
+    assert!(props.get("YAxisMaximumValues").is_none());
+    assert_eq!(
+        element_props(&built, "t--figure")["flex-min-height"],
+        "56px"
+    );
+    assert_eq!(element_props(&built, "t--figure")["flex-shrink"], 0);
+    assert!(!doc.widgets().iter().any(|w| w.type_id == "expression2"));
+    let content: Value = serde_json::from_str(&built.content).unwrap();
+    let parts = &content["UI"]["Properties"]["StyleProperties"]["data"][&built.ids["t--sparkline"]]
+        ["parts"];
+    assert_eq!(parts["$"]["$"]["min-height"], "0px");
+    assert_eq!(parts["$"]["$"]["height"], "40px");
+    assert_eq!(parts["$"]["$"]["max-height"], "40px");
+    for side in ["top", "bottom", "left", "right"] {
+        assert_eq!(parts["chart-layout"]["$"][format!("padding-{side}")], "0px");
+    }
+    for part in [
+        "title-area",
+        "notes-area",
+        "legend-area",
+        "action-bar-area",
+        "zoom-xaxis",
+        "zoom-yaxis",
+        "xaxis",
+        "yaxis",
+        "yaxis2",
+    ] {
+        assert_eq!(parts[part]["$"]["display"], "none", "{part}");
+    }
+    let bindings: Vec<_> = content["DataBindings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|b| b["TargetId"] == built.ids["t--sparkline"])
+        .collect();
+    assert_eq!(bindings.len(), 1);
+    assert_eq!(bindings[0]["SourceArea"], "Data");
+    assert_eq!(bindings[0]["SourceDetails"], "AllData");
+    assert_eq!(bindings[0]["PropertyMaps"][0]["SourceProperty"], "");
+    assert_eq!(bindings[0]["PropertyMaps"][0]["TargetProperty"], "Data");
+    assert_eq!(built, compile(&solution, "Acme", &text).unwrap());
+    compile(
+        &solution,
+        "Acme",
+        &text.replace("field: Count", "data: rows, field: Count"),
+    )
+    .unwrap();
+}
+
+#[test]
+fn detail_card_row_fits_its_contents_without_a_fixed_height_or_inner_scroll() {
+    let built = compiled_benchmark("a");
+    let doc = mashup::edit::parse(&built.content).unwrap();
+    let row = doc.find_exact(&built.ids["focus_row"]).unwrap();
+    for widget in doc
+        .widgets()
+        .iter()
+        .filter(|w| w.path.starts_with(&row.path) && w.type_id == "flexcontainer")
+    {
+        let props = &doc.at(&widget.path)["Properties"];
+        if built.ids.values().any(|id| id == &widget.id) {
+            assert_ne!(props["flex-size"], "fixed", "{}", widget.id);
+            assert_eq!(props["flex-max-height"], "", "{}", widget.id);
+        }
+        assert_eq!(props["ShowVerticalScrollbar"], false, "{}", widget.id);
+        assert_eq!(props["scrolling"], "no-scroll", "{}", widget.id);
+    }
+    assert_eq!(element_props(&built, "focus_row")["flex-basis"], "auto");
+    assert_eq!(element_props(&built, "focus_row")["flex-shrink"], 0);
+}
+
+#[test]
+fn detail_state_maps_bound_value_to_native_shape_formatter() {
+    let built = compiled_benchmark("a");
+    let extracted = mashup::extract(&built.entity).unwrap();
+    let doc = mashup::edit::parse(&extracted.content).unwrap();
+    for (key, id) in built
+        .ids
+        .iter()
+        .filter(|(key, _)| key.starts_with("focus_") && key.ends_with("--dot"))
+    {
+        let dot = doc.find_exact(id).unwrap();
+        let pair = doc
+            .find_exact(&built.ids[key.strip_suffix("--dot").unwrap()])
+            .unwrap();
+        assert_eq!(dot.type_id, "shape");
+        let caption = doc
+            .find_exact(&built.ids[&key.replace("--dot", "--caption")])
+            .unwrap();
+        assert_eq!(
+            &dot.path[..dot.path.len() - 1],
+            &caption.path[..caption.path.len() - 1]
+        );
+        assert_eq!(&dot.path[..dot.path.len() - 2], pair.path);
+        assert_eq!(
+            doc.at(&dot.path[..dot.path.len() - 1])["Properties"]["flex-min-height"],
+            "12px"
+        );
+        let props = &doc.at(&dot.path)["Properties"];
+        assert_eq!(props["Width"], 12);
+        assert_eq!(props["Height"], 12);
+        assert_eq!(
+            props["ShapeFormatter"]["StateDefinition"],
+            "Acme.BenchKPI_State"
+        );
+        assert!(doc.value()["DataBindings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|b| b["TargetId"] == *id && b["PropertyMaps"][0]["TargetProperty"] == "Data"));
+    }
+    let dot = element_props(&built, "focus_1_objective--dot");
+    assert_eq!(dot["Type"], "shape");
+    assert_eq!(dot["ShapeType"], "circle");
+    assert_eq!(
+        dot["ShapeFormatter"]["StateDefinition"],
+        "Acme.BenchKPI_State"
+    );
+    assert_eq!(dot["ShapeFormatter"]["FieldName"], "Objective");
+    assert_eq!(dot["ShapeFormatter"]["StateDefinitionType"], "numeric");
+    assert!(!dot["ShapeFormatter"]["StateFormats"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+    let value: Value = serde_json::from_str(&built.content).unwrap();
+    assert!(value["DataBindings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|b| b["TargetId"] == built.ids["focus_1_objective--dot"]
+            && b["PropertyMaps"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|p| p["TargetProperty"] == "Data" && p["SourceProperty"] == "Objective")));
+}
+
+#[test]
+fn small_element_errors_have_source_locations() {
+    let (_dir, solution) = element_solution();
+    for body in [
+        "chart: {id: c, kind: combo, data: rows, x: Name, series: [{field: Count, kind: line, axis: third}]}",
+        "trend_tile: {id: t, label: Total, value: {bind: rows.Count}, sparkline: {field: Missing, x: Name}}",
+        "trend_tile: {id: t, label: Total, value: {bind: rows.Count}, sparkline: {field: Name, x: Name}}",
+        "trend_tile: {id: t, label: Total, value: {bind: rows.Count}, sparkline: {field: Count, x: Missing}}",
+        "trend_tile: {id: t, label: Total, value: {bind: rows.Count}, sparkline: {field: Count, x: Name, data: missing}}",
+        "detail_pair: {id: d, label: State, value: {bind: rows.Name}, state: Acme.Unknown}",
+        "detail_pair: {id: d, label: State, value: 1, state: Acme.Unknown}",
+        "detail_pair: {id: d, label: State, value: {bind: rows.Name}, state: Acme.Unknown, status: ok}",
+        "label: {id: l, text: Bad, auto_select: false}",
+    ] {
+        let error = compile(&solution, "Acme", &error_page(body, "")).unwrap_err();
+        assert!(error.line >= 10 && error.column > 0, "{body}: {error}");
+    }
+}
+
+#[test]
+fn selection_bindings_default_to_first_row_and_allow_opt_out() {
+    let built = compiled_benchmark("q4");
+    assert_eq!(element_props(&built, "fleet")["DefaultSelectedRows"], "1");
+    let (_dir, solution) = element_solution();
+    let text = error_page(
+        "label: {id: detail, props: {LabelText: {bind: g.selected.Name}}}",
+        "      - grid: {id: g, data: rows, auto_select: false}\n",
+    );
+    let built = compile(&solution, "Acme", &text).unwrap();
+    assert_eq!(element_props(&built, "g")["DefaultSelectedRows"], "");
+    let built = compile(
+        &solution,
+        "Acme",
+        &text.replace("auto_select: false", "props: {DefaultSelectedRows: '2'}"),
+    )
+    .unwrap();
+    assert_eq!(element_props(&built, "g")["DefaultSelectedRows"], "2");
+    let built = compile(
+        &solution,
+        "Acme",
+        &error_page("grid: {id: g, data: rows, auto_select: true}", ""),
+    )
+    .unwrap();
+    assert_eq!(element_props(&built, "g")["DefaultSelectedRows"], "1");
+    assert_eq!(element_props(&built, "g")["RowSelection"], "single");
+}
+
+#[test]
+fn fixed_detail_status_still_colours_its_dot() {
+    let (_dir, solution) = element_solution();
+    let built = compile(
+        &solution,
+        "Acme",
+        &error_page(
+            "detail_pair: {id: d, label: State, value: {bind: rows.Name}, status: warning}",
+            "",
+        ),
+    )
+    .unwrap();
+    assert_eq!(element_props(&built, "d--dot")["LabelText"], "\u{25CF}");
 }

@@ -9,8 +9,8 @@
 //! A template file (`templates/layouts/*.json`) is the skeleton: slots, nesting, widgets, the
 //! direction of each container. A property the rules decide stands in it as `"@rule"`, which keeps
 //! its position, so the resolved template serialises exactly as one that wrote the value itself.
-//! `legacy` is what twaco has always produced and is what every existing mashup follows; `v1` starts
-//! equal to it and is the set new authoring may improve.
+//! Unversioned mashups follow `legacy`; ordinary new mashups pin `v1` by default.
+//! Edits keep the document's stored rule set.
 //!
 //! ```json
 //! {"version": "legacy", "rules": [
@@ -35,8 +35,7 @@ const PLACEHOLDER: &str = "@rule";
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Version {
     Legacy,
-    /// Not yet chosen by any command; authoring selects it once new mashups pin a rule set.
-    #[allow(dead_code)]
+    /// Page specs and ordinary new command mashups by default.
     V1,
 }
 
@@ -47,12 +46,6 @@ impl Version {
             Self::V1 => "v1",
         }
     }
-}
-
-/// The rule set every authoring and validation decision uses. Existing mashups follow `legacy`;
-/// `v1` takes over when new mashups pin it.
-pub(crate) fn current() -> &'static RuleSet {
-    RuleSet::embedded(Version::Legacy)
 }
 
 /// What a rule applies to.
@@ -275,6 +268,10 @@ struct RuleFile {
 }
 
 impl RuleSet {
+    pub(crate) fn version(&self) -> &str {
+        &self.version
+    }
+
     /// Parse and validate a rule file: unknown keys, an empty or repeated id, a rule that decides
     /// nothing, and an empty name list are refused.
     pub(crate) fn parse(text: &str) -> Result<Self, String> {
@@ -524,6 +521,164 @@ impl RuleSet {
     }
 }
 
+pub(crate) fn height_floor(widget: &serde_json::Value) -> u32 {
+    let props = &widget["Properties"];
+    let minimum = props["flex-min-height"]
+        .as_str()
+        .and_then(|s| s.strip_suffix("px"))
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    let heights = widget["Widgets"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(height_floor);
+    let content = if props["flex-direction"] == "row" || props["Type"] == "ptcstabset" {
+        heights.max().unwrap_or(0)
+    } else {
+        heights.fold(0u32, u32::saturating_add)
+    };
+    minimum.max(content)
+}
+
+pub(crate) fn patch(document: &mut super::edit::MashupDocument, path: &[usize], op: &'static str) {
+    let node = context::Node::op(op, Element::Container);
+    for (key, value) in document.rules().evaluate(&node.context()).patch() {
+        document.set_property(path, key, value);
+    }
+}
+
+pub(crate) fn finish_page(document: &mut super::edit::MashupDocument) {
+    if document.value()["twacoPageRules"] != "v1" {
+        return;
+    }
+    let mut containers: Vec<_> = document
+        .widgets()
+        .into_iter()
+        .filter(|w| w.type_id == "flexcontainer")
+        .collect();
+    containers.sort_by_key(|w| std::cmp::Reverse(w.path.len()));
+    for container in containers {
+        let floor = height_floor(document.at(&container.path));
+        let fixed = document.at(&container.path)["Properties"]["flex-size"] == "fixed";
+        patch(document, &container.path, "page-overflow");
+        if !fixed && floor > 0 {
+            document.set_property(
+                &container.path,
+                "flex-min-height",
+                json!(format!("{floor}px")),
+            );
+        }
+        match container.display_name.as_str() {
+            "filters" => {
+                patch(document, &container.path, "page-filter-fields");
+                // Fields keep the height they need; the area scrolls only when the column is capped below it.
+                // A control row is at least 56px tall even when its container declares no height.
+                let rows: u32 = document.at(&container.path)["Widgets"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .map(|row| height_floor(row).max(56))
+                    .sum();
+                if rows > 0 {
+                    document.set_property(
+                        &container.path,
+                        "flex-min-height",
+                        json!(format!("{rows}px")),
+                    );
+                }
+                // Top-aligned fields: a growing row (live: the last dropdown row grew to 456px) only
+                // pushes the area into an inner scroll.
+                let count = document.at(&container.path)["Widgets"]
+                    .as_array()
+                    .map_or(0, Vec::len);
+                let fixed = (0..count)
+                    .filter_map(|index| {
+                        let mut row = container.path.clone();
+                        row.push(index);
+                        let props = &document.at(&row)["Properties"];
+                        (props["flex-size"] == "fixed")
+                            .then(|| {
+                                props["flex-min-height"]
+                                    .as_str()?
+                                    .strip_suffix("px")?
+                                    .parse::<u32>()
+                                    .ok()
+                            })
+                            .flatten()
+                    })
+                    .max();
+                for index in 0..count {
+                    let mut row = container.path.clone();
+                    row.push(index);
+                    // A command-built footer (`mashup add --bottom`) grows on purpose to sit at the foot.
+                    if document.at(&row)["Properties"]["align-items"] == "flex-end" {
+                        continue;
+                    }
+                    if document.at(&row)["Properties"]["flex-grow"] == json!(1) {
+                        document.set_property(&row, "flex-grow", json!(0));
+                    }
+                    // Live, a `default` size row is laid out at the area's minimum height (456px in
+                    // benchmark K); fix it at its siblings' row height, or its own floor.
+                    if document.at(&row)["Properties"]["flex-size"] == json!("default") {
+                        let height =
+                            fixed.unwrap_or_else(|| height_floor(document.at(&row)).max(56));
+                        document.set_property(&row, "flex-size", json!("fixed"));
+                        document.set_property(
+                            &row,
+                            "flex-min-height",
+                            json!(format!("{height}px")),
+                        );
+                        document.set_property(
+                            &row,
+                            "flex-max-height",
+                            json!(format!("{height}px")),
+                        );
+                    }
+                }
+            }
+            "filter-footer" => patch(document, &container.path, "page-filter-footer"),
+            "filter-column" => {
+                // Runtime parses flex dimensions as numbers, so viewport bounds need CSS.
+                let gutter: f64 = (1..container.path.len())
+                    .map(|depth| {
+                        let props = &document.at(&container.path[..depth])["Properties"];
+                        let values: Vec<f64> = props["Margin"]
+                            .as_str()
+                            .unwrap_or("")
+                            .split_whitespace()
+                            .filter_map(|v| v.parse().ok())
+                            .collect();
+                        match values.as_slice() {
+                            [all] | [all, _] => all * 2.0,
+                            [top, _, bottom, ..] => top + bottom,
+                            _ => 0.0,
+                        }
+                    })
+                    .sum();
+                let limit = if gutter > 0.0 {
+                    format!("calc(100vh - {gutter}px)")
+                } else {
+                    "100vh".into()
+                };
+                let styles = document
+                    .root_properties_mut()
+                    .entry("StyleProperties")
+                    .or_insert_with(
+                        || json!({"meta":{"type":"WidgetStyler","version":"1.0"},"data":{}}),
+                    );
+                let entry = &mut styles["data"][&container.id];
+                if entry.is_null() {
+                    *entry = json!({"widget":"flex-container","parts":{"$":{"$":{}}}});
+                }
+                entry["parts"]["$"]["$"]["max-height"] = json!(limit);
+                document.set_property(&container.path, "flex-min-height", json!("0px"));
+            }
+            _ => {}
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -564,7 +719,7 @@ mod tests {
             .iter()
             .filter(|rule| !legacy.rules.iter().any(|old| old.id == rule.id))
             .collect();
-        assert_eq!(additions.len(), 19);
+        assert_eq!(additions.len(), 22);
         assert_eq!(additions[0].id, "gutter.filter-actions");
         for (rule, op) in additions[1..].iter().zip([
             "page-header",
@@ -582,8 +737,11 @@ mod tests {
             "page-fill",
             "page-chart-minimum",
             "page-chart-legend",
+            "page-filter-fields",
+            "page-filter-footer",
             "page-overflow",
             "page-filter-only",
+            "sparkline-height",
             "page-spacer",
         ]) {
             assert!(matches!(&rule.when.op,Some(Names::One(name)) if name == op));

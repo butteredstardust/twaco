@@ -5253,7 +5253,7 @@
   },
   {
     "name": "mashup_new",
-    "description": "Create a ThingWorx 10.2 responsive mashup from an embedded layout template, with its entity file and managed content.json and custom.css sidecars. from copies a repository mashup; replacements are repeatable old=new whole-token substitutions in copied content strings. template is a name or alias (blank by default); mashup_templates lists the slots where mashup_add can place widgets. Menu templates require primary_menu (a service result) or menu_entity (a Menu in the solution); secondary_menu goes with primary_menu. master puts its page container in the template's master slot. A dry run unless dry_run is false; an apply takes the workspace lock and writes every file or none.",
+    "description": "Create a ThingWorx 10.2 responsive mashup from an embedded layout template, with its entity file and managed content.json and custom.css sidecars. from copies a repository mashup; replacements are repeatable old=new whole-token substitutions in copied content strings. Ordinary new mashups default to v1 layout rules; rules: legacy opts out. Existing mashup edits and from copies retain their stored rule set (no twacoPageRules means legacy). template is a name or alias (blank by default); mashup_templates lists the slots where mashup_add can place widgets. Menu templates require primary_menu (a service result) or menu_entity (a Menu in the solution); secondary_menu goes with primary_menu. master puts its page container in the template's master slot. A dry run unless dry_run is false; an apply takes the workspace lock and writes every file or none.",
     "inputSchema": {
       "required": [
         "name"
@@ -5281,6 +5281,15 @@
         "template": {
           "description": "An embedded layout template name or alias; default `blank`.",
           "type": "string"
+        },
+        "rules": {
+          "description": "Layout rules for a new ordinary mashup: v1 (default) or legacy to opt out.",
+          "type": "string",
+          "enum": [
+            "legacy",
+            "v1"
+          ],
+          "default": "v1"
         },
         "from": {
           "description": "A repository mashup to copy. It is exclusive with template, layout, menus, theme, master, params and tabs.",
@@ -7801,7 +7810,7 @@
           "type": "string"
         },
         "recipe": {
-          "description": "panel styles a responsive column; slider-action pairs widget (slider) with button. toolbar uses widget as the empty responsive container, then, search_param, hint, width, run_on and buttons. enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, pagination, picker, tracker, set-on-click, nested-menu, navigate-on-click or collapsible; label-pairs uses widget as the responsive container, data, fields, title, label_columns and replace.",
+          "description": "panel styles a responsive column; slider-action pairs widget (slider) with button. toolbar uses widget as the empty responsive container, then, search_param, hint, width, run_on and buttons. enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, sparkline, columns, pagination, picker, tracker, set-on-click, nested-menu, navigate-on-click or collapsible; label-pairs uses widget as the responsive container, data, fields, title, label_columns and replace.",
           "type": "string"
         },
         "mashup": {
@@ -7948,8 +7957,15 @@
           "type": "boolean"
         },
         "auto_select_first": {
-          "description": "A picker that selects its first row.",
+          "description": "A picker or grid that selects its first row.",
           "type": "boolean"
+        },
+        "series": {
+          "description": "Combo series as field:bar|line[:primary|secondary].",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         },
         "menu": {
           "description": "The root Menu of recipe nested-menu.",

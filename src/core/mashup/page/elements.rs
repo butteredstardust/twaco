@@ -104,11 +104,11 @@ pub(super) fn expand(page: &mut Page) -> Result<(), Error> {
             if let Node::Card(b) = node {
                 if b.children
                     .iter()
-                    .any(|n| matches!(n, Node::DetailPair(pair) if pair.chart_kind.is_some()))
+                    .any(|n| matches!(n, Node::DetailPair(pair) if pair.chart_kind.is_some() || pair.state.is_some() || pair.status.is_some()))
                 {
                     for pair in &mut b.children {
                         if let Node::DetailPair(pair) = pair {
-                            if pair.chart_kind.is_none() {
+                            if pair.chart_kind.is_none() && pair.state.is_none() && pair.status.is_none() {
                                 pair.children.push(child(pair, "dot", "label", json!({"text": "", "props": {"Width": 16, "Margin": "0 8 0 0"}})));
                             }
                         }
@@ -208,6 +208,15 @@ pub(super) fn expand(page: &mut Page) -> Result<(), Error> {
                             "justify-content": "center", "flex-grow": 1, "flex-shrink": 0,
                             "flex-size": "range", "flex-min-height": "56px", "Margin": "8 0"}}),
                     ));
+                    if let Some(sparkline) = &b.sparkline {
+                        b.children.push(child(b, "sparkline", "widget", json!({
+                            "type": "ptcschartline", "size": {"fixed": 40},
+                            "props": crate::core::mashup::authoring::sparkline_props(&sparkline.value.x, &sparkline.value.field),
+                            "style": crate::core::mashup::authoring::sparkline_styles()
+                        })));
+                        // Keep the value's source for wiring the sparkline's service rows.
+                        b.value = Some(value);
+                    }
                     default_prop(b, "align-items", json!("stretch"));
                 }
                 Node::DetailPair(b) => {
@@ -215,6 +224,26 @@ pub(super) fn expand(page: &mut Page) -> Result<(), Error> {
                     let (Some(caption), Some(value)) = (b.text.take(), b.value.take()) else {
                         return Err(Error::at(loc, "detail_pair needs label and value"));
                     };
+                    if b.state.is_some() && (b.chart_kind.is_some() || b.status.is_some()) {
+                        return Err(Error::at(
+                            loc,
+                            "detail_pair needs either state or fixed status/kind",
+                        ));
+                    }
+                    if let Some(status) = b.status.take() {
+                        b.chart_kind = Some(
+                            status
+                                .value
+                                .as_str()
+                                .ok_or_else(|| {
+                                    Error::at(
+                                        status.referenced,
+                                        "status is ok, warning, error or info",
+                                    )
+                                })?
+                                .to_string(),
+                        );
+                    }
                     let dot = match b.chart_kind.take() {
                         None => None,
                         Some(kind) => Some(
@@ -226,6 +255,20 @@ pub(super) fn expand(page: &mut Page) -> Result<(), Error> {
                                 })?,
                         ),
                     };
+                    if b.state.is_some() {
+                        let Some(bound) = super::compile::binding(&value.value) else {
+                            return Err(Error::at(
+                                value.referenced,
+                                "state needs a bound detail_pair value",
+                            ));
+                        };
+                        // The formatter reads the bound source field by name.
+                        b.state_field = Some(bound.rsplit('.').next().unwrap_or(bound).to_string());
+                        b.children.push(child(b, "dot", "widget", json!({"type": "shape", "props": {
+                            "ShapeType": "circle", "Width": 12, "Height": 12, "Margin": "0 12 0 0",
+                            "Data": value.value
+                        }})));
+                    }
                     if let Some(colour) = dot {
                         let style = format!("label:color={colour}");
                         let label = json!({"text": "\u{25CF}", "props": {"Width": 16, "Margin": "0 8 0 0"}, "style": [style]});
@@ -435,6 +478,21 @@ fn fields(node: &Node) -> Result<(), Error> {
     }
     let checks = [
         (
+            b.sparkline.is_some(),
+            matches!(node, Node::TrendTile(_)),
+            "sparkline",
+        ),
+        (
+            b.state.is_some(),
+            matches!(node, Node::DetailPair(_)),
+            "state",
+        ),
+        (
+            b.auto_select.is_some(),
+            matches!(node, Node::Grid(_)),
+            "auto_select",
+        ),
+        (
             b.gap.is_some(),
             matches!(node, Node::Row(_) | Node::Column(_)),
             "gap",
@@ -494,7 +552,7 @@ fn fields(node: &Node) -> Result<(), Error> {
         ),
         (
             b.status.is_some() || b.color.is_some(),
-            matches!(node, Node::Card(_)),
+            matches!(node, Node::Card(_) | Node::DetailPair(_)),
             "status/color",
         ),
         (
@@ -578,6 +636,14 @@ pub(super) fn validate(node: &Node, page: &Page) -> Result<(), Error> {
                 return Err(fail("combo chart needs series: 1 to 8 {field, kind}"));
             }
             for series in &b.series {
+                if let Some(axis) = &series.value.axis {
+                    if !["primary", "secondary"].contains(&axis.value.as_str()) {
+                        return Err(Error::at(
+                            axis.referenced,
+                            "series axis is primary or secondary",
+                        ));
+                    }
+                }
                 if !["bar", "line"].contains(&series.value.kind.as_str()) {
                     return Err(Error::at(series.referenced, "series kind is bar or line"));
                 }
@@ -649,6 +715,7 @@ pub(super) fn wire(
     let loc = b.id.referenced;
     let recipe = match node {
         Node::Chart(_) => Some(Recipe::Chart {
+            series: vec![],
             widget: id.clone(),
             data: call(page, &b.data.as_ref().expect("chart data").value),
             x: b.x.clone().expect("chart x"),
@@ -675,28 +742,64 @@ pub(super) fn wire(
             .recipe(solution, recipe)
             .map_err(|e| Error::at(loc, e))?;
     }
+    if let Some(state) = &b.state {
+        let file = crate::core::workspace::entities(solution)
+            .into_iter()
+            .find(|f| f.info.collection == "StateDefinitions" && f.info.name == state.value)
+            .ok_or_else(|| {
+                Error::at(
+                    state.referenced,
+                    format!(
+                        "no StateDefinition {}; add it to the solution first",
+                        state.value
+                    ),
+                )
+            })?;
+        let bytes = std::fs::read(&file.path)
+            .map_err(|e| Error::at(state.referenced, format!("{}: {e}", file.path.display())))?;
+        let definition = crate::core::mashup::authoring::read_state_definition(&bytes)
+            .map_err(|e| Error::at(state.referenced, e))?;
+        let field = b.state_field.as_deref().unwrap_or("Data");
+        let snapshot =
+            crate::core::mashup::authoring::state_format::inline(&definition, &state.value, field)
+                .map_err(|e| Error::at(state.referenced, e))?;
+        let dot = &ids[&format!("{}--dot", b.id.value)];
+        session
+            .set(
+                solution,
+                &crate::core::mashup::authoring::SetRequest {
+                    mashup: page.name.value.clone(),
+                    widget: dot.clone(),
+                    properties: vec![("ShapeFormatter".into(), snapshot)],
+                    style_from: None,
+                    styles: vec![],
+                },
+            )
+            .map_err(|e| Error::at(state.referenced, e))?;
+    }
     if matches!(node, Node::Chart(_)) && b.chart_kind.as_deref() == Some("combo") {
         // The recipe names every numeric column; the spec picks the series and their drawing.
+        let series: Vec<_> = b
+            .series
+            .iter()
+            .map(|s| {
+                (
+                    s.value.field.clone(),
+                    s.value.kind.clone(),
+                    s.value.title.clone(),
+                    s.value.axis.as_ref().map(|a| a.value.clone()),
+                )
+            })
+            .collect();
         let path = session
             .document
             .find_exact(id)
             .map_err(|e| Error::at(loc, e))?
             .path;
-        let mut properties = vec![("NumberOfSeries".to_string(), json!(b.series.len()))];
-        for (index, series) in b.series.iter().enumerate() {
-            let n = index + 1;
-            properties.push((format!("DataField{n}"), json!(series.value.field)));
-            properties.push((format!("Series{n}Type"), json!(series.value.kind)));
-        }
-        for n in b.series.len() + 1..=8 {
-            let key = format!("DataField{n}");
-            let named = session.document.at(&path)["Properties"][key.as_str()]
-                .as_str()
-                .is_some_and(|field| !field.is_empty());
-            if named {
-                properties.push((key, json!("")));
-            }
-        }
+        let properties = crate::core::mashup::authoring::combo_props(
+            &series,
+            &session.document.at(&path)["Properties"],
+        );
         session
             .set(
                 solution,
@@ -821,25 +924,7 @@ pub(super) fn finish_layout(
         }
         grows
     }
-    fn height_floor(widget: &serde_json::Value) -> u32 {
-        let props = &widget["Properties"];
-        let minimum = props["flex-min-height"]
-            .as_str()
-            .and_then(|s| s.strip_suffix("px"))
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(0);
-        let heights = widget["Widgets"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .map(height_floor);
-        let content = if props["flex-direction"] == "row" || props["Type"] == "ptcstabset" {
-            heights.max().unwrap_or(0)
-        } else {
-            heights.fold(0u32, u32::saturating_add)
-        };
-        minimum.max(content)
-    }
+    use layout::height_floor;
     fn finish(
         session: &mut crate::core::mashup::authoring::session::Session,
         page: &Page,
@@ -870,6 +955,15 @@ pub(super) fn finish_layout(
             }
             session.document.at_mut(&path)["Widgets"] = json!(charts);
         }
+        if session.document.at(&path)["Properties"]["Type"] == "flexcontainer"
+            && matches!(
+                body.size.as_ref().map(|s| &s.value),
+                Some(super::schema::Size::Fit)
+            )
+        {
+            // Placement can leave a fixed row height computed before its cards have content.
+            patch(&mut session.document, &path, "page-content-height");
+        }
         if matches!(node, Node::FilterPanel(_)) {
             let standalone = body.children.iter().all(|n| {
                 body.footer
@@ -884,7 +978,10 @@ pub(super) fn finish_layout(
                 .collect();
             for slot in slots {
                 if slot.display_name == "filters" {
-                    patch(&mut session.document, &slot.path, "page-content-height");
+                    patch(&mut session.document, &slot.path, "page-filter-fields");
+                }
+                if slot.display_name == "filter-footer" {
+                    patch(&mut session.document, &slot.path, "page-filter-footer");
                 }
                 if standalone
                     && (slot.display_name == "content"
@@ -1013,6 +1110,38 @@ pub(super) fn finish_layout(
                 session.document.set_property(&path, key, value);
             }
         }
+        if matches!(node, Node::DetailPair(_)) && body.state.is_some() {
+            // Responsive placement isolates the fixed mark in a zero-height branch.
+            let dot = session
+                .document
+                .find_exact(&ids[&format!("{}--dot", body.id.value)])
+                .map_err(|e| Error::at(body.id.referenced, e))?;
+            let mark = session.document.at(&dot.path).clone();
+            let mut members = vec![];
+            for role in ["caption", "spacer", "value"] {
+                let child = session
+                    .document
+                    .find_exact(&ids[&format!("{}--{role}", body.id.value)])
+                    .map_err(|e| Error::at(body.id.referenced, e))?;
+                let mut member = session
+                    .document
+                    .at(if role == "spacer" {
+                        &child.path
+                    } else {
+                        &child.path[..child.path.len() - 1]
+                    })
+                    .clone();
+                if role == "caption" {
+                    member["Widgets"]
+                        .as_array_mut()
+                        .expect("caption widgets")
+                        .insert(0, mark.clone());
+                    member["Properties"]["flex-min-height"] = json!("12px");
+                }
+                members.push(member);
+            }
+            session.document.at_mut(&path)["Widgets"] = json!(members);
+        }
         let widget = session
             .document
             .find_exact(&ids[&body.id.value])
@@ -1063,7 +1192,25 @@ pub(super) fn finish_layout(
         {
             patch(&mut session.document, &sizing, "page-panel-width");
         }
-        if matches!(node, Node::Chart(_)) {
+        if node.widget()? == "ptcschartline"
+            && matches!(
+                body.size.as_ref().map(|s| &s.value),
+                Some(super::schema::Size::Fixed(_))
+            )
+        {
+            patch(&mut session.document, &sizing, "page-content-height");
+            if let Some(super::schema::Size::Fixed(px)) = body.size.as_ref().map(|s| &s.value) {
+                session
+                    .document
+                    .set_property(&sizing, "flex-size", json!("fixed"));
+                session
+                    .document
+                    .set_property(&sizing, "flex-min-height", json!(format!("{px}px")));
+                session
+                    .document
+                    .set_property(&sizing, "flex-max-height", json!(format!("{px}px")));
+            }
+        } else if matches!(node, Node::Chart(_)) {
             let minimum = height_floor(session.document.at(&sizing)).max(240);
             patch(&mut session.document, &sizing, "page-chart-minimum");
             session.document.set_property(
@@ -1112,36 +1259,7 @@ pub(super) fn finish_layout(
     for node in page.slots.values().flat_map(|s| &s.value) {
         finish(session, page, node, ids)?;
     }
-    let mut containers: Vec<_> = session
-        .document
-        .widgets()
-        .into_iter()
-        .filter(|w| w.type_id == "flexcontainer")
-        .collect();
-    containers.sort_by_key(|w| std::cmp::Reverse(w.path.len()));
-    for container in containers {
-        let floor = height_floor(session.document.at(&container.path));
-        let fixed = session.document.at(&container.path)["Properties"]["flex-size"] == "fixed";
-        patch(&mut session.document, &container.path, "page-overflow");
-        if !fixed && floor > 0 && container.path.len() > 1 {
-            session.document.set_property(
-                &container.path,
-                "flex-min-height",
-                json!(format!("{floor}px")),
-            );
-        }
-    }
-    let roots: Vec<_> = session
-        .document
-        .widgets()
-        .into_iter()
-        .filter(|w| w.path.len() == 1 && w.type_id == "flexcontainer")
-        .collect();
-    for root in roots {
-        session
-            .document
-            .set_property(&root.path, "ShowVerticalScrollbar", json!(true));
-    }
+    layout::finish_page(&mut session.document);
     fn overrides(
         document: &mut MashupDocument,
         node: &Node,

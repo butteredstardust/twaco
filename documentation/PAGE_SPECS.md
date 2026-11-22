@@ -55,7 +55,9 @@ addressed by its declaration name, a result field by `alerts.Name`, and selected
 References need no `ui:` or `data:` prefixes. Unknown fields, repeated YAML keys, duplicate node
 IDs, unresolved symbols and contract errors report `page.yaml:line:column`.
 
-The rule version is required and pinned to `v1`; existing commands keep their legacy behavior.
+The spec rule version is required and pinned to `v1`. Ordinary `mashup new` commands
+also default to v1; pass `--rules legacy` (MCP `rules: "legacy"`) to opt out. Existing
+mashups retain their `twacoPageRules` during add, set and recipe edits; no marker means legacy.
 Widget numeric suffixes derive from SHA-256 of the ID policy version, authored node ID and
 generated role, in the range 1000?999999 (four to six digits). Template numbers are reserved. A collision
 is an error and never causes renumbering. Wrapper roles name their enclosed widgets, and sources,
@@ -120,7 +122,12 @@ toolbar provides the single band at any nesting depth. A pie chart requires `val
 through the chart recipe, and `stacked: true` requires bar. A `combo` chart uses the native
 `ptcschartcombo` and requires `series` (1 to 8 entries): each `field` is a numeric column and each
 `kind` is `bar` (column) or `line`; they are written to `DataField<n>`, `Series<n>Type` and
-`NumberOfSeries`. A single shared primary axis is used; secondary axes are not exposed yet. Pagination names a grid with data
+`NumberOfSeries`. Each series accepts `title` and `axis: primary|secondary` (primary by default).
+`secondary` emits `DisplaySeries<n>On: yaxis2`, enables two axes with `NumberOfYaxes: 2`, and
+sets the right `YAxis2Label` from that series' title (or field). When several series share the
+secondary axis, the last secondary series supplies its label. Combo charts disable legend grouping
+(`DisableLegendGrouping: true`) to keep series in one compact bottom legend without axis headings.
+Unknown axis values are located errors. Pagination names a grid with data
 and creates the same local slicing expressions and reset bindings as the pagination recipe.
 
 Trend tiles go in a `kpi_row` through `children` (a `kpi_row` takes `tiles` or `children`). A
@@ -128,11 +135,26 @@ Trend tiles go in a `kpi_row` through `children` (a `kpi_row` takes `tiles` or `
 or `flat`) and `delta` (text or `{bind: ...}`). Value, unit, direction glyph and delta sit in one
 centred row under the caption, as in the kit's AssetKPI tiles. The direction glyph and delta are
 coloured labels (green, red, grey); `ptcsicon` has no known styler, so it cannot carry the colour.
-Direction is static: it does not follow a data field.
+Direction is static: it does not follow a data field. Optional
+`sparkline: {field: Value, x: year, data: history}` adds a native `ptcschartline` under the value.
+`data` defaults to the value binding's source; supply it when history comes from another service.
+Service All Data binds directly to chart Data; `XAxisField` and `DataField1` select the fields
+with `NumberOfSeries: 1`. Spark view hides axes, rulers, title, legend, markers and values. Both
+the chart and its wrapper stay 40px high; widget styles override the theme's 160px chart minimum
+and remove chart-layout padding. Native axis allowances are zero, and title, notes, legend,
+action and zoom parts are hidden explicitly. The native optional `YAxisMinimumValues` and
+`YAxisMaximumValues` remain unset for the data's automatic range. `recipe sparkline` uses the
+same properties and styles.
 
 A `detail_pair` is a content-height row: optional status dot, caption left, spacer, bound value
 right. Place it in a `card`, which then stretches its children. `kind` (`ok`, `warning`, `error`,
-`info`) colours the dot. If any direct pair in a card has a dot, every pair reserves the same 16px dot column. There is no StateDefinition mapping yet, so the dot colour is fixed.
+`info`) or the alias `status` colours a fixed dot. Alternatively, `state: Acme.Status_ST`
+uses the bound value to colour a native 12px circle through `ShapeFormatter`. The shape is a
+member of the caption container with a 12px floor, so it shares the caption's height instead
+of depending on an empty placement branch. `recipe label-pairs --status-state` already places
+its native circles beside captions. The StateDefinition is resolved offline from the solution and embedded as the same snapshot used by grid columns;
+unknown definitions are located errors. `state` cannot be combined with fixed `status`/`kind`.
+If any direct pair in a card has a dot, every pair reserves the same dot-column width.
 Rows have no fixed height, which removes the inner overflow of the old card plus label rows.
 
 A `button` accepts `variant` (`primary`, `secondary`, `tertiary`, `transparent`, `danger`, written
@@ -160,21 +182,6 @@ for example the slider's `Value`. A `card` holding a dial stretches it.
 
 Card and trend-tile titles use the regular label size (`LabelType: label`), as the kit does, instead
 of the card recipe's sub-header; the recipe command keeps its own size.
-
-## Planned elements
-
-These are proposals, not implemented elements. They compose native widgets and named parts; no
-bitmap chart or custom HTML is needed.
-
-| Proposed element | Native widgets and parts | Contract to add |
-| --- | --- | --- |
-| `trend_tile` sparkline | compact `ptcschartline` (plot/series, axes and legend hidden) | Series field and period caption; a bounded sparkline under the value. |
-| `detail_pair` status mapping | `Acme.Status_ST` StateDefinition | Map a bound status to the dot colour. |
-| `chart: {kind: combo}` secondary axis | `DisplaySeries<n>On: yaxis2`, `YAxis2` labels | A series option that moves a series to the second axis. |
-
-Part selectors and compact chart settings must be checked against the embedded platform
-metadata and kit exports when implemented; the plot/series names above describe native
-parts to expose, not additional accepted `style` keys today.
 
 ## Baseline and hand edits
 
@@ -222,7 +229,7 @@ CI also checks both front ends, rebuilds, retained hand edits and conflicts.
 
 | Benchmark / kit | Spec | Remaining differences from the kit |
 | --- | --- | --- |
-| A / AssetKPI | [KPI dashboard](../tests/fixtures/mashup/pages/bench_a/page.yaml) | Native trend tiles replace the contained trend doodads (static direction, no sparkline); detail pairs carry status dots with fixed colours; the right chart is a native bar+line combo on one axis (no secondary axis); charts sit in framed grey panels with their date toolbars. |
+| A / AssetKPI | [KPI dashboard](../tests/fixtures/mashup/pages/bench_a/page.yaml) | Native trend tiles replace the contained trend doodads (static direction, service-bound sparklines); detail pairs map numeric values through an offline StateDefinition; the right chart is a native bar+line combo with a secondary axis; charts sit in framed grey panels with their date toolbars. |
 | H / AssetListTopFilter | [Asset list](../tests/fixtures/mashup/pages/bench_h/page.yaml) | Search invokes SearchAssets. Its contract has only query, so category/date filtering needs another service contract. View Details is the kit's transparent eye-icon button, selection-gated; navigation is outside the event subset. Pagination slices the grid locally. |
 | J / AlertsAndNotifications | [Alerts tabs](../tests/fixtures/mashup/pages/bench_j/page.yaml) | Asset fields substitute for a dedicated alert contract. Severity/date controls need filtering services; Form is styled but cannot open a popup through spec events yet. Application uses a second grid over the same source. |
 | K / AdminMetrics | [Metrics filters](../tests/fixtures/mashup/pages/bench_k/page.yaml) | Apply binds all side-filter values; Reset is present but has no reset recipe in specs. The template chevron is retained; no collapsible recipe is exposed. Toolbar search/category/date and View Details are visual controls awaiting separate filter/navigation wiring. Pagination uses the existing local slicing recipe. |
@@ -259,7 +266,10 @@ content. A chart accepts `legend: false` to reclaim plot space in a dense chart 
 otherwise retain native settings at the bottom. No custom chart HTML or rendering is used.
 
 A field-only `filter_panel` occupies 280px beside the main column. Its empty content pane is
-hidden, fields use content height and the footer stays in flow. A date range in its 240px field
+hidden, fields fill from the top and the compact footer stays at the bottom. The filter column
+is capped at the viewport height minus ancestor gutters, even when a taller main column grows
+the page. Fields may shrink and scroll inside their own area; the footer does not shrink.
+The same v1 rules and viewport style apply to command-built filter-panel templates. A date range in its 240px field
 area defaults to that width and short From/To hints; explicit Width props win.
 
 Bind a detail value to a grid selection with `{bind: fleet.selected.ThingName}`, where `fleet`
@@ -276,3 +286,30 @@ The combined examples [Q1](../tests/fixtures/mashup/pages/bench_q1/page.yaml),
 [Q4](../tests/fixtures/mashup/pages/bench_q4/page.yaml) use the same offline Acme solution.
 Q3 hides chart legends; Q4 follows the selected asset and aligns mixed status pairs.
 These are offline structural regressions, not measured visual scores.
+
+A grid used by `<grid>.selected.<Field>` bindings selects the first row on load with the native
+`DefaultSelectedRows: "1"` property. Set `auto_select: false` on that grid to opt out, or `true`
+to request first-row selection explicitly. An authored `props.DefaultSelectedRows` takes priority.
+Selection gates alone do not enable automatic selection.
+
+In v1 pages, responsive containers do not own vertical scrolling. Their content floors propagate
+through the center container so the page can scroll to pagination and footers at short heights.
+Filter fields fill the available column space from the top; their compact action footer stays at
+the bottom. Legacy layout output is unchanged.
+
+Explicit `size: fit` containers clear generated fixed/max heights and keep natural content height,
+including rows of detail cards. The page still owns vertical overflow.
+
+
+Command equivalents: create an ordinary mashup with `mashup new <name> --template
+<template>` to use the same page-overflow and filter fields/footer rule
+operations by default. `recipe panel` in v1 keeps automatic content height. Use
+`--rules legacy` at creation to keep legacy command layout. `recipe columns ... --auto-select-first` enables
+first-row grid selection (`DefaultSelectedRows: "1"`, `RowSelection: single`).
+`recipe chart ... --series Count:bar --series Total:line:secondary` shares the spec
+combo series/secondary-axis and compact legend properties; command series labels
+use their field names. `recipe sparkline <name> <container> --data <call> --x <field>
+--value <field>` shares the trend tile's 40px chart properties and styles, with a
+direct service-row binding. Existing command equivalents for status dots are
+`recipe label-pairs --status <field> --status-state <StateDefinition>`, and picker
+first-row selection is `recipe picker --auto-select-first`.

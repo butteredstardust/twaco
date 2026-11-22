@@ -29,6 +29,7 @@ page:
                       id: fleet
                       size: fill
                       data: assets
+                      auto_select: true
                       columns: [{field: ThingName, title: Asset}, {field: Status, status: Acme.BenchStatus_ST}, Model]
             - column:
                 id: detail

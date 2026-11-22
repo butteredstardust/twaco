@@ -147,7 +147,7 @@ pub(crate) fn explain(
         display_name: found.display_name,
         origin: own.origin,
         inferred,
-        rules: "legacy".into(),
+        rules: document.rules().version().into(),
         decisions: own.decisions,
         enclosing,
         notes,
@@ -202,7 +202,7 @@ fn layer(
     let facts = row_facts(node);
     let mut decisions: Vec<WhyDecision> = Vec::new();
     for context in &described.nodes {
-        let decided = super::layout::current().evaluate(&context.context());
+        let decided = document.rules().evaluate(&context.context());
         for decision in decided.decisions() {
             if decision.name == "siblings" && children(node).len() < 2 {
                 continue;

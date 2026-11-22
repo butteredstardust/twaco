@@ -211,6 +211,17 @@ fn compile_nested(solution: &Solution, project: &str, text: &str) -> Result<Arti
     for node in gates {
         wire_enabled(solution, &mut session, &mut allocator, &ids, node)?;
     }
+    for node in page.slots.values().flat_map(|s| &s.value) {
+        wire_sparklines(
+            solution,
+            &mut session,
+            &model,
+            platform.as_ref(),
+            page,
+            &ids,
+            node,
+        )?;
+    }
     wire_selections(
         solution,
         &mut session,
@@ -418,13 +429,17 @@ fn add(
             authoring::Recipe::Card {
                 container: placed.clone(),
                 caption: body.title.clone().expect("validated title"),
-                value: body.value.as_ref().map(|v| {
-                    if binding(&v.value).is_some() {
-                        String::new()
-                    } else {
-                        scalar(&v.value)
-                    }
-                }),
+                value: body
+                    .value
+                    .as_ref()
+                    .filter(|_| matches!(node, Node::Card(_)))
+                    .map(|v| {
+                        if binding(&v.value).is_some() {
+                            String::new()
+                        } else {
+                            scalar(&v.value)
+                        }
+                    }),
                 status: body.status.as_ref().map(|v| {
                     if binding(&v.value).is_some() {
                         String::new()
@@ -964,6 +979,62 @@ pub(super) fn call(page: &Page, alias: &str) -> String {
     format!("data:{}[as {alias}]", page.data[alias].value.service.value)
 }
 
+fn wire_sparklines(
+    solution: &Solution,
+    session: &mut Session,
+    model: &types::Model,
+    platform: Option<&types::Platform>,
+    page: &Page,
+    ids: &BTreeMap<String, String>,
+    node: &Node,
+) -> Result<(), Error> {
+    let b = node.body();
+    if let Some(sparkline) = &b.sparkline {
+        let loc = sparkline.referenced;
+        let spark = &sparkline.value;
+        let data = spark
+            .data
+            .as_deref()
+            .or_else(|| {
+                b.value
+                    .as_ref()
+                    .and_then(|v| binding(&v.value))
+                    .and_then(|v| v.split_once('.').map(|v| v.0))
+            })
+            .filter(|data| page.data.contains_key(*data))
+            .ok_or_else(|| Error::at(loc, "sparkline needs data naming a page data source"))?;
+        for field in [&spark.x, &spark.field] {
+            let base = session
+                .source_type(
+                    solution,
+                    model,
+                    platform,
+                    &format!("{}.{field}", call(page, data)),
+                )
+                .map_err(|e| Error::at(loc, e))?;
+            if field == &spark.field && !["NUMBER", "INTEGER", "LONG"].contains(&base.as_str()) {
+                return Err(Error::at(
+                    loc,
+                    format!("sparkline field {field} must be numeric"),
+                ));
+            }
+        }
+        session
+            .bind(
+                solution,
+                model,
+                platform,
+                &call(page, data),
+                &format!("ui:{}.Data", ids[&format!("{}--sparkline", b.id.value)]),
+            )
+            .map_err(|e| Error::at(loc, e))?;
+    }
+    for child in descendants(node) {
+        wire_sparklines(solution, session, model, platform, page, ids, child)?;
+    }
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)]
 fn wire_selections(
     solution: &Solution,
@@ -1007,6 +1078,23 @@ fn wire_selections(
             .ok_or_else(|| Error::at(loc, format!("{text} needs a grid with data")))?;
         if field.is_empty() || field.contains('.') {
             return Err(Error::at(loc, format!("{text} needs one field")));
+        }
+        let grid_body = find_grid_body(page, grid).expect("grid with data");
+        let path = session
+            .document
+            .find_exact(&ids[grid])
+            .map_err(|e| Error::at(loc, e))?
+            .path;
+        if !grid_body.props.contains_key("DefaultSelectedRows") {
+            session.document.set_property(
+                &path,
+                "DefaultSelectedRows",
+                json!(if grid_body.auto_select.unwrap_or(true) {
+                    "1"
+                } else {
+                    ""
+                }),
+            );
         }
         let base = session
             .source_type(
@@ -1097,10 +1185,10 @@ pub(super) fn address(
     Err(Error::at(loc, format!("unknown reference {text}")))
 }
 
-pub(super) fn find_grid<'a>(page: &'a Page, name: &str) -> Option<&'a str> {
-    fn find<'a>(node: &'a Node, name: &str) -> Option<&'a str> {
+fn find_grid_body<'a>(page: &'a Page, name: &str) -> Option<&'a schema::Body> {
+    fn find<'a>(node: &'a Node, name: &str) -> Option<&'a schema::Body> {
         if matches!(node, Node::Grid(_)) && node.body().id.value == name {
-            return node.body().data.as_ref().map(|d| d.value.as_str());
+            return Some(node.body());
         }
         descendants(node).find_map(|n| find(n, name))
     }
@@ -1108,6 +1196,13 @@ pub(super) fn find_grid<'a>(page: &'a Page, name: &str) -> Option<&'a str> {
         .values()
         .flat_map(|s| &s.value)
         .find_map(|n| find(n, name))
+}
+
+pub(super) fn find_grid<'a>(page: &'a Page, name: &str) -> Option<&'a str> {
+    find_grid_body(page, name)?
+        .data
+        .as_ref()
+        .map(|d| d.value.as_str())
 }
 
 fn wire(
@@ -1124,6 +1219,30 @@ fn wire(
         return Ok(());
     }
     let id = &ids[&body.id.value];
+    if let Some(auto) = body.auto_select {
+        if auto && !body.props.contains_key("RowSelection") {
+            let path = session
+                .document
+                .find_exact(id)
+                .map_err(|e| Error::at(body.id.referenced, e))?
+                .path;
+            session
+                .document
+                .set_property(&path, "RowSelection", json!("single"));
+        }
+        if !body.props.contains_key("DefaultSelectedRows") {
+            let path = session
+                .document
+                .find_exact(id)
+                .map_err(|e| Error::at(body.id.referenced, e))?
+                .path;
+            session.document.set_property(
+                &path,
+                "DefaultSelectedRows",
+                json!(if auto { "1" } else { "" }),
+            );
+        }
+    }
     super::elements::wire(solution, session, model, platform, page, ids, node)?;
     if let Some(data) = body.data.as_ref().filter(|_| matches!(node, Node::Grid(_))) {
         let from = call(page, &data.value);
@@ -1151,6 +1270,7 @@ fn wire(
                     .recipe(
                         solution,
                         authoring::Recipe::Columns {
+                            auto_select_first: false,
                             widget: id.clone(),
                             data: None,
                             columns: body

@@ -25,6 +25,7 @@ pub struct NewRequest {
     pub project: Option<String>,
     /// An embedded layout template name or alias.
     pub template: String,
+    pub rules: Option<String>,
     pub gadget: bool,
     pub layout: Option<String>,
     /// The primary menu service for a template with a menu bar; it or `menu_entity` is required.
@@ -154,11 +155,32 @@ pub(crate) fn plan_new(
     if request.from.is_none() && !request.replacements.is_empty() {
         return Err(AuthoringError::Invalid("--replace needs --from".into()));
     }
+    if request.rules.is_some() && (request.from.is_some() || request.gadget || request.master) {
+        return Err(AuthoringError::Invalid(
+            "--rules needs an ordinary new mashup without --from, --gadget or --master".into(),
+        ));
+    }
+    let default_rules = if request.gadget || request.master {
+        "legacy"
+    } else {
+        "v1"
+    };
+    let rules = match request.rules.as_deref().unwrap_or(default_rules) {
+        "legacy" => mashup::layout::Version::Legacy,
+        "v1" => mashup::layout::Version::V1,
+        _ => {
+            return Err(AuthoringError::Invalid(
+                "--rules must be legacy or v1".into(),
+            ))
+        }
+    };
     if request.from.is_some() {
         return plan_copy(solution, request);
     }
-    let mut template = mashup::templates::layout(&request.template)
+    let mut template = mashup::templates::layouts_with(mashup::layout::RuleSet::embedded(rules))
         .map_err(AuthoringError::Invalid)?
+        .into_iter()
+        .find(|t| t.name == request.template || t.aliases.contains(&request.template))
         .ok_or_else(|| AuthoringError::Invalid(unknown_template(&request.template)))?;
     validate_template(&template)?;
     EntityKey::new("Mashups", request.name.as_str())
@@ -274,6 +296,10 @@ pub(crate) fn plan_new(
     } else {
         new_document(&template, request.master, &theme)?
     };
+    if rules == mashup::layout::Version::V1 {
+        document.set_top("twacoPageRules", json!("v1"));
+        mashup::layout::finish_page(&mut document);
+    }
     let parameters: Vec<ParameterDefinition> = request
         .params
         .iter()

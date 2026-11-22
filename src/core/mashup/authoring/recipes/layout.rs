@@ -495,6 +495,22 @@ impl Work<'_> {
                 "fill available height"
             }
         ));
+        if self.document.value()["twacoPageRules"] == "v1" {
+            block = block
+                .lines()
+                .filter(|line| !line.trim_start().starts_with("min-height:"))
+                .map(|line| {
+                    if line.trim_start().starts_with("height:") {
+                        "  height: auto !important;".to_string()
+                    } else {
+                        line.replace("flex: 1 1 auto", "flex: 1 0 auto")
+                            .replace("flex: 0 1 auto", "flex: 0 0 auto")
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+                + "\n";
+        }
         let css = managed_css(css, &target.id, &block)?;
         let node = layout::context::Node::op("panel-recipe", layout::Element::Container)
             .fact("style-card", style == "card")

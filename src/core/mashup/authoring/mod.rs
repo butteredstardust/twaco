@@ -67,6 +67,7 @@ use parameter::{
     ParameterDefinition,
 };
 pub use parameter::{parameter_plan_json, ParameterAction, ParameterDefault, ParameterRequest};
+pub(crate) use recipes::{combo_props, sparkline_props, sparkline_styles};
 pub(crate) use recipes::{plan_recipe, RecipePlan};
 pub use recipes::{recipe_plan_json, Recipe, RecipeArgs, RecipeRequest, RECIPES};
 pub(crate) use remove::{plan_off, plan_remove, plan_unbind, OffPlan, RemovePlan, UnbindPlan};
@@ -255,10 +256,14 @@ fn finish_edit(
 /// Put changed content and, when requested, the stylesheet back through sync.
 fn finish_edit_with_css(
     loaded: ExistingMashup,
-    document: MashupDocument,
+    mut document: MashupDocument,
     command: &'static str,
     css: Option<String>,
 ) -> Result<EditPlan, AuthoringError> {
+    // Page sessions finish layout once all nodes and explicit sizes are present.
+    if !loaded.deterministic {
+        mashup::layout::finish_page(&mut document);
+    }
     let content = document.to_content();
     let assets_after = mashup::Assets {
         content: content.clone(),

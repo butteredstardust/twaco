@@ -101,8 +101,11 @@
     {"id": "props.page-fill", "when": {"op": "page-fill"}, "decisions": {"props": {"flex-size": "range", "flex-grow": 1, "flex-shrink": 0, "flex-basis": "0px", "flex-max-height": ""}}},
     {"id": "props.page-chart-minimum", "when": {"op": "page-chart-minimum"}, "decisions": {"props": {"flex-min-height": "240px", "flex-direction": "column", "align-items": "stretch"}}},
     {"id": "props.page-chart-legend", "when": {"op": "page-chart-legend"}, "decisions": {"props": {"LegendPosition": "bottom", "LegendAlignment": "start"}}},
-    {"id": "props.page-overflow", "when": {"op": "page-overflow"}, "decisions": {"props": {"ShowVerticalScrollbar": false}}},
+    {"id": "props.page-filter-fields", "when": {"op": "page-filter-fields"}, "decisions": {"props": {"flex-size": "range", "flex-grow": 1, "flex-shrink": 1, "flex-basis": "0px", "flex-min-height": "0px", "flex-max-height": "", "justify-content": "flex-start", "align-content": "flex-start", "ShowVerticalScrollbar": true, "scrolling": "scroll"}}},
+    {"id": "props.page-filter-footer", "when": {"op": "page-filter-footer"}, "decisions": {"props": {"Margin": "0 20", "flex-size": "range", "flex-grow": 0, "flex-shrink": 0, "flex-basis": "auto", "flex-min-height": "34px", "flex-max-height": "34px"}}},
+    {"id": "props.page-overflow", "when": {"op": "page-overflow"}, "decisions": {"props": {"ShowVerticalScrollbar": false, "scrolling": "no-scroll"}}},
     {"id": "props.page-filter-only", "when": {"op": "page-filter-only"}, "decisions": {"props": {"flex-grow": 0, "flex-shrink": 0, "flex-basis": "280px", "flex-min-width": "280px", "flex-max-width": "280px"}}},
+    { "id": "props.sparkline-height", "when": { "op": "sparkline-height" }, "decisions": { "props": {"flex-size":"fixed","flex-min-height":"40px","flex-max-height":"40px","flex-grow":0,"flex-shrink":0,"ShowVerticalScrollbar":false,"Margin":"0"} } },
     { "id": "props.page-spacer", "when": { "op": "page-spacer" }, "decisions": { "props": { "flex-grow": 1, "flex-basis": "0px" } } }
 
   ]

@@ -51,7 +51,18 @@ fn apply(root: &Path, args: &[&str]) {
 }
 
 fn template(root: &Path, name: &str, template: &str) {
-    apply(root, &["mashup", "new", name, "--template", template]);
+    apply(
+        root,
+        &[
+            "mashup",
+            "new",
+            name,
+            "--template",
+            template,
+            "--rules",
+            "legacy",
+        ],
+    );
 }
 
 /// Text, then JSON, for one widget.

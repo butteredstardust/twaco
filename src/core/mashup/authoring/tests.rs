@@ -36,6 +36,7 @@ fn request(name: &str) -> NewRequest {
         name: name.to_string(),
         project: None,
         template: "blank".into(),
+        rules: None,
         gadget: false,
         layout: None,
         primary_menu: None,
@@ -48,6 +49,13 @@ fn request(name: &str) -> NewRequest {
         tabs: Vec::new(),
         from: None,
         replacements: Vec::new(),
+    }
+}
+
+fn legacy_request(name: &str) -> NewRequest {
+    NewRequest {
+        rules: Some("legacy".into()),
+        ..request(name)
     }
 }
 
@@ -1515,7 +1523,7 @@ fn bind_fixture() -> (tempfile::TempDir, Solution) {
         r#"<Entities><DataShapes><DataShape name="Acme.Orders.Order_DS" projectName="Acme"><FieldDefinitions><FieldDefinition name="id" baseType="LONG"/><FieldDefinition name="note" baseType="STRING"/></FieldDefinitions></DataShape></DataShapes></Entities>"#,
     );
     let name = "Acme.Orders_MU";
-    let new = plan_new(&solution, &request(name)).unwrap();
+    let new = plan_new(&solution, &legacy_request(name)).unwrap();
     apply_new(&solution, &new, &lock(&solution)).unwrap();
     // This fixture deliberately models the older direct-child layout.  Its wiring tests name
     // stable ids; placement behaviour itself is covered by the focused layout tests below.
@@ -2725,7 +2733,7 @@ fn container(value: &Value) -> &Value {
 
 fn contained_fixture() -> (tempfile::TempDir, Solution) {
     let (dir, solution) = one_project();
-    let mut child = request("Acme.Card_MU");
+    let mut child = legacy_request("Acme.Card_MU");
     child.params = vec![
         "id:LONG:IN".into(),
         "title:STRING:BOTH".into(),
@@ -2739,7 +2747,7 @@ fn contained_fixture() -> (tempfile::TempDir, Solution) {
     .unwrap();
     apply_new(
         &solution,
-        &plan_new(&solution, &request("Acme.Board_MU")).unwrap(),
+        &plan_new(&solution, &legacy_request("Acme.Board_MU")).unwrap(),
         &lock(&solution),
     )
     .unwrap();
@@ -12823,6 +12831,7 @@ fn gadget_sizes_match_xml_and_export_content() {
 fn gadget_refuses_incompatible_options_and_invalid_sizes() {
     let (_dir, solution) = one_project();
     let base = NewRequest {
+        rules: None,
         gadget: true,
         ..request("Acme.Gadget")
     };
@@ -12933,6 +12942,7 @@ fn legacy_gadget_folder_and_wrapper_are_distinct_and_diagnosed() {
     let plan = plan_new(
         &solution,
         &NewRequest {
+            rules: None,
             gadget: true,
             ..request("Acme.Gadget")
         },
@@ -13381,12 +13391,18 @@ fn detail_status_uses_shape_data_and_existing_state_snapshot() {
         .collect();
     assert_eq!(dots.len(), 7);
     for dot in dots {
+        let siblings = document.at(&dot.path[..dot.path.len() - 1])["Widgets"]
+            .as_array()
+            .unwrap();
+        assert!(siblings
+            .iter()
+            .any(|w| w["Properties"]["Type"] == "ptcslabel"));
         let p = &document.at(&dot.path)["Properties"];
         assert_eq!(p["ShapeType"], "circle");
         assert_eq!(p["Width"], 12);
         assert_eq!(p["Height"], 12);
         assert_eq!(p["Margin"], "0 5");
-        assert_eq!(p["ShapeFormatter"]["FieldName"], "Data");
+        assert_eq!(p["ShapeFormatter"]["FieldName"], "assetName");
         assert_eq!(p["ShapeFormatter"]["StateDefinition"], "Acme.Status");
         assert!(document.value()["DataBindings"]
             .as_array()

@@ -187,6 +187,12 @@ pub(crate) struct Body {
     pub(crate) enabled_when: Option<Spanned<String>>,
     pub(crate) trend: Option<Spanned<String>>,
     pub(crate) delta: Option<Spanned<Value>>,
+    pub(crate) sparkline: Option<Spanned<Sparkline>>,
+    pub(crate) state: Option<Spanned<String>>,
+    /// The bound field a `state` formatter reads; set while expanding detail_pair.
+    #[serde(skip)]
+    pub(crate) state_field: Option<String>,
+    pub(crate) auto_select: Option<bool>,
     pub(crate) color: Option<String>,
     pub(crate) options: Option<Spanned<String>>,
     pub(crate) display: Option<String>,
@@ -235,6 +241,16 @@ pub(crate) struct Body {
 pub(crate) struct Series {
     pub(crate) field: String,
     pub(crate) kind: String,
+    pub(crate) title: Option<String>,
+    pub(crate) axis: Option<Spanned<String>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Sparkline {
+    pub(crate) field: String,
+    pub(crate) x: String,
+    pub(crate) data: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

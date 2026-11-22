@@ -6,6 +6,45 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Ordinary `mashup new` creations now default to v1 layout rules in CLI and MCP.
+  Pass `--rules legacy` (MCP `rules: "legacy"`) to opt out. Existing mashups keep
+  their stored rule set for add, set and recipe edits; no `twacoPageRules` marker
+  means legacy. Copies preserve their source rules; gadgets and masters are unchanged.
+
+### Added
+
+- Command page-spec parity: `mashup new --rules v1` shares page scrolling and filter
+  footer layout, `recipe columns --auto-select-first` selects the first grid row,
+  `recipe chart --series field:kind[:axis]` configures combo secondary axes and compact
+  legends, and `recipe sparkline` adds the same 40px native trend chart. CLI and MCP
+  expose the same options; legacy layout output is unchanged.
+
+- Page specs support combo-chart series with `title` and `axis: secondary`, 40px trend-tile
+  sparklines (`sparkline: {data, field, x}`), StateDefinition detail dots (`state`), and grid
+  `auto_select` with first-row selection by default for selection-bound details.
+
+### Fixed
+
+- State dots (page-spec `detail_pair state` and `label-pairs --status --status-state`) name the
+  bound source field in the shape's formatter; the runtime evaluates it against that field, so
+  the dot no longer renders black.
+- v1 filter panel: the footer keeps a horizontal margin only (a vertical margin clipped its 34px
+  buttons), and the fields area keeps the height its rows need, scrolling only when the column
+  is capped below it. Sparklines also drop the marker allowance and loading placeholder.
+- State-bound detail dots share the caption container instead of a zero-height
+  placement branch. Page and recipe sparklines clear native axis allowances, title/legend/notes
+  and zoom regions at 40px. v1 filter columns stay within the viewport; only overflowing fields
+  scroll, keeping Apply/Reset visible on short screens. Legacy layout output is unchanged.
+
+- Page sparklines override the chart theme minimum and padding at 40px and bind service rows
+  directly. Content-fit detail-card rows clear generated height caps; combo legends disable axis grouping.
+
+- v1 page content propagates its minimum height through the center container without giving it
+  an inner scrollbar, keeping pagination reachable by page scrolling. Filter fields start at
+  the top and action footers remain at the bottom. Legacy layout output is unchanged.
+
 ## [0.1.73] - 2026-11-21
 
 ### Changed
@@ -706,7 +745,7 @@ All notable changes to twaco are recorded here. The format follows
   VARIANT defaults and nested INFOTABLE cells compare as the server stores them. Run
   `twaco entity status --all --record` once to record the new baselines.
 - A TIMESPAN property default is sent in the form an import reads (`start,end,period`) even when
-  the file holds the form the server exports (`{period=…, start=…, end=…}`), which an import
+  the file holds the form the server exports (`{period=Ă˘â‚¬Â¦, start=Ă˘â‚¬Â¦, end=Ă˘â‚¬Â¦}`), which an import
   misreads: before this, deploying a pulled TIMESPAN default reset or garbled it.
   `thing property add --default` accepts a TIMESPAN. A VARIANT default stays refused: a 10.2
   server imports it once and then fails every later import of the entity.
@@ -1847,7 +1886,7 @@ All notable changes to twaco are recorded here. The format follows
 - A server error quoted the request's address as written, so credentials put into a profile's
   `url` (`https://user:token@host/`) could be printed, in its message and its debug form; both
   now show `***` there, and a reply echoing them is scrubbed.
-- Backup files were named by the low byte of each character, so `Café` and `Cafǩ` shared one file
+- Backup files were named by the low byte of each character, so `CafÄ‚Â©` and `CafĂ‡Â©` shared one file
   and a restore lost one of them. A set's `backup.json` now records each entity's file, unique
   even where case is not told apart and cut to a safe length; sets saved before still restore.
 - `repo pull` wrote two server files whose paths differ only in case (`A.txt`, `a.txt`) to one

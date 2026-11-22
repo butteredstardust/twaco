@@ -995,8 +995,11 @@ pub(crate) const USAGE: &[Usage] = &[
       validate <widget>|--on <event> --if <condition> [--input name=<address>]... --then <handler>
           [--else-say <text>]   run the handler when the condition holds, else show the text
       chart <chart> --data <data call> --x <field> [--value <field>] [--kind <bar|column|linechart|areachart>]
-          [--title <text>] [--x-title <text>] [--y-title <text>] [--stacked]
+          [--title <text>] [--x-title <text>] [--y-title <text>] [--stacked] [--series <field:kind[:axis]>]...
       --kind                  bar or column on a bar chart; linechart or areachart on a line chart; the card chip colour (info, ok, warning, error)
+      --series <field:kind[:axis]>  combo series in order: bar or line, primary (default) or secondary axis; repeatable
+      sparkline <container> --data <data call> --x <field> --value <field>
+                              add a 40px line chart under existing content, with axes and legend hidden
       --stacked              bar chart series stacked with SeriesDisplay=auto
       --x-title <text>        explicit X-axis name; catalogue placeholders are cleared
       --y-title <text>        explicit Y-axis name; authored names are preserved
@@ -1028,6 +1031,7 @@ pub(crate) const USAGE: &[Usage] = &[
                               a selecting widget is bound to this call; empty responsive container unless --replace removes its only child
       picker <dropdown|list> --data <data call> --x <display field> [--value <field>]
           [--selected <address>] [--no-none-row] [--auto-select-first]
+      --auto-select-first    select the first row of a picker or grid (recipe columns: DefaultSelectedRows=1)
                               fill a dropdown or list from a service result; without the "(None)" row,
                               or selecting the first row
       tracker <widget|new> --data <data call> [--field-map Property=field]...
@@ -1073,6 +1077,7 @@ pub(crate) const USAGE: &[Usage] = &[
       --spec <file>          compile a page spec, copy it to src/<Mashup>/page.yaml and record a generated baseline;
                               accepts only --project, --apply and --json
       --from <address>        copy a repository mashup exactly, except identity and permissions
+      --rules <legacy|v1>     layout rules (default v1); legacy opts out of page scrolling and top-aligned filter fields
       --template              layout template name or alias (default: blank); form-2col has full-width fields and left/right columns; see mashup templates
       --gadget                fixed dashboard gadget; default 1x1, 240px per cell
       --layout                gadget columns x rows: 1x1, 2x1, 4x1, 1x2, 2x2, 4x2, 1x4, 2x4, 4x4; otherwise alias for --template
@@ -1098,6 +1103,7 @@ pub(crate) const USAGE: &[Usage] = &[
       --spec <file>          compile a page spec, copy it to src/<Mashup>/page.yaml and record a generated baseline;
                               accepts only --project, --apply and --json
       --from <address>        copy a repository mashup exactly, except identity and permissions
+      --rules <legacy|v1>     layout rules (default v1); legacy opts out of page scrolling and top-aligned filter fields
       --template              layout template name or alias (default: blank); form-2col has full-width fields and left/right columns; see mashup templates
       --gadget                fixed dashboard gadget; default 1x1, 240px per cell
       --layout                gadget columns x rows: 1x1, 2x1, 4x1, 1x2, 2x2, 4x2, 1x4, 2x4, 4x4; otherwise alias for --template

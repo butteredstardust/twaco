@@ -339,6 +339,10 @@ pub(crate) struct MashupNewRequest {
     /// An embedded layout template name or alias; default `blank`.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) template: Absent<String>,
+    /// Layout rules for a new ordinary mashup: v1 (default) or legacy to opt out.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    #[schemars(extend("enum" = ["legacy", "v1"], "default" = "v1"))]
+    pub(crate) rules: Absent<String>,
     /// A repository mashup to copy. It is exclusive with template, layout, menus, theme, master, params and tabs.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) from: Absent<String>,
@@ -1144,7 +1148,7 @@ pub(crate) struct MashupRecipeRequest {
     pub(crate) tab: Absent<String>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) start: Absent<String>,
-    /// panel styles a responsive column; slider-action pairs widget (slider) with button. toolbar uses widget as the empty responsive container, then, search_param, hint, width, run_on and buttons. enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, pagination, picker, tracker, set-on-click, nested-menu, navigate-on-click or collapsible; label-pairs uses widget as the responsive container, data, fields, title, label_columns and replace.
+    /// panel styles a responsive column; slider-action pairs widget (slider) with button. toolbar uses widget as the empty responsive container, then, search_param, hint, width, run_on and buttons. enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, sparkline, columns, pagination, picker, tracker, set-on-click, nested-menu, navigate-on-click or collapsible; label-pairs uses widget as the responsive container, data, fields, title, label_columns and replace.
     pub(crate) recipe: String,
     /// The mashup to write it in.
     pub(crate) mashup: String,
@@ -1232,9 +1236,12 @@ pub(crate) struct MashupRecipeRequest {
     /// A picker without the "(None)" row.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) no_none_row: Absent<bool>,
-    /// A picker that selects its first row.
+    /// A picker or grid that selects its first row.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) auto_select_first: Absent<bool>,
+    /// Combo series as field:bar|line[:primary|secondary].
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) series: Absent<Vec<String>>,
     /// The root Menu of recipe nested-menu.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) menu: Absent<String>,
