@@ -1541,7 +1541,7 @@ fn wire_enabled(
 
 /// A collection: its cell mashup and mapping through the `mashup collection add` code. With
 /// `cell:` the cell is a small page of its own, compiled by this same compiler and written beside
-/// this page the first time (an existing mashup of that name is used as it is).
+/// this page; the builder checks ownership before refreshing files on disk.
 #[allow(clippy::too_many_arguments)]
 fn wire_collection(
     solution: &Solution,
@@ -1600,29 +1600,21 @@ fn wire_collection(
             .iter()
             .map(|(_, f, _)| (f.clone(), f.clone()))
             .collect();
-        let exists = crate::core::workspace::entities(solution)
-            .iter()
-            .any(|e| e.info.collection == "Mashups" && e.info.name == name);
-        let cell = if exists {
-            CellSource::Existing(name)
-        } else {
-            let text = cell_spec(page, &name, &fields);
-            let built = compile_nested(solution, project, &text)?;
-            let source = CellSource::Generated {
-                name: name.clone(),
-                entity: built.entity.clone(),
-                content: built.content.clone(),
-                css: built.css.clone(),
-            };
-            if !cells.iter().any(|c| c.name == name) {
-                cells.push(GeneratedCell {
-                    name,
-                    spec: text,
-                    artifacts: built,
-                });
-            }
-            source
+        let text = cell_spec(page, &name, &fields);
+        let built = compile_nested(solution, project, &text)?;
+        let cell = CellSource::Generated {
+            name: name.clone(),
+            entity: built.entity.clone(),
+            content: built.content.clone(),
+            css: built.css.clone(),
         };
+        if !cells.iter().any(|c| c.name == name) {
+            cells.push(GeneratedCell {
+                name,
+                spec: text,
+                artifacts: built,
+            });
+        }
         (cell, mappings, Some("cards".to_string()))
     };
     let cell_name = match &cell {
@@ -1657,6 +1649,8 @@ fn wire_collection(
 }
 
 /// The page spec of a generated KPI cell: a title over a dial, each bound to a parameter.
+// CompareCell has image, text-pair and status bands, but no kit has a title/dial-only cell.
+// Keep the KPI template for those two roles; its growing value uses the kit's LastContainer.
 fn cell_spec(page: &Page, name: &str, fields: &[(&str, String, String)]) -> String {
     let parameters: serde_json::Map<_, _> = fields
         .iter()

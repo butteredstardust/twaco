@@ -8,6 +8,12 @@ All notable changes to twaco are recorded here. The format follows
 
 ### Changed
 
+- V1 filter panels follow the kit exports: direct controls in one growing fields column,
+  with a footer containing the divider and `LastContainer` button row. Spec and command
+  additions share the structure. Remove trailing remaining-space fillers and estimated filter
+  row totals; side-panel tabs and main grid/collection rows use the kit's remaining-height
+  containers. Legacy layout output is unchanged.
+
 - Ordinary `mashup new` creations now default to v1 layout rules in CLI and MCP.
   Pass `--rules legacy` (MCP `rules: "legacy"`) to opt out. Existing mashups keep
   their stored rule set for add, set and recipe edits; no `twacoPageRules` marker
@@ -18,7 +24,7 @@ All notable changes to twaco are recorded here. The format follows
 - Page specs gain the elements of the kit's Compare and Administrator pages: `side_panel`
   (276px grey column with a title, help icon and one-tab strip), `list` (native list with
   `selection: multiple`, whose rows feed another list through `<list>.selected`), `collection`
-  (a cell mashup and field map, or a generated KPI cell page `<page>Cell_MU` created once beside
+  (a cell mashup and field map, or a generated KPI cell page `<page>Cell_MU` kept in sync beside
   the page), `nav_menu`, `empty: <text>` on lists, collections and grids, `info` icons on
   labels, headings and page headers, `icon: search` on text fields, and `title` and
   `collapsible` on `filter_panel`. A page may declare `parameters` and bind `{bind: param.Name}`.
@@ -37,6 +43,25 @@ All notable changes to twaco are recorded here. The format follows
   `auto_select` with first-row selection by default for selection-bound details.
 
 ### Fixed
+
+- Titled collapsible filter columns keep full-width fields stacked at the top. Inner row
+  styles no longer apply the fixed row height as a horizontal flex basis. A trailing growing
+  filler takes spare height before platform bounding-box auto margins can spread fixed rows;
+  the shared v1 spec and command helper also covers card stacks, side-panel content and
+  navigation columns without growing children. Existing widget IDs and the pinned filter
+  footer are preserved; legacy output is unchanged.
+- Page builds refresh generated collection cells while their files match the recorded
+  hashes. Edited or untracked cells are preserved with `cell edited, not regenerated` in
+  CLI and MCP reports.
+
+- Compare and Administrator page layouts constrain side-panel and filter text fields to
+  their inner column width. Empty lists hide their bordered row and show a centred,
+  content-height eye-icon notice. Card collections start without a selection, and
+  uncaptioned v1 KPI dials no longer show Composer's placeholder label. These fixes
+  share command and spec authoring code.
+- Administrator navigation uses compact 14px semibold items with full-width selection
+  backgrounds. Filter rows keep explicit content heights under a title and collapsible
+  toggle, with spare space above the footer, in spec and command builds.
 
 - State dots (page-spec `detail_pair state` and `label-pairs --status --status-state`) name the
   bound source field in the shape's formatter; the runtime evaluates it against that field, so

@@ -5810,7 +5810,7 @@
           "minimum": 0
         },
         "preset": {
-          "description": "`cards`: framed cards spread evenly per row, the last row aligned under the first\ncolumns, the first card selected, as the design kits configure them.",
+          "description": "`cards`: framed cards spread evenly per row, the last row aligned under the first\ncolumns, without an initial selection.",
           "type": "string",
           "enum": [
             "cards"
@@ -8394,7 +8394,9 @@
         "nodes",
         "hand_edits_kept",
         "conflicts",
-        "files"
+        "files",
+        "cells",
+        "cell_notices"
       ],
       "properties": {
         "mashup": {
@@ -8421,6 +8423,18 @@
           "items": true
         },
         "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "cells": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "cell_notices": {
           "type": "array",
           "items": {
             "type": "string"

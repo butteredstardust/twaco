@@ -154,37 +154,23 @@ fn runtime_reported_filter_and_blank_form_builds_fit_through_cli_and_mcp() {
             .unwrap()
         };
         let content = read(filters);
-        let slot = find_widget(&content["UI"], "flexcontainer-4").unwrap();
-        assert_eq!(slot["Properties"]["flex-max-width"], "240px");
-        let rows = slot["Widgets"].as_array().unwrap();
-        assert_eq!(rows.len(), 4);
-        for (index, (id, height)) in [(search, "78px"), (date, "64px"), (category, "86px")]
-            .iter()
-            .enumerate()
-        {
-            let row = &rows[index];
-            let control = find_widget(row, id).unwrap();
-            assert_eq!(control["Properties"]["Width"].as_f64(), Some(240.0));
+        let fields = named(&content["UI"], "filters").unwrap();
+        // Kit structure: controls sit directly in one fields column, no per-field rows.
+        assert_eq!(fields["Properties"]["flex-direction"], "column");
+        assert_eq!(
+            leaf_ids(fields),
+            [search.clone(), date.clone(), category.clone()]
+        );
+        for (index, id) in [&search, &date, &category].into_iter().enumerate() {
+            let control = &fields["Widgets"][index];
+            assert_eq!(control["Properties"]["Id"], id.as_str());
+            assert!(control["Properties"]["Width"].as_f64().unwrap() <= 248.0);
             assert_eq!(control["Properties"]["ResponsiveLayout"], false);
-            assert_eq!(
-                control["Properties"]["Margin"],
-                if index == 0 { "5 0" } else { "13 0 5" }
-            );
-            assert_eq!(row["Properties"]["flex-size"], "fixed");
-            assert_eq!(row["Properties"]["flex-min-height"], *height);
-            assert_eq!(row["Properties"]["flex-max-height"], *height);
-            assert_eq!(row["Properties"]["flex-shrink"], 0);
-            assert_eq!(row["Properties"]["justify-content"], "center");
         }
-        let footer = &rows[3];
+        let footer = named(&content["UI"], "filter-footer").unwrap();
         assert_eq!(leaf_ids(footer), [apply, clear]);
-        assert_eq!(footer["Properties"]["flex-grow"], 1);
-        assert_eq!(footer["Properties"]["align-items"], "flex-end");
-        assert_eq!(footer["Properties"]["Margin"], "0 5");
-        for button in footer["Widgets"].as_array().unwrap() {
-            assert_eq!(button["Properties"]["Width"], 110);
-            assert_eq!(button["Properties"]["Margin"], "0");
-        }
+        assert_eq!(footer["Properties"]["LastContainer"], true);
+        assert!(!content.to_string().contains("--remaining-space"));
         let form = "Acme.Form_MU";
         let left = add(form, "text-field", "--in", "center", Some("Field 01"), None);
         let right = add(
@@ -334,7 +320,10 @@ fn two_column_form_stacks_in_each_column_through_cli_and_mcp() {
         let center = find_widget(&content["UI"], "flexcontainer-2").unwrap();
         // The form keeps one split row. Each column contains its own rows in order,
         // including after repeated insertions beneath the dates.
-        assert_eq!(center["Widgets"].as_array().unwrap().len(), 2, "{center}");
+        // V1 pages carry no generated filler: the page column itself is the remainder container.
+        let rows = center["Widgets"].as_array().unwrap();
+        assert_eq!(rows.len(), 2, "{center}");
+        assert!(rows.iter().all(|row| row["twacoLayoutFiller"].is_null()));
         let form = &center["Widgets"][1];
         assert_eq!(form["Properties"]["flex-shrink"], 0);
         assert_eq!(form["Properties"]["flex-grow"], 0);
@@ -355,6 +344,9 @@ fn two_column_form_stacks_in_each_column_through_cli_and_mcp() {
         for column in columns {
             assert_eq!(column["Properties"]["flex-direction"], "column");
             for row in column["Widgets"].as_array().unwrap() {
+                if row["twacoLayoutFiller"] == true {
+                    continue;
+                }
                 assert_eq!(row["Properties"]["flex-direction"], "row");
                 assert_eq!(leaf_ids(row).len(), 1);
                 if row["Properties"]["flex-size"] == "fixed" {
@@ -2018,14 +2010,11 @@ fn default_v1_filter_title_and_footer_match_kit_alignment_and_spacing() {
             "left"
         );
         let footer = named(&content["UI"], "filter-footer").unwrap();
-        assert_eq!(footer["Properties"]["Margin"], "0 20");
-        assert_eq!(footer["Properties"]["flex-grow"], 0);
-        let column = named(&content["UI"], "filter-column").unwrap();
-        assert_eq!(
-            column["Widgets"].as_array().unwrap().last().unwrap(),
-            footer
-        );
-        let divider = &column["Widgets"][1];
+        assert_eq!(footer["Properties"]["LastContainer"], true);
+        // Kit footer: a column holding the divider row, then the button row.
+        let area = named(&content["UI"], "filter-footer-area").unwrap();
+        assert_eq!(area["Widgets"].as_array().unwrap().last().unwrap(), footer);
+        let divider = &area["Widgets"][0];
         assert_eq!(divider["Properties"]["flex-max-height"], "1px");
         for (label, kind) in [("Apply", "primary"), ("Reset", "tertiary")] {
             let result = invoke(
@@ -2048,7 +2037,14 @@ fn default_v1_filter_title_and_footer_match_kit_alignment_and_spacing() {
             let content = n7_content(root);
             let button = find_widget(&content["UI"], result["id"].as_str().unwrap()).unwrap();
             assert_eq!(button["Properties"]["ButtonType"], kind);
-            assert_eq!(button["Properties"]["Margin"], "0");
+            assert_eq!(
+                button["Properties"]["Margin"],
+                if kind == "primary" {
+                    "24 8 24 24"
+                } else {
+                    "24 24 24 8"
+                }
+            );
         }
     }
 }
@@ -2313,8 +2309,7 @@ fn command_default_v1_filter_fields_start_above_a_pinned_footer() {
         assert_eq!(fields["justify-content"], "flex-start");
         assert_eq!(fields["flex-grow"], 1);
         assert_eq!(fields["flex-shrink"], 1);
-        assert_eq!(fields["flex-min-height"], "112px");
-        assert_eq!(fields["flex-basis"], "0px");
+        assert_eq!(fields["flex-min-height"], "");
         assert_eq!(
             c["UI"]["Properties"]["StyleProperties"]["data"][named(&c["UI"], "filter-column")
                 .unwrap()["Properties"]["Id"]
@@ -2323,11 +2318,8 @@ fn command_default_v1_filter_fields_start_above_a_pinned_footer() {
             "100vh"
         );
         let footer = &named(&c["UI"], "filter-footer").unwrap()["Properties"];
-        assert_eq!(footer["flex-grow"], 0);
-        assert_eq!(footer["flex-min-height"], "34px");
-        assert_eq!(footer["flex-max-height"], "34px");
-        assert_eq!(fields["ShowVerticalScrollbar"], true);
-        assert_eq!(footer["ShowVerticalScrollbar"], false);
+        assert_eq!(footer["LastContainer"], true);
+        assert_eq!(footer["flex-size"], "default");
     }
 }
 
@@ -2689,6 +2681,13 @@ fn command_side_panel_recipe_builds_the_kit_column() {
             properties(panel, "ptcsbutton").unwrap()["TooltipField"],
             "Pick assets"
         );
+        let tabs_id = tabs["Id"].as_str().unwrap();
+        let body = &find_widget(&c["UI"], tabs_id).unwrap()["Widgets"][0]["Properties"]["Id"];
+        let field = n7_add(root, mcp, "text-field", body.as_str().unwrap());
+        assert_eq!(
+            find_widget(&n7_content(root)["UI"], &field).unwrap()["Properties"]["Width"],
+            240
+        );
         // A second run is refused: the column is no longer empty.
         let output = Command::new(env!("CARGO_BIN_EXE_twaco"))
             .current_dir(root)
@@ -2789,10 +2788,29 @@ fn command_empty_state_and_multiple_picker_serve_collections_grids_and_lists() {
         }
         let notice = find(&c["UI"], "No results.").expect("notice");
         assert_eq!(notice["Properties"]["SVGIcon"], "cds:icon_not_visible");
-        assert!(c["DataBindings"].as_array().unwrap().iter().any(|b| {
-            b["TargetId"] == notice["Properties"]["Id"]
-                && b["PropertyMaps"][0]["TargetProperty"] == "Visible"
-        }));
+        let notice_row =
+            parent_widget(&c["UI"], notice["Properties"]["Id"].as_str().unwrap()).unwrap();
+        let list_row = parent_widget(&c["UI"], list["Id"].as_str().unwrap()).unwrap();
+        assert_eq!(list_row["Properties"]["Visible"], false);
+        let region =
+            parent_widget(&c["UI"], list_row["Properties"]["Id"].as_str().unwrap()).unwrap();
+        assert_eq!(region["Properties"]["flex-direction"], "row");
+        assert_eq!(
+            region["Properties"]["flex-min-height"],
+            list_row["Properties"]["flex-min-height"]
+        );
+        assert_eq!(notice_row["Properties"]["justify-content"], "center");
+        assert_eq!(notice_row["Properties"]["flex-max-height"], "");
+        assert_eq!(notice_row["Properties"]["flex-min-height"], "100px");
+        for row in [list_row, notice_row] {
+            assert!(c["DataBindings"].as_array().unwrap().iter().any(|b| {
+                b["TargetId"] == row["Properties"]["Id"]
+                    && b["PropertyMaps"][0]["TargetProperty"] == "Visible"
+            }));
+        }
+        assert!(c
+            .to_string()
+            .contains("!!(rows && (rows.rows || rows).length)"));
     }
 }
 
@@ -2826,5 +2844,203 @@ fn command_recipe_flags_for_batch_2a_are_refused_on_other_recipes() {
             "{flags:?}: {}",
             String::from_utf8_lossy(&output.stderr)
         );
+    }
+}
+
+fn parent_widget<'a>(widget: &'a Value, id: &str) -> Option<&'a Value> {
+    let children = widget["Widgets"].as_array()?;
+    if children.iter().any(|w| w["Properties"]["Id"] == id) {
+        return Some(widget);
+    }
+    children.iter().find_map(|w| parent_widget(w, id))
+}
+
+#[test]
+fn command_dials_clear_the_placeholder_and_preserve_authored_captions() {
+    for mcp in [false, true] {
+        let dir = n7_fixture();
+        let root = dir.path();
+        n7_new(root, mcp, "kpi-tile");
+        let dial = n7_add(root, mcp, "kpi-dial", "value");
+        assert_eq!(
+            find_widget(&n7_content(root)["UI"], &dial).unwrap()["Properties"]["Label"],
+            ""
+        );
+        invoke(
+            root,
+            mcp,
+            &[
+                "mashup",
+                "set",
+                "Acme.Layout_MU",
+                &dial,
+                "--prop",
+                "Label=Utilization",
+                "--apply",
+            ],
+            "mashup_set",
+            json!({"mashup":"Acme.Layout_MU","widget":dial,"properties":{"Label":"Utilization"},"dry_run":false}),
+        );
+        assert_eq!(
+            find_widget(&n7_content(root)["UI"], &dial).unwrap()["Properties"]["Label"],
+            "Utilization"
+        );
+    }
+}
+
+#[test]
+fn command_titled_collapsible_filters_keep_the_kit_fields_column() {
+    for mcp in [false, true] {
+        let dir = n7_fixture();
+        let root = dir.path();
+        n7_new(root, mcp, "filter-panel");
+        n7_add(root, mcp, "label", "filters");
+        let row = n7_add(root, mcp, "flexcontainer", "filters");
+        let field = n7_add(root, mcp, "text-field", &row);
+        n7_add(root, mcp, "datepicker", "filters");
+        n7_add(root, mcp, "dropdown", "filters");
+        n7_recipe(
+            root,
+            mcp,
+            "collapsible",
+            "filter-column",
+            &["--tab", "inside"],
+            json!({"tab":"inside"}),
+        );
+        let c = n7_content(root);
+        assert_eq!(
+            find_widget(&c["UI"], &field).unwrap()["Properties"]["Width"],
+            240
+        );
+        let fields = named(&c["UI"], "filters").unwrap();
+        assert!(!c.to_string().contains("--remaining-space"));
+        // An authored row stays as written; no per-row pins or height estimates are generated.
+        assert_eq!(fields["Properties"]["flex-direction"], "column");
+        assert_eq!(fields["Properties"]["justify-content"], "flex-start");
+        assert_eq!(fields["Properties"]["flex-min-height"], "");
+        assert!(fields["Widgets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|child| child["Properties"]["Type"] == "flexcontainer"));
+        assert_eq!(
+            named(&c["UI"], "filter-footer").unwrap()["Properties"]["LastContainer"],
+            true
+        );
+    }
+}
+
+#[test]
+fn command_card_collection_starts_without_a_selected_card() {
+    for mcp in [false, true] {
+        let dir = n7_fixture();
+        let root = dir.path();
+        n7_new(root, mcp, "blank");
+        invoke(
+            root,
+            mcp,
+            &[
+                "mashup",
+                "new",
+                "Acme.Cell_MU",
+                "--template",
+                "kpi-tile",
+                "--param",
+                "Name:STRING:IN",
+                "--apply",
+            ],
+            "mashup_new",
+            json!({"name":"Acme.Cell_MU","template":"kpi-tile","params":["Name:STRING:IN"],"dry_run":false}),
+        );
+        let list = n7_add(root, mcp, "list", "center");
+        n7_recipe(
+            root,
+            mcp,
+            "picker",
+            &list,
+            &["--data", "data:Acme.Manager.GetRows", "--x", "Severity"],
+            json!({"data":"data:Acme.Manager.GetRows","x":"Severity"}),
+        );
+        invoke(
+            root,
+            mcp,
+            &[
+                "mashup",
+                "collection",
+                "add",
+                "Acme.Layout_MU",
+                "Acme.Cell_MU",
+                "--data",
+                "data:Acme.Manager.GetRows",
+                "--map",
+                "Severity=Name",
+                "--preset",
+                "cards",
+                "--below",
+                &list,
+                "--apply",
+            ],
+            "mashup_collection_add",
+            json!({"mashup":"Acme.Layout_MU","cell_mashup":"Acme.Cell_MU","data":"data:Acme.Manager.GetRows","map":{"Severity":"Name"},"preset":"cards","below":list,"dry_run":false}),
+        );
+        let c = n7_content(root);
+        assert_eq!(
+            properties(&c["UI"], "ptcscollection").unwrap()["AutoSelectFirstRow"],
+            false
+        );
+    }
+}
+
+#[test]
+fn command_navigation_button_equivalent_keeps_compact_full_width_styling() {
+    for mcp in [false, true] {
+        let dir = n7_fixture();
+        let root = dir.path();
+        n7_new(root, mcp, "blank");
+        let button = n7_add(root, mcp, "button", "center");
+        let styles = [
+            "width=100%",
+            "box-sizing=border-box",
+            "border-radius=0px",
+            "padding-left=24px",
+            "label:font-size=14px",
+            "label:font-weight=600",
+            "label:color=#080909",
+            "background=#e4e7e9",
+        ];
+        let mut args = vec![
+            "mashup",
+            "set",
+            "Acme.Layout_MU",
+            &button,
+            "--prop",
+            "Size=standard",
+            "--prop",
+            "ButtonType=transparent",
+            "--prop",
+            "LabelAlignment=left",
+            "--prop",
+            "Margin=0",
+            "--apply",
+        ];
+        for style in styles {
+            args.extend(["--style", style]);
+        }
+        invoke(
+            root,
+            mcp,
+            &args,
+            "mashup_set",
+            json!({"mashup":"Acme.Layout_MU","widget":button,
+            "properties":{"Size":"standard","ButtonType":"transparent","LabelAlignment":"left","Margin":"0"},
+            "styles":styles,"dry_run":false}),
+        );
+        let c = n7_content(root);
+        let style = &c["UI"]["Properties"]["StyleProperties"]["data"][&button]["parts"];
+        assert_eq!(style["label"]["$"]["font-size"], "14px");
+        assert_eq!(style["label"]["$"]["font-weight"], "600");
+        assert_eq!(style["$"]["$"]["width"], "100%");
+        assert_eq!(style["$"]["$"]["padding-left"], "24px");
+        assert_eq!(style["$"]["$"]["background"], "#e4e7e9");
     }
 }

@@ -3188,6 +3188,9 @@ fn page_build(
         for edit in report["hand_edits_kept"].as_array().expect("kept") {
             println!("  hand edit kept: {}", edit.as_str().unwrap_or_default());
         }
+        for notice in report["cell_notices"].as_array().expect("cell notices") {
+            println!("  {}", notice.as_str().unwrap_or_default());
+        }
         for conflict in conflicts {
             println!("  {}", conflict["message"].as_str().unwrap_or_default());
         }

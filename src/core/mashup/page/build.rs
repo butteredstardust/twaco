@@ -54,6 +54,54 @@ struct SpecInput {
     generated: bool,
 }
 
+fn legacy_cell_matches(
+    solution: &Solution,
+    cell: &compile::GeneratedCell,
+    inputs: &mut Vec<(PathBuf, Option<Vec<u8>>)>,
+) -> Result<bool, AuthoringError> {
+    let dir = solution.src_root().join(&cell.name);
+    let paths = [
+        dir.join(".page-baseline.json"),
+        dir.join("page.yaml"),
+        dir.join("mashup/content.json"),
+        dir.join("mashup/custom.css"),
+    ];
+    let mut bytes = Vec::new();
+    for path in paths {
+        let before = read(&path)?;
+        inputs.push((path, before.clone()));
+        bytes.push(before);
+    }
+    let Some(baseline) = bytes[0].as_deref().and_then(|b| Baseline::read(b).ok()) else {
+        return Ok(false);
+    };
+    let assets = mashup::Assets {
+        content: mashup::to_sidecar(&baseline.content),
+        css: baseline.css,
+    };
+    if bytes[1].as_deref() != Some(cell.spec.as_bytes())
+        || bytes[2].as_deref() != Some(assets.content.as_bytes())
+        || bytes[3].as_deref() != Some(assets.css.as_bytes())
+    {
+        return Ok(false);
+    }
+    // Recover the old generated XML through payload splicing, preserving the entity envelope.
+    let expected = mashup::sync(&cell.artifacts.entity, &assets)
+        .map_err(AuthoringError::Mashup)?
+        .0;
+    let found = workspace::entities(solution);
+    let Some(entity) = found
+        .iter()
+        .find(|e| e.info.collection == "Mashups" && e.info.name == cell.name)
+    else {
+        return Ok(false);
+    };
+    let before = read(&entity.path)?;
+    let matches = before.as_deref() == Some(expected.as_slice());
+    inputs.push((entity.path.clone(), before));
+    Ok(matches)
+}
+
 pub(crate) fn plan(
     solution: &Solution,
     name: &str,
@@ -86,7 +134,7 @@ fn plan_from(
     let existing = found
         .iter()
         .find(|e| e.info.collection == "Mashups" && e.info.name == name);
-    if spec_file.is_some()
+    if spec_input.as_ref().is_some_and(|s| !s.generated)
         && found
             .iter()
             .any(|e| e.info.collection == "Mashups" && e.info.name.eq_ignore_ascii_case(name))
@@ -128,7 +176,7 @@ fn plan_from(
         )));
     }
     let generated = compile::compile(solution, project, yaml).map_err(invalid)?;
-    let baseline = Baseline::generated(&generated, name, project);
+    let mut baseline = Baseline::generated(&generated, name, project);
     let baseline_path = dir.join(".page-baseline.json");
     let before_baseline = read(&baseline_path)?;
     let old = before_baseline
@@ -164,7 +212,10 @@ fn plan_from(
         )));
     }
     let page_before = read(&page_path)?;
-    if spec_file.is_some() && page_before.as_ref().is_some_and(|b| b != &spec_bytes) {
+    if spec_file.is_some()
+        && !generated_spec
+        && page_before.as_ref().is_some_and(|b| b != &spec_bytes)
+    {
         return Err(invalid(format!(
             "{} already exists with a different spec; reconcile it first",
             page_path.display()
@@ -398,7 +449,7 @@ fn plan_from(
     if spec_file.is_some() {
         files.push(File {
             path: page_path.clone(),
-            before: page_before,
+            before: page_before.clone(),
             after: spec_bytes.clone(),
         });
     }
@@ -408,24 +459,54 @@ fn plan_from(
     let mut inputs = vec![
         (
             spec_path.to_path_buf(),
-            (!generated_spec).then(|| spec_bytes.clone()),
+            if generated_spec {
+                page_before
+            } else {
+                Some(spec_bytes.clone())
+            },
         ),
         (
             solution.root.join("twaco.toml"),
             read(&solution.root.join("twaco.toml"))?,
         ),
     ];
-    // Pages the spec generates for its collections are created beside it, once: a mashup that
-    // is already there is the user's from then on and the build leaves it alone.
     let mut created_cells = Vec::new();
+    let mut cell_notices = Vec::new();
     for cell in &generated.cells {
         let page = solution.src_root().join(&cell.name).join("page.yaml");
         let present = found
             .iter()
             .any(|e| e.info.collection == "Mashups" && e.info.name == cell.name)
             || read(&page)?.is_some();
+        let previous = old.as_ref().and_then(|b| b.generated_cells.get(&cell.name));
         if present {
-            continue;
+            let mut untouched = if previous.is_some() {
+                true
+            } else {
+                legacy_cell_matches(solution, cell, &mut inputs)?
+            };
+            if let Some(hashes) = previous {
+                untouched &= !hashes.is_empty();
+                for (relative, hash) in hashes {
+                    let path = solution.root.join(relative);
+                    crate::core::transaction::check_inside(&solution.root, &path)
+                        .map_err(invalid)?;
+                    let bytes = read(&path)?;
+                    untouched &= bytes
+                        .as_ref()
+                        .is_some_and(|b| crate::core::repo::sha256_hex(b) == *hash);
+                    inputs.push((path, bytes));
+                }
+            }
+            if !untouched {
+                cell_notices.push(format!("{}: cell edited, not regenerated", cell.name));
+                if let Some(hashes) = previous {
+                    baseline
+                        .generated_cells
+                        .insert(cell.name.clone(), hashes.clone());
+                }
+                continue;
+            }
         }
         let sub = plan_from(
             solution,
@@ -437,12 +518,31 @@ fn plan_from(
                 generated: true,
             }),
         )?;
+        if sub.conflicts() {
+            return Err(invalid(format!(
+                "{}: generated cell has conflicts; reconcile its files before building",
+                cell.name
+            )));
+        }
+        baseline.generated_cells.insert(
+            cell.name.clone(),
+            sub.files
+                .iter()
+                .map(|f| {
+                    (
+                        solution.relative(&f.path),
+                        crate::core::repo::sha256_hex(&f.after),
+                    )
+                })
+                .collect(),
+        );
         files.extend(sub.files);
         inputs.extend(sub.inputs);
         created_cells.push(cell.name.clone());
     }
+    files[3].after = baseline.bytes();
     Ok(Plan {
-        report: json!({"mashup":name,"project":project,"template":spec.page.value.template.value,"slots":spec.page.value.slots.keys().collect::<Vec<_>>(),"applied":false,"dry_run":true,"nodes":nodes,"hand_edits_kept":report.kept,"conflicts":conflicts,"cells":created_cells,"files":files.iter().filter(|f| f.before.as_deref() != Some(&f.after)).map(|f| solution.relative(&f.path)).collect::<Vec<_>>()}),
+        report: json!({"mashup":name,"project":project,"template":spec.page.value.template.value,"slots":spec.page.value.slots.keys().collect::<Vec<_>>(),"applied":false,"dry_run":true,"nodes":nodes,"hand_edits_kept":report.kept,"conflicts":conflicts,"cells":created_cells,"cell_notices":cell_notices,"files":files.iter().filter(|f| f.before.as_deref() != Some(&f.after)).map(|f| solution.relative(&f.path)).collect::<Vec<_>>()}),
         files,
         inputs,
     })

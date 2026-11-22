@@ -548,9 +548,74 @@ pub(crate) fn patch(document: &mut super::edit::MashupDocument, path: &[usize], 
     }
 }
 
+pub(crate) fn clear_page_fillers(document: &mut super::edit::MashupDocument) {
+    fn clear(node: &mut Value) {
+        if let Some(children) = node["Widgets"].as_array_mut() {
+            children.retain(|child| child["twacoLayoutFiller"] != true);
+            for child in children {
+                clear(child);
+            }
+        }
+    }
+    if document.value()["twacoPageRules"] == "v1" {
+        let ids: Vec<_> = document
+            .widgets()
+            .into_iter()
+            .filter(|w| document.at(&w.path)["twacoLayoutFiller"] == true)
+            .map(|w| w.id)
+            .collect();
+        if let Some(styles) = document
+            .root_properties_mut()
+            .get_mut("StyleProperties")
+            .and_then(|s| s["data"].as_object_mut())
+        {
+            for id in ids {
+                styles.remove(&id);
+            }
+        }
+        clear(&mut document.value_mut()["UI"]);
+    }
+}
+
 pub(crate) fn finish_page(document: &mut super::edit::MashupDocument) {
     if document.value()["twacoPageRules"] != "v1" {
         return;
+    }
+    clear_page_fillers(document);
+    let fields: Vec<_> = document
+        .widgets()
+        .into_iter()
+        .filter(|w| w.type_id == "ptcstextfield" && context::narrow_column(document, &w.path))
+        .collect();
+    for field in fields {
+        let width = (1..field.path.len()).rev().find_map(|depth| {
+            document.at(&field.path[..depth])["Properties"]["flex-max-width"]
+                .as_str()?
+                .strip_suffix("px")?
+                .parse::<u32>()
+                .ok()
+        });
+        if let Some(width) = width {
+            let props = &document.at(&field.path)["Properties"];
+            let margins: Vec<u32> = props["Margin"]
+                .as_str()
+                .unwrap_or("")
+                .split_whitespace()
+                .filter_map(|v| v.parse().ok())
+                .collect();
+            let horizontal = match margins.as_slice() {
+                [all] | [_, all] | [_, all, _] => all.saturating_mul(2),
+                [_, right, _, left] => right.saturating_add(*left),
+                _ => 0,
+            };
+            let available = width.saturating_sub(horizontal).min(240);
+            let authored = props["Width"].as_u64().unwrap_or(u64::from(available));
+            document.set_property(
+                &field.path,
+                "Width",
+                json!(authored.min(u64::from(available))),
+            );
+        }
     }
     let mut containers: Vec<_> = document
         .widgets()
@@ -558,7 +623,7 @@ pub(crate) fn finish_page(document: &mut super::edit::MashupDocument) {
         .filter(|w| w.type_id == "flexcontainer")
         .collect();
     containers.sort_by_key(|w| std::cmp::Reverse(w.path.len()));
-    for container in containers {
+    for container in &containers {
         let floor = height_floor(document.at(&container.path));
         let fixed = document.at(&container.path)["Properties"]["flex-size"] == "fixed";
         patch(document, &container.path, "page-overflow");
@@ -570,72 +635,10 @@ pub(crate) fn finish_page(document: &mut super::edit::MashupDocument) {
             );
         }
         match container.display_name.as_str() {
-            "filters" => {
-                patch(document, &container.path, "page-filter-fields");
-                // Fields keep the height they need; the area scrolls only when the column is capped below it.
-                // A control row is at least 56px tall even when its container declares no height.
-                let rows: u32 = document.at(&container.path)["Widgets"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .map(|row| height_floor(row).max(56))
-                    .sum();
-                if rows > 0 {
-                    document.set_property(
-                        &container.path,
-                        "flex-min-height",
-                        json!(format!("{rows}px")),
-                    );
-                }
-                // Top-aligned fields: a growing row (live: the last dropdown row grew to 456px) only
-                // pushes the area into an inner scroll.
-                let count = document.at(&container.path)["Widgets"]
-                    .as_array()
-                    .map_or(0, Vec::len);
-                let fixed = (0..count)
-                    .filter_map(|index| {
-                        let mut row = container.path.clone();
-                        row.push(index);
-                        let props = &document.at(&row)["Properties"];
-                        (props["flex-size"] == "fixed")
-                            .then(|| {
-                                props["flex-min-height"]
-                                    .as_str()?
-                                    .strip_suffix("px")?
-                                    .parse::<u32>()
-                                    .ok()
-                            })
-                            .flatten()
-                    })
-                    .max();
-                for index in 0..count {
-                    let mut row = container.path.clone();
-                    row.push(index);
-                    // A command-built footer (`mashup add --bottom`) grows on purpose to sit at the foot.
-                    if document.at(&row)["Properties"]["align-items"] == "flex-end" {
-                        continue;
-                    }
-                    if document.at(&row)["Properties"]["flex-grow"] == json!(1) {
-                        document.set_property(&row, "flex-grow", json!(0));
-                    }
-                    // Live, a `default` size row is laid out at the area's minimum height (456px in
-                    // benchmark K); fix it at its siblings' row height, or its own floor.
-                    if document.at(&row)["Properties"]["flex-size"] == json!("default") {
-                        let height =
-                            fixed.unwrap_or_else(|| height_floor(document.at(&row)).max(56));
-                        document.set_property(&row, "flex-size", json!("fixed"));
-                        document.set_property(
-                            &row,
-                            "flex-min-height",
-                            json!(format!("{height}px")),
-                        );
-                        document.set_property(
-                            &row,
-                            "flex-max-height",
-                            json!(format!("{height}px")),
-                        );
-                    }
-                }
+            "filters" => patch(document, &container.path, "page-filter-fields"),
+            "filter-footer-area" => {
+                document.set_property(&container.path, "flex-min-height", json!(""));
+                document.set_property(&container.path, "flex-max-height", json!(""));
             }
             "filter-footer" => patch(document, &container.path, "page-filter-footer"),
             "filter-column" => {
@@ -677,6 +680,50 @@ pub(crate) fn finish_page(document: &mut super::edit::MashupDocument) {
             _ => {}
         }
     }
+    // AdminPage01 grid/content and Compare tab content use LastContainer for the remainder.
+    for container in containers {
+        let node = document.at(&container.path);
+        let p = &node["Properties"];
+        if node["twacoLayoutAuthored"] == true {
+            continue;
+        }
+        let floored = p["flex-min-height"]
+            .as_str()
+            .is_some_and(|min| min.ends_with("px") && min != "0px");
+        let holds_fill = super::edit::children(node).iter().any(|child| {
+            matches!(
+                child["Properties"]["Type"].as_str(),
+                Some("ptcsgrid" | "ptcscollection" | "ptcstabset")
+            )
+        });
+        let tab_content = container.path.len() > 1
+            && document.at(&container.path[..container.path.len() - 1])["Properties"]["Type"]
+                == "ptcstabset";
+        if p["flex-grow"] == 1
+            && p["flex-size"] != "fixed"
+            && (holds_fill
+                || tab_content
+                || matches!(
+                    container.display_name.as_str(),
+                    "filter-column" | "filter-stack" | "content" | "center" | "value"
+                ))
+        {
+            document.set_property(&container.path, "LastContainer", json!(true));
+            document.set_property(&container.path, "flex-size", json!("default"));
+            let free = matches!(
+                container.display_name.as_str(),
+                "filter-column" | "filter-stack"
+            );
+            if holds_fill || tab_content || free {
+                // A fill row keeps an authored or content floor (tall grids, charts) so the page
+                // scrolls above it; only the filter columns drop theirs.
+                if free || !floored {
+                    document.set_property(&container.path, "flex-min-height", json!(""));
+                }
+                document.set_property(&container.path, "flex-max-height", json!(""));
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -701,6 +748,7 @@ mod tests {
                 "gutter.page-padded",
                 "gutter.filter-footer",
                 "size.filter-column",
+                "props.filters-width",
                 "props.filter-footer-width",
                 "props.filter-rule-width",
                 "props.toolbar-band",

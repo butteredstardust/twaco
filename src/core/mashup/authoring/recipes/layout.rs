@@ -513,6 +513,19 @@ impl Work<'_> {
         let tabs = widget_id(&self.document, &tabs.id)?;
         self.document
             .set_property(&tabs.path, "Tab1Name", json!(tab));
+        if self.document.rules().version() == "v1" {
+            // Compare flexcontainer-103 wraps the tab strip and fills below the title band.
+            let row = &tabs.path[..tabs.path.len() - 1];
+            for (key, value) in [
+                ("flex-size", json!("default")),
+                ("flex-grow", json!(1)),
+                ("flex-min-height", json!("")),
+                ("flex-max-height", json!("")),
+                ("LastContainer", json!(true)),
+            ] {
+                self.document.set_property(row, key, value);
+            }
+        }
         let content = super::super::new::sync_tabs(&mut self.document, &tabs.id, 1)?;
         super::super::set::copy_style_entry(
             &mut self.document,
@@ -528,6 +541,8 @@ impl Work<'_> {
         for (key, value) in [
             ("flex-direction", json!("column")),
             ("align-items", json!("stretch")),
+            ("flex-min-width", json!("0px")),
+            ("flex-max-width", json!("250px")),
         ] {
             self.document.set_property(&held.path, key, value);
         }
@@ -582,6 +597,7 @@ impl Work<'_> {
                     ("Label", json!(text)),
                     ("SVGIcon", json!("cds:icon_not_visible")),
                     ("Margin", json!("24 0")),
+                    ("MultiLine", json!(true)),
                 ] {
                     self.document.set_property(&button.path, key, value);
                 }
@@ -592,8 +608,54 @@ impl Work<'_> {
                     None,
                     &mut Vec::new(),
                 );
+                let notice_row = button.path[..button.path.len() - 1].to_vec();
+                for (key, value) in [
+                    ("flex-size", json!("range")),
+                    ("flex-grow", json!(0)),
+                    ("flex-shrink", json!(0)),
+                    ("flex-basis", json!("auto")),
+                    ("flex-min-height", json!("100px")),
+                    ("flex-max-height", json!("")),
+                    ("justify-content", json!("center")),
+                    ("align-items", json!("center")),
+                ] {
+                    self.document.set_property(&notice_row, key, value);
+                }
+                let list = widget_id(&self.document, &target.id)?;
+                let list_row = list.path[..list.path.len() - 1].to_vec();
+                let region = list_row[..list_row.len() - 1].to_vec();
+                // Only one branch is visible, so its height must not add to the other branch's.
+                for (key, value) in [
+                    ("flex-direction", json!("row")),
+                    ("align-items", json!("stretch")),
+                    ("flex-size", json!("range")),
+                    ("flex-min-height", json!("0px")),
+                    ("flex-max-height", json!("")),
+                ] {
+                    self.document.set_property(&region, key, value);
+                }
+                for row in [&list_row, &notice_row] {
+                    self.document.set_property(row, "flex-grow", json!(1));
+                    self.document.set_property(row, "flex-basis", json!("0px"));
+                }
+                let list_row_id = self.document.at(&list_row)["Properties"]["Id"]
+                    .as_str()
+                    .expect("list row id")
+                    .to_string();
+                let notice_row_id = self.document.at(&notice_row)["Properties"]["Id"]
+                    .as_str()
+                    .expect("notice row id")
+                    .to_string();
+                self.document
+                    .set_property(&list_row, "Visible", json!(false));
                 self.condition_gate(
-                    &button.id,
+                    &list_row_id,
+                    false,
+                    "!!(rows && (rows.rows || rows).length)",
+                    &[("rows".into(), data.to_string())],
+                )?;
+                self.condition_gate(
+                    &notice_row_id,
                     false,
                     "!(rows && (rows.rows || rows).length)",
                     &[("rows".into(), data.to_string())],

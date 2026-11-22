@@ -90,6 +90,9 @@ fn nav_column(b: &mut Body) -> Result<Node, Error> {
     if b.groups.is_empty() {
         return Err(Error::at(b.id.referenced, "nav_menu needs groups"));
     }
+    // Administrator uses collection cells for navigation; no kit has a static button menu.
+    // Keep its search/caption/item order in one column, with direct controls as in kit fields.
+    default_prop(b, "CustomClass", json!("twaco-nav-menu"));
     let mut children = vec![];
     if let Some(search) = b.search.take() {
         children.push(json!({"text_field": {
@@ -100,14 +103,20 @@ fn nav_column(b: &mut Body) -> Result<Node, Error> {
     for (g, group) in b.groups.iter().enumerate() {
         children.push(json!({"label": {
             "id": format!("{id}--group-{}", g + 1), "text": group.value.title,
-            "props": {"Margin": "12 0 6 18"}, "style": ["label:color=#6B7478"]}}));
+            "props": {"Margin": "12 0 6 18", "LabelType": "label"},
+            "style": ["label:color=#6B7478", "label:font-size=14px"]}}));
         for (i, item) in group.value.items.iter().enumerate() {
             let mut body = json!({
                 "id": format!("{id}--item-{}-{}", g + 1, i + 1), "text": item,
                 "variant": "transparent",
-                "props": {"LabelAlignment": "left", "Size": "fill", "Margin": "0"}});
+                "props": {"LabelAlignment": "left", "Size": "standard", "Margin": "0"},
+                "style": ["width=100%", "box-sizing=border-box", "border-radius=0px", "padding-left=24px",
+                    "label:font-size=14px", "label:font-weight=600", "label:color=#080909"]});
             if std::mem::take(&mut first) {
-                body["style"] = json!(["background=#E4E7E9"]);
+                body["style"]
+                    .as_array_mut()
+                    .expect("item styles")
+                    .push(json!("background=#e4e7e9"));
             }
             children.push(json!({"button": body}));
         }

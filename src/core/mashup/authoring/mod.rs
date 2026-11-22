@@ -238,6 +238,7 @@ fn parse_loaded(loaded: &ExistingMashup) -> Result<MashupDocument, AuthoringErro
             }
             other => AuthoringError::Edit(other),
         })?;
+    mashup::layout::clear_page_fillers(&mut document);
     if loaded.deterministic {
         document.set_uuid_generator(crate::core::mashup::page::ids::uuid);
     }

@@ -1757,4 +1757,6 @@ pub(crate) struct MashupBuildResult {
     hand_edits_kept: Vec<String>,
     conflicts: Vec<Value>,
     files: Vec<String>,
+    cells: Vec<String>,
+    cell_notices: Vec<String>,
 }

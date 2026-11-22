@@ -9321,7 +9321,7 @@ fn collection_add_cards_preset_writes_the_kit_card_collection() {
         ("LeftPadding", json!(15)),
         ("RightPadding", json!(24)),
         ("SelectionMode", json!("single")),
-        ("AutoSelectFirstRow", json!(true)),
+        ("AutoSelectFirstRow", json!(false)),
         // The distribution itself is the catalogue's, which the kit keeps.
         ("Layout", json!("flex")),
         ("RowHorizontalAlignment", json!("space-evenly")),
@@ -14630,4 +14630,79 @@ fn card_recipe_builds_one_bordered_box_with_caption_value_and_status() {
         ..args
     };
     assert!(recipe(&solution, "card", bad).is_err());
+}
+
+#[test]
+fn collapsible_filter_column_stacks_titled_fields_at_full_width() {
+    let (_dir, solution) = one_project();
+    let name = "Acme.Orders_MU";
+    let new = NewRequest {
+        template: "filter-panel".into(),
+        rules: Some("v1".into()),
+        ..request(name)
+    };
+    apply_new(
+        &solution,
+        &plan_new(&solution, &new).unwrap(),
+        &lock(&solution),
+    )
+    .unwrap();
+    let mut controls = Vec::new();
+    for widget in ["label", "textfield", "textfield", "dropdown"] {
+        let mut add = add_request(name, widget);
+        add.placement = Some(Placement::In("filters".into()));
+        let plan = plan_add(&solution, &add).unwrap();
+        apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+        controls.push(plan.placed.id);
+    }
+    recipe(
+        &solution,
+        "collapsible",
+        RecipeArgs {
+            widget: Some("filter-column".into()),
+            tab: Some("inside".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let document = mashup::edit::parse(&sidecar_content(&solution)).unwrap();
+    let filters = document.find("filters").unwrap();
+    for id in controls {
+        let field = document.find_exact(&id).unwrap();
+        assert_eq!(&field.path[..field.path.len() - 1], filters.path);
+    }
+    let footer = document.find("filter-footer").unwrap();
+    assert_eq!(
+        document.at(&footer.path)["Properties"]["LastContainer"],
+        true
+    );
+    assert_eq!(
+        document.at(&filters.path)["Widgets"]
+            .as_array()
+            .unwrap()
+            .len(),
+        4
+    );
+    assert!(!document.to_content().contains("--remaining-space"));
+    let mut repeated = document;
+    let before = repeated.to_content();
+    mashup::layout::finish_page(&mut repeated);
+    assert_eq!(repeated.to_content(), before);
+    let mut bottom = add_request(name, "button");
+    bottom.placement = Some(Placement::Bottom("filters".into()));
+    let plan = plan_add(&solution, &bottom).unwrap();
+    let doc =
+        mashup::edit::parse(&mashup::extract(&plan.edit.entity_after).unwrap().content).unwrap();
+    let button = doc.find_exact(&plan.placed.id).unwrap();
+    assert_eq!(
+        doc.at(&button.path[..button.path.len() - 1])["Properties"]["DisplayName"],
+        "filter-footer"
+    );
+    assert_eq!(
+        doc.at(&doc.find("filters").unwrap().path)["Widgets"]
+            .as_array()
+            .unwrap()
+            .len(),
+        4
+    );
 }

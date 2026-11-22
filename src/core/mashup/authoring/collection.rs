@@ -36,7 +36,7 @@ pub struct CollectionAddRequest {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CollectionPreset {
     /// Framed cards spread evenly across each row, the last row aligned under the first columns,
-    /// the first card selected: the kit's KPI card collection.
+    /// without an initial selection.
     Cards,
 }
 
@@ -67,7 +67,7 @@ impl CollectionPreset {
                 ("TopPadding", "24"),
                 ("BottomPadding", "24"),
                 ("SelectionMode", "single"),
-                ("AutoSelectFirstRow", "true"),
+                ("AutoSelectFirstRow", "false"),
             ],
         }
     }

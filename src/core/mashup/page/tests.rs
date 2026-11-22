@@ -1197,29 +1197,32 @@ fn benchmark_k_golden() {
 }
 
 #[test]
-fn filter_field_rows_keep_their_height_instead_of_growing() {
-    // Live (benchmark K): a growing or `default` size field row stretched to the area's minimum
-    // height and pushed the filter column into an inner scroll.
-    let folder =
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/mashup/pages");
-    let solution = Solution::load(&folder.join("bench_solution/twaco.toml")).unwrap();
-    let spec = std::fs::read_to_string(folder.join("bench_k/page.yaml")).unwrap();
-    let built = compile(&solution, "Acme.Bench", &spec).unwrap();
-    let content: Value = serde_json::from_str(&built.content).unwrap();
-    fn find<'a>(w: &'a Value, name: &str) -> Option<&'a Value> {
-        if w["Properties"]["DisplayName"] == name {
-            return Some(w);
-        }
-        w["Widgets"].as_array()?.iter().find_map(|c| find(c, name))
-    }
-    let filters = find(&content["UI"], "filters").expect("filters area");
-    let rows = filters["Widgets"].as_array().unwrap();
-    assert!(!rows.is_empty());
-    for row in rows {
-        let p = &row["Properties"];
-        assert_ne!(p["flex-grow"], 1, "{}", p["Id"]);
-        assert_ne!(p["flex-size"], "default", "{}", p["Id"]);
-    }
+fn filter_fields_use_the_kit_column_and_footer_structure() {
+    let built = compiled_benchmark("k");
+    let doc = doc_of(&built);
+    let fields = doc.find("filters").unwrap();
+    let p = &doc.at(&fields.path)["Properties"];
+    assert_eq!(p["flex-size"], "default");
+    assert_eq!(p["flex-grow"], 1);
+    assert_eq!(p["flex-min-height"], "");
+    let stack = &fields.path[..fields.path.len() - 1];
+    assert_eq!(doc.at(stack)["Properties"]["DisplayName"], "filter-stack");
+    assert_eq!(doc.at(stack)["Properties"]["LastContainer"], true);
+    assert_eq!(doc.at(stack)["Properties"]["flex-size"], "default");
+    let controls = doc.at(&fields.path)["Widgets"].as_array().unwrap();
+    assert!(!controls.is_empty());
+    assert!(controls
+        .iter()
+        .all(|c| c["Properties"]["Type"] != "flexcontainer"));
+    assert!(!built.content.contains("--remaining-space"));
+    let footer = doc.find("filter-footer").unwrap();
+    let area = &footer.path[..footer.path.len() - 1];
+    assert_eq!(doc.at(area)["Properties"]["flex-direction"], "column");
+    assert_eq!(
+        doc.at(area)["Widgets"][0]["Properties"]["flex-min-height"],
+        "1px"
+    );
+    assert_eq!(doc.at(&footer.path)["Properties"]["LastContainer"], true);
 }
 #[test]
 fn benchmark_n_golden() {
@@ -1397,18 +1400,25 @@ fn filter_footer_buttons_fit_inside_the_column_gutters() {
     let props = &doc.at(&footer.path)["Properties"];
     assert_eq!(props["flex-min-width"], "280px");
     assert_eq!(props["flex-max-width"], "280px");
-    // Vertical margin would eat the 34px footer and clip its buttons.
-    assert_eq!(props["Margin"], "0 20");
+    assert_eq!(props["Margin"], "");
+    assert_eq!(props["flex-size"], "default");
     let mut widths = vec![];
     for name in ["filters--apply", "filters--reset"] {
         let button = doc.find_exact(&built.ids[name]).unwrap();
         assert_eq!(&button.path[..button.path.len() - 1], footer.path);
         let props = &doc.at(&button.path)["Properties"];
-        assert_eq!(props["Margin"], "0");
+        assert_eq!(
+            props["Margin"],
+            if widths.is_empty() {
+                "24 8 24 24"
+            } else {
+                "24 24 24 8"
+            }
+        );
         widths.push(props["Width"].as_u64().unwrap());
     }
-    assert_eq!(widths, [120, 120]);
-    assert_eq!(widths.iter().sum::<u64>() + 2 * 20, 280);
+    assert_eq!(widths, [108, 108]);
+    assert_eq!(widths.iter().sum::<u64>() + 64, 280);
 }
 
 #[test]
@@ -1908,21 +1918,15 @@ fn field_only_filter_reserves_280px_and_keeps_footer_and_dates_inside() {
         "flex-start"
     );
     let footer = doc.find("filter-footer").unwrap();
-    assert_eq!(doc.at(&footer.path)["Properties"]["flex-grow"], 0);
-    assert_eq!(
-        doc.at(&footer.path)["Properties"]["flex-max-height"],
-        "34px"
-    );
+    assert_eq!(doc.at(&footer.path)["Properties"]["flex-grow"], 1);
+    assert_eq!(doc.at(&footer.path)["Properties"]["flex-max-height"], "");
     assert_eq!(doc.at(&fields.path)["Properties"]["flex-shrink"], 1);
-    assert_eq!(doc.at(&fields.path)["Properties"]["flex-basis"], "0px");
-    // Rows keep their height; the area scrolls only when the column is capped.
-    assert_eq!(
-        doc.at(&fields.path)["Properties"]["flex-min-height"],
-        "176px"
-    );
+    assert_eq!(doc.at(&fields.path)["Properties"]["flex-basis"], "auto");
+    // Direct controls stack by their native heights and margins.
+    assert_eq!(doc.at(&fields.path)["Properties"]["flex-min-height"], "");
     assert_eq!(
         doc.at(&fields.path)["Properties"]["ShowVerticalScrollbar"],
-        true
+        false
     );
     let column = doc.find("filter-column").unwrap();
     assert_eq!(
@@ -2419,14 +2423,40 @@ fn lists_feed_each_other_and_show_an_empty_notice() {
         doc.at(&notice.path)["Properties"]["SVGIcon"],
         "cds:icon_not_visible"
     );
-    assert!(
-        doc.value()["DataBindings"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|b| b["TargetId"] == notice.id
-                && b["PropertyMaps"][0]["TargetProperty"] == "Visible")
-    );
+    assert!(doc.value()["DataBindings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|b| b["TargetId"]
+            == doc.at(&notice.path[..notice.path.len() - 1])["Properties"]["Id"]
+            && b["PropertyMaps"][0]["TargetProperty"] == "Visible"));
+    let list = doc.find_exact(&built.ids["all"]).unwrap();
+    let list_row = &doc.at(&list.path[..list.path.len() - 1])["Properties"];
+    assert_eq!(list_row["Visible"], false);
+    let region = doc.at(&list.path[..list.path.len() - 2]);
+    assert_eq!(region["Properties"]["flex-direction"], "row");
+    let branch_height = region["Widgets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(mashup::layout::height_floor)
+        .max()
+        .unwrap();
+    assert_eq!(mashup::layout::height_floor(region), branch_height);
+    let row = &doc.at(&notice.path[..notice.path.len() - 1])["Properties"];
+    assert_eq!(row["flex-size"], "range");
+    assert_eq!(row["flex-max-height"], "");
+    assert_eq!(row["justify-content"], "center");
+    assert_eq!(row["flex-min-height"], "100px");
+    assert!(doc.value()["DataBindings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|b| b["TargetId"] == list_row["Id"]
+            && b["PropertyMaps"][0]["TargetProperty"] == "Visible"));
+    assert!(built
+        .content
+        .contains("!!(rows && (rows.rows || rows).length)"));
     assert_eq!(
         compile(&solution, "Acme", &error_page("column: {id: c, children: [{list: {id: all, data: rows, display: Name, selection: multiple, empty: No rows}}, {list: {id: picked, data: all.selected, display: Name}}]}", "")).unwrap(),
         built
@@ -2588,7 +2618,7 @@ fn collection_maps_rows_into_an_existing_cell_mashup() {
 }
 
 #[test]
-fn collection_cell_is_a_generated_page_made_once() {
+fn collection_cell_is_generated_even_when_it_exists() {
     let (dir, solution) = element_solution();
     let text = error_page(
         "collection: {id: c, size: fill, data: rows, per_row: 2, cell: {title: Name, kpi_dial: Count}}",
@@ -2633,6 +2663,7 @@ fn collection_cell_is_a_generated_page_made_once() {
             .any(|b| b["SourceArea"] == "Mashup" && b["TargetId"] == target)
     };
     assert!(bound(&label.id) && bound(&dial.id));
+    assert_eq!(cell_doc.at(&dial.path)["Properties"]["Label"], "");
     let props = element_props(&built, "c");
     assert_eq!(props["Mashup"], "Acme.ErrorsCell_MU");
     assert_eq!(
@@ -2640,12 +2671,12 @@ fn collection_cell_is_a_generated_page_made_once() {
         serde_json::json!({"Count": "Count", "Name": "Name"})
     );
     assert_eq!(props["CellHeight"], 270);
+    assert_eq!(props["AutoSelectFirstRow"], false);
     assert_eq!(
         widget_style(&built, "c")["parts"]["cell"]["$"]["border-style"],
         "solid"
     );
-    // Once the cell exists in the solution it is the user's: nothing is generated again, and the
-    // page compiles to the same content against the mashup on disk.
+    // Compilation stays independent of existing files; the builder checks ownership.
     std::fs::write(
         dir.path().join("acme/Mashups/Acme.ErrorsCell_MU.xml"),
         &cell.artifacts.entity,
@@ -2657,7 +2688,7 @@ fn collection_cell_is_a_generated_page_made_once() {
         &text,
     )
     .unwrap();
-    assert!(again.cells.is_empty());
+    assert_eq!(again.cells, built.cells);
     assert_eq!(again.content, built.content);
 }
 
@@ -2681,14 +2712,25 @@ fn nav_menu_lists_groups_and_selects_the_first_item() {
     for id in ["m--item-1-1", "m--item-2-1", "m--item-2-2"] {
         let props = element_props(&built, id);
         assert_eq!(props["ButtonType"], "transparent", "{id}");
-        assert_eq!(props["Size"], "fill", "{id}");
+        assert_eq!(props["Size"], "standard", "{id}");
         assert_eq!(props["LabelAlignment"], "left", "{id}");
     }
     assert_eq!(
         widget_style(&built, "m--item-1-1")["parts"]["$"]["$"]["background"],
-        "#E4E7E9"
+        "#e4e7e9"
     );
-    assert!(widget_style(&built, "m--item-2-1").is_null());
+    for id in ["m--item-1-1", "m--item-2-1", "m--item-2-2"] {
+        let style = widget_style(&built, id);
+        assert_eq!(style["parts"]["label"]["$"]["font-size"], "14px");
+        assert_eq!(style["parts"]["label"]["$"]["font-weight"], "600");
+        assert_eq!(style["parts"]["label"]["$"]["color"], "#080909");
+        assert_eq!(style["parts"]["$"]["$"]["width"], "100%");
+        assert_eq!(style["parts"]["$"]["$"]["padding-left"], "24px");
+    }
+    assert_eq!(
+        widget_style(&built, "m--group-1")["parts"]["label"]["$"]["font-size"],
+        "14px"
+    );
     let error = compile(&solution, "Acme", &error_page("nav_menu: {id: m}", "")).unwrap_err();
     assert!(
         error.line >= 10 && error.message.contains("needs groups"),
@@ -2841,4 +2883,193 @@ fn benchmark_l_golden() {
 #[test]
 fn benchmark_m_golden() {
     benchmark("m");
+}
+
+#[test]
+fn narrow_columns_bound_search_widths_and_titled_collapsible_filter_rows() {
+    let (_dir, solution) = element_solution();
+    let built = compile(&solution, "Acme", &error_page(
+        "row: {id: r, children: [{side_panel: {id: s, title: Compare, children: [{text_field: {id: q}}, {text_field: {id: small, props: {Width: 120}}}, {nav_menu: {id: menu, search: Find, groups: [{title: Pages, items: [One]}]}}]}}, {filter_panel: {id: f, title: Filter, collapsible: true, fields: [{text_field: {id: fq, props: {Label: Version}}}, {dropdown: {id: version, options: rows, display: Name}}], footer: [apply, reset]}}]}", "")).unwrap();
+    assert_eq!(element_props(&built, "q")["Width"], 240);
+    assert_eq!(element_props(&built, "small")["Width"], 120);
+    assert_eq!(element_props(&built, "menu--search")["Width"], 214);
+    assert_eq!(element_props(&built, "fq")["Width"], 240);
+    let doc = doc_of(&built);
+    let fields = doc
+        .widgets()
+        .into_iter()
+        .find(|w| w.display_name == "filters")
+        .unwrap();
+    for node in ["fq", "version"] {
+        let field = doc.find_exact(&built.ids[node]).unwrap();
+        let row = &field.path[..field.path.len() - 1];
+        for depth in fields.path.len()..row.len() {
+            let parent = &doc.at(&row[..depth])["Properties"];
+            assert_eq!(parent["flex-direction"], "column");
+            assert_eq!(parent["justify-content"], "flex-start");
+        }
+    }
+    let controls = doc.at(&fields.path)["Widgets"].as_array().unwrap();
+    assert_eq!(controls.len(), 3);
+    assert_eq!(controls[0]["Properties"]["LabelText"], "Filter");
+    assert_eq!(controls[0]["Properties"]["Margin"], "16");
+    assert!(controls
+        .iter()
+        .all(|c| c["Properties"]["Type"] != "flexcontainer"));
+}
+
+#[test]
+fn generated_cells_refresh_until_any_generated_file_is_edited() {
+    for edited in [
+        None,
+        Some("xml"),
+        Some("content"),
+        Some("css"),
+        Some("spec"),
+        Some("baseline"),
+    ] {
+        let (_dir, solution) = element_solution();
+        let spec = solution.root.join("collection.yaml");
+        let original = error_page(
+            "collection: {id: c, data: rows, cell: {title: Name, kpi_dial: Count}}",
+            "",
+        );
+        std::fs::write(&spec, &original).unwrap();
+        let guard = lock::acquire(&solution.root, "cell test", &[]).unwrap();
+        let mut plan = super::build::plan(&solution, "Acme.Errors_MU", None, Some(&spec)).unwrap();
+        plan.apply(&solution, &guard).unwrap();
+        let cell_dir = solution.src_root().join("Acme.ErrorsCell_MU");
+        let paths = [
+            solution.root.join("acme/Mashups/Acme.ErrorsCell_MU.xml"),
+            cell_dir.join("mashup/content.json"),
+            cell_dir.join("mashup/custom.css"),
+            cell_dir.join("page.yaml"),
+            cell_dir.join(".page-baseline.json"),
+        ];
+        let unchanged = super::build::plan(&solution, "Acme.Errors_MU", None, None).unwrap();
+        assert_eq!(unchanged.report["files"], serde_json::json!([]));
+        if let Some(kind) = edited {
+            let index = ["xml", "content", "css", "spec", "baseline"]
+                .iter()
+                .position(|k| *k == kind)
+                .unwrap();
+            let mut bytes = std::fs::read(&paths[index]).unwrap();
+            bytes.extend_from_slice(b"\n ");
+            std::fs::write(&paths[index], bytes).unwrap();
+        }
+        let before: Vec<_> = paths.iter().map(|p| std::fs::read(p).unwrap()).collect();
+        std::fs::write(
+            solution.src_root().join("Acme.Errors_MU/page.yaml"),
+            original.replace("title: Name, ", ""),
+        )
+        .unwrap();
+        let mut plan = super::build::plan(&solution, "Acme.Errors_MU", None, None).unwrap();
+        assert!(!plan.conflicts(), "{}", plan.report);
+        if edited.is_some() {
+            assert_eq!(
+                plan.report["cell_notices"],
+                serde_json::json!(["Acme.ErrorsCell_MU: cell edited, not regenerated"])
+            );
+        } else {
+            assert_eq!(plan.report["cell_notices"], serde_json::json!([]));
+            assert_eq!(
+                plan.report["cells"],
+                serde_json::json!(["Acme.ErrorsCell_MU"])
+            );
+        }
+        plan.apply(&solution, &guard).unwrap();
+        let after: Vec<_> = paths.iter().map(|p| std::fs::read(p).unwrap()).collect();
+        if edited.is_some() {
+            assert_eq!(before, after);
+            let again = super::build::plan(&solution, "Acme.Errors_MU", None, None).unwrap();
+            assert_eq!(again.report["cell_notices"], plan.report["cell_notices"]);
+        } else {
+            assert_ne!(before, after);
+            let content = std::str::from_utf8(&after[1]).unwrap();
+            let doc = mashup::edit::parse(content).unwrap();
+            assert!(!doc.widgets().iter().any(|w| w.type_id == "ptcslabel"));
+            let dial = doc
+                .widgets()
+                .into_iter()
+                .find(|w| w.type_id == "ptcskpidial")
+                .unwrap();
+            assert_eq!(doc.at(&dial.path)["Properties"]["Label"], "");
+            assert_eq!(
+                super::build::plan(&solution, "Acme.Errors_MU", None, None)
+                    .unwrap()
+                    .report["files"],
+                serde_json::json!([])
+            );
+        }
+    }
+}
+
+#[test]
+fn older_generated_cell_refreshes_a_placeholder_from_its_baseline() {
+    let (_dir, solution) = element_solution();
+    let spec = solution.root.join("collection.yaml");
+    std::fs::write(
+        &spec,
+        error_page(
+            "collection: {id: c, data: rows, cell: {title: Name, kpi_dial: Count}}",
+            "",
+        ),
+    )
+    .unwrap();
+    let guard = lock::acquire(&solution.root, "cell migration test", &[]).unwrap();
+    let mut plan = super::build::plan(&solution, "Acme.Errors_MU", None, Some(&spec)).unwrap();
+    plan.apply(&solution, &guard).unwrap();
+    let parent_baseline = solution
+        .src_root()
+        .join("Acme.Errors_MU/.page-baseline.json");
+    let mut parent: Value =
+        serde_json::from_slice(&std::fs::read(&parent_baseline).unwrap()).unwrap();
+    parent.as_object_mut().unwrap().remove("generated_cells");
+    std::fs::write(
+        &parent_baseline,
+        serde_json::to_vec_pretty(&parent).unwrap(),
+    )
+    .unwrap();
+    let dir = solution.src_root().join("Acme.ErrorsCell_MU");
+    let baseline_path = dir.join(".page-baseline.json");
+    let mut baseline =
+        super::baseline::Baseline::read(&std::fs::read(&baseline_path).unwrap()).unwrap();
+    let mut doc = mashup::edit::MashupDocument::new(baseline.content).unwrap();
+    let dial = doc
+        .widgets()
+        .into_iter()
+        .find(|w| w.type_id == "ptcskpidial")
+        .unwrap();
+    doc.set_property(&dial.path, "Label", serde_json::json!("Label"));
+    baseline.content = doc.value().clone();
+    let assets = mashup::Assets {
+        content: mashup::to_sidecar(&baseline.content),
+        css: baseline.css.clone(),
+    };
+    let entity_path = solution.root.join("acme/Mashups/Acme.ErrorsCell_MU.xml");
+    let xml = mashup::sync(&std::fs::read(&entity_path).unwrap(), &assets)
+        .unwrap()
+        .0;
+    std::fs::write(&entity_path, xml).unwrap();
+    std::fs::write(dir.join("mashup/content.json"), &assets.content).unwrap();
+    std::fs::write(&baseline_path, baseline.bytes()).unwrap();
+    let mut plan = super::build::plan(&solution, "Acme.Errors_MU", None, None).unwrap();
+    assert_eq!(plan.report["cell_notices"], serde_json::json!([]));
+    assert_eq!(
+        plan.report["cells"],
+        serde_json::json!(["Acme.ErrorsCell_MU"])
+    );
+    plan.apply(&solution, &guard).unwrap();
+    let content = std::fs::read_to_string(dir.join("mashup/content.json")).unwrap();
+    let doc = mashup::edit::parse(&content).unwrap();
+    assert_eq!(
+        doc.at(&doc.find_exact(&dial.id).unwrap().path)["Properties"]["Label"],
+        ""
+    );
+    assert!(super::build::plan(&solution, "Acme.Errors_MU", None, None)
+        .unwrap()
+        .report["files"]
+        .as_array()
+        .unwrap()
+        .is_empty());
 }

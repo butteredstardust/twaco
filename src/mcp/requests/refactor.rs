@@ -930,7 +930,7 @@ pub(crate) struct MashupCollectionAddRequest {
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) across: Absent<u32>,
     /// `cards`: framed cards spread evenly per row, the last row aligned under the first
-    /// columns, the first card selected, as the design kits configure them.
+    /// columns, without an initial selection.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) preset: Absent<CollectionPresetArg>,
     /// A StateDefinition in the solution whose states are the cell menu's items.

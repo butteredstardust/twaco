@@ -1595,7 +1595,7 @@ the result to `Data` in one edit. It reports when nothing invokes the source cal
 runtime behaviour.
 
 Cards as the design kits lay them out (framed, spread evenly across each row, the last row under
-the first columns, the first card selected) take `--preset cards`. `--columns 4` works out the
+the first columns, without an initial selection) take `--preset cards`. `--columns 4` works out the
 cell width that fits four on a row of a full-width collection in a 1440 px window (`--across
 <px>` names another collection width). A narrower window shows fewer cards per row. `--menu`
 names the cell menu's StateDefinition:

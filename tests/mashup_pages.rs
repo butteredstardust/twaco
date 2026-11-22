@@ -305,7 +305,7 @@ fn benchmark_m_frontends_and_rebuilds() {
 }
 
 #[test]
-fn a_generated_cell_is_created_once_and_never_rewritten() {
+fn a_generated_cell_refreshes_clean_files_and_reports_preserved_edits() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let fixtures =
@@ -336,6 +336,13 @@ fn a_generated_cell_is_created_once_and_never_rewritten() {
     assert!(cell.join("page.yaml").exists());
     assert!(cell.join(".page-baseline.json").exists());
     assert!(root.join("Mashups/Acme.BenchSpecLCell_MU.xml").exists());
+    let clean = cli(root, &["mashup", "build", "Acme.BenchSpecL_MU", "--json"]);
+    assert_eq!(clean["files"], serde_json::json!([]));
+    assert_eq!(
+        clean["cells"],
+        serde_json::json!(["Acme.BenchSpecLCell_MU"])
+    );
+    assert_eq!(clean["cell_notices"], serde_json::json!([]));
     // The cell is a page of its own: rebuilding it is a no-op, and a hand edit survives the
     // page's rebuild, which does not touch it.
     let rebuilt = cli(
@@ -366,5 +373,9 @@ fn a_generated_cell_is_created_once_and_never_rewritten() {
     let again = cli(root, &["mashup", "build", "Acme.BenchSpecL_MU", "--json"]);
     assert_eq!(again["files"], serde_json::json!([]));
     assert_eq!(again["cells"], serde_json::json!([]));
+    assert_eq!(
+        again["cell_notices"],
+        serde_json::json!(["Acme.BenchSpecLCell_MU: cell edited, not regenerated"])
+    );
     assert_eq!(std::fs::read_to_string(&content).unwrap(), handmade);
 }
