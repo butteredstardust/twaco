@@ -409,6 +409,25 @@ pub(super) fn plan_add_loaded(
     for (key, value) in decided.patch() {
         document.set_property(&placed_path, key, value);
     }
+    if document.rules().version() == "v1"
+        && widget.type_id == "ptcsbutton"
+        && layout::context::in_filter_footer(&document, &placed_path)
+    {
+        // AdminPage01 uses 120px buttons; the narrower 280px column needs 108px with its kit margins.
+        let parent = &placed_path[..placed_path.len() - 1];
+        if document.at(parent)["Widgets"]
+            .as_array()
+            .is_some_and(|rows| rows.len() > 1)
+        {
+            document.set_property(&placed_path, "Margin", Value::from("24 24 24 8"));
+        }
+    }
+    if widget.type_id == "ptcskpidial"
+        && request.label.is_none()
+        && document.value()["twacoPageRules"] == "v1"
+    {
+        document.set_property(&placed_path, "Label", Value::String(String::new()));
+    }
     let mut properties = request
         .properties
         .iter()

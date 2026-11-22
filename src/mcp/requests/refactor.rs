@@ -339,6 +339,10 @@ pub(crate) struct MashupNewRequest {
     /// An embedded layout template name or alias; default `blank`.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) template: Absent<String>,
+    /// Layout rules for a new ordinary mashup: v1 (default) or legacy to opt out.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    #[schemars(extend("enum" = ["legacy", "v1"], "default" = "v1"))]
+    pub(crate) rules: Absent<String>,
     /// A repository mashup to copy. It is exclusive with template, layout, menus, theme, master, params and tabs.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) from: Absent<String>,
@@ -926,7 +930,7 @@ pub(crate) struct MashupCollectionAddRequest {
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) across: Absent<u32>,
     /// `cards`: framed cards spread evenly per row, the last row aligned under the first
-    /// columns, the first card selected, as the design kits configure them.
+    /// columns, without an initial selection.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) preset: Absent<CollectionPresetArg>,
     /// A StateDefinition in the solution whose states are the cell menu's items.
@@ -1059,6 +1063,9 @@ pub(crate) struct MashupParameterRequest {
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct MashupRecipeRequest {
+    /// Component props as name=value (JSON values or plain strings); include id.
+    #[serde(default)]
+    pub(crate) settings: Vec<String>,
     /// panel: grey (default) or white bordered card.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) style: Absent<String>,
@@ -1144,7 +1151,7 @@ pub(crate) struct MashupRecipeRequest {
     pub(crate) tab: Absent<String>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) start: Absent<String>,
-    /// panel styles a responsive column; slider-action pairs widget (slider) with button. toolbar uses widget as the empty responsive container, then, search_param, hint, width, run_on and buttons. enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, pagination, picker, tracker, set-on-click, nested-menu, navigate-on-click or collapsible; label-pairs uses widget as the responsive container, data, fields, title, label_columns and replace.
+    /// panel styles a responsive column; slider-action pairs widget (slider) with button. toolbar uses widget as the empty responsive container, then, search_param, hint, width, run_on and buttons. enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, sparkline, columns, pagination, picker, side-panel, empty-state, section, card-grid, input-variant, component (kind names the component; settings supplies props including id), tracker, set-on-click, nested-menu, navigate-on-click or collapsible; label-pairs uses widget as the responsive container, data, fields, title, label_columns and replace.
     pub(crate) recipe: String,
     /// The mashup to write it in.
     pub(crate) mashup: String,
@@ -1232,9 +1239,30 @@ pub(crate) struct MashupRecipeRequest {
     /// A picker without the "(None)" row.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) no_none_row: Absent<bool>,
-    /// A picker that selects its first row.
+    /// A picker or grid that selects its first row.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) auto_select_first: Absent<bool>,
+    /// A list that selects several rows (recipe picker).
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) multiple: Absent<bool>,
+    /// The tooltip of the help icon after a side panel title (recipe side-panel).
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) info: Absent<String>,
+    /// The body alignment of recipe section: start (default) or center.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) align: Absent<String>,
+    /// Cells in one row of recipe card-grid.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) per_row: Absent<u32>,
+    /// Cells in all of recipe card-grid; the last row is filled with empty cells.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) cells: Absent<u32>,
+    /// The text field look of recipe input-variant.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) variant: Absent<String>,
+    /// Combo series as field:bar|line[:primary|secondary].
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) series: Absent<Vec<String>>,
     /// The root Menu of recipe nested-menu.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) menu: Absent<String>,
@@ -1473,4 +1501,18 @@ pub(crate) struct MashupBuildRequest {
     pub(crate) mashup: String,
     #[serde(default = "default_true")]
     pub(crate) dry_run: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MashupSpecRequest {
+    pub(crate) mashup: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ComponentsRequest {
+    /// Omit to list; supply a name to show its definition.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) name: Absent<String>,
 }

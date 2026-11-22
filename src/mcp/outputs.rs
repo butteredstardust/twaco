@@ -1757,4 +1757,35 @@ pub(crate) struct MashupBuildResult {
     hand_edits_kept: Vec<String>,
     conflicts: Vec<Value>,
     files: Vec<String>,
+    cells: Vec<String>,
+    cell_notices: Vec<String>,
+}
+
+#[derive(Serialize, JsonSchema)]
+pub(crate) struct MashupSpecResult {
+    mashup: String,
+    /// The page spec as YAML.
+    spec: String,
+    /// Nodes written as elements or components.
+    elements: usize,
+    /// `widget:` nodes, which no element covers.
+    raw: usize,
+    /// Widgets of the mashup the spec stands for.
+    widgets: usize,
+    /// True when the spec is the mashup's own page.yaml and the mashup still matches its last build.
+    exact: bool,
+    /// Raw nodes by widget type.
+    #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    raw_types: std::collections::BTreeMap<String, usize>,
+    /// Widgets edited by hand since the last build, when the spec is the page's own page.yaml.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    hand_edited: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    notes: Vec<String>,
+}
+
+#[derive(Serialize, JsonSchema)]
+pub(crate) struct ComponentsResult {
+    #[serde(flatten)]
+    fields: std::collections::BTreeMap<String, serde_json::Value>,
 }

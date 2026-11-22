@@ -95,7 +95,8 @@ true, `ContentAlignment` top, `MashupBackground` transparent, `LeftPadding` 15, 
 single, `AutoSelectFirstRow` true and a `CellMenu`. The card's frame is the collection's `cell`
 part style: a 1px solid `rgba(192,192,192,1)` border with a 6px radius, repeated in the hover,
 selected and pressed states (pressed also sets a white background). `--preset cards` writes
-exactly these.
+these presentation settings, with `AutoSelectFirstRow=false` so comparison cards start
+without a highlight. Opt in explicitly with `mashup set --prop AutoSelectFirstRow=true`.
 
 ## Command
 

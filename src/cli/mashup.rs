@@ -13,6 +13,7 @@ pub(crate) enum Mashup {
     Describe(MashupDescribe),
     Why(MashupWhy),
     Build(MashupBuild),
+    Spec(MashupSpec),
     Diff(MashupDiff),
     Add(MashupAdd),
     Collection(MashupCollection),
@@ -42,6 +43,7 @@ impl Mashup {
             Mashup::Describe(_) => "mashup describe",
             Mashup::Why(_) => "mashup why",
             Mashup::Build(_) => "mashup build",
+            Mashup::Spec(_) => "mashup spec",
             Mashup::Diff(_) => "mashup diff",
             Mashup::Add(_) => "mashup add",
             Mashup::Collection(collection) => collection.path(),
@@ -492,6 +494,8 @@ pub(crate) enum ParamVerb {
 #[derive(Debug, clap::Args)]
 #[group(skip)]
 pub(crate) struct MashupRecipe {
+    #[arg(long = "set", value_name = "parameter=value")]
+    pub(crate) settings: Vec<String>,
     #[arg(long = "fit", value_name = "fill|content")]
     pub(crate) fit: Option<String>,
     #[arg(long = "stacked")]
@@ -594,6 +598,18 @@ pub(crate) struct MashupRecipe {
     pub(crate) no_none_row: bool,
     #[arg(long = "auto-select-first")]
     pub(crate) auto_select_first: bool,
+    #[arg(long = "multiple")]
+    pub(crate) multiple: bool,
+    #[arg(long = "info", value_name = "text")]
+    pub(crate) info: Option<String>,
+    #[arg(long = "align", value_name = "start|center")]
+    pub(crate) align: Option<String>,
+    #[arg(long = "per-row", value_name = "n")]
+    pub(crate) per_row: Option<u32>,
+    #[arg(long = "cells", value_name = "n")]
+    pub(crate) cells: Option<u32>,
+    #[arg(long = "variant", value_name = "name")]
+    pub(crate) variant: Option<String>,
     #[arg(long = "menu", value_name = "Menu")]
     pub(crate) menu: Option<String>,
     #[arg(long = "no-auto-collapse")]
@@ -624,6 +640,8 @@ pub(crate) struct MashupRecipe {
     pub(crate) x_title: Option<String>,
     #[arg(long = "y-title", value_name = "text")]
     pub(crate) y_title: Option<String>,
+    #[arg(long = "series", value_name = "field:kind[:axis]")]
+    pub(crate) series: Vec<String>,
 
     #[arg(long = "replace", value_name = "widget")]
     pub(crate) replace: Option<String>,
@@ -665,6 +683,8 @@ pub(crate) struct MashupNew {
     pub(crate) project: Project,
     #[arg(long = "template", value_name = "name")]
     pub(crate) template: Option<String>,
+    #[arg(long = "rules", value_name = "legacy|v1")]
+    pub(crate) rules: Option<String>,
     #[arg(long = "from", value_name = "address")]
     pub(crate) from: Option<String>,
     #[arg(long = "replace", value_name = "old=new")]
@@ -704,6 +724,7 @@ pub(crate) fn mashup_new_cmd(solution: &Solution, args: &MashupNew) -> u8 {
     if let Some(spec) = &args.spec {
         if args.gadget
             || args.template.is_some()
+            || args.rules.is_some()
             || args.from.is_some()
             || args.layout.is_some()
             || args.primary_menu.is_some()
@@ -772,6 +793,7 @@ pub(crate) fn mashup_new_cmd(solution: &Solution, args: &MashupNew) -> u8 {
             name: name.clone(),
             project: args.project.project.clone(),
             template,
+            rules: args.rules.clone(),
             gadget: args.gadget,
             layout: args.layout.clone().filter(|_| args.gadget),
             primary_menu: args.primary_menu.clone(),
@@ -890,7 +912,20 @@ pub(crate) fn mashup_new_cmd(solution: &Solution, args: &MashupNew) -> u8 {
 /// `twaco mashup param add|set|remove`: keep Composer's four parameter stores together.
 /// `twaco mashup recipe <recipe> <mashup> [<widget>] ...`: plan one recipe, or apply it.
 pub(crate) fn mashup_recipe_cmd(solution: &Solution, args: &MashupRecipe) -> u8 {
+    if args.operands.first().is_some_and(|s| s == "component") && args.operands.len() != 4 {
+        eprintln!("mashup recipe component needs <mashup> <name> <container> and --set id=<id>");
+        return FAILED;
+    }
+    let mut component_kind = None;
     let (name, mashup, widget, button) = match args.operands.as_slice() {
+        [name, mashup, component, container] if name == "component" => {
+            if args.kind.is_some() {
+                eprintln!("component name is already given as an operand; omit --kind");
+                return FAILED;
+            }
+            component_kind = Some(component.clone());
+            (name, mashup, Some(container.clone()), None)
+        }
         [name, mashup] => (name, mashup, None, None),
         [name, mashup, widget] => (name, mashup, Some(widget.clone()), None),
         [name, mashup, widget, button] if name == "slider-action" => {
@@ -930,6 +965,7 @@ pub(crate) fn mashup_recipe_cmd(solution: &Solution, args: &MashupRecipe) -> u8 
         return FAILED;
     }
     let recipe_args = mashup::authoring::RecipeArgs {
+        settings: args.settings.clone(),
         fit: args.fit.clone(),
         stacked: args.stacked,
         band: args.band,
@@ -960,7 +996,7 @@ pub(crate) fn mashup_recipe_cmd(solution: &Solution, args: &MashupRecipe) -> u8 
         say: args.say.clone(),
         on_failure: args.on_failure.clone(),
         from: args.from.clone(),
-        kind: args.kind.clone(),
+        kind: component_kind.or_else(|| args.kind.clone()),
         then: args.then.clone(),
         title: args.title.clone(),
         on: args.on.clone(),
@@ -981,7 +1017,14 @@ pub(crate) fn mashup_recipe_cmd(solution: &Solution, args: &MashupRecipe) -> u8 
         column_editors: args.column_editors.clone(),
         preserve_whitespace: args.preserve_whitespace.clone(),
         no_none_row: args.no_none_row,
+        series: args.series.clone(),
         auto_select_first: args.auto_select_first,
+        multiple: args.multiple,
+        info: args.info.clone(),
+        align: args.align.clone(),
+        per_row: args.per_row,
+        cells: args.cells,
+        variant: args.variant.clone(),
         menu: args.menu.clone(),
         no_auto_collapse: args.no_auto_collapse,
         width,
@@ -3070,39 +3113,6 @@ pub(crate) fn recipe_columns_hint(args: &[String]) -> Option<&'static str> {
     bad.then_some("recipe columns takes --column field[:Title[:width]] (repeatable); --columns <n> is label-pairs' column count")
 }
 
-#[cfg(test)]
-mod operand_tests {
-    use super::operand_problem;
-
-    fn operands(words: &[&str]) -> Vec<String> {
-        words.iter().map(|word| word.to_string()).collect()
-    }
-
-    #[test]
-    fn a_missing_operand_keeps_the_short_message() {
-        assert_eq!(
-            operand_problem("mashup set", "<mashup> and <widget>", &operands(&["A"]), 2),
-            "mashup set needs <mashup> and <widget>"
-        );
-    }
-
-    #[test]
-    fn a_split_value_is_explained_with_the_single_quote_form() {
-        let message = operand_problem(
-            "mashup set",
-            "<mashup> and <widget>",
-            &operands(&["Acme.Page_MU", "ptcslabel-3", "Black\""]),
-            2,
-        );
-        assert!(message.contains("got 3 operands"), "{message}");
-        assert!(message.contains("`Black\"` is probably"), "{message}");
-        assert!(
-            message.contains("--style \"font-family='Arial Black'\""),
-            "{message}"
-        );
-    }
-}
-
 #[derive(Debug, clap::Args)]
 #[group(skip)]
 pub(crate) struct MashupBuild {
@@ -3175,6 +3185,9 @@ fn page_build(
         for edit in report["hand_edits_kept"].as_array().expect("kept") {
             println!("  hand edit kept: {}", edit.as_str().unwrap_or_default());
         }
+        for notice in report["cell_notices"].as_array().expect("cell notices") {
+            println!("  {}", notice.as_str().unwrap_or_default());
+        }
         for conflict in conflicts {
             println!("  {}", conflict["message"].as_str().unwrap_or_default());
         }
@@ -3186,5 +3199,153 @@ fn page_build(
         OK
     } else {
         FAILED
+    }
+}
+
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct MashupSpec {
+    #[command(flatten)]
+    pub(crate) json: Json,
+    #[arg(long = "out", value_name = "path")]
+    pub(crate) out: Option<String>,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
+pub(crate) fn mashup_spec_cmd(solution: &Solution, args: &MashupSpec) -> u8 {
+    let [name] = args.operands.as_slice() else {
+        eprintln!("mashup spec needs one <mashup>");
+        return FAILED;
+    };
+    match mashup::page::extract::export(
+        solution,
+        name,
+        args.out.as_deref().map(std::path::Path::new),
+    ) {
+        Ok(result) => {
+            if args.json.json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&result).expect("spec report")
+                );
+            } else {
+                let types: Vec<String> = result
+                    .raw_types
+                    .iter()
+                    .map(|(kind, n)| format!("{kind} x{n}"))
+                    .collect();
+                eprintln!(
+                    "{} nodes as elements/components, {} raw widget nodes{}, for {} widgets{}",
+                    result.elements,
+                    result.raw,
+                    if types.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" ({})", types.join(", "))
+                    },
+                    result.widgets,
+                    if result.exact { "; exact source" } else { "" }
+                );
+                if !result.hand_edited.is_empty() {
+                    eprintln!("hand-edited: {}", result.hand_edited.join(", "));
+                }
+                for note in &result.notes {
+                    eprintln!("note: {note}");
+                }
+                if args.out.is_none() {
+                    print!("{}", result.spec);
+                }
+            }
+            OK
+        }
+        Err(e) => {
+            eprintln!("{e}");
+            FAILED
+        }
+    }
+}
+
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct Components {
+    #[command(flatten)]
+    pub(crate) json: Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
+pub(crate) fn components_cmd(solution: &Solution, args: &Components) -> u8 {
+    let name = match args.operands.as_slice() {
+        [action] if action == "list" => None,
+        [action, name] if action == "show" => Some(name.as_str()),
+        _ => {
+            eprintln!("components needs list or show <name>");
+            return FAILED;
+        }
+    };
+    match mashup::page::components::inspect(solution, name) {
+        Ok(value) => {
+            if args.json.json || name.is_some() {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&value).expect("component report")
+                );
+            } else {
+                println!("{} components", value["count"]);
+                for component in value["components"].as_array().expect("components") {
+                    println!(
+                        "{}  source: {}  props: {}",
+                        component["name"].as_str().unwrap_or_default(),
+                        component["source"].as_str().unwrap_or_default(),
+                        component["props"]
+                            .as_object()
+                            .expect("props")
+                            .keys()
+                            .cloned()
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    );
+                }
+            }
+            OK
+        }
+        Err(e) => {
+            eprintln!("{e}");
+            FAILED
+        }
+    }
+}
+
+#[cfg(test)]
+mod operand_tests {
+    use super::operand_problem;
+
+    fn operands(words: &[&str]) -> Vec<String> {
+        words.iter().map(|word| word.to_string()).collect()
+    }
+
+    #[test]
+    fn a_missing_operand_keeps_the_short_message() {
+        assert_eq!(
+            operand_problem("mashup set", "<mashup> and <widget>", &operands(&["A"]), 2),
+            "mashup set needs <mashup> and <widget>"
+        );
+    }
+
+    #[test]
+    fn a_split_value_is_explained_with_the_single_quote_form() {
+        let message = operand_problem(
+            "mashup set",
+            "<mashup> and <widget>",
+            &operands(&["Acme.Page_MU", "ptcslabel-3", "Black\""]),
+            2,
+        );
+        assert!(message.contains("got 3 operands"), "{message}");
+        assert!(message.contains("`Black\"` is probably"), "{message}");
+        assert!(
+            message.contains("--style \"font-family='Arial Black'\""),
+            "{message}"
+        );
     }
 }

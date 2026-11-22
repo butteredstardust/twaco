@@ -1,0 +1,256 @@
+{
+ "Data": {
+  "Things_Acme.Cards": {
+   "DataName": "Things_Acme.Cards",
+   "EntityName": "Acme.Cards",
+   "EntityType": "Things",
+   "Id": "Acme.Cards-id",
+   "RefreshInterval": 0,
+   "Services": [
+    {
+     "APIMethod": "post",
+     "Characteristic": "Services",
+     "Id": "assets-id",
+     "Name": "assets",
+     "Parameters": {},
+     "RefreshInterval": 0,
+     "Target": "GetAssets"
+    },
+    {
+     "APIMethod": "post",
+     "Characteristic": "Services",
+     "Id": "cards-id",
+     "Name": "cards",
+     "Parameters": {},
+     "RefreshInterval": 0,
+     "Target": "GetCards"
+    }
+   ]
+  }
+ },
+ "DataBindings": [
+  {
+   "Id": "assets>ptcslist-110:Data",
+   "PropertyMaps": [
+    {
+     "SourceProperty": "",
+     "SourcePropertyBaseType": "INFOTABLE",
+     "SourcePropertyType": "InfoTable",
+     "TargetProperty": "Data",
+     "TargetPropertyBaseType": "INFOTABLE",
+     "TargetPropertyType": "property"
+    }
+   ],
+   "SourceArea": "Data",
+   "SourceDetails": "AllData",
+   "SourceId": "assets",
+   "SourceSection": "Things_Acme.Cards",
+   "TargetArea": "UI",
+   "TargetId": "ptcslist-110",
+   "TargetSection": ""
+  },
+  {
+   "Id": "cards>ptcscollection-29:Data",
+   "PropertyMaps": [
+    {
+     "SourceProperty": "",
+     "SourcePropertyBaseType": "INFOTABLE",
+     "SourcePropertyType": "InfoTable",
+     "TargetProperty": "Data",
+     "TargetPropertyBaseType": "INFOTABLE",
+     "TargetPropertyType": "property"
+    }
+   ],
+   "SourceArea": "Data",
+   "SourceDetails": "AllData",
+   "SourceId": "cards",
+   "SourceSection": "Things_Acme.Cards",
+   "TargetArea": "UI",
+   "TargetId": "ptcscollection-29",
+   "TargetSection": ""
+  }
+ ],
+ "Events": [
+  {
+   "EventHandlerArea": "Data",
+   "EventHandlerId": "Things_Acme.Cards",
+   "EventHandlerService": "assets",
+   "EventHandlerServiceMethod": "",
+   "EventTriggerArea": "Mashup",
+   "EventTriggerEvent": "Loaded",
+   "EventTriggerId": "mashup-root",
+   "EventTriggerSection": "",
+   "Id": "load-assets"
+  },
+  {
+   "EventHandlerArea": "Data",
+   "EventHandlerId": "Things_Acme.Cards",
+   "EventHandlerService": "cards",
+   "EventHandlerServiceMethod": "",
+   "EventTriggerArea": "Mashup",
+   "EventTriggerEvent": "Loaded",
+   "EventTriggerId": "mashup-root",
+   "EventTriggerSection": "",
+   "Id": "load-cards"
+  }
+ ],
+ "UI": {
+  "Properties": {
+   "Id": "mashup-root",
+   "Type": "mashup"
+  },
+  "Widgets": [
+   {
+    "Properties": {
+     "Id": "flexcontainer-2",
+     "Type": "flexcontainer",
+     "flex-direction": "row",
+     "flex-grow": 1
+    },
+    "Widgets": [
+     {
+      "Properties": {
+       "Id": "flexcontainer-99",
+       "Type": "flexcontainer",
+       "flex-min-width": "276px",
+       "flex-direction": "column",
+       "flex-grow": 1
+      },
+      "Widgets": [
+       {
+        "Properties": {
+         "Id": "flexcontainer-101",
+         "Type": "flexcontainer",
+         "flex-min-height": "72px",
+         "flex-direction": "row",
+         "flex-grow": 1
+        },
+        "Widgets": [
+         {
+          "Properties": {
+           "Id": "ptcslabel-102",
+           "Type": "ptcslabel",
+           "LabelType": "header",
+           "LabelText": "Compare"
+          }
+         }
+        ]
+       },
+       {
+        "Properties": {
+         "Id": "flexcontainer-103",
+         "Type": "flexcontainer",
+         "flex-direction": "row",
+         "flex-grow": 1
+        },
+        "Widgets": [
+         {
+          "Properties": {
+           "Id": "ptcstabset-104",
+           "Type": "ptcstabset",
+           "NumberOfTabs": 1,
+           "Tab1Name": "Filters"
+          },
+          "Widgets": [
+           {
+            "Properties": {
+             "Id": "flexcontainer-105",
+             "Type": "flexcontainer",
+             "flex-direction": "column",
+             "flex-grow": 1
+            },
+            "Widgets": [
+             {
+              "Properties": {
+               "Id": "ptcslabel-118",
+               "Type": "ptcslabel",
+               "LabelType": "label",
+               "LabelText": "Selected Assets"
+              }
+             },
+             {
+              "Properties": {
+               "Id": "ptcstextfield-113",
+               "Type": "ptcstextfield",
+               "HintText": "Search..."
+              }
+             },
+             {
+              "Properties": {
+               "Id": "ptcslist-110",
+               "Type": "ptcslist",
+               "DisplayField": "ThingName"
+              }
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "Properties": {
+       "Id": "flexcontainer-5",
+       "Type": "flexcontainer",
+       "flex-direction": "column",
+       "flex-grow": 1
+      },
+      "Widgets": [
+       {
+        "Properties": {
+         "Id": "flexcontainer-20",
+         "Type": "flexcontainer",
+         "flex-min-height": "48px",
+         "flex-direction": "row",
+         "flex-grow": 1
+        },
+        "Widgets": [
+         {
+          "Properties": {
+           "Id": "ptcslabel-21",
+           "Type": "ptcslabel",
+           "LabelType": "header",
+           "LabelText": "Cards"
+          }
+         },
+         {
+          "Properties": {
+           "Id": "ptcsbutton-77",
+           "Type": "ptcsbutton",
+           "Label": "Refresh",
+           "ButtonType": "transparent"
+          }
+         }
+        ]
+       },
+       {
+        "Properties": {
+         "Id": "flexcontainer-19",
+         "Type": "flexcontainer",
+         "justify-content": "center",
+         "flex-direction": "row",
+         "flex-grow": 1
+        },
+        "Widgets": [
+         {
+          "Properties": {
+           "Id": "ptcscollection-29",
+           "Type": "ptcscollection",
+           "Mashup": "Acme.Kit.Cell_MU",
+           "MashupPropertyBinding": {
+            "cardTitle": "cardTitle",
+            "cardKpiDial": "cardKpiDial"
+           }
+          }
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ }
+}

@@ -644,7 +644,14 @@ impl MashupDocument {
             Placement::In(target) => self.place_in(widget, target),
             Placement::Bottom(target) => self.place_at_bottom(widget, target),
             Placement::BelowInColumn(anchor) => {
-                self.place_beside_in_column(widget, anchor, Side::Below, true)
+                let found = self.find(anchor)?;
+                let parent = &found.path[..found.path.len() - 1];
+                if self.kit_fields(parent) || self.kit_navigation(parent) {
+                    let id = widget_id(self.at(parent)).to_string();
+                    self.place_in(widget, &id)
+                } else {
+                    self.place_beside_in_column(widget, anchor, Side::Below, true)
+                }
             }
             Placement::Beside {
                 anchor,
@@ -792,13 +799,26 @@ impl MashupDocument {
         let Some((_, column)) = filters.path.split_last() else {
             return;
         };
-        if self.at(column)["Properties"]["DisplayName"] != "filter-column" {
+        if !(1..=column.len())
+            .any(|depth| self.at(&column[..depth])["Properties"]["DisplayName"] == "filter-column")
+        {
             return;
         }
         let Ok(found) = self.find(&placed.id) else {
             return;
         };
         if !found.path.starts_with(&filters.path) || found.type_id == "flexcontainer" {
+            return;
+        }
+        if self.kit_fields(&filters.path) {
+            if !(keeps_own && self.at(&found.path)["Properties"].get("Margin").is_some()) {
+                let margin = match found.type_id.as_str() {
+                    "ptcslabel" => "16",
+                    "ptcstextfield" => "0 16 16",
+                    _ => "8 16 16",
+                };
+                self.set_property(&found.path, "Margin", Value::from(margin));
+            }
             return;
         }
         let footer = (filters.path.len()..found.path.len())
@@ -1857,6 +1877,21 @@ impl MashupDocument {
         (path, tidied)
     }
 
+    fn kit_fields(&self, path: &[usize]) -> bool {
+        self.rules().version() == "v1" && self.at(path)["Properties"]["DisplayName"] == "filters"
+    }
+
+    fn kit_navigation(&self, path: &[usize]) -> bool {
+        self.rules().version() == "v1"
+            && self.at(path)["Properties"]["CustomClass"]
+                .as_str()
+                .is_some_and(|classes| {
+                    classes
+                        .split_whitespace()
+                        .any(|class| class == "twaco-nav-menu")
+                })
+    }
+
     fn place_in(&mut self, widget: &Widget, target: &str) -> Result<Placed, EditError> {
         let target = self.find(target)?;
         if target.type_id != "flexcontainer" {
@@ -1888,8 +1923,9 @@ impl MashupDocument {
 
         let number = self.allocate();
         let id = format!("{}-{number}", widget.type_id);
-        let wrap_new =
-            (holds_containers || wrap_column_for_filler) && widget.type_id != "flexcontainer";
+        let wrap_new = !self.kit_fields(&target.path)
+            && (holds_containers || wrap_column_for_filler)
+            && widget.type_id != "flexcontainer";
         let new = new_widget(widget, number, target_empty || wrap_new);
         let mut placed = Placed {
             id,
@@ -1900,8 +1936,8 @@ impl MashupDocument {
         }
         // A container cannot share a container with bare widgets, so they move into rows of
         // their own first, as they do when a grid joins them.
-        let wrap_leaves =
-            wrap_column_for_filler || (holds_leaves && widget.type_id == "flexcontainer");
+        let wrap_leaves = !self.kit_fields(&target.path)
+            && (wrap_column_for_filler || (holds_leaves && widget.type_id == "flexcontainer"));
         if wrap_leaves {
             for (index, child) in target_children.into_iter().enumerate() {
                 if type_of(&child) != Some("flexcontainer") {
@@ -1934,6 +1970,19 @@ impl MashupDocument {
                 "--bottom: {} is not a column; --bottom puts a widget at the foot of a column",
                 target.id
             )));
+        }
+        if self.kit_fields(&target.path) {
+            let column = &target.path[..target.path.len() - 1];
+            let footer = self
+                .widgets()
+                .into_iter()
+                .find(|w| w.path.starts_with(column) && w.display_name == "filter-footer")
+                .ok_or_else(|| {
+                    EditError::Refused(
+                        "filters: missing filter-footer; use the filter-panel template".into(),
+                    )
+                })?;
+            return self.place_in(widget, &footer.id);
         }
         if let Some(footer) = children(self.at(&target.path))
             .iter()

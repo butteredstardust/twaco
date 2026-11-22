@@ -5253,7 +5253,7 @@
   },
   {
     "name": "mashup_new",
-    "description": "Create a ThingWorx 10.2 responsive mashup from an embedded layout template, with its entity file and managed content.json and custom.css sidecars. from copies a repository mashup; replacements are repeatable old=new whole-token substitutions in copied content strings. template is a name or alias (blank by default); mashup_templates lists the slots where mashup_add can place widgets. Menu templates require primary_menu (a service result) or menu_entity (a Menu in the solution); secondary_menu goes with primary_menu. master puts its page container in the template's master slot. A dry run unless dry_run is false; an apply takes the workspace lock and writes every file or none.",
+    "description": "Create a ThingWorx 10.2 responsive mashup from an embedded layout template, with its entity file and managed content.json and custom.css sidecars. from copies a repository mashup; replacements are repeatable old=new whole-token substitutions in copied content strings. Ordinary new mashups default to v1 layout rules; rules: legacy opts out. Existing mashup edits and from copies retain their stored rule set (no twacoPageRules means legacy). template is a name or alias (blank by default); mashup_templates lists the slots where mashup_add can place widgets. Menu templates require primary_menu (a service result) or menu_entity (a Menu in the solution); secondary_menu goes with primary_menu. master puts its page container in the template's master slot. A dry run unless dry_run is false; an apply takes the workspace lock and writes every file or none.",
     "inputSchema": {
       "required": [
         "name"
@@ -5281,6 +5281,15 @@
         "template": {
           "description": "An embedded layout template name or alias; default `blank`.",
           "type": "string"
+        },
+        "rules": {
+          "description": "Layout rules for a new ordinary mashup: v1 (default) or legacy to opt out.",
+          "type": "string",
+          "enum": [
+            "legacy",
+            "v1"
+          ],
+          "default": "v1"
         },
         "from": {
           "description": "A repository mashup to copy. It is exclusive with template, layout, menus, theme, master, params and tabs.",
@@ -5801,7 +5810,7 @@
           "minimum": 0
         },
         "preset": {
-          "description": "`cards`: framed cards spread evenly per row, the last row aligned under the first\ncolumns, the first card selected, as the design kits configure them.",
+          "description": "`cards`: framed cards spread evenly per row, the last row aligned under the first\ncolumns, without an initial selection.",
           "type": "string",
           "enum": [
             "cards"
@@ -7658,7 +7667,7 @@
   },
   {
     "name": "mashup_recipe",
-    "description": "Write one recipe: the wiring real mashups repeat, in one edit. panel (widget responsive column, compact optional 768|960 inclusive viewport breakpoint; style grey (default) or white bordered card, inherited wrapper backgrounds, managed CSS). card (widget empty responsive column, title caption, say value, status chip text, kind info|ok|warning|error; say and status take text or a data:/ui: address; one bordered box, equal flex). slider-action (widget horizontal slider, button; exactly two flow-sized controls in an existing responsive row; measured track-centre alignment assumes the default 34px button; 18px bottom margin with min/max labels, otherwise 0px, and 12px gap). toolbar (widget empty responsive container, then existing call, search_param STRING input, hint default Search..., width default 240, run_on change|enter|both default both, buttons ordered Label=handler; grey 48px search row, change/both runs on each keystroke, the clear button fires Changed once). label-pairs (widget responsive container, data existing call, fields field[:Caption], title, label_columns default one per field, replace inside or beside; caption/value labels bound to SelectedRows, empty destination required). enable-when/show-when (widget, condition, inputs name=address: an expression into Disabled/Visible), text (widget, expression, inputs: a label's computed text), message (after a data call: success say or from, kind info|warning|error; on_failure text shows a separate error on Data_Error and may be used alone), confirm (widget, then, title, say, action_label, cancel_label), popup (widget or on, target mashup, window modal-popup|popup|replace|new, size WxH, title, pass name=address, reload handler on close), close-after (after a data call succeeds the popup closes itself; failure leaves it open), auto-refresh (then data call, every seconds or interval address), validate (widget or on, condition, inputs, then, else_say), chart (widget, data, x, value for a pie, kind), columns (widget, columns field[:Title[:width[:format]]], date_format optional DATETIME pattern, data or existing binding, status field=StateDefinition for icon plus text; only listed fields visible, readable DATETIME, no header dividers), pagination (widget grid, data service result; add a centred pager, slice grid Data locally, 10 rows by default, new results/page size reset page 1), picker (widget, data, x display field, value, selected), tracker (widget or new, data; initial_step defaults to 1, step_size small|medium|large defaults to large, MinStepSpacing 24; host optionally wires mashupcontainer stepNumber round trip and Name before Data; runtime verification required; five DataShape field maps inferred, field_maps Property=field overrides for missing or ambiguous maps), tree (widget tree selector, data; infer IDField/NameField/ParentIDField and optional ColorField; field_maps overrides for missing or ambiguous maps), set-on-click (widget, param, expression, inputs; evaluate only on click and write the mashup parameter). collapsible (widget container with siblings; toggle existing button or add_toggle with in_container outside it; tab inside|outside|none, start collapsed; add_toggle reuses an existing native tab). Bound calls without triggers produce an exact mashup on command in notes. A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content/CSS sidecars together.",
+    "description": "Write one recipe: the wiring real mashups repeat, in one edit. panel (widget responsive column, compact optional 768|960 inclusive viewport breakpoint; style grey (default) or white bordered card, inherited wrapper backgrounds, managed CSS). card (widget empty responsive column, title caption, say value, status chip text, kind info|ok|warning|error; say and status take text or a data:/ui: address; one bordered box, equal flex). slider-action (widget horizontal slider, button; exactly two flow-sized controls in an existing responsive row; measured track-centre alignment assumes the default 34px button; 18px bottom margin with min/max labels, otherwise 0px, and 12px gap). toolbar (widget empty responsive container, then existing call, search_param STRING input, hint default Search..., width default 240, run_on change|enter|both default both, buttons ordered Label=handler; grey 48px search row, change/both runs on each keystroke, the clear button fires Changed once). label-pairs (widget responsive container, data existing call, fields field[:Caption], title, label_columns default one per field, replace inside or beside; caption/value labels bound to SelectedRows, empty destination required). enable-when/show-when (widget, condition, inputs name=address: an expression into Disabled/Visible), text (widget, expression, inputs: a label's computed text), message (after a data call: success say or from, kind info|warning|error; on_failure text shows a separate error on Data_Error and may be used alone), confirm (widget, then, title, say, action_label, cancel_label), popup (widget or on, target mashup, window modal-popup|popup|replace|new, size WxH, title, pass name=address, reload handler on close), close-after (after a data call succeeds the popup closes itself; failure leaves it open), auto-refresh (then data call, every seconds or interval address), validate (widget or on, condition, inputs, then, else_say), chart (widget, data, x, value for a pie, kind), columns (widget, columns field[:Title[:width[:format]]], date_format optional DATETIME pattern, data or existing binding, status field=StateDefinition for icon plus text; only listed fields visible, readable DATETIME, no header dividers), pagination (widget grid, data service result; add a centred pager, slice grid Data locally, 10 rows by default, new results/page size reset page 1), picker (widget, data, x display field, value, selected, multiple for a list that selects several rows), side-panel (widget empty responsive column, title, info help-icon tooltip, tab label default Filters; the kit's 276px grey column with a one-tab strip), empty-state (widget collection, grid or list, say text, data the rows a list shows), section (widget empty responsive column, title, align start|center: the kit's framed card with a 40px title row over a body row), card-grid (widget empty responsive column, per_row, cells: rows of equal height holding equal cells; fill each cell with section), input-variant (widget text field, variant rounded|focus-background|focus-glow|focus-underline: native style parts), tracker (widget or new, data; initial_step defaults to 1, step_size small|medium|large defaults to large, MinStepSpacing 24; host optionally wires mashupcontainer stepNumber round trip and Name before Data; runtime verification required; five DataShape field maps inferred, field_maps Property=field overrides for missing or ambiguous maps), tree (widget tree selector, data; infer IDField/NameField/ParentIDField and optional ColorField; field_maps overrides for missing or ambiguous maps), set-on-click (widget, param, expression, inputs; evaluate only on click and write the mashup parameter). collapsible (widget container with siblings; toggle existing button or add_toggle with in_container outside it; tab inside|outside|none, start collapsed; add_toggle reuses an existing native tab). Bound calls without triggers produce an exact mashup on command in notes. A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content/CSS sidecars together.",
     "inputSchema": {
       "required": [
         "recipe",
@@ -7667,6 +7676,14 @@
       "additionalProperties": false,
       "type": "object",
       "properties": {
+        "settings": {
+          "description": "Component props as name=value (JSON values or plain strings); include id.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
         "style": {
           "description": "panel: grey (default) or white bordered card.",
           "type": "string"
@@ -7801,7 +7818,7 @@
           "type": "string"
         },
         "recipe": {
-          "description": "panel styles a responsive column; slider-action pairs widget (slider) with button. toolbar uses widget as the empty responsive container, then, search_param, hint, width, run_on and buttons. enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, columns, pagination, picker, tracker, set-on-click, nested-menu, navigate-on-click or collapsible; label-pairs uses widget as the responsive container, data, fields, title, label_columns and replace.",
+          "description": "panel styles a responsive column; slider-action pairs widget (slider) with button. toolbar uses widget as the empty responsive container, then, search_param, hint, width, run_on and buttons. enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, sparkline, columns, pagination, picker, side-panel, empty-state, section, card-grid, input-variant, component (kind names the component; settings supplies props including id), tracker, set-on-click, nested-menu, navigate-on-click or collapsible; label-pairs uses widget as the responsive container, data, fields, title, label_columns and replace.",
           "type": "string"
         },
         "mashup": {
@@ -7948,8 +7965,41 @@
           "type": "boolean"
         },
         "auto_select_first": {
-          "description": "A picker that selects its first row.",
+          "description": "A picker or grid that selects its first row.",
           "type": "boolean"
+        },
+        "multiple": {
+          "description": "A list that selects several rows (recipe picker).",
+          "type": "boolean"
+        },
+        "info": {
+          "description": "The tooltip of the help icon after a side panel title (recipe side-panel).",
+          "type": "string"
+        },
+        "align": {
+          "description": "The body alignment of recipe section: start (default) or center.",
+          "type": "string"
+        },
+        "per_row": {
+          "description": "Cells in one row of recipe card-grid.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "cells": {
+          "description": "Cells in all of recipe card-grid; the last row is filled with empty cells.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "variant": {
+          "description": "The text field look of recipe input-variant.",
+          "type": "string"
+        },
+        "series": {
+          "description": "Combo series as field:bar|line[:primary|secondary].",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         },
         "menu": {
           "description": "The root Menu of recipe nested-menu.",
@@ -8370,7 +8420,9 @@
         "nodes",
         "hand_edits_kept",
         "conflicts",
-        "files"
+        "files",
+        "cells",
+        "cell_notices"
       ],
       "properties": {
         "mashup": {
@@ -8401,8 +8453,125 @@
           "items": {
             "type": "string"
           }
+        },
+        "cells": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "cell_notices": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       },
+      "type": "object"
+    }
+  },
+  {
+    "name": "mashup_spec",
+    "description": "A spec-built mashup returns its page.yaml (hand-edited widgets named); any other mashup gets a YAML spec of elements. Offline; reports element and raw-widget coverage.",
+    "inputSchema": {
+      "required": [
+        "mashup"
+      ],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "mashup": {
+          "type": "string"
+        }
+      }
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "mashup",
+        "spec",
+        "elements",
+        "raw",
+        "widgets",
+        "exact",
+        "raw_types",
+        "hand_edited",
+        "notes"
+      ],
+      "properties": {
+        "mashup": {
+          "type": "string"
+        },
+        "spec": {
+          "description": "The page spec as YAML.",
+          "type": "string"
+        },
+        "elements": {
+          "description": "Nodes written as elements or components.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "raw": {
+          "description": "`widget:` nodes, which no element covers.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "widgets": {
+          "description": "Widgets of the mashup the spec stands for.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "exact": {
+          "description": "True when the spec is the mashup's own page.yaml and the mashup still matches its last build.",
+          "type": "boolean"
+        },
+        "raw_types": {
+          "description": "Raw nodes by widget type.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "hand_edited": {
+          "description": "Widgets edited by hand since the last build, when the spec is the page's own page.yaml.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "components",
+    "description": "List built-in and solution component definitions with source and typed props; name shows one.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "description": "Omit to list; supply a name to show its definition.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": false
+    },
+    "outputSchema": {
+      "additionalProperties": true,
       "type": "object"
     }
   },

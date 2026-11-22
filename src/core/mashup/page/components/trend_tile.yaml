@@ -1,0 +1,44 @@
+{
+  "name": "trend_tile",
+  "source": "AssetKPI",
+  "props": {
+    "label": {
+      "type": "string",
+      "default": ""
+    },
+    "value": {
+      "type": "value",
+      "required": true
+    },
+    "unit": {
+      "type": "string",
+      "default": ""
+    },
+    "trend": {
+      "type": "string",
+      "default": "flat"
+    },
+    "delta": {
+      "type": "value",
+      "default": ""
+    },
+    "color": {
+      "type": "string"
+    },
+    "sparkline": {
+      "type": "object"
+    }
+  },
+  "tree": {
+    "trend_tile": {
+      "id": "$id",
+      "label": "$label",
+      "value": "$value",
+      "unit": "$unit",
+      "trend": "$trend",
+      "delta": "$delta",
+      "color": "$color",
+      "sparkline": "$sparkline"
+    }
+  }
+}

@@ -15,6 +15,8 @@ pub(super) struct Baseline {
     pub ownership: Vec<String>,
     pub content: Value,
     pub css: String,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub generated_cells: BTreeMap<String, BTreeMap<String, String>>,
     pub managed_xml: BTreeMap<String, String>,
 }
 
@@ -52,6 +54,7 @@ impl Baseline {
             ownership,
             content,
             css: artifacts.css.clone(),
+            generated_cells: BTreeMap::new(),
             managed_xml: [
                 ("name".into(), name.into()),
                 ("projectName".into(), project.into()),

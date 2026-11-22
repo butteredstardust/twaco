@@ -1,0 +1,52 @@
+# L Compare (the kit's Compare page): grey side column (title, "Filters"
+# tab, Selected Assets list with info icon + empty state, Asset List search + list) | content: "Cards" header with
+# help, collection of asset cards.
+# NEW: side_panel, list (selection), collection (generated cell mashup <page>Cell_MU), empty text, label/heading
+#      info icon, page_header info icon, text_field icon, list selection as a data source (asset_list.selected).
+version: 1
+rules: v1
+page:
+  name: Acme.BenchSpecL_MU
+  template: blank
+  data:
+    assets: {service: Acme.Cards.SearchAssets, on: load, params: {query: {bind: asset_search.Text}}}
+    cards: {service: Acme.Cards.GetCards, on: load}
+  slots:
+    center:
+      - row:
+          id: shell
+          size: fill
+          children:
+            - side_panel:                 # NEW: 276px grey column, kit title size, tab strip
+                id: side
+                title: Compare
+                tab: Filters
+                children:
+                  - label: {id: sel_title, text: Selected Assets, info: Select up to 3 items}
+                  - list:                 # NEW: ptcslist
+                      id: selected
+                      data: asset_list.selected
+                      display: ThingName
+                      empty: No results.  # kit empty state (eye icon + text)
+                  - label: {id: list_title, text: Asset List}
+                  - text_field: {id: asset_search, hint: Search..., icon: search}
+                  - list:
+                      id: asset_list
+                      size: fill
+                      data: assets
+                      display: ThingName
+                      selection: multiple
+                      empty: No results.
+            - column:
+                id: main
+                weight: 1
+                children:
+                  - page_header: {id: header, title: Compared Assets, info: Compare the selected assets}
+                  - collection:           # NEW: ptcscollection with card cells, uniform widths
+                      id: compare_cards
+                      size: fill
+                      data: cards
+                      per_row: 4
+                      across: 1116             # content width at 1440: 1440 - 276 side column - 48 gutter
+                      cell: {title: cardTitle, kpi_dial: cardKpiDial}
+                      empty: No results.

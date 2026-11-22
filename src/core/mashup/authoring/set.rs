@@ -553,8 +553,59 @@ pub(crate) fn parse_style(text: &str) -> Result<StyleSetting, AuthoringError> {
         part: part.to_string(),
         state: state.to_string(),
         property: property.to_string(),
-        value: value.trim().to_string(),
+        value: named_value(property, value.trim()),
     })
+}
+
+/// Plain colour names the page specs use, as fixed hex values. Batch 4 of the page specs replaces
+/// them with theme tokens. `primary` is the PTC Convergence blue of the kits' titles.
+const COLOURS: &[(&str, &str)] = &[
+    ("primary", "#0088CE"),
+    ("ink", "#0B0B0B"),
+    ("lime", "#CCFF00"),
+    ("pink", "#FF2E93"),
+    ("purple", "#8B5CFF"),
+    ("orange", "#FF8C3C"),
+    ("mint", "#4EE0AE"),
+];
+
+/// The font stack `mono` names.
+const MONO: &str = "ui-monospace, Menlo, Consolas, monospace";
+
+/// A colour as the specs write it: a name above or a `#` hex value; anything else is refused.
+pub(crate) fn colour(text: &str) -> Result<String, String> {
+    if let Some((_, hex)) = COLOURS.iter().find(|(name, _)| *name == text) {
+        return Ok((*hex).to_string());
+    }
+    let digits = text.strip_prefix('#').unwrap_or_default();
+    if matches!(digits.len(), 3 | 4 | 6 | 8) && digits.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Ok(text.to_string());
+    }
+    Err(format!(
+        "unknown colour {text:?}; use ink, lime, pink, purple, orange, mint, primary or a #hex value"
+    ))
+}
+
+/// A font as the specs write it: `mono`, `sans` (the theme font) or a family list as it is.
+pub(crate) fn font_family(text: &str) -> String {
+    match text {
+        "mono" => MONO.to_string(),
+        "sans" => "inherit".to_string(),
+        other => other.to_string(),
+    }
+}
+
+/// `--style` values that are one of the names above mean their value, so the command line and a
+/// page spec say a colour the same way; every other value is kept as written.
+fn named_value(property: &str, value: &str) -> String {
+    match property {
+        "color" | "background" | "background-color" | "border-color" | "fill" => COLOURS
+            .iter()
+            .find(|(name, _)| *name == value)
+            .map_or_else(|| value.to_string(), |(_, hex)| (*hex).to_string()),
+        "font-family" if matches!(value, "mono" | "sans") => font_family(value),
+        _ => value.to_string(),
+    }
 }
 
 /// The styler name Composer records beside a widget's style parts. Each pair was read from the
@@ -638,6 +689,33 @@ fn merge_styles(
             parts.remove(&setting.part);
         }
     }
+    Ok(())
+}
+
+/// Merge `--style` settings into one widget's style entry of a document being edited; what a
+/// recipe needs to style a widget exactly as `mashup set --style` would.
+pub(super) fn merge_widget_styles(
+    document: &mut crate::core::mashup::edit::MashupDocument,
+    id: &str,
+    type_id: &str,
+    texts: &[String],
+    mashup: &str,
+) -> Result<(), AuthoringError> {
+    let settings = texts
+        .iter()
+        .map(|text| parse_style(text))
+        .collect::<Result<Vec<_>, _>>()?;
+    let styler = styler_name(type_id).ok_or_else(|| {
+        AuthoringError::Refused(format!("twaco does not know the style parts of {type_id}"))
+    })?;
+    let current = style_properties(document.root_properties(), mashup)?
+        .and_then(|styles| styles.get("data"))
+        .and_then(Value::as_object)
+        .and_then(|data| data.get(id))
+        .cloned();
+    let mut entry = current.unwrap_or_else(|| json!({"parts": {}, "widget": styler}));
+    merge_styles(&mut entry, &settings, mashup, id)?;
+    copy_style_entry(document, id, entry, None, &mut Vec::new());
     Ok(())
 }
 

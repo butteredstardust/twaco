@@ -1,0 +1,60 @@
+# M Admin shell (the kit's Administrator page): grey nav column (title +
+# help, "Filters" tab, search menu, grouped nav with a selected item) | collapsible filter column (Version search, Date
+# range, Version/Status/Category dropdowns, Apply/Reset footer) | content: header + help, View Details band, grid,
+# pagination.
+# NEW: side_panel (help icon), nav_menu (search, groups, first item selected), filter_panel title + collapsible,
+#      text_field icon, page_header info icon. Data params with literal values already worked (kind: version).
+version: 1
+rules: v1
+page:
+  name: Acme.BenchSpecM_MU
+  template: blank
+  data:
+    metrics: {service: Acme.BenchData.FilterMetrics, on: load}
+    versions: {service: Acme.BenchData.GetFilterOptions, on: load, params: {kind: version}}
+    statuses: {service: Acme.BenchData.GetFilterOptions, on: load, params: {kind: status}}
+    categories: {service: Acme.BenchData.GetFilterOptions, on: load, params: {kind: category}}
+  slots:
+    center:
+      - row:
+          id: shell
+          size: fill
+          children:
+            - side_panel:
+                id: nav
+                title: Administration
+                help: Administration pages
+                tab: Filters
+                children:
+                  - nav_menu:             # NEW: search box + group captions + items, first item selected
+                      id: menu
+                      search: Search Menu...
+                      groups:
+                        - {title: Menu Group 01, items: [Admin page 01]}
+                        - {title: Menu Group 02, items: [Admin page 02, Admin page 03]}
+            - filter_panel:
+                id: filters
+                title: Filter
+                collapsible: true         # NEW: kit collapse chevron on the top-right edge
+                fields:
+                  - text_field: {id: f_query, hint: Search Filters..., icon: search, props: {Label: Version}}
+                  - date_range: {id: f_dates, props: {Label: Date}}
+                  - dropdown: {id: f_version, options: versions, display: Value, props: {Label: Version}}
+                  - dropdown: {id: f_status, options: statuses, display: Value, props: {Label: Status}}
+                  - dropdown: {id: f_category, options: categories, display: Value, props: {Label: Category}}
+                footer: [apply, reset]
+            - column:
+                id: main
+                weight: 1
+                children:
+                  - page_header: {id: header, title: Metrics List Side Filter, info: Metrics}
+                  - toolbar:
+                      id: tools
+                      children:
+                        - button: {id: details, label: View Details, variant: transparent, icon: view, enabled_when: grid.selected}
+                  - grid:
+                      id: grid
+                      size: fill
+                      data: metrics
+                      columns: [ThingName, Type, {field: Title, width: 400}]
+                  - pagination: {id: pages, for: grid}

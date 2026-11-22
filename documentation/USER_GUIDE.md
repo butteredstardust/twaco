@@ -1595,7 +1595,7 @@ the result to `Data` in one edit. It reports when nothing invokes the source cal
 runtime behaviour.
 
 Cards as the design kits lay them out (framed, spread evenly across each row, the last row under
-the first columns, the first card selected) take `--preset cards`. `--columns 4` works out the
+the first columns, without an initial selection) take `--preset cards`. `--columns 4` works out the
 cell width that fits four on a row of a full-width collection in a 1440 px window (`--across
 <px>` names another collection width). A narrower window shows fewer cards per row. `--menu`
 names the cell menu's StateDefinition:
@@ -1776,6 +1776,55 @@ bindable properties include the parameters of the mashup it opens. The legacy `e
 `validator` stay readable in existing mashups; adding either adds `expression2` or `validator2`.
 
 ### Recipes
+
+Ordinary new mashups use the v1 page-spec layout rules by default:
+`twaco mashup new Acme.Dashboard_MU --template dashboard --apply`
+(or `--template blank`). v1 propagates content height to the page and disables inner
+container scrolling, so tall grids keep their pagination visible. Filter-panel fields
+start at the top, with Apply/Reset in `filter-footer` below the growing fields area.
+Panel recipes in v1 use automatic height and cannot shrink below their contents.
+Pass `--rules legacy` (MCP `rules: "legacy"`) to opt out at creation. Existing mashups
+keep their stored `twacoPageRules` for add, set and recipe edits; an absent marker
+means legacy. Copying with `--from` preserves the source rule set. Gadgets and masters
+keep their existing layout behavior.
+
+`recipe columns <mashup> <grid> --column Name --auto-select-first` sets
+`DefaultSelectedRows: "1"` and single-row selection; use it when the grid drives
+`label-pairs --row selected`. The existing picker flag keeps its native dropdown behavior.
+`label-pairs --status Severity --status-state Acme.Status_ST` keeps its offline
+StateDefinition mapping for status dots.
+
+For combo charts, repeat `--series Count:bar --series Total:line:secondary` on
+`recipe chart <mashup> <chart> --data data:Acme.Manager.GetRows --x Name`.
+The series order sets DataField/SeriesType slots, and secondary uses the right Y axis
+with the field name as its label. Legend groups are disabled and the legend sits
+at the bottom. An omitted axis means primary; only bar/line and primary/secondary
+are accepted. Without `--series`, existing automatic numeric-column selection remains.
+
+`recipe sparkline <mashup> <container> --data data:Acme.Manager.GetRows --x Name --value Count`
+adds a 40px line chart after the container's existing value content. It binds All Data
+directly, hides axes, rulers and legend, and clears the chart theme's height floor and
+padding. The same properties and styles implement page-spec trend-tile sparklines.
+
+`recipe side-panel <mashup> <empty column> --title Compare [--info "Tip"] [--tab Filters]`
+makes the kit's grey left column: 276px wide, a title row with an optional help icon over a
+one-tab strip; add the content to the tab's container (`mashup describe` shows it).
+`recipe empty-state <mashup> <widget> --say "No results."` sets a collection's or grid's
+empty text; for a list (which has none) it adds an eye-icon notice shown while
+`--data <the rows the list shows>` is empty. `recipe picker ... --multiple` makes a list select
+several rows; its `SelectedItems` can feed another list. The page-spec `side_panel`, `list`,
+`collection` and `empty` elements run these recipes and `mashup collection add`.
+
+`recipe card-grid <mashup> <empty column> --per-row 3 --cells 6` makes the kit's gallery: rows of
+equal height holding equal growing cells (the last row is padded). `recipe section <mashup> <empty
+column> --title "Standard Input" [--align center]` makes the kit's framed card in a cell: a fixed
+40px title row over a body row that holds the content, centred with `--align center`.
+`recipe input-variant <mashup> <text field> --variant rounded|focus-background|focus-glow|focus-underline`
+styles the text box through native style parts. `mashup set --style` takes the page specs' colour
+names (`primary`, `ink`, `lime`, `pink`, `purple`, `orange`, `mint`) and `font-family=mono`.
+The page-spec `card_grid`, `card` with `align`, `text_field` `variant`, `heading`, `block` and `style`
+elements use the same code.
+
 
 ```sh
 twaco mashup recipe enable-when Acme.App.Edit_MU ptcsbutton-6 --if "note !== ''" --input note=ui:ptcstextfield-3.Text --apply
@@ -2788,3 +2837,21 @@ add `--apply` to write local changes. Commit the spec and `.page-baseline.json` 
 mashup sidecars. Builds retain independent hand edits and report conflicts without writing.
 Use your normal deploy workflow after reviewing the generated files. MCP offers the same
 operations through `mashup_new` (`spec`) and `mashup_build`, with `dry_run: true` by default.
+
+
+Reusable page components live in the binary and in `twaco/components/*.yaml` in a solution.
+Use `twaco components list` / `show <name>` to inspect their kit source, typed props and tree.
+Specs use `component: {use: section_card, id: inputs, title: Inputs}`; commands use
+`twaco mashup recipe component Acme.Page_MU section_card center --set id=inputs --set title=Inputs`.
+Recipes plan by default. MCP exposes `components` and the same `mashup_recipe` path.
+
+`twaco mashup spec Acme.Page_MU --out adopted.page.yaml` writes a page spec offline. A mashup
+built from a spec returns its own `page.yaml` while it still matches its baseline, and with the
+hand-edited widgets named when it does not. Any other mashup gets a readable YAML spec of
+elements (rows and columns with sizes, grids with columns, charts, buttons, filter and side
+panels, tabs, collections, services with their bindings and triggers); widgets without an element
+become `widget:` nodes holding only the properties that differ from the catalogue. The report
+counts nodes written as elements against raw nodes by type and says what it left out (styles,
+custom CSS, bindings a spec cannot express). Build the result to review a plan before adopting
+it. MCP `mashup_spec` returns the same report. See [Page specs](PAGE_SPECS.md#deriving-a-spec)
+for the mapping and its limits.

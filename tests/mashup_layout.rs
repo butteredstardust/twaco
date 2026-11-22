@@ -189,6 +189,8 @@ fn template_case(template: &str) -> (String, Steps) {
         "$M",
         "--template",
         Box::leak(template.to_string().into_boxed_str()) as &'static str,
+        "--rules",
+        "legacy",
     ];
     if template.contains("sidebar") {
         step.extend(["--primary-menu", "data:Acme.Store_T.GetRows"]);
@@ -197,7 +199,17 @@ fn template_case(template: &str) -> (String, Steps) {
 }
 
 fn sequences() -> Vec<(String, Steps)> {
-    let new = |template: &'static str| vec!["mashup", "new", "$M", "--template", template];
+    let new = |template: &'static str| {
+        vec![
+            "mashup",
+            "new",
+            "$M",
+            "--template",
+            template,
+            "--rules",
+            "legacy",
+        ]
+    };
     vec![
         (
             "seq-placement".into(),
@@ -555,12 +567,30 @@ fn mashup_layout_output_matches_the_fixtures() {
     let dir = solution();
     let root = dir.path();
     for step in [
-        vec!["mashup", "new", "Acme.One_MU", "--template", "tab-content"],
-        vec!["mashup", "new", "Acme.Two_MU", "--template", "tab-content"],
+        vec![
+            "mashup",
+            "new",
+            "Acme.One_MU",
+            "--template",
+            "tab-content",
+            "--rules",
+            "legacy",
+        ],
+        vec![
+            "mashup",
+            "new",
+            "Acme.Two_MU",
+            "--template",
+            "tab-content",
+            "--rules",
+            "legacy",
+        ],
         vec![
             "mashup",
             "new",
             "Acme.Tabs_MU",
+            "--rules",
+            "legacy",
             "--template",
             "tabs",
             "--tab",

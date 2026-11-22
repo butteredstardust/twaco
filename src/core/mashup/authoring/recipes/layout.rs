@@ -1,11 +1,83 @@
 use super::{widget_id, AuthoringError, Work};
-use crate::core::mashup::edit::{children, insert_sorted, WidgetRef};
+use crate::core::mashup::edit::{children, insert_sorted, Placement, WidgetRef};
 use crate::core::mashup::layout;
+use crate::core::widgets;
 use serde_json::{json, Value};
 
 fn refuse(id: &str, reason: &str) -> AuthoringError {
     AuthoringError::Refused(format!("{id}: {reason}"))
 }
+
+/// The text field looks of the kit's input gallery (the inputs gallery). The kit sets them with master CSS
+/// classes (wdk_Input2..4) that live outside the mashup, except the rounded corners, which are the
+/// text-box part's `border-radius` in the exported StyleProperties. The other three are the
+/// nearest native equivalents on the same part and its `focus` state; they are not measured at
+/// run time against the kit's classes.
+const INPUT_VARIANTS: &[&str] = &[
+    "rounded",
+    "focus-background",
+    "focus-glow",
+    "focus-underline",
+];
+
+/// The `--style` settings of one input variant, `None` for a name that is not one.
+pub(crate) fn input_variant_styles(variant: &str) -> Option<Vec<String>> {
+    let settings: &[&str] = match variant {
+        "rounded" => &["text-box:border-radius=20px"],
+        "focus-background" => &["text-box@focus:background=#EAF4FB"],
+        "focus-glow" => &[
+            "text-box@focus:border-color=#0088CE",
+            "text-box@focus:box-shadow=0 0 6px 1px #0088CE",
+        ],
+        "focus-underline" => &[
+            "text-box:border-width=0 0 1px 0",
+            "text-box@focus:border-color=#0088CE",
+            "text-box@focus:border-width=0 0 2px 0",
+        ],
+        _ => return None,
+    };
+    Some(settings.iter().map(|text| (*text).to_string()).collect())
+}
+
+/// One row of a kit gallery (the kit's inputs gallery): a row that takes an equal share of
+/// the page's height. The kit keeps the size at `default` with `flex-basis: auto`; basis 0 makes
+/// the shares equal whatever the cards hold.
+pub(crate) fn grid_row_props() -> Vec<(&'static str, Value)> {
+    vec![
+        ("flex-direction", json!("row")),
+        ("align-items", json!("stretch")),
+        ("flex-size", json!("default")),
+        ("flex-grow", json!(1)),
+        ("flex-shrink", json!(1)),
+        ("flex-basis", json!("0px")),
+        ("flex-min-height", json!("")),
+        ("flex-max-height", json!("")),
+        ("Margin", json!("")),
+    ]
+}
+
+/// One cell of a kit gallery row (containers 6 and 7): a growing column, with the equal widths
+/// that basis 0 gives. The 10px margin is the 20px gap the kit's section class draws.
+pub(crate) fn grid_cell_props() -> Vec<(&'static str, Value)> {
+    vec![
+        ("flex-direction", json!("column")),
+        ("align-items", json!("stretch")),
+        ("flex-size", json!("default")),
+        ("flex-grow", json!(1)),
+        ("flex-shrink", json!(1)),
+        ("flex-basis", json!("0px")),
+        ("flex-min-height", json!("")),
+        ("flex-max-height", json!("")),
+        ("Margin", json!("10")),
+    ]
+}
+
+/// The hairline frame of a kit section (the kit draws it with the master class wdk_Section).
+const SECTION_FRAME: [&str; 3] = [
+    "border-style=solid",
+    "border-width=1px",
+    "border-color=#BEC6CA",
+];
 
 fn panel_css(id: &str, compact: Option<u32>) -> String {
     let class = format!(".twaco-panel-{id}");
@@ -407,6 +479,468 @@ impl Work<'_> {
         Ok(())
     }
 
+    /// The kit's grey left column (Compare, Administrator): 276px, a title row with an optional
+    /// help icon over a one-tab strip. The tab's container is the column's content area.
+    pub(super) fn side_panel(
+        &mut self,
+        container: &str,
+        title: &str,
+        info: Option<&str>,
+        tab: &str,
+    ) -> Result<(), AuthoringError> {
+        let target = widget_id(&self.document, container)?;
+        self.layout_container(&target, "column")?;
+        if !children(self.document.at(&target.path)).is_empty() {
+            return Err(refuse(
+                &target.id,
+                "side-panel needs an empty container; it adds the title row and the tab strip itself",
+            ));
+        }
+        if title.trim().is_empty() || tab.trim().is_empty() {
+            return Err(AuthoringError::Invalid(
+                "side-panel: --title and --tab cannot be empty".into(),
+            ));
+        }
+        self.checked_styles(&target.id)?;
+        self.layout_set(
+            &target,
+            &[
+                ("align-items", json!("stretch")),
+                ("flex-size", json!("fixed")),
+                ("flex-grow", json!(0)),
+                ("flex-shrink", json!(0)),
+                ("flex-min-width", json!("276px")),
+                ("flex-max-width", json!("276px")),
+                ("iconClass", json!("widgets-flexcontainer-fixed")),
+            ],
+        )?;
+        self.background(&target, Some("grey"), false)?;
+        let catalog = widgets::catalog();
+        let flex = catalog
+            .by_type("flexcontainer")
+            .expect("flexcontainer catalogue");
+        // The title row: a fixed 72px band, the label at the kit's header size.
+        let row = self
+            .document
+            .place(flex, &Placement::In(target.id.clone()))
+            .map_err(AuthoringError::Edit)?;
+        self.added.push(row.id.clone());
+        let row = widget_id(&self.document, &row.id)?;
+        for (key, value) in [
+            ("flex-direction", json!("row")),
+            ("align-items", json!("flex-start")),
+            ("flex-size", json!("fixed")),
+            ("flex-grow", json!(0)),
+            ("flex-min-height", json!("72px")),
+            ("flex-max-height", json!("72px")),
+            ("Margin", json!("0")),
+        ] {
+            self.document.set_property(&row.path, key, value);
+        }
+        self.background(&row, None, true)?;
+        let label = self.add_in(
+            &row.path,
+            "ptcslabel",
+            &[
+                ("LabelText", json!(title)),
+                ("LabelType", json!("header")),
+                ("HorizontalAlignment", json!("left")),
+                ("Margin", json!("18 0 18 18")),
+                ("UseTheme", json!(true)),
+            ],
+        );
+        self.notes.push(format!("{label}: side panel title"));
+        if let Some(info) = info {
+            let button = self.add_in(
+                &row.path,
+                "ptcsbutton",
+                &[
+                    ("ButtonType", json!("transparent")),
+                    ("Disabled", json!(true)),
+                    ("Label", json!("")),
+                    ("Margin", json!("15 0 0")),
+                    ("SVGIcon", json!("cds:icon_help_circle")),
+                    ("TooltipField", json!(info)),
+                ],
+            );
+            super::super::set::copy_style_entry(
+                &mut self.document,
+                &button,
+                json!({"widget": "ptcs-button", "parts": {"$": {"disabled": {"color": "#4E585A"}}}}),
+                None,
+                &mut Vec::new(),
+            );
+            self.notes.push(format!("{button}: side panel help icon"));
+        }
+        // The tab strip (one tab, as the kits have it) fills the rest of the column.
+        let tabs = self
+            .document
+            .place(
+                catalog.by_type("ptcstabset").expect("tabset catalogue"),
+                &Placement::In(target.id.clone()),
+            )
+            .map_err(AuthoringError::Edit)?;
+        self.added.push(tabs.id.clone());
+        let tabs = widget_id(&self.document, &tabs.id)?;
+        self.document
+            .set_property(&tabs.path, "Tab1Name", json!(tab));
+        if self.document.rules().version() == "v1" {
+            // Compare flexcontainer-103 wraps the tab strip and fills below the title band.
+            let row = &tabs.path[..tabs.path.len() - 1];
+            for (key, value) in [
+                ("flex-size", json!("default")),
+                ("flex-grow", json!(1)),
+                ("flex-min-height", json!("")),
+                ("flex-max-height", json!("")),
+                ("LastContainer", json!(true)),
+            ] {
+                self.document.set_property(row, key, value);
+            }
+        }
+        let content = super::super::new::sync_tabs(&mut self.document, &tabs.id, 1)?;
+        super::super::set::copy_style_entry(
+            &mut self.document,
+            &tabs.id,
+            json!({"widget": "ptcs-tab-set", "parts": {
+                "pages": {"$": {"background": "inherit", "margin-bottom": "19px", "margin-left": "13px", "margin-right": "13px", "margin-top": "19px"}},
+                "tabs-header": {"$": {"background": "inherit", "padding-left": "18px"}},
+                "tabs-tab": {"selected": {"background": "inherit"}}}}),
+            None,
+            &mut Vec::new(),
+        );
+        let held = widget_id(&self.document, &content[0])?;
+        for (key, value) in [
+            ("flex-direction", json!("column")),
+            ("align-items", json!("stretch")),
+            ("flex-min-width", json!("0px")),
+            ("flex-max-width", json!("250px")),
+        ] {
+            self.document.set_property(&held.path, key, value);
+        }
+        self.background(&held, None, true)?;
+        self.wired.push(format!(
+            "{}: side panel, 276px, tab {tab:?} holds {}",
+            target.id, held.id
+        ));
+        Ok(())
+    }
+
+    /// A kit section (the kit's inputs gallery): a column of equal growth holding a fixed 40px
+    /// title row, centred vertically, over a `LastContainer` body row. `center` centres the body's
+    /// content on both axes, as the gallery centres its inputs.
+    pub(super) fn section(
+        &mut self,
+        container: &str,
+        title: &str,
+        center: bool,
+    ) -> Result<(), AuthoringError> {
+        let target = widget_id(&self.document, container)?;
+        self.layout_container(&target, "column")?;
+        if !children(self.document.at(&target.path)).is_empty() {
+            return Err(refuse(
+                &target.id,
+                "section needs an empty container; it adds the title row and the body row itself",
+            ));
+        }
+        if title.trim().is_empty() {
+            return Err(AuthoringError::Invalid(
+                "section: --title cannot be empty".into(),
+            ));
+        }
+        self.checked_styles(&target.id)?;
+        let mut properties = grid_cell_props();
+        properties.retain(|(key, _)| *key != "flex-direction");
+        self.layout_set(&target, &properties)?;
+        let frame: Vec<String> = SECTION_FRAME.iter().map(|s| (*s).to_string()).collect();
+        super::super::set::merge_widget_styles(
+            &mut self.document,
+            &target.id,
+            "flexcontainer",
+            &frame,
+            "mashup",
+        )?;
+        let catalog = widgets::catalog();
+        let flex = catalog
+            .by_type("flexcontainer")
+            .expect("flexcontainer catalogue");
+        let bar = self
+            .document
+            .place(flex, &Placement::In(target.id.clone()))
+            .map_err(AuthoringError::Edit)?;
+        self.added.push(bar.id.clone());
+        let bar = widget_id(&self.document, &bar.id)?;
+        for (key, value) in [
+            ("flex-direction", json!("row")),
+            ("align-items", json!("center")),
+            ("justify-content", json!("flex-start")),
+            ("flex-size", json!("fixed")),
+            ("flex-grow", json!(1)),
+            ("flex-shrink", json!(1)),
+            ("flex-min-height", json!("40px")),
+            ("flex-max-height", json!("40px")),
+            ("Margin", json!("")),
+            ("iconClass", json!("widgets-flexcontainer-fixed")),
+        ] {
+            self.document.set_property(&bar.path, key, value);
+        }
+        let label = self.add_in(
+            &bar.path,
+            "ptcslabel",
+            &[
+                ("LabelText", json!(title)),
+                ("LabelType", json!("sub-header")),
+                ("HorizontalAlignment", json!("left")),
+                ("Margin", json!("0 0 0 10")),
+            ],
+        );
+        self.notes.push(format!("{label}: section title"));
+        let body = self
+            .document
+            .place(flex, &Placement::In(target.id.clone()))
+            .map_err(AuthoringError::Edit)?;
+        self.added.push(body.id.clone());
+        let body = widget_id(&self.document, &body.id)?;
+        let side = if center { "center" } else { "flex-start" };
+        for (key, value) in [
+            ("flex-direction", json!("row")),
+            ("align-items", json!(side)),
+            ("justify-content", json!(side)),
+            ("flex-size", json!("default")),
+            ("flex-grow", json!(1)),
+            ("flex-shrink", json!(1)),
+            ("flex-basis", json!("auto")),
+            ("flex-min-height", json!("")),
+            ("flex-max-height", json!("")),
+            ("Margin", json!("")),
+            ("LastContainer", json!(true)),
+        ] {
+            self.document.set_property(&body.path, key, value);
+        }
+        self.wired.push(format!(
+            "{}: section {title:?}, content goes in {}",
+            target.id, body.id
+        ));
+        Ok(())
+    }
+
+    /// A kit gallery (the kit's inputs gallery): rows of equal height, each holding
+    /// `per_row` equal growing columns. The last row is filled with empty cells so every card
+    /// keeps the same width.
+    pub(super) fn card_grid(
+        &mut self,
+        container: &str,
+        per_row: u32,
+        cells: u32,
+    ) -> Result<(), AuthoringError> {
+        let target = widget_id(&self.document, container)?;
+        self.layout_container(&target, "column")?;
+        if !children(self.document.at(&target.path)).is_empty() {
+            return Err(refuse(
+                &target.id,
+                "card-grid needs an empty container; it adds the rows and cells itself",
+            ));
+        }
+        if !(1..=12).contains(&per_row) || !(1..=120).contains(&cells) {
+            return Err(AuthoringError::Invalid(
+                "card-grid: --per-row is 1 to 12 and --cells is 1 to 120".into(),
+            ));
+        }
+        self.checked_styles(&target.id)?;
+        self.layout_set(&target, &[("align-items", json!("stretch"))])?;
+        let flex = widgets::catalog()
+            .by_type("flexcontainer")
+            .expect("flexcontainer catalogue");
+        let rows = cells.div_ceil(per_row);
+        let mut made = vec![];
+        for _ in 0..rows {
+            let row = self
+                .document
+                .place(flex, &Placement::In(target.id.clone()))
+                .map_err(AuthoringError::Edit)?;
+            self.added.push(row.id.clone());
+            let row = widget_id(&self.document, &row.id)?;
+            for (key, value) in grid_row_props() {
+                self.document.set_property(&row.path, key, value);
+            }
+            for _ in 0..per_row {
+                let cell = self
+                    .document
+                    .place(flex, &Placement::In(row.id.clone()))
+                    .map_err(AuthoringError::Edit)?;
+                self.added.push(cell.id.clone());
+                let cell = widget_id(&self.document, &cell.id)?;
+                for (key, value) in grid_cell_props() {
+                    self.document.set_property(&cell.path, key, value);
+                }
+                made.push(cell.id);
+            }
+        }
+        self.wired.push(format!(
+            "{}: card grid, {rows} rows of {per_row}; cells {}",
+            target.id,
+            made.join(", ")
+        ));
+        Ok(())
+    }
+
+    /// One of the kit's text field looks (see `input_variant_styles`), written as the same
+    /// managed style entry `mashup set --style` would write.
+    pub(super) fn input_variant(
+        &mut self,
+        widget: &str,
+        variant: &str,
+    ) -> Result<(), AuthoringError> {
+        let target = widget_id(&self.document, widget)?;
+        if target.type_id != "ptcstextfield" {
+            return Err(refuse(
+                &target.id,
+                &format!(
+                    "input-variant needs a text field; this is a {}",
+                    target.type_id
+                ),
+            ));
+        }
+        let styles = input_variant_styles(variant).ok_or_else(|| {
+            AuthoringError::Invalid(format!(
+                "input-variant: --variant is {}",
+                INPUT_VARIANTS.join(", ")
+            ))
+        })?;
+        self.checked_styles(&target.id)?;
+        self.guard_properties(&target.id, &["StyleProperties"])?;
+        super::super::set::merge_widget_styles(
+            &mut self.document,
+            &target.id,
+            "ptcstextfield",
+            &styles,
+            "mashup",
+        )?;
+        self.wired
+            .push(format!("{}: input look {variant}", target.id));
+        Ok(())
+    }
+
+    /// The kit's "No results." state: a collection's and a grid's own text, or for a list (which
+    /// has no such property) an eye-icon notice shown while the rows it shows are empty.
+    pub(super) fn empty_state(
+        &mut self,
+        widget: &str,
+        text: &str,
+        data: Option<&str>,
+    ) -> Result<(), AuthoringError> {
+        let target = widget_id(&self.document, widget)?;
+        match target.type_id.as_str() {
+            "ptcscollection" => self.set(
+                &target,
+                &[
+                    ("NoDataText", json!(text)),
+                    ("NoDataIcon", json!("cds:icon_not_visible")),
+                ],
+            ),
+            "ptcsgrid" => self.set(&target, &[("NoResultsLabel", json!(text))]),
+            "ptcslist" => {
+                let data = data.ok_or_else(|| {
+                    AuthoringError::Invalid(
+                        "empty-state on a list needs --data <the address of the rows it shows>"
+                            .into(),
+                    )
+                })?;
+                let button = self
+                    .document
+                    .place(
+                        widgets::catalog()
+                            .by_type("ptcsbutton")
+                            .expect("button catalogue"),
+                        &Placement::BelowInColumn(target.id.clone()),
+                    )
+                    .map_err(AuthoringError::Edit)?;
+                self.added.push(button.id.clone());
+                let button = widget_id(&self.document, &button.id)?;
+                for (key, value) in [
+                    ("ButtonType", json!("transparent")),
+                    ("Disabled", json!(true)),
+                    ("IconPosition", json!("top")),
+                    ("Label", json!(text)),
+                    ("SVGIcon", json!("cds:icon_not_visible")),
+                    ("Margin", json!("24 0")),
+                    ("MultiLine", json!(true)),
+                ] {
+                    self.document.set_property(&button.path, key, value);
+                }
+                super::super::set::copy_style_entry(
+                    &mut self.document,
+                    &button.id,
+                    json!({"widget": "ptcs-button", "parts": {"$": {"disabled": {"color": "#000000"}}}}),
+                    None,
+                    &mut Vec::new(),
+                );
+                let notice_row = button.path[..button.path.len() - 1].to_vec();
+                for (key, value) in [
+                    ("flex-size", json!("range")),
+                    ("flex-grow", json!(0)),
+                    ("flex-shrink", json!(0)),
+                    ("flex-basis", json!("auto")),
+                    ("flex-min-height", json!("100px")),
+                    ("flex-max-height", json!("")),
+                    ("justify-content", json!("center")),
+                    ("align-items", json!("center")),
+                ] {
+                    self.document.set_property(&notice_row, key, value);
+                }
+                let list = widget_id(&self.document, &target.id)?;
+                let list_row = list.path[..list.path.len() - 1].to_vec();
+                let region = list_row[..list_row.len() - 1].to_vec();
+                // Only one branch is visible, so its height must not add to the other branch's.
+                for (key, value) in [
+                    ("flex-direction", json!("row")),
+                    ("align-items", json!("stretch")),
+                    ("flex-size", json!("range")),
+                    ("flex-min-height", json!("0px")),
+                    ("flex-max-height", json!("")),
+                ] {
+                    self.document.set_property(&region, key, value);
+                }
+                for row in [&list_row, &notice_row] {
+                    self.document.set_property(row, "flex-grow", json!(1));
+                    self.document.set_property(row, "flex-basis", json!("0px"));
+                }
+                let list_row_id = self.document.at(&list_row)["Properties"]["Id"]
+                    .as_str()
+                    .expect("list row id")
+                    .to_string();
+                let notice_row_id = self.document.at(&notice_row)["Properties"]["Id"]
+                    .as_str()
+                    .expect("notice row id")
+                    .to_string();
+                self.document
+                    .set_property(&list_row, "Visible", json!(false));
+                self.condition_gate(
+                    &list_row_id,
+                    false,
+                    "!!(rows && (rows.rows || rows).length)",
+                    &[("rows".into(), data.to_string())],
+                )?;
+                self.condition_gate(
+                    &notice_row_id,
+                    false,
+                    "!(rows && (rows.rows || rows).length)",
+                    &[("rows".into(), data.to_string())],
+                )?;
+                self.notes.push(format!(
+                    "{}: empty-state notice, visible while the list's rows are empty",
+                    button.id
+                ));
+            }
+            other => {
+                return Err(AuthoringError::Invalid(format!(
+                    "{} is a {other}; empty-state needs a collection, grid or list",
+                    target.id
+                )))
+            }
+        }
+        Ok(())
+    }
+
     pub(super) fn panel(
         &mut self,
         container: &str,
@@ -495,6 +1029,22 @@ impl Work<'_> {
                 "fill available height"
             }
         ));
+        if self.document.value()["twacoPageRules"] == "v1" {
+            block = block
+                .lines()
+                .filter(|line| !line.trim_start().starts_with("min-height:"))
+                .map(|line| {
+                    if line.trim_start().starts_with("height:") {
+                        "  height: auto !important;".to_string()
+                    } else {
+                        line.replace("flex: 1 1 auto", "flex: 1 0 auto")
+                            .replace("flex: 0 1 auto", "flex: 0 0 auto")
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+                + "\n";
+        }
         let css = managed_css(css, &target.id, &block)?;
         let node = layout::context::Node::op("panel-recipe", layout::Element::Container)
             .fact("style-card", style == "card")

@@ -602,6 +602,7 @@ pub(crate) fn mashup_new_tool(
     let dry_run = arguments.dry_run;
     if let Some(spec) = arguments.spec.as_ref() {
         if arguments.gadget
+            || !arguments.rules.is_absent()
             || !arguments.template.is_absent()
             || !arguments.from.is_absent()
             || !arguments.layout.is_absent()
@@ -663,6 +664,7 @@ pub(crate) fn mashup_new_tool(
             name: nonempty(&arguments.name, "name")?.to_string(),
             project: arguments.project.as_ref().cloned(),
             template,
+            rules: arguments.rules.as_ref().cloned(),
             gadget: arguments.gadget,
             layout: arguments
                 .layout
@@ -1081,6 +1083,7 @@ pub(crate) fn mashup_recipe_tool(
     use crate::core::mashup::authoring::{Recipe, RecipeArgs, RecipeRequest};
     let dry_run = arguments.dry_run;
     let recipe_args = RecipeArgs {
+        settings: arguments.settings.clone(),
         fit: arguments.fit.as_ref().cloned(),
         stacked: arguments.stacked.as_ref().copied().unwrap_or(false),
         band: arguments.band.as_ref().copied().unwrap_or(false),
@@ -1143,11 +1146,18 @@ pub(crate) fn mashup_recipe_tool(
         column_editors: arguments.column_editors.items().to_vec(),
         preserve_whitespace: arguments.preserve_whitespace.items().to_vec(),
         no_none_row: arguments.no_none_row.as_ref().copied().unwrap_or(false),
+        series: arguments.series.items().to_vec(),
         auto_select_first: arguments
             .auto_select_first
             .as_ref()
             .copied()
             .unwrap_or(false),
+        multiple: arguments.multiple.as_ref().copied().unwrap_or(false),
+        info: arguments.info.as_ref().cloned(),
+        align: arguments.align.as_ref().cloned(),
+        per_row: arguments.per_row.as_ref().copied(),
+        cells: arguments.cells.as_ref().copied(),
+        variant: arguments.variant.as_ref().cloned(),
         menu: arguments.menu.as_ref().cloned(),
         no_auto_collapse: arguments
             .no_auto_collapse
@@ -1818,6 +1828,26 @@ pub(crate) fn mashup_build_tool(
     .map_err(ToolError::coded)?;
     add_notices(&mut result, &notices);
     Ok(result)
+}
+
+pub(crate) fn mashup_spec_tool(
+    solution: &Solution,
+    arguments: super::requests::refactor::MashupSpecRequest,
+) -> Result<Value, ToolError> {
+    let result = crate::core::mashup::page::extract::extract(
+        solution,
+        nonempty(&arguments.mashup, "mashup")?,
+    )
+    .map_err(ToolError::coded)?;
+    Ok(serde_json::to_value(result).expect("extraction report"))
+}
+
+pub(crate) fn components_tool(
+    solution: &Solution,
+    arguments: super::requests::refactor::ComponentsRequest,
+) -> Result<Value, ToolError> {
+    crate::core::mashup::page::components::inspect(solution, arguments.name.as_deref())
+        .map_err(ToolError::coded)
 }
 
 #[cfg(test)]

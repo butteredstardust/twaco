@@ -726,6 +726,20 @@ pub(crate) const USAGE: &[Usage] = &[
       --detail                show non-default widget properties and widget bindings"#,
     },
     Usage {
+        path: "components",
+        group: 1,
+        text: r#"  components list|show <name> [--json]
+                              built-in and solution components, with kit source and typed props"#,
+    },
+    Usage {
+        path: "mashup spec",
+        group: 1,
+        text: r#"  mashup spec <mashup> [--out <path>] [--json]
+                              a spec built mashup returns its page.yaml (naming hand-edited widgets); any
+                              other mashup gets a YAML spec of elements, with raw widget nodes counted by type
+      --out <path>            write the spec to this file"#,
+    },
+    Usage {
         path: "mashup build",
         group: 1,
         text: r#"  mashup build <mashup> [--apply] [--json]
@@ -826,7 +840,8 @@ pub(crate) const USAGE: &[Usage] = &[
       --style <[part[@state]:]property=value>
                               set one CSS property of the widget's style, repeatable, after any
                               --style-from: background=#fff, border-style=solid, cell@hover:background=#eee;
-                              an empty value removes it"#,
+                              an empty value removes it; colours take the page specs' names (ink, lime,
+                              pink, purple, orange, mint, primary) and font-family takes mono or sans"#,
     },
     Usage {
         path: "mashup source add",
@@ -995,8 +1010,11 @@ pub(crate) const USAGE: &[Usage] = &[
       validate <widget>|--on <event> --if <condition> [--input name=<address>]... --then <handler>
           [--else-say <text>]   run the handler when the condition holds, else show the text
       chart <chart> --data <data call> --x <field> [--value <field>] [--kind <bar|column|linechart|areachart>]
-          [--title <text>] [--x-title <text>] [--y-title <text>] [--stacked]
+          [--title <text>] [--x-title <text>] [--y-title <text>] [--stacked] [--series <field:kind[:axis]>]...
       --kind                  bar or column on a bar chart; linechart or areachart on a line chart; the card chip colour (info, ok, warning, error)
+      --series <field:kind[:axis]>  combo series in order: bar or line, primary (default) or secondary axis; repeatable
+      sparkline <container> --data <data call> --x <field> --value <field>
+                              add a 40px line chart under existing content, with axes and legend hidden
       --stacked              bar chart series stacked with SeriesDisplay=auto
       --x-title <text>        explicit X-axis name; catalogue placeholders are cleared
       --y-title <text>        explicit Y-axis name; authored names are preserved
@@ -1027,7 +1045,9 @@ pub(crate) const USAGE: &[Usage] = &[
                               picks/orders/renames; default all fields, a column each; first row unless
                               a selecting widget is bound to this call; empty responsive container unless --replace removes its only child
       picker <dropdown|list> --data <data call> --x <display field> [--value <field>]
-          [--selected <address>] [--no-none-row] [--auto-select-first]
+          [--selected <address>] [--no-none-row] [--auto-select-first] [--multiple]
+      --auto-select-first    select the first row of a picker or grid (recipe columns: DefaultSelectedRows=1)
+      --multiple             a list that selects several rows (MultiSelect); its SelectedItems feed another widget
                               fill a dropdown or list from a service result; without the "(None)" row,
                               or selecting the first row
       tracker <widget|new> --data <data call> [--field-map Property=field]...
@@ -1044,7 +1064,24 @@ pub(crate) const USAGE: &[Usage] = &[
       navigate-on-click <collection|grid> --field <field> [--window replace|new|popup|modal-popup]
                               a click opens the mashup the selected row's field names; plan warns when
                               the widget selects its first row on load
-                              recipes warn with a mashup on command when a bound call has no trigger"#,
+      side-panel <container> --title <text> [--info <tooltip>] [--tab <label>]
+                              the kit's grey left column in an empty responsive column: 276px wide, a title row
+                              with an optional help icon over a one-tab strip (default tab Filters) whose
+                              tab container holds the content
+      empty-state <collection|grid|list> --say <text> [--data <address>]
+                              the "No results." state: a collection's and a grid's own text; a list gets a
+                              notice shown while --data (the rows it shows) is empty
+      section <container> --title <text> [--align start|center]
+                              the kit's framed card in an empty column: a fixed 40px title row over a body row
+                              for the content (centred on both axes with --align center)
+      card-grid <container> --per-row <n> --cells <n>
+                              the kit's gallery in an empty column: rows of equal height holding equal
+                              cells, the last row padded; fill each cell with recipe section
+      input-variant <textfield> --variant <rounded|focus-background|focus-glow|focus-underline>
+                              one of the kit's text field looks, as native style parts of the text box
+                              recipes warn with a mashup on command when a bound call has no trigger
+  mashup recipe component <mashup> <name> <container> --set id=<id> [--set prop=value]...
+                              use the same component definition as page specs; values may be JSON"#,
     },
     Usage {
         path: "mashup event",
@@ -1073,6 +1110,7 @@ pub(crate) const USAGE: &[Usage] = &[
       --spec <file>          compile a page spec, copy it to src/<Mashup>/page.yaml and record a generated baseline;
                               accepts only --project, --apply and --json
       --from <address>        copy a repository mashup exactly, except identity and permissions
+      --rules <legacy|v1>     layout rules (default v1); legacy opts out of page scrolling and top-aligned filter fields
       --template              layout template name or alias (default: blank); form-2col has full-width fields and left/right columns; see mashup templates
       --gadget                fixed dashboard gadget; default 1x1, 240px per cell
       --layout                gadget columns x rows: 1x1, 2x1, 4x1, 1x2, 2x2, 4x2, 1x4, 2x4, 4x4; otherwise alias for --template
@@ -1098,6 +1136,7 @@ pub(crate) const USAGE: &[Usage] = &[
       --spec <file>          compile a page spec, copy it to src/<Mashup>/page.yaml and record a generated baseline;
                               accepts only --project, --apply and --json
       --from <address>        copy a repository mashup exactly, except identity and permissions
+      --rules <legacy|v1>     layout rules (default v1); legacy opts out of page scrolling and top-aligned filter fields
       --template              layout template name or alias (default: blank); form-2col has full-width fields and left/right columns; see mashup templates
       --gadget                fixed dashboard gadget; default 1x1, 240px per cell
       --layout                gadget columns x rows: 1x1, 2x1, 4x1, 1x2, 2x2, 4x2, 1x4, 2x4, 4x4; otherwise alias for --template

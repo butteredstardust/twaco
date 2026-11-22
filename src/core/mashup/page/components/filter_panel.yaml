@@ -1,0 +1,34 @@
+{
+  "name": "filter_panel",
+  "source": "PTCSC.IOTCommonMU.AdminPage01_MU",
+  "props": {
+    "title": {
+      "type": "string",
+      "default": "Filter"
+    },
+    "fields": {
+      "type": "array",
+      "default": []
+    },
+    "footer": {
+      "type": "array",
+      "default": [
+        "apply",
+        "reset"
+      ]
+    },
+    "children": {
+      "type": "array",
+      "default": []
+    }
+  },
+  "tree": {
+    "filter_panel": {
+      "id": "$id",
+      "title": "$title",
+      "fields": "$fields",
+      "footer": "$footer",
+      "children": "$children"
+    }
+  }
+}

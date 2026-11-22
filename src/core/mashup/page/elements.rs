@@ -1,5 +1,5 @@
 use super::{
-    schema::{Body, Node, Page},
+    schema::{Body, Node, Page, Size},
     Error,
 };
 use serde_json::json;
@@ -46,6 +46,202 @@ fn default_prop(body: &mut Body, key: &str, value: serde_json::Value) {
         .entry(key.to_string())
         .or_insert_with(|| serde_saphyr::Spanned::new(value, at, at));
 }
+
+/// The kit's information icon: a disabled transparent button whose tooltip is the text.
+fn info_button(parent: &Body, role: &str, tooltip: &str, icon: &str) -> Node {
+    child(
+        parent,
+        role,
+        "button",
+        json!({"text": "", "props": {
+            "ButtonType": "transparent", "SVGIcon": icon, "Disabled": true,
+            "TooltipField": tooltip, "Margin": "0 0 0 4"}, "style": [INFO_STYLE]}),
+    )
+}
+
+/// A heading with an information icon after it: a row holding both.
+fn info_heading(b: &mut Body, kind: &str, tooltip: &str) -> Node {
+    let id = b.id.value.clone();
+    let props: serde_json::Map<_, _> = b
+        .props
+        .iter()
+        .map(|(key, value)| (key.clone(), value.value.clone()))
+        .collect();
+    let styles: Vec<_> = b.style.iter().map(|s| s.value.clone()).collect();
+    let mut row: Node = serde_saphyr::from_str(
+        &json!({"row": {"id": id, "props": {"align-items": "center"}, "children": [
+            {kind: {"id": format!("{id}--title"), "text": b.text.take().unwrap_or_default(),
+                "props": props, "style": styles}},
+            {"button": {"id": format!("{id}--info"), "text": "", "props": {
+                "ButtonType": "transparent", "SVGIcon": "cds:icon_info", "Disabled": true,
+                "TooltipField": tooltip, "Margin": "0 0 0 4"}, "style": [INFO_STYLE]}}]}})
+        .to_string(),
+    )
+    .expect("generated heading row schema");
+    relocate(&mut row, b.id.referenced);
+    row
+}
+
+/// A navigation column as the kits show their administration menu: an optional search field, then
+/// each group's grey caption over its items. Items are full-width transparent buttons, the first
+/// drawn as the selected page, so `<id>--item-<group>-<item>` (1-based) can be wired to events.
+fn nav_column(b: &mut Body) -> Result<Node, Error> {
+    let id = b.id.value.clone();
+    if b.groups.is_empty() {
+        return Err(Error::at(b.id.referenced, "nav_menu needs groups"));
+    }
+    // Administrator uses collection cells for navigation; no kit has a static button menu.
+    // Keep its search/caption/item order in one column, with direct controls as in kit fields.
+    default_prop(b, "CustomClass", json!("twaco-nav-menu"));
+    let mut children = vec![];
+    if let Some(search) = b.search.take() {
+        children.push(json!({"text_field": {
+            "id": format!("{id}--search"), "hint": search, "icon": "search",
+            "props": {"Margin": "0 18 12"}}}));
+    }
+    let mut first = true;
+    for (g, group) in b.groups.iter().enumerate() {
+        children.push(json!({"label": {
+            "id": format!("{id}--group-{}", g + 1), "text": group.value.title,
+            "props": {"Margin": "12 0 6 18", "LabelType": "label"},
+            "style": ["label:color=#6B7478", "label:font-size=14px"]}}));
+        for (i, item) in group.value.items.iter().enumerate() {
+            let mut body = json!({
+                "id": format!("{id}--item-{}-{}", g + 1, i + 1), "text": item,
+                "variant": "transparent",
+                "props": {"LabelAlignment": "left", "Size": "standard", "Margin": "0"},
+                "style": ["width=100%", "box-sizing=border-box", "border-radius=0px", "padding-left=24px",
+                    "label:font-size=14px", "label:font-weight=600", "label:color=#080909"]});
+            if std::mem::take(&mut first) {
+                body["style"]
+                    .as_array_mut()
+                    .expect("item styles")
+                    .push(json!("background=#e4e7e9"));
+            }
+            children.push(json!({"button": body}));
+        }
+    }
+    let props: serde_json::Map<_, _> = b
+        .props
+        .iter()
+        .map(|(key, value)| (key.clone(), value.value.clone()))
+        .collect();
+    let mut column: Node = serde_saphyr::from_str(
+        &json!({"column": {"id": id, "props": props, "children": children}}).to_string(),
+    )
+    .expect("generated nav column schema");
+    relocate(&mut column, b.id.referenced);
+    Ok(column)
+}
+
+fn spanned(text: String, at: serde_saphyr::Location) -> serde_saphyr::Spanned<String> {
+    serde_saphyr::Spanned::new(text, at, at)
+}
+
+/// Change a node's element while keeping its body, as block becomes a card.
+fn retag(node: &mut Node, make: fn(Body) -> Node) {
+    let placeholder: Body = serde_saphyr::from_str("{id: placeholder}").expect("placeholder body");
+    let body = std::mem::replace(node, Node::Spacer(placeholder)).into_body();
+    *node = make(body);
+}
+
+fn colour_at(text: &str, at: serde_saphyr::Location) -> Result<String, Error> {
+    crate::core::mashup::authoring::colour(text).map_err(|e| Error::at(at, e))
+}
+
+/// The `--style` settings a heading, label or text size stands for: the label type (a prop), and
+/// for `display` a larger face than any label type has, as the benchmark's hero title wants.
+fn text_size(b: &mut Body) -> Result<(), Error> {
+    let Some(size) = b.size.as_ref().map(|s| &s.value) else {
+        return Ok(());
+    };
+    let (label_type, extra): (&str, &[&str]) = match size {
+        Size::Sm => ("title", &[]),
+        Size::Md => ("sub-header", &[]),
+        Size::Lg => ("header", &[]),
+        Size::Display => (
+            "large-header",
+            // No kit has a display face; the label type's largest size, enlarged by style.
+            &[
+                "label:font-size=72px",
+                "label:font-weight=800",
+                "label:line-height=1",
+            ],
+        ),
+        _ => return Ok(()),
+    };
+    let at = b.id.referenced;
+    b.size = None;
+    default_prop(b, "LabelType", json!(label_type));
+    for setting in extra {
+        b.style.push(spanned((*setting).to_string(), at));
+    }
+    Ok(())
+}
+
+/// What `style: {background, color, border, font}` stands for on one kind of element.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum StyleOn {
+    Text,
+    Box,
+}
+
+/// Turn the `~key=value` entries of a style map into `--style` settings. Colours and fonts use
+/// the names the command line takes too; `border` is a 2px solid line in that colour.
+fn style_map(b: &mut Body, on: StyleOn) -> Result<(), Error> {
+    let at = b.id.referenced;
+    let mut kept = vec![];
+    for entry in std::mem::take(&mut b.style) {
+        let Some((key, value)) = entry
+            .value
+            .strip_prefix('~')
+            .and_then(|rest| rest.split_once('='))
+        else {
+            kept.push(entry);
+            continue;
+        };
+        let settings: Vec<String> = match (key, on) {
+            ("background", _) => vec![format!("background={}", colour_at(value, at)?)],
+            ("border", _) => vec![
+                "border-style=solid".into(),
+                "border-width=2px".into(),
+                format!("border-color={}", colour_at(value, at)?),
+            ],
+            ("color", StyleOn::Text) => vec![format!("label:color={}", colour_at(value, at)?)],
+            ("font", StyleOn::Text) => vec![format!(
+                "label:font-family={}",
+                crate::core::mashup::authoring::font_family(value)
+            )],
+            ("color" | "font", StyleOn::Box) => {
+                return Err(Error::at(
+                    at,
+                    format!("style {key} belongs to heading, label and text elements"),
+                ))
+            }
+            _ => {
+                return Err(Error::at(
+                    at,
+                    format!("style {key} is not supported; use background, color, border or font"),
+                ))
+            }
+        };
+        kept.extend(settings.into_iter().map(|text| spanned(text, at)));
+    }
+    b.style = kept;
+    Ok(())
+}
+
+/// An icon as the spec writes it: `search` or the full `cds:icon_search`.
+fn cds_name(icon: &str) -> String {
+    if icon.starts_with("cds:") {
+        icon.to_string()
+    } else {
+        format!("cds:icon_{icon}")
+    }
+}
+
+/// The disabled-state colour the kit gives its information buttons.
+const INFO_STYLE: &str = "$@disabled:color=#4E585A";
 
 /// A label body showing a literal, or bound to a source field.
 fn text_or_bind(value: &serde_json::Value) -> serde_json::Value {
@@ -101,14 +297,43 @@ const DIALS: [Dial; 4] = [
 pub(super) fn expand(page: &mut Page) -> Result<(), Error> {
     fn nodes(list: &mut [Node]) -> Result<(), Error> {
         for node in list {
+            match node {
+                Node::Heading(b) | Node::Label(b) | Node::Text(b) => {
+                    text_size(b)?;
+                    if let Some(highlight) = b.highlight.take() {
+                        let hex = colour_at(&highlight.value, highlight.referenced)?;
+                        let at = b.id.referenced;
+                        b.style.push(spanned(format!("background={hex}"), at));
+                    }
+                    style_map(b, StyleOn::Text)?;
+                }
+                Node::Block(b) | Node::Chart(b) => style_map(b, StyleOn::Box)?,
+                _ => {}
+            }
+            let informed = match node {
+                Node::Heading(b) => b.info.take().map(|info| ("heading", info)),
+                Node::Label(b) => b.info.take().map(|info| ("label", info)),
+                _ => None,
+            };
+            let nav = match node {
+                Node::NavMenu(b) => Some(nav_column(b)?),
+                _ => None,
+            };
+            if let Some(column) = nav {
+                *node = column;
+            }
+            if let Some((kind, info)) = informed {
+                let replacement = info_heading(node.body_mut(), kind, &info);
+                *node = replacement;
+            }
             if let Node::Card(b) = node {
                 if b.children
                     .iter()
-                    .any(|n| matches!(n, Node::DetailPair(pair) if pair.chart_kind.is_some()))
+                    .any(|n| matches!(n, Node::DetailPair(pair) if pair.chart_kind.is_some() || pair.state.is_some() || pair.status.is_some()))
                 {
                     for pair in &mut b.children {
                         if let Node::DetailPair(pair) = pair {
-                            if pair.chart_kind.is_none() {
+                            if pair.chart_kind.is_none() && pair.state.is_none() && pair.status.is_none() {
                                 pair.children.push(child(pair, "dot", "label", json!({"text": "", "props": {"Width": 16, "Margin": "0 8 0 0"}})));
                             }
                         }
@@ -126,8 +351,19 @@ pub(super) fn expand(page: &mut Page) -> Result<(), Error> {
                         .title
                         .as_ref()
                         .ok_or_else(|| Error::at(b.id.referenced, "page_header needs title"))?;
+                    let mut heading = json!({"text":title});
+                    if let Some(color) = b.color.take() {
+                        heading["style"] = json!([format!(
+                            "label:color={}",
+                            colour_at(&color, b.id.referenced)?
+                        )]);
+                    }
                     b.children
-                        .insert(0, generated(b, "title", "heading", json!({"text":title})));
+                        .insert(0, generated(b, "title", "heading", heading));
+                    if let Some(info) = b.info.take() {
+                        let button = info_button(b, "info", &info, "cds:icon_help_circle");
+                        b.children.push(button);
+                    }
                     if let Some(help) = &b.help {
                         b.children
                             .push(generated(b, "help", "label", json!({"text":help})));
@@ -208,6 +444,15 @@ pub(super) fn expand(page: &mut Page) -> Result<(), Error> {
                             "justify-content": "center", "flex-grow": 1, "flex-shrink": 0,
                             "flex-size": "range", "flex-min-height": "56px", "Margin": "8 0"}}),
                     ));
+                    if let Some(sparkline) = &b.sparkline {
+                        b.children.push(child(b, "sparkline", "widget", json!({
+                            "type": "ptcschartline", "size": {"fixed": 40},
+                            "props": crate::core::mashup::authoring::sparkline_props(&sparkline.value.x, &sparkline.value.field),
+                            "style": crate::core::mashup::authoring::sparkline_styles()
+                        })));
+                        // Keep the value's source for wiring the sparkline's service rows.
+                        b.value = Some(value);
+                    }
                     default_prop(b, "align-items", json!("stretch"));
                 }
                 Node::DetailPair(b) => {
@@ -215,6 +460,26 @@ pub(super) fn expand(page: &mut Page) -> Result<(), Error> {
                     let (Some(caption), Some(value)) = (b.text.take(), b.value.take()) else {
                         return Err(Error::at(loc, "detail_pair needs label and value"));
                     };
+                    if b.state.is_some() && (b.chart_kind.is_some() || b.status.is_some()) {
+                        return Err(Error::at(
+                            loc,
+                            "detail_pair needs either state or fixed status/kind",
+                        ));
+                    }
+                    if let Some(status) = b.status.take() {
+                        b.chart_kind = Some(
+                            status
+                                .value
+                                .as_str()
+                                .ok_or_else(|| {
+                                    Error::at(
+                                        status.referenced,
+                                        "status is ok, warning, error or info",
+                                    )
+                                })?
+                                .to_string(),
+                        );
+                    }
                     let dot = match b.chart_kind.take() {
                         None => None,
                         Some(kind) => Some(
@@ -226,6 +491,20 @@ pub(super) fn expand(page: &mut Page) -> Result<(), Error> {
                                 })?,
                         ),
                     };
+                    if b.state.is_some() {
+                        let Some(bound) = super::compile::binding(&value.value) else {
+                            return Err(Error::at(
+                                value.referenced,
+                                "state needs a bound detail_pair value",
+                            ));
+                        };
+                        // The formatter reads the bound source field by name.
+                        b.state_field = Some(bound.rsplit('.').next().unwrap_or(bound).to_string());
+                        b.children.push(child(b, "dot", "widget", json!({"type": "shape", "props": {
+                            "ShapeType": "circle", "Width": 12, "Height": 12, "Margin": "0 12 0 0",
+                            "Data": value.value
+                        }})));
+                    }
                     if let Some(colour) = dot {
                         let style = format!("label:color={colour}");
                         let label = json!({"text": "\u{25CF}", "props": {"Width": 16, "Margin": "0 8 0 0"}, "style": [style]});
@@ -334,12 +613,108 @@ pub(super) fn expand(page: &mut Page) -> Result<(), Error> {
                     }
                 }
                 Node::Card(b) => {
+                    if let Some(align) = &b.align {
+                        if !["start", "center"].contains(&align.value.as_str()) {
+                            return Err(Error::at(align.referenced, "align is start or center"));
+                        }
+                        if b.value.is_some()
+                            || b.status.is_some()
+                            || b.unit.is_some()
+                            || b.chart_kind.is_some()
+                            || b.color.is_some()
+                        {
+                            return Err(Error::at(
+                                align.referenced,
+                                "a card with align holds children; value, status, unit, kind and color belong to a card without align",
+                            ));
+                        }
+                    }
                     if b.children
                         .iter()
                         .any(|c| matches!(c, Node::DetailPair(_) | Node::KpiDial(_)))
                     {
                         default_prop(b, "align-items", json!("stretch"));
                     }
+                }
+                Node::Block(b) => {
+                    let at = b.id.referenced;
+                    let (Some(caption), Some(color)) = (b.caption.take(), b.color.take()) else {
+                        return Err(Error::at(at, "block needs color, caption and value"));
+                    };
+                    if b.value.is_none() {
+                        return Err(Error::at(at, "block needs color, caption and value"));
+                    }
+                    let hex = colour_at(&color, at)?;
+                    b.title = Some(caption);
+                    b.style.push(spanned(format!("background={hex}"), at));
+                    retag(node, Node::Card);
+                }
+                Node::CardGrid(b) => {
+                    let at = b.id.referenced;
+                    let per_row = b
+                        .per_row
+                        .as_ref()
+                        .ok_or_else(|| Error::at(at, "card_grid needs per_row"))?;
+                    if !(1..=12).contains(&per_row.value) {
+                        return Err(Error::at(per_row.referenced, "per_row is 1 to 12"));
+                    }
+                    let per_row = per_row.value as usize;
+                    if b.children.is_empty() {
+                        return Err(Error::at(at, "card_grid needs children"));
+                    }
+                    for cell in &mut b.children {
+                        if !matches!(
+                            cell,
+                            Node::Card(_)
+                                | Node::Block(_)
+                                | Node::Column(_)
+                                | Node::Row(_)
+                                | Node::Panel(_)
+                                | Node::TrendTile(_)
+                        ) {
+                            return Err(Error::at(
+                                cell.body().id.referenced,
+                                "card_grid cells are card, block, row, column, panel or trend_tile",
+                            ));
+                        }
+                        let cell = cell.body_mut();
+                        cell.grid_cell = true;
+                        for (key, value) in crate::core::mashup::authoring::grid_cell_props() {
+                            if ["flex-grow", "flex-shrink", "flex-basis", "Margin"].contains(&key) {
+                                default_prop(cell, key, value);
+                            }
+                        }
+                    }
+                    let mut cells = std::mem::take(&mut b.children);
+                    let mut rows = vec![];
+                    while !cells.is_empty() {
+                        let rest = cells.split_off(per_row.min(cells.len()));
+                        let mut row = child(
+                            b,
+                            &format!("row-{}", rows.len() + 1),
+                            "row",
+                            json!({"props": crate::core::mashup::authoring::grid_row_props()
+                                .into_iter().collect::<std::collections::BTreeMap<_, _>>()}),
+                        );
+                        row.body_mut().children = std::mem::take(&mut cells);
+                        // The last row is padded with empty cells so every card keeps its width.
+                        for pad in row.body().children.len()..per_row {
+                            row.body_mut().children.push(child(
+                                b,
+                                &format!("pad-{}-{}", rows.len() + 1, pad + 1),
+                                "column",
+                                json!({"props": crate::core::mashup::authoring::grid_cell_props()
+                                    .into_iter().collect::<std::collections::BTreeMap<_, _>>()}),
+                            ));
+                        }
+                        rows.push(row);
+                        cells = rest;
+                    }
+                    b.children = rows;
+                    default_prop(b, "align-items", json!("stretch"));
+                    default_prop(b, "flex-wrap", json!("nowrap"));
+                    b.per_row = None;
+                    retag(node, Node::Column);
                 }
                 Node::Button(b) => {
                     if let Some(variant) = b.variant.take() {
@@ -354,9 +729,10 @@ pub(super) fn expand(page: &mut Page) -> Result<(), Error> {
                         default_prop(b, "ButtonType", json!(variant.value));
                     }
                     if let Some(icon) = b.icon.take() {
-                        crate::core::cds_icons::check(&icon.value)
+                        let name = cds_name(&icon.value);
+                        crate::core::cds_icons::check(&name)
                             .map_err(|e| Error::at(icon.referenced, e))?;
-                        default_prop(b, "SVGIcon", json!(icon.value));
+                        default_prop(b, "SVGIcon", json!(name));
                     }
                 }
                 Node::KpiRow(b) => {
@@ -391,7 +767,51 @@ pub(super) fn expand(page: &mut Page) -> Result<(), Error> {
                         b.children.push(Node::Card(tile));
                     }
                 }
+                Node::TextField(b) => {
+                    if let Some(variant) = b.variant.take() {
+                        let styles = crate::core::mashup::authoring::input_variant_styles(
+                            &variant.value,
+                        )
+                        .ok_or_else(|| {
+                            Error::at(
+                                variant.referenced,
+                                "variant is rounded, focus-background, focus-glow or focus-underline",
+                            )
+                        })?;
+                        let at = b.id.referenced;
+                        b.style
+                            .extend(styles.into_iter().map(|text| spanned(text, at)));
+                    }
+                    if let Some(icon) = b.icon.take() {
+                        let name = cds_name(&icon.value);
+                        crate::core::cds_icons::check(&name)
+                            .map_err(|e| Error::at(icon.referenced, e))?;
+                        default_prop(b, "Icon", json!(name));
+                    }
+                }
+                Node::SidePanel(b) => {
+                    if b.title.is_none() {
+                        return Err(Error::at(b.id.referenced, "side_panel needs title"));
+                    }
+                    default_prop(b, "flex-direction", json!("column"));
+                }
+                Node::List(b) => {
+                    // The kit's lists carry no caption of their own.
+                    default_prop(b, "Label", json!(""));
+                }
                 Node::FilterPanel(b) => {
+                    if let Some(title) = b.title.take() {
+                        b.fields.insert(
+                            0,
+                            generated(
+                                b,
+                                "title",
+                                "heading",
+                                json!({"text": title, "props": {
+                                    "LabelType": "title", "HorizontalAlignment": "left"}}),
+                            ),
+                        );
+                    }
                     for action in &b.footer {
                         if !["apply", "reset"].contains(&action.value.as_str()) {
                             return Err(Error::at(
@@ -435,6 +855,21 @@ fn fields(node: &Node) -> Result<(), Error> {
     }
     let checks = [
         (
+            b.sparkline.is_some(),
+            matches!(node, Node::TrendTile(_)),
+            "sparkline",
+        ),
+        (
+            b.state.is_some(),
+            matches!(node, Node::DetailPair(_)),
+            "state",
+        ),
+        (
+            b.auto_select.is_some(),
+            matches!(node, Node::Grid(_)),
+            "auto_select",
+        ),
+        (
             b.gap.is_some(),
             matches!(node, Node::Row(_) | Node::Column(_)),
             "gap",
@@ -445,6 +880,8 @@ fn fields(node: &Node) -> Result<(), Error> {
             matches!(
                 node,
                 Node::PageHeader(_)
+                    | Node::FilterPanel(_)
+                    | Node::SidePanel(_)
                     | Node::Card(_)
                     | Node::Chart(_)
                     | Node::TrendTile(_)
@@ -455,9 +892,53 @@ fn fields(node: &Node) -> Result<(), Error> {
             "title",
         ),
         (
-            b.help.is_some() || !b.actions.is_empty(),
+            !b.actions.is_empty(),
             matches!(node, Node::PageHeader(_)),
-            "help/actions",
+            "actions",
+        ),
+        (
+            b.help.is_some(),
+            matches!(node, Node::PageHeader(_) | Node::SidePanel(_)),
+            "help",
+        ),
+        (
+            b.info.is_some(),
+            matches!(
+                node,
+                Node::Heading(_) | Node::Label(_) | Node::PageHeader(_)
+            ),
+            "info",
+        ),
+        (b.tab.is_some(), matches!(node, Node::SidePanel(_)), "tab"),
+        (
+            b.empty.is_some(),
+            matches!(node, Node::Grid(_) | Node::List(_) | Node::Collection(_)),
+            "empty",
+        ),
+        (
+            b.selection.is_some(),
+            matches!(node, Node::List(_)),
+            "selection",
+        ),
+        (
+            b.per_row.is_some()
+                || b.across.is_some()
+                || b.preset.is_some()
+                || b.cell.is_some()
+                || b.mashup.is_some()
+                || !b.map.is_empty(),
+            matches!(node, Node::Collection(_) | Node::CardGrid(_)),
+            "per_row/across/preset/cell/mashup/map",
+        ),
+        (
+            b.collapsible.is_some(),
+            matches!(node, Node::FilterPanel(_)),
+            "collapsible",
+        ),
+        (
+            b.search.is_some() || !b.groups.is_empty(),
+            matches!(node, Node::NavMenu(_)),
+            "search/groups",
         ),
         (b.band.is_some(), matches!(node, Node::Toolbar(_)), "band"),
         (
@@ -471,6 +952,7 @@ fn fields(node: &Node) -> Result<(), Error> {
             "fields/footer",
         ),
         (!b.tabs.is_empty(), matches!(node, Node::Tabs(_)), "tabs"),
+        (!b.inputs.is_empty(), matches!(node, Node::Widget(_)), "inputs"),
         (
             b.chart_kind.is_some(),
             matches!(
@@ -489,13 +971,36 @@ fn fields(node: &Node) -> Result<(), Error> {
                     | Node::DetailPair(_)
                     | Node::Slider(_)
                     | Node::KpiDial(_)
+                    | Node::Block(_)
             ),
             "value",
         ),
         (
             b.status.is_some() || b.color.is_some(),
-            matches!(node, Node::Card(_)),
+            matches!(
+                node,
+                Node::Card(_) | Node::DetailPair(_) | Node::PageHeader(_) | Node::Block(_)
+            ),
             "status/color",
+        ),
+        (b.align.is_some(), matches!(node, Node::Card(_)), "align"),
+        (b.caption.is_some(), matches!(node, Node::Block(_)), "caption"),
+        (
+            b.highlight.is_some(),
+            matches!(node, Node::Heading(_) | Node::Label(_) | Node::Text(_)),
+            "highlight",
+        ),
+        (
+            b.size
+                .as_ref()
+                .is_some_and(|s| matches!(s.value, Size::Sm | Size::Md | Size::Lg | Size::Display)),
+            false,
+            "size sm, md, lg or display (a heading, label and text take them)",
+        ),
+        (
+            b.style.iter().any(|s| s.value.starts_with('~')),
+            false,
+            "style map (background, color, border, font; label, heading, text, block and chart take it)",
         ),
         (
             b.unit.is_some(),
@@ -508,9 +1013,19 @@ fn fields(node: &Node) -> Result<(), Error> {
             "trend/delta",
         ),
         (
-            b.variant.is_some() || b.icon.is_some() || b.enabled_when.is_some(),
+            b.enabled_when.is_some(),
             matches!(node, Node::Button(_)),
-            "variant/icon/enabled_when",
+            "enabled_when",
+        ),
+        (
+            b.variant.is_some(),
+            matches!(node, Node::Button(_) | Node::TextField(_)),
+            "variant",
+        ),
+        (
+            b.icon.is_some(),
+            matches!(node, Node::Button(_) | Node::TextField(_)),
+            "icon",
         ),
         (
             b.x.is_some() || b.stacked.is_some(),
@@ -518,9 +1033,14 @@ fn fields(node: &Node) -> Result<(), Error> {
             "x/stacked",
         ),
         (
-            b.options.is_some() || b.display.is_some(),
+            b.options.is_some(),
             matches!(node, Node::Dropdown(_)),
-            "options/display",
+            "options",
+        ),
+        (
+            b.display.is_some(),
+            matches!(node, Node::Dropdown(_) | Node::List(_)),
+            "display",
         ),
         (b.grid.is_some(), matches!(node, Node::Pagination(_)), "for"),
         (
@@ -578,6 +1098,14 @@ pub(super) fn validate(node: &Node, page: &Page) -> Result<(), Error> {
                 return Err(fail("combo chart needs series: 1 to 8 {field, kind}"));
             }
             for series in &b.series {
+                if let Some(axis) = &series.value.axis {
+                    if !["primary", "secondary"].contains(&axis.value.as_str()) {
+                        return Err(Error::at(
+                            axis.referenced,
+                            "series axis is primary or secondary",
+                        ));
+                    }
+                }
                 if !["bar", "line"].contains(&series.value.kind.as_str()) {
                     return Err(Error::at(series.referenced, "series kind is bar or line"));
                 }
@@ -591,6 +1119,40 @@ pub(super) fn validate(node: &Node, page: &Page) -> Result<(), Error> {
         }
         Node::Pagination(_) if b.grid.is_none() => {
             return Err(fail("pagination needs for: <grid>"))
+        }
+        Node::Collection(_) => {
+            if b.data.is_none() {
+                return Err(fail("collection needs data"));
+            }
+            if b.cell.is_some() == b.mashup.is_some() {
+                return Err(fail("collection needs exactly one of cell or mashup"));
+            }
+            if b.mashup.is_some() && b.map.is_empty() {
+                return Err(fail(
+                    "collection mashup needs map: {row field: cell parameter}",
+                ));
+            }
+            if b.cell.is_some() && !b.map.is_empty() {
+                return Err(fail("map belongs to a collection with mashup"));
+            }
+            for number in [&b.per_row, &b.across].into_iter().flatten() {
+                if number.value == 0 {
+                    return Err(Error::at(number.referenced, "must be above zero"));
+                }
+            }
+        }
+        Node::List(_) => {
+            if b.data.is_none() || b.display.is_none() {
+                return Err(fail("list needs data and display"));
+            }
+            if let Some(selection) = &b.selection {
+                if !["single", "multiple"].contains(&selection.value.as_str()) {
+                    return Err(Error::at(
+                        selection.referenced,
+                        "selection is single or multiple",
+                    ));
+                }
+            }
         }
         Node::Button(_) if b.enabled_when.is_some() => {
             let gate = b.enabled_when.as_ref().expect("checked");
@@ -636,8 +1198,8 @@ pub(super) fn validate(node: &Node, page: &Page) -> Result<(), Error> {
 pub(super) fn wire(
     solution: &crate::core::config::Solution,
     session: &mut crate::core::mashup::authoring::session::Session,
-    _model: &crate::core::types::Model,
-    _platform: Option<&crate::core::types::Platform>,
+    model: &crate::core::types::Model,
+    platform: Option<&crate::core::types::Platform>,
     page: &Page,
     ids: &std::collections::BTreeMap<String, String>,
     node: &Node,
@@ -649,6 +1211,7 @@ pub(super) fn wire(
     let loc = b.id.referenced;
     let recipe = match node {
         Node::Chart(_) => Some(Recipe::Chart {
+            series: vec![],
             widget: id.clone(),
             data: call(page, &b.data.as_ref().expect("chart data").value),
             x: b.x.clone().expect("chart x"),
@@ -667,7 +1230,36 @@ pub(super) fn wire(
             selected: None,
             no_none_row: false,
             auto_select_first: false,
+            multiple: false,
         }),
+        Node::List(_) => {
+            let data = &b.data.as_ref().expect("list data").value;
+            let display = b.display.clone().expect("list display");
+            if let Some((list, _)) = data.split_once(".selected") {
+                // The selected rows keep the rows' shape, so the field is checked on its source.
+                let source = super::compile::find_list(page, list)
+                    .and_then(|l| l.data.as_ref())
+                    .expect("validated list source");
+                session
+                    .source_type(
+                        solution,
+                        model,
+                        platform,
+                        &format!("{}.{display}", super::compile::call(page, &source.value)),
+                    )
+                    .map_err(|e| Error::at(loc, e))?;
+            }
+            Some(Recipe::Picker {
+                widget: id.clone(),
+                data: super::compile::data_address(page, ids, data),
+                display,
+                value: None,
+                selected: None,
+                no_none_row: true,
+                auto_select_first: false,
+                multiple: b.selection.as_ref().is_some_and(|s| s.value == "multiple"),
+            })
+        }
         _ => None,
     };
     if let Some(recipe) = recipe {
@@ -675,28 +1267,64 @@ pub(super) fn wire(
             .recipe(solution, recipe)
             .map_err(|e| Error::at(loc, e))?;
     }
+    if let Some(state) = &b.state {
+        let file = crate::core::workspace::entities(solution)
+            .into_iter()
+            .find(|f| f.info.collection == "StateDefinitions" && f.info.name == state.value)
+            .ok_or_else(|| {
+                Error::at(
+                    state.referenced,
+                    format!(
+                        "no StateDefinition {}; add it to the solution first",
+                        state.value
+                    ),
+                )
+            })?;
+        let bytes = std::fs::read(&file.path)
+            .map_err(|e| Error::at(state.referenced, format!("{}: {e}", file.path.display())))?;
+        let definition = crate::core::mashup::authoring::read_state_definition(&bytes)
+            .map_err(|e| Error::at(state.referenced, e))?;
+        let field = b.state_field.as_deref().unwrap_or("Data");
+        let snapshot =
+            crate::core::mashup::authoring::state_format::inline(&definition, &state.value, field)
+                .map_err(|e| Error::at(state.referenced, e))?;
+        let dot = &ids[&format!("{}--dot", b.id.value)];
+        session
+            .set(
+                solution,
+                &crate::core::mashup::authoring::SetRequest {
+                    mashup: page.name.value.clone(),
+                    widget: dot.clone(),
+                    properties: vec![("ShapeFormatter".into(), snapshot)],
+                    style_from: None,
+                    styles: vec![],
+                },
+            )
+            .map_err(|e| Error::at(state.referenced, e))?;
+    }
     if matches!(node, Node::Chart(_)) && b.chart_kind.as_deref() == Some("combo") {
         // The recipe names every numeric column; the spec picks the series and their drawing.
+        let series: Vec<_> = b
+            .series
+            .iter()
+            .map(|s| {
+                (
+                    s.value.field.clone(),
+                    s.value.kind.clone(),
+                    s.value.title.clone(),
+                    s.value.axis.as_ref().map(|a| a.value.clone()),
+                )
+            })
+            .collect();
         let path = session
             .document
             .find_exact(id)
             .map_err(|e| Error::at(loc, e))?
             .path;
-        let mut properties = vec![("NumberOfSeries".to_string(), json!(b.series.len()))];
-        for (index, series) in b.series.iter().enumerate() {
-            let n = index + 1;
-            properties.push((format!("DataField{n}"), json!(series.value.field)));
-            properties.push((format!("Series{n}Type"), json!(series.value.kind)));
-        }
-        for n in b.series.len() + 1..=8 {
-            let key = format!("DataField{n}");
-            let named = session.document.at(&path)["Properties"][key.as_str()]
-                .as_str()
-                .is_some_and(|field| !field.is_empty());
-            if named {
-                properties.push((key, json!("")));
-            }
-        }
+        let properties = crate::core::mashup::authoring::combo_props(
+            &series,
+            &session.document.at(&path)["Properties"],
+        );
         session
             .set(
                 solution,
@@ -821,25 +1449,7 @@ pub(super) fn finish_layout(
         }
         grows
     }
-    fn height_floor(widget: &serde_json::Value) -> u32 {
-        let props = &widget["Properties"];
-        let minimum = props["flex-min-height"]
-            .as_str()
-            .and_then(|s| s.strip_suffix("px"))
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(0);
-        let heights = widget["Widgets"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .map(height_floor);
-        let content = if props["flex-direction"] == "row" || props["Type"] == "ptcstabset" {
-            heights.max().unwrap_or(0)
-        } else {
-            heights.fold(0u32, u32::saturating_add)
-        };
-        minimum.max(content)
-    }
+    use layout::height_floor;
     fn finish(
         session: &mut crate::core::mashup::authoring::session::Session,
         page: &Page,
@@ -870,6 +1480,15 @@ pub(super) fn finish_layout(
             }
             session.document.at_mut(&path)["Widgets"] = json!(charts);
         }
+        if session.document.at(&path)["Properties"]["Type"] == "flexcontainer"
+            && matches!(
+                body.size.as_ref().map(|s| &s.value),
+                Some(super::schema::Size::Fit)
+            )
+        {
+            // Placement can leave a fixed row height computed before its cards have content.
+            patch(&mut session.document, &path, "page-content-height");
+        }
         if matches!(node, Node::FilterPanel(_)) {
             let standalone = body.children.iter().all(|n| {
                 body.footer
@@ -884,7 +1503,10 @@ pub(super) fn finish_layout(
                 .collect();
             for slot in slots {
                 if slot.display_name == "filters" {
-                    patch(&mut session.document, &slot.path, "page-content-height");
+                    patch(&mut session.document, &slot.path, "page-filter-fields");
+                }
+                if slot.display_name == "filter-footer" {
+                    patch(&mut session.document, &slot.path, "page-filter-footer");
                 }
                 if standalone
                     && (slot.display_name == "content"
@@ -1013,6 +1635,38 @@ pub(super) fn finish_layout(
                 session.document.set_property(&path, key, value);
             }
         }
+        if matches!(node, Node::DetailPair(_)) && body.state.is_some() {
+            // Responsive placement isolates the fixed mark in a zero-height branch.
+            let dot = session
+                .document
+                .find_exact(&ids[&format!("{}--dot", body.id.value)])
+                .map_err(|e| Error::at(body.id.referenced, e))?;
+            let mark = session.document.at(&dot.path).clone();
+            let mut members = vec![];
+            for role in ["caption", "spacer", "value"] {
+                let child = session
+                    .document
+                    .find_exact(&ids[&format!("{}--{role}", body.id.value)])
+                    .map_err(|e| Error::at(body.id.referenced, e))?;
+                let mut member = session
+                    .document
+                    .at(if role == "spacer" {
+                        &child.path
+                    } else {
+                        &child.path[..child.path.len() - 1]
+                    })
+                    .clone();
+                if role == "caption" {
+                    member["Widgets"]
+                        .as_array_mut()
+                        .expect("caption widgets")
+                        .insert(0, mark.clone());
+                    member["Properties"]["flex-min-height"] = json!("12px");
+                }
+                members.push(member);
+            }
+            session.document.at_mut(&path)["Widgets"] = json!(members);
+        }
         let widget = session
             .document
             .find_exact(&ids[&body.id.value])
@@ -1035,7 +1689,10 @@ pub(super) fn finish_layout(
             body.size.as_ref().map(|s| &s.value),
             Some(super::schema::Size::Fill)
         ) || (body.size.is_none()
-            && matches!(node, Node::Grid(_) | Node::Chart(_) | Node::Tabs(_)))
+            && matches!(
+                node,
+                Node::Grid(_) | Node::Chart(_) | Node::Tabs(_) | Node::Collection(_)
+            ))
             || body.weight.is_some();
         if fill {
             patch(&mut session.document, &sizing, "page-fill");
@@ -1063,7 +1720,25 @@ pub(super) fn finish_layout(
         {
             patch(&mut session.document, &sizing, "page-panel-width");
         }
-        if matches!(node, Node::Chart(_)) {
+        if node.widget()? == "ptcschartline"
+            && matches!(
+                body.size.as_ref().map(|s| &s.value),
+                Some(super::schema::Size::Fixed(_))
+            )
+        {
+            patch(&mut session.document, &sizing, "page-content-height");
+            if let Some(super::schema::Size::Fixed(px)) = body.size.as_ref().map(|s| &s.value) {
+                session
+                    .document
+                    .set_property(&sizing, "flex-size", json!("fixed"));
+                session
+                    .document
+                    .set_property(&sizing, "flex-min-height", json!(format!("{px}px")));
+                session
+                    .document
+                    .set_property(&sizing, "flex-max-height", json!(format!("{px}px")));
+            }
+        } else if matches!(node, Node::Chart(_)) {
             let minimum = height_floor(session.document.at(&sizing)).max(240);
             patch(&mut session.document, &sizing, "page-chart-minimum");
             session.document.set_property(
@@ -1112,36 +1787,7 @@ pub(super) fn finish_layout(
     for node in page.slots.values().flat_map(|s| &s.value) {
         finish(session, page, node, ids)?;
     }
-    let mut containers: Vec<_> = session
-        .document
-        .widgets()
-        .into_iter()
-        .filter(|w| w.type_id == "flexcontainer")
-        .collect();
-    containers.sort_by_key(|w| std::cmp::Reverse(w.path.len()));
-    for container in containers {
-        let floor = height_floor(session.document.at(&container.path));
-        let fixed = session.document.at(&container.path)["Properties"]["flex-size"] == "fixed";
-        patch(&mut session.document, &container.path, "page-overflow");
-        if !fixed && floor > 0 && container.path.len() > 1 {
-            session.document.set_property(
-                &container.path,
-                "flex-min-height",
-                json!(format!("{floor}px")),
-            );
-        }
-    }
-    let roots: Vec<_> = session
-        .document
-        .widgets()
-        .into_iter()
-        .filter(|w| w.path.len() == 1 && w.type_id == "flexcontainer")
-        .collect();
-    for root in roots {
-        session
-            .document
-            .set_property(&root.path, "ShowVerticalScrollbar", json!(true));
-    }
+    layout::finish_page(&mut session.document);
     fn overrides(
         document: &mut MashupDocument,
         node: &Node,

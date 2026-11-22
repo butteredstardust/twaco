@@ -6,6 +6,101 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+- Add embedded and solution YAML page components with typed props, composition, kit provenance,
+  offline data contracts, `components list|show`, and shared `mashup recipe component` authoring (CLI/MCP).
+- Add offline `mashup spec` (CLI/MCP): a mashup built from a spec returns its `page.yaml`, naming
+  the hand-edited widgets when it no longer matches its baseline; any other mashup gets a readable
+  YAML spec of elements (rows, columns, grids, charts, panels, tabs, collections, services with
+  bindings and triggers) with raw `widget:` nodes holding only non-default properties, and a
+  coverage report of element and raw nodes by type.
+
+### Changed
+
+- V1 filter panels follow the kit exports: direct controls in one growing fields column,
+  with a footer containing the divider and `LastContainer` button row. Spec and command
+  additions share the structure. Remove trailing remaining-space fillers and estimated filter
+  row totals; side-panel tabs and main grid/collection rows use the kit's remaining-height
+  containers. Legacy layout output is unchanged.
+
+- Ordinary `mashup new` creations now default to v1 layout rules in CLI and MCP.
+  Pass `--rules legacy` (MCP `rules: "legacy"`) to opt out. Existing mashups keep
+  their stored rule set for add, set and recipe edits; no `twacoPageRules` marker
+  means legacy. Copies preserve their source rules; gadgets and masters are unchanged.
+
+### Added
+
+- Page specs gain the elements of the kit's Compare and Administrator pages: `side_panel`
+  (276px grey column with a title, help icon and one-tab strip), `list` (native list with
+  `selection: multiple`, whose rows feed another list through `<list>.selected`), `collection`
+  (a cell mashup and field map, or a generated KPI cell page `<page>Cell_MU` kept in sync beside
+  the page), `nav_menu`, `empty: <text>` on lists, collections and grids, `info` icons on
+  labels, headings and page headers, `icon: search` on text fields, and `title` and
+  `collapsible` on `filter_panel`. A page may declare `parameters` and bind `{bind: param.Name}`.
+- Command-mode parity for them: `recipe side-panel`, `recipe empty-state`,
+  `recipe picker --multiple`, and the existing `mashup collection add`, `recipe collapsible
+  --tab inside` and `mashup new --param` run the same code. CLI and MCP expose the same options.
+- Benchmarks L and M as specs with offline Acme fixtures and goldens.
+- Command page-spec parity: `mashup new --rules v1` shares page scrolling and filter
+  footer layout, `recipe columns --auto-select-first` selects the first grid row,
+  `recipe chart --series field:kind[:axis]` configures combo secondary axes and compact
+  legends, and `recipe sparkline` adds the same 40px native trend chart. CLI and MCP
+  expose the same options; legacy layout output is unchanged.
+
+- Page specs gain the elements of the kit's inputs gallery and a web-page layout: `card_grid`
+  (equal rows and cells that fill the page), `card` with `align: center` (the kit section: a
+  fixed 40px title row over a centred `LastContainer` body), `block` (a coloured KPI card),
+  `heading` with `size: sm|md|lg|display` and `highlight`, `text`, `page_header` with
+  `color: primary`, `text_field` with `variant: rounded|focus-background|focus-glow|focus-underline`
+  (native text box style parts), and `style: {background, color, border, font}` on label,
+  heading, text, block and chart. Benchmarks P and S as specs with offline Acme fixtures and
+  goldens; S has no theme or tokens yet.
+- Command-mode parity for them: `recipe section`, `recipe card-grid`, `recipe input-variant`,
+  and `mashup set --style` accepting the colour names (`primary`, `ink`, `lime`, `pink`,
+  `purple`, `orange`, `mint`) and `font-family=mono|sans`. CLI and MCP expose the same options.
+
+- Page specs support combo-chart series with `title` and `axis: secondary`, 40px trend-tile
+  sparklines (`sparkline: {data, field, x}`), StateDefinition detail dots (`state`), and grid
+  `auto_select` with first-row selection by default for selection-bound details.
+
+### Fixed
+
+- Titled collapsible filter columns keep full-width fields stacked at the top. Inner row
+  styles no longer apply the fixed row height as a horizontal flex basis. A trailing growing
+  filler takes spare height before platform bounding-box auto margins can spread fixed rows;
+  the shared v1 spec and command helper also covers card stacks, side-panel content and
+  navigation columns without growing children. Existing widget IDs and the pinned filter
+  footer are preserved; legacy output is unchanged.
+- Page builds refresh generated collection cells while their files match the recorded
+  hashes. Edited or untracked cells are preserved with `cell edited, not regenerated` in
+  CLI and MCP reports.
+
+- Compare and Administrator page layouts constrain side-panel and filter text fields to
+  their inner column width. Empty lists hide their bordered row and show a centred,
+  content-height eye-icon notice. Card collections start without a selection, and
+  uncaptioned v1 KPI dials no longer show Composer's placeholder label. These fixes
+  share command and spec authoring code.
+- Administrator navigation uses compact 14px semibold items with full-width selection
+  backgrounds. Filter rows keep explicit content heights under a title and collapsible
+  toggle, with spare space above the footer, in spec and command builds.
+
+- State dots (page-spec `detail_pair state` and `label-pairs --status --status-state`) name the
+  bound source field in the shape's formatter; the runtime evaluates it against that field, so
+  the dot no longer renders black.
+- v1 filter panel: the footer keeps a horizontal margin only (a vertical margin clipped its 34px
+  buttons), and the fields area keeps the height its rows need, scrolling only when the column
+  is capped below it. Sparklines also drop the marker allowance and loading placeholder.
+- State-bound detail dots share the caption container instead of a zero-height
+  placement branch. Page and recipe sparklines clear native axis allowances, title/legend/notes
+  and zoom regions at 40px. v1 filter columns stay within the viewport; only overflowing fields
+  scroll, keeping Apply/Reset visible on short screens. Legacy layout output is unchanged.
+
+- Page sparklines override the chart theme minimum and padding at 40px and bind service rows
+  directly. Content-fit detail-card rows clear generated height caps; combo legends disable axis grouping.
+
+- v1 page content propagates its minimum height through the center container without giving it
+  an inner scrollbar, keeping pagination reachable by page scrolling. Filter fields start at
+  the top and action footers remain at the bottom. Legacy layout output is unchanged.
+
 ## [0.1.73] - 2026-11-21
 
 ### Changed
@@ -706,7 +801,7 @@ All notable changes to twaco are recorded here. The format follows
   VARIANT defaults and nested INFOTABLE cells compare as the server stores them. Run
   `twaco entity status --all --record` once to record the new baselines.
 - A TIMESPAN property default is sent in the form an import reads (`start,end,period`) even when
-  the file holds the form the server exports (`{period=…, start=…, end=…}`), which an import
+  the file holds the form the server exports (`{period=Ă˘â‚¬Â¦, start=Ă˘â‚¬Â¦, end=Ă˘â‚¬Â¦}`), which an import
   misreads: before this, deploying a pulled TIMESPAN default reset or garbled it.
   `thing property add --default` accepts a TIMESPAN. A VARIANT default stays refused: a 10.2
   server imports it once and then fails every later import of the entity.
@@ -1847,7 +1942,7 @@ All notable changes to twaco are recorded here. The format follows
 - A server error quoted the request's address as written, so credentials put into a profile's
   `url` (`https://user:token@host/`) could be printed, in its message and its debug form; both
   now show `***` there, and a reply echoing them is scrubbed.
-- Backup files were named by the low byte of each character, so `Café` and `Cafǩ` shared one file
+- Backup files were named by the low byte of each character, so `CafÄ‚Â©` and `CafĂ‡Â©` shared one file
   and a restore lost one of them. A set's `backup.json` now records each entity's file, unique
   even where case is not told apart and cut to a safe length; sets saved before still restore.
 - `repo pull` wrote two server files whose paths differ only in case (`A.txt`, `a.txt`) to one

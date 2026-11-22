@@ -36,6 +36,7 @@ fn request(name: &str) -> NewRequest {
         name: name.to_string(),
         project: None,
         template: "blank".into(),
+        rules: None,
         gadget: false,
         layout: None,
         primary_menu: None,
@@ -48,6 +49,13 @@ fn request(name: &str) -> NewRequest {
         tabs: Vec::new(),
         from: None,
         replacements: Vec::new(),
+    }
+}
+
+fn legacy_request(name: &str) -> NewRequest {
+    NewRequest {
+        rules: Some("legacy".into()),
+        ..request(name)
     }
 }
 
@@ -1515,7 +1523,7 @@ fn bind_fixture() -> (tempfile::TempDir, Solution) {
         r#"<Entities><DataShapes><DataShape name="Acme.Orders.Order_DS" projectName="Acme"><FieldDefinitions><FieldDefinition name="id" baseType="LONG"/><FieldDefinition name="note" baseType="STRING"/></FieldDefinitions></DataShape></DataShapes></Entities>"#,
     );
     let name = "Acme.Orders_MU";
-    let new = plan_new(&solution, &request(name)).unwrap();
+    let new = plan_new(&solution, &legacy_request(name)).unwrap();
     apply_new(&solution, &new, &lock(&solution)).unwrap();
     // This fixture deliberately models the older direct-child layout.  Its wiring tests name
     // stable ids; placement behaviour itself is covered by the focused layout tests below.
@@ -2725,7 +2733,7 @@ fn container(value: &Value) -> &Value {
 
 fn contained_fixture() -> (tempfile::TempDir, Solution) {
     let (dir, solution) = one_project();
-    let mut child = request("Acme.Card_MU");
+    let mut child = legacy_request("Acme.Card_MU");
     child.params = vec![
         "id:LONG:IN".into(),
         "title:STRING:BOTH".into(),
@@ -2739,7 +2747,7 @@ fn contained_fixture() -> (tempfile::TempDir, Solution) {
     .unwrap();
     apply_new(
         &solution,
-        &plan_new(&solution, &request("Acme.Board_MU")).unwrap(),
+        &plan_new(&solution, &legacy_request("Acme.Board_MU")).unwrap(),
         &lock(&solution),
     )
     .unwrap();
@@ -9313,7 +9321,7 @@ fn collection_add_cards_preset_writes_the_kit_card_collection() {
         ("LeftPadding", json!(15)),
         ("RightPadding", json!(24)),
         ("SelectionMode", json!("single")),
-        ("AutoSelectFirstRow", json!(true)),
+        ("AutoSelectFirstRow", json!(false)),
         // The distribution itself is the catalogue's, which the kit keeps.
         ("Layout", json!("flex")),
         ("RowHorizontalAlignment", json!("space-evenly")),
@@ -12823,6 +12831,7 @@ fn gadget_sizes_match_xml_and_export_content() {
 fn gadget_refuses_incompatible_options_and_invalid_sizes() {
     let (_dir, solution) = one_project();
     let base = NewRequest {
+        rules: None,
         gadget: true,
         ..request("Acme.Gadget")
     };
@@ -12933,6 +12942,7 @@ fn legacy_gadget_folder_and_wrapper_are_distinct_and_diagnosed() {
     let plan = plan_new(
         &solution,
         &NewRequest {
+            rules: None,
             gadget: true,
             ..request("Acme.Gadget")
         },
@@ -13381,12 +13391,18 @@ fn detail_status_uses_shape_data_and_existing_state_snapshot() {
         .collect();
     assert_eq!(dots.len(), 7);
     for dot in dots {
+        let siblings = document.at(&dot.path[..dot.path.len() - 1])["Widgets"]
+            .as_array()
+            .unwrap();
+        assert!(siblings
+            .iter()
+            .any(|w| w["Properties"]["Type"] == "ptcslabel"));
         let p = &document.at(&dot.path)["Properties"];
         assert_eq!(p["ShapeType"], "circle");
         assert_eq!(p["Width"], 12);
         assert_eq!(p["Height"], 12);
         assert_eq!(p["Margin"], "0 5");
-        assert_eq!(p["ShapeFormatter"]["FieldName"], "Data");
+        assert_eq!(p["ShapeFormatter"]["FieldName"], "assetName");
         assert_eq!(p["ShapeFormatter"]["StateDefinition"], "Acme.Status");
         assert!(document.value()["DataBindings"]
             .as_array()
@@ -14614,4 +14630,98 @@ fn card_recipe_builds_one_bordered_box_with_caption_value_and_status() {
         ..args
     };
     assert!(recipe(&solution, "card", bad).is_err());
+}
+
+#[test]
+fn collapsible_filter_column_stacks_titled_fields_at_full_width() {
+    let (_dir, solution) = one_project();
+    let name = "Acme.Orders_MU";
+    let new = NewRequest {
+        template: "filter-panel".into(),
+        rules: Some("v1".into()),
+        ..request(name)
+    };
+    apply_new(
+        &solution,
+        &plan_new(&solution, &new).unwrap(),
+        &lock(&solution),
+    )
+    .unwrap();
+    let mut controls = Vec::new();
+    for widget in ["label", "textfield", "textfield", "dropdown"] {
+        let mut add = add_request(name, widget);
+        add.placement = Some(Placement::In("filters".into()));
+        let plan = plan_add(&solution, &add).unwrap();
+        apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+        controls.push(plan.placed.id);
+    }
+    recipe(
+        &solution,
+        "collapsible",
+        RecipeArgs {
+            widget: Some("filter-column".into()),
+            tab: Some("inside".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let document = mashup::edit::parse(&sidecar_content(&solution)).unwrap();
+    let filters = document.find("filters").unwrap();
+    for id in controls {
+        let field = document.find_exact(&id).unwrap();
+        assert_eq!(&field.path[..field.path.len() - 1], filters.path);
+    }
+    let footer = document.find("filter-footer").unwrap();
+    assert_eq!(
+        document.at(&footer.path)["Properties"]["LastContainer"],
+        true
+    );
+    assert_eq!(
+        document.at(&filters.path)["Widgets"]
+            .as_array()
+            .unwrap()
+            .len(),
+        4
+    );
+    assert!(!document.to_content().contains("--remaining-space"));
+    let mut repeated = document;
+    let before = repeated.to_content();
+    mashup::layout::finish_page(&mut repeated);
+    assert_eq!(repeated.to_content(), before);
+    let mut bottom = add_request(name, "button");
+    bottom.placement = Some(Placement::Bottom("filters".into()));
+    let plan = plan_add(&solution, &bottom).unwrap();
+    let doc =
+        mashup::edit::parse(&mashup::extract(&plan.edit.entity_after).unwrap().content).unwrap();
+    let button = doc.find_exact(&plan.placed.id).unwrap();
+    assert_eq!(
+        doc.at(&button.path[..button.path.len() - 1])["Properties"]["DisplayName"],
+        "filter-footer"
+    );
+    assert_eq!(
+        doc.at(&doc.find("filters").unwrap().path)["Widgets"]
+            .as_array()
+            .unwrap()
+            .len(),
+        4
+    );
+}
+
+#[test]
+fn style_values_accept_the_colour_and_font_names_the_page_specs_use() {
+    let parse = |text: &str| set::parse_style(text).unwrap().value;
+    assert_eq!(parse("label:color=primary"), "#0088CE");
+    assert_eq!(parse("background=lime"), "#CCFF00");
+    assert_eq!(parse("button@hover:border-color=pink"), "#FF2E93");
+    assert!(parse("label:font-family=mono").contains("monospace"));
+    // Other values, and names in other properties, are kept as written.
+    assert_eq!(parse("background=#abcdef"), "#abcdef");
+    assert_eq!(parse("background=rgba(0,0,0,0.5)"), "rgba(0,0,0,0.5)");
+    assert_eq!(parse("content=lime"), "lime");
+    assert_eq!(colour("ink").unwrap(), "#0B0B0B");
+    assert!(colour("teal").unwrap_err().contains("unknown colour"));
+    assert!(colour("#12").is_err());
+    let variants = input_variant_styles("rounded").unwrap();
+    assert_eq!(variants, ["text-box:border-radius=20px"]);
+    assert!(input_variant_styles("flat").is_none());
 }

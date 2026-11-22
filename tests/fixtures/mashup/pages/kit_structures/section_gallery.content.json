@@ -1,0 +1,261 @@
+{
+ "Data": {},
+ "DataBindings": [],
+ "Events": [],
+ "UI": {
+  "Properties": {
+   "Id": "mashup-root",
+   "Type": "mashup"
+  },
+  "Widgets": [
+   {
+    "Properties": {
+     "Id": "flexcontainer-2",
+     "Type": "flexcontainer",
+     "CustomClass": "acme_Gallery",
+     "flex-direction": "column",
+     "flex-grow": 1
+    },
+    "Widgets": [
+     {
+      "Properties": {
+       "Id": "flexcontainer-4",
+       "Type": "flexcontainer",
+       "flex-min-height": "40px",
+       "align-items": "center",
+       "flex-direction": "row",
+       "flex-grow": 1
+      },
+      "Widgets": [
+       {
+        "Properties": {
+         "Id": "ptcslabel-18",
+         "Type": "ptcslabel",
+         "LabelType": "header",
+         "LabelText": "Inputs"
+        }
+       }
+      ]
+     },
+     {
+      "Properties": {
+       "Id": "flexcontainer-3",
+       "Type": "flexcontainer",
+       "flex-direction": "row",
+       "flex-grow": 1
+      },
+      "Widgets": [
+       {
+        "Properties": {
+         "Id": "flexcontainer-6",
+         "Type": "flexcontainer",
+         "CustomClass": "acme_Section",
+         "flex-direction": "column",
+         "flex-grow": 1
+        },
+        "Widgets": [
+         {
+          "Properties": {
+           "Id": "flexcontainer-106",
+           "Type": "flexcontainer",
+           "flex-min-height": "40px",
+           "align-items": "center",
+           "flex-direction": "row",
+           "flex-grow": 1
+          },
+          "Widgets": [
+           {
+            "Properties": {
+             "Id": "ptcslabel-206",
+             "Type": "ptcslabel",
+             "LabelType": "sub-header",
+             "LabelText": "Standard input"
+            }
+           }
+          ]
+         },
+         {
+          "Properties": {
+           "Id": "flexcontainer-306",
+           "Type": "flexcontainer",
+           "justify-content": "center",
+           "align-items": "center",
+           "flex-direction": "row",
+           "flex-grow": 1
+          },
+          "Widgets": [
+           {
+            "Properties": {
+             "Id": "ptcstextfield-44",
+             "Type": "ptcstextfield"
+            }
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "Properties": {
+         "Id": "flexcontainer-7",
+         "Type": "flexcontainer",
+         "CustomClass": "acme_Section",
+         "flex-direction": "column",
+         "flex-grow": 1
+        },
+        "Widgets": [
+         {
+          "Properties": {
+           "Id": "flexcontainer-107",
+           "Type": "flexcontainer",
+           "flex-min-height": "40px",
+           "align-items": "center",
+           "flex-direction": "row",
+           "flex-grow": 1
+          },
+          "Widgets": [
+           {
+            "Properties": {
+             "Id": "ptcslabel-207",
+             "Type": "ptcslabel",
+             "LabelType": "sub-header",
+             "LabelText": "Rounded input"
+            }
+           }
+          ]
+         },
+         {
+          "Properties": {
+           "Id": "flexcontainer-307",
+           "Type": "flexcontainer",
+           "justify-content": "center",
+           "align-items": "center",
+           "flex-direction": "row",
+           "flex-grow": 1
+          },
+          "Widgets": [
+           {
+            "Properties": {
+             "Id": "ptcstextfield-45",
+             "Type": "ptcstextfield"
+            }
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "Properties": {
+       "Id": "flexcontainer-5",
+       "Type": "flexcontainer",
+       "flex-direction": "row",
+       "flex-grow": 1
+      },
+      "Widgets": [
+       {
+        "Properties": {
+         "Id": "flexcontainer-8",
+         "Type": "flexcontainer",
+         "CustomClass": "acme_Section",
+         "flex-direction": "column",
+         "flex-grow": 1
+        },
+        "Widgets": [
+         {
+          "Properties": {
+           "Id": "flexcontainer-108",
+           "Type": "flexcontainer",
+           "flex-min-height": "40px",
+           "align-items": "center",
+           "flex-direction": "row",
+           "flex-grow": 1
+          },
+          "Widgets": [
+           {
+            "Properties": {
+             "Id": "ptcslabel-208",
+             "Type": "ptcslabel",
+             "LabelType": "sub-header",
+             "LabelText": "With icon"
+            }
+           }
+          ]
+         },
+         {
+          "Properties": {
+           "Id": "flexcontainer-308",
+           "Type": "flexcontainer",
+           "justify-content": "center",
+           "align-items": "center",
+           "flex-direction": "row",
+           "flex-grow": 1
+          },
+          "Widgets": [
+           {
+            "Properties": {
+             "Id": "ptcstextfield-46",
+             "Type": "ptcstextfield",
+             "Icon": "cds:icon_search"
+            }
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "Properties": {
+         "Id": "flexcontainer-9",
+         "Type": "flexcontainer",
+         "CustomClass": "acme_Section",
+         "flex-direction": "column",
+         "flex-grow": 1
+        },
+        "Widgets": [
+         {
+          "Properties": {
+           "Id": "flexcontainer-109",
+           "Type": "flexcontainer",
+           "flex-min-height": "40px",
+           "align-items": "center",
+           "flex-direction": "row",
+           "flex-grow": 1
+          },
+          "Widgets": [
+           {
+            "Properties": {
+             "Id": "ptcslabel-209",
+             "Type": "ptcslabel",
+             "LabelType": "sub-header",
+             "LabelText": "Date"
+            }
+           }
+          ]
+         },
+         {
+          "Properties": {
+           "Id": "flexcontainer-309",
+           "Type": "flexcontainer",
+           "justify-content": "center",
+           "align-items": "center",
+           "flex-direction": "row",
+           "flex-grow": 1
+          },
+          "Widgets": [
+           {
+            "Properties": {
+             "Id": "ptcsdatepicker-47",
+             "Type": "ptcsdatepicker"
+            }
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ }
+}

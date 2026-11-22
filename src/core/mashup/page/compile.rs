@@ -21,6 +21,16 @@ pub(crate) struct Artifacts {
     pub(crate) content: String,
     pub(crate) css: String,
     pub(crate) ids: BTreeMap<String, String>,
+    /// Pages the spec generates for its collections, created beside it when absent.
+    pub(crate) cells: Vec<GeneratedCell>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct GeneratedCell {
+    pub(crate) name: String,
+    /// The page spec that built it; written as the cell's own `page.yaml`.
+    pub(crate) spec: String,
+    pub(crate) artifacts: Artifacts,
 }
 
 pub(crate) fn compile(solution: &Solution, project: &str, text: &str) -> Result<Artifacts, Error> {
@@ -28,7 +38,7 @@ pub(crate) fn compile(solution: &Solution, project: &str, text: &str) -> Result<
 }
 
 fn compile_nested(solution: &Solution, project: &str, text: &str) -> Result<Artifacts, Error> {
-    let spec = schema::parse(text)?;
+    let spec = schema::parse_solution(text, solution)?;
     let page = &spec.page.value;
     if solution.project(project).is_none() {
         return Err(Error::at(
@@ -50,8 +60,14 @@ fn compile_nested(solution: &Solution, project: &str, text: &str) -> Result<Arti
     })?;
     let mut session = Session::new(&page.name.value, project, &page.template.value, theme)
         .map_err(|e| Error::at(page.template.referenced, e))?;
+    for (name, base_type) in &page.parameters {
+        session
+            .add_parameter(&format!("{name}:{}:IN", base_type.value))
+            .map_err(|e| Error::at(base_type.referenced, e))?;
+    }
     let mut allocator = Ids::new(session.document.widgets().into_iter().map(|w| w.id));
     let mut ids = BTreeMap::new();
+    let mut cells = vec![];
     if let Some(title) = &page.title {
         let parent = match session.document.find("title") {
             Ok(slot) => slot.id,
@@ -168,69 +184,17 @@ fn compile_nested(solution: &Solution, project: &str, text: &str) -> Result<Arti
             )
             .map_err(|e| Error::at(source.service.referenced, e))?;
     }
-    for nodes in page.slots.values() {
-        for node in &nodes.value {
-            wire(
-                solution,
-                &mut session,
-                &model,
-                platform.as_ref(),
-                page,
-                &mut ids,
-                node,
-            )?;
-        }
-    }
-    fn pagers<'a>(node: &'a Node, out: &mut Vec<&'a Node>) {
-        if matches!(node, Node::Pagination(_)) {
-            out.push(node);
-        }
-        for child in descendants(node) {
-            pagers(child, out);
-        }
-    }
-    let mut pagination = vec![];
-    for node in page.slots.values().flat_map(|s| &s.value) {
-        pagers(node, &mut pagination);
-    }
-    for node in pagination {
-        wire_pagination(solution, &mut session, &mut allocator, page, &mut ids, node)?;
-    }
-    fn gated<'a>(node: &'a Node, out: &mut Vec<&'a Node>) {
-        if matches!(node, Node::Button(_)) && node.body().enabled_when.is_some() {
-            out.push(node);
-        }
-        for child in descendants(node) {
-            gated(child, out);
-        }
-    }
-    let mut gates = vec![];
-    for node in page.slots.values().flat_map(|s| &s.value) {
-        gated(node, &mut gates);
-    }
-    for node in gates {
-        wire_enabled(solution, &mut session, &mut allocator, &ids, node)?;
-    }
-    wire_selections(
+    wire_nodes(
         solution,
+        project,
         &mut session,
         &model,
         platform.as_ref(),
         page,
         &mut allocator,
         &mut ids,
+        &mut cells,
     )?;
-    for node in page.slots.values().flat_map(|s| &s.value) {
-        wire_values(
-            solution,
-            &mut session,
-            &model,
-            platform.as_ref(),
-            page,
-            &ids,
-            node,
-        )?;
-    }
     for (alias, source) in &page.data {
         let source = &source.value;
         for (param, value) in &source.params {
@@ -276,6 +240,7 @@ fn compile_nested(solution: &Solution, project: &str, text: &str) -> Result<Arti
         content: session.document.to_content(),
         css: session.css,
         ids,
+        cells,
     })
 }
 
@@ -347,6 +312,9 @@ fn add(
     if matches!(node, Node::Heading(_)) {
         props.push(("LabelType".into(), "header".into()));
     }
+    if matches!(node, Node::Text(_)) {
+        props.push(("LabelType".into(), "body".into()));
+    }
     let (parent, previous) = position;
     let placement = if let Some(anchor) = previous {
         let parent = session
@@ -376,7 +344,7 @@ fn add(
             &authoring::AddRequest {
                 mashup: page.name.value.clone(),
                 widget: node.widget()?.into(),
-                inputs: vec![],
+                inputs: body.inputs.clone(),
                 placement: if is_function(node)? {
                     None
                 } else {
@@ -413,18 +381,30 @@ fn add(
                 container: placed.clone(),
             },
         ),
+        Node::Card(_) if body.align.is_some() => session.recipe(
+            solution,
+            authoring::Recipe::Section {
+                container: placed.clone(),
+                title: body.title.clone().expect("validated title"),
+                center: body.align.as_ref().is_some_and(|a| a.value == "center"),
+            },
+        ),
         Node::Card(_) | Node::TrendTile(_) => session.recipe(
             solution,
             authoring::Recipe::Card {
                 container: placed.clone(),
                 caption: body.title.clone().expect("validated title"),
-                value: body.value.as_ref().map(|v| {
-                    if binding(&v.value).is_some() {
-                        String::new()
-                    } else {
-                        scalar(&v.value)
-                    }
-                }),
+                value: body
+                    .value
+                    .as_ref()
+                    .filter(|_| matches!(node, Node::Card(_)))
+                    .map(|v| {
+                        if binding(&v.value).is_some() {
+                            String::new()
+                        } else {
+                            scalar(&v.value)
+                        }
+                    }),
                 status: body.status.as_ref().map(|v| {
                     if binding(&v.value).is_some() {
                         String::new()
@@ -435,11 +415,23 @@ fn add(
                 kind: body.chart_kind.clone().unwrap_or_else(|| "info".into()),
             },
         ),
-        Node::FilterPanel(_) => session.template_children(&placed, "filter-panel"),
+        Node::FilterPanel(_) => session
+            .template_children(&placed, "filter-panel")
+            .and_then(|()| filter_chevron(solution, session, &placed, body.collapsible)),
+        Node::SidePanel(_) => session.recipe(
+            solution,
+            authoring::Recipe::SidePanel {
+                container: placed.clone(),
+                title: body.title.clone().expect("validated title"),
+                info: body.help.clone(),
+                tab: body.tab.clone().unwrap_or_else(|| "Filters".into()),
+            },
+        ),
         _ => Ok(()),
     }
     .map_err(|e| Error::at(loc, e))?;
-    if matches!(node, Node::Card(_) | Node::TrendTile(_)) {
+    if (matches!(node, Node::Card(_)) && body.align.is_none()) || matches!(node, Node::TrendTile(_))
+    {
         // Kit card titles use the regular label size, not the recipe's sub-header.
         let path = session
             .document
@@ -517,6 +509,54 @@ fn add(
                 target,
             )?;
         }
+    } else if matches!(node, Node::SidePanel(_)) {
+        // The recipe's one tab holds the panel's content.
+        let root = session
+            .document
+            .find_exact(&id)
+            .map_err(|e| Error::at(loc, e))?
+            .path;
+        let tabset = session
+            .document
+            .widgets()
+            .into_iter()
+            .find(|w| w.path.starts_with(&root) && w.type_id == "ptcstabset")
+            .expect("side panel tab strip");
+        let content = session.document.at(&tabset.path)["Widgets"][0]["Properties"]["Id"]
+            .as_str()
+            .expect("side panel tab content")
+            .to_string();
+        add_children(
+            solution,
+            session,
+            allocator,
+            ids,
+            page,
+            &body.children,
+            &content,
+        )?;
+    } else if matches!(node, Node::Card(_)) && body.align.is_some() {
+        // The section recipe's last container is the body its content goes in.
+        let root = session
+            .document
+            .find_exact(&id)
+            .map_err(|e| Error::at(loc, e))?
+            .path;
+        let content = session.document.at(&root)["Widgets"]
+            .as_array()
+            .and_then(|items| items.last())
+            .and_then(|item| item["Properties"]["Id"].as_str())
+            .expect("section body")
+            .to_string();
+        add_children(
+            solution,
+            session,
+            allocator,
+            ids,
+            page,
+            &body.children,
+            &content,
+        )?;
     } else if matches!(node, Node::Tabs(_)) {
         let path = session
             .document
@@ -587,6 +627,50 @@ fn add(
         add_children(solution, session, allocator, ids, page, &body.children, &id)?;
     }
     Ok(id)
+}
+
+/// The filter column's chevron: `collapsible: true` is the collapsible recipe with the tab inside
+/// the column's top-right edge, as the kits draw it; `false` removes the template's chevron.
+fn filter_chevron(
+    solution: &Solution,
+    session: &mut Session,
+    panel: &str,
+    collapsible: Option<bool>,
+) -> Result<(), authoring::AuthoringError> {
+    let Some(collapsible) = collapsible else {
+        return Ok(());
+    };
+    let root = session
+        .document
+        .find_exact(panel)
+        .map_err(authoring::AuthoringError::Edit)?
+        .path;
+    let column = session
+        .document
+        .widgets()
+        .into_iter()
+        .find(|w| w.path.starts_with(&root) && w.display_name == "filter-column")
+        .expect("filter-panel template column");
+    if collapsible {
+        session.recipe(
+            solution,
+            authoring::Recipe::Collapsible {
+                container: column.id,
+                toggle: None,
+                add_toggle_in: None,
+                tab: "inside".into(),
+                collapsed: false,
+            },
+        )
+    } else {
+        for (key, value) in [
+            ("EnableExpandCollapse", json!(false)),
+            ("ShowExpandCollapseTab", json!(false)),
+        ] {
+            session.document.set_property(&column.path, key, value);
+        }
+        Ok(())
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -749,6 +833,7 @@ fn apply_size(
             Size::Fixed(_) => {
                 return Err(Error::at(size.referenced, "fixed size must be above zero"))
             }
+            Size::Sm | Size::Md | Size::Lg | Size::Display => {}
             Size::Fit => sizing.push(("flex-grow".into(), json!(0))),
             Size::Fill => sizing.extend([
                 ("flex-size".into(), json!("range")),
@@ -856,6 +941,20 @@ fn stabilize(
                 format!("divider:{parent_slot}:before:{next_slot}")
             } else if !widget.path.starts_with(&main.path) {
                 format!("wrapper:{child}")
+            } else if widget.path.len() > main.path.len() + 1
+                && session.document.at(&widget.path)["Widgets"]
+                    .as_array()
+                    .is_none_or(Vec::is_empty)
+            {
+                // Leaves nested in a recipe's own containers are told apart by position.
+                format!(
+                    "leaf:{}",
+                    widget.path[main.path.len()..]
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()
+                        .join(".")
+                )
             } else if widget.type_id == "ptcslabel" && widget.path.len() == main.path.len() + 1 {
                 format!(
                     "label:{}",
@@ -964,6 +1063,62 @@ pub(super) fn call(page: &Page, alias: &str) -> String {
     format!("data:{}[as {alias}]", page.data[alias].value.service.value)
 }
 
+fn wire_sparklines(
+    solution: &Solution,
+    session: &mut Session,
+    model: &types::Model,
+    platform: Option<&types::Platform>,
+    page: &Page,
+    ids: &BTreeMap<String, String>,
+    node: &Node,
+) -> Result<(), Error> {
+    let b = node.body();
+    if let Some(sparkline) = &b.sparkline {
+        let loc = sparkline.referenced;
+        let spark = &sparkline.value;
+        let data = spark
+            .data
+            .as_deref()
+            .or_else(|| {
+                b.value
+                    .as_ref()
+                    .and_then(|v| binding(&v.value))
+                    .and_then(|v| v.split_once('.').map(|v| v.0))
+            })
+            .filter(|data| page.data.contains_key(*data))
+            .ok_or_else(|| Error::at(loc, "sparkline needs data naming a page data source"))?;
+        for field in [&spark.x, &spark.field] {
+            let base = session
+                .source_type(
+                    solution,
+                    model,
+                    platform,
+                    &format!("{}.{field}", call(page, data)),
+                )
+                .map_err(|e| Error::at(loc, e))?;
+            if field == &spark.field && !["NUMBER", "INTEGER", "LONG"].contains(&base.as_str()) {
+                return Err(Error::at(
+                    loc,
+                    format!("sparkline field {field} must be numeric"),
+                ));
+            }
+        }
+        session
+            .bind(
+                solution,
+                model,
+                platform,
+                &call(page, data),
+                &format!("ui:{}.Data", ids[&format!("{}--sparkline", b.id.value)]),
+            )
+            .map_err(|e| Error::at(loc, e))?;
+    }
+    for child in descendants(node) {
+        wire_sparklines(solution, session, model, platform, page, ids, child)?;
+    }
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)]
 fn wire_selections(
     solution: &Solution,
@@ -1007,6 +1162,23 @@ fn wire_selections(
             .ok_or_else(|| Error::at(loc, format!("{text} needs a grid with data")))?;
         if field.is_empty() || field.contains('.') {
             return Err(Error::at(loc, format!("{text} needs one field")));
+        }
+        let grid_body = find_grid_body(page, grid).expect("grid with data");
+        let path = session
+            .document
+            .find_exact(&ids[grid])
+            .map_err(|e| Error::at(loc, e))?
+            .path;
+        if !grid_body.props.contains_key("DefaultSelectedRows") {
+            session.document.set_property(
+                &path,
+                "DefaultSelectedRows",
+                json!(if grid_body.auto_select.unwrap_or(true) {
+                    "1"
+                } else {
+                    ""
+                }),
+            );
         }
         let base = session
             .source_type(
@@ -1073,6 +1245,12 @@ pub(super) fn address(
     if text == "load" {
         return Ok("mashup:Loaded".into());
     }
+    if let Some(name) = text
+        .strip_prefix("param.")
+        .filter(|name| page.parameters.contains_key(*name))
+    {
+        return Ok(format!("mashup:{name}"));
+    }
     if page.data.contains_key(text) {
         return Ok(call(page, text));
     }
@@ -1097,10 +1275,10 @@ pub(super) fn address(
     Err(Error::at(loc, format!("unknown reference {text}")))
 }
 
-pub(super) fn find_grid<'a>(page: &'a Page, name: &str) -> Option<&'a str> {
-    fn find<'a>(node: &'a Node, name: &str) -> Option<&'a str> {
+fn find_grid_body<'a>(page: &'a Page, name: &str) -> Option<&'a schema::Body> {
+    fn find<'a>(node: &'a Node, name: &str) -> Option<&'a schema::Body> {
         if matches!(node, Node::Grid(_)) && node.body().id.value == name {
-            return node.body().data.as_ref().map(|d| d.value.as_str());
+            return Some(node.body());
         }
         descendants(node).find_map(|n| find(n, name))
     }
@@ -1108,6 +1286,37 @@ pub(super) fn find_grid<'a>(page: &'a Page, name: &str) -> Option<&'a str> {
         .values()
         .flat_map(|s| &s.value)
         .find_map(|n| find(n, name))
+}
+
+/// A list node with data, by id.
+pub(super) fn find_list<'a>(page: &'a Page, name: &str) -> Option<&'a schema::Body> {
+    fn find<'a>(node: &'a Node, name: &str) -> Option<&'a schema::Body> {
+        if matches!(node, Node::List(_)) && node.body().id.value == name {
+            return Some(node.body());
+        }
+        descendants(node).find_map(|n| find(n, name))
+    }
+    page.slots
+        .values()
+        .flat_map(|s| &s.value)
+        .find_map(|n| find(n, name))
+        .filter(|b| b.data.is_some())
+}
+
+/// What a `data:` field names as a binding source: a declared call, or the selected items of
+/// another list (`<list>.selected`).
+pub(super) fn data_address(page: &Page, ids: &BTreeMap<String, String>, text: &str) -> String {
+    match text.strip_suffix(".selected") {
+        Some(list) => format!("ui:{}.SelectedItems", ids[list]),
+        None => call(page, text),
+    }
+}
+
+pub(super) fn find_grid<'a>(page: &'a Page, name: &str) -> Option<&'a str> {
+    find_grid_body(page, name)?
+        .data
+        .as_ref()
+        .map(|d| d.value.as_str())
 }
 
 fn wire(
@@ -1124,6 +1333,30 @@ fn wire(
         return Ok(());
     }
     let id = &ids[&body.id.value];
+    if let Some(auto) = body.auto_select {
+        if auto && !body.props.contains_key("RowSelection") {
+            let path = session
+                .document
+                .find_exact(id)
+                .map_err(|e| Error::at(body.id.referenced, e))?
+                .path;
+            session
+                .document
+                .set_property(&path, "RowSelection", json!("single"));
+        }
+        if !body.props.contains_key("DefaultSelectedRows") {
+            let path = session
+                .document
+                .find_exact(id)
+                .map_err(|e| Error::at(body.id.referenced, e))?
+                .path;
+            session.document.set_property(
+                &path,
+                "DefaultSelectedRows",
+                json!(if auto { "1" } else { "" }),
+            );
+        }
+    }
     super::elements::wire(solution, session, model, platform, page, ids, node)?;
     if let Some(data) = body.data.as_ref().filter(|_| matches!(node, Node::Grid(_))) {
         let from = call(page, &data.value);
@@ -1151,6 +1384,7 @@ fn wire(
                     .recipe(
                         solution,
                         authoring::Recipe::Columns {
+                            auto_select_first: false,
                             widget: id.clone(),
                             data: None,
                             columns: body
@@ -1234,6 +1468,201 @@ fn wire_enabled(
         &format!("{}--enabled", body.id.value),
         gate.referenced,
     )?;
+    Ok(())
+}
+
+/// A collection: its cell mashup and mapping through the `mashup collection add` code. With
+/// `cell:` the cell is a small page of its own, compiled by this same compiler and written beside
+/// this page; the builder checks ownership before refreshing files on disk.
+#[allow(clippy::too_many_arguments)]
+fn wire_collection(
+    solution: &Solution,
+    project: &str,
+    session: &mut Session,
+    model: &types::Model,
+    platform: Option<&types::Platform>,
+    page: &Page,
+    ids: &BTreeMap<String, String>,
+    cells: &mut Vec<GeneratedCell>,
+    node: &Node,
+) -> Result<(), Error> {
+    use authoring::session::CellSource;
+    let body = node.body();
+    let loc = body.id.referenced;
+    let data = &body.data.as_ref().expect("validated data").value;
+    let source = call(page, data);
+    let (cell, mappings, preset) = if let Some(existing) = &body.mashup {
+        (
+            CellSource::Existing(existing.value.clone()),
+            body.map
+                .iter()
+                .map(|(field, parameter)| (field.clone(), parameter.value.clone()))
+                .collect(),
+            body.preset.as_ref().map(|p| p.value.clone()),
+        )
+    } else {
+        let spec = body.cell.as_ref().expect("validated cell");
+        let base = page
+            .name
+            .value
+            .strip_suffix("_MU")
+            .unwrap_or(&page.name.value);
+        let name = format!("{base}Cell_MU");
+        let mut fields = vec![];
+        for (field, role) in [
+            (spec.value.title.as_ref(), "title"),
+            (spec.value.kpi_dial.as_ref(), "kpi_dial"),
+        ] {
+            let Some(field) = field else { continue };
+            let base_type = session
+                .source_type(solution, model, platform, &format!("{source}.{field}"))
+                .map_err(|e| Error::at(spec.referenced, e))?;
+            if role == "kpi_dial" && !["NUMBER", "INTEGER", "LONG"].contains(&base_type.as_str()) {
+                return Err(Error::at(
+                    spec.referenced,
+                    format!("cell kpi_dial field {field} must be numeric"),
+                ));
+            }
+            fields.push((role, field.clone(), base_type));
+        }
+        if fields.is_empty() {
+            return Err(Error::at(spec.referenced, "cell needs title or kpi_dial"));
+        }
+        let mappings = fields
+            .iter()
+            .map(|(_, f, _)| (f.clone(), f.clone()))
+            .collect();
+        let text = cell_spec(page, &name, &fields);
+        let built = compile_nested(solution, project, &text)?;
+        let cell = CellSource::Generated {
+            name: name.clone(),
+            entity: built.entity.clone(),
+            content: built.content.clone(),
+            css: built.css.clone(),
+        };
+        if !cells.iter().any(|c| c.name == name) {
+            cells.push(GeneratedCell {
+                name,
+                spec: text,
+                artifacts: built,
+            });
+        }
+        (cell, mappings, Some("cards".to_string()))
+    };
+    let cell_name = match &cell {
+        CellSource::Existing(name) | CellSource::Generated { name, .. } => name.clone(),
+    };
+    let preset = match preset.as_deref() {
+        None => None,
+        Some("cards") => Some(authoring::CollectionPreset::Cards),
+        Some(_) => return Err(Error::at(loc, "preset is cards")),
+    };
+    session
+        .collection(
+            solution,
+            &authoring::CollectionAddRequest {
+                mashup: page.name.value.clone(),
+                cell: cell_name,
+                data: source,
+                mappings,
+                uid: None,
+                width: None,
+                height: None,
+                columns: body.per_row.as_ref().map(|n| n.value),
+                across: body.across.as_ref().map(|n| n.value),
+                preset,
+                menu: None,
+                placement: None,
+            },
+            &cell,
+            &ids[&body.id.value],
+        )
+        .map_err(|e| Error::at(loc, e))
+}
+
+/// The page spec of a generated KPI cell: a title over a dial, each bound to a parameter.
+// CompareCell has image, text-pair and status bands, but no kit has a title/dial-only cell.
+// Keep the KPI template for those two roles; its growing value uses the kit's LastContainer.
+fn cell_spec(page: &Page, name: &str, fields: &[(&str, String, String)]) -> String {
+    let parameters: serde_json::Map<_, _> = fields
+        .iter()
+        .map(|(_, field, base)| (field.clone(), json!(base)))
+        .collect();
+    let mut slots = serde_json::Map::new();
+    for (role, field, _) in fields {
+        let (slot, widget) = if *role == "title" {
+            (
+                "title",
+                json!({"label": {"id": "title", "props": {"LabelText": {"bind": format!("param.{field}")}}}}),
+            )
+        } else {
+            (
+                "value",
+                json!({"kpi_dial": {"id": "dial", "value": {"bind": format!("param.{field}")}}}),
+            )
+        };
+        slots.insert(slot.into(), json!([widget]));
+    }
+    let mut spec = json!({"version": 1, "rules": "v1", "page": {
+        "name": name, "template": "kpi-tile", "parameters": parameters, "slots": slots}});
+    if let Some(theme) = &page.theme {
+        spec["page"]["theme"] = json!(theme.value);
+    }
+    serde_json::to_string_pretty(&spec).expect("spec json")
+        + "
+"
+}
+
+/// `empty: <text>`: the empty-state recipe. A list has no such property, so the recipe adds a
+/// notice beside it, which takes stable ids like every other generated widget.
+fn wire_empty(
+    solution: &Solution,
+    session: &mut Session,
+    allocator: &mut Ids,
+    page: &Page,
+    ids: &BTreeMap<String, String>,
+    node: &Node,
+) -> Result<(), Error> {
+    let body = node.body();
+    let loc = body.id.referenced;
+    let text = body.empty.clone().expect("empty text");
+    let data = body
+        .data
+        .as_ref()
+        .map(|d| data_address(page, ids, &d.value));
+    let old: BTreeSet<_> = session
+        .document
+        .widgets()
+        .into_iter()
+        .map(|w| w.id)
+        .collect();
+    session
+        .recipe(
+            solution,
+            authoring::Recipe::EmptyState {
+                widget: ids[&body.id.value].clone(),
+                text,
+                data,
+            },
+        )
+        .map_err(|e| Error::at(loc, e))?;
+    if matches!(node, Node::List(_)) {
+        let placed = session
+            .document
+            .widgets()
+            .into_iter()
+            .find(|w| !old.contains(&w.id) && w.type_id == "ptcsbutton")
+            .expect("empty-state adds its notice")
+            .id;
+        stabilize(
+            session,
+            allocator,
+            &old,
+            &placed,
+            &format!("{}--empty", body.id.value),
+            loc,
+        )?;
+    }
     Ok(())
 }
 
@@ -1327,6 +1756,320 @@ fn wire_values(
     }
     for child in descendants(node) {
         wire_values(solution, session, model, platform, page, ids, child)?;
+    }
+    Ok(())
+}
+
+fn validate_contracts(
+    solution: &Solution,
+    session: &mut Session,
+    model: &types::Model,
+    platform: Option<&types::Platform>,
+    page: &Page,
+) -> Result<(), Error> {
+    for contract in &page.contracts {
+        if !page.data.contains_key(&contract.data) {
+            return Err(Error::at(
+                contract.location,
+                format!("component contract: unknown data {}", contract.data),
+            ));
+        }
+        for (field, expected) in &contract.fields {
+            let address = format!("{}.{}", call(page, &contract.data), field);
+            let actual = session
+                .source_type(solution, model, platform, &address)
+                .map_err(|e| {
+                    Error::at(
+                        contract.location,
+                        format!("component contract {field}: {e}"),
+                    )
+                })?;
+            if expected != "ANY" && &actual != expected {
+                return Err(Error::at(
+                    contract.location,
+                    format!("component contract {field}: expected {expected}, got {actual}"),
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn component_recipe(
+    solution: &Solution,
+    mashup: &str,
+    container: &str,
+    name: &str,
+    settings: &[String],
+    loaded: authoring::ExistingMashup,
+) -> Result<authoring::RecipePlan, authoring::AuthoringError> {
+    super::deep(|| component_recipe_nested(solution, mashup, container, name, settings, loaded))
+}
+
+fn component_recipe_nested(
+    solution: &Solution,
+    mashup: &str,
+    container: &str,
+    name: &str,
+    settings: &[String],
+    mut loaded: authoring::ExistingMashup,
+) -> Result<authoring::RecipePlan, authoring::AuthoringError> {
+    let invalid = |e: Error| authoring::AuthoringError::Invalid(e.to_string());
+    let mut invocation = json!({"use":name});
+    for setting in settings {
+        let (key, value) = setting
+            .split_once('=')
+            .filter(|(k, _)| !k.is_empty())
+            .ok_or_else(|| {
+                authoring::AuthoringError::Invalid("component --set needs prop=value".into())
+            })?;
+        if invocation.get(key).is_some() {
+            return Err(authoring::AuthoringError::Invalid(format!(
+                "component repeats prop {key}"
+            )));
+        }
+        invocation[key] = serde_json::from_str(value).unwrap_or_else(|_| json!(value));
+    }
+    let project = crate::core::entity::parse(&loaded.entity_before)
+        .map_err(|e| authoring::AuthoringError::Invalid(format!("{e:?}")))?
+        .project;
+    loaded.deterministic = true;
+    let document = authoring::parse_loaded(&loaded)?;
+    let mut data = serde_json::Map::new();
+    let mut ambiguous = BTreeSet::new();
+    for section in crate::core::bindings::data_sections(document.value()).values() {
+        for call in &section.services {
+            let service = if section.collection == "Things" {
+                format!("{}.{}", section.entity, call.target)
+            } else {
+                format!("{}/{}.{}", section.collection, section.entity, call.target)
+            };
+            if data
+                .insert(call.instance.clone(), json!({"service":service}))
+                .is_some()
+            {
+                ambiguous.insert(call.instance.clone());
+            }
+        }
+    }
+    let parameters: serde_json::Map<_, _> =
+        crate::core::mashup::describe::mashup_parameters(&loaded.entity_before)
+            .map_err(authoring::AuthoringError::Unreadable)?
+            .into_iter()
+            .map(|p| (p.name, json!(p.base_type)))
+            .collect();
+    let mut source = json!({"version":1,"rules":"v1","page":{"name":mashup,"template":"blank","parameters":parameters,"data":data,"slots":{"center":[{"component":invocation}]}}});
+    if let Some(theme) = document
+        .value()
+        .pointer("/UI/Properties/StyleTheme")
+        .and_then(Value::as_str)
+    {
+        source["page"]["theme"] = json!(theme);
+    }
+    let text = source.to_string();
+    let spec = schema::parse_solution(&text, solution).map_err(invalid)?;
+    let page = &spec.page.value;
+    fn uses_alias(node: &Node, alias: &str) -> bool {
+        let body = node.body();
+        let names_alias = |text: &str| {
+            text == alias || text.strip_prefix(alias).is_some_and(|s| s.starts_with('.'))
+        };
+        body.data.as_ref().is_some_and(|s| s.value == alias)
+            || body.options.as_ref().is_some_and(|s| s.value == alias)
+            || body
+                .sparkline
+                .as_ref()
+                .and_then(|s| s.value.data.as_deref())
+                .is_some_and(|s| s == alias)
+            || body
+                .props
+                .values()
+                .chain(body.value.iter())
+                .chain(body.status.iter())
+                .chain(body.delta.iter())
+                .any(|v| binding(&v.value).is_some_and(names_alias))
+            || descendants(node).any(|child| uses_alias(child, alias))
+    }
+    for alias in &ambiguous {
+        if page.contracts.iter().any(|c| &c.data == alias)
+            || page
+                .slots
+                .values()
+                .flat_map(|s| &s.value)
+                .any(|n| uses_alias(n, alias))
+        {
+            return Err(authoring::AuthoringError::Ambiguous(format!(
+                "component: data alias {alias} names several calls; use unique aliases"
+            )));
+        }
+    }
+
+    let parent = document
+        .find(container)
+        .map_err(authoring::AuthoringError::Edit)?
+        .id;
+    let before: BTreeSet<_> = document.widgets().into_iter().map(|w| w.id).collect();
+    let mut session = Session::existing(
+        mashup,
+        loaded.entity_before.clone(),
+        document,
+        loaded.assets.css.clone(),
+    );
+    let mut allocator = Ids::new(before.iter().cloned());
+    let mut ids: BTreeMap<_, _> = before.iter().map(|id| (id.clone(), id.clone())).collect();
+    let (model, _) = types::load_model(solution);
+    let platform = types::cached_platform(solution);
+    for node in &page.slots["center"].value {
+        add(
+            solution,
+            &mut session,
+            &mut allocator,
+            &mut ids,
+            page,
+            node,
+            (&parent, None),
+        )
+        .map_err(invalid)?;
+    }
+    let mut cells = Vec::new();
+    wire_nodes(
+        solution,
+        &project,
+        &mut session,
+        &model,
+        platform.as_ref(),
+        page,
+        &mut allocator,
+        &mut ids,
+        &mut cells,
+    )
+    .map_err(invalid)?;
+    let generated = cells
+        .iter()
+        .map(|cell| super::build::generated_cell(solution, &project, cell))
+        .collect::<Result<Vec<_>, _>>()?;
+    let notes = cells
+        .iter()
+        .map(|cell| {
+            format!(
+                "{}: generated collection cell (XML, sidecars, spec and baseline)",
+                cell.name
+            )
+        })
+        .collect();
+    for node in &page.slots["center"].value {
+        apply_size(solution, &mut session, page, &ids, node).map_err(invalid)?;
+    }
+    super::elements::finish_layout(&mut session, page, &ids).map_err(invalid)?;
+    let added = session
+        .document
+        .widgets()
+        .into_iter()
+        .filter(|w| !before.contains(&w.id))
+        .map(|w| w.id)
+        .collect();
+    Ok(authoring::RecipePlan {
+        edit: authoring::finish_edit_with_css(
+            loaded,
+            session.document,
+            "mashup recipe",
+            Some(session.css),
+        )?,
+        name: "component",
+        generated,
+        added,
+        removed: vec![],
+        wired: vec![],
+        notes,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn wire_nodes(
+    solution: &Solution,
+    project: &str,
+    session: &mut Session,
+    model: &types::Model,
+    platform: Option<&types::Platform>,
+    page: &Page,
+    allocator: &mut Ids,
+    ids: &mut BTreeMap<String, String>,
+    cells: &mut Vec<GeneratedCell>,
+) -> Result<(), Error> {
+    validate_contracts(solution, session, model, platform, page)?;
+    for nodes in page.slots.values() {
+        for node in &nodes.value {
+            wire(solution, session, model, platform, page, ids, node)?;
+        }
+    }
+    fn collections<'a>(node: &'a Node, out: &mut Vec<&'a Node>) {
+        if matches!(node, Node::Collection(_)) {
+            out.push(node);
+        }
+        for child in descendants(node) {
+            collections(child, out);
+        }
+    }
+    let mut shown = vec![];
+    for node in page.slots.values().flat_map(|s| &s.value) {
+        collections(node, &mut shown);
+    }
+    for node in shown {
+        wire_collection(
+            solution, project, session, model, platform, page, ids, cells, node,
+        )?;
+    }
+    fn pagers<'a>(node: &'a Node, out: &mut Vec<&'a Node>) {
+        if matches!(node, Node::Pagination(_)) {
+            out.push(node);
+        }
+        for child in descendants(node) {
+            pagers(child, out);
+        }
+    }
+    let mut pagination = vec![];
+    for node in page.slots.values().flat_map(|s| &s.value) {
+        pagers(node, &mut pagination);
+    }
+    for node in pagination {
+        wire_pagination(solution, session, allocator, page, ids, node)?;
+    }
+    fn gated<'a>(node: &'a Node, out: &mut Vec<&'a Node>) {
+        if matches!(node, Node::Button(_)) && node.body().enabled_when.is_some() {
+            out.push(node);
+        }
+        for child in descendants(node) {
+            gated(child, out);
+        }
+    }
+    let mut gates = vec![];
+    for node in page.slots.values().flat_map(|s| &s.value) {
+        gated(node, &mut gates);
+    }
+    for node in gates {
+        wire_enabled(solution, session, allocator, ids, node)?;
+    }
+    fn emptied<'a>(node: &'a Node, out: &mut Vec<&'a Node>) {
+        if node.body().empty.is_some() {
+            out.push(node);
+        }
+        for child in descendants(node) {
+            emptied(child, out);
+        }
+    }
+    let mut empties = vec![];
+    for node in page.slots.values().flat_map(|s| &s.value) {
+        emptied(node, &mut empties);
+    }
+    for node in empties {
+        wire_empty(solution, session, allocator, page, ids, node)?;
+    }
+    for node in page.slots.values().flat_map(|s| &s.value) {
+        wire_sparklines(solution, session, model, platform, page, ids, node)?;
+    }
+    wire_selections(solution, session, model, platform, page, allocator, ids)?;
+    for node in page.slots.values().flat_map(|s| &s.value) {
+        wire_values(solution, session, model, platform, page, ids, node)?;
     }
     Ok(())
 }

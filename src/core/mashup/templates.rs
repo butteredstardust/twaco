@@ -90,6 +90,28 @@ pub(crate) fn layouts_with(rules: &RuleSet) -> Result<Vec<LayoutTemplate>, Strin
         .map(|text| {
             let mut skeleton: Value = serde_json::from_str(text)
                 .map_err(|error| format!("embedded mashup layout: {error}"))?;
+            if rules.version() == "v1" && skeleton["name"] == "filter-panel" {
+                // AdminPage01: fields beside a footer containing the divider and button row.
+                let column = &mut skeleton["children"][0];
+                let children = column["children"].as_array_mut().expect("filter children");
+                let buttons = children.pop().expect("button row");
+                let mut divider = children.pop().expect("divider");
+                divider["style"] = serde_json::json!({"background": "#E4E7E9"});
+                divider["flex-min-width"] = serde_json::json!("280px");
+                divider["flex-max-width"] = serde_json::json!("280px");
+                children.push(serde_json::json!({"slot": "filter-footer-area",
+                    "flex-direction": "column", "align-items": "center",
+                    "justify-content": "center", "flex-size": "default", "flex-grow": 0,
+                    "children": [divider, buttons]}));
+                let stack = std::mem::take(&mut column["children"]);
+                column["flex-direction"] = serde_json::json!("row");
+                column["align-items"] = serde_json::json!("flex-start");
+                column["ExpandCollapseTabLocation"] = serde_json::json!("inside");
+                column["children"] = serde_json::json!([{"slot": "filter-stack",
+                    "flex-direction": "column", "align-items": "flex-start",
+                    "justify-content": "flex-start", "flex-size": "default",
+                    "flex-grow": 1, "children": stack}]);
+            }
             rules.resolve(&mut skeleton)?;
             serde_json::from_value(skeleton)
                 .map_err(|error| format!("embedded mashup layout: {error}"))

@@ -67,10 +67,17 @@ use parameter::{
     ParameterDefinition,
 };
 pub use parameter::{parameter_plan_json, ParameterAction, ParameterDefault, ParameterRequest};
-pub(crate) use recipes::{plan_recipe, RecipePlan};
+#[cfg(test)]
+pub(crate) use recipes::recipe_transaction;
+pub(crate) use recipes::{apply_recipe, plan_recipe, RecipePlan};
+pub(crate) use recipes::{
+    combo_props, grid_cell_props, grid_row_props, input_variant_styles, sparkline_props,
+    sparkline_styles,
+};
 pub use recipes::{recipe_plan_json, Recipe, RecipeArgs, RecipeRequest, RECIPES};
 pub(crate) use remove::{plan_off, plan_remove, plan_unbind, OffPlan, RemovePlan, UnbindPlan};
 pub use remove::{OffRequest, RemoveRequest, UnbindRequest};
+pub(crate) use set::{colour, font_family};
 pub(crate) use set::{plan_set, SetPlan};
 pub use set::{set_plan_json, SetRequest};
 pub use source::SourceInfo;
@@ -119,13 +126,13 @@ impl EditPlan {
     }
 }
 
-struct ExistingMashup {
+pub(crate) struct ExistingMashup {
     mashup: String,
     entity_path: PathBuf,
-    entity_before: Vec<u8>,
-    assets: mashup::Assets,
-    sidecars: Option<(PathBuf, Vec<u8>, PathBuf, Vec<u8>)>,
-    deterministic: bool,
+    pub(crate) entity_before: Vec<u8>,
+    pub(crate) assets: mashup::Assets,
+    pub(crate) sidecars: Option<(PathBuf, Vec<u8>, PathBuf, Vec<u8>)>,
+    pub(crate) deterministic: bool,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -167,7 +174,10 @@ impl Coded for AuthoringError {
 }
 
 /// Load one existing mashup, refusing a managed sidecar that is not its entity's current content.
-fn load_existing(solution: &Solution, mashup_name: &str) -> Result<ExistingMashup, AuthoringError> {
+pub(crate) fn load_existing(
+    solution: &Solution,
+    mashup_name: &str,
+) -> Result<ExistingMashup, AuthoringError> {
     let found = workspace::entities(solution);
     let entity = found
         .iter()
@@ -229,7 +239,7 @@ fn load_existing(solution: &Solution, mashup_name: &str) -> Result<ExistingMashu
 }
 
 /// The loaded mashup's content as an editable document; a content twaco cannot edit names its mashup.
-fn parse_loaded(loaded: &ExistingMashup) -> Result<MashupDocument, AuthoringError> {
+pub(crate) fn parse_loaded(loaded: &ExistingMashup) -> Result<MashupDocument, AuthoringError> {
     let mut document =
         mashup::edit::parse(&loaded.assets.content).map_err(|error| match error {
             EditError::Invalid(message) => {
@@ -237,6 +247,7 @@ fn parse_loaded(loaded: &ExistingMashup) -> Result<MashupDocument, AuthoringErro
             }
             other => AuthoringError::Edit(other),
         })?;
+    mashup::layout::clear_page_fillers(&mut document);
     if loaded.deterministic {
         document.set_uuid_generator(crate::core::mashup::page::ids::uuid);
     }
@@ -253,12 +264,16 @@ fn finish_edit(
 }
 
 /// Put changed content and, when requested, the stylesheet back through sync.
-fn finish_edit_with_css(
+pub(crate) fn finish_edit_with_css(
     loaded: ExistingMashup,
-    document: MashupDocument,
+    mut document: MashupDocument,
     command: &'static str,
     css: Option<String>,
 ) -> Result<EditPlan, AuthoringError> {
+    // Page sessions finish layout once all nodes and explicit sizes are present.
+    if !loaded.deterministic {
+        mashup::layout::finish_page(&mut document);
+    }
     let content = document.to_content();
     let assets_after = mashup::Assets {
         content: content.clone(),
@@ -376,12 +391,11 @@ fn insert(map: &mut Map<String, Value>, key: &str, value: Value) {
     mashup::edit::insert_sorted(map, key, value);
 }
 
-/// Apply an existing-mashup edit as one transaction.
-pub(crate) fn apply_edit(
-    solution: &Solution,
+/// Build one transaction so composite recipes can include generated artifacts.
+pub(crate) fn edit_transaction<'a>(
+    solution: &'a Solution,
     plan: &EditPlan,
-    lock: &WorkspaceLock,
-) -> Result<(), AuthoringError> {
+) -> Result<Transaction<'a>, AuthoringError> {
     let mut transaction = Transaction::new(&solution.root, plan.command);
     transaction
         .replace_file(
@@ -411,7 +425,17 @@ pub(crate) fn apply_edit(
                 .map_err(AuthoringError::Write)?;
         }
     }
-    transaction.apply(lock).map_err(AuthoringError::Write)?;
+    Ok(transaction)
+}
+
+pub(crate) fn apply_edit(
+    solution: &Solution,
+    plan: &EditPlan,
+    lock: &WorkspaceLock,
+) -> Result<(), AuthoringError> {
+    edit_transaction(solution, plan)?
+        .apply(lock)
+        .map_err(AuthoringError::Write)?;
     Ok(())
 }
 

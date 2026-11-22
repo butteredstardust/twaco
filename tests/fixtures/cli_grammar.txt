@@ -1,7 +1,7 @@
 == twaco
 usage: twaco <command>
 settings: version disable-help-subcommand subcommand-required arg-required-else-help
-subcommands: access adopt agent appkey block bundle call catalog check completions config-table contract copy datatable db deploy docs doctor entity export ext extract fmt group guide handoff help impact import init javadoc lint localization logs mashup mcp mcp-namespace media menu model move network new package permissions projects rename repo reproject requirements retemplate role scheduler search settings state style sync test thing timer trace types unused update url users widgets
+subcommands: access adopt agent appkey block bundle call catalog check completions components config-table contract copy datatable db deploy docs doctor entity export ext extract fmt group guide handoff help impact import init javadoc lint localization logs mashup mcp mcp-namespace media menu model move network new package permissions projects rename repo reproject requirements retemplate role scheduler search settings state style sync test thing timer trace types unused update url users widgets
 arg --help
     action: Help
     value_name: -
@@ -47,8 +47,9 @@ help:
 | 
 |   Set up: init, doctor, projects, mcp, update, completions
 |   Work on the repository: extract, sync, fmt, check, lint, types, catalog, contract, impact, trace,
-|     unused, docs, adopt, handoff, rename, move, copy, retemplate, reproject, widgets, mashup, new,
-|     group, role, thing, timer, scheduler, style, media, menu, mcp-namespace, agent, state, entity
+|     unused, docs, adopt, handoff, rename, move, copy, retemplate, reproject, widgets, mashup,
+|     components, new, group, role, thing, timer, scheduler, style, media, menu, mcp-namespace, agent,
+|     state, entity
 |   Deploy and compare: block, network, entity, permissions, requirements, datatable, bundle, deploy,
 |     config-table, db
 |   Run and observe: call, model, access, logs, settings
@@ -255,6 +256,12 @@ help:
 |                               each service it calls with what sets each parameter (or that nothing does),
 |                               each binding and each event, in the addresses mashup bind and on take
 |       --detail                show non-default widget properties and widget bindings
+|   components list|show <name> [--json]
+|                               built-in and solution components, with kit source and typed props
+|   mashup spec <mashup> [--out <path>] [--json]
+|                               a spec built mashup returns its page.yaml (naming hand-edited widgets); any
+|                               other mashup gets a YAML spec of elements, with raw widget nodes counted by type
+|       --out <path>            write the spec to this file
 |   mashup build <mashup> [--apply] [--json]
 |                               compile src/<Mashup>/page.yaml and merge with the generated baseline;
 |                               keep independent hand edits; conflicts write nothing; plans by default
@@ -329,7 +336,8 @@ help:
 |       --style <[part[@state]:]property=value>
 |                               set one CSS property of the widget's style, repeatable, after any
 |                               --style-from: background=#fff, border-style=solid, cell@hover:background=#eee;
-|                               an empty value removes it
+|                               an empty value removes it; colours take the page specs' names (ink, lime,
+|                               pink, purple, orange, mint, primary) and font-family takes mono or sans
 |   mashup source add <mashup> <entity> <service> [--dynamic] [--on-load] [--as <new>] [--entity-from <address>]
 |       [--every <seconds>] [--cache [--cache-key <parameter>]...]
 |       [--cache-strategy <INSTANCE|SESSION|USER>] [--max-result-sets <n>] [--param-value <name=value>]...
@@ -442,8 +450,11 @@ help:
 |       validate <widget>|--on <event> --if <condition> [--input name=<address>]... --then <handler>
 |           [--else-say <text>]   run the handler when the condition holds, else show the text
 |       chart <chart> --data <data call> --x <field> [--value <field>] [--kind <bar|column|linechart|areachart>]
-|           [--title <text>] [--x-title <text>] [--y-title <text>] [--stacked]
+|           [--title <text>] [--x-title <text>] [--y-title <text>] [--stacked] [--series <field:kind[:axis]>]...
 |       --kind                  bar or column on a bar chart; linechart or areachart on a line chart; the card chip colour (info, ok, warning, error)
+|       --series <field:kind[:axis]>  combo series in order: bar or line, primary (default) or secondary axis; repeatable
+|       sparkline <container> --data <data call> --x <field> --value <field>
+|                               add a 40px line chart under existing content, with axes and legend hidden
 |       --stacked              bar chart series stacked with SeriesDisplay=auto
 |       --x-title <text>        explicit X-axis name; catalogue placeholders are cleared
 |       --y-title <text>        explicit Y-axis name; authored names are preserved
@@ -474,7 +485,9 @@ help:
 |                               picks/orders/renames; default all fields, a column each; first row unless
 |                               a selecting widget is bound to this call; empty responsive container unless --replace removes its only child
 |       picker <dropdown|list> --data <data call> --x <display field> [--value <field>]
-|           [--selected <address>] [--no-none-row] [--auto-select-first]
+|           [--selected <address>] [--no-none-row] [--auto-select-first] [--multiple]
+|       --auto-select-first    select the first row of a picker or grid (recipe columns: DefaultSelectedRows=1)
+|       --multiple             a list that selects several rows (MultiSelect); its SelectedItems feed another widget
 |                               fill a dropdown or list from a service result; without the "(None)" row,
 |                               or selecting the first row
 |       tracker <widget|new> --data <data call> [--field-map Property=field]...
@@ -491,7 +504,24 @@ help:
 |       navigate-on-click <collection|grid> --field <field> [--window replace|new|popup|modal-popup]
 |                               a click opens the mashup the selected row's field names; plan warns when
 |                               the widget selects its first row on load
+|       side-panel <container> --title <text> [--info <tooltip>] [--tab <label>]
+|                               the kit's grey left column in an empty responsive column: 276px wide, a title row
+|                               with an optional help icon over a one-tab strip (default tab Filters) whose
+|                               tab container holds the content
+|       empty-state <collection|grid|list> --say <text> [--data <address>]
+|                               the "No results." state: a collection's and a grid's own text; a list gets a
+|                               notice shown while --data (the rows it shows) is empty
+|       section <container> --title <text> [--align start|center]
+|                               the kit's framed card in an empty column: a fixed 40px title row over a body row
+|                               for the content (centred on both axes with --align center)
+|       card-grid <container> --per-row <n> --cells <n>
+|                               the kit's gallery in an empty column: rows of equal height holding equal
+|                               cells, the last row padded; fill each cell with recipe section
+|       input-variant <textfield> --variant <rounded|focus-background|focus-glow|focus-underline>
+|                               one of the kit's text field looks, as native style parts of the text box
 |                               recipes warn with a mashup on command when a bound call has no trigger
+|   mashup recipe component <mashup> <name> <container> --set id=<id> [--set prop=value]...
+|                               use the same component definition as page specs; values may be JSON
 |   mashup event add <mashup> <name> --when <address> [--apply] [--json]
 |                               give a mashup an event its parents react to with mashup on --event
 |                               ui:<container>.<name>: a NUMBER parameter set to the time when the
@@ -508,6 +538,7 @@ help:
 |       --spec <file>          compile a page spec, copy it to src/<Mashup>/page.yaml and record a generated baseline;
 |                               accepts only --project, --apply and --json
 |       --from <address>        copy a repository mashup exactly, except identity and permissions
+|       --rules <legacy|v1>     layout rules (default v1); legacy opts out of page scrolling and top-aligned filter fields
 |       --template              layout template name or alias (default: blank); form-2col has full-width fields and left/right columns; see mashup templates
 |       --gadget                fixed dashboard gadget; default 1x1, 240px per cell
 |       --layout                gadget columns x rows: 1x1, 2x1, 4x1, 1x2, 2x2, 4x2, 1x4, 2x4, 4x4; otherwise alias for --template
@@ -529,6 +560,7 @@ help:
 |       --spec <file>          compile a page spec, copy it to src/<Mashup>/page.yaml and record a generated baseline;
 |                               accepts only --project, --apply and --json
 |       --from <address>        copy a repository mashup exactly, except identity and permissions
+|       --rules <legacy|v1>     layout rules (default v1); legacy opts out of page scrolling and top-aligned filter fields
 |       --template              layout template name or alias (default: blank); form-2col has full-width fields and left/right columns; see mashup templates
 |       --gadget                fixed dashboard gadget; default 1x1, 240px per cell
 |       --layout                gadget columns x rows: 1x1, 2x1, 4x1, 1x2, 2x2, 4x2, 1x4, 2x4, 4x4; otherwise alias for --template
@@ -2756,6 +2788,72 @@ arg <shell>
 help:
 |   completions <shell>         a completion script on stdout for bash, elvish, fish, powershell
 |                               or zsh: commands and flags with descriptions; actions in bash and zsh
+| 
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
+== twaco components
+usage: twaco components list|show <name> [--json]
+settings: disable-version-flag disable-help-subcommand
+subcommands: 
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+arg --json
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg <operands>
+    action: Append
+    value_name: operand
+    num_args: 0..
+    allow_hyphen_values: no
+    allow_negative_numbers: yes
+    required: no
+    default: -
+    index: 1
+    other: -
+help:
+|   components list|show <name> [--json]
+|                               built-in and solution components, with kit source and typed props
 | 
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
@@ -7926,7 +8024,7 @@ help:
 == twaco mashup
 usage: twaco mashup <command>
 settings: disable-version-flag disable-help-subcommand subcommand-required arg-required-else-help
-subcommands: add add-contained bind build collection describe diff event gap move new off on param recipe remove set source state-format templates unbind validate why
+subcommands: add add-contained bind build collection describe diff event gap move new off on param recipe remove set source spec state-format templates unbind validate why
 arg --help
     action: Help
     value_name: -
@@ -7974,6 +8072,10 @@ help:
 |                               each service it calls with what sets each parameter (or that nothing does),
 |                               each binding and each event, in the addresses mashup bind and on take
 |       --detail                show non-default widget properties and widget bindings
+|   mashup spec <mashup> [--out <path>] [--json]
+|                               a spec built mashup returns its page.yaml (naming hand-edited widgets); any
+|                               other mashup gets a YAML spec of elements, with raw widget nodes counted by type
+|       --out <path>            write the spec to this file
 |   mashup build <mashup> [--apply] [--json]
 |                               compile src/<Mashup>/page.yaml and merge with the generated baseline;
 |                               keep independent hand edits; conflicts write nothing; plans by default
@@ -8048,7 +8150,8 @@ help:
 |       --style <[part[@state]:]property=value>
 |                               set one CSS property of the widget's style, repeatable, after any
 |                               --style-from: background=#fff, border-style=solid, cell@hover:background=#eee;
-|                               an empty value removes it
+|                               an empty value removes it; colours take the page specs' names (ink, lime,
+|                               pink, purple, orange, mint, primary) and font-family takes mono or sans
 |   mashup source add <mashup> <entity> <service> [--dynamic] [--on-load] [--as <new>] [--entity-from <address>]
 |       [--every <seconds>] [--cache [--cache-key <parameter>]...]
 |       [--cache-strategy <INSTANCE|SESSION|USER>] [--max-result-sets <n>] [--param-value <name=value>]...
@@ -8161,8 +8264,11 @@ help:
 |       validate <widget>|--on <event> --if <condition> [--input name=<address>]... --then <handler>
 |           [--else-say <text>]   run the handler when the condition holds, else show the text
 |       chart <chart> --data <data call> --x <field> [--value <field>] [--kind <bar|column|linechart|areachart>]
-|           [--title <text>] [--x-title <text>] [--y-title <text>] [--stacked]
+|           [--title <text>] [--x-title <text>] [--y-title <text>] [--stacked] [--series <field:kind[:axis]>]...
 |       --kind                  bar or column on a bar chart; linechart or areachart on a line chart; the card chip colour (info, ok, warning, error)
+|       --series <field:kind[:axis]>  combo series in order: bar or line, primary (default) or secondary axis; repeatable
+|       sparkline <container> --data <data call> --x <field> --value <field>
+|                               add a 40px line chart under existing content, with axes and legend hidden
 |       --stacked              bar chart series stacked with SeriesDisplay=auto
 |       --x-title <text>        explicit X-axis name; catalogue placeholders are cleared
 |       --y-title <text>        explicit Y-axis name; authored names are preserved
@@ -8193,7 +8299,9 @@ help:
 |                               picks/orders/renames; default all fields, a column each; first row unless
 |                               a selecting widget is bound to this call; empty responsive container unless --replace removes its only child
 |       picker <dropdown|list> --data <data call> --x <display field> [--value <field>]
-|           [--selected <address>] [--no-none-row] [--auto-select-first]
+|           [--selected <address>] [--no-none-row] [--auto-select-first] [--multiple]
+|       --auto-select-first    select the first row of a picker or grid (recipe columns: DefaultSelectedRows=1)
+|       --multiple             a list that selects several rows (MultiSelect); its SelectedItems feed another widget
 |                               fill a dropdown or list from a service result; without the "(None)" row,
 |                               or selecting the first row
 |       tracker <widget|new> --data <data call> [--field-map Property=field]...
@@ -8210,7 +8318,24 @@ help:
 |       navigate-on-click <collection|grid> --field <field> [--window replace|new|popup|modal-popup]
 |                               a click opens the mashup the selected row's field names; plan warns when
 |                               the widget selects its first row on load
+|       side-panel <container> --title <text> [--info <tooltip>] [--tab <label>]
+|                               the kit's grey left column in an empty responsive column: 276px wide, a title row
+|                               with an optional help icon over a one-tab strip (default tab Filters) whose
+|                               tab container holds the content
+|       empty-state <collection|grid|list> --say <text> [--data <address>]
+|                               the "No results." state: a collection's and a grid's own text; a list gets a
+|                               notice shown while --data (the rows it shows) is empty
+|       section <container> --title <text> [--align start|center]
+|                               the kit's framed card in an empty column: a fixed 40px title row over a body row
+|                               for the content (centred on both axes with --align center)
+|       card-grid <container> --per-row <n> --cells <n>
+|                               the kit's gallery in an empty column: rows of equal height holding equal
+|                               cells, the last row padded; fill each cell with recipe section
+|       input-variant <textfield> --variant <rounded|focus-background|focus-glow|focus-underline>
+|                               one of the kit's text field looks, as native style parts of the text box
 |                               recipes warn with a mashup on command when a bound call has no trigger
+|   mashup recipe component <mashup> <name> <container> --set id=<id> [--set prop=value]...
+|                               use the same component definition as page specs; values may be JSON
 |   mashup event add <mashup> <name> --when <address> [--apply] [--json]
 |                               give a mashup an event its parents react to with mashup on --event
 |                               ui:<container>.<name>: a NUMBER parameter set to the time when the
@@ -8227,6 +8352,7 @@ help:
 |       --spec <file>          compile a page spec, copy it to src/<Mashup>/page.yaml and record a generated baseline;
 |                               accepts only --project, --apply and --json
 |       --from <address>        copy a repository mashup exactly, except identity and permissions
+|       --rules <legacy|v1>     layout rules (default v1); legacy opts out of page scrolling and top-aligned filter fields
 |       --template              layout template name or alias (default: blank); form-2col has full-width fields and left/right columns; see mashup templates
 |       --gadget                fixed dashboard gadget; default 1x1, 240px per cell
 |       --layout                gadget columns x rows: 1x1, 2x1, 4x1, 1x2, 2x2, 4x2, 1x4, 2x4, 4x4; otherwise alias for --template
@@ -9791,6 +9917,18 @@ arg --replace
     other: -
     given twice: accepted
     given bare: InvalidValue
+arg --rules
+    action: Set
+    value_name: legacy|v1
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 arg --secondary-menu
     action: Set
     value_name: address
@@ -9883,6 +10021,7 @@ help:
 |       --spec <file>          compile a page spec, copy it to src/<Mashup>/page.yaml and record a generated baseline;
 |                               accepts only --project, --apply and --json
 |       --from <address>        copy a repository mashup exactly, except identity and permissions
+|       --rules <legacy|v1>     layout rules (default v1); legacy opts out of page scrolling and top-aligned filter fields
 |       --template              layout template name or alias (default: blank); form-2col has full-width fields and left/right columns; see mashup templates
 |       --gadget                fixed dashboard gadget; default 1x1, 240px per cell
 |       --layout                gadget columns x rows: 1x1, 2x1, 4x1, 1x2, 2x2, 4x2, 1x4, 2x4, 4x4; otherwise alias for --template
@@ -10322,6 +10461,18 @@ arg --after
     other: -
     given twice: ArgumentConflict
     given bare: InvalidValue
+arg --align
+    action: Set
+    value_name: start|center
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 arg --apply
     action: SetTrue
     value_name: -
@@ -10370,6 +10521,18 @@ arg --button
 arg --cancel-label
     action: Set
     value_name: text
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --cells
+    action: Set
+    value_name: n
     num_args: 1
     allow_hyphen_values: yes
     allow_negative_numbers: no
@@ -10616,6 +10779,18 @@ arg --in
     other: -
     given twice: ArgumentConflict
     given bare: InvalidValue
+arg --info
+    action: Set
+    value_name: text
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 arg --initial-step
     action: Set
     value_name: n
@@ -10735,6 +10910,17 @@ arg --menu
     other: -
     given twice: ArgumentConflict
     given bare: InvalidValue
+arg --multiple
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
 arg --no-auto-collapse
     action: SetTrue
     value_name: -
@@ -10804,6 +10990,18 @@ arg --pass
     index: -
     other: -
     given twice: accepted
+    given bare: InvalidValue
+arg --per-row
+    action: Set
+    value_name: n
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
     given bare: InvalidValue
 arg --preserve-whitespace
     action: Append
@@ -10900,6 +11098,30 @@ arg --selected
     index: -
     other: -
     given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --series
+    action: Append
+    value_name: field:kind[:axis]
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: accepted
+    given bare: InvalidValue
+arg --set
+    action: Append
+    value_name: parameter=value
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: accepted
     given bare: InvalidValue
 arg --size
     action: Set
@@ -11044,6 +11266,18 @@ arg --value
     other: -
     given twice: ArgumentConflict
     given bare: InvalidValue
+arg --variant
+    action: Set
+    value_name: name
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 arg --width
     action: Set
     value_name: px
@@ -11148,8 +11382,11 @@ help:
 |       validate <widget>|--on <event> --if <condition> [--input name=<address>]... --then <handler>
 |           [--else-say <text>]   run the handler when the condition holds, else show the text
 |       chart <chart> --data <data call> --x <field> [--value <field>] [--kind <bar|column|linechart|areachart>]
-|           [--title <text>] [--x-title <text>] [--y-title <text>] [--stacked]
+|           [--title <text>] [--x-title <text>] [--y-title <text>] [--stacked] [--series <field:kind[:axis]>]...
 |       --kind                  bar or column on a bar chart; linechart or areachart on a line chart; the card chip colour (info, ok, warning, error)
+|       --series <field:kind[:axis]>  combo series in order: bar or line, primary (default) or secondary axis; repeatable
+|       sparkline <container> --data <data call> --x <field> --value <field>
+|                               add a 40px line chart under existing content, with axes and legend hidden
 |       --stacked              bar chart series stacked with SeriesDisplay=auto
 |       --x-title <text>        explicit X-axis name; catalogue placeholders are cleared
 |       --y-title <text>        explicit Y-axis name; authored names are preserved
@@ -11180,7 +11417,9 @@ help:
 |                               picks/orders/renames; default all fields, a column each; first row unless
 |                               a selecting widget is bound to this call; empty responsive container unless --replace removes its only child
 |       picker <dropdown|list> --data <data call> --x <display field> [--value <field>]
-|           [--selected <address>] [--no-none-row] [--auto-select-first]
+|           [--selected <address>] [--no-none-row] [--auto-select-first] [--multiple]
+|       --auto-select-first    select the first row of a picker or grid (recipe columns: DefaultSelectedRows=1)
+|       --multiple             a list that selects several rows (MultiSelect); its SelectedItems feed another widget
 |                               fill a dropdown or list from a service result; without the "(None)" row,
 |                               or selecting the first row
 |       tracker <widget|new> --data <data call> [--field-map Property=field]...
@@ -11197,7 +11436,24 @@ help:
 |       navigate-on-click <collection|grid> --field <field> [--window replace|new|popup|modal-popup]
 |                               a click opens the mashup the selected row's field names; plan warns when
 |                               the widget selects its first row on load
+|       side-panel <container> --title <text> [--info <tooltip>] [--tab <label>]
+|                               the kit's grey left column in an empty responsive column: 276px wide, a title row
+|                               with an optional help icon over a one-tab strip (default tab Filters) whose
+|                               tab container holds the content
+|       empty-state <collection|grid|list> --say <text> [--data <address>]
+|                               the "No results." state: a collection's and a grid's own text; a list gets a
+|                               notice shown while --data (the rows it shows) is empty
+|       section <container> --title <text> [--align start|center]
+|                               the kit's framed card in an empty column: a fixed 40px title row over a body row
+|                               for the content (centred on both axes with --align center)
+|       card-grid <container> --per-row <n> --cells <n>
+|                               the kit's gallery in an empty column: rows of equal height holding equal
+|                               cells, the last row padded; fill each cell with recipe section
+|       input-variant <textfield> --variant <rounded|focus-background|focus-glow|focus-underline>
+|                               one of the kit's text field looks, as native style parts of the text box
 |                               recipes warn with a mashup on command when a bound call has no trigger
+|   mashup recipe component <mashup> <name> <container> --set id=<id> [--set prop=value]...
+|                               use the same component definition as page specs; values may be JSON
 | 
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
@@ -11409,7 +11665,8 @@ help:
 |       --style <[part[@state]:]property=value>
 |                               set one CSS property of the widget's style, repeatable, after any
 |                               --style-from: background=#fff, border-style=solid, cell@hover:background=#eee;
-|                               an empty value removes it
+|                               an empty value removes it; colours take the page specs' names (ink, lime,
+|                               pink, purple, orange, mint, primary) and font-family takes mono or sans
 | 
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
@@ -11927,6 +12184,86 @@ help:
 |                               ThingShape; plan unless --apply
 |       --from <address>        source entity the mashup currently calls
 |       --to <address>          replacement entity in the same collection
+| 
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
+== twaco mashup spec
+usage: twaco mashup spec <mashup> [--out <path>] [--json]
+settings: disable-version-flag disable-help-subcommand
+subcommands: 
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+arg --json
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --out
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg <operands>
+    action: Append
+    value_name: operand
+    num_args: 0..
+    allow_hyphen_values: no
+    allow_negative_numbers: yes
+    required: no
+    default: -
+    index: 1
+    other: -
+help:
+|   mashup spec <mashup> [--out <path>] [--json]
+|                               a spec built mashup returns its page.yaml (naming hand-edited widgets); any
+|                               other mashup gets a YAML spec of elements, with raw widget nodes counted by type
+|       --out <path>            write the spec to this file
 | 
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
@@ -14573,6 +14910,7 @@ help:
 |       --spec <file>          compile a page spec, copy it to src/<Mashup>/page.yaml and record a generated baseline;
 |                               accepts only --project, --apply and --json
 |       --from <address>        copy a repository mashup exactly, except identity and permissions
+|       --rules <legacy|v1>     layout rules (default v1); legacy opts out of page scrolling and top-aligned filter fields
 |       --template              layout template name or alias (default: blank); form-2col has full-width fields and left/right columns; see mashup templates
 |       --gadget                fixed dashboard gadget; default 1x1, 240px per cell
 |       --layout                gadget columns x rows: 1x1, 2x1, 4x1, 1x2, 2x2, 4x2, 1x4, 2x4, 4x4; otherwise alias for --template
@@ -15773,6 +16111,18 @@ arg --replace
     other: -
     given twice: accepted
     given bare: InvalidValue
+arg --rules
+    action: Set
+    value_name: legacy|v1
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 arg --secondary-menu
     action: Set
     value_name: address
@@ -15865,6 +16215,7 @@ help:
 |       --spec <file>          compile a page spec, copy it to src/<Mashup>/page.yaml and record a generated baseline;
 |                               accepts only --project, --apply and --json
 |       --from <address>        copy a repository mashup exactly, except identity and permissions
+|       --rules <legacy|v1>     layout rules (default v1); legacy opts out of page scrolling and top-aligned filter fields
 |       --template              layout template name or alias (default: blank); form-2col has full-width fields and left/right columns; see mashup templates
 |       --gadget                fixed dashboard gadget; default 1x1, 240px per cell
 |       --layout                gadget columns x rows: 1x1, 2x1, 4x1, 1x2, 2x2, 4x2, 1x4, 2x4, 4x4; otherwise alias for --template
