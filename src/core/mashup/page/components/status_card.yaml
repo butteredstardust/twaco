@@ -1,0 +1,58 @@
+{
+  "name": "status_card",
+  "source": "twaco",
+  "props": {
+    "title": {
+      "type": "string",
+      "default": ""
+    },
+    "value": {
+      "type": "value"
+    },
+    "status": {
+      "type": "value",
+      "default": ""
+    },
+    "kind": {
+      "type": "string"
+    },
+    "children": {
+      "type": "array",
+      "default": []
+    },
+    "state": {
+      "type": "string"
+    },
+    "detail": {
+      "type": "value",
+      "default": ""
+    }
+  },
+  "tree": {
+    "card": {
+      "id": "$id",
+      "title": "$title",
+      "value": "$value",
+      "children": [
+        {
+          "detail_pair": {
+            "id": "${id}--status",
+            "label": "Status",
+            "value": "$status",
+            "state": "$state",
+            "kind": "$kind"
+          }
+        },
+        {
+          "label": {
+            "id": "${id}--detail",
+            "props": {
+              "LabelText": "$detail"
+            }
+          }
+        },
+        "$children"
+      ]
+    }
+  }
+}

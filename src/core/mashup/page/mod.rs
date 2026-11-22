@@ -3,7 +3,10 @@
 mod baseline;
 pub(crate) mod build;
 pub(crate) mod compile;
+pub mod components;
+mod derive;
 mod elements;
+pub mod extract;
 pub(crate) mod ids;
 pub(crate) mod merge;
 mod preserve;

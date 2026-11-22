@@ -1,0 +1,26 @@
+{
+  "name": "kpi_tile",
+  "source": "AssetKPI",
+  "props": {
+    "label": {
+      "type": "string",
+      "default": ""
+    },
+    "value": {
+      "type": "value",
+      "required": true
+    },
+    "unit": {
+      "type": "string",
+      "default": ""
+    }
+  },
+  "tree": {
+    "trend_tile": {
+      "id": "$id",
+      "label": "$label",
+      "value": "$value",
+      "unit": "$unit"
+    }
+  }
+}

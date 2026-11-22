@@ -390,3 +390,195 @@ fn a_generated_cell_refreshes_clean_files_and_reports_preserved_edits() {
     );
     assert_eq!(std::fs::read_to_string(&content).unwrap(), handmade);
 }
+
+#[test]
+fn components_and_spec_are_available_through_both_front_ends() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::fs::write(root.join("twaco.toml"), "[[project]]\nname = 'Acme'\n").unwrap();
+    let listed = cli(root, &["components", "list", "--json"]);
+    assert_eq!(listed["components"].as_array().unwrap().len(), 8);
+    assert_eq!(listed, mcp(root, "components", serde_json::json!({})));
+    let shown = cli(root, &["components", "show", "section_card", "--json"]);
+    assert_eq!(shown["source"], "WDK_Inputs");
+    assert_eq!(
+        shown,
+        mcp(
+            root,
+            "components",
+            serde_json::json!({"name":"section_card"})
+        )
+    );
+    cli(
+        root,
+        &["mashup", "new", "Acme.Components_MU", "--json", "--apply"],
+    );
+    let missing = Command::new(env!("CARGO_BIN_EXE_twaco"))
+        .current_dir(root)
+        .args([
+            "mashup",
+            "recipe",
+            "component",
+            "Acme.Components_MU",
+            "section_card",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(!missing.status.success());
+    assert!(String::from_utf8_lossy(&missing.stderr).contains("<container>"));
+    let plan = cli(
+        root,
+        &[
+            "mashup",
+            "recipe",
+            "component",
+            "Acme.Components_MU",
+            "section_card",
+            "center",
+            "--set",
+            "id=inputs",
+            "--set",
+            "title=Inputs",
+            "--json",
+        ],
+    );
+    assert_eq!(plan["applied"], false);
+    let applied = mcp(
+        root,
+        "mashup_recipe",
+        serde_json::json!({"recipe":"component","mashup":"Acme.Components_MU","widget":"center","kind":"section_card","settings":["id=inputs","title=Inputs"],"dry_run":false}),
+    );
+    assert_eq!(applied["applied"], true);
+    let extracted = cli(
+        root,
+        &[
+            "mashup",
+            "spec",
+            "Acme.Components_MU",
+            "--out",
+            "derived.yaml",
+            "--json",
+        ],
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.join("derived.yaml")).unwrap(),
+        extracted["spec"].as_str().unwrap()
+    );
+    assert_eq!(
+        extracted,
+        mcp(
+            root,
+            "mashup_spec",
+            serde_json::json!({"mashup":"Acme.Components_MU"})
+        )
+    );
+    let derived = extracted["spec"].as_str().unwrap();
+    assert!(derived.contains("name: Acme.Components_MU"), "{derived}");
+    assert!(
+        !derived.contains("imported") && derived.contains("card:"),
+        "{derived}"
+    );
+    std::fs::write(
+        root.join("rebuilt.yaml"),
+        derived.replace("name: Acme.Components_MU", "name: Acme.Rebuilt_MU"),
+    )
+    .unwrap();
+    cli(
+        root,
+        &[
+            "mashup",
+            "new",
+            "Acme.Rebuilt_MU",
+            "--spec",
+            "rebuilt.yaml",
+            "--apply",
+            "--json",
+        ],
+    );
+    // The rebuilt page has the same widgets in the same order; ids and layout wrappers differ.
+    fn widgets(path: std::path::PathBuf) -> Vec<String> {
+        fn walk(widget: &serde_json::Value, out: &mut Vec<String>) {
+            for child in widget["Widgets"].as_array().into_iter().flatten() {
+                let kind = child["Properties"]["Type"].as_str().unwrap();
+                if kind != "flexcontainer" {
+                    out.push(kind.to_string());
+                }
+                walk(child, out);
+            }
+        }
+        let content: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        let mut out = vec![];
+        walk(&content["UI"], &mut out);
+        out
+    }
+    let before = widgets(root.join("src/Acme.Components_MU/mashup/content.json"));
+    let after = widgets(root.join("src/Acme.Rebuilt_MU/mashup/content.json"));
+    assert!(!before.is_empty());
+    assert_eq!(before, after);
+}
+
+#[test]
+fn component_collection_cells_plan_in_cli_and_apply_in_mcp() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::fs::write(
+        root.join("twaco.toml"),
+        "[[project]]\nname = 'Acme'\nroot = '.'\n",
+    )
+    .unwrap();
+    for folder in ["Things", "DataShapes", "twaco/components"] {
+        std::fs::create_dir_all(root.join(folder)).unwrap();
+    }
+    std::fs::write(root.join("Things/Acme.Data.xml"),r#"<Entities><Things><Thing name="Acme.Data" projectName="Acme"><ThingShape><ServiceDefinitions><ServiceDefinition name="GetRows"><ResultType baseType="INFOTABLE" aspect.dataShape="Acme.Rows_DS"/></ServiceDefinition></ServiceDefinitions></ThingShape></Thing></Things></Entities>"#).unwrap();
+    std::fs::write(root.join("DataShapes/Acme.Rows_DS.xml"),r#"<Entities><DataShapes><DataShape name="Acme.Rows_DS" projectName="Acme"><FieldDefinitions><FieldDefinition name="Name" baseType="STRING" ordinal="0"/><FieldDefinition name="Count" baseType="NUMBER" ordinal="1"/></FieldDefinitions></DataShape></DataShapes></Entities>"#).unwrap();
+    std::fs::write(root.join("twaco/components/cards.yaml"),"name: metric_cards\nsource: twaco\nprops: {data: {type: string, required: true}}\ntree: {collection: {id: '$id', data: '$data', cell: {title: Name, kpi_dial: Count}}}\n").unwrap();
+    std::fs::write(root.join("input.yaml"),"version: 1\nrules: v1\npage: {name: Acme.Collection_MU, template: blank, data: {rows: {service: Acme.Data.GetRows, on: load}}}\n").unwrap();
+    cli(
+        root,
+        &[
+            "mashup",
+            "new",
+            "Acme.Collection_MU",
+            "--spec",
+            "input.yaml",
+            "--apply",
+            "--json",
+        ],
+    );
+    let plan = cli(
+        root,
+        &[
+            "mashup",
+            "recipe",
+            "component",
+            "Acme.Collection_MU",
+            "metric_cards",
+            "center",
+            "--set",
+            "id=cards",
+            "--set",
+            "data=rows",
+            "--json",
+        ],
+    );
+    assert_eq!(plan["applied"], false);
+    let files: Vec<_> = plan["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|p| p.as_str())
+        .filter(|p| p.contains("Acme.CollectionCell_MU"))
+        .collect();
+    assert_eq!(files.len(), 5);
+    assert!(files.iter().all(|p| !root.join(p).exists()));
+    let applied = mcp(
+        root,
+        "mashup_recipe",
+        serde_json::json!({"recipe":"component","mashup":"Acme.Collection_MU","widget":"center","kind":"metric_cards","settings":["id=cards","data=rows"],"dry_run":false}),
+    );
+    assert_eq!(applied["applied"], true);
+    assert_eq!(applied["files"], plan["files"]);
+    assert!(files.iter().all(|p| root.join(p).exists()));
+}

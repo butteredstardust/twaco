@@ -718,6 +718,12 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             refactor::mashup_build_tool,
         )
         .with_output::<outputs::MashupBuildResult>(),
+        solution_tool::<refactor_requests::MashupSpecRequest>(
+            "mashup_spec", "A spec-built mashup returns its page.yaml (hand-edited widgets named); any other mashup gets a YAML spec of elements. Offline; reports element and raw-widget coverage.", true, refactor::mashup_spec_tool,
+        ).with_output::<outputs::MashupSpecResult>(),
+        solution_tool::<refactor_requests::ComponentsRequest>(
+            "components", "List built-in and solution component definitions with source and typed props; name shows one.", true, refactor::components_tool,
+        ).with_output::<outputs::ComponentsResult>(),
         solution_tool::<refactor_requests::MashupWhyRequest>(
             "mashup_why",
             "Explain the layout of one widget of a repository mashup: for each decision (size, gutter, align, justify, surface, equal siblings, and the properties a rule sets) the value, the rule that decided it, whether it came from the rule table or an explicit authored setting, what the mashup holds now and whether that agrees, and the mashup_set call that overrides it. A container twaco did not record how it made is explained as inferred. Read-only.",
@@ -1148,6 +1154,8 @@ pub(crate) const GROUPS: &[(&str, &[&str])] = &[
             "mashup_validate",
             "mashup_describe",
             "mashup_build",
+            "mashup_spec",
+            "components",
             "mashup_why",
             "mashup_diff",
         ],

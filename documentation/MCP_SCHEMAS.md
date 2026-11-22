@@ -51,7 +51,7 @@ schema allows and the tool still refuses (an empty text, `give file or sql`) is 
 
 ## Output schemas
 
-`mcp/outputs.rs` describes the successful result of every tool, all 88. The types describe the JSON
+`mcp/outputs.rs` describes the successful result of every tool. The types describe the JSON
 the adapters return; they do not build it. A member every result has is required, anything a result
 has only sometimes (one action's members, a plan's or an applied run's, a detail asked for) is
 optional, and the objects stay open so that `notices` and `duration_ms` are not refused. They are
@@ -75,3 +75,11 @@ no test yet reaches with a success (`db_run`, `db_query`, `datatable_copy`, `ado
 `reproject`, `log_level`, `users_write`, `extension_write`, `import`, `help_search`, `help_page`,
 `javadoc`) have schemas read from their adapters and the `core` types they serialise; what is not
 certain there is an open value.
+
+
+`components` accepts an optional `name`: omitted returns `count` and a `components` array (name/source/props); supplied
+returns the definition with its `name`, `source`, `props`, `tree` and optional `contract`.
+`mashup_recipe` supports `recipe: "component"` with `kind` (component name), `widget`
+(parent container) and `settings` (prop=value strings, including id). It retains the shared
+recipe plan/apply policy. `mashup_spec` takes a mashup name and returns `mashup`, `spec`,
+`elements`, `raw` and `exact`; it is offline and read-only.

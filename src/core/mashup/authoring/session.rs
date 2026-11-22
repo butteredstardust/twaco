@@ -23,6 +23,19 @@ pub(crate) struct Session {
 }
 
 impl Session {
+    pub(crate) fn existing(
+        name: &str,
+        entity: Vec<u8>,
+        document: MashupDocument,
+        css: String,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            entity,
+            document,
+            css,
+        }
+    }
     pub(crate) fn source_type(
         &mut self,
         solution: &Solution,

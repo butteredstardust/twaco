@@ -38,7 +38,7 @@ pub(crate) fn compile(solution: &Solution, project: &str, text: &str) -> Result<
 }
 
 fn compile_nested(solution: &Solution, project: &str, text: &str) -> Result<Artifacts, Error> {
-    let spec = schema::parse(text)?;
+    let spec = schema::parse_solution(text, solution)?;
     let page = &spec.page.value;
     if solution.project(project).is_none() {
         return Err(Error::at(
@@ -184,120 +184,17 @@ fn compile_nested(solution: &Solution, project: &str, text: &str) -> Result<Arti
             )
             .map_err(|e| Error::at(source.service.referenced, e))?;
     }
-    for nodes in page.slots.values() {
-        for node in &nodes.value {
-            wire(
-                solution,
-                &mut session,
-                &model,
-                platform.as_ref(),
-                page,
-                &mut ids,
-                node,
-            )?;
-        }
-    }
-    fn collections<'a>(node: &'a Node, out: &mut Vec<&'a Node>) {
-        if matches!(node, Node::Collection(_)) {
-            out.push(node);
-        }
-        for child in descendants(node) {
-            collections(child, out);
-        }
-    }
-    let mut shown = vec![];
-    for node in page.slots.values().flat_map(|s| &s.value) {
-        collections(node, &mut shown);
-    }
-    for node in shown {
-        wire_collection(
-            solution,
-            project,
-            &mut session,
-            &model,
-            platform.as_ref(),
-            page,
-            &ids,
-            &mut cells,
-            node,
-        )?;
-    }
-    fn pagers<'a>(node: &'a Node, out: &mut Vec<&'a Node>) {
-        if matches!(node, Node::Pagination(_)) {
-            out.push(node);
-        }
-        for child in descendants(node) {
-            pagers(child, out);
-        }
-    }
-    let mut pagination = vec![];
-    for node in page.slots.values().flat_map(|s| &s.value) {
-        pagers(node, &mut pagination);
-    }
-    for node in pagination {
-        wire_pagination(solution, &mut session, &mut allocator, page, &mut ids, node)?;
-    }
-    fn gated<'a>(node: &'a Node, out: &mut Vec<&'a Node>) {
-        if matches!(node, Node::Button(_)) && node.body().enabled_when.is_some() {
-            out.push(node);
-        }
-        for child in descendants(node) {
-            gated(child, out);
-        }
-    }
-    let mut gates = vec![];
-    for node in page.slots.values().flat_map(|s| &s.value) {
-        gated(node, &mut gates);
-    }
-    for node in gates {
-        wire_enabled(solution, &mut session, &mut allocator, &ids, node)?;
-    }
-    fn emptied<'a>(node: &'a Node, out: &mut Vec<&'a Node>) {
-        if node.body().empty.is_some() {
-            out.push(node);
-        }
-        for child in descendants(node) {
-            emptied(child, out);
-        }
-    }
-    let mut empties = vec![];
-    for node in page.slots.values().flat_map(|s| &s.value) {
-        emptied(node, &mut empties);
-    }
-    for node in empties {
-        wire_empty(solution, &mut session, &mut allocator, page, &ids, node)?;
-    }
-    for node in page.slots.values().flat_map(|s| &s.value) {
-        wire_sparklines(
-            solution,
-            &mut session,
-            &model,
-            platform.as_ref(),
-            page,
-            &ids,
-            node,
-        )?;
-    }
-    wire_selections(
+    wire_nodes(
         solution,
+        project,
         &mut session,
         &model,
         platform.as_ref(),
         page,
         &mut allocator,
         &mut ids,
+        &mut cells,
     )?;
-    for node in page.slots.values().flat_map(|s| &s.value) {
-        wire_values(
-            solution,
-            &mut session,
-            &model,
-            platform.as_ref(),
-            page,
-            &ids,
-            node,
-        )?;
-    }
     for (alias, source) in &page.data {
         let source = &source.value;
         for (param, value) in &source.params {
@@ -447,7 +344,7 @@ fn add(
             &authoring::AddRequest {
                 mashup: page.name.value.clone(),
                 widget: node.widget()?.into(),
-                inputs: vec![],
+                inputs: body.inputs.clone(),
                 placement: if is_function(node)? {
                     None
                 } else {
@@ -1859,6 +1756,320 @@ fn wire_values(
     }
     for child in descendants(node) {
         wire_values(solution, session, model, platform, page, ids, child)?;
+    }
+    Ok(())
+}
+
+fn validate_contracts(
+    solution: &Solution,
+    session: &mut Session,
+    model: &types::Model,
+    platform: Option<&types::Platform>,
+    page: &Page,
+) -> Result<(), Error> {
+    for contract in &page.contracts {
+        if !page.data.contains_key(&contract.data) {
+            return Err(Error::at(
+                contract.location,
+                format!("component contract: unknown data {}", contract.data),
+            ));
+        }
+        for (field, expected) in &contract.fields {
+            let address = format!("{}.{}", call(page, &contract.data), field);
+            let actual = session
+                .source_type(solution, model, platform, &address)
+                .map_err(|e| {
+                    Error::at(
+                        contract.location,
+                        format!("component contract {field}: {e}"),
+                    )
+                })?;
+            if expected != "ANY" && &actual != expected {
+                return Err(Error::at(
+                    contract.location,
+                    format!("component contract {field}: expected {expected}, got {actual}"),
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn component_recipe(
+    solution: &Solution,
+    mashup: &str,
+    container: &str,
+    name: &str,
+    settings: &[String],
+    loaded: authoring::ExistingMashup,
+) -> Result<authoring::RecipePlan, authoring::AuthoringError> {
+    super::deep(|| component_recipe_nested(solution, mashup, container, name, settings, loaded))
+}
+
+fn component_recipe_nested(
+    solution: &Solution,
+    mashup: &str,
+    container: &str,
+    name: &str,
+    settings: &[String],
+    mut loaded: authoring::ExistingMashup,
+) -> Result<authoring::RecipePlan, authoring::AuthoringError> {
+    let invalid = |e: Error| authoring::AuthoringError::Invalid(e.to_string());
+    let mut invocation = json!({"use":name});
+    for setting in settings {
+        let (key, value) = setting
+            .split_once('=')
+            .filter(|(k, _)| !k.is_empty())
+            .ok_or_else(|| {
+                authoring::AuthoringError::Invalid("component --set needs prop=value".into())
+            })?;
+        if invocation.get(key).is_some() {
+            return Err(authoring::AuthoringError::Invalid(format!(
+                "component repeats prop {key}"
+            )));
+        }
+        invocation[key] = serde_json::from_str(value).unwrap_or_else(|_| json!(value));
+    }
+    let project = crate::core::entity::parse(&loaded.entity_before)
+        .map_err(|e| authoring::AuthoringError::Invalid(format!("{e:?}")))?
+        .project;
+    loaded.deterministic = true;
+    let document = authoring::parse_loaded(&loaded)?;
+    let mut data = serde_json::Map::new();
+    let mut ambiguous = BTreeSet::new();
+    for section in crate::core::bindings::data_sections(document.value()).values() {
+        for call in &section.services {
+            let service = if section.collection == "Things" {
+                format!("{}.{}", section.entity, call.target)
+            } else {
+                format!("{}/{}.{}", section.collection, section.entity, call.target)
+            };
+            if data
+                .insert(call.instance.clone(), json!({"service":service}))
+                .is_some()
+            {
+                ambiguous.insert(call.instance.clone());
+            }
+        }
+    }
+    let parameters: serde_json::Map<_, _> =
+        crate::core::mashup::describe::mashup_parameters(&loaded.entity_before)
+            .map_err(authoring::AuthoringError::Unreadable)?
+            .into_iter()
+            .map(|p| (p.name, json!(p.base_type)))
+            .collect();
+    let mut source = json!({"version":1,"rules":"v1","page":{"name":mashup,"template":"blank","parameters":parameters,"data":data,"slots":{"center":[{"component":invocation}]}}});
+    if let Some(theme) = document
+        .value()
+        .pointer("/UI/Properties/StyleTheme")
+        .and_then(Value::as_str)
+    {
+        source["page"]["theme"] = json!(theme);
+    }
+    let text = source.to_string();
+    let spec = schema::parse_solution(&text, solution).map_err(invalid)?;
+    let page = &spec.page.value;
+    fn uses_alias(node: &Node, alias: &str) -> bool {
+        let body = node.body();
+        let names_alias = |text: &str| {
+            text == alias || text.strip_prefix(alias).is_some_and(|s| s.starts_with('.'))
+        };
+        body.data.as_ref().is_some_and(|s| s.value == alias)
+            || body.options.as_ref().is_some_and(|s| s.value == alias)
+            || body
+                .sparkline
+                .as_ref()
+                .and_then(|s| s.value.data.as_deref())
+                .is_some_and(|s| s == alias)
+            || body
+                .props
+                .values()
+                .chain(body.value.iter())
+                .chain(body.status.iter())
+                .chain(body.delta.iter())
+                .any(|v| binding(&v.value).is_some_and(names_alias))
+            || descendants(node).any(|child| uses_alias(child, alias))
+    }
+    for alias in &ambiguous {
+        if page.contracts.iter().any(|c| &c.data == alias)
+            || page
+                .slots
+                .values()
+                .flat_map(|s| &s.value)
+                .any(|n| uses_alias(n, alias))
+        {
+            return Err(authoring::AuthoringError::Ambiguous(format!(
+                "component: data alias {alias} names several calls; use unique aliases"
+            )));
+        }
+    }
+
+    let parent = document
+        .find(container)
+        .map_err(authoring::AuthoringError::Edit)?
+        .id;
+    let before: BTreeSet<_> = document.widgets().into_iter().map(|w| w.id).collect();
+    let mut session = Session::existing(
+        mashup,
+        loaded.entity_before.clone(),
+        document,
+        loaded.assets.css.clone(),
+    );
+    let mut allocator = Ids::new(before.iter().cloned());
+    let mut ids: BTreeMap<_, _> = before.iter().map(|id| (id.clone(), id.clone())).collect();
+    let (model, _) = types::load_model(solution);
+    let platform = types::cached_platform(solution);
+    for node in &page.slots["center"].value {
+        add(
+            solution,
+            &mut session,
+            &mut allocator,
+            &mut ids,
+            page,
+            node,
+            (&parent, None),
+        )
+        .map_err(invalid)?;
+    }
+    let mut cells = Vec::new();
+    wire_nodes(
+        solution,
+        &project,
+        &mut session,
+        &model,
+        platform.as_ref(),
+        page,
+        &mut allocator,
+        &mut ids,
+        &mut cells,
+    )
+    .map_err(invalid)?;
+    let generated = cells
+        .iter()
+        .map(|cell| super::build::generated_cell(solution, &project, cell))
+        .collect::<Result<Vec<_>, _>>()?;
+    let notes = cells
+        .iter()
+        .map(|cell| {
+            format!(
+                "{}: generated collection cell (XML, sidecars, spec and baseline)",
+                cell.name
+            )
+        })
+        .collect();
+    for node in &page.slots["center"].value {
+        apply_size(solution, &mut session, page, &ids, node).map_err(invalid)?;
+    }
+    super::elements::finish_layout(&mut session, page, &ids).map_err(invalid)?;
+    let added = session
+        .document
+        .widgets()
+        .into_iter()
+        .filter(|w| !before.contains(&w.id))
+        .map(|w| w.id)
+        .collect();
+    Ok(authoring::RecipePlan {
+        edit: authoring::finish_edit_with_css(
+            loaded,
+            session.document,
+            "mashup recipe",
+            Some(session.css),
+        )?,
+        name: "component",
+        generated,
+        added,
+        removed: vec![],
+        wired: vec![],
+        notes,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn wire_nodes(
+    solution: &Solution,
+    project: &str,
+    session: &mut Session,
+    model: &types::Model,
+    platform: Option<&types::Platform>,
+    page: &Page,
+    allocator: &mut Ids,
+    ids: &mut BTreeMap<String, String>,
+    cells: &mut Vec<GeneratedCell>,
+) -> Result<(), Error> {
+    validate_contracts(solution, session, model, platform, page)?;
+    for nodes in page.slots.values() {
+        for node in &nodes.value {
+            wire(solution, session, model, platform, page, ids, node)?;
+        }
+    }
+    fn collections<'a>(node: &'a Node, out: &mut Vec<&'a Node>) {
+        if matches!(node, Node::Collection(_)) {
+            out.push(node);
+        }
+        for child in descendants(node) {
+            collections(child, out);
+        }
+    }
+    let mut shown = vec![];
+    for node in page.slots.values().flat_map(|s| &s.value) {
+        collections(node, &mut shown);
+    }
+    for node in shown {
+        wire_collection(
+            solution, project, session, model, platform, page, ids, cells, node,
+        )?;
+    }
+    fn pagers<'a>(node: &'a Node, out: &mut Vec<&'a Node>) {
+        if matches!(node, Node::Pagination(_)) {
+            out.push(node);
+        }
+        for child in descendants(node) {
+            pagers(child, out);
+        }
+    }
+    let mut pagination = vec![];
+    for node in page.slots.values().flat_map(|s| &s.value) {
+        pagers(node, &mut pagination);
+    }
+    for node in pagination {
+        wire_pagination(solution, session, allocator, page, ids, node)?;
+    }
+    fn gated<'a>(node: &'a Node, out: &mut Vec<&'a Node>) {
+        if matches!(node, Node::Button(_)) && node.body().enabled_when.is_some() {
+            out.push(node);
+        }
+        for child in descendants(node) {
+            gated(child, out);
+        }
+    }
+    let mut gates = vec![];
+    for node in page.slots.values().flat_map(|s| &s.value) {
+        gated(node, &mut gates);
+    }
+    for node in gates {
+        wire_enabled(solution, session, allocator, ids, node)?;
+    }
+    fn emptied<'a>(node: &'a Node, out: &mut Vec<&'a Node>) {
+        if node.body().empty.is_some() {
+            out.push(node);
+        }
+        for child in descendants(node) {
+            emptied(child, out);
+        }
+    }
+    let mut empties = vec![];
+    for node in page.slots.values().flat_map(|s| &s.value) {
+        emptied(node, &mut empties);
+    }
+    for node in empties {
+        wire_empty(solution, session, allocator, page, ids, node)?;
+    }
+    for node in page.slots.values().flat_map(|s| &s.value) {
+        wire_sparklines(solution, session, model, platform, page, ids, node)?;
+    }
+    wire_selections(solution, session, model, platform, page, allocator, ids)?;
+    for node in page.slots.values().flat_map(|s| &s.value) {
+        wire_values(solution, session, model, platform, page, ids, node)?;
     }
     Ok(())
 }

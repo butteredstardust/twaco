@@ -1,0 +1,26 @@
+{
+  "name": "section_card",
+  "source": "WDK_Inputs",
+  "props": {
+    "title": {
+      "type": "string",
+      "required": true
+    },
+    "align": {
+      "type": "string",
+      "default": "start"
+    },
+    "children": {
+      "type": "array",
+      "default": []
+    }
+  },
+  "tree": {
+    "card": {
+      "id": "$id",
+      "title": "$title",
+      "align": "$align",
+      "children": "$children"
+    }
+  }
+}

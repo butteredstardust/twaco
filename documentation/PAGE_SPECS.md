@@ -68,7 +68,7 @@ identical artifacts. Mapping declaration order does not affect output; node arra
 The compiler calls the same in-memory new/add/set/source/bind/on/recipe operations as command
 planners. XML is filled through `mashup::sync` scanner spans and splices. The compiler neither
 serializes entity XML nor invokes the CLI. Future elements extend the node enum and reuse this
-session. Reusable component libraries remain separate work.
+session. Reusable components expand into this same element tree; see Components below.
 
 
 ## Element reference
@@ -301,7 +301,7 @@ and `mint`, or a `#hex` value; `font` is `mono`, `sans` or a family list. The sa
 `mashup set --style` (`background=lime`, `label:color=primary`, `label:font-family=mono`). They are
 fixed hex values for now; the theme tokens of batch 4 replace them.
 
-Kit structures used (WDK_Inputs export): the page column (`default`, grow 1, `LastContainer`), a
+Kit structures used (the inputs gallery): the page column (`default`, grow 1, `LastContainer`), a
 fixed 40px title row, two gallery rows of `default` growing columns, and a section column holding
 a fixed 40px title row (row, align-items center) over a `LastContainer` row (justify and align
 center) that holds the field. Equal cards come from equal growing siblings, not fixed sizes, and
@@ -372,10 +372,10 @@ CI also checks both front ends, rebuilds, retained hand edits and conflicts.
 | H / AssetListTopFilter | [Asset list](../tests/fixtures/mashup/pages/bench_h/page.yaml) | Search invokes SearchAssets. Its contract has only query, so category/date filtering needs another service contract. View Details is the kit's transparent eye-icon button, selection-gated; navigation is outside the event subset. Pagination slices the grid locally. |
 | J / AlertsAndNotifications | [Alerts tabs](../tests/fixtures/mashup/pages/bench_j/page.yaml) | Asset fields substitute for a dedicated alert contract. Severity/date controls need filtering services; Form is styled but cannot open a popup through spec events yet. Application uses a second grid over the same source. |
 | K / AdminMetrics | [Metrics filters](../tests/fixtures/mashup/pages/bench_k/page.yaml) | Apply binds all side-filter values; Reset is present but has no reset recipe in specs. The template chevron is retained; no collapsible recipe is exposed. Toolbar search/category/date and View Details are visual controls awaiting separate filter/navigation wiring. Pagination uses the existing local slicing recipe. |
-| O / WDK_Gauges | [Gauges and KPI](../tests/fixtures/mashup/pages/bench_o/page.yaml) | The kit's four needle gauges use a legacy `gauge` type with no authoring contract and no native widget; the native `ptcskpidial` (dial and half layouts) stands in, a recorded native deviation. Dials bind to one slider; the kit's absolute-positioned slider becomes a full-width slider with min/max labels. |
+| O / kit gauges | [Gauges and KPI](../tests/fixtures/mashup/pages/bench_o/page.yaml) | The kit's four needle gauges use a legacy `gauge` type with no authoring contract and no native widget; the native `ptcskpidial` (dial and half layouts) stands in, a recorded native deviation. Dials bind to one slider; the kit's absolute-positioned slider becomes a full-width slider with min/max labels. |
 | L / Compare | [Compare](../tests/fixtures/mashup/pages/bench_l/page.yaml) | The kit's side lists are collections over cell mashups; the spec uses native lists (selected items feed the second list) with an eye-icon notice for the empty state. The side panel's one tab and 276px column follow the kit; the cell page is a generated KPI tile (title over a dial) instead of the kit's detail card. Not yet measured live. |
 | M / Administrator | [Admin shell](../tests/fixtures/mashup/pages/bench_m/page.yaml) | The navigation is native buttons in a column (the first marked selected), not the kit's service-fed collection with section headers; the filter column's chevron is the kit's inside tab. Filters are not wired to the service, and Apply/Reset have no events in this spec. Not yet measured live. |
-| P / WDK Inputs | [Inputs gallery](../tests/fixtures/mashup/pages/bench_p/page.yaml) | The content area only, without the WDK shell. Equal cards come from growing `default` rows and columns and the centring from the body row, as in the export; `flex-basis` is 0 and the frame and gap are managed style and margin. `rounded` is kit-exact; the three focus looks are native approximations of the kit's master CSS classes. Not yet measured live. |
+| P / kit inputs gallery | [Inputs gallery](../tests/fixtures/mashup/pages/bench_p/page.yaml) | The content area only, without the kit's shell. Equal cards come from growing `default` rows and columns and the centring from the body row, as in the export; `flex-basis` is 0 and the frame and gap are managed style and margin. `rounded` is kit-exact; the three focus looks are native approximations of the kit's master CSS classes. Not yet measured live. |
 | S / web page | [Line 03 live](../tests/fixtures/mashup/pages/bench_s/page.yaml) | Layout only: no kit exists for it, so rows reuse the kit structures, and colours are plain names. Theme tokens, the active-navigation underline, hard shadows and chart bar colours are batch 4. Not yet measured live. |
 | N / Documents | [Document actions](../tests/fixtures/mashup/pages/bench_n/page.yaml) | Transparent icon buttons as in the kit; Preview is enabled by the grid's selection. Preview window and download actions need navigation/download event support. |
 
@@ -396,8 +396,8 @@ mashups continue using legacy rules and unchanged legacy goldens.
 
 ## Kit structures
 
-V1 filter columns follow the exported AdminPage01/AdminMetrics containers 44/50/51/55/54:
-fixed-width collapsible row 43 contains a `default`, growing `LastContainer` column 44.
+V1 filter columns follow the kit's admin pages: a fixed-width collapsible row contains a `default`,
+growing `LastContainer` column.
 That column contains the growing fields column with direct controls, then a footer column with a 1px divider and
 `LastContainer` button row. A `title` label comes first (`LabelType: title`, margin `16`);
 text fields use `0 16 16`, other filter controls `8 16 16`. Controls retain their native heights.
@@ -409,18 +409,18 @@ and `--bottom filters`, plus panel/collapsible recipes, use the same layout code
 
 | Area | Exported kit structure | Previous twaco structure | V1 structure now |
 | --- | --- | --- | --- |
-| Filters (K, M, Q1) | AdminPage01/AdminMetrics: direct controls in 50; footer 51 wraps divider 55 and button row 54 | Fixed per-field rows, estimated fields minimum, sibling divider/footer and trailing filler | Direct controls and nested footer, with the kit margins above |
-| Side panel (L) | Compare: 72px title band 101; growing row 103 holds tabset; growing tab column 105; fixed content bands and final list row 108 | 72px title plus tab row sized by placement; generic remainder filler | Explicit growing `default` tab row and `LastContainer` tab content; existing list/empty-state branches retained |
-| Navigation (M) | Administrator: 72px title 7; 100px search-tab band 8/11; collection in growing row 34 | Native static caption/button rows and trailing filler | Static captions/buttons directly in one column; no filler. The service-fed collection/cell menu has no static-menu equivalent in the exports; the native button adaptation retains stable event addresses and font styling |
+| Filters (K, M, Q1) | Admin pages: direct controls in the fields column; the footer column wraps a divider and the button row | Fixed per-field rows, estimated fields minimum, sibling divider/footer and trailing filler | Direct controls and nested footer, with the kit margins above |
+| Side panel (L) | Compare: 72px title band; a growing row holds the tab set; a growing tab column; fixed content bands and a final list row | 72px title plus tab row sized by placement; generic remainder filler | Explicit growing `default` tab row and `LastContainer` tab content; existing list/empty-state branches retained |
+| Navigation (M) | Administrator: 72px title; 100px search-tab band; collection in a growing row | Native static caption/button rows and trailing filler | Static captions/buttons directly in one column; no filler. The service-fed collection/cell menu has no static-menu equivalent in the exports; the native button adaptation retains stable event addresses and font styling |
 | Generated collection cell (L) | CompareCell: fixed 24px top band, 160px image band, growing details column, fixed 18px status band | KPI-tile template with title/dial, plus generic filler where no child grew | The title/dial-only adaptation retains the KPI template; filling containers use `LastContainer`. No image/status bands are fabricated: the cell API exposes neither role, and no exported kit has a title/dial-only cell |
-| Main content | AdminPage01 5/19 and Compare 5/19: fixed header/toolbar/pagination bands around a `default` growing grid/collection row | Range rows with calculated floors and no `LastContainer` | Kit grid/collection remainder rows use `default` + `LastContainer` and keep any authored or chart height floor so tall pages scroll; the horizontal-width correction remains |
+| Main content | Admin pages and Compare: fixed header/toolbar/pagination bands around a `default` growing grid/collection row | Range rows with calculated floors and no `LastContainer` | Kit grid/collection remainder rows use `default` + `LastContainer` and keep any authored or chart height floor so tall pages scroll; the horizontal-width correction remains |
 
 Other benchmark output changes are limited to kit remainder containers and removal of the
-55d fillers: A/O gain the page-column remainder marker; H/N gain the grid-row marker and
+fillers: A/O gain the page-column remainder marker; H/N gain the grid-row marker and
 `default` sizing; J gains tab/body remainder markers; Q2-Q4 gain markers on their fill regions.
 All also gain the page-column marker. Their controls, event wiring, chart floors and width
 corrections are retained. These markers follow the growing page/content columns in
-AdminPage01 and Compare, and the tab content in Administrator/Compare.
+the admin pages and Compare, and the tab content in Administrator/Compare.
 
 These comparisons are offline inspections of XML exports, not new runtime measurements.
 
@@ -492,3 +492,183 @@ use their field names. `recipe sparkline <name> <container> --data <call> --x <f
 direct service-row binding. Existing command equivalents for status dots are
 `recipe label-pairs --status <field> --status-state <StateDefinition>`, and picker
 first-row selection is `recipe picker --auto-select-first`.
+
+
+## Components
+
+Components are embedded YAML definitions plus `twaco/components/*.yaml` in the solution.
+A solution definition with the same `name` overrides the built-in. Other names add components.
+`twaco components list` lists names, kit sources and props; `twaco components show <name>`
+shows the entire definition. Both accept `--json`. MCP `components` lists definitions; its
+optional `name` shows one. No server is contacted.
+
+Use the explicit `component` node so element names and component names remain distinct:
+
+```yaml
+- component:
+    use: section_card
+    id: inputs
+    title: Standard input
+    align: center
+    children:
+      - text_field: {id: query, hint: Search}
+```
+
+The command equivalent adds the same expanded element tree under an existing container:
+
+```sh
+twaco mashup recipe component Acme.Page_MU section_card center --set id=inputs --set title="Standard input" --set align=center --apply
+```
+
+`--set` is repeatable. Values are JSON when parseable, otherwise strings. Arrays, objects
+and `{bind: ...}` are passed as JSON; bindings name existing widget IDs or existing service
+aliases (`rows.Count`); `param.<name>` reads an existing mashup parameter. Generated cells
+inherit the parent's StyleTheme. MCP uses `mashup_recipe` with `recipe: "component"`, `kind`,
+`widget` (the parent container), and `settings: ["id=inputs", "title=Standard input"]`.
+Command recipes plan by default; MCP applies only with `dry_run: false`. Components
+with generated collection cells include those cells' XML, sidecars, specs and baselines in
+the same transaction as the parent edit. Compatible existing cell specs retain their bytes
+and use their baseline merge; a different existing cell spec or a merge conflict writes nothing. The recipe report includes every generated file.
+
+| Built-in | Source pattern | Props |
+| --- | --- | --- |
+| `kpi_tile` | `AssetKPI`, caption/value row | label, value (required binding), unit |
+| `trend_tile` | `AssetKPI`, caption/value/trend row | label, value (required binding), unit, trend, delta, color, sparkline |
+| `status_card` | `twaco` (existing card recipe) | title, value, status, state, detail, kind, children |
+| `filter_panel` | `PTCSC.IOTCommonMU.AdminPage01_MU` | title, fields, footer, children |
+| `toolbar_band` | `PTCSC.IOTCommonMU.AdminMetrics_MU` | children |
+| `page_header` | `PTCSC.IOTCommonMU.AdminPage01_MU` | title (required), help, info, actions |
+| `section_card` | `WDK_Inputs` | title (required), align, children |
+| `side_panel` | `PTCSC.IOTCommonMU.Compare_MU` | title (required), help, tab, children |
+
+The `source` field records provenance; `twaco` denotes an invented/adapted combination.
+These definitions reuse the already documented native-widget adaptations. Existing element
+syntax and output are unchanged. Inspection of the supplied exports is offline evidence;
+this batch makes no runtime comparison claim.
+
+A solution definition has this same schema:
+
+```yaml
+name: metric
+source: twaco
+props:
+  caption: {type: string, default: Total}
+  data: {type: string, required: true}
+  value: {type: value, required: true}
+contract:
+  data: data
+  fields: {Count: NUMBER}
+tree:
+  card:
+    id: '$id'
+    title: '$caption'
+    value: '$value'
+```
+
+`props` types are `string`, `number`, `boolean`, `array`, `object`, or `value` (any YAML
+value, including bindings). A missing optional prop expands to null. `$prop` substitutes
+its typed value, and `${id}--role` interpolates an ID in a string. A prop array used as
+an array item is spliced into that array, so a component can append caller children. `id` and `use` are
+reserved. The tree has one root node and can use other components. Give internal nodes
+IDs based on `${id}`; caller-supplied children retain their IDs. Cycles and more than 32
+component levels are refused. Unknown props, missing required props and contract mismatches
+name the component and point to the invocation. A contract names the prop that supplies a
+data alias and required result fields with their ThingWorx base types (`ANY` accepts any
+known field type). Both spec builds and command recipes check the same offline service
+contracts. Build application also refuses component files added, removed or changed after
+planning.
+
+## Deriving a spec
+
+```sh
+twaco mashup spec Acme.Page_MU --out adopted.page.yaml
+twaco mashup spec Acme.Page_MU --json
+```
+
+Without `--out`, the spec goes to stdout and coverage to stderr. `--json` returns `spec`,
+`elements`, `raw`, `raw_types`, `widgets`, `exact`, `hand_edited` and `notes` (the last three only
+when they have something to say); it also writes the requested output file when present. MCP
+`mashup_spec` takes `mashup` and returns the same report without writing a file.
+
+**A mashup built from a spec** (`src/<Mashup>/page.yaml` with its `.page-baseline.json`) returns
+that `page.yaml` byte for byte (`exact: true`) while the mashup still matches its baseline. If the
+mashup was edited by hand after the last build, the report still carries `page.yaml`, with
+`exact: false`, `hand_edited` naming each changed widget as `node (widget id)` (plus `Data (wiring)`,
+`DataBindings (wiring)` or `Events (wiring)` when the wiring changed) and a note that the file does
+not describe those edits. A page with a `page.yaml` but no baseline is compared by compiling the
+spec instead. The offline test covers every Acme benchmark spec (A, H, J, K, L, M, N, O, P,
+Q1 to Q4 and S) both ways.
+
+**Any other mashup** gets a YAML spec of elements, not a copy of its content:
+
+| Widgets | Written as |
+| --- | --- |
+| flex container | `row` or `column`; `size: fit` for no growth, `size: {fixed: N}` for a fixed pixel size along the parent, `weight: N` for a growth other than 1; other properties that differ from the catalogue go in `props` |
+| empty container in a row | `spacer` |
+| label | `heading` (header), `text` (body), `label`; other label types are a `label` with `props: {LabelType: ...}` |
+| button, text field, date range | `button` (`variant`, `icon`), `text_field` (`hint`), `date_range` (a datepicker without `DateRange` is a `widget`) |
+| dropdown, list | `dropdown` (`options`, `display`), `list` (`data`, `display`, `selection`), when a service feeds them |
+| grid | `grid` with `data` and `columns` (field, title, width) when a service feeds it |
+| charts | `chart` with `kind`, `data`, `x`; a combo chart lists its `series` |
+| collection | `collection` with `data`, `mashup` and `map` |
+| tab set | `tabs` with each tab's content |
+| row with a header label and buttons | `page_header` with `actions` |
+| 48px row of controls | `toolbar` |
+| filter column (title, controls, divider footer with one or two buttons) | `filter_panel`; the buttons become `apply` and `reset` |
+| side column (72px title row over a one-tab strip) | `side_panel` |
+| column of a 40px title row (one sub-header label) over a body row | `card` with `align` |
+| row of three-label columns (caption, bound value, unit) | `kpi_row` with `tiles` |
+| anything else | `widget: {id, type, props}` with only the properties that differ from the widget catalogue |
+
+Services become `data` entries (`service`, `on: load`, `on: every Ns`, fixed `params`). A binding
+from a widget property to a service parameter becomes `params: {name: {bind: node.Property}}`,
+one into a widget property a `props` entry with `{bind: ...}`, a service feeding `Data` the
+element's `data`, and every other trigger an `events` entry. Node ids are the widget ids with
+anything but letters, digits, `_` and `-` replaced.
+
+Not carried: widget styles, custom CSS, state formatting snapshots, properties the widget
+catalogue does not know, bindings and events a spec cannot express (for example into a function
+widget's inputs) and data that is not a Thing service. The report's `notes` list what applied.
+Pagination is a raw `widget`, because the `pagination` element would add the slicing expressions
+the page already has. Build the derived spec to review a plan: its widget tree matches the
+original's widgets, nesting, services, bindings and events (the compiler adds layout wrappers
+and the look), not its properties.
+
+Coverage counts spec nodes, not widgets: `elements` is the nodes written as elements or
+components, `raw` the `widget:` nodes with their types in `raw_types`, and `widgets` the widgets
+of the mashup, so `widgets` against `elements + raw` shows how much the spec condenses.
+
+Offline coverage of the synthetic kit-structure fixtures
+(`tests/fixtures/mashup/pages/kit_structures`, hand-written Acme pages with the container
+structure of the kit pages, no copied content):
+
+| Fixture | Widgets | Elements | Raw | Spec bytes |
+| --- | ---: | ---: | --- | ---: |
+| filter_column | 23 | 13 | 1 (pagination) | 2018 |
+| side_column | 16 | 9 | 0 | 1327 |
+| section_gallery | 25 | 11 | 1 (date picker) | 1357 |
+| admin_shell | 24 | 16 | 0 | 1818 |
+| tabs_page | 10 | 7 | 1 (expression2) | 879 |
+
+The benchmark pages built by their specs, derived again from their built content (as a page
+without a baseline would be). All fourteen derive specs that parse; the six smallest (up to 40
+widgets: H, J, K, L, N, P) are built again and keep their widgets, nesting, services, bindings and
+events. The raw nodes are mostly the pagination widget with the expressions that slice its grid,
+which the `pagination` element would duplicate.
+
+| Page | Widgets | Elements | Raw (by type) | Spec bytes |
+| --- | ---: | ---: | --- | ---: |
+| A | 127 | 112 | 14 (shape 12, chart pie 1, date picker 1) | 37264 |
+| H | 22 | 15 | 6 (expression2 4, grid 1, pagination 1) | 17360 |
+| J | 21 | 18 | 0 | 4716 |
+| K | 39 | 26 | 6 (expression2 3, date picker 1, grid 1, pagination 1) | 26862 |
+| L | 36 | 26 | 5 (expression2 4, list 1) | 9393 |
+| M | 48 | 34 | 6 (expression2 4, grid 1, pagination 1) | 25376 |
+| N | 7 | 6 | 1 (expression2 1) | 1559 |
+| O | 47 | 37 | 9 (kpi dial 8, slider 1) | 12403 |
+| P | 36 | 35 | 0 | 7138 |
+| Q1 | 66 | 52 | 5 (expression2 3, grid 1, pagination 1) | 35244 |
+| Q2 | 86 | 85 | 0 | 20593 |
+| Q3 | 57 | 49 | 7 (expression2 4, chart pie 1, grid 1, pagination 1) | 24571 |
+| Q4 | 50 | 45 | 4 (expression2 4) | 13595 |
+| S | 85 | 84 | 0 | 18513 |

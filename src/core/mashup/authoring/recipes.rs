@@ -24,6 +24,11 @@ const MAX_COMBO_SERIES: usize = 24;
 /// One recipe and what it needs. Addresses are those `mashup bind` and `mashup on` take.
 #[derive(Clone, Debug)]
 pub enum Recipe {
+    Component {
+        container: String,
+        name: String,
+        settings: Vec<String>,
+    },
     Panel {
         container: String,
         compact: Option<u32>,
@@ -262,6 +267,7 @@ pub struct RecipeRequest {
 #[derive(Debug)]
 pub struct RecipePlan {
     pub(crate) edit: EditPlan,
+    pub(crate) generated: Vec<mashup::page::build::Plan>,
     pub name: &'static str,
     /// The widgets the recipe added.
     pub added: Vec<String>,
@@ -272,9 +278,42 @@ pub struct RecipePlan {
     pub notes: Vec<String>,
 }
 
+impl RecipePlan {
+    pub(crate) fn unchanged(&self) -> bool {
+        self.edit.unchanged()
+            && self
+                .generated
+                .iter()
+                .all(|p| p.report["files"].as_array().is_some_and(|f| f.is_empty()))
+    }
+}
+
+pub(crate) fn recipe_transaction<'a>(
+    solution: &'a Solution,
+    plan: &RecipePlan,
+) -> Result<crate::core::transaction::Transaction<'a>, AuthoringError> {
+    let mut tx = super::edit_transaction(solution, &plan.edit)?;
+    for generated in &plan.generated {
+        generated.append_to(solution, &mut tx)?;
+    }
+    Ok(tx)
+}
+
+pub(crate) fn apply_recipe(
+    solution: &Solution,
+    plan: &RecipePlan,
+    lock: &crate::core::lock::WorkspaceLock,
+) -> Result<(), AuthoringError> {
+    recipe_transaction(solution, plan)?
+        .apply(lock)
+        .map_err(AuthoringError::Write)?;
+    Ok(())
+}
+
 impl Recipe {
     pub(crate) fn name(&self) -> &'static str {
         match self {
+            Self::Component { .. } => "component",
             Self::Panel { .. } => "panel",
             Self::Card { .. } => "card",
             Self::SliderAction { .. } => "slider-action",
@@ -1552,6 +1591,21 @@ pub(super) fn plan_recipe_loaded(
     request: &RecipeRequest,
     loaded: super::ExistingMashup,
 ) -> Result<RecipePlan, AuthoringError> {
+    if let Recipe::Component {
+        container,
+        name,
+        settings,
+    } = &request.recipe
+    {
+        return mashup::page::compile::component_recipe(
+            solution,
+            &request.mashup,
+            container,
+            name,
+            settings,
+            loaded,
+        );
+    }
     let document = parse_loaded(&loaded)?;
     let parameters =
         mashup_parameters(&loaded.entity_before).map_err(AuthoringError::Unreadable)?;
@@ -1572,6 +1626,7 @@ pub(super) fn plan_recipe_loaded(
     };
     let mut css = None;
     match &request.recipe {
+        Recipe::Component { .. } => unreachable!("component handled above"),
         Recipe::Panel {
             container,
             compact,
@@ -2960,6 +3015,7 @@ pub(super) fn plan_recipe_loaded(
     Ok(RecipePlan {
         edit: finish_edit_with_css(loaded, document, "mashup recipe", css)?,
         name: request.recipe.name(),
+        generated: Vec::new(),
         added,
         removed,
         wired,
@@ -2970,6 +3026,7 @@ pub(super) fn plan_recipe_loaded(
 /// What a recipe can be given, as the command line and MCP both pass it.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct RecipeArgs {
+    pub settings: Vec<String>,
     pub fit: Option<String>,
     pub stacked: bool,
     pub band: bool,
@@ -3102,6 +3159,7 @@ pub const RECIPES: &[&str] = &[
     "section",
     "card-grid",
     "input-variant",
+    "component",
 ];
 
 fn field_caption(name: &str) -> String {
@@ -3158,6 +3216,7 @@ impl Recipe {
     /// Build a recipe from its name and arguments, refusing what it does not take.
     pub fn from_args(name: &str, args: &RecipeArgs) -> Result<Recipe, AuthoringError> {
         for (given, flag, recipe) in [
+            (!args.settings.is_empty(), "--set", "component"),
             (args.fit.is_some(), "--fit", "panel"),
             (args.stacked, "--stacked", "chart"),
             (args.band, "--band", "toolbar"),
@@ -3318,6 +3377,11 @@ impl Recipe {
         let inputs = pairs("--input", &args.inputs)?;
         let widget = |what: &str| required(&args.widget, what, name);
         Ok(match name {
+            "component" => Recipe::Component {
+                container: required(&args.widget, "<container>", name)?,
+                name: required(&args.kind, "--kind <component>", name)?,
+                settings: args.settings.clone(),
+            },
             "panel" => {
                 if args.compact.is_some_and(|n| ![768, 960].contains(&n)) {
                     return Err(AuthoringError::Invalid(
@@ -3661,9 +3725,18 @@ pub fn recipe_plan_json(solution: &Solution, plan: &RecipePlan, applied: bool) -
             files.push(relative(&sidecars.css_path));
         }
     }
+    for generated in &plan.generated {
+        files.extend(
+            generated.report["files"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|p| p.as_str().map(str::to_string)),
+        );
+    }
     json!({
         "applied": applied,
-        "unchanged": plan.edit.unchanged(),
+        "unchanged": plan.unchanged(),
         "mashup": plan.edit.mashup,
         "recipe": plan.name,
         "added": plan.added,

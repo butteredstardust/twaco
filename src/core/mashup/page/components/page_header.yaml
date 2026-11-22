@@ -1,0 +1,29 @@
+{
+  "name": "page_header",
+  "source": "PTCSC.IOTCommonMU.AdminPage01_MU",
+  "props": {
+    "title": {
+      "type": "string",
+      "required": true
+    },
+    "help": {
+      "type": "string"
+    },
+    "actions": {
+      "type": "array",
+      "default": []
+    },
+    "info": {
+      "type": "string"
+    }
+  },
+  "tree": {
+    "page_header": {
+      "id": "$id",
+      "title": "$title",
+      "help": "$help",
+      "actions": "$actions",
+      "info": "$info"
+    }
+  }
+}

@@ -1,0 +1,364 @@
+{
+ "Data": {
+  "Things_Acme.Cards": {
+   "DataName": "Things_Acme.Cards",
+   "EntityName": "Acme.Cards",
+   "EntityType": "Things",
+   "Id": "Acme.Cards-id",
+   "RefreshInterval": 0,
+   "Services": [
+    {
+     "APIMethod": "post",
+     "Characteristic": "Services",
+     "Id": "assets-id",
+     "Name": "assets",
+     "Parameters": {},
+     "RefreshInterval": 0,
+     "Target": "SearchAssets"
+    },
+    {
+     "APIMethod": "post",
+     "Characteristic": "Services",
+     "Id": "categories-id",
+     "Name": "categories",
+     "Parameters": {},
+     "RefreshInterval": 0,
+     "Target": "GetCategories"
+    }
+   ]
+  }
+ },
+ "DataBindings": [
+  {
+   "Id": "assets>ptcsgrid-4:Data",
+   "PropertyMaps": [
+    {
+     "SourceProperty": "",
+     "SourcePropertyBaseType": "INFOTABLE",
+     "SourcePropertyType": "InfoTable",
+     "TargetProperty": "Data",
+     "TargetPropertyBaseType": "INFOTABLE",
+     "TargetPropertyType": "property"
+    }
+   ],
+   "SourceArea": "Data",
+   "SourceDetails": "AllData",
+   "SourceId": "assets",
+   "SourceSection": "Things_Acme.Cards",
+   "TargetArea": "UI",
+   "TargetId": "ptcsgrid-4",
+   "TargetSection": ""
+  },
+  {
+   "Id": "categories>ptcsdropdown-49:Data",
+   "PropertyMaps": [
+    {
+     "SourceProperty": "",
+     "SourcePropertyBaseType": "INFOTABLE",
+     "SourcePropertyType": "InfoTable",
+     "TargetProperty": "Data",
+     "TargetPropertyBaseType": "INFOTABLE",
+     "TargetPropertyType": "property"
+    }
+   ],
+   "SourceArea": "Data",
+   "SourceDetails": "AllData",
+   "SourceId": "categories",
+   "SourceSection": "Things_Acme.Cards",
+   "TargetArea": "UI",
+   "TargetId": "ptcsdropdown-49",
+   "TargetSection": ""
+  },
+  {
+   "Id": "ptcstextfield-47:Text>assets.query",
+   "PropertyMaps": [
+    {
+     "SourceProperty": "Text",
+     "SourcePropertyBaseType": "STRING",
+     "SourcePropertyType": "Property",
+     "TargetProperty": "query",
+     "TargetPropertyBaseType": "STRING",
+     "TargetPropertyType": "Parameter"
+    }
+   ],
+   "SourceArea": "UI",
+   "SourceDetails": "",
+   "SourceId": "ptcstextfield-47",
+   "SourceSection": "",
+   "TargetArea": "Data",
+   "TargetId": "assets",
+   "TargetSection": "Things_Acme.Cards"
+  }
+ ],
+ "Events": [
+  {
+   "EventHandlerArea": "Data",
+   "EventHandlerId": "Things_Acme.Cards",
+   "EventHandlerService": "assets",
+   "EventHandlerServiceMethod": "",
+   "EventTriggerArea": "Mashup",
+   "EventTriggerEvent": "Loaded",
+   "EventTriggerId": "mashup-root",
+   "EventTriggerSection": "",
+   "Id": "load-assets"
+  },
+  {
+   "EventHandlerArea": "Data",
+   "EventHandlerId": "Things_Acme.Cards",
+   "EventHandlerService": "categories",
+   "EventHandlerServiceMethod": "",
+   "EventTriggerArea": "Mashup",
+   "EventTriggerEvent": "Loaded",
+   "EventTriggerId": "mashup-root",
+   "EventTriggerSection": "",
+   "Id": "load-categories"
+  },
+  {
+   "EventHandlerArea": "Data",
+   "EventHandlerId": "Things_Acme.Cards",
+   "EventHandlerService": "assets",
+   "EventHandlerServiceMethod": "",
+   "EventTriggerArea": "UI",
+   "EventTriggerEvent": "Clicked",
+   "EventTriggerId": "ptcsbutton-52",
+   "EventTriggerSection": "",
+   "Id": "ptcsbutton-52-Clicked-assets"
+  }
+ ],
+ "UI": {
+  "Properties": {
+   "Id": "mashup-root",
+   "Type": "mashup"
+  },
+  "Widgets": [
+   {
+    "Properties": {
+     "Id": "flexcontainer-2",
+     "Type": "flexcontainer",
+     "flex-direction": "row",
+     "flex-grow": 1
+    },
+    "Widgets": [
+     {
+      "Properties": {
+       "Id": "flexcontainer-43",
+       "Type": "flexcontainer",
+       "flex-min-width": "306px",
+       "flex-direction": "row",
+       "flex-grow": 1
+      },
+      "Widgets": [
+       {
+        "Properties": {
+         "Id": "flexcontainer-44",
+         "Type": "flexcontainer",
+         "flex-direction": "column",
+         "flex-grow": 1
+        },
+        "Widgets": [
+         {
+          "Properties": {
+           "Id": "flexcontainer-50",
+           "Type": "flexcontainer",
+           "flex-direction": "column",
+           "flex-grow": 1
+          },
+          "Widgets": [
+           {
+            "Properties": {
+             "Id": "ptcslabel-64",
+             "Type": "ptcslabel",
+             "LabelType": "title",
+             "LabelText": "Filter"
+            }
+           },
+           {
+            "Properties": {
+             "Id": "ptcstextfield-47",
+             "Type": "ptcstextfield"
+            }
+           },
+           {
+            "Properties": {
+             "Id": "ptcsdatepicker-48",
+             "Type": "ptcsdatepicker",
+             "DateRange": true
+            }
+           },
+           {
+            "Properties": {
+             "Id": "ptcsdropdown-49",
+             "Type": "ptcsdropdown",
+             "DisplayField": "Value"
+            }
+           }
+          ]
+         },
+         {
+          "Properties": {
+           "Id": "flexcontainer-51",
+           "Type": "flexcontainer",
+           "justify-content": "center",
+           "align-items": "center",
+           "flex-direction": "column",
+           "flex-grow": 0
+          },
+          "Widgets": [
+           {
+            "Properties": {
+             "Id": "flexcontainer-55",
+             "Type": "flexcontainer",
+             "flex-min-height": "1px",
+             "flex-direction": "row",
+             "flex-grow": 1
+            },
+            "Widgets": []
+           },
+           {
+            "Properties": {
+             "Id": "flexcontainer-54",
+             "Type": "flexcontainer",
+             "justify-content": "center",
+             "align-items": "center",
+             "LastContainer": true,
+             "flex-direction": "row",
+             "flex-grow": 1
+            },
+            "Widgets": [
+             {
+              "Properties": {
+               "Id": "ptcsbutton-52",
+               "Type": "ptcsbutton",
+               "Label": "Apply",
+               "ButtonType": "primary"
+              }
+             },
+             {
+              "Properties": {
+               "Id": "ptcsbutton-53",
+               "Type": "ptcsbutton",
+               "Label": "Reset",
+               "ButtonType": "tertiary"
+              }
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "Properties": {
+       "Id": "flexcontainer-5",
+       "Type": "flexcontainer",
+       "flex-direction": "column",
+       "flex-grow": 1
+      },
+      "Widgets": [
+       {
+        "Properties": {
+         "Id": "flexcontainer-20",
+         "Type": "flexcontainer",
+         "flex-min-height": "54px",
+         "flex-direction": "row",
+         "flex-grow": 1
+        },
+        "Widgets": [
+         {
+          "Properties": {
+           "Id": "ptcslabel-21",
+           "Type": "ptcslabel",
+           "LabelType": "header",
+           "LabelText": "Assets"
+          }
+         },
+         {
+          "Properties": {
+           "Id": "ptcsbutton-42",
+           "Type": "ptcsbutton",
+           "Label": "Export",
+           "ButtonType": "transparent",
+           "SVGIcon": "cds:icon_download"
+          }
+         }
+        ]
+       },
+       {
+        "Properties": {
+         "Id": "flexcontainer-22",
+         "Type": "flexcontainer",
+         "flex-min-height": "48px",
+         "align-items": "center",
+         "flex-direction": "row",
+         "flex-grow": 1
+        },
+        "Widgets": [
+         {
+          "Properties": {
+           "Id": "ptcsbutton-36",
+           "Type": "ptcsbutton",
+           "Label": "View Details",
+           "ButtonType": "transparent",
+           "SVGIcon": "cds:icon_view"
+          }
+         }
+        ]
+       },
+       {
+        "Properties": {
+         "Id": "flexcontainer-19",
+         "Type": "flexcontainer",
+         "flex-direction": "row",
+         "flex-grow": 1
+        },
+        "Widgets": [
+         {
+          "Properties": {
+           "Id": "ptcsgrid-4",
+           "Type": "ptcsgrid",
+           "ColumnFormat": {
+            "formatInfo": [
+             {
+              "FieldName": "ThingName",
+              "Title": "Device",
+              "Width": 180
+             },
+             {
+              "FieldName": "Status"
+             },
+             {
+              "FieldName": "Category"
+             }
+            ]
+           }
+          }
+         }
+        ]
+       },
+       {
+        "Properties": {
+         "Id": "flexcontainer-29",
+         "Type": "flexcontainer",
+         "flex-min-height": "64px",
+         "justify-content": "center",
+         "flex-direction": "row",
+         "flex-grow": 1
+        },
+        "Widgets": [
+         {
+          "Properties": {
+           "Id": "ptcspagination-30",
+           "Type": "ptcspagination"
+          }
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ }
+}

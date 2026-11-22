@@ -1,4 +1,4 @@
-# P Inputs gallery (kit WDK_Inputs content area, without the WDK shell): the title in the primary colour,
+# P Inputs gallery (the kit's inputs gallery content area, without its shell): the title in the primary colour,
 # then a 2x3 gallery of equal cards, each a title and one centred text field in a style variant.
 # NEW: card_grid, card align: center, page_header color, text_field variant, text_field icon.
 version: 1

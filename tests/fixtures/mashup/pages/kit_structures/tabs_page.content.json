@@ -1,0 +1,180 @@
+{
+ "Data": {
+  "Things_Acme.Cards": {
+   "DataName": "Things_Acme.Cards",
+   "EntityName": "Acme.Cards",
+   "EntityType": "Things",
+   "Id": "Acme.Cards-id",
+   "RefreshInterval": 0,
+   "Services": [
+    {
+     "APIMethod": "post",
+     "Characteristic": "Services",
+     "Id": "assets-id",
+     "Name": "assets",
+     "Parameters": {},
+     "RefreshInterval": 0,
+     "Target": "GetAssets"
+    }
+   ]
+  }
+ },
+ "DataBindings": [
+  {
+   "Id": "assets>ptcsgrid-7:Data",
+   "PropertyMaps": [
+    {
+     "SourceProperty": "",
+     "SourcePropertyBaseType": "INFOTABLE",
+     "SourcePropertyType": "InfoTable",
+     "TargetProperty": "Data",
+     "TargetPropertyBaseType": "INFOTABLE",
+     "TargetPropertyType": "property"
+    }
+   ],
+   "SourceArea": "Data",
+   "SourceDetails": "AllData",
+   "SourceId": "assets",
+   "SourceSection": "Things_Acme.Cards",
+   "TargetArea": "UI",
+   "TargetId": "ptcsgrid-7",
+   "TargetSection": ""
+  },
+  {
+   "Id": "expression2-8:Output>ptcslabel-10:LabelText",
+   "PropertyMaps": [
+    {
+     "SourceProperty": "Output",
+     "SourcePropertyBaseType": "STRING",
+     "SourcePropertyType": "Property",
+     "TargetProperty": "LabelText",
+     "TargetPropertyBaseType": "STRING",
+     "TargetPropertyType": "property"
+    }
+   ],
+   "SourceArea": "UI",
+   "SourceDetails": "",
+   "SourceId": "expression2-8",
+   "SourceSection": "",
+   "TargetArea": "UI",
+   "TargetId": "ptcslabel-10",
+   "TargetSection": ""
+  }
+ ],
+ "Events": [
+  {
+   "EventHandlerArea": "Data",
+   "EventHandlerId": "Things_Acme.Cards",
+   "EventHandlerService": "assets",
+   "EventHandlerServiceMethod": "",
+   "EventTriggerArea": "Mashup",
+   "EventTriggerEvent": "Loaded",
+   "EventTriggerId": "mashup-root",
+   "EventTriggerSection": "",
+   "Id": "load-assets"
+  }
+ ],
+ "UI": {
+  "Properties": {
+   "Id": "mashup-root",
+   "Type": "mashup"
+  },
+  "Widgets": [
+   {
+    "Properties": {
+     "Id": "flexcontainer-1",
+     "Type": "flexcontainer",
+     "flex-direction": "column",
+     "flex-grow": 1
+    },
+    "Widgets": [
+     {
+      "Properties": {
+       "Id": "ptcstextfield-9",
+       "Type": "ptcstextfield"
+      }
+     },
+     {
+      "Properties": {
+       "Id": "ptcslabel-10",
+       "Type": "ptcslabel",
+       "LabelType": "label",
+       "LabelText": "Echo"
+      }
+     },
+     {
+      "Properties": {
+       "Id": "ptcstabset-2",
+       "Type": "ptcstabset",
+       "NumberOfTabs": 2,
+       "Tab1Name": "Overview",
+       "Tab2Name": "Details"
+      },
+      "Widgets": [
+       {
+        "Properties": {
+         "Id": "flexcontainer-3",
+         "Type": "flexcontainer",
+         "flex-direction": "column",
+         "flex-grow": 1
+        },
+        "Widgets": [
+         {
+          "Properties": {
+           "Id": "ptcslabel-4",
+           "Type": "ptcslabel",
+           "LabelType": "header",
+           "LabelText": "Overview"
+          }
+         },
+         {
+          "Properties": {
+           "Id": "ptcslabel-5",
+           "Type": "ptcslabel",
+           "LabelType": "body",
+           "LabelText": "No summary yet"
+          }
+         }
+        ]
+       },
+       {
+        "Properties": {
+         "Id": "flexcontainer-6",
+         "Type": "flexcontainer",
+         "flex-direction": "column",
+         "flex-grow": 1
+        },
+        "Widgets": [
+         {
+          "Properties": {
+           "Id": "ptcsgrid-7",
+           "Type": "ptcsgrid",
+           "ColumnFormat": {
+            "formatInfo": [
+             {
+              "FieldName": "ThingName"
+             },
+             {
+              "FieldName": "Model"
+             }
+            ]
+           }
+          }
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "Properties": {
+     "Id": "expression2-8",
+     "Type": "expression2",
+     "Expression": "result = input;",
+     "OutputBaseType": "STRING"
+    }
+   }
+  ]
+ }
+}

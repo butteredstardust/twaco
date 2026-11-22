@@ -601,6 +601,7 @@ fn hand_written_tools() -> Vec<Value> {
         ("x_title", "chart: explicit X-axis label; omitted clears only catalogue placeholders."),
         ("y_title", "chart: explicit Y-axis label (all combo Y axes); omitted preserves authored names."),
     ] { recipe["inputSchema"]["properties"][name] = json!({"type":"string","description":description}); }
+    recipe["inputSchema"]["properties"]["settings"] = json!({"description":"Component props as name=value (JSON values or plain strings); include id.","type":"array","items":{"type":"string"},"default":[]});
     recipe["inputSchema"]["properties"]["row"]["enum"] = json!(["first", "selected"]);
     recipe["inputSchema"]["properties"]["layout"]["enum"] = json!(["inline", "stacked"]);
     recipe["inputSchema"]["properties"]["fields"] = json!({"description": "label-pairs: ordered field[:Caption] entries; omitted means all DataShape fields.", "type": "array", "items": {"type": "string"}});
@@ -614,7 +615,7 @@ fn hand_written_tools() -> Vec<Value> {
     for name in ["per_row", "cells"] {
         recipe["inputSchema"]["properties"][name]["minimum"] = json!(0);
     }
-    recipe["inputSchema"]["properties"]["recipe"]["description"] = json!("panel styles a responsive column; slider-action pairs widget (slider) with button. toolbar uses widget as the empty responsive container, then, search_param, hint, width, run_on and buttons. enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, sparkline, columns, pagination, picker, side-panel, empty-state, section, card-grid, input-variant, tracker, set-on-click, nested-menu, navigate-on-click or collapsible; label-pairs uses widget as the responsive container, data, fields, title, label_columns and replace.");
+    recipe["inputSchema"]["properties"]["recipe"]["description"] = json!("panel styles a responsive column; slider-action pairs widget (slider) with button. toolbar uses widget as the empty responsive container, then, search_param, hint, width, run_on and buttons. enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, sparkline, columns, pagination, picker, side-panel, empty-state, section, card-grid, input-variant, component (kind names the component; settings supplies props including id), tracker, set-on-click, nested-menu, navigate-on-click or collapsible; label-pairs uses widget as the responsive container, data, fields, title, label_columns and replace.");
     let edit = tools
         .iter_mut()
         .find(|tool| tool["name"] == "entity_edit")
@@ -1609,6 +1610,8 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
             "mashup_validate",
             "mashup_describe",
             "mashup_build",
+            "mashup_spec",
+            "components",
             "mashup_why",
             "mashup_diff",
             "reproject",
@@ -2730,6 +2733,9 @@ fn what_the_offline_tools_return_fits_the_output_schema_they_publish() {
         ("unused", json!({})),
         ("unused", json!({"detail": true})),
         ("unused", json!({"fields": true})),
+        ("components", json!({})),
+        ("components", json!({"name":"section_card"})),
+        ("mashup_spec", json!({"mashup":"P.Board_MU"})),
         ("mashup_templates", json!({})),
         ("mashup_templates", json!({"name": "blank"})),
         ("widgets", json!({})),

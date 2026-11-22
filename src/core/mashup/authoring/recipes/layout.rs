@@ -8,7 +8,7 @@ fn refuse(id: &str, reason: &str) -> AuthoringError {
     AuthoringError::Refused(format!("{id}: {reason}"))
 }
 
-/// The text field looks of the kit's input gallery (WDK_Inputs). The kit sets them with master CSS
+/// The text field looks of the kit's input gallery (the inputs gallery). The kit sets them with master CSS
 /// classes (wdk_Input2..4) that live outside the mashup, except the rounded corners, which are the
 /// text-box part's `border-radius` in the exported StyleProperties. The other three are the
 /// nearest native equivalents on the same part and its `focus` state; they are not measured at
@@ -39,7 +39,7 @@ pub(crate) fn input_variant_styles(variant: &str) -> Option<Vec<String>> {
     Some(settings.iter().map(|text| (*text).to_string()).collect())
 }
 
-/// One row of a kit gallery (WDK_Inputs containers 3 and 5): a row that takes an equal share of
+/// One row of a kit gallery (the kit's inputs gallery): a row that takes an equal share of
 /// the page's height. The kit keeps the size at `default` with `flex-basis: auto`; basis 0 makes
 /// the shares equal whatever the cards hold.
 pub(crate) fn grid_row_props() -> Vec<(&'static str, Value)> {
@@ -625,7 +625,7 @@ impl Work<'_> {
         Ok(())
     }
 
-    /// A kit section (WDK_Inputs containers 6 and 11): a column of equal growth holding a fixed 40px
+    /// A kit section (the kit's inputs gallery): a column of equal growth holding a fixed 40px
     /// title row, centred vertically, over a `LastContainer` body row. `center` centres the body's
     /// content on both axes, as the gallery centres its inputs.
     pub(super) fn section(
@@ -723,7 +723,7 @@ impl Work<'_> {
         Ok(())
     }
 
-    /// A kit gallery (WDK_Inputs containers 2, 3 and 5): rows of equal height, each holding
+    /// A kit gallery (the kit's inputs gallery): rows of equal height, each holding
     /// `per_row` equal growing columns. The last row is filled with empty cells so every card
     /// keeps the same width.
     pub(super) fn card_grid(

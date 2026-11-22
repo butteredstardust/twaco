@@ -26,6 +26,7 @@ pub(crate) struct Plan {
     pub report: Value,
     files: Vec<File>,
     inputs: Vec<(PathBuf, Option<Vec<u8>>)>,
+    components: Vec<(PathBuf, Vec<u8>)>,
 }
 
 fn invalid(message: impl ToString) -> AuthoringError {
@@ -128,6 +129,7 @@ fn plan_from(
     project: Option<&str>,
     spec_input: Option<SpecInput>,
 ) -> Result<Plan, AuthoringError> {
+    let components = super::components::inputs(solution)?;
     let spec_file = spec_input.as_ref().map(|s| s.path.as_path());
     entity::key::EntityKey::new("Mashups", name).map_err(invalid)?;
     let found = workspace::entities(solution);
@@ -167,7 +169,7 @@ fn plan_from(
             .ok_or_else(|| invalid(format!("{}: missing page spec", spec_path.display())))?,
     };
     let yaml = text(&spec_bytes)?;
-    let spec = schema::parse(yaml).map_err(invalid)?;
+    let spec = schema::parse_solution(yaml, solution).map_err(invalid)?;
     if spec.page.value.name.value != name {
         return Err(invalid(format!(
             "{}:{}: page.name must equal {name}",
@@ -545,7 +547,42 @@ fn plan_from(
         report: json!({"mashup":name,"project":project,"template":spec.page.value.template.value,"slots":spec.page.value.slots.keys().collect::<Vec<_>>(),"applied":false,"dry_run":true,"nodes":nodes,"hand_edits_kept":report.kept,"conflicts":conflicts,"cells":created_cells,"cell_notices":cell_notices,"files":files.iter().filter(|f| f.before.as_deref() != Some(&f.after)).map(|f| solution.relative(&f.path)).collect::<Vec<_>>()}),
         files,
         inputs,
+        components,
     })
+}
+
+pub(crate) fn generated_cell(
+    solution: &Solution,
+    project: &str,
+    cell: &compile::GeneratedCell,
+) -> Result<Plan, AuthoringError> {
+    let path = solution.src_root().join(&cell.name).join("page.yaml");
+    let bytes = if let Some(existing) = read(&path)? {
+        let built = compile::compile(solution, project, text(&existing)?).map_err(invalid)?;
+        if built.content != cell.artifacts.content || built.css != cell.artifacts.css {
+            return Err(invalid(format!("{}: existing cell spec differs from this component; reconcile it or use an existing cell mashup",path.display())));
+        }
+        existing
+    } else {
+        cell.spec.as_bytes().to_vec()
+    };
+    let plan = plan_from(
+        solution,
+        &cell.name,
+        Some(project),
+        Some(SpecInput {
+            path,
+            bytes,
+            generated: true,
+        }),
+    )?;
+    if plan.conflicts() {
+        return Err(invalid(format!(
+            "{}: generated cell has conflicts; reconcile its files before applying the component",
+            cell.name
+        )));
+    }
+    Ok(plan)
 }
 
 impl Plan {
@@ -559,6 +596,21 @@ impl Plan {
         &self,
         solution: &'a Solution,
     ) -> Result<Transaction<'a>, AuthoringError> {
+        let mut tx = Transaction::new(&solution.root, "mashup build");
+        self.append_to(solution, &mut tx)?;
+        Ok(tx)
+    }
+
+    pub(crate) fn append_to(
+        &self,
+        solution: &Solution,
+        tx: &mut Transaction<'_>,
+    ) -> Result<(), AuthoringError> {
+        if super::components::inputs(solution)? != self.components {
+            return Err(AuthoringError::Write(TransactionError::Stale(
+                "twaco/components changed since planning; run mashup build again".into(),
+            )));
+        }
         if self.conflicts() {
             return Err(AuthoringError::Refused(
                 "page build has conflicts; resolve them before applying".into(),
@@ -577,7 +629,6 @@ impl Plan {
                 ))));
             }
         }
-        let mut tx = Transaction::new(&solution.root, "mashup build");
         for file in &self.files {
             match &file.before {
                 Some(before) => tx.replace_file(&file.path, before, file.after.clone()),
@@ -585,7 +636,7 @@ impl Plan {
             }
             .map_err(AuthoringError::Write)?;
         }
-        Ok(tx)
+        Ok(())
     }
 
     pub fn apply(

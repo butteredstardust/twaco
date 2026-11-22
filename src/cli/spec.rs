@@ -726,6 +726,20 @@ pub(crate) const USAGE: &[Usage] = &[
       --detail                show non-default widget properties and widget bindings"#,
     },
     Usage {
+        path: "components",
+        group: 1,
+        text: r#"  components list|show <name> [--json]
+                              built-in and solution components, with kit source and typed props"#,
+    },
+    Usage {
+        path: "mashup spec",
+        group: 1,
+        text: r#"  mashup spec <mashup> [--out <path>] [--json]
+                              a spec built mashup returns its page.yaml (naming hand-edited widgets); any
+                              other mashup gets a YAML spec of elements, with raw widget nodes counted by type
+      --out <path>            write the spec to this file"#,
+    },
+    Usage {
         path: "mashup build",
         group: 1,
         text: r#"  mashup build <mashup> [--apply] [--json]
@@ -1065,7 +1079,9 @@ pub(crate) const USAGE: &[Usage] = &[
                               cells, the last row padded; fill each cell with recipe section
       input-variant <textfield> --variant <rounded|focus-background|focus-glow|focus-underline>
                               one of the kit's text field looks, as native style parts of the text box
-                              recipes warn with a mashup on command when a bound call has no trigger"#,
+                              recipes warn with a mashup on command when a bound call has no trigger
+  mashup recipe component <mashup> <name> <container> --set id=<id> [--set prop=value]...
+                              use the same component definition as page specs; values may be JSON"#,
     },
     Usage {
         path: "mashup event",

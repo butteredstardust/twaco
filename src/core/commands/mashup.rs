@@ -858,7 +858,7 @@ pub fn recipe(
                 .iter()
                 .for_each(|note| notices.push(note.clone()));
             Ok(MashupRecipeOutcome {
-                unchanged: plan.edit.unchanged(),
+                unchanged: plan.unchanged(),
                 plan,
                 applied: false,
                 effects: Effects::new(Access::Read, Access::None),
@@ -871,9 +871,9 @@ pub fn recipe(
                 .map_err(MashupCommandError::Config)?;
             let plan = mashup::authoring::plan_recipe(&reloaded, &request.request)
                 .map_err(MashupCommandError::Authoring)?;
-            let unchanged = plan.edit.unchanged();
+            let unchanged = plan.unchanged();
             if !unchanged {
-                mashup::authoring::apply_edit(&reloaded, &plan.edit, &lock)
+                mashup::authoring::apply_recipe(&reloaded, &plan, &lock)
                     .map_err(MashupCommandError::Authoring)?;
             }
             plan.notes

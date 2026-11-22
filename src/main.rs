@@ -239,6 +239,7 @@ fn dispatch(command: Command) -> u8 {
         Command::Requirements(command) => {
             run(|solution| cli::requirements::requirements_cmd(solution, &command))
         }
+        Command::Components(args) => run(|solution| cli::mashup::components_cmd(solution, &args)),
         Command::Search(search) => run(|solution| search_cmd(solution, &search)),
         Command::Export(export) => run(|solution| export_cmd(solution, &export)),
         Command::Import(import) => run(|solution| import_cmd(solution, &import)),
@@ -313,6 +314,7 @@ fn dispatch(command: Command) -> u8 {
             Mashup::Describe(describe) => mashup_describe_cmd(solution, describe),
             Mashup::Why(why) => mashup_why_cmd(solution, why),
             Mashup::Build(build) => mashup_build_cmd(solution, build),
+            Mashup::Spec(spec) => cli::mashup::mashup_spec_cmd(solution, spec),
             Mashup::Diff(diff) => mashup_diff_cmd(solution, diff),
             Mashup::Validate(validate) => mashup_validate_cmd(solution, validate),
             Mashup::Templates(_) => unreachable!("the templates need no solution"),

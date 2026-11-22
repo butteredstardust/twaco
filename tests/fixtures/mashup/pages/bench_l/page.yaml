@@ -1,4 +1,4 @@
-# L Compare (kit PTCSC.IOTCommonMU.Compare_MU): grey side column (title, "Filters"
+# L Compare (the kit's Compare page): grey side column (title, "Filters"
 # tab, Selected Assets list with info icon + empty state, Asset List search + list) | content: "Cards" header with
 # help, collection of asset cards.
 # NEW: side_panel, list (selection), collection (generated cell mashup <page>Cell_MU), empty text, label/heading

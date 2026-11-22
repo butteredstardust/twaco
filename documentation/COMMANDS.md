@@ -188,6 +188,12 @@ mashup describe <mashup> [--detail] [--json]
                             each service it calls with what sets each parameter (or that nothing does),
                             each binding and each event, in the addresses mashup bind and on take
     --detail                show non-default widget properties and widget bindings
+components list|show <name> [--json]
+                            built-in and solution components, with kit source and typed props
+mashup spec <mashup> [--out <path>] [--json]
+                            a spec built mashup returns its page.yaml (naming hand-edited widgets); any
+                            other mashup gets a YAML spec of elements, with raw widget nodes counted by type
+    --out <path>            write the spec to this file
 mashup build <mashup> [--apply] [--json]
                             compile src/<Mashup>/page.yaml and merge with the generated baseline;
                             keep independent hand edits; conflicts write nothing; plans by default
@@ -446,6 +452,8 @@ mashup recipe <recipe> <mashup> [<widget>] [<button>] [recipe flags] [--apply] [
     input-variant <textfield> --variant <rounded|focus-background|focus-glow|focus-underline>
                             one of the kit's text field looks, as native style parts of the text box
                             recipes warn with a mashup on command when a bound call has no trigger
+mashup recipe component <mashup> <name> <container> --set id=<id> [--set prop=value]...
+                            use the same component definition as page specs; values may be JSON
 mashup event add <mashup> <name> --when <address> [--apply] [--json]
                             give a mashup an event its parents react to with mashup on --event
                             ui:<container>.<name>: a NUMBER parameter set to the time when the

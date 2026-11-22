@@ -6,6 +6,14 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+- Add embedded and solution YAML page components with typed props, composition, kit provenance,
+  offline data contracts, `components list|show`, and shared `mashup recipe component` authoring (CLI/MCP).
+- Add offline `mashup spec` (CLI/MCP): a mashup built from a spec returns its `page.yaml`, naming
+  the hand-edited widgets when it no longer matches its baseline; any other mashup gets a readable
+  YAML spec of elements (rows, columns, grids, charts, panels, tabs, collections, services with
+  bindings and triggers) with raw `widget:` nodes holding only non-default properties, and a
+  coverage report of element and raw nodes by type.
+
 ### Changed
 
 - V1 filter panels follow the kit exports: direct controls in one growing fields column,

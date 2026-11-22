@@ -952,6 +952,7 @@ fn fields(node: &Node) -> Result<(), Error> {
             "fields/footer",
         ),
         (!b.tabs.is_empty(), matches!(node, Node::Tabs(_)), "tabs"),
+        (!b.inputs.is_empty(), matches!(node, Node::Widget(_)), "inputs"),
         (
             b.chart_kind.is_some(),
             matches!(

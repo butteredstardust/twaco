@@ -1,0 +1,30 @@
+{
+  "name": "side_panel",
+  "source": "PTCSC.IOTCommonMU.Compare_MU",
+  "props": {
+    "title": {
+      "type": "string",
+      "required": true
+    },
+    "help": {
+      "type": "string"
+    },
+    "tab": {
+      "type": "string",
+      "default": "Filters"
+    },
+    "children": {
+      "type": "array",
+      "default": []
+    }
+  },
+  "tree": {
+    "side_panel": {
+      "id": "$id",
+      "title": "$title",
+      "help": "$help",
+      "tab": "$tab",
+      "children": "$children"
+    }
+  }
+}

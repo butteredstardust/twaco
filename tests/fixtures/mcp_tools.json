@@ -7676,6 +7676,14 @@
       "additionalProperties": false,
       "type": "object",
       "properties": {
+        "settings": {
+          "description": "Component props as name=value (JSON values or plain strings); include id.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
         "style": {
           "description": "panel: grey (default) or white bordered card.",
           "type": "string"
@@ -7810,7 +7818,7 @@
           "type": "string"
         },
         "recipe": {
-          "description": "panel styles a responsive column; slider-action pairs widget (slider) with button. toolbar uses widget as the empty responsive container, then, search_param, hint, width, run_on and buttons. enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, sparkline, columns, pagination, picker, side-panel, empty-state, section, card-grid, input-variant, tracker, set-on-click, nested-menu, navigate-on-click or collapsible; label-pairs uses widget as the responsive container, data, fields, title, label_columns and replace.",
+          "description": "panel styles a responsive column; slider-action pairs widget (slider) with button. toolbar uses widget as the empty responsive container, then, search_param, hint, width, run_on and buttons. enable-when, show-when, text, message, confirm, popup, close-after, auto-refresh, validate, chart, sparkline, columns, pagination, picker, side-panel, empty-state, section, card-grid, input-variant, component (kind names the component; settings supplies props including id), tracker, set-on-click, nested-menu, navigate-on-click or collapsible; label-pairs uses widget as the responsive container, data, fields, title, label_columns and replace.",
           "type": "string"
         },
         "mashup": {
@@ -8459,6 +8467,111 @@
           }
         }
       },
+      "type": "object"
+    }
+  },
+  {
+    "name": "mashup_spec",
+    "description": "A spec-built mashup returns its page.yaml (hand-edited widgets named); any other mashup gets a YAML spec of elements. Offline; reports element and raw-widget coverage.",
+    "inputSchema": {
+      "required": [
+        "mashup"
+      ],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "mashup": {
+          "type": "string"
+        }
+      }
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "mashup",
+        "spec",
+        "elements",
+        "raw",
+        "widgets",
+        "exact",
+        "raw_types",
+        "hand_edited",
+        "notes"
+      ],
+      "properties": {
+        "mashup": {
+          "type": "string"
+        },
+        "spec": {
+          "description": "The page spec as YAML.",
+          "type": "string"
+        },
+        "elements": {
+          "description": "Nodes written as elements or components.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "raw": {
+          "description": "`widget:` nodes, which no element covers.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "widgets": {
+          "description": "Widgets of the mashup the spec stands for.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "exact": {
+          "description": "True when the spec is the mashup's own page.yaml and the mashup still matches its last build.",
+          "type": "boolean"
+        },
+        "raw_types": {
+          "description": "Raw nodes by widget type.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "hand_edited": {
+          "description": "Widgets edited by hand since the last build, when the spec is the page's own page.yaml.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "components",
+    "description": "List built-in and solution component definitions with source and typed props; name shows one.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "description": "Omit to list; supply a name to show its definition.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": false
+    },
+    "outputSchema": {
+      "additionalProperties": true,
       "type": "object"
     }
   },

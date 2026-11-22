@@ -1,0 +1,317 @@
+{
+ "Data": {
+  "Things_Acme.Cards": {
+   "DataName": "Things_Acme.Cards",
+   "EntityName": "Acme.Cards",
+   "EntityType": "Things",
+   "Id": "Acme.Cards-id",
+   "RefreshInterval": 0,
+   "Services": [
+    {
+     "APIMethod": "post",
+     "Characteristic": "Services",
+     "Id": "history-id",
+     "Name": "history",
+     "Parameters": {},
+     "RefreshInterval": 0,
+     "Target": "GetHistory"
+    }
+   ]
+  }
+ },
+ "DataBindings": [
+  {
+   "Id": "history>ptcschartbar-27:Data",
+   "PropertyMaps": [
+    {
+     "SourceProperty": "",
+     "SourcePropertyBaseType": "INFOTABLE",
+     "SourcePropertyType": "InfoTable",
+     "TargetProperty": "Data",
+     "TargetPropertyBaseType": "INFOTABLE",
+     "TargetPropertyType": "property"
+    }
+   ],
+   "SourceArea": "Data",
+   "SourceDetails": "AllData",
+   "SourceId": "history",
+   "SourceSection": "Things_Acme.Cards",
+   "TargetArea": "UI",
+   "TargetId": "ptcschartbar-27",
+   "TargetSection": ""
+  },
+  {
+   "Id": "history.Value>ptcslabel-31:LabelText",
+   "PropertyMaps": [
+    {
+     "SourceProperty": "Value",
+     "SourcePropertyBaseType": "NUMBER",
+     "SourcePropertyType": "Field",
+     "TargetProperty": "LabelText",
+     "TargetPropertyBaseType": "STRING",
+     "TargetPropertyType": "property"
+    }
+   ],
+   "SourceArea": "Data",
+   "SourceDetails": "AllData",
+   "SourceId": "history",
+   "SourceSection": "Things_Acme.Cards",
+   "TargetArea": "UI",
+   "TargetId": "ptcslabel-31",
+   "TargetSection": ""
+  },
+  {
+   "Id": "history.Value>ptcslabel-35:LabelText",
+   "PropertyMaps": [
+    {
+     "SourceProperty": "Value",
+     "SourcePropertyBaseType": "NUMBER",
+     "SourcePropertyType": "Field",
+     "TargetProperty": "LabelText",
+     "TargetPropertyBaseType": "STRING",
+     "TargetPropertyType": "property"
+    }
+   ],
+   "SourceArea": "Data",
+   "SourceDetails": "AllData",
+   "SourceId": "history",
+   "SourceSection": "Things_Acme.Cards",
+   "TargetArea": "UI",
+   "TargetId": "ptcslabel-35",
+   "TargetSection": ""
+  }
+ ],
+ "Events": [
+  {
+   "EventHandlerArea": "Data",
+   "EventHandlerId": "Things_Acme.Cards",
+   "EventHandlerService": "history",
+   "EventHandlerServiceMethod": "",
+   "EventTriggerArea": "Mashup",
+   "EventTriggerEvent": "Loaded",
+   "EventTriggerId": "mashup-root",
+   "EventTriggerSection": "",
+   "Id": "load-history"
+  }
+ ],
+ "UI": {
+  "Properties": {
+   "Id": "mashup-root",
+   "Type": "mashup"
+  },
+  "Widgets": [
+   {
+    "Properties": {
+     "Id": "flexcontainer-2",
+     "Type": "flexcontainer",
+     "flex-direction": "row",
+     "flex-grow": 1
+    },
+    "Widgets": [
+     {
+      "Properties": {
+       "Id": "flexcontainer-7",
+       "Type": "flexcontainer",
+       "flex-min-width": "240px",
+       "flex-direction": "column",
+       "flex-grow": 1
+      },
+      "Widgets": [
+       {
+        "Properties": {
+         "Id": "ptcslabel-8",
+         "Type": "ptcslabel",
+         "LabelType": "header",
+         "LabelText": "Administration"
+        }
+       },
+       {
+        "Properties": {
+         "Id": "ptcslabel-9",
+         "Type": "ptcslabel",
+         "LabelType": "label",
+         "LabelText": "Group 01"
+        }
+       },
+       {
+        "Properties": {
+         "Id": "ptcsbutton-10",
+         "Type": "ptcsbutton",
+         "Label": "Page 01",
+         "ButtonType": "transparent"
+        }
+       },
+       {
+        "Properties": {
+         "Id": "ptcsbutton-11",
+         "Type": "ptcsbutton",
+         "Label": "Page 02",
+         "ButtonType": "transparent"
+        }
+       },
+       {
+        "Properties": {
+         "Id": "ptcslabel-12",
+         "Type": "ptcslabel",
+         "LabelType": "label",
+         "LabelText": "Group 02"
+        }
+       },
+       {
+        "Properties": {
+         "Id": "ptcsbutton-13",
+         "Type": "ptcsbutton",
+         "Label": "Page 03",
+         "ButtonType": "transparent"
+        }
+       }
+      ]
+     },
+     {
+      "Properties": {
+       "Id": "flexcontainer-5",
+       "Type": "flexcontainer",
+       "flex-direction": "column",
+       "flex-grow": 2
+      },
+      "Widgets": [
+       {
+        "Properties": {
+         "Id": "flexcontainer-22",
+         "Type": "flexcontainer",
+         "flex-min-height": "48px",
+         "align-items": "center",
+         "flex-direction": "row",
+         "flex-grow": 1
+        },
+        "Widgets": [
+         {
+          "Properties": {
+           "Id": "ptcstextfield-23",
+           "Type": "ptcstextfield",
+           "HintText": "Search"
+          }
+         },
+         {
+          "Properties": {
+           "Id": "flexcontainer-24",
+           "Type": "flexcontainer",
+           "flex-direction": "row",
+           "flex-grow": 1
+          },
+          "Widgets": []
+         },
+         {
+          "Properties": {
+           "Id": "ptcsbutton-25",
+           "Type": "ptcsbutton",
+           "Label": "Refresh",
+           "ButtonType": "secondary",
+           "SVGIcon": "cds:icon_refresh"
+          }
+         }
+        ]
+       },
+       {
+        "Properties": {
+         "Id": "flexcontainer-26",
+         "Type": "flexcontainer",
+         "flex-min-height": "240px",
+         "flex-direction": "row",
+         "flex-grow": 1
+        },
+        "Widgets": [
+         {
+          "Properties": {
+           "Id": "ptcschartbar-27",
+           "Type": "ptcschartbar",
+           "XAxisField": "year"
+          }
+         }
+        ]
+       },
+       {
+        "Properties": {
+         "Id": "flexcontainer-28",
+         "Type": "flexcontainer",
+         "flex-direction": "row",
+         "flex-grow": 0
+        },
+        "Widgets": [
+         {
+          "Properties": {
+           "Id": "flexcontainer-29",
+           "Type": "flexcontainer",
+           "flex-direction": "column",
+           "flex-grow": 1
+          },
+          "Widgets": [
+           {
+            "Properties": {
+             "Id": "ptcslabel-30",
+             "Type": "ptcslabel",
+             "LabelType": "label",
+             "LabelText": "Total"
+            }
+           },
+           {
+            "Properties": {
+             "Id": "ptcslabel-31",
+             "Type": "ptcslabel",
+             "LabelType": "title",
+             "LabelText": "0"
+            }
+           },
+           {
+            "Properties": {
+             "Id": "ptcslabel-32",
+             "Type": "ptcslabel",
+             "LabelType": "label",
+             "LabelText": "items"
+            }
+           }
+          ]
+         },
+         {
+          "Properties": {
+           "Id": "flexcontainer-33",
+           "Type": "flexcontainer",
+           "flex-direction": "column",
+           "flex-grow": 1
+          },
+          "Widgets": [
+           {
+            "Properties": {
+             "Id": "ptcslabel-34",
+             "Type": "ptcslabel",
+             "LabelType": "label",
+             "LabelText": "Open"
+            }
+           },
+           {
+            "Properties": {
+             "Id": "ptcslabel-35",
+             "Type": "ptcslabel",
+             "LabelType": "title",
+             "LabelText": "0"
+            }
+           },
+           {
+            "Properties": {
+             "Id": "ptcslabel-36",
+             "Type": "ptcslabel",
+             "LabelType": "label",
+             "LabelText": "items"
+            }
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ }
+}

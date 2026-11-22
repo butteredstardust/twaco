@@ -33,6 +33,7 @@ pub(crate) enum Command {
     Unused(super::info::Unused),
     Docs(super::info::Docs),
     Widgets(super::widgets::Widgets),
+    Components(super::mashup::Components),
     Extract(super::source::Extract),
     Sync(super::source::Sync),
     Fmt(super::source::Fmt),
@@ -132,6 +133,7 @@ impl Command {
             Command::Unused(_) => "unused",
             Command::Docs(_) => "docs",
             Command::Widgets(_) => "widgets",
+            Command::Components(_) => "components",
             Command::Extract(_) => "extract",
             Command::Sync(_) => "sync",
             Command::Fmt(_) => "fmt",
@@ -307,6 +309,7 @@ impl Command {
             | Command::Deploy(_)
             | Command::Group(_)
             | Command::Role(_)
+            | Command::Components(_)
             | Command::Db(_) => Ok(()),
         }
     }

@@ -2837,3 +2837,21 @@ add `--apply` to write local changes. Commit the spec and `.page-baseline.json` 
 mashup sidecars. Builds retain independent hand edits and report conflicts without writing.
 Use your normal deploy workflow after reviewing the generated files. MCP offers the same
 operations through `mashup_new` (`spec`) and `mashup_build`, with `dry_run: true` by default.
+
+
+Reusable page components live in the binary and in `twaco/components/*.yaml` in a solution.
+Use `twaco components list` / `show <name>` to inspect their kit source, typed props and tree.
+Specs use `component: {use: section_card, id: inputs, title: Inputs}`; commands use
+`twaco mashup recipe component Acme.Page_MU section_card center --set id=inputs --set title=Inputs`.
+Recipes plan by default. MCP exposes `components` and the same `mashup_recipe` path.
+
+`twaco mashup spec Acme.Page_MU --out adopted.page.yaml` writes a page spec offline. A mashup
+built from a spec returns its own `page.yaml` while it still matches its baseline, and with the
+hand-edited widgets named when it does not. Any other mashup gets a readable YAML spec of
+elements (rows and columns with sizes, grids with columns, charts, buttons, filter and side
+panels, tabs, collections, services with their bindings and triggers); widgets without an element
+become `widget:` nodes holding only the properties that differ from the catalogue. The report
+counts nodes written as elements against raw nodes by type and says what it left out (styles,
+custom CSS, bindings a spec cannot express). Build the result to review a plan before adopting
+it. MCP `mashup_spec` returns the same report. See [Page specs](PAGE_SPECS.md#deriving-a-spec)
+for the mapping and its limits.

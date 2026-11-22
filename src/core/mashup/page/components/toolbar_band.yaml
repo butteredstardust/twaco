@@ -1,0 +1,17 @@
+{
+  "name": "toolbar_band",
+  "source": "PTCSC.IOTCommonMU.AdminMetrics_MU",
+  "props": {
+    "children": {
+      "type": "array",
+      "default": []
+    }
+  },
+  "tree": {
+    "toolbar": {
+      "id": "$id",
+      "children": "$children",
+      "band": true
+    }
+  }
+}

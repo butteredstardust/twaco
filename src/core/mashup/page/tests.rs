@@ -5,6 +5,7 @@ use crate::core::{
     mashup::{self, authoring},
 };
 use serde_json::Value;
+use std::collections::BTreeMap;
 
 const SPEC: &str = "version: 1\nrules: v1\npage:\n  name: Acme.Alerts_MU\n  template: list-page\n  title: Alerts\n  data:\n    alerts: {service: Acme.Data.GetAlerts, on: load, params: {limit: 10}}\n  slots:\n    toolbar:\n      - button: {id: refresh, text: Refresh}\n    body:\n      - grid:\n          id: alerts_grid\n          data: alerts\n          columns:\n            - {field: Name, title: Device, width: 180}\n  events:\n    - {on: refresh.Clicked, invoke: alerts}\n";
 
@@ -3410,4 +3411,873 @@ fn style_lists_and_headings_without_a_size_keep_their_result() {
         widget_style(&built, "h")["parts"]["label"]["$"]["color"],
         "#112233"
     );
+}
+
+#[test]
+fn components_expand_through_existing_elements_and_validate_props() {
+    let (_dir, solution) = element_solution();
+    for (component, element, props) in [
+        ("page_header", "page_header", ", title: Alerts"),
+        ("section_card", "card", ", title: Inputs, align: start"),
+        ("side_panel", "side_panel", ", title: Compare, tab: Filters"),
+        ("toolbar_band", "toolbar", ", children: []"),
+        (
+            "filter_panel",
+            "filter_panel",
+            ", fields: [{text_field: {id: query}}], footer: [apply, reset], title: Filter",
+        ),
+        (
+            "trend_tile",
+            "trend_tile",
+            ", label: Count, value: {bind: rows.Count}, trend: flat, unit: '', delta: ''",
+        ),
+    ] {
+        let component_spec = error_page(
+            &format!("component: {{use: {component}, id: target{props}}}"),
+            "",
+        );
+        let element_spec = error_page(&format!("{element}: {{id: target{props}}}"), "");
+        let a = compile(&solution, "Acme", &component_spec)
+            .unwrap_or_else(|e| panic!("{component}: {e}"));
+        let b = compile(&solution, "Acme", &element_spec).unwrap();
+        assert!(a == b, "component differs from its element: {component}");
+    }
+    let card = error_page(
+        "component: {use: status_card, id: health, title: Health, status: Healthy, detail: Online}",
+        "",
+    );
+    let built = compile(&solution, "Acme", &card).unwrap();
+    assert_eq!(
+        element_props(&built, "health--status--value")["LabelText"],
+        "Healthy"
+    );
+    assert_eq!(
+        element_props(&built, "health--detail")["LabelText"],
+        "Online"
+    );
+    let invalid = error_page("component: {use: trend_tile, id: bad_spark, label: Total, value: {bind: rows.Count}, sparkline: {field: Missing, x: Name}}","");
+    let error = compile(&solution, "Acme", &invalid).unwrap_err();
+    assert!(error.line > 1, "{error}");
+    let nested = error_page("component: {use: section_card, id: outer, title: Outer, children: [{component: {use: section_card, id: inner, title: Inner}}]}","");
+    compile(&solution, "Acme", &nested).unwrap();
+    for (props, message) in [
+        ("use: missing", "unknown component"),
+        ("use: page_header", "missing required prop title"),
+        (
+            "use: page_header, title: Test, typo: x",
+            "unknown prop typo",
+        ),
+        ("use: page_header, title: 3", "must be string"),
+    ] {
+        let error = compile(
+            &solution,
+            "Acme",
+            &error_page(&format!("component: {{id: target, {props}}}"), ""),
+        )
+        .unwrap_err();
+        assert!(error.message.contains(message), "{error}");
+        assert!(error.line > 1, "{error}");
+    }
+}
+
+#[test]
+fn solution_components_nest_override_and_check_data_contracts() {
+    let (dir, solution) = element_solution();
+    let components = dir.path().join("twaco/components");
+    std::fs::create_dir_all(&components).unwrap();
+    std::fs::write(
+        components.join("header.yaml"),
+        r#"name: page_header
+source: twaco
+props:
+  title: {type: string, required: true}
+tree:
+  heading: {id: '$id', text: '$title'}
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        components.join("metric.yaml"),
+        r#"name: metric
+source: twaco
+props:
+  data: {type: string, required: true}
+contract:
+  data: data
+  fields: {Count: NUMBER}
+tree:
+  component: {use: page_header, id: '$id', title: Metric}
+"#,
+    )
+    .unwrap();
+    let text = error_page("component: {use: metric, id: metric, data: rows}", "");
+    let built = compile(&solution, "Acme", &text).unwrap();
+    assert_eq!(element_props(&built, "metric")["LabelText"], "Metric");
+    let def = super::components::inspect(&solution, Some("page_header")).unwrap();
+    assert_eq!(def["source"], "twaco");
+    for (from, to, message) in [
+        ("Count: NUMBER", "Missing: NUMBER", "Missing"),
+        ("Count: NUMBER", "Count: STRING", "expected STRING"),
+    ] {
+        let path = components.join("metric.yaml");
+        let original = std::fs::read_to_string(&path).unwrap();
+        std::fs::write(&path, original.replace(from, to)).unwrap();
+        let e = compile(&solution, "Acme", &text).unwrap_err();
+        assert!(e.message.contains(message), "{e}");
+        assert!(e.line > 1, "{e}");
+        std::fs::write(path, original).unwrap();
+    }
+    std::fs::write(
+        components.join("cycle.yaml"),
+        "name: loop\nsource: twaco\ntree: {component: {use: loop, id: '$id'}}\n",
+    )
+    .unwrap();
+    let e = compile(
+        &solution,
+        "Acme",
+        &error_page("component: {use: loop, id: cycle}", ""),
+    )
+    .unwrap_err();
+    assert!(e.message.contains("cycle"), "{e}");
+}
+
+fn copy_tree(from: &std::path::Path, to: &std::path::Path) {
+    std::fs::create_dir_all(to).unwrap();
+    for entry in std::fs::read_dir(from).unwrap() {
+        let entry = entry.unwrap();
+        let path = to.join(entry.file_name());
+        if entry.path().is_dir() {
+            copy_tree(&entry.path(), &path);
+        } else {
+            std::fs::copy(entry.path(), path).unwrap();
+        }
+    }
+}
+
+fn fixtures() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/mashup/pages")
+}
+
+/// The offline benchmark solution, in a scratch directory.
+fn bench_workspace() -> (tempfile::TempDir, Solution) {
+    let dir = tempfile::tempdir().unwrap();
+    copy_tree(&fixtures().join("bench_solution"), dir.path());
+    let solution = Solution::load(&dir.path().join("twaco.toml")).unwrap();
+    (dir, solution)
+}
+
+/// What a rebuilt page keeps although the compiler adds layout wrappers: the widgets that are
+/// not containers in document order with the non-container widgets around them, the services,
+/// and the bindings and events by widget type.
+#[derive(Debug, PartialEq)]
+struct Shape {
+    widgets: Vec<(String, Vec<String>)>,
+    services: Vec<String>,
+    bindings: Vec<String>,
+    events: Vec<String>,
+}
+
+fn shape(content: &str) -> Shape {
+    let value: Value = serde_json::from_str(content).unwrap();
+    let mut types = BTreeMap::new();
+    let mut widgets = vec![];
+    fn walk(
+        widget: &Value,
+        around: &mut Vec<String>,
+        types: &mut BTreeMap<String, String>,
+        widgets: &mut Vec<(String, Vec<String>)>,
+    ) {
+        for child in widget["Widgets"].as_array().into_iter().flatten() {
+            let kind = child["Properties"]["Type"].as_str().unwrap().to_string();
+            types.insert(
+                child["Properties"]["Id"].as_str().unwrap().to_string(),
+                kind.clone(),
+            );
+            let container = kind == "flexcontainer";
+            if !container {
+                widgets.push((kind.clone(), around.clone()));
+                around.push(kind);
+            }
+            walk(child, around, types, widgets);
+            if !container {
+                around.pop();
+            }
+        }
+    }
+    walk(&value["UI"], &mut vec![], &mut types, &mut widgets);
+    let name = |id: &Value| {
+        let id = id.as_str().unwrap_or("");
+        types.get(id).cloned().unwrap_or_else(|| id.to_string())
+    };
+    let mut services = vec![];
+    for entry in value["Data"].as_object().unwrap().values() {
+        if entry["EntityType"] == "Things" {
+            for service in entry["Services"].as_array().unwrap() {
+                services.push(format!(
+                    "{}.{}",
+                    entry["EntityName"].as_str().unwrap(),
+                    service["Target"].as_str().unwrap()
+                ));
+            }
+        }
+    }
+    let mut bindings = vec![];
+    for binding in value["DataBindings"].as_array().unwrap() {
+        for map in binding["PropertyMaps"].as_array().unwrap() {
+            bindings.push(format!(
+                "{}:{}.{} -> {}:{}.{}",
+                binding["SourceArea"].as_str().unwrap(),
+                name(&binding["SourceId"]),
+                map["SourceProperty"].as_str().unwrap(),
+                binding["TargetArea"].as_str().unwrap(),
+                name(&binding["TargetId"]),
+                map["TargetProperty"].as_str().unwrap(),
+            ));
+        }
+    }
+    let mut events = vec![];
+    for event in value["Events"].as_array().unwrap() {
+        events.push(format!(
+            "{}:{}.{} -> {}:{}.{}",
+            event["EventTriggerArea"].as_str().unwrap(),
+            name(&event["EventTriggerId"]),
+            event["EventTriggerEvent"].as_str().unwrap(),
+            event["EventHandlerArea"].as_str().unwrap(),
+            name(&event["EventHandlerId"]),
+            event["EventHandlerService"].as_str().unwrap(),
+        ));
+    }
+    for list in [&mut services, &mut bindings, &mut events] {
+        list.sort();
+    }
+    Shape {
+        widgets,
+        services,
+        bindings,
+        events,
+    }
+}
+
+#[test]
+fn kit_structure_fixtures_derive_readable_specs_that_rebuild_the_same_shape() {
+    let (dir, solution) = bench_workspace();
+    let cell = compile(
+        &solution,
+        "Acme.Bench",
+        "version: 1\nrules: v1\npage:\n  name: Acme.Kit.Cell_MU\n  template: kpi-tile\n  parameters: {cardTitle: STRING, cardKpiDial: NUMBER}\n  slots:\n    title: [{label: {id: title, props: {LabelText: {bind: param.cardTitle}}}}]\n    value: [{kpi_dial: {id: dial, value: {bind: param.cardKpiDial}}}]\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(dir.path().join("Mashups")).unwrap();
+    std::fs::write(
+        dir.path().join("Mashups/Acme.Kit.Cell_MU.xml"),
+        &cell.entity,
+    )
+    .unwrap();
+    let folder = fixtures().join("kit_structures");
+    let mut names: Vec<_> = std::fs::read_dir(&folder)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
+        .collect();
+    names.sort();
+    assert_eq!(names.len(), 5);
+    for file in names {
+        let content = std::fs::read_to_string(folder.join(&file)).unwrap();
+        let stem = file.strip_suffix(".content.json").unwrap();
+        let name = format!("Acme.Kit.{stem}_MU");
+        let derived = super::extract::derive_content(&name, &content).unwrap();
+        assert!(
+            !derived.spec.contains("imported") && !derived.spec.trim_start().starts_with('{'),
+            "{stem} is YAML elements, not an envelope"
+        );
+        let rebuilt = compile(&solution, "Acme.Bench", &derived.spec)
+            .unwrap_or_else(|e| panic!("{stem}: {e}\n{}", derived.spec));
+        assert_eq!(
+            shape(&content),
+            shape(&rebuilt.content),
+            "{stem}\n{}",
+            derived.spec
+        );
+        assert!(
+            derived.spec.len() < 4000,
+            "{stem} spec is {} bytes",
+            derived.spec.len()
+        );
+        println!(
+            "{stem}: {} widgets, {} elements/components, {} raw {:?}, {} bytes",
+            derived.widgets,
+            derived.elements,
+            derived.raw,
+            derived.raw_types,
+            derived.spec.len()
+        );
+        let expected: &[&str] = match stem {
+            "filter_column" => &[
+                "filter_panel:",
+                "title: Filter",
+                "page_header:",
+                "toolbar:",
+                "grid:",
+                "dropdown:",
+                "date_range:",
+                "service: Acme.Cards.SearchAssets",
+            ],
+            "side_column" => &[
+                "side_panel:",
+                "list:",
+                "collection:",
+                "mashup: Acme.Kit.Cell_MU",
+            ],
+            "section_gallery" => &["card:", "align: center", "text_field:"],
+            "admin_shell" => &["toolbar:", "spacer:", "chart:", "kpi_row:", "weight: 2"],
+            "tabs_page" => &["tabs:", "type: expression2", "bind:"],
+            _ => panic!("uncovered fixture {stem}"),
+        };
+        for needle in expected {
+            assert!(
+                derived.spec.contains(needle),
+                "{stem} lacks {needle}\n{}",
+                derived.spec
+            );
+        }
+        let raw: &[(&str, usize)] = match stem {
+            "tabs_page" => &[("expression2", 1)],
+            "filter_column" => &[("ptcspagination", 1)],
+            "section_gallery" => &[("ptcsdatepicker", 1)],
+            _ => &[],
+        };
+        let raw: BTreeMap<String, usize> = raw.iter().map(|(k, n)| (k.to_string(), *n)).collect();
+        assert_eq!(derived.raw_types, raw, "{stem}");
+    }
+}
+
+#[test]
+fn all_acme_bench_sources_extract_and_rebuild_exactly() {
+    let folder = fixtures();
+    let (dir, solution) = bench_workspace();
+    let mut count = 0;
+    let mut rebuilt_count = 0;
+    for entry in std::fs::read_dir(&folder).unwrap() {
+        let path = entry.unwrap().path();
+        if !path
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .starts_with("bench_")
+            || !path.join("page.yaml").exists()
+        {
+            continue;
+        }
+        let text = std::fs::read_to_string(path.join("page.yaml")).unwrap();
+        let spec = schema::parse(&text).unwrap();
+        let name = &spec.page.value.name.value;
+        let built = compile(&solution, "Acme.Bench", &text).unwrap();
+        let xml = dir.path().join("Mashups").join(format!("{name}.xml"));
+        std::fs::create_dir_all(xml.parent().unwrap()).unwrap();
+        std::fs::write(&xml, &built.entity).unwrap();
+        let source = solution.src_root().join(name).join("page.yaml");
+        std::fs::create_dir_all(source.parent().unwrap()).unwrap();
+        std::fs::write(&source, &text).unwrap();
+        let derived = super::extract::extract(&solution, name).unwrap();
+        assert!(derived.exact, "{name}");
+        assert_eq!(derived.spec, text, "{name}");
+        let baseline_path = source.with_file_name(".page-baseline.json");
+        std::fs::write(
+            &baseline_path,
+            super::baseline::Baseline::generated(&built, name, "Acme.Bench").bytes(),
+        )
+        .unwrap();
+        let derived = super::extract::extract(&solution, name).unwrap();
+        assert!(derived.exact && derived.hand_edited.is_empty(), "{name}");
+        assert_eq!(derived.spec, text, "{name}");
+        assert_eq!(derived.raw_types.is_empty(), derived.raw == 0);
+        let generic = super::extract::derive_content(name, &built.content).unwrap();
+        schema::parse_solution(&generic.spec, &solution).unwrap_or_else(|e| {
+            panic!(
+                "{name}: {e}
+{}",
+                generic.spec
+            )
+        });
+        assert!(
+            generic.spec.len() * 3 < built.content.len() * 2,
+            "{name}: spec {} bytes, content {}",
+            generic.spec.len(),
+            built.content.len()
+        );
+        // Building a derived spec takes a while for the large pages; the small ones prove the shape.
+        if generic.widgets <= 40 {
+            for cell in &built.cells {
+                std::fs::write(
+                    dir.path()
+                        .join("Mashups")
+                        .join(format!("{}.xml", cell.name)),
+                    &cell.artifacts.entity,
+                )
+                .unwrap();
+            }
+            let rebuilt = compile(&solution, "Acme.Bench", &generic.spec).unwrap_or_else(|e| {
+                panic!(
+                    "{name}: {e}
+{}",
+                    generic.spec
+                )
+            });
+            assert_eq!(
+                shape(&built.content),
+                shape(&rebuilt.content),
+                "{name}
+{}",
+                generic.spec
+            );
+            rebuilt_count += 1;
+        }
+        println!(
+            "{name}: {} widgets, {} elements/components, {} raw {:?}, {} bytes",
+            generic.widgets,
+            generic.elements,
+            generic.raw,
+            generic.raw_types,
+            generic.spec.len()
+        );
+        for cell in &built.cells {
+            let _ = std::fs::remove_file(
+                dir.path()
+                    .join("Mashups")
+                    .join(format!("{}.xml", cell.name)),
+            );
+        }
+        std::fs::remove_file(&xml).unwrap();
+        std::fs::remove_file(&baseline_path).unwrap();
+        count += 1;
+    }
+    assert_eq!(count, 14);
+    assert_eq!(rebuilt_count, 6);
+}
+
+#[test]
+fn a_hand_edited_page_returns_its_spec_and_names_the_edited_widgets() {
+    let (dir, solution) = bench_workspace();
+    let text = std::fs::read_to_string(fixtures().join("bench_h/page.yaml")).unwrap();
+    let name = "Acme.BenchSpecH_MU";
+    let built = compile(&solution, "Acme.Bench", &text).unwrap();
+    std::fs::create_dir_all(dir.path().join("Mashups")).unwrap();
+    std::fs::write(
+        dir.path().join(format!("Mashups/{name}.xml")),
+        &built.entity,
+    )
+    .unwrap();
+    let source = solution.src_root().join(name);
+    std::fs::create_dir_all(&source).unwrap();
+    std::fs::write(source.join("page.yaml"), &text).unwrap();
+    std::fs::write(
+        source.join(".page-baseline.json"),
+        super::baseline::Baseline::generated(&built, name, "Acme.Bench").bytes(),
+    )
+    .unwrap();
+    let id = &built.ids["search"];
+    let mut value: Value = serde_json::from_str(&built.content).unwrap();
+    fn edit(widget: &mut Value, id: &str) -> bool {
+        if widget["Properties"]["Id"] == id {
+            widget["Properties"]["Margin"] = serde_json::json!("9");
+            return true;
+        }
+        widget["Widgets"]
+            .as_array_mut()
+            .is_some_and(|kids| kids.iter_mut().any(|k| edit(k, id)))
+    }
+    assert!(edit(&mut value["UI"], id));
+    let edited = mashup::to_sidecar(&value);
+    let assets = mashup::Assets {
+        content: edited,
+        css: built.css.clone(),
+    };
+    let entity = mashup::sync(&built.entity, &assets).unwrap().0;
+    std::fs::write(dir.path().join(format!("Mashups/{name}.xml")), entity).unwrap();
+    let found = super::extract::extract(&solution, name).unwrap();
+    assert!(!found.exact);
+    assert_eq!(found.spec, text);
+    assert_eq!(found.hand_edited, vec![format!("search ({id})")]);
+    assert!(
+        found.notes[0].contains("edited by hand"),
+        "{:?}",
+        found.notes
+    );
+}
+
+#[test]
+fn component_plan_refuses_changed_added_and_removed_definitions() {
+    let (dir, solution) = solution();
+    let spec = dir.path().join("input.yaml");
+    let text = "version: 1\nrules: v1\npage: {name: Acme.Component_MU, template: blank, slots: {center: [{component: {use: page_header, id: h, title: Test}}]}}\n";
+    std::fs::write(&spec, text).unwrap();
+    let folder = dir.path().join("twaco/components");
+    std::fs::create_dir_all(&folder).unwrap();
+    let file = folder.join("extra.yaml");
+    let definition = "name: extra\nsource: twaco\ntree: {label: {id: '$id'}}\n";
+    for action in ["add", "change", "remove"] {
+        if action == "add" {
+            if file.exists() {
+                std::fs::remove_file(&file).unwrap();
+            }
+        } else {
+            std::fs::write(&file, definition).unwrap();
+        }
+        let mut plan =
+            super::build::plan(&solution, "Acme.Component_MU", Some("Acme"), Some(&spec)).unwrap();
+        match action {
+            "remove" => std::fs::remove_file(&file).unwrap(),
+            "change" => std::fs::write(&file, definition.replace("label:", "heading:")).unwrap(),
+            _ => std::fs::write(&file, definition).unwrap(),
+        }
+        let lock = lock::acquire(dir.path(), "test", &[]).unwrap();
+        assert!(plan
+            .apply(&solution, &lock)
+            .unwrap_err()
+            .to_string()
+            .contains("twaco/components changed"));
+        assert!(!dir
+            .path()
+            .join("acme/Mashups/Acme.Component_MU.xml")
+            .exists());
+    }
+}
+
+#[test]
+fn command_components_bind_existing_calls_through_the_spec_compiler() {
+    let (_dir, solution) = element_solution();
+    let mut session = authoring::session::Session::new(
+        "Acme.Errors_MU",
+        "Acme",
+        "blank",
+        "PTC Convergence Theme",
+    )
+    .unwrap();
+    session
+        .source(
+            &solution,
+            &authoring::SourceAddRequest {
+                mashup: "Acme.Errors_MU".into(),
+                entity: "Acme.Data".into(),
+                service: "GetRows".into(),
+                alias: Some("rows".into()),
+                dynamic: false,
+                on_load: true,
+                entity_from: None,
+                refresh: None,
+                cache: false,
+                cache_keys: vec![],
+                cache_strategy: None,
+                max_result_sets: None,
+                param_values: vec![],
+            },
+        )
+        .unwrap();
+    session.sync().unwrap();
+    std::fs::write(
+        solution.root.join("acme/Mashups/Acme.Errors_MU.xml"),
+        &session.entity,
+    )
+    .unwrap();
+    let plan = authoring::plan_recipe(
+        &solution,
+        &authoring::RecipeRequest {
+            mashup: "Acme.Errors_MU".into(),
+            recipe: authoring::Recipe::Component {
+                container: "center".into(),
+                name: "trend_tile".into(),
+                settings: vec![
+                    "id=tile".into(),
+                    "label=Total".into(),
+                    "value={\"bind\":\"rows.Count\"}".into(),
+                ],
+            },
+        },
+    )
+    .unwrap();
+    let content = mashup::extract(&plan.edit.entity_after).unwrap().content;
+    let text = error_page(
+        "component: {use: trend_tile, id: tile, label: Total, value: {bind: rows.Count}}",
+        "",
+    );
+    let built = compile(&solution, "Acme", &text).unwrap();
+    assert!(
+        canonical(&content) == canonical(&built.content),
+        "command component differs from the spec component"
+    );
+}
+
+#[test]
+fn spec_output_locks_before_reading_and_writes_nothing_when_held() {
+    let (dir, solution) = solution();
+    let output = dir.path().join("derived.yaml");
+    let guard = lock::acquire_for(&solution, "other writer").unwrap();
+    let error = super::extract::export(&solution, "Acme.Missing_MU", Some(&output)).unwrap_err();
+    assert!(
+        error.to_string().contains("another twaco command"),
+        "{error}"
+    );
+    assert!(!output.exists());
+    drop(guard);
+}
+
+#[test]
+fn structural_command_components_allow_unused_duplicate_service_aliases() {
+    let (_dir, solution) = element_solution();
+    let mut session = authoring::session::Session::new(
+        "Acme.Components_MU",
+        "Acme",
+        "blank",
+        "PTC Convergence Theme",
+    )
+    .unwrap();
+    session
+        .source(
+            &solution,
+            &authoring::SourceAddRequest {
+                mashup: "Acme.Components_MU".into(),
+                entity: "Acme.Data".into(),
+                service: "GetRows".into(),
+                alias: Some("rows".into()),
+                dynamic: false,
+                on_load: true,
+                entity_from: None,
+                refresh: None,
+                cache: false,
+                cache_keys: vec![],
+                cache_strategy: None,
+                max_result_sets: None,
+                param_values: vec![],
+            },
+        )
+        .unwrap();
+    let sections = crate::core::bindings::data_sections(session.document.value());
+    let (section, call) = sections
+        .iter()
+        .find_map(|(key, section)| {
+            section
+                .services
+                .iter()
+                .find(|call| call.target == "GetRows")
+                .map(|call| (key.clone(), call.instance.clone()))
+        })
+        .unwrap();
+    let data = session.document.root_mut()["Data"].as_object_mut().unwrap();
+    let duplicate = data[&section].clone();
+    data.insert("Acme.Other".into(), duplicate);
+    assert_eq!(
+        crate::core::bindings::data_sections(session.document.value())
+            .values()
+            .flat_map(|s| &s.services)
+            .filter(|c| c.instance == call)
+            .count(),
+        2
+    );
+    session.sync().unwrap();
+    std::fs::write(
+        solution.root.join("acme/Mashups/Acme.Components_MU.xml"),
+        &session.entity,
+    )
+    .unwrap();
+    let request = |name: &str, settings: Vec<String>| authoring::RecipeRequest {
+        mashup: "Acme.Components_MU".into(),
+        recipe: authoring::Recipe::Component {
+            container: "center".into(),
+            name: name.into(),
+            settings,
+        },
+    };
+    authoring::plan_recipe(
+        &solution,
+        &request("page_header", vec!["id=h".into(), "title=Title".into()]),
+    )
+    .unwrap();
+    let error = authoring::plan_recipe(
+        &solution,
+        &request(
+            "trend_tile",
+            vec![
+                "id=k".into(),
+                format!(
+                    "value={}",
+                    serde_json::json!({"bind":format!("{call}.Count")})
+                ),
+            ],
+        ),
+    )
+    .unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains(&format!("data alias {call} names several calls")),
+        "{error}"
+    );
+}
+
+#[test]
+fn command_components_generate_collection_cells_in_the_parent_transaction() {
+    let (dir, solution) = element_solution();
+    let folder = dir.path().join("twaco/components");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(
+        folder.join("cards.yaml"),
+        r#"name: metric_cards
+source: twaco
+props:
+  data: {type: string, required: true}
+tree:
+  column: {id: '$id', children: [{collection: {id: '${id}--list', data: '$data', per_row: 2, cell: {title: Name, kpi_dial: Count}}}]}
+"#,
+    )
+    .unwrap();
+    let themes = solution.root.join("acme/StyleThemes");
+    std::fs::create_dir_all(&themes).unwrap();
+    std::fs::write(themes.join("Acme.Theme.xml"),r#"<Entities><StyleThemes><StyleTheme name="Acme.Theme" projectName="Acme"/></StyleThemes></Entities>"#).unwrap();
+    let mut session =
+        authoring::session::Session::new("Acme.Components_MU", "Acme", "blank", "Acme.Theme")
+            .unwrap();
+    session
+        .source(
+            &solution,
+            &authoring::SourceAddRequest {
+                mashup: "Acme.Components_MU".into(),
+                entity: "Acme.Data".into(),
+                service: "GetRows".into(),
+                alias: Some("rows".into()),
+                dynamic: false,
+                on_load: true,
+                entity_from: None,
+                refresh: None,
+                cache: false,
+                cache_keys: vec![],
+                cache_strategy: None,
+                max_result_sets: None,
+                param_values: vec![],
+            },
+        )
+        .unwrap();
+    session.sync().unwrap();
+    let parent = solution.root.join("acme/Mashups/Acme.Components_MU.xml");
+    std::fs::write(&parent, &session.entity).unwrap();
+    let plan = authoring::plan_recipe(
+        &solution,
+        &authoring::RecipeRequest {
+            mashup: "Acme.Components_MU".into(),
+            recipe: authoring::Recipe::Component {
+                container: "center".into(),
+                name: "metric_cards".into(),
+                settings: vec!["id=cards".into(), "data=rows".into()],
+            },
+        },
+    )
+    .unwrap();
+    assert_eq!(plan.generated.len(), 1);
+    let files: Vec<_> = plan.generated[0].report["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| solution.root.join(p.as_str().unwrap()))
+        .collect();
+    assert_eq!(files.len(), 5);
+    let guard = lock::acquire_for(&solution, "test component").unwrap();
+    for fail in 0..6 {
+        let tx = authoring::recipe_transaction(&solution, &plan).unwrap();
+        let error = tx
+            .apply_with(&guard, &mut |step, _| {
+                if step == fail {
+                    Err(std::io::Error::other("injected component failure"))
+                } else {
+                    Ok(())
+                }
+            })
+            .unwrap_err();
+        assert!(error.changed_nothing(), "{error}");
+        assert_eq!(std::fs::read(&parent).unwrap(), session.entity);
+        assert!(files.iter().all(|p| !p.exists()));
+    }
+    authoring::apply_recipe(&solution, &plan, &guard).unwrap();
+    assert!(files.iter().all(|p| p.exists()));
+    let cell = solution.src_root().join("Acme.ComponentsCell_MU/page.yaml");
+    assert!(std::fs::read_to_string(cell).unwrap().contains("Count"));
+    let content: Value = serde_json::from_str(
+        &std::fs::read_to_string(
+            solution
+                .src_root()
+                .join("Acme.ComponentsCell_MU/mashup/content.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(content["UI"]["Properties"]["StyleTheme"], "Acme.Theme");
+    assert_ne!(std::fs::read(&parent).unwrap(), session.entity);
+    let cell_path = solution.src_root().join("Acme.ComponentsCell_MU/page.yaml");
+    let original_spec = std::fs::read_to_string(&cell_path).unwrap();
+    let comment_spec = format!("# keep this comment\n{original_spec}");
+    std::fs::write(&cell_path, &comment_spec).unwrap();
+    let request = |id: &str| authoring::RecipeRequest {
+        mashup: "Acme.Components_MU".into(),
+        recipe: authoring::Recipe::Component {
+            container: "center".into(),
+            name: "metric_cards".into(),
+            settings: vec![format!("id={id}"), "data=rows".into()],
+        },
+    };
+    let second = authoring::plan_recipe(&solution, &request("more_cards")).unwrap();
+    authoring::apply_recipe(&solution, &second, &guard).unwrap();
+    assert_eq!(std::fs::read_to_string(&cell_path).unwrap(), comment_spec);
+    let mut edited: Value = serde_json::from_str(&original_spec).unwrap();
+    edited["page"]["slots"]["title"][0]["label"]["props"]["LabelText"] =
+        serde_json::json!("Handwritten");
+    let edited = edited.to_string();
+    std::fs::write(&cell_path, &edited).unwrap();
+    let before = std::fs::read(&parent).unwrap();
+    let error = match authoring::plan_recipe(&solution, &request("third_cards")) {
+        Err(error) => error,
+        Ok(_) => panic!("a different existing cell spec was accepted"),
+    };
+    assert!(
+        error.to_string().contains("existing cell spec differs"),
+        "{error}"
+    );
+    assert_eq!(std::fs::read(&parent).unwrap(), before);
+    assert_eq!(std::fs::read_to_string(&cell_path).unwrap(), edited);
+}
+
+#[test]
+fn command_components_bind_existing_mashup_parameters() {
+    let (_dir, solution) = element_solution();
+    let mut session = authoring::session::Session::new(
+        "Acme.Parameters_MU",
+        "Acme",
+        "blank",
+        "PTC Convergence Theme",
+    )
+    .unwrap();
+    session.add_parameter("Count:NUMBER:IN").unwrap();
+    session.sync().unwrap();
+    std::fs::write(
+        solution.root.join("acme/Mashups/Acme.Parameters_MU.xml"),
+        &session.entity,
+    )
+    .unwrap();
+    let plan = authoring::plan_recipe(
+        &solution,
+        &authoring::RecipeRequest {
+            mashup: "Acme.Parameters_MU".into(),
+            recipe: authoring::Recipe::Component {
+                container: "center".into(),
+                name: "kpi_tile".into(),
+                settings: vec![
+                    "id=kpi".into(),
+                    "label=Count".into(),
+                    "value={\"bind\":\"param.Count\"}".into(),
+                ],
+            },
+        },
+    )
+    .unwrap();
+    let parameters = mashup::describe::mashup_parameters(&plan.edit.entity_after).unwrap();
+    assert_eq!(parameters.len(), 1);
+    assert_eq!(parameters[0].name, "Count");
+    let content = mashup::extract(&plan.edit.entity_after).unwrap().content;
+    assert!(content.contains("Count"));
 }

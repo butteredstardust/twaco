@@ -29,6 +29,8 @@ pub(crate) struct Page {
     pub(crate) slots: BTreeMap<String, Spanned<Vec<Node>>>,
     #[serde(default)]
     pub(crate) events: Vec<Spanned<Event>>,
+    #[serde(skip)]
+    pub(crate) contracts: Vec<super::components::Requirement>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -43,6 +45,7 @@ pub(crate) struct Source {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum Node {
+    Component(super::components::Invocation),
     Grid(Body),
     Label(Body),
     Heading(Body),
@@ -79,6 +82,7 @@ pub(crate) enum Node {
 impl Node {
     pub(crate) fn body(&self) -> &Body {
         match self {
+            Self::Component(_) => unreachable!("components expand before elements"),
             Self::Grid(b)
             | Self::Label(b)
             | Self::Heading(b)
@@ -114,6 +118,7 @@ impl Node {
     }
     pub(crate) fn body_mut(&mut self) -> &mut Body {
         match self {
+            Self::Component(_) => unreachable!("components expand before elements"),
             Self::Grid(b)
             | Self::Label(b)
             | Self::Heading(b)
@@ -149,6 +154,7 @@ impl Node {
     }
     pub(crate) fn into_body(self) -> Body {
         match self {
+            Self::Component(_) => unreachable!("components expand before elements"),
             Self::Grid(b)
             | Self::Label(b)
             | Self::Heading(b)
@@ -184,6 +190,7 @@ impl Node {
     }
     pub(crate) fn widget(&self) -> Result<&str, Error> {
         Ok(match self {
+            Self::Component(_) => unreachable!("components expand before elements"),
             Self::Row(_)
             | Self::Column(_)
             | Self::PageHeader(_)
@@ -283,6 +290,9 @@ pub(crate) struct Body {
     pub(crate) tiles: Vec<Body>,
     #[serde(default)]
     pub(crate) tabs: Vec<Tab>,
+    /// The `name:TYPE` inputs of an expression or validator widget, which its wiring binds to.
+    #[serde(default)]
+    pub(crate) inputs: Vec<String>,
 
     #[serde(alias = "label")]
     pub(crate) text: Option<String>,
@@ -479,11 +489,19 @@ pub(crate) struct Event {
     pub(crate) invoke: Spanned<String>,
 }
 
+#[cfg(test)]
 pub(crate) fn parse(text: &str) -> Result<Spec, Error> {
-    super::deep(|| parse_nested(text))
+    super::deep(|| parse_nested(text, &super::components::Registry::builtin()?))
 }
 
-fn parse_nested(text: &str) -> Result<Spec, Error> {
+pub(crate) fn parse_solution(
+    text: &str,
+    solution: &crate::core::config::Solution,
+) -> Result<Spec, Error> {
+    super::deep(|| parse_nested(text, &super::components::Registry::load(solution)?))
+}
+
+fn parse_nested(text: &str, registry: &super::components::Registry) -> Result<Spec, Error> {
     let mut spec: Spec = serde_saphyr::from_str(text).map_err(|error| {
         Error::at(
             error.location().unwrap_or(serde_saphyr::Location::UNKNOWN),
@@ -496,6 +514,7 @@ fn parse_nested(text: &str) -> Result<Spec, Error> {
     if spec.rules.value != "v1" {
         return Err(Error::at(spec.rules.referenced, "rules must be v1"));
     }
+    registry.expand_page(&mut spec.page.value)?;
     super::elements::expand(&mut spec.page.value)?;
     let mut ids = BTreeMap::new();
     fn check(
