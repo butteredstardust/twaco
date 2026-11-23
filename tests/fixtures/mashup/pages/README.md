@@ -17,3 +17,8 @@ structure the page-spec derivation recognises (a filter column, a side panel, a 
 an admin shell, tabs with a function widget). They contain no content copied from any vendor kit.
 The `mashup spec` tests derive a spec from each, build it against `bench_solution` and compare the
 widget tree shape of the original and the rebuilt page. See PAGE_SPECS.md, "Deriving a spec".
+
+`kit_fidelity/` covers selected/indented navigation, native pie palette styles, a centred ticker,
+and generated image/status cells. Acme.MediaData provides only a synthetic offline contract.
+`bench_clean/` is the synthetic Acme A page under `tokens: clean`, with native card and page
+styles held to a golden for later visual review.

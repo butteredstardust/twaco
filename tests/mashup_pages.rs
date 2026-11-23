@@ -397,7 +397,7 @@ fn components_and_spec_are_available_through_both_front_ends() {
     let root = dir.path();
     std::fs::write(root.join("twaco.toml"), "[[project]]\nname = 'Acme'\n").unwrap();
     let listed = cli(root, &["components", "list", "--json"]);
-    assert_eq!(listed["components"].as_array().unwrap().len(), 8);
+    assert_eq!(listed["components"].as_array().unwrap().len(), 10);
     assert_eq!(listed, mcp(root, "components", serde_json::json!({})));
     let shown = cli(root, &["components", "show", "section_card", "--json"]);
     assert_eq!(shown["source"], "WDK_Inputs");

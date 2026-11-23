@@ -1802,7 +1802,7 @@ For combo charts, repeat `--series Count:bar --series Total:line:secondary` on
 `recipe chart <mashup> <chart> --data data:Acme.Manager.GetRows --x Name`.
 The series order sets DataField/SeriesType slots, and secondary uses the right Y axis
 with the field name as its label. Legend groups are disabled and the legend sits
-at the bottom. An omitted axis means primary; only bar/line and primary/secondary
+at the top/right under v1 rules (legacy keeps the bottom). An omitted axis means primary; only bar/line and primary/secondary
 are accepted. Without `--series`, existing automatic numeric-column selection remains.
 
 `recipe sparkline <mashup> <container> --data data:Acme.Manager.GetRows --x Name --value Count`
@@ -2954,3 +2954,31 @@ counts nodes written as elements against raw nodes by type and says what it left
 custom CSS, bindings a spec cannot express). Build the result to review a plan before adopting
 it. MCP `mashup_spec` returns the same report. See [Page specs](PAGE_SPECS.md#deriving-a-spec)
 for the mapping and its limits.
+
+Page-spec side columns use full-bleed kit structure with the gutter on the content area.
+Filters share a title row, reserved collapse-tab space, grey background and vertical divider.
+Trend values sit together below their caption. V1 charts use compact top legends, hide
+single-series legends by default, and retain pie labels; filled grids omit the outer bottom
+frame. Explicit chart props and `legend:` override these defaults.
+
+Navigation accepts `selected: Details` and grouped items such as `{label: Details, indent: 1}`.
+Generated collection cells add `image: Image` and
+`status: {field: Status, state: Acme.Status_ST}` alongside title/dial roles. The built-in
+`nav_menu` and `collection` components expose the same options through `recipe component`.
+See [the page-spec examples](PAGE_SPECS.md#side-columns-navigation-and-generated-cell-roles).
+The clean preset's Acme A golden covers white rounded cards, soft shadows, a grey page and
+Inter. These checks are offline; visual rendering remains for live review.
+
+Page-spec side columns use full-bleed kit structure with the gutter on the content area.
+Filters share a title row, reserved collapse-tab space, grey background and vertical divider.
+Trend values sit together below their caption. V1 charts use compact top legends, hide
+single-series legends by default, and retain pie labels; filled grids omit the outer bottom
+frame. Explicit chart props and `legend:` override these defaults.
+
+Navigation accepts `selected: Details` and grouped items such as `{label: Details, indent: 1}`.
+Generated collection cells add `image: Image` and
+`status: {field: Status, state: Acme.Status_ST}` alongside title/dial roles. The built-in
+`nav_menu` and `collection` components expose the same options through `recipe component`.
+See [the page-spec examples](PAGE_SPECS.md#side-columns-navigation-and-generated-cell-roles).
+The clean preset's Acme A golden covers white rounded cards, soft shadows, a grey page and
+Inter. These checks are offline; visual rendering remains for live review.

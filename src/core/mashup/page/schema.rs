@@ -441,6 +441,7 @@ pub(crate) struct Body {
     pub(crate) map: BTreeMap<String, Spanned<String>>,
     pub(crate) collapsible: Option<bool>,
     pub(crate) search: Option<String>,
+    pub(crate) selected: Option<Spanned<String>>,
     #[serde(default)]
     pub(crate) groups: Vec<Spanned<Group>>,
     /// The tab strip label of a side panel.
@@ -506,6 +507,8 @@ fn style_list<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<Spanned<Stri
 pub(crate) struct Cell {
     pub(crate) title: Option<String>,
     pub(crate) kpi_dial: Option<String>,
+    pub(crate) image: Option<String>,
+    pub(crate) status: Option<CellStatus>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -513,7 +516,44 @@ pub(crate) struct Cell {
 pub(crate) struct Group {
     pub(crate) title: String,
     #[serde(default)]
-    pub(crate) items: Vec<String>,
+    pub(crate) items: Vec<MenuItem>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct CellStatus {
+    pub(crate) field: String,
+    pub(crate) state: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+pub(crate) enum MenuItem {
+    Text(String),
+    Indented(MenuEntry),
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MenuEntry {
+    pub(crate) label: String,
+    #[serde(default)]
+    pub(crate) indent: u32,
+}
+
+impl MenuItem {
+    pub(crate) fn label(&self) -> &str {
+        match self {
+            Self::Text(text) => text,
+            Self::Indented(item) => &item.label,
+        }
+    }
+    pub(crate) fn indent(&self) -> u32 {
+        match self {
+            Self::Text(_) => 0,
+            Self::Indented(item) => item.indent,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]

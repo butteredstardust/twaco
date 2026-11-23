@@ -1,0 +1,21 @@
+version: 1
+rules: v1
+tokens: brutalist
+page:
+  name: Acme.Batch5b_MU
+  template: blank
+  data:
+    assets: {service: Acme.MediaData.GetCards, on: load}
+    history: {service: Acme.Cards.GetHistory, on: load}
+  slots:
+    center:
+      - nav_menu:
+          id: menu
+          selected: Details
+          groups: [{title: Acme, items: [Overview, {label: Details, indent: 1}]}]
+      - collection:
+          id: cards
+          data: assets
+          cell: {image: Image, title: Name, status: {field: Status, state: Acme.BenchStatus_ST}}
+      - chart: {id: pie, kind: pie, data: history, x: year, value: Value}
+      - label: {id: ticker, text: ACME LIVE, band: true, style: {background: lime}}

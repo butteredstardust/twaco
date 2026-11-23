@@ -1,0 +1,1 @@
+<Entities><Things><Thing name="Acme.MediaData" projectName="Acme.Bench"><ThingShape><ServiceDefinitions><ServiceDefinition name="GetCards"><ResultType baseType="INFOTABLE" aspect.dataShape="Acme.MediaCell_DS"/></ServiceDefinition></ServiceDefinitions></ThingShape></Thing></Things></Entities>

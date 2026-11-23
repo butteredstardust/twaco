@@ -299,6 +299,9 @@ pub(crate) fn plan_new(
     if rules == mashup::layout::Version::V1 {
         document.set_top("twacoPageRules", json!("v1"));
         mashup::layout::finish_page(&mut document);
+        mashup::tokens::Tokens::active(solution)
+            .map_err(AuthoringError::Invalid)?
+            .apply_page(&mut document)?;
     }
     let parameters: Vec<ParameterDefinition> = request
         .params
@@ -934,6 +937,9 @@ pub(super) fn add_template_node(
         let mut value = mashup::edit::new_widget(widget, number, true);
         if let Some(gutter) = &node.widget_gutter {
             value["Properties"]["Margin"] = json!(gutter);
+        }
+        for (key, prop) in &node.widget_properties {
+            value["Properties"][key] = prop.clone();
         }
         document.push_child(&child.path, value);
     }

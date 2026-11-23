@@ -100,6 +100,20 @@ fn nav_column(b: &mut Body) -> Result<Node, Error> {
             "id": format!("{id}--search"), "hint": search, "icon": "search",
             "props": {"Margin": "0 18 12"}}}));
     }
+    if let Some(selected) = &b.selected {
+        let count = b
+            .groups
+            .iter()
+            .flat_map(|g| &g.value.items)
+            .filter(|i| i.label() == selected.value)
+            .count();
+        if count != 1 {
+            return Err(Error::at(
+                selected.referenced,
+                "nav_menu selected must name exactly one item label",
+            ));
+        }
+    }
     let mut first = true;
     for (g, group) in b.groups.iter().enumerate() {
         children.push(json!({"label": {
@@ -107,13 +121,27 @@ fn nav_column(b: &mut Body) -> Result<Node, Error> {
             "props": {"Margin": "12 0 6 18", "LabelType": "label"},
             "style": ["label:color=nav-caption", "label:font-size=14px"]}}));
         for (i, item) in group.value.items.iter().enumerate() {
+            if item.indent() > 12 {
+                return Err(Error::at(
+                    b.id.referenced,
+                    "nav_menu item indent is 0 to 12",
+                ));
+            }
             let mut body = json!({
-                "id": format!("{id}--item-{}-{}", g + 1, i + 1), "text": item,
+                "id": format!("{id}--item-{}-{}", g + 1, i + 1), "text": item.label(),
                 "variant": "transparent",
                 "props": {"LabelAlignment": "left", "Size": "standard", "Margin": "0"},
                 "style": ["width=100%", "box-sizing=border-box", "border-radius=0px", "padding-left=24px",
                     "label:font-size=14px", "label:font-weight=600", "label:color=nav-text"]});
-            if std::mem::take(&mut first) {
+            body["style"]
+                .as_array_mut()
+                .expect("item styles")
+                .push(json!(format!("padding-left={}px", 24 + item.indent() * 18)));
+            let initial = std::mem::take(&mut first);
+            if b.selected
+                .as_ref()
+                .map_or(initial, |selected| selected.value == item.label())
+            {
                 body["style"]
                     .as_array_mut()
                     .expect("item styles")
@@ -483,8 +511,8 @@ pub(super) fn expand(page: &mut Page, tokens: &Tokens) -> Result<(), Error> {
                         "widget",
                         json!({"type": "flexcontainer", "children": kids, "props": {
                             "flex-direction": "row", "align-items": "center",
-                            "justify-content": "center", "flex-grow": 1, "flex-shrink": 0,
-                            "flex-size": "range", "flex-min-height": "56px", "Margin": "8 0"}}),
+                            "justify-content": "flex-start", "flex-grow": 0, "flex-shrink": 0,
+                            "flex-size": "range", "flex-min-height": "40px", "Margin": "0"}}),
                     ));
                     if let Some(sparkline) = &b.sparkline {
                         b.children.push(child(b, "sparkline", "widget", json!({
@@ -592,6 +620,7 @@ pub(super) fn expand(page: &mut Page, tokens: &Tokens) -> Result<(), Error> {
                         .iter()
                         .map(|s| serde_saphyr::Spanned::new(s.to_string(), at, at))
                         .collect();
+                    styles.extend(tokens.card_styles().into_iter().map(|s| spanned(s, at)));
                     styles.append(&mut b.style);
                     b.style = styles;
                     for (key, value) in [
@@ -842,18 +871,6 @@ pub(super) fn expand(page: &mut Page, tokens: &Tokens) -> Result<(), Error> {
                     default_prop(b, "Label", json!(""));
                 }
                 Node::FilterPanel(b) => {
-                    if let Some(title) = b.title.take() {
-                        b.fields.insert(
-                            0,
-                            generated(
-                                b,
-                                "title",
-                                "heading",
-                                json!({"text": title, "props": {
-                                    "LabelType": "title", "HorizontalAlignment": "left"}}),
-                            ),
-                        );
-                    }
                     for action in &b.footer {
                         if !["apply", "reset"].contains(&action.value.as_str()) {
                             return Err(Error::at(
@@ -876,6 +893,7 @@ pub(super) fn expand(page: &mut Page, tokens: &Tokens) -> Result<(), Error> {
             {
                 let b = node.body_mut();
                 b.band = None;
+                default_prop(b, "VerticalAlignment", json!("center"));
                 let mut row = child(
                     b,
                     "band",
@@ -883,7 +901,7 @@ pub(super) fn expand(page: &mut Page, tokens: &Tokens) -> Result<(), Error> {
                     json!({"props": {
                         "flex-size": "range", "flex-min-height": "48px", "flex-max-height": "",
                         "flex-grow": 0, "flex-shrink": 0, "flex-basis": "auto",
-                        "align-items": "stretch", "flex-wrap": "nowrap"
+                        "align-items": "center", "flex-wrap": "nowrap"
                     }}),
                 );
                 row.body_mut().band_row = true;
@@ -984,6 +1002,7 @@ fn fields(node: &Node) -> Result<(), Error> {
             "gap",
         ),
         (b.legend.is_some(), matches!(node, Node::Chart(_)), "legend"),
+        (b.selected.is_some(), matches!(node, Node::NavMenu(_)), "selected"),
         (
             b.title.is_some(),
             matches!(
@@ -1655,11 +1674,7 @@ pub(super) fn finish_layout(
                 if slot.display_name == "filter-footer" {
                     patch(&mut session.document, &slot.path, "page-filter-footer");
                 }
-                if standalone
-                    && (slot.display_name == "content"
-                        || (slot.path.len() == path.len() + 1
-                            && slot.display_name.starts_with("divider-")))
-                {
+                if standalone && slot.display_name == "content" {
                     session
                         .document
                         .set_property(&slot.path, "Visible", json!(false));
@@ -1920,10 +1935,14 @@ pub(super) fn finish_layout(
                 "flex-min-height",
                 json!(format!("{minimum}px")),
             );
+        }
+        if matches!(node, Node::Chart(_)) {
             patch(&mut session.document, &path, "page-chart-legend");
-            session
-                .document
-                .set_property(&path, "HideLegend", json!(!body.legend.unwrap_or(true)));
+            if let Some(legend) = body.legend {
+                session
+                    .document
+                    .set_property(&path, "HideLegend", json!(!legend));
+            }
         }
         if let Some(gap) = &body.gap {
             let children: Vec<_> = body

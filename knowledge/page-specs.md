@@ -69,3 +69,33 @@ combo uses explicit series. Schedule needs nested resource intervals and stays r
 typed fan-in routers use `events_router`, `data_type`, `routes` bindings and Output. Dynamic
 panels, menu bars, decorative shapes and map extensions retain explicit raw contracts;
 derivation notes explain unsupported dynamic sources or targets. Evidence is offline.
+
+## Full-bleed side columns, nav_menu selection, cell image/status and clean cards
+
+V1 side panels and leading filter columns put the gutter on their content sibling. Filter
+panels reserve a title row and inside collapse tab above the fields, with the kit background
+and a separate vertical divider. Trend values align left below captions; chart legends sit
+compactly at the top and single-series bars hide them unless explicitly requested. Pie charts
+keep legends and value markers. Grid row rules replace a detached outer bottom frame.
+
+Use `nav_menu` with `selected: Details` and items `[Overview, {label: Details, indent: 1}]`.
+Selected must name one item label; indent is 0 to 12 levels. Generated collections accept
+`cell: {image: Image, title: Name, status: {field: Status, state: Acme.Status_ST}}`.
+The built-in nav_menu and collection components work through `recipe component` too.
+Clean cards use white, grey-200 borders, 8px corners and soft shadows on a grey-50 page with
+Inter. The Acme fixtures assert native structure/styles offline; this is not a live finding.
+
+## Full-bleed side columns, nav_menu selection, cell image/status and clean cards
+
+V1 side panels and leading filter columns put the gutter on their content sibling. Filter
+panels reserve a title row and inside collapse tab above the fields, with the kit background
+and a separate vertical divider. Trend values align left below captions; chart legends sit
+compactly at the top and single-series bars hide them unless explicitly requested. Pie charts
+keep legends and value markers. Grid row rules replace a detached outer bottom frame.
+
+Use `nav_menu` with `selected: Details` and items `[Overview, {label: Details, indent: 1}]`.
+Selected must name one item label; indent is 0 to 12 levels. Generated collections accept
+`cell: {image: Image, title: Name, status: {field: Status, state: Acme.Status_ST}}`.
+The built-in nav_menu and collection components work through `recipe component` too.
+Clean cards use white, grey-200 borders, 8px corners and soft shadows on a grey-50 page with
+Inter. The Acme fixtures assert native structure/styles offline; this is not a live finding.

@@ -6,6 +6,13 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+- V1 page specs and command recipes share full-bleed side columns, reserved filter headers,
+  visible filter dividers, left-aligned trend figures, compact chart legends, pie value labels,
+  inside bar values and grid row framing. Band text centres vertically; legacy output stays unchanged.
+- Navigation menus accept initial selection and indented items. Generated collection cells add
+  image and StateDefinition status roles, also available through built-in command components.
+- The clean preset styles card corners/shadows and page background/fonts, with a synthetic Acme A golden.
+
 - Page specs add native links, images, icons, dividers, boolean controls, text areas, single dates,
   value displays and contained mashups, plus typed expressions, events routers and navigation
   events. Pareto and waterfall charts share the chart recipe; schedule charts explain their nested data requirement.

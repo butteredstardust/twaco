@@ -2385,7 +2385,7 @@ fn command_combo_series_share_secondary_axis_and_compact_legend_props() {
         assert_eq!(p["YAxis2Label"], "Value");
         assert_eq!(p["YAxis2Position"], "right");
         assert_eq!(p["DisableLegendGrouping"], true);
-        assert_eq!(p["LegendPosition"], "bottom");
+        assert_eq!(p["LegendPosition"], "top");
         assert!(p["DataField3"].is_null() || p["DataField3"] == "");
         n7_recipe(
             root,

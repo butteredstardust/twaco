@@ -115,6 +115,8 @@ impl Registry {
             include_str!("components/page_header.yaml"),
             include_str!("components/section_card.yaml"),
             include_str!("components/side_panel.yaml"),
+            include_str!("components/nav_menu.yaml"),
+            include_str!("components/collection.yaml"),
         ] {
             registry.insert(text, "built-in")?;
         }
@@ -420,6 +422,7 @@ fn relocate(node: &mut Node, loc: Location) {
     for value in b
         .kind
         .iter_mut()
+        .chain(b.selected.iter_mut())
         .chain(b.data.iter_mut())
         .chain(b.variant.iter_mut())
         .chain(b.icon.iter_mut())

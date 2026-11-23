@@ -685,7 +685,7 @@ fn merge_styles(
 
 /// Merge `--style` settings into one widget's style entry of a document being edited; what a
 /// recipe needs to style a widget exactly as `mashup set --style` would.
-pub(super) fn merge_widget_styles(
+pub(crate) fn merge_widget_styles(
     document: &mut crate::core::mashup::edit::MashupDocument,
     id: &str,
     type_id: &str,

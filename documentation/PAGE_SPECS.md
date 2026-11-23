@@ -133,7 +133,7 @@ through the chart recipe, and `stacked: true` requires bar. A `combo` chart uses
 `secondary` emits `DisplaySeries<n>On: yaxis2`, enables two axes with `NumberOfYaxes: 2`, and
 sets the right `YAxis2Label` from that series' title (or field). When several series share the
 secondary axis, the last secondary series supplies its label. Combo charts disable legend grouping
-(`DisableLegendGrouping: true`) to keep series in one compact bottom legend without axis headings.
+(`DisableLegendGrouping: true`) to keep series in one compact legend without axis headings.
 Unknown axis values are located errors. Pagination names a grid with data
 and creates the same local slicing expressions and reset bindings as the pagination recipe.
 
@@ -435,8 +435,10 @@ Charts in rows get equal widths, with a minimum height of 240px (a larger native
 retained). Charts and grids share remaining column space. Status cards keep their content height.
 Content minimums propagate through layout wrappers, and the page scrolls when those minimums
 exceed the viewport; pagination remains in the page flow. Explicit fixed sizes can still constrain
-content. A chart accepts `legend: false` to reclaim plot space in a dense chart row; legends
-otherwise retain native settings at the bottom. No custom chart HTML or rendering is used.
+content. A chart accepts `legend: false` to reclaim plot space in a dense chart row; v1 legends otherwise sit at the top, aligned right. A single numeric-series chart hides its
+legend by default; pie charts retain it. Explicit `legend: true|false` and native props win.
+Pie charts show value markers and use ordered native slice/legend palette styles.
+Short bar charts keep values inside the bars, aligned to the end. No custom chart HTML or rendering is used.
 
 A field-only `filter_panel` occupies 280px beside the main column. Its empty content pane is
 hidden, fields stack from the top and the kit footer stays at the bottom. The filter column
@@ -457,7 +459,7 @@ The combined examples [Q1](../tests/fixtures/mashup/pages/bench_q1/page.yaml),
 [Q2](../tests/fixtures/mashup/pages/bench_q2/page.yaml),
 [Q3](../tests/fixtures/mashup/pages/bench_q3/page.yaml) and
 [Q4](../tests/fixtures/mashup/pages/bench_q4/page.yaml) use the same offline Acme solution.
-Q3 hides chart legends; Q4 follows the selected asset and aligns mixed status pairs.
+Q3 keeps the pie legend and hides its other chart legends; Q4 follows the selected asset and aligns mixed status pairs.
 These are offline structural regressions, not measured visual scores.
 
 A grid used by `<grid>.selected.<Field>` bindings selects the first row on load with the native
@@ -875,3 +877,42 @@ Derived specs retain explicit `tokens:` and keep derived hex colours as hex.
 Command parity: set `[mashup] tokens = "brutalist"` in twaco.toml, then use
 `twaco mashup set Acme.Page_MU <widget> --style box-shadow=hard --apply`. MCP provides
 `mashup_tokens` and `entity_new` with `kind: "theme", tokens: "brutalist"`.
+
+## Side columns, navigation and generated cell roles
+
+V1 side panels and leading filter columns reach the page edges; their content sibling owns
+its 24px gutter. Filter panels always have a 48px title row (default `Filter`), with the
+inside collapse tab reserved at its right. Fields start below that row. A standalone filter
+keeps the same grey background and separate 1px vertical rule. A leading authored heading
+is placed in the header. Trend figures keep value, unit and arrow together, left aligned
+immediately below the caption. Filled grids omit the outer bottom frame, as the kit does,
+so row rules do not appear detached from the last row. Band labels centre text vertically.
+
+`nav_menu` accepts `selected: Details`, naming exactly one item label; absent selection
+highlights the first item. An item can be a string or `{label: Details, indent: 1}`;
+indent is 0?12 levels of 18px beyond the base 24px inset. Item event IDs retain their
+1-based group/item numbering. Selection is the initial highlight, not navigation wiring.
+
+Generated collections accept `cell: {image: Image, title: Name, kpi_dial: Count,
+status: {field: Status, state: Acme.Status_ST}}`. All roles are optional, at least one is
+required. Image fields must be STRING or IMAGELINK; dial fields must be numeric. Status
+uses the existing checked StateDefinition dot and label recipe. Image/status cells use a
+column with image, title, dial and status in that order; title/dial-only cells retain the
+KPI template. Bindings use typed cell parameters, with no generated service scripts.
+
+Command recipes share these expansions:
+
+```sh
+twaco mashup recipe component Acme.Page_MU center --component nav_menu --set id=menu --set selected=Details --set 'groups=[{"title":"Acme","items":["Overview",{"label":"Details","indent":1}]}]'
+twaco mashup recipe component Acme.Page_MU center --component collection --set id=cards --set data=assets --set 'cell={"image":"Image","title":"Name","status":{"field":"Status","state":"Acme.Status_ST"}}'
+```
+
+These commands plan by default. `assets` is an existing unique service alias in the mashup.
+The generated cell files join the recipe's atomic transaction. Custom components can compose
+these same elements. No CLI flags or MCP request fields change.
+
+`tokens: clean` gives cards white fill, a 1px grey-200 border, 8px radius and soft shadow,
+with a grey-50 page and the Inter font stack. Optional `radius.card` and `shadow.card`
+override card/section finishes; convergence retains its existing frames. The synthetic
+[clean A page](../tests/fixtures/mashup/pages/bench_clean/page.yaml) records the exact native
+styles offline. Widget internals still use the selected StyleTheme.

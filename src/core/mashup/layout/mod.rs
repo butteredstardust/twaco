@@ -577,11 +577,61 @@ pub(crate) fn clear_page_fillers(document: &mut super::edit::MashupDocument) {
     }
 }
 
+fn side_columns(document: &mut super::edit::MashupDocument) {
+    let shells: Vec<_> = document
+        .widgets()
+        .into_iter()
+        .filter(|w| {
+            let node = document.at(&w.path);
+            node["Properties"]["flex-direction"] == "row"
+                && super::edit::children(node).first().is_some_and(|first| {
+                    first["twacoSidePanel"] == true
+                        || first["twacoTemplateName"] == "filter-panel"
+                        || first["Properties"]["DisplayName"] == "filter-column"
+                })
+                && !(1..w.path.len())
+                    .any(|depth| document.at(&w.path[..depth])["twacoSidePanel"] == true)
+        })
+        .collect();
+    for shell in shells {
+        for depth in 1..=shell.path.len() {
+            let path = &shell.path[..depth];
+            let node = document.at(path);
+            if node["Properties"]["Margin"] == "24" {
+                document.set_property(path, "Margin", json!(""));
+            }
+        }
+        let children = super::edit::children(document.at(&shell.path)).len();
+        for index in 0..children {
+            let path = [shell.path.as_slice(), &[index]].concat();
+            let node = document.at(&path);
+            let side = node["twacoSidePanel"] == true
+                || node["twacoTemplateName"] == "filter-panel"
+                || node["Properties"]["DisplayName"] == "filter-column";
+            if side {
+                document.set_property(&path, "Margin", json!(""));
+                document.set_property(&path, "align-self", json!("stretch"));
+            } else if !node["Properties"]["DisplayName"]
+                .as_str()
+                .unwrap_or("")
+                .starts_with("divider-")
+                && node["Properties"]["Margin"]
+                    .as_str()
+                    .is_none_or(str::is_empty)
+            {
+                document.set_property(&path, "Margin", json!("24"));
+            }
+        }
+    }
+}
+
 pub(crate) fn finish_page(document: &mut super::edit::MashupDocument) {
     if document.value()["twacoPageRules"] != "v1" {
         return;
     }
     clear_page_fillers(document);
+    side_columns(document);
+
     let fields: Vec<_> = document
         .widgets()
         .into_iter()
@@ -792,7 +842,7 @@ mod tests {
         }
         let additions: Vec<_> = additions
             .into_iter()
-            .filter(|r| !r.id.starts_with("props.native-"))
+            .filter(|r| !r.id.starts_with("props.native-") && !r.id.starts_with("props.chart-"))
             .collect();
         assert_eq!(additions.len(), 22);
         assert_eq!(additions[0].id, "gutter.filter-actions");

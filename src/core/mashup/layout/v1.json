@@ -91,6 +91,9 @@
     {"id": "props.native-textarea", "when": {"op": "add", "element": "widget", "widget": "ptcstextarea"}, "decisions": {"props": {"FillContainer": true, "LabelAlignment": "left", "Margin": "5"}}},
     {"id": "props.native-togglebutton", "when": {"op": "add", "element": "widget", "widget": "ptcstogglebutton"}, "decisions": {"props": {"LabelAlignment": "left", "Margin": "5"}}},
     {"id": "props.native-valuedisplay", "when": {"op": "add", "element": "widget", "widget": "ptcsvaluedisplay"}, "decisions": {"props": {"FillContainer": true, "LabelAlignment": "left", "Margin": "5", "VerticalAlignment": "flex-start"}}},
+    { "id": "props.chart-pie", "when": { "op": "add", "element": "widget", "widget": "ptcschartpie" }, "decisions": { "props": { "LegendPosition": "top", "LegendAlignment": "end", "ShowValues": true } } },
+    { "id": "props.chart-bar", "when": { "op": "add", "element": "widget", "widget": "ptcschartbar" }, "decisions": { "props": { "LegendPosition": "top", "LegendAlignment": "end", "HideValues": false, "ValuesPosition": "inside", "ValuesAlignment": "end" } } },
+    { "id": "props.chart-other", "when": { "op": "add", "element": "widget", "widget": ["ptcschartline", "ptcschartcombo", "ptcschartpareto", "ptcschartwaterfall"] }, "decisions": { "props": { "LegendPosition": "top", "LegendAlignment": "end" } } },
     { "id": "props.narrow-date", "when": { "op": "add", "element": "widget", "widget": "ptcsdatepicker", "facts": ["narrow-column"] }, "decisions": { "props": { "FormatToken": "DD-MM-YY", "DateOnly": true } } },
 
     { "id": "props.icon-fixed", "when": { "op": "set-flex-size", "facts": ["size-fixed"] }, "decisions": { "props": { "iconClass": "widgets-flexcontainer-fixed" } } },
@@ -109,7 +112,7 @@
     { "id": "props.page-slider-wrapper", "when": { "op": "page-slider-wrapper" }, "decisions": { "props": { "flex-direction": "column", "align-items": "stretch", "flex-grow": 0, "flex-shrink": 0, "flex-basis": "auto", "flex-size": "default", "flex-min-height": "", "flex-max-height": "" } } },
     {"id": "props.page-fill", "when": {"op": "page-fill"}, "decisions": {"props": {"LastContainer": true, "flex-size": "range", "flex-grow": 1, "flex-shrink": 0, "flex-basis": "0px", "flex-max-height": ""}}},
     {"id": "props.page-chart-minimum", "when": {"op": "page-chart-minimum"}, "decisions": {"props": {"flex-min-height": "240px", "flex-direction": "column", "align-items": "stretch"}}},
-    {"id": "props.page-chart-legend", "when": {"op": "page-chart-legend"}, "decisions": {"props": {"LegendPosition": "bottom", "LegendAlignment": "start"}}},
+    {"id": "props.page-chart-legend", "when": {"op": "page-chart-legend"}, "decisions": {"props": {"LegendPosition": "top", "LegendAlignment": "end"}}},
     {"id": "props.page-filter-fields", "when": {"op": "page-filter-fields"}, "decisions": {"props": {"flex-direction": "column", "align-items": "flex-start", "flex-size": "default", "flex-grow": 1, "flex-shrink": 1, "flex-basis": "auto", "flex-min-height": "", "flex-max-height": "", "justify-content": "flex-start", "align-content": "flex-start", "ShowVerticalScrollbar": false, "scrolling": "no-scroll"}}},
     {"id": "props.page-filter-footer", "when": {"op": "page-filter-footer"}, "decisions": {"props": {"Margin": "", "flex-size": "default", "flex-grow": 1, "flex-shrink": 1, "flex-basis": "auto", "flex-min-height": "", "flex-max-height": "", "LastContainer": true, "justify-content": "center", "align-items": "center"}}},
     {"id": "props.page-overflow", "when": {"op": "page-overflow"}, "decisions": {"props": {"ShowVerticalScrollbar": false, "scrolling": "no-scroll"}}},

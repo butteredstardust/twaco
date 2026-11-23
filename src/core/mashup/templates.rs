@@ -59,6 +59,8 @@ pub(crate) struct LayoutNode {
     pub(crate) children: Vec<LayoutNode>,
     #[serde(default)]
     pub(crate) widget: Option<String>,
+    #[serde(default, skip_serializing_if = "Map::is_empty")]
+    pub(crate) widget_properties: Map<String, Value>,
     #[serde(default)]
     pub(crate) fixed: Option<String>,
     #[serde(default)]
@@ -104,6 +106,15 @@ pub(crate) fn layouts_with(rules: &RuleSet) -> Result<Vec<LayoutTemplate>, Strin
                     "justify-content": "center", "flex-size": "default", "flex-grow": 0,
                     "children": [divider, buttons]}));
                 let stack = std::mem::take(&mut column["children"]);
+                let mut stack = stack.as_array().expect("filter stack").clone();
+                stack.insert(
+                    0,
+                    serde_json::json!({"slot":"filter-header",
+                    "flex-direction":"row", "align-items":"center", "fixed":"48px",
+                    "widget":"ptcslabel", "widget_properties":{"DisplayName":"filter-title",
+                        "LabelText":"Filter", "LabelType":"title", "HorizontalAlignment":"left",
+                        "Margin":"12 40 12 20"}}),
+                );
                 column["flex-direction"] = serde_json::json!("row");
                 column["align-items"] = serde_json::json!("flex-start");
                 column["ExpandCollapseTabLocation"] = serde_json::json!("inside");
@@ -111,6 +122,7 @@ pub(crate) fn layouts_with(rules: &RuleSet) -> Result<Vec<LayoutTemplate>, Strin
                     "flex-direction": "column", "align-items": "flex-start",
                     "justify-content": "flex-start", "flex-size": "default",
                     "flex-grow": 1, "children": stack}]);
+                skeleton["children"][1]["style"] = serde_json::json!({"background":"#E4E7E9"});
             }
             rules.resolve(&mut skeleton)?;
             serde_json::from_value(skeleton)

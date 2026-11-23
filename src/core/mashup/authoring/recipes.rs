@@ -2424,6 +2424,60 @@ pub(super) fn plan_recipe_loaded(
                         .collect::<Vec<_>>(),
                 );
             }
+            if work.document.rules().version() == "v1" {
+                let count = if !configured.is_empty() {
+                    configured.len()
+                } else {
+                    fields.as_ref().map_or(2, |fields| {
+                        fields
+                            .iter()
+                            .filter(|(name, base)| {
+                                name != x && matches!(base.as_str(), "NUMBER" | "INTEGER" | "LONG")
+                            })
+                            .count()
+                    })
+                };
+                let mut defaults = vec![
+                    ("LegendPosition", json!("top")),
+                    ("LegendAlignment", json!("end")),
+                    ("HideLegend", json!(!pie && count == 1)),
+                ];
+                if pie {
+                    defaults.extend([
+                        ("ShowValues", json!(true)),
+                        ("ValuesPosition", json!("marker")),
+                    ]);
+                }
+                if target.type_id == "ptcschartbar" {
+                    defaults.extend([
+                        ("HideValues", json!(false)),
+                        ("ValuesPosition", json!("inside")),
+                        ("ValuesAlignment", json!("end")),
+                    ]);
+                }
+                work.set(&target, &defaults);
+                if pie && !work.tokens.chart_palette().is_empty() {
+                    let styles: Vec<_> = work
+                        .tokens
+                        .chart_palette()
+                        .iter()
+                        .enumerate()
+                        .flat_map(|(i, color)| {
+                            [
+                                format!("slice@serie{}:fill={color}", i + 1),
+                                format!("legend-marker@serie{}:background={color}", i + 1),
+                            ]
+                        })
+                        .collect();
+                    super::set::merge_widget_styles(
+                        &mut work.document,
+                        &target.id,
+                        &target.type_id,
+                        &styles,
+                        "mashup",
+                    )?;
+                }
+            }
             work.bind(data, &format!("ui:{}.Data", target.id))?;
         }
         Recipe::Columns {
@@ -2697,6 +2751,20 @@ pub(super) fn plan_recipe_loaded(
                 )));
             }
             style["parts"]["$"]["$"]["--ptcs-header-vert-divider-width"] = json!("0px");
+            if work.document.rules().version() == "v1" {
+                if style["parts"]["core-grid"].is_null() {
+                    style["parts"]["core-grid"] = json!({"$":{}});
+                }
+                if !style["parts"]["core-grid"]["$"].is_object() {
+                    return Err(AuthoringError::Refused(format!(
+                        "{}: malformed core-grid style; repair StyleProperties first",
+                        target.id
+                    )));
+                }
+                style["parts"]["core-grid"]["$"]["border-bottom-style"] = json!("none");
+                style["parts"]["core-grid"]["$"]["border-bottom-width"] = json!("0px");
+            }
+
             super::set::copy_style_entry(
                 &mut work.document,
                 &target.id,

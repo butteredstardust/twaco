@@ -74,6 +74,9 @@ fn compile_nested(
     })?;
     let mut session = Session::new(&page.name.value, project, &page.template.value, theme)
         .map_err(|e| Error::at(page.template.referenced, e))?;
+    spec.resolved_tokens
+        .apply_page(&mut session.document)
+        .map_err(|e| Error::at(page.name.referenced, e))?;
     session.tokens = Some(spec.resolved_tokens.clone());
     session.token_source = spec
         .tokens
@@ -529,6 +532,24 @@ fn add(
         _ => Ok(()),
     }
     .map_err(|e| Error::at(loc, e))?;
+    if matches!(node, Node::FilterPanel(_)) {
+        let root = session
+            .document
+            .find_exact(&placed)
+            .map_err(|e| Error::at(loc, e))?
+            .path;
+        let title = session
+            .document
+            .widgets()
+            .into_iter()
+            .find(|w| w.path.starts_with(&root) && w.display_name == "filter-title")
+            .expect("filter title");
+        session.document.set_property(
+            &title.path,
+            "LabelText",
+            json!(body.title.as_deref().unwrap_or("Filter")),
+        );
+    }
     if (matches!(node, Node::Card(_)) && body.align.is_none()) || matches!(node, Node::TrendTile(_))
     {
         // Kit card titles use the regular label size, not the recipe's sub-header.
@@ -559,6 +580,22 @@ fn add(
         }
     }
     let id = stabilize(session, allocator, &old, &placed, &body.id.value, loc)?;
+    if matches!(node, Node::FilterPanel(_)) {
+        // The recipe's title label keeps the address `<id>--title` the generated heading had.
+        let root = session
+            .document
+            .find_exact(&id)
+            .map_err(|e| Error::at(loc, e))?
+            .path;
+        if let Some(title) = session
+            .document
+            .widgets()
+            .into_iter()
+            .find(|w| w.path.starts_with(&root) && w.display_name == "filter-title")
+        {
+            ids.insert(format!("{}--title", body.id.value), title.id);
+        }
+    }
     ids.insert(body.id.value.clone(), id.clone());
     apply_styles(solution, session, page, &id, body)?;
     if let Some(size) = &body.value_size {
@@ -605,6 +642,26 @@ fn add(
                 .id
         };
         let filters = slot("filters", session);
+        let header = slot("filter-header", session);
+        let has_title =
+            body.title.is_none() && matches!(body.fields.first(), Some(Node::Heading(_)));
+        if has_title {
+            let header_path = session
+                .document
+                .find_exact(&header)
+                .map_err(|e| Error::at(loc, e))?
+                .path;
+            session.document.at_mut(&header_path)["Widgets"] = json!([]);
+            add_children(
+                solution,
+                session,
+                allocator,
+                ids,
+                page,
+                &body.fields[..1],
+                &header,
+            )?;
+        }
         let footer = slot("filter-footer", session);
         let content = slot("content", session);
         add_children(
@@ -613,7 +670,7 @@ fn add(
             allocator,
             ids,
             page,
-            &body.fields,
+            &body.fields[usize::from(has_title)..],
             &filters,
         )?;
         for child in &body.children {
@@ -1950,6 +2007,8 @@ fn wire_collection(
         for (field, role) in [
             (spec.value.title.as_ref(), "title"),
             (spec.value.kpi_dial.as_ref(), "kpi_dial"),
+            (spec.value.image.as_ref(), "image"),
+            (spec.value.status.as_ref().map(|s| &s.field), "status"),
         ] {
             let Some(field) = field else { continue };
             let base_type = session
@@ -1961,10 +2020,19 @@ fn wire_collection(
                     format!("cell kpi_dial field {field} must be numeric"),
                 ));
             }
+            if role == "image" && !["STRING", "IMAGELINK"].contains(&base_type.as_str()) {
+                return Err(Error::at(
+                    spec.referenced,
+                    format!("cell image field {field} must be STRING or IMAGELINK"),
+                ));
+            }
             fields.push((role, field.clone(), base_type));
         }
         if fields.is_empty() {
-            return Err(Error::at(spec.referenced, "cell needs title or kpi_dial"));
+            return Err(Error::at(
+                spec.referenced,
+                "cell needs title, kpi_dial, image or status",
+            ));
         }
         let mappings = fields
             .iter()
@@ -1977,7 +2045,13 @@ fn wire_collection(
             .token_source
             .as_ref()
             .map(|(value, base)| rebase_tokens(value, base, &cell_dir));
-        let text = cell_spec(page, tokens.as_deref(), &name, &fields);
+        let text = cell_spec(
+            page,
+            tokens.as_deref(),
+            &name,
+            &fields,
+            spec.value.status.as_ref(),
+        );
         let built = compile_nested(solution, project, &text, &cell_dir)?;
         let cell = CellSource::Generated {
             name: name.clone(),
@@ -2053,6 +2127,7 @@ fn cell_spec(
     tokens: Option<&str>,
     name: &str,
     fields: &[(&str, String, String)],
+    status: Option<&schema::CellStatus>,
 ) -> String {
     let parameters: serde_json::Map<_, _> = fields
         .iter()
@@ -2075,6 +2150,28 @@ fn cell_spec(
     }
     let mut spec = json!({"version": 1, "rules": "v1", "page": {
         "name": name, "template": "kpi-tile", "parameters": parameters, "slots": slots}});
+    if fields
+        .iter()
+        .any(|(role, _, _)| ["image", "status"].contains(role))
+    {
+        let mut children = Vec::new();
+        for role in ["image", "title", "kpi_dial", "status"] {
+            let Some((_, field, _)) = fields.iter().find(|(r, _, _)| *r == role) else {
+                continue;
+            };
+            let bind = json!({"bind":format!("param.{field}")});
+            children.push(match role {
+                "image" => json!({"image":{"id":"image", "source":bind, "scaling":"contain", "position":"center", "props":{"Height":96,"Margin":"0"}}}),
+                "title" => json!({"label":{"id":"title", "props":{"LabelText":bind}}}),
+                "kpi_dial" => json!({"kpi_dial":{"id":"dial", "value":bind}}),
+                _ => json!({"detail_pair":{"id":"status", "label":"Status", "value":bind, "state":status.expect("status role").state}}),
+            });
+        }
+        spec["page"]["template"] = json!("blank");
+        spec["page"]["slots"] =
+            json!({"center":[{"column":{"id":"cell", "size":"fill", "children":children}}]});
+    }
+
     if let Some(theme) = &page.theme {
         spec["page"]["theme"] = json!(theme.value);
     }
