@@ -237,6 +237,7 @@ The full listing follows.
   mashup diff <a> <b> [--tier <tier>] [--json]
                               compare two repository mashups by executable wiring, responsive layout and visual
                               content; ignores Composer-generated identifiers; exits 1 when the selected tier differs
+                              pair bindings/events by endpoints without order; report an extra wrapper once
       --tier <tier>           executable, layout, visual or all (default all)
   mashup add <mashup> <widget> [--in <container> [--bottom] | --right-of <widget> [--end] | --left-of <widget> | --above <widget> | --below <widget>]
       [--in-column] [--label <text>] [--prop <name=value>]... [--input <name:TYPE[=default]>]... [--apply] [--json]

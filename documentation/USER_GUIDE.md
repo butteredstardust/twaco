@@ -2310,9 +2310,12 @@ twaco mashup diff Acme.App.Orders_MU Acme.App.OrdersNext_MU --tier layout
 ```
 
 `mashup diff` compares repository mashups without treating Composer's allocated widget and UUID
-identifiers as a change. Widgets pair by aligning sibling types, so one extra container is one
-difference; sibling order counts, while bindings, events, calls and parameters compare without
-order. What Composer saves but nothing shows is not a difference: editor state (`_baseVersion`,
+identifiers as a change. Widgets pair by aligning sibling types and looking through one added or
+removed wrapper level when its children fit better. The wrapper is one layout difference, with
+the widgets and wiring below it still paired. Sibling order counts; bindings and events pair by
+both endpoints after widget IDs are paired, while calls and parameters compare without order.
+A missing binding or event is one executable difference naming its widgets and services.
+What Composer saves but nothing shows is not a difference: editor state (`_baseVersion`,
 `isLocked`, `DisplayName`, `iconClass`, `LastContainer`), a property only one side writes at its
 empty or default value, numbered chart settings past the chart's series, axis or reference-line
 count, caching switched off, and the styles of widgets that no longer exist. It reports

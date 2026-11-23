@@ -16,6 +16,11 @@ All notable changes to twaco are recorded here. The format follows
   `mashup build --json` reports spec errors as a JSON error object that names the spec file and the
   key's line; a plan says it would write the baseline. Masters are refused by `mashup spec` and
   `mashup build` for now.
+- `mashup diff` (also MCP `mashup_diff`) pairs bindings and events by both endpoints, reports
+  missing wiring with widget display names/types and service names, and looks through one extra
+  container wrapper without cascading differences into its children. Wiring order is ignored;
+  each added or removed wrapper counts once as layout.
+
 - V1 page specs and command recipes share full-bleed side columns, reserved filter headers,
   visible filter dividers, left-aligned trend figures, compact chart legends, pie value labels,
   inside bar values and grid row framing. Band text centres vertically; legacy output stays unchanged.

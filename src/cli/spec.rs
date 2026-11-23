@@ -762,6 +762,7 @@ pub(crate) const USAGE: &[Usage] = &[
         text: r#"  mashup diff <a> <b> [--tier <tier>] [--json]
                               compare two repository mashups by executable wiring, responsive layout and visual
                               content; ignores Composer-generated identifiers; exits 1 when the selected tier differs
+                              pair bindings/events by endpoints without order; report an extra wrapper once
       --tier <tier>           executable, layout, visual or all (default all)"#,
     },
     Usage {
