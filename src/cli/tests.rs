@@ -1549,3 +1549,41 @@ fn task_index_precedes_the_full_listing_and_names_real_commands() {
         );
     }
 }
+
+#[test]
+fn every_suggested_deploy_command_uses_the_real_cli_grammar() {
+    let sources = [
+        include_str!("../core/entity/new.rs"),
+        include_str!("../core/newblock.rs"),
+        include_str!("refactor.rs"),
+        include_str!("../mcp/refactor.rs"),
+    ];
+    let mut checked = 0;
+    for source in sources {
+        for tail in source.split("twaco deploy ").skip(1) {
+            let end = tail.find(['"', '`', '\n']).unwrap_or(tail.len());
+            let text = &tail[..end];
+            // Prose after a command is outside the command's literal flags.
+            let text = text
+                .split(" to ")
+                .next()
+                .unwrap()
+                .split("; then ")
+                .next()
+                .unwrap()
+                .split(". ")
+                .next()
+                .unwrap();
+            let command = format!("twaco deploy {}", text.replace("{}", "Acme"));
+            let command = command.trim_end_matches(['.', ';']);
+            spec::tree()
+                .try_get_matches_from(command.split_whitespace())
+                .unwrap_or_else(|e| panic!("{command}: {e}"));
+            checked += 1;
+        }
+    }
+    assert!(
+        checked >= 4,
+        "creation plans and both adapters must be checked"
+    );
+}

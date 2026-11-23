@@ -1,0 +1,44 @@
+version: 1
+name: clean
+extends: convergence
+colors:
+  primary: '#2563EB'
+  grey-50: '#F9FAFB'
+  grey-100: '#F3F4F6'
+  grey-200: '#E5E7EB'
+  grey-300: '#D1D5DB'
+  grey-400: '#9CA3AF'
+  grey-500: '#6B7280'
+  grey-600: '#4B5563'
+  grey-700: '#374151'
+  grey-800: '#1F2937'
+  grey-900: '#111827'
+roles:
+  background: grey-50
+  card: '#FFFFFF'
+  page-card: '#FFFFFF'
+  band: grey-100
+  card-line: grey-200
+  panel-line: grey-200
+  nav-selected: grey-200
+  nav-text: grey-900
+  nav-caption: grey-500
+  input-focus: grey-100
+  surface-alt: grey-100
+  text: grey-900
+  text-muted: grey-500
+  heading: grey-900
+  line: grey-200
+fonts:
+  sans: Inter, ui-sans-serif, Arial, sans-serif
+  display: Inter, ui-sans-serif, Arial, sans-serif
+radius:
+  sm: 4px
+  md: 8px
+  lg: 12px
+  default: md
+border:
+  width: 1px
+shadow:
+  sm: 0 1px 3px #0000001A
+  md: 0 4px 8px #0000001A

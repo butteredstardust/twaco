@@ -14725,3 +14725,132 @@ fn style_values_accept_the_colour_and_font_names_the_page_specs_use() {
     assert_eq!(variants, ["text-box:border-radius=20px"]);
     assert!(input_variant_styles("flat").is_none());
 }
+
+#[test]
+fn tokens_command_styles_use_twaco_toml_and_match_spec_resolution() {
+    let (_dir, solution) =
+        with_config("[mashup]\ntokens = 'brutalist'\n[[project]]\nname = 'Acme'\nroot = 'acme'\n");
+    let name = "Acme.Tokens_MU";
+    let new = plan_new(&solution, &request(name)).unwrap();
+    apply_new(&solution, &new, &lock(&solution)).unwrap();
+    let add = plan_add(&solution, &add_request(name, "ptcslabel")).unwrap();
+    let id = add.placed.id.clone();
+    apply_edit(&solution, &add.edit, &lock(&solution)).unwrap();
+    let plan = plan_set(
+        &solution,
+        &SetRequest {
+            mashup: name.into(),
+            widget: id.clone(),
+            properties: vec![],
+            style_from: None,
+            styles: vec![
+                "box-shadow=hard".into(),
+                "border-radius=none".into(),
+                "label:font-family=mono".into(),
+                "background=surface".into(),
+            ],
+        },
+    )
+    .unwrap();
+    apply_edit(&solution, plan.edit.as_ref().unwrap(), &lock(&solution)).unwrap();
+    let content = content_of(&solution, name);
+    let parts = &content["UI"]["Properties"]["StyleProperties"]["data"][&id]["parts"];
+    assert_eq!(parts["$"]["$"]["box-shadow"], "4px 4px 0 #0B0B0B");
+    assert_eq!(parts["$"]["$"]["border-radius"], "0px");
+    assert_eq!(parts["$"]["$"]["background"], "#F3F0E6");
+    assert_eq!(
+        parts["label"]["$"]["font-family"],
+        "IBM Plex Mono, ui-monospace, Consolas, monospace"
+    );
+}
+
+#[test]
+fn tokens_config_reaches_recipes_and_separator_authoring() {
+    let (_dir, solution) =
+        with_config("[mashup]\ntokens = 'brutalist'\n[[project]]\nname = 'Acme'\nroot = 'acme'\n");
+    let name = "Acme.RecipeTokens_MU";
+    let new = plan_new(&solution, &request(name)).unwrap();
+    apply_new(&solution, &new, &lock(&solution)).unwrap();
+    let mut anchor = String::new();
+    for kind in ["card", "band", "section", "focus"] {
+        let mut add = add_request(
+            name,
+            if kind == "focus" {
+                "ptcstextfield"
+            } else {
+                "flexcontainer"
+            },
+        );
+        if kind != "focus" {
+            add.properties.push((
+                "flex-direction".into(),
+                if kind == "band" { "row" } else { "column" }.into(),
+            ));
+        }
+        let add = plan_add(&solution, &add).unwrap();
+        let id = add.placed.id.clone();
+        anchor = id.clone();
+        apply_edit(&solution, &add.edit, &lock(&solution)).unwrap();
+        let recipe = match kind {
+            "card" => Recipe::Card {
+                container: id.clone(),
+                caption: "Acme".into(),
+                value: Some("84%".into()),
+                status: None,
+                kind: "ok".into(),
+            },
+            "band" => Recipe::ToolbarBand {
+                container: id.clone(),
+            },
+            "section" => Recipe::Section {
+                container: id.clone(),
+                title: "Acme".into(),
+                center: false,
+            },
+            _ => Recipe::InputVariant {
+                widget: id.clone(),
+                variant: "focus-glow".into(),
+            },
+        };
+        let plan = plan_recipe(
+            &solution,
+            &RecipeRequest {
+                mashup: name.into(),
+                recipe,
+            },
+        )
+        .unwrap();
+        apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+        let content = content_of(&solution, name);
+        let parts = &content["UI"]["Properties"]["StyleProperties"]["data"][&id]["parts"];
+        if kind == "focus" {
+            assert_eq!(parts["text-box"]["focus"]["border-color"], "#CCFF00");
+            assert_eq!(
+                parts["text-box"]["focus"]["box-shadow"],
+                "0 0 6px 1px #CCFF00"
+            );
+        } else {
+            assert_eq!(parts["$"]["$"]["border-color"], "#0B0B0B");
+            assert_eq!(
+                parts["$"]["$"]["border-width"],
+                if kind == "band" { "0 0 2px 0" } else { "2px" }
+            );
+            if kind != "section" {
+                assert_eq!(parts["$"]["$"]["background"], "#F3F0E6");
+            }
+        }
+    }
+    let mut separator = add_request(name, "separator");
+    separator.placement = Some(Placement::Beside {
+        anchor,
+        side: crate::core::mashup::edit::Side::Below,
+    });
+    let separator = plan_add(&solution, &separator).unwrap();
+    let id = separator.placed.id.clone();
+    apply_edit(&solution, &separator.edit, &lock(&solution)).unwrap();
+    assert_eq!(
+        content_of(&solution, name)["UI"]["Properties"]["StyleProperties"]["data"][&id]["parts"]
+            ["$"]["$"]["background"],
+        "#0B0B0B"
+    );
+}

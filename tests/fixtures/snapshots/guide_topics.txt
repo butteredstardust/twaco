@@ -7,5 +7,6 @@ workflow      built in  Working on a ThingWorx solution with twaco
 quirks        built in  ThingWorx platform quirks
 service-code  built in  ThingWorx service code reference
 styling       built in  Styling a mashup
+page-specs    built in  Page specs: the YAML wireframe tool
 --- stderr
 read one: twaco guide <topic>; search all: twaco guide --search <words>

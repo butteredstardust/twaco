@@ -282,6 +282,7 @@ fn dispatch(command: Command) -> u8 {
         Command::New(New::Entity(new)) => run(|solution| entity_new_cmd(solution, &new)),
         // The templates are built in, so they need no solution.
         Command::Mashup(Mashup::Templates(templates)) => mashup_templates_cmd(&templates),
+        Command::Mashup(Mashup::Tokens(tokens)) => cli::mashup::mashup_tokens_cmd(&tokens),
         Command::Mashup(mashup) => run(|solution| match &mashup {
             Mashup::Add(add) => mashup_add_cmd(solution, add),
             Mashup::StateFormat(format) => match &format.command {
@@ -317,7 +318,9 @@ fn dispatch(command: Command) -> u8 {
             Mashup::Spec(spec) => cli::mashup::mashup_spec_cmd(solution, spec),
             Mashup::Diff(diff) => mashup_diff_cmd(solution, diff),
             Mashup::Validate(validate) => mashup_validate_cmd(solution, validate),
-            Mashup::Templates(_) => unreachable!("the templates need no solution"),
+            Mashup::Templates(_) | Mashup::Tokens(_) => {
+                unreachable!("the templates need no solution")
+            }
         }),
         Command::Adopt(adopt) => run(|solution| adopt_cmd(solution, &adopt)),
         Command::Handoff(handoff) => run(|solution| handoff_cmd(solution, &handoff)),

@@ -644,6 +644,7 @@ fn hand_written_tools() -> Vec<Value> {
         .iter_mut()
         .find(|tool| tool["name"] == "entity_new")
         .unwrap();
+    new["inputSchema"]["properties"]["tokens"] = json!({"type":"string", "description":"Theme preset or token YAML file; overlays from, before prop."});
     for flag in ["disabled", "bold", "italic", "underline", "default"] {
         new["inputSchema"]["properties"][flag]
             .as_object_mut()
@@ -1586,6 +1587,7 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
             "network_write",
             "entity_edit",
             "mashup_new",
+            "mashup_tokens",
             "mashup_templates",
             "mashup_add",
             "mashup_collection_add",
@@ -2736,6 +2738,8 @@ fn what_the_offline_tools_return_fits_the_output_schema_they_publish() {
         ("components", json!({})),
         ("components", json!({"name":"section_card"})),
         ("mashup_spec", json!({"mashup":"P.Board_MU"})),
+        ("mashup_tokens", json!({})),
+        ("mashup_tokens", json!({"source": "brutalist"})),
         ("mashup_templates", json!({})),
         ("mashup_templates", json!({"name": "blank"})),
         ("widgets", json!({})),
@@ -5441,4 +5445,45 @@ fn page_spec_new_and_build_are_offline_plans_by_default_and_structured() {
         json!({"mashup":"Acme.Page_MU","dry_run":false}),
     );
     assert_eq!(refused["isError"], true, "{refused}");
+}
+
+#[test]
+fn tokens_mcp_inspection_and_theme_creation_share_the_resolver() {
+    let (_dir, root) = solution_dir();
+    std::fs::write(
+        root.join("tokens.yaml"),
+        "version: 1\nname: Acme\nextends: clean\n",
+    )
+    .unwrap();
+    let file = call(&root, "mashup_tokens", json!({"source":"./tokens.yaml"}));
+    assert_eq!(file["isError"], false, "{file}");
+    assert_eq!(file["structuredContent"]["tokens"]["name"], "Acme");
+    let listed = call(&root, "mashup_tokens", json!({}));
+    assert_eq!(listed["isError"], false, "{listed}");
+    assert_eq!(
+        listed["structuredContent"]["presets"],
+        json!(["convergence", "clean", "brutalist"])
+    );
+    let resolved = call(&root, "mashup_tokens", json!({"source":"brutalist"}));
+    assert_eq!(resolved["isError"], false, "{resolved}");
+    let args = json!({"kind":"theme", "name":"Acme.Tokens_TH", "tokens":"brutalist"});
+    let planned = call(&root, "entity_new", args.clone());
+    assert_eq!(planned["isError"], false, "{planned}");
+    assert_eq!(
+        planned["structuredContent"]["theme_props"],
+        resolved["structuredContent"]["props"]
+    );
+    assert!(!root.join("StyleThemes/Acme.Tokens_TH.xml").exists());
+    let mut args = args;
+    args["dry_run"] = json!(false);
+    let applied = call(&root, "entity_new", args);
+    assert_eq!(applied["isError"], false, "{applied}");
+    assert!(root.join("StyleThemes/Acme.Tokens_TH.xml").exists());
+    let invalid = call(
+        &root,
+        "entity_new",
+        json!({"kind":"theme", "name":"Acme.Invalid_TH", "prop":["backgroundColor=#FFFFFF"]}),
+    );
+    assert_eq!(invalid["isError"], true);
+    assert!(invalid.to_string().contains("global-color-bg-primary"));
 }

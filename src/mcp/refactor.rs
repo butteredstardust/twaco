@@ -85,7 +85,7 @@ pub(crate) fn new_building_block_tool(
         .collect();
     let mut result = json!({
         "ok": true, "name": result_name, "type": result_kind.word(), "root": plan.root,
-        "scope": "repository", "deploy_command": format!("twaco deploy --project {} --apply", plan.request.name),
+        "scope": "repository", "deploy_command": format!("twaco deploy --only-projects {} --apply", plan.request.name),
         "files": files, "twaco_toml": plan.config_addition, "notes": plan.notes,
     });
     result[outcome_key(dry_run)] = json!(true);
@@ -181,6 +181,7 @@ pub(crate) fn entity_new_tool(
         label: arguments.label.as_ref().cloned(),
         from: arguments.from.as_ref().cloned(),
         props: arguments.prop.items().to_vec(),
+        tokens: arguments.tokens.as_ref().cloned(),
         tools: arguments.tool.items().to_vec(),
         service_resources: arguments.service_resource.items().to_vec(),
         file_resources: arguments.file_resource.items().to_vec(),
@@ -693,6 +694,14 @@ pub(crate) fn mashup_new_tool(
     result["dry_run"] = json!(dry_run);
     add_notices(&mut result, &notices);
     Ok(result)
+}
+
+pub(crate) fn mashup_tokens_tool(
+    root: &std::path::Path,
+    arguments: super::requests::refactor::MashupTokensRequest,
+) -> Result<Value, ToolError> {
+    crate::core::mashup::tokens::inspect(arguments.source.as_ref().map(String::as_str), root)
+        .map_err(ToolError::invalid)
 }
 
 pub(crate) fn mashup_templates_tool(arguments: MashupTemplatesRequest) -> Result<Value, ToolError> {

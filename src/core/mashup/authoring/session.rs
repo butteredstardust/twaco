@@ -16,6 +16,9 @@ pub(crate) enum CellSource {
 }
 
 pub(crate) struct Session {
+    pub(crate) tokens: Option<mashup::tokens::Tokens>,
+    /// A page spec's `tokens:` value and the folder it resolves from, for generated cell specs.
+    pub(crate) token_source: Option<(String, std::path::PathBuf)>,
     pub(crate) document: MashupDocument,
     pub(crate) entity: Vec<u8>,
     pub(crate) css: String,
@@ -30,6 +33,8 @@ impl Session {
         css: String,
     ) -> Self {
         Self {
+            tokens: None,
+            token_source: None,
             name: name.into(),
             entity,
             document,
@@ -112,6 +117,8 @@ impl Session {
         .map_err(|e| AuthoringError::Invalid(e.to_string()))?
         .into_bytes();
         let mut session = Self {
+            tokens: None,
+            token_source: None,
             document,
             entity,
             css: String::new(),
@@ -210,7 +217,8 @@ impl Session {
         request: &super::AddRequest,
     ) -> Result<String, AuthoringError> {
         self.sync()?;
-        let plan = super::add::plan_add_loaded(solution, request, self.loaded())?;
+        let plan =
+            super::add::plan_add_loaded(solution, request, self.loaded(), self.tokens.as_ref())?;
         let id = plan.placed.id;
         self.accept(plan.edit)?;
         Ok(id)
@@ -266,7 +274,8 @@ impl Session {
         request: &super::SetRequest,
     ) -> Result<(), AuthoringError> {
         self.sync()?;
-        let plan = super::set::plan_set_loaded(solution, request, self.loaded())?;
+        let plan =
+            super::set::plan_set_loaded(solution, request, self.loaded(), self.tokens.as_ref())?;
         if let Some(edit) = plan.edit {
             self.accept(edit)?;
         }
@@ -293,7 +302,12 @@ impl Session {
             mashup: self.name.clone(),
             recipe,
         };
-        let plan = super::recipes::plan_recipe_loaded(solution, &request, self.loaded())?;
+        let plan = super::recipes::plan_recipe_loaded(
+            solution,
+            &request,
+            self.loaded(),
+            self.tokens.as_ref(),
+        )?;
         self.accept(plan.edit)
     }
 

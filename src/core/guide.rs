@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 
 pub const TASKS: &str = include_str!("../../knowledge/tasks.md");
 
-const BUILTIN: [(&str, &str); 5] = [
+const BUILTIN: [(&str, &str); 6] = [
     ("tasks", TASKS),
     ("workflow", include_str!("../../knowledge/workflow.md")),
     ("quirks", include_str!("../../knowledge/quirks.md")),
@@ -23,6 +23,7 @@ const BUILTIN: [(&str, &str); 5] = [
         include_str!("../../knowledge/service-code.md"),
     ),
     ("styling", include_str!("../../knowledge/styling.md")),
+    ("page-specs", include_str!("../../knowledge/page-specs.md")),
 ];
 const DEFAULT_PATHS: [&str; 3] = ["AGENTS.md", "CLAUDE.md", "docs"];
 const HEADING_WEIGHT: f64 = 3.0;
@@ -522,7 +523,14 @@ mod tests {
         assert!(problems.is_empty());
         assert_eq!(
             topics.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(),
-            ["tasks", "workflow", "quirks", "service-code", "styling"]
+            [
+                "tasks",
+                "workflow",
+                "quirks",
+                "service-code",
+                "styling",
+                "page-specs"
+            ]
         );
         let quirks = find(&topics, "quirks").unwrap();
         assert!(sections(&quirks.text).len() >= 50, "one section per quirk");
@@ -541,6 +549,27 @@ mod tests {
                 python_tool.is_none(),
                 "{} still names the Python tools: {python_tool:?}",
                 topic.id
+            );
+        }
+    }
+
+    #[test]
+    fn page_spec_searches_are_discoverable() {
+        let (topics, _) = topics(None);
+        for query in [
+            "page spec",
+            "spec",
+            "wireframe",
+            "yaml",
+            "layout",
+            "page.yaml",
+            "tokens",
+            "theme preset",
+        ] {
+            let hits = search(&topics, query, 3);
+            assert!(
+                hits.iter().any(|hit| hit.topic == "page-specs"),
+                "{query}: {hits:?}"
             );
         }
     }
@@ -686,7 +715,7 @@ mod tests {
         let (topics, problems) = super::topics(Some(&solution));
         assert!(problems.is_empty(), "{problems:?}");
         let ids: Vec<&str> = topics.iter().map(|t| t.id.as_str()).collect();
-        assert_eq!(&ids[5..], ["AGENTS", "docs/deep/GUIDE"]);
+        assert_eq!(&ids[6..], ["AGENTS", "docs/deep/GUIDE"]);
         assert_eq!(
             find(&topics, "guide").unwrap().id,
             "docs/deep/GUIDE",
@@ -701,7 +730,7 @@ mod tests {
         .unwrap();
         let solution = Solution::load(&root.join("twaco.toml")).unwrap();
         let (topics, problems) = super::topics(Some(&solution));
-        assert_eq!(topics.len(), 5);
+        assert_eq!(topics.len(), 6);
         assert_eq!(problems.len(), 2, "{problems:?}");
     }
 }

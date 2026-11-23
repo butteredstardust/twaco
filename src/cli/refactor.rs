@@ -964,7 +964,7 @@ pub(crate) fn new_building_block_cmd(solution: &Solution, args: &NewBuildingBloc
         let value = serde_json::json!({
             (if apply { "applied" } else { "plan" }): true,
             "name": request_name, "type": request_kind.word(), "root": plan.root,
-            "scope": "repository", "deploy_command": format!("twaco deploy --project {} --apply", request_name),
+            "scope": "repository", "deploy_command": format!("twaco deploy --only-projects {} --apply", request_name),
             "files": files, "twaco_toml": plan.config_addition, "notes": plan.notes,
         });
         println!(

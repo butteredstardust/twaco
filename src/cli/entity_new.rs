@@ -338,6 +338,8 @@ pub(crate) struct NewMenu {
 #[derive(Debug, clap::Args)]
 #[group(skip)]
 pub(crate) struct NewTheme {
+    #[arg(long = "tokens", value_name = "source")]
+    pub(crate) tokens: Option<String>,
     #[command(flatten)]
     pub(crate) base: Base,
     #[arg(long = "from", value_name = "address")]
@@ -559,6 +561,7 @@ impl NewEntity {
             NewEntity::Theme(new) => {
                 request.from.clone_from(&new.from);
                 request.props.clone_from(&new.props);
+                request.tokens.clone_from(&new.tokens);
             }
             NewEntity::Network(_) => {}
             NewEntity::McpNamespace(new) => {

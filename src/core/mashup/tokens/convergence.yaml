@@ -1,0 +1,59 @@
+version: 1
+name: convergence
+colors:
+  primary: '#0088CE'
+  ink: '#0B0B0B'
+  lime: '#CCFF00'
+  pink: '#FF2E93'
+  purple: '#8B5CFF'
+  orange: '#FF8C3C'
+  mint: '#4EE0AE'
+roles:
+  primary: primary
+  success: '#178642'
+  warning: orange
+  danger: '#AF3231'
+  info: '#236192'
+  background: '#FFFFFF'
+  surface: '#F7F7F7'
+  surface-alt: '#F7F7F7'
+  text: '#232B2D'
+  text-muted: '#232B2D'
+  heading: '#232B2D'
+  line: '#C2C7CE'
+  on-primary: '#FFFFFF'
+  on-dark: '#FFFFFF'
+  card: '#ffffff'
+  page-card: '#FFFFFF'
+  band: '#F7F7F7'
+  card-line: '#BEC6CA'
+  panel-line: '#E4E7E9'
+  nav-selected: '#e4e7e9'
+  nav-text: '#080909'
+  nav-caption: '#6B7478'
+  input-focus: '#EAF4FB'
+fonts:
+  sans: inherit
+  mono: ui-monospace, Menlo, Consolas, monospace
+  display: inherit
+radius:
+  none: 0px
+  sm: 2px
+  md: 4px
+  lg: 8px
+  default: md
+border:
+  width: 2px
+  card: 1px
+  band: 0px
+  color: line
+shadow:
+  none: none
+  input-focus: 0 0 6px 1px ${roles.primary}
+space:
+  xs: 4px
+  sm: 8px
+  md: 16px
+  lg: 24px
+  xl: 32px
+chart: []

@@ -77,7 +77,8 @@ pub(crate) use recipes::{
 pub use recipes::{recipe_plan_json, Recipe, RecipeArgs, RecipeRequest, RECIPES};
 pub(crate) use remove::{plan_off, plan_remove, plan_unbind, OffPlan, RemovePlan, UnbindPlan};
 pub use remove::{OffRequest, RemoveRequest, UnbindRequest};
-pub(crate) use set::{colour, font_family};
+#[cfg(test)]
+pub(crate) use set::colour;
 pub(crate) use set::{plan_set, SetPlan};
 pub use set::{set_plan_json, SetRequest};
 pub use source::SourceInfo;

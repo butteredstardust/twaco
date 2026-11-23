@@ -1241,6 +1241,7 @@ pub(crate) struct NewBuildingBlockResult {
 
 #[derive(Serialize, JsonSchema)]
 pub(crate) struct EntityNewResult {
+    theme_props: Option<Vec<Value>>,
     warnings: Vec<String>,
     scope: String,
     deploy_command: String,
@@ -1788,4 +1789,11 @@ pub(crate) struct MashupSpecResult {
 pub(crate) struct ComponentsResult {
     #[serde(flatten)]
     fields: std::collections::BTreeMap<String, serde_json::Value>,
+}
+
+#[derive(Serialize, JsonSchema)]
+pub(crate) struct MashupTokensResult {
+    presets: Option<Vec<String>>,
+    tokens: Option<Value>,
+    props: Option<Vec<Value>>,
 }

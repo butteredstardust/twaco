@@ -24,6 +24,10 @@ before changing code; it names the principles and where everything lives.
   `arguments` or an unscrubbed server URL.
 - **Behaviour lives in `src/core/`.** `src/main.rs` with `src/cli/`, and `src/mcp/`, parse, call and print. A
   feature exists in both, or there is a reason it does not.
+- **Page specs and commands build mashups alike.** A layout fix or element added to
+  [page specs](documentation/PAGE_SPECS.md) reaches `mashup set`/recipes too; v1 rules are the
+  default and `rules: legacy` output stays byte-identical. Copy how the platform kits build a
+  pattern rather than inventing one, and never commit kit content: fixtures are synthetic Acme.
 - **Every behaviour has a test that fails without it.** Servers are fakes behind a `Remote`
   trait or a local TCP listener; no test contacts a real server or the network.
 

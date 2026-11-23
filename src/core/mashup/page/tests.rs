@@ -3363,8 +3363,8 @@ fn new_element_errors_are_located() {
             "unknown colour",
         ),
         (
-            "label: {id: h, text: A, style: {shadow: ink}}",
-            "style shadow is not supported",
+            "label: {id: h, text: A, style: {texture: ink}}",
+            "style texture is not supported",
         ),
         (
             "chart: {id: c, kind: bar, data: rows, x: Name, style: {color: ink}}",
@@ -4280,4 +4280,394 @@ fn command_components_bind_existing_mashup_parameters() {
     assert_eq!(parameters[0].name, "Count");
     let content = mashup::extract(&plan.edit.entity_after).unwrap().content;
     assert!(content.contains("Count"));
+}
+
+#[test]
+fn tokens_spec_styles_blocks_and_bands_use_native_style_properties() {
+    let (_dir, mut solution) = element_solution();
+    solution.mashup.tokens = Some("missing-tokens.yaml".into());
+    let yaml = error_page("column: {id: c, children: [{block: {id: b, color: pink, caption: OEE, value: 84, size: xl, style: {shadow: hard, radius: none, border: ink}}}, {label: {id: ticker, text: SHIFT B, band: true, style: {font: mono}}}]}", "").replace("rules: v1", "rules: v1\ntokens: brutalist");
+    let built = compile(&solution, "Acme", &yaml).unwrap();
+    let style = widget_style(&built, "b");
+    assert_eq!(
+        style,
+        serde_json::json!({"widget":"flex-container", "parts":{"$":{"$":{
+            "background":"#FF2E93", "border-color":"#0B0B0B", "border-radius":"0px", "border-style":"solid", "border-width":"2px",
+            "box-shadow":"4px 4px 0 #0B0B0B", "padding-bottom":"12px", "padding-left":"24px", "padding-right":"24px", "padding-top":"12px"
+        }}}})
+    );
+    assert_eq!(style["parts"]["$"]["$"]["box-shadow"], "4px 4px 0 #0B0B0B");
+    assert_eq!(style["parts"]["$"]["$"]["border-radius"], "0px");
+    assert_eq!(style["parts"]["$"]["$"]["border-color"], "#0B0B0B");
+    assert_eq!(style["parts"]["$"]["$"]["border-style"], "solid");
+    assert_eq!(style["parts"]["$"]["$"]["border-width"], "2px");
+    let doc = doc_of(&built);
+    let card = doc.find_exact(&built.ids["b"]).unwrap();
+    let value = doc
+        .widgets()
+        .into_iter()
+        .filter(|w| w.path.starts_with(&card.path) && w.type_id == "ptcslabel")
+        .nth(1)
+        .unwrap();
+    assert_eq!(
+        doc.root_properties()["StyleProperties"]["data"][&value.id]["parts"]["label"]["$"]
+            ["font-size"],
+        "48px"
+    );
+    assert_eq!(
+        widget_style(&built, "ticker")["parts"]["$"]["$"]["width"],
+        "100%"
+    );
+    assert_eq!(
+        widget_style(&built, "ticker")["parts"]["$"]["$"]["flex-grow"],
+        "1"
+    );
+    assert_eq!(
+        widget_style(&built, "ticker")["parts"]["label"]["$"]["font-family"],
+        "IBM Plex Mono, ui-monospace, Consolas, monospace"
+    );
+    let defaults = compile(
+        &solution,
+        "Acme",
+        &error_page("block: {id: b, color: pink, caption: OEE, value: 84}", "")
+            .replace("rules: v1", "rules: v1\ntokens: brutalist"),
+    )
+    .unwrap();
+    assert_eq!(
+        widget_style(&defaults, "b")["parts"]["$"]["$"]["box-shadow"],
+        "4px 4px 0 #0B0B0B"
+    );
+}
+
+#[test]
+fn tokens_spec_paths_are_relative_and_theme_reminder_is_in_plan() {
+    let (dir, solution) = element_solution();
+    let folder = dir.path().join("specs");
+    std::fs::create_dir(&folder).unwrap();
+    std::fs::write(
+        folder.join("tokens.yaml"),
+        "version: 1\nname: Acme\nextends: brutalist\ncolors: {pink: '#123456'}\n",
+    )
+    .unwrap();
+    let yaml = error_page("block: {id: b, color: pink, caption: OEE, value: 84}", "")
+        .replace("rules: v1", "rules: v1\ntokens: ./tokens.yaml");
+    let built = super::compile::compile_at(&solution, "Acme", &yaml, &folder).unwrap();
+    assert_eq!(
+        widget_style(&built, "b")["parts"]["$"]["$"]["background"],
+        "#123456"
+    );
+    let path = folder.join("page.yaml");
+    std::fs::write(&path, &yaml).unwrap();
+    let spec = schema::parse_at(&yaml, &solution, &folder).unwrap();
+    let mut plan = super::build::plan(
+        &solution,
+        &spec.page.value.name.value,
+        Some("Acme"),
+        Some(&path),
+    )
+    .unwrap();
+    assert!(plan.report["cell_notices"]
+        .to_string()
+        .contains("new theme Acme.Errors_TH --tokens specs/tokens.yaml --apply"));
+    plan.apply(&solution, &lock::acquire_for(&solution, "test").unwrap())
+        .unwrap();
+    let name = &spec.page.value.name.value;
+    let stored = std::fs::read_to_string(solution.src_root().join(name).join("page.yaml")).unwrap();
+    assert!(
+        stored.contains("tokens: \"../../specs/tokens.yaml\""),
+        "{stored}"
+    );
+    let again = super::build::plan(&solution, name, None, None).unwrap();
+    assert!(
+        again.report["files"].as_array().unwrap().is_empty(),
+        "{}",
+        again.report
+    );
+    let extracted = super::extract::extract(&solution, name).unwrap();
+    assert!(extracted.spec.contains("tokens:"));
+    std::fs::write(
+        folder.join("tokens.yaml"),
+        "version: 1\nname: Changed\nextends: clean\n",
+    )
+    .unwrap();
+    assert!(again
+        .transaction(&solution)
+        .err()
+        .unwrap()
+        .to_string()
+        .contains("changed since planning"));
+    std::fs::remove_file(solution.src_root().join(name).join(".page-baseline.json")).unwrap();
+    let derived = super::extract::extract(&solution, name).unwrap();
+    assert!(!derived.exact);
+    assert!(derived.spec.contains("tokens:"));
+    assert!(derived.spec.contains("#123456"));
+}
+
+#[test]
+fn tokens_s_fixture_compiles_with_native_theme_and_finished_blocks() {
+    let (_dir, solution) = element_solution();
+    let fields = [
+        "OEE", "Output", "Scrap", "Downtime", "Cutting", "Press", "Assembly", "Packing", "Hour",
+        "Time", "Severity", "Machine", "Message",
+    ];
+    let definitions = fields
+        .iter()
+        .enumerate()
+        .map(|(i, field)| {
+            format!(
+                "<FieldDefinition name=\"{field}\" baseType=\"{}\" ordinal=\"{i}\"/>",
+                if i < 4 { "NUMBER" } else { "STRING" }
+            )
+        })
+        .collect::<String>();
+    std::fs::write(solution.root.join("acme/DataShapes/Acme.StyleRows_DS.xml"), format!("<Entities><DataShapes><DataShape name=\"Acme.StyleRows_DS\" projectName=\"Acme\"><FieldDefinitions>{definitions}</FieldDefinitions></DataShape></DataShapes></Entities>")).unwrap();
+    let services = ["GetKPIs", "GetMachines", "GetHourlyOutput", "GetAlerts"].iter().map(|service| format!("<ServiceDefinition name=\"{service}\"><ResultType baseType=\"INFOTABLE\" aspect.dataShape=\"Acme.StyleRows_DS\"/></ServiceDefinition>")).collect::<String>();
+    std::fs::write(solution.root.join("acme/Things/Acme.StyleData.xml"), format!("<Entities><Things><Thing name=\"Acme.StyleData\" projectName=\"Acme\"><ThingShape><ServiceDefinitions>{services}</ServiceDefinitions></ThingShape></Thing></Things></Entities>")).unwrap();
+    let request = crate::core::entity::new::NewRequest {
+        tokens: Some("brutalist".into()),
+        ..crate::core::entity::new::NewRequest::blank(
+            crate::core::entity::new::Kind::Theme,
+            "Acme.StyleS_TH",
+        )
+    };
+    let plan = crate::core::entity::new::plan(&solution, &request).unwrap();
+    crate::core::entity::new::apply(
+        &solution,
+        &plan,
+        &lock::acquire_for(&solution, "test").unwrap(),
+    )
+    .unwrap();
+    let yaml = include_str!("../../../../tests/fixtures/mashup/page/S.page.yaml");
+    let built = compile(&solution, "Acme", yaml).unwrap();
+    for id in ["k1", "k2", "k3", "k4"] {
+        assert_eq!(
+            widget_style(&built, id)["parts"]["$"]["$"]["box-shadow"],
+            "4px 4px 0 #0B0B0B"
+        );
+        assert_eq!(
+            widget_style(&built, id)["parts"]["$"]["$"]["border-width"],
+            "2px"
+        );
+    }
+    assert_eq!(
+        widget_style(&built, "ticker")["parts"]["$"]["$"]["width"],
+        "100%"
+    );
+    let doc = doc_of(&built);
+    for id in ["k1", "k2", "k3", "k4"] {
+        let widget = doc.find_exact(&built.ids[id]).unwrap();
+        let props = &doc.at(&widget.path)["Properties"];
+        assert_eq!(props["flex-size"], "range");
+        assert_eq!(props["flex-min-height"], "160px");
+        assert_eq!(props["flex-max-height"], "");
+        assert_eq!(props["flex-basis"], "0px");
+        assert_eq!(props["flex-grow"], 1);
+    }
+    for id in ["m1", "m2", "m3", "m4"] {
+        assert_eq!(
+            widget_style(&built, id),
+            serde_json::json!({
+                "widget": "flex-container", "parts": {"$": {"$": {
+                    "background": "#F3F0E6", "border-color": "#0B0B0B", "border-radius": "initial",
+                    "border-style": "solid", "border-width": "2px", "padding-bottom": "12px",
+                    "padding-left": "24px", "padding-right": "24px", "padding-top": "12px"
+                }}}
+            })
+        );
+    }
+    assert_eq!(
+        widget_style(&built, "topbar"),
+        serde_json::json!({
+            "widget": "flex-container", "parts": {"$": {"$": {
+                "background": "#F3F0E6", "border-color": "#0B0B0B", "border-radius": "initial",
+                "border-style": "solid", "border-width": "0 0 2px 0", "padding-bottom": "",
+                "padding-left": "", "padding-right": "", "padding-top": ""
+            }}}
+        })
+    );
+    assert_eq!(
+        widget_style(&built, "ticker--band"),
+        serde_json::json!({
+            "widget": "flex-container", "parts": {"$": {"$": {
+                "background": "#CCFF00", "border-style": "solid", "border-width": "2px", "border-color": "#0B0B0B"
+            }}}
+        })
+    );
+    let ticker = doc.find_exact(&built.ids["ticker"]).unwrap();
+    let band = doc.find_exact(&built.ids["ticker--band"]).unwrap();
+    assert_eq!(&ticker.path[..ticker.path.len() - 1], band.path);
+    assert_eq!(doc.at(&band.path)["Properties"]["flex-direction"], "row");
+    assert_eq!(doc.at(&band.path)["Properties"]["align-items"], "stretch");
+    assert_eq!(doc.at(&band.path)["Properties"]["flex-max-height"], "");
+    assert_eq!(
+        doc.at(&ticker.path)["Properties"]["LabelText"],
+        "NO UNPLANNED STOPS  *  SCRAP UNDER 2%  *  SHIFT B ON TARGET"
+    );
+    assert_eq!(
+        widget_style(&built, "h1")["parts"]["label"]["$"]["font-family"],
+        "Archivo Black, Archivo, Arial Black, sans-serif"
+    );
+}
+
+#[test]
+fn tokens_reach_sections_panels_surfaces_navigation_and_focus() {
+    let (_dir, mut solution) = element_solution();
+    solution.mashup.tokens = Some("brutalist".into());
+    let yaml = error_page("column: {id: c, children: [
+            {card: {id: section, title: Details, align: start, children: [{label: {id: caption, text: Acme}}]}},
+            {panel: {id: panel, title: Metrics, children: [{label: {id: metric, text: Acme}}]}},
+            {widget: {id: surface, type: flexcontainer, surface: true}},
+            {nav_menu: {id: nav, groups: [{title: Acme, items: [Overview]}]}},
+            {text_field: {id: input, variant: focus-background}},
+            {text_field: {id: glow, variant: focus-glow}},
+            {label: {id: ticker, band: true, props: {LabelText: {bind: input.Text}}, style: {background: lime, border: ink}}}
+          ]}", "");
+    let built = compile(&solution, "Acme", &yaml).unwrap();
+    let section = widget_style(&built, "section");
+    assert_eq!(section["parts"]["$"]["$"]["border-color"], "#0B0B0B");
+    assert_eq!(section["parts"]["$"]["$"]["border-width"], "2px");
+    let panel = widget_style(&built, "panel");
+    assert_eq!(panel["parts"]["$"]["$"]["background"], "#F3F0E6");
+    assert_eq!(panel["parts"]["$"]["$"]["border-color"], "#0B0B0B");
+    assert_eq!(panel["parts"]["$"]["$"]["border-width"], "2px");
+    assert_eq!(
+        widget_style(&built, "surface")["parts"]["$"]["$"]["background"],
+        "#F3F0E6"
+    );
+    assert_eq!(
+        widget_style(&built, "nav--group-1")["parts"]["label"]["$"]["color"],
+        "#0B0B0B"
+    );
+    assert_eq!(
+        widget_style(&built, "nav--item-1-1")["parts"]["$"]["$"]["background"],
+        "#CCFF00"
+    );
+    assert_eq!(
+        widget_style(&built, "input")["parts"]["text-box"]["focus"]["background"],
+        "#F3F0E6"
+    );
+    assert_eq!(
+        widget_style(&built, "glow")["parts"]["text-box"]["focus"]["border-color"],
+        "#CCFF00"
+    );
+    assert_eq!(
+        widget_style(&built, "glow")["parts"]["text-box"]["focus"]["box-shadow"],
+        "0 0 6px 1px #CCFF00"
+    );
+    let content: Value = serde_json::from_str(&built.content).unwrap();
+    assert!(content["DataBindings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|binding| {
+            binding["SourceId"] == built.ids["input"] && binding["TargetId"] == built.ids["ticker"]
+        }));
+}
+
+#[test]
+fn sized_blocks_keep_an_uncapped_height_after_final_layout() {
+    let (_dir, solution) = element_solution();
+    let children = ["sm", "md", "lg", "xl", "display"].into_iter().map(|size| {
+        format!("{{block: {{id: b_{size}, color: lime, caption: Acme, value: '84%', size: {size}}}}}")
+    }).collect::<Vec<_>>().join(", ");
+    let built = compile(
+        &solution,
+        "Acme",
+        &error_page(&format!("column: {{id: c, children: [{children}]}}"), ""),
+    )
+    .unwrap();
+    let mut problems = vec![];
+    mashup::validate::check_content(&built.content, &mut problems);
+    for size in ["sm", "md", "lg", "xl", "display"] {
+        let id = &built.ids[&format!("b_{size}")];
+        let props = element_props(&built, &format!("b_{size}"));
+        assert_eq!(props["flex-size"], "range");
+        assert_eq!(props["flex-max-height"], "");
+        assert!(
+            props["flex-min-height"]
+                .as_str()
+                .unwrap()
+                .trim_end_matches("px")
+                .parse::<u32>()
+                .unwrap()
+                >= 100
+        );
+        assert!(
+            !problems.iter().any(|p| p.rule == "wrapped-content-clipping"
+                && p.message.starts_with(&format!("{id}:"))),
+            "{problems:?}"
+        );
+    }
+}
+
+/// The page spec examples in README.md and the page-specs guide topic compile as written.
+#[test]
+fn documented_page_spec_examples_compile() {
+    let (dir, _) = solution();
+    let folder = dir.path().join("acme");
+    std::fs::write(folder.join("Things/Acme.Manager.xml"), r#"<Entities><Things><Thing name="Acme.Manager" projectName="Acme"><ThingShape><ServiceDefinitions><ServiceDefinition name="GetOrders"><ResultType baseType="INFOTABLE" aspect.dataShape="Acme.Orders_DS"/></ServiceDefinition></ServiceDefinitions></ThingShape></Thing></Things></Entities>"#).unwrap();
+    std::fs::create_dir_all(folder.join("DataShapes")).unwrap();
+    std::fs::write(folder.join("DataShapes/Acme.Orders_DS.xml"), r#"<Entities><DataShapes><DataShape name="Acme.Orders_DS" projectName="Acme"><FieldDefinitions><FieldDefinition name="Name" baseType="STRING" ordinal="0"/></FieldDefinitions></DataShape></DataShapes></Entities>"#).unwrap();
+    let solution = Solution::load(&dir.path().join("twaco.toml")).unwrap();
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    for doc in ["README.md", "knowledge/page-specs.md"] {
+        let text = std::fs::read_to_string(root.join(doc)).unwrap();
+        let spec = text
+            .split("```yaml\n")
+            .nth(1)
+            .and_then(|rest| rest.split("```").next())
+            .unwrap_or_else(|| panic!("{doc} has no yaml example"));
+        compile(&solution, "Acme", spec).unwrap_or_else(|e| panic!("{doc}: {e}"));
+    }
+}
+
+/// A generated collection cell keeps the page's token selection, with a file path rebased onto
+/// the folder the cell spec is stored in, so a broken twaco.toml default never takes over.
+#[test]
+fn generated_cells_inherit_the_page_tokens() {
+    let (dir, _) = element_solution();
+    std::fs::write(
+        dir.path().join("twaco.toml"),
+        "[mashup]\ntokens = 'missing.yaml'\n\n[[project]]\nname = 'Acme'\nroot = 'acme'\n",
+    )
+    .unwrap();
+    let solution = Solution::load(&dir.path().join("twaco.toml")).unwrap();
+    let folder = dir.path().join("specs");
+    std::fs::create_dir(&folder).unwrap();
+    std::fs::write(
+        folder.join("tokens.yaml"),
+        "version: 1\nname: Acme\nextends: brutalist\n",
+    )
+    .unwrap();
+    let cell = "collection: {id: c, size: fill, data: rows, cell: {title: Name}}";
+    for (tokens, expected) in [
+        ("brutalist", "brutalist".to_string()),
+        ("./tokens.yaml", "../../specs/tokens.yaml".to_string()),
+    ] {
+        let yaml =
+            error_page(cell, "").replace("rules: v1", &format!("rules: v1\ntokens: {tokens}"));
+        let built = super::compile::compile_at(&solution, "Acme", &yaml, &folder).unwrap();
+        let spec: Value = serde_saphyr::from_str(&built.cells[0].spec).unwrap();
+        assert_eq!(spec["tokens"], expected.as_str());
+        let stored = solution.src_root().join(&built.cells[0].name);
+        schema::parse_at(&built.cells[0].spec, &solution, &stored)
+            .expect("the stored cell spec resolves its tokens from its own folder");
+    }
+    drop(solution);
+}
+
+/// Without tokens, CSS colour keywords and block layout sizes behave as before batch 4.
+#[test]
+fn default_tokens_keep_css_keywords_and_block_layout_sizes() {
+    let tokens = crate::core::mashup::tokens::Tokens::convergence();
+    for keyword in ["grey", "white", "red", "black"] {
+        assert_eq!(tokens.style("color", keyword).unwrap(), keyword);
+        assert_eq!(tokens.style("background", keyword).unwrap(), keyword);
+    }
+    let (_dir, solution) = element_solution();
+    for size in ["fit", "fill", "{fixed: 120}", "xl"] {
+        let block = format!("block: {{id: b, color: pink, caption: OEE, value: 84, size: {size}}}");
+        compile(&solution, "Acme", &error_page(&block, ""))
+            .unwrap_or_else(|e| panic!("size {size}: {e}"));
+    }
 }

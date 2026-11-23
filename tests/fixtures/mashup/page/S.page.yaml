@@ -1,0 +1,58 @@
+# S Style: synthetic Acme production dashboard, native brutalist tokens.
+version: 1
+rules: v1
+tokens: brutalist
+page:
+  name: Acme.StyleS_MU
+  template: blank
+  theme: Acme.StyleS_TH
+  data:
+    kpis: {service: Acme.StyleData.GetKPIs, on: load}
+    machines: {service: Acme.StyleData.GetMachines, on: load}
+    hourly: {service: Acme.StyleData.GetHourlyOutput, on: load}
+    alerts: {service: Acme.StyleData.GetAlerts, on: load}
+  slots:
+    center:
+      - toolbar:
+          id: topbar
+          children:
+            - label: {id: logo, text: L03, style: {background: ink, color: lime, font: mono}}
+            - heading: {id: brand, text: LINE 03 LIVE, size: lg}
+            - spacer: {id: s1}
+            - label: {id: nav1, text: OVERVIEW, style: {font: mono}}
+            - label: {id: nav2, text: MACHINES, style: {font: mono}}
+            - label: {id: nav3, text: ALERTS, style: {font: mono}}
+            - button: {id: cta, label: EXPORT SHIFT, variant: primary}
+      - row:
+          id: hero
+          children:
+            - column:
+                id: hero_text
+                weight: 1
+                children:
+                  - heading: {id: h1, text: SHIFT B., size: display, style: {font: display}}
+                  - heading: {id: h2, text: 84% OEE., size: display, highlight: lime, style: {font: display}}
+                  - text: {id: lead, text: "Four stations, one line. Live output, scrap and downtime for the current shift."}
+            - card_grid:
+                id: kpi_blocks
+                weight: 1
+                per_row: 2
+                children:
+                  - block: {id: k1, color: pink, caption: OEE, size: xl, value: {bind: kpis.OEE}}
+                  - block: {id: k2, color: purple, caption: OUTPUT, size: xl, value: {bind: kpis.Output}}
+                  - block: {id: k3, color: orange, caption: SCRAP, size: xl, value: {bind: kpis.Scrap}}
+                  - block: {id: k4, color: mint, caption: DOWNTIME, size: xl, value: {bind: kpis.Downtime}}
+      - row:
+          id: machines_row
+          children:
+            - card: {id: m1, title: CUTTING, children: [{detail_pair: {id: m1s, label: State, value: {bind: machines.Cutting}}}]}
+            - card: {id: m2, title: PRESS, children: [{detail_pair: {id: m2s, label: State, value: {bind: machines.Press}}}]}
+            - card: {id: m3, title: ASSEMBLY, children: [{detail_pair: {id: m3s, label: State, value: {bind: machines.Assembly}}}]}
+            - card: {id: m4, title: PACKING, children: [{detail_pair: {id: m4s, label: State, value: {bind: machines.Packing}}}]}
+      - row:
+          id: lower
+          size: fill
+          children:
+            - chart: {id: output, kind: bar, data: hourly, x: Hour, weight: 1, style: {background: ink}}
+            - grid: {id: alert_grid, data: alerts, weight: 1, columns: [Time, Severity, Machine, Message]}
+      - label: {id: ticker, band: true, text: "NO UNPLANNED STOPS  *  SCRAP UNDER 2%  *  SHIFT B ON TARGET", style: {background: lime, font: mono, border: ink}}

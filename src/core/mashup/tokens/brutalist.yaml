@@ -1,0 +1,56 @@
+version: 1
+name: brutalist
+extends: convergence
+colors:
+  paper: '#F3F0E6'
+roles:
+  primary: lime
+  background: paper
+  surface: paper
+  surface-alt: paper
+  text: ink
+  text-muted: ink
+  heading: ink
+  line: ink
+  on-primary: ink
+  on-dark: paper
+  success: mint
+  warning: orange
+  danger: pink
+  info: purple
+  selected: lime
+  card: paper
+  page-card: paper
+  band: paper
+  card-line: '${border.color}'
+  panel-line: '${border.color}'
+  nav-selected: lime
+  nav-text: ink
+  nav-caption: ink
+  input-focus: paper
+fonts:
+  sans: Archivo, Arial, sans-serif
+  display: Archivo Black, Archivo, Arial Black, sans-serif
+  mono: IBM Plex Mono, ui-monospace, Consolas, monospace
+radius:
+  none: 0px
+  sm: 0px
+  md: 0px
+  lg: 0px
+  default: none
+border:
+  width: 2px
+  card: '${border.width}'
+  band: '${border.width}'
+  color: ink
+  line: 2px
+shadow:
+  hard: 4px 4px 0 ink
+chart: [lime, pink, purple, orange, mint]
+block:
+  border: ink
+  shadow: hard
+vars:
+  e-chart-tick-label-color: paper
+  e-chart-value-color: paper
+  e-chart-ruler-color: paper

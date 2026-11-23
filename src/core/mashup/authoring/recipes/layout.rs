@@ -24,14 +24,14 @@ const INPUT_VARIANTS: &[&str] = &[
 pub(crate) fn input_variant_styles(variant: &str) -> Option<Vec<String>> {
     let settings: &[&str] = match variant {
         "rounded" => &["text-box:border-radius=20px"],
-        "focus-background" => &["text-box@focus:background=#EAF4FB"],
+        "focus-background" => &["text-box@focus:background=input-focus"],
         "focus-glow" => &[
-            "text-box@focus:border-color=#0088CE",
-            "text-box@focus:box-shadow=0 0 6px 1px #0088CE",
+            "text-box@focus:border-color=primary",
+            "text-box@focus:box-shadow=input-focus",
         ],
         "focus-underline" => &[
             "text-box:border-width=0 0 1px 0",
-            "text-box@focus:border-color=#0088CE",
+            "text-box@focus:border-color=primary",
             "text-box@focus:border-width=0 0 2px 0",
         ],
         _ => return None,
@@ -72,13 +72,6 @@ pub(crate) fn grid_cell_props() -> Vec<(&'static str, Value)> {
     ]
 }
 
-/// The hairline frame of a kit section (the kit draws it with the master class wdk_Section).
-const SECTION_FRAME: [&str; 3] = [
-    "border-style=solid",
-    "border-width=1px",
-    "border-color=#BEC6CA",
-];
-
 fn panel_css(id: &str, compact: Option<u32>) -> String {
     let class = format!(".twaco-panel-{id}");
     let mut css = format!("/* twaco:panel:{id}:start */\n{class} {{\n  box-sizing: border-box;\n  flex: 1 1 auto !important;\n  min-height: 0 !important;\n  margin: 24px 24px 12px !important;\n  width: calc(100% - 48px) !important;\n  height: calc(100% - 36px) !important;\n}}\n");
@@ -90,11 +83,11 @@ fn panel_css(id: &str, compact: Option<u32>) -> String {
 }
 
 const CARD_STYLES: &[(&str, &str)] = &[
-    ("background", "#ffffff"),
-    ("border-color", "#BEC6CA"),
+    ("background", "card"),
+    ("border-color", "card-line"),
     ("border-radius", "initial"),
     ("border-style", "solid"),
-    ("border-width", "1px"),
+    ("border-width", "${border.card}"),
     ("padding-bottom", "12px"),
     ("padding-left", "24px"),
     ("padding-right", "24px"),
@@ -331,9 +324,11 @@ impl Work<'_> {
             styles,
             "background",
             json!(if panel.is_some() {
-                "#F7F7F7"
+                self.tokens
+                    .colour("band")
+                    .map_err(AuthoringError::Invalid)?
             } else {
-                "inherit"
+                "inherit".to_string()
             }),
         );
         if panel.is_some() {
@@ -352,8 +347,31 @@ impl Work<'_> {
         }
         if panel == Some("card") {
             for (key, value) in CARD_STYLES {
-                insert_sorted(styles, key, json!(value));
+                insert_sorted(
+                    styles,
+                    key,
+                    json!(self
+                        .tokens
+                        .style(key, value)
+                        .map_err(AuthoringError::Invalid)?),
+                );
             }
+        }
+        if panel == Some("grey") && self.tokens.border_size("band") != "0px" {
+            insert_sorted(
+                styles,
+                "border-color",
+                json!(self
+                    .tokens
+                    .colour("card-line")
+                    .map_err(AuthoringError::Invalid)?),
+            );
+            insert_sorted(styles, "border-style", json!("solid"));
+            insert_sorted(
+                styles,
+                "border-width",
+                json!(format!("0 0 {} 0", self.tokens.border_size("band"))),
+            );
         }
         self.wired.push(format!(
             "{}.style: {} -> {entry}",
@@ -379,7 +397,18 @@ impl Work<'_> {
         );
         self.layout_set(&target, &decided.patch())?;
         self.background(&target, Some("grey"), false)?;
-        self.notes.push("toolbar band: #F7F7F7, border none, fixed 48px; add date picker and buttons in this row".into());
+        let native = self
+            .tokens
+            .colour("band")
+            .map_err(AuthoringError::Invalid)?
+            == "#F7F7F7"
+            && self.tokens.border_size("band") == "0px";
+        let note = if native {
+            "toolbar band: #F7F7F7, border none, fixed 48px; add date picker and buttons in this row"
+        } else {
+            "toolbar band: token surface and bottom border, fixed 48px; add date picker and buttons in this row"
+        };
+        self.notes.push(note.into());
         Ok(())
     }
 
@@ -651,7 +680,16 @@ impl Work<'_> {
         let mut properties = grid_cell_props();
         properties.retain(|(key, _)| *key != "flex-direction");
         self.layout_set(&target, &properties)?;
-        let frame: Vec<String> = SECTION_FRAME.iter().map(|s| (*s).to_string()).collect();
+        let frame = vec![
+            "border-style=solid".to_string(),
+            format!("border-width={}", self.tokens.border_size("card")),
+            format!(
+                "border-color={}",
+                self.tokens
+                    .colour("card-line")
+                    .map_err(AuthoringError::Invalid)?
+            ),
+        ];
         super::super::set::merge_widget_styles(
             &mut self.document,
             &target.id,
@@ -806,6 +844,17 @@ impl Work<'_> {
                 INPUT_VARIANTS.join(", ")
             ))
         })?;
+        let styles = styles
+            .into_iter()
+            .map(|style| {
+                let (target, value) = style.split_once('=').expect("input variant style");
+                let property = target.rsplit(':').next().unwrap();
+                self.tokens
+                    .style(property, value)
+                    .map(|value| format!("{target}={value}"))
+                    .map_err(AuthoringError::Invalid)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         self.checked_styles(&target.id)?;
         self.guard_properties(&target.id, &["StyleProperties"])?;
         super::super::set::merge_widget_styles(
@@ -1084,7 +1133,12 @@ impl Work<'_> {
         }
         self.notes.push(format!("{style} growing panel; inherited backgrounds on {inherited} wrappers; preserve {preserved} explicit backgrounds; widgets added: 0; bindings changed: 0; events changed: 0"));
         if style == "card" {
-            self.notes.push("card: white #ffffff, solid 1px #BEC6CA border, radius initial, padding 12px 24px; 8px margins keep 16px between cards".into());
+            let fill = self
+                .tokens
+                .colour("card")
+                .map_err(AuthoringError::Invalid)?;
+            let prefix = if fill == "#ffffff" { "white " } else { "" };
+            self.notes.push(format!("card: {prefix}{fill}, solid {} {} border, radius initial, padding 12px 24px; 8px margins keep 16px between cards", self.tokens.border_size("card"), self.tokens.colour("card-line").map_err(AuthoringError::Invalid)?));
         }
         self.notes.push(match compact {
             Some(width) => format!(

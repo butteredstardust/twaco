@@ -569,6 +569,9 @@ pub(crate) struct EntityNewRequest {
     pub(crate) from: Absent<String>,
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) prop: Absent<Vec<String>>,
+    /// Theme preset or token YAML file; overlays from, before prop.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) tokens: Absent<String>,
     /// mcp-namespace: `name=Provider.Service` tools; prefix the provider `Thing:`,
     /// `ThingTemplate:` or `ThingShape:` to name one outside the solution.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
@@ -1515,4 +1518,12 @@ pub(crate) struct ComponentsRequest {
     /// Omit to list; supply a name to show its definition.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) name: Absent<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MashupTokensRequest {
+    /// Preset or token YAML file relative to the MCP root; omit to list presets.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) source: Absent<String>,
 }
