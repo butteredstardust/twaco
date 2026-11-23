@@ -218,3 +218,44 @@ fn master_root_props_remove_defaults_and_refuse_structural_properties() {
         compile(&solution, "Acme", &explicit).unwrap()
     );
 }
+
+/// Changing an existing mashup between page and master would leave its entity XML saying one kind
+/// and its content the other, so a build refuses it.
+#[test]
+fn a_build_refuses_to_change_the_kind_of_an_existing_mashup() {
+    let (_dir, solution) = element_solution();
+    let page = "version: 1\nrules: v1\npage:\n  name: Acme.Kind_MU\n  template: blank\n  slots:\n    center:\n      - label: {id: hello, text: Hello}\n";
+    let name = handmade(&solution, page, "Acme.Kind_MU");
+    let master = "version: 1\nrules: v1\npage:\n  name: Acme.Kind_MU\n  kind: master\n  template: blank\n  slots:\n    center:\n      - page_host: {id: host}\n";
+    write_spec(&solution, &name, master);
+    let error = super::super::build::plan(&solution, &name, None, None).unwrap_err();
+    assert!(error.to_string().contains("changing the kind"), "{error}");
+}
+
+/// A filter panel's title keeps the id the generated `<id>--title` heading had before the kit
+/// header, so pages rebuilt from older specs keep their title widget.
+#[test]
+fn a_filter_title_keeps_the_id_of_the_former_title_heading() {
+    let (_dir, solution) = element_solution();
+    let spec = "version: 1\nrules: v1\npage:\n  name: Acme.Filter_MU\n  template: blank\n  slots:\n    center:\n      - filter_panel: {id: f, title: Filter, fields: [{text_field: {id: q, hint: Find}}], footer: [apply]}\n";
+    let built = compile(&solution, "Acme", spec).unwrap();
+    let mut ids = super::super::ids::Ids::new(std::iter::empty());
+    let expected = ids.widget("ptcslabel", "f--title", "widget").unwrap();
+    assert_eq!(built.ids["f--title"], expected);
+    let doc = crate::core::mashup::edit::parse(&built.content).unwrap();
+    let title = doc.find_exact(&expected).unwrap();
+    assert_eq!(doc.at(&title.path)["Properties"]["LabelText"], "Filter");
+}
+
+/// A root prop the spec sets to null is removed from the page container, not stored as null.
+#[test]
+fn null_root_props_remove_the_property() {
+    let (_dir, solution) = element_solution();
+    let spec = "version: 1\nrules: v1\npage:\n  name: Acme.Root_MU\n  template: blank\n  root: {props: {Margin: null, CustomClass: acme-page}}\n  slots:\n    center:\n      - label: {id: hello, text: Hello}\n";
+    let built = compile(&solution, "Acme", spec).unwrap();
+    let doc = crate::core::mashup::edit::parse(&built.content).unwrap();
+    let center = doc.find("center").unwrap();
+    let props = &doc.at(&center.path)["Properties"];
+    assert!(props.get("Margin").is_none(), "{props}");
+    assert_eq!(props["CustomClass"], "acme-page");
+}

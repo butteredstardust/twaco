@@ -474,9 +474,8 @@ fn apply_root(
                 format!("root props cannot set {key}"),
             ));
         }
-        session
-            .document
-            .set_property(&path, key, value.value.clone());
+        // An absent property is null here: remove it rather than store null.
+        super::elements::set_or_remove(&mut session.document, &path, key, &value.value);
     }
     Ok(())
 }
@@ -878,7 +877,8 @@ fn add(
     }
     let id = stabilize(session, allocator, &old, &placed, &body.id.value, loc)?;
     if matches!(node, Node::FilterPanel(_)) {
-        // The recipe's title label keeps the address `<id>--title` the generated heading had.
+        // The recipe's title label takes the id and address the generated `<id>--title` heading
+        // had, so a page rebuilt from an older spec keeps its title widget and references to it.
         let root = session
             .document
             .find_exact(&id)
@@ -890,7 +890,16 @@ fn add(
             .into_iter()
             .find(|w| w.path.starts_with(&root) && w.display_name == "filter-title")
         {
-            ids.insert(format!("{}--title", body.id.value), title.id);
+            let node = format!("{}--title", body.id.value);
+            let stable = allocator
+                .widget("ptcslabel", &node, "widget")
+                .map_err(|e| Error::at(loc, e))?;
+            rename_widgets(
+                session,
+                &BTreeMap::from([(title.id.clone(), stable.clone())]),
+                false,
+            );
+            ids.insert(node, stable);
         }
     }
     ids.insert(body.id.value.clone(), id.clone());

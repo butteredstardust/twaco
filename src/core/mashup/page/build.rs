@@ -433,6 +433,24 @@ fn plan_from(
         content: mashup::to_sidecar(&content),
         css,
     };
+    // The entity's mashup type is not rewritten by a build, so page <-> master is refused.
+    if let Some(before) = &entity_before {
+        let kind = |entity: &[u8]| {
+            let text = String::from_utf8_lossy(entity);
+            text.split_once("aspect.mashupType=\"")
+                .and_then(|(_, rest)| rest.split_once('"'))
+                .map(|(kind, _)| kind.to_string())
+        };
+        let (was, now) = (kind(before), kind(&generated.entity));
+        if was != now {
+            return Err(AuthoringError::Invalid(format!(
+                "{name} is a {} mashup and page.kind asks for {}; changing the kind of an existing \
+                 mashup is not supported: create a new mashup with this spec instead",
+                was.as_deref().unwrap_or("plain"),
+                now.as_deref().unwrap_or("plain"),
+            )));
+        }
+    }
     let mut entity_after = mashup::sync(
         entity_before.as_deref().unwrap_or(&generated.entity),
         &assets,

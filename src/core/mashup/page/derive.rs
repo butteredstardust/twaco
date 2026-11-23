@@ -692,6 +692,11 @@ impl<'a> Run<'a> {
             {
                 continue;
             }
+            // A bound property that also has its own starting value (Visible: false driven by a
+            // toggle) keeps the value here; the binding goes to page.bindings.
+            if out.contains_key(&self.links[i].target.3) {
+                continue;
+            }
             if let Some(source) = self.source(&self.links[i]) {
                 self.links[i].consumed = true;
                 let property = self.links[i].target.3.clone();
