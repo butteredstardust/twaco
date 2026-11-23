@@ -651,11 +651,11 @@ and use their baseline merge; a different existing cell spec or a merge conflict
 | `kpi_tile` | `AssetKPI`, caption/value row | label, value (required binding), unit |
 | `trend_tile` | `AssetKPI`, caption/value/trend row | label, value (required binding), unit, trend, delta, color, sparkline |
 | `status_card` | `twaco` (existing card recipe) | title, value, status, state, detail, kind, children |
-| `filter_panel` | `PTCSC.IOTCommonMU.AdminPage01_MU` | title, fields, footer, children |
-| `toolbar_band` | `PTCSC.IOTCommonMU.AdminMetrics_MU` | children |
-| `page_header` | `PTCSC.IOTCommonMU.AdminPage01_MU` | title (required), help, info, actions |
-| `section_card` | `WDK_Inputs` | title (required), align, children |
-| `side_panel` | `PTCSC.IOTCommonMU.Compare_MU` | title (required), help, tab, children |
+| `filter_panel` | `AdminPage` | title, fields, footer, children |
+| `toolbar_band` | `AdminMetrics` | children |
+| `page_header` | `AdminPage` | title (required), help, info, actions |
+| `section_card` | `Inputs` | title (required), align, children |
+| `side_panel` | `Compare` | title (required), help, tab, children |
 
 The `source` field records provenance; `twaco` denotes an invented/adapted combination.
 These definitions reuse the already documented native-widget adaptations. Existing element

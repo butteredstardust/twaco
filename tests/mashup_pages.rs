@@ -400,7 +400,7 @@ fn components_and_spec_are_available_through_both_front_ends() {
     assert_eq!(listed["components"].as_array().unwrap().len(), 10);
     assert_eq!(listed, mcp(root, "components", serde_json::json!({})));
     let shown = cli(root, &["components", "show", "section_card", "--json"]);
-    assert_eq!(shown["source"], "WDK_Inputs");
+    assert_eq!(shown["source"], "Inputs");
     assert_eq!(
         shown,
         mcp(

@@ -1,6 +1,6 @@
 {
   "name": "page_header",
-  "source": "PTCSC.IOTCommonMU.AdminPage01_MU",
+  "source": "AdminPage",
   "props": {
     "title": {
       "type": "string",
