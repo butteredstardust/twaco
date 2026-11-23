@@ -913,6 +913,7 @@ fn generated_schemas_mean_what_the_hand_written_ones_did() {
                         | "rename"
                         | "entity_edit"
                         | "mashup_new"
+                        | "mashup_add"
                         | "widgets"
                         | "guide"
                 )

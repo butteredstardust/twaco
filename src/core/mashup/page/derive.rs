@@ -611,7 +611,9 @@ impl<'a> Run<'a> {
                 out.insert(key.clone(), value.clone());
                 continue;
             }
+            // On a v1 page the layout rules write `scrolling`; an as-built page keeps its own.
             if (noise(key) && !(self.exact && key == "flex-size"))
+                || (!self.exact && key == "scrolling")
                 || skip.contains(&key.as_str())
                 || skip
                     .iter()
