@@ -1,6 +1,6 @@
 {
   "name": "side_panel",
-  "source": "PTCSC.IOTCommonMU.Compare_MU",
+  "source": "Compare",
   "props": {
     "title": {
       "type": "string",

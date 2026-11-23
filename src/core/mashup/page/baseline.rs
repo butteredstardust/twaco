@@ -1,4 +1,4 @@
-use super::compile::Artifacts;
+use super::{compile::Artifacts, ids::Pins};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -12,6 +12,12 @@ pub(super) struct Baseline {
     #[serde(default)]
     pub id_policy: String,
     pub ids: BTreeMap<String, String>,
+    /// Widget ids an adopted mashup keeps, as `[node, role, id]`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pinned_widgets: Vec<(String, String, String)>,
+    /// Binding and event ids an adopted mashup keeps, by the id generated for them.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub pinned_wiring: BTreeMap<String, String>,
     pub ownership: Vec<String>,
     pub content: Value,
     pub css: String,
@@ -51,6 +57,8 @@ impl Baseline {
             rules: "v1".into(),
             id_policy: super::ids::VERSION.into(),
             ids: artifacts.ids.clone(),
+            pinned_widgets: artifacts.pins.widgets.clone(),
+            pinned_wiring: artifacts.pins.wiring.clone(),
             ownership,
             content,
             css: artifacts.css.clone(),
@@ -60,6 +68,13 @@ impl Baseline {
                 ("projectName".into(), project.into()),
             ]
             .into(),
+        }
+    }
+
+    pub fn pins(&self) -> Pins {
+        Pins {
+            widgets: self.pinned_widgets.clone(),
+            wiring: self.pinned_wiring.clone(),
         }
     }
 

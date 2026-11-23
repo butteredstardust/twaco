@@ -55,6 +55,50 @@ addressed by its declaration name, a result field by `alerts.Name`, and selected
 References need no `ui:` or `data:` prefixes. Unknown fields, repeated YAML keys, duplicate node
 IDs, unresolved symbols and contract errors report `page.yaml:line:column`.
 
+Chain a write to one or more refresh calls with explicit events. `publish.done` means
+`ServiceInvokeCompleted`; `publish.error` means `Data_Error`. Full native event names also
+work (`Data_Error` for failure). A derived spec uses `.done` and `.error`, including for a stored
+`ServiceInvokeError`. Each event has exactly one action: `invoke`, `show` or `navigate`.
+
+```yaml
+data:
+  publish: {service: Acme.Messages.Publish}
+  status: {service: Acme.Messages.GetStatus, on: load}
+  messages: {service: Acme.Messages.GetMessages, on: load}
+events:
+  - {on: publish.done, invoke: status}
+  - {on: publish.done, invoke: messages}
+  - {on: publish.error, show: failed}
+```
+
+`failed` above names a `status_message` element. Command parity is `mashup on <mashup>
+--event data:Acme.Messages.Publish.done --invoke data:Acme.Messages.GetStatus`, or
+`--event data:Acme.Messages.Publish.error --invoke ui:<statusmessage-id>.ShowMessage`.
+`mashup event` instead creates a signal a parent mashup can observe.
+
+When several services update the same property, use a `page.bindings` entry per source.
+These add to bindings on node props and service params; derive keeps every represented source.
+The command equivalent is one `mashup bind --from ... --to ...` per entry.
+
+```yaml
+bindings:
+  - {from: start.result, to: output.LabelText}
+  - {from: stop.result, to: output.LabelText}
+  - {from: reset.result, to: output.LabelText}
+```
+
+Page keys beyond the above: `kind: master` creates a [master mashup](#master-mashups-and-page-hosts);
+`props: {...}` sets mashup-root properties. `master: Acme.Master_MM` and `use_master_theme: true` set the mashup's
+master; `root: {props: {...}}` sets properties of the template's root container (a `null` removes
+one); `layout: as-built` keeps the v1 layout rules off a page that adopts an existing mashup (see
+[Adopting an existing mashup](#adopting-an-existing-mashup)).
+
+Parameters are `name: TYPE`, `name: TYPE:DIRECTION` (`BOTH`, `IN`, `OUT`), or
+`name: INFOTABLE:Acme.Shape_DS[:DIRECTION]`; with no direction a parameter is an input. A data entry
+that loads with the page and also refreshes says `on: load, refresh: 5` (seconds); an expression's
+widget takes `props` for what its own fields do not cover. A tab may carry `props` for its own
+container. A bound property can read a widget's selected rows: `{bind: orders.SelectedRows.Name}`.
+
 The spec rule version is required and pinned to `v1`. Ordinary `mashup new` commands
 also default to v1; pass `--rules legacy` (MCP `rules: "legacy"`) to opt out. Existing
 mashups retain their `twacoPageRules` during add, set and recipe edits; no marker means legacy.
@@ -111,6 +155,21 @@ numeric `Count` fields. Bindings and events use authored IDs, including tile and
 | `collection` | `mashup collection add` code (cell mashup, mapping, preset, `--columns`), `recipe empty-state` | `- collection: {id: cards, data: rows, per_row: 4, cell: {title: Name, kpi_dial: Count}}` or `mashup: Acme.Cell_MU, map: {Name: Name}` |
 | `nav_menu` | label, button and text-field authoring (`recipe nested-menu` for Menu entities) | `- nav_menu: {id: menu, search: Search Menu..., groups: [{title: Group 01, items: [Page 01]}, {title: Group 02, items: [Page 02, Page 03]}]}` |
 | `widget` | catalogue authoring | `- widget: {id: input, type: ptcstextfield, props: {Text: Acme}}` |
+| `status_message` | `mashup add statusmessage`, `bind`, `on` | `- status_message: {id: failed, message: Operation failed, message_type: error}` |
+| `rich_text` | `mashup add ptcsrte`, `set`, `bind` | `- rich_text: {id: header, content: '<h2>Acme</h2>', read_only: true, show_toolbar: false, font_size: 18, size: {fixed: 56}}` |
+
+`status_message` is a function widget placed beside the layout. `message` is literal text or
+`{bind: ...}` and maps to `Message`; `message_type` maps to `MessageType` and accepts `error`,
+`info` (the default) or `warning`. `show: <id>` invokes its `ShowMessage` service.
+
+`rich_text` uses native `ptcsrte`: `content` maps to bindable `Data`, `read_only` to `ReadOnly`,
+`show_toolbar` to the inverse of `HideToolbar`, and `font_size` to `DefaultFontSize`. Font size
+accepts a catalogue size as a number or an `Npx` string (for example `14` or `14px`); the numeric
+form also works through command `--prop DefaultFontSize=14`. Native defaults apply when omitted.
+The default editor height is 280px; `size: {fixed: 56}` or `props: {Height: 56}` sets its height,
+`size: fit` keeps its placement at content height, and `size: fill` grows its placement. `Height`
+and `FillContainer` props retain the native editor's sizing controls. Derive recognises both
+elements, keeps their bindings and carries additional native props.
 
 Toolbar `band` defaults to true: the existing recipe supplies the grey 48px band. Set
 `band: false` for a plain row. A spacer grows inside its row and pushes following controls
@@ -133,7 +192,7 @@ through the chart recipe, and `stacked: true` requires bar. A `combo` chart uses
 `secondary` emits `DisplaySeries<n>On: yaxis2`, enables two axes with `NumberOfYaxes: 2`, and
 sets the right `YAxis2Label` from that series' title (or field). When several series share the
 secondary axis, the last secondary series supplies its label. Combo charts disable legend grouping
-(`DisableLegendGrouping: true`) to keep series in one compact bottom legend without axis headings.
+(`DisableLegendGrouping: true`) to keep series in one compact legend without axis headings.
 Unknown axis values are located errors. Pagination names a grid with data
 and creates the same local slicing expressions and reset bindings as the pagination recipe.
 
@@ -141,7 +200,7 @@ Trend tiles go in a `kpi_row` through `children` (a `kpi_row` takes `tiles` or `
 `trend_tile` has a caption (`label`), a bound `value` and optional `unit`, `trend` (`up`, `down`
 or `flat`) and `delta` (text or `{bind: ...}`). Value, unit, direction glyph and delta sit in one
 centred row under the caption, as in the kit's AssetKPI tiles. The direction glyph and delta are
-coloured labels (green, red, grey); `ptcsicon` has no known styler, so it cannot carry the colour.
+coloured labels (green, red, grey); these tiles retain their existing coloured-label implementation.
 Direction is static: it does not follow a data field. Optional
 `sparkline: {field: Value, x: year, data: history}` adds a native `ptcschartline` under the value.
 `data` defaults to the value binding's source; supply it when history comes from another service.
@@ -347,7 +406,8 @@ there is no force option. Conflicts write no artifacts or baseline.
 
 An existing mashup without a baseline can adopt a spec only when all generated values already
 match current values (extra unmanaged widgets/properties are allowed). Otherwise reconcile the
-spec and mashup first. If XML and sidecars disagree, explicitly run `twaco sync` to keep the
+spec and mashup first; see [Adopting an existing mashup](#adopting-an-existing-mashup) for how
+a derived spec does this. If XML and sidecars disagree, explicitly run `twaco sync` to keep the
 sidecars or `twaco extract` to keep XML before building.
 
 Apply takes the workspace lock, reloads and validates, and uses one journaled transaction for
@@ -435,8 +495,10 @@ Charts in rows get equal widths, with a minimum height of 240px (a larger native
 retained). Charts and grids share remaining column space. Status cards keep their content height.
 Content minimums propagate through layout wrappers, and the page scrolls when those minimums
 exceed the viewport; pagination remains in the page flow. Explicit fixed sizes can still constrain
-content. A chart accepts `legend: false` to reclaim plot space in a dense chart row; legends
-otherwise retain native settings at the bottom. No custom chart HTML or rendering is used.
+content. A chart accepts `legend: false` to reclaim plot space in a dense chart row; v1 legends otherwise sit at the top, aligned right. A single numeric-series chart hides its
+legend by default; pie charts retain it. Explicit `legend: true|false` and native props win.
+Pie charts show value markers and use ordered native slice/legend palette styles.
+Short bar charts keep values inside the bars, aligned to the end. No custom chart HTML or rendering is used.
 
 A field-only `filter_panel` occupies 280px beside the main column. Its empty content pane is
 hidden, fields stack from the top and the kit footer stays at the bottom. The filter column
@@ -457,7 +519,7 @@ The combined examples [Q1](../tests/fixtures/mashup/pages/bench_q1/page.yaml),
 [Q2](../tests/fixtures/mashup/pages/bench_q2/page.yaml),
 [Q3](../tests/fixtures/mashup/pages/bench_q3/page.yaml) and
 [Q4](../tests/fixtures/mashup/pages/bench_q4/page.yaml) use the same offline Acme solution.
-Q3 hides chart legends; Q4 follows the selected asset and aligns mixed status pairs.
+Q3 keeps the pie legend and hides its other chart legends; Q4 follows the selected asset and aligns mixed status pairs.
 These are offline structural regressions, not measured visual scores.
 
 A grid used by `<grid>.selected.<Field>` bindings selects the first row on load with the native
@@ -493,6 +555,120 @@ direct service-row binding. Existing command equivalents for status dots are
 `recipe label-pairs --status <field> --status-state <StateDefinition>`, and picker
 first-row selection is `recipe picker --auto-select-first`.
 
+
+## Native controls, media and wiring
+
+All examples below are synthetic. Native controls and media use the same catalogue authoring
+planners as `mashup add`, `mashup bind` and `mashup set`; they accept `props`, `style` maps/settings
+and layout sizes. Authored properties override element defaults. New defaults are recorded in the
+v1 rule table; legacy rules are unchanged.
+
+| Element | Fields | Command path |
+| --- | --- | --- |
+| `link` | `text`/`label` (string or binding), `url` (string or binding) or `mashup`, `target` (`_self`, `_blank`, `_popup`), `icon` | `mashup add ... ptcslink --prop Text=... --prop LinkURL=... --prop TargetWindow=...`; an icon adds a separate `ptcsicon` beside the link |
+| `image` | `source` (Media entity name, URL, or binding), `scaling` (`fit-x`, `fit-y`, `fit`, `contain`, `cover`, `auto`, `25%`, `50%`, `75%`), `position` (`top`, `center`, `bottom`), `alt` | `mashup add ... ptcsimage --prop SourceURL=/Thingworx/MediaEntities/Acme.Logo_MD --prop Scaling=contain --prop AlternateText=Logo` |
+| `icon` | `icon` (CDS name or shorthand), `source`, `alt`, `icon_size` (`small`, `medium`, `large`, `xlarge`, `custom`), `size: sm/md/lg/xl`, token `color` | `mashup add ... ptcsicon --prop SVGIcon=cds:icon_info --prop Size=large`; `mashup set ... --style color=ink` |
+| `divider` | `orientation` (`horizontal` or `vertical`), token `color` | `mashup add ... ptcsdivider --prop VerticalDivider=true`; `mashup set ... --style line:background=line` |
+| `checkbox`, `toggle` | `label`/`text`, bindable boolean `value` | `mashup add ... ptcscheckbox` / `ptcstogglebutton --prop Label=Enabled --prop State=true` |
+| `radio` | `label`/`text`, bindable boolean `value`, bindable `group`; or static `options: [Open, Closed]` | `mashup add ... ptcsradio --prop Label=Open --prop Radiogroup=AcmeStatus`; bind `State` |
+| `textarea` | `label`/`text`, `hint`, bindable `value`, `max_length` | `mashup add ... ptcstextarea --prop Label=Notes --prop HintText=Enter --prop MaxNumberOfCharacters=500`; bind `Text` |
+| `date_picker` | single date: `label`/`text`, `hint`, bindable `value`, `date_only`, `format` | `mashup add ... ptcsdatepicker --prop DateRange=false --prop DateOnly=true --prop FormatToken=YYYY-MM-DD`; bind `DateTime` |
+| `value_display` | `label`/`text`, scalar or bindable `value` | `mashup add ... ptcsvaluedisplay --prop Label=Count`; bind `Data`. A literal uses an `expression2` constant, a Loaded-to-Evaluate event and a binding because native `Data` is not editable |
+| `events_router` | `data_type` (default STRING), `input_count` (1 to 20), `routes` (bindings or null for an unbound input) | `mashup add ... eventsrouter --prop DataType=BOOLEAN --prop NumberOfInputs=2`; bind `Input1`, `Input2`, read `Output` |
+| `embed` | static `mashup`, `params: {name: literal or {bind: ...}}` | `mashup add-contained ... Acme.Child_MU --set id=...`; bind the container's child parameters |
+
+A radio is a native boolean control, as in the kits. Static options expand to radios with
+IDs `<id>--1`, `<id>--2`, etc., sharing `Radiogroup`; read each radio's `State`. A data-bound
+radio binds `value` and optionally `group`. A dynamic list of options needs a collection cell;
+`ptcsradio` has no native options-table contract. A link icon is an adjacent native icon;
+`ptcslink` has no native icon property. Media entity names become `/Thingworx/MediaEntities/<name>`;
+URLs remain unchanged. Divider colour styles its native `line` part's background.
+An embed uses `add-contained`'s child-parameter contract. Its current offline catalogue has no
+independent editable styling contract: style/size the surrounding row or column, or the child
+mashup's own controls, rather than setting styles on `mashupcontainer` itself. Function elements
+have no visual styling or layout.
+
+```yaml
+# Inside page.slots.center:
+- link: {id: details, text: Details, mashup: Acme.Detail_MU, target: _blank}
+- image: {id: logo, source: Acme.Logo_MD, scaling: contain, alt: Acme logo}
+- icon: {id: help, icon: info, size: lg, color: ink}
+- divider: {id: separator, orientation: horizontal, color: line}
+- checkbox: {id: archived, label: Include archived, value: false}
+- radio: {id: state, options: [Open, Closed], group: AcmeStatus}
+- toggle: {id: enabled, label: Enabled, value: true}
+- textarea: {id: notes, label: Notes, hint: Enter notes, max_length: 500}
+- date_picker: {id: when, label: As of, date_only: true}
+- value_display: {id: count, label: Count, value: {bind: rows.Count}}
+- embed: {id: detail, mashup: Acme.Detail_MU, params: {id: {bind: rows.Name}}}
+```
+
+`chart` also accepts `kind: pareto` and `kind: waterfall` with the same flat `data` and `x`
+contract as line/bar. Pie uses its native `DataField` for labels and `ValueField` for numbers;
+derivation recognises that pair. Combo still requires explicit numeric `series`. The command
+path is `mashup add` with the chart's native type followed by `recipe chart --data ... --x ...`
+(and `--value` for pie, `--series` for combo). `kind: schedule` is refused with a nested-interval
+contract explanation: use `widget: {type: ptcschartschedule}` and explicit native bindings.
+
+Native service pagination uses `pagination: {id: pages, mode: server, total: {bind: rows.Count},
+page_size: 25, page_number: 1}`. Bind `pages.PageNumber` and `pages.PageSize` into service params,
+and use `PageNumberChanged` / `PageSizeChanged` events to invoke that service. This adds no local
+slicing functions. The command path is `mashup add ... ptcspagination`, properties and bindings.
+`pagination: {for: grid}` keeps its existing local slicing behaviour. `dropdown: {id: empty,
+unbound: true}` represents an unconfigured kit control without inventing a service. Grid
+controls without a supported table feed retain their native properties and explicit bindings.
+
+A collection with `data` retains the existing configured-cell workflow. To preserve native kit
+layout and a table-property binding, use `collection: {id: cards, source: {bind: rows}, mashup:
+Acme.Cell_MU, map: {Name: title}}`; the same properties and binding are available through
+`mashup add ... ptcscollection`. Derivation uses this native form and retains layout properties. An unconfigured native
+collection explicitly uses `unbound: true` instead of a source; omitting both data and source
+without that marker remains an error.
+Use the `data` workflow when row/child mapping validation is required. The native source form
+preserves direct mapping properties and native binding checks; it cannot validate an unavailable
+row shape. Tabs read labels from native `Items` when present, falling back to `Tab<n>Name`. KPI dials
+recognise dial/horizontal/vertical layouts and retain custom angles and formatting in `props`.
+Unsupported entity-service feeds are reported in notes; recognising a control does not claim
+that an unsupported feed was preserved.
+
+An expression is a data item. Short strings are expressions; scripts containing a semicolon or
+newline are carried verbatim. Inputs can infer their types from a binding reference or declare
+`{type: NUMBER, value: {bind: rows.Count}}`; a typed input can also have a literal value.
+`output` is a ThingWorx base type. Optional `auto_evaluate` (true), `fire_on_first_value` (false)
+and `data_change: ALWAYS|VALUE` preserve native evaluation choices. `on: load` or a node event
+invokes `Evaluate`. Bind to `late` or `late.Output`; events may invoke `late.Evaluate`.
+
+```yaml
+# Inside page:
+data:
+  late: {expression: "Count > 3", inputs: {Count: rows.Count}, output: BOOLEAN}
+events:
+  - {on: open_btn.Clicked, navigate: {mashup: Acme.Detail_MU, mode: popup, params: {id: {bind: rows.Name}}}}
+```
+
+Navigation `mode` is `page` (default), `new_tab`, `popup` or `modal-popup`; native aliases
+`replace` and `new` are also accepted. Optional `width`, `height`, `title` and `params` share
+`recipe popup`'s child-parameter checks. Parameter values are literals or `{bind: ...}`. A plain dotted reference to a known node/data alias is also accepted; `grid.SelectedRow.Name` reads `grid.selected.Name` through the selected-row helper.
+An optional `id` names the generated function for subsequent event references; `props` retains
+native popup options during derivation. Command equivalents are `mashup add ... expression2
+--input Count:NUMBER --prop Expression="result = Count > 3;" --prop OutputBaseType=BOOLEAN`,
+`mashup bind`, and `mashup recipe popup ... --pass id=<source>` (or `mashup set` for fixed function
+inputs). Both CLI and MCP use these core planners; MCP page builds still plan by default.
+
+`events_router` represents the kits' simple typed fan-in: each `routes` entry binds one native
+`InputN` and consumers bind `<id>.Output`. An omitted count defaults to the number of routes
+(at least two). For example, `events_router: {id: route, data_type: BOOLEAN, routes:
+[{bind: first.State}, {bind: second.State}]}`. It is a function beside the layout, with no
+visual container. The local exports use two/three STRING or BOOLEAN inputs and no special events.
+Other native properties and events remain available through `props` and explicit event wiring.
+
+Static navigation with one Navigate trigger derives as an event action. Dynamic targets and
+shared navigation functions remain raw. `dynamic_panel`
+stays raw because its two native panes and push/trigger behaviours differ from `side_panel`.
+`menubar` stays raw because primary/secondary Menu entities, infotable navigation and page-host
+selection do not map to `nav_menu`'s button groups. Decorative `shape` and map extensions
+(`googlemap`, `OpenStreetMap`) intentionally remain raw. Raw-type notes name these limitations.
+All kit observations in this batch are from local exports; no live behaviour is claimed.
 
 ## Components
 
@@ -535,11 +711,11 @@ and use their baseline merge; a different existing cell spec or a merge conflict
 | `kpi_tile` | `AssetKPI`, caption/value row | label, value (required binding), unit |
 | `trend_tile` | `AssetKPI`, caption/value/trend row | label, value (required binding), unit, trend, delta, color, sparkline |
 | `status_card` | `twaco` (existing card recipe) | title, value, status, state, detail, kind, children |
-| `filter_panel` | `PTCSC.IOTCommonMU.AdminPage01_MU` | title, fields, footer, children |
-| `toolbar_band` | `PTCSC.IOTCommonMU.AdminMetrics_MU` | children |
-| `page_header` | `PTCSC.IOTCommonMU.AdminPage01_MU` | title (required), help, info, actions |
-| `section_card` | `WDK_Inputs` | title (required), align, children |
-| `side_panel` | `PTCSC.IOTCommonMU.Compare_MU` | title (required), help, tab, children |
+| `filter_panel` | `AdminPage` | title, fields, footer, children |
+| `toolbar_band` | `AdminMetrics` | children |
+| `page_header` | `AdminPage` | title (required), help, info, actions |
+| `section_card` | `Inputs` | title (required), align, children |
+| `side_panel` | `Compare` | title (required), help, tab, children |
 
 The `source` field records provenance; `twaco` denotes an invented/adapted combination.
 These definitions reuse the already documented native-widget adaptations. Existing element
@@ -586,7 +762,7 @@ twaco mashup spec Acme.Page_MU --json
 ```
 
 Without `--out`, the spec goes to stdout and coverage to stderr. `--json` returns `spec`,
-`elements`, `raw`, `raw_types`, `widgets`, `exact`, `hand_edited` and `notes` (the last three only
+`elements`, `raw`, `raw_types` (always present, including `{}`), `widgets`, `exact`, `hand_edited` and `notes` (the last three only
 when they have something to say); it also writes the requested output file when present. MCP
 `mashup_spec` takes `mashup` and returns the same report without writing a file.
 
@@ -606,11 +782,11 @@ Q1 to Q4 and S) both ways.
 | flex container | `row` or `column`; `size: fit` for no growth, `size: {fixed: N}` for a fixed pixel size along the parent, `weight: N` for a growth other than 1; other properties that differ from the catalogue go in `props` |
 | empty container in a row | `spacer` |
 | label | `heading` (header), `text` (body), `label`; other label types are a `label` with `props: {LabelType: ...}` |
-| button, text field, date range | `button` (`variant`, `icon`), `text_field` (`hint`), `date_range` (a datepicker without `DateRange` is a `widget`) |
+| button, text field, date range | `button` (`variant`, `icon`), `text_field` (`hint`), `date_range` or single `date_picker` |
 | dropdown, list | `dropdown` (`options`, `display`), `list` (`data`, `display`, `selection`), when a service feeds them |
 | grid | `grid` with `data` and `columns` (field, title, width) when a service feeds it |
-| charts | `chart` with `kind`, `data`, `x`; a combo chart lists its `series` |
-| collection | `collection` with `data`, `mashup` and `map` |
+| charts | `chart` with `kind`, `data`, `x`; pie uses `value`, combo lists `series`; schedule stays raw |
+| collection | `collection` with native `source` binding, `mashup`, `map` and retained layout props |
 | tab set | `tabs` with each tab's content |
 | row with a header label and buttons | `page_header` with `actions` |
 | 48px row of controls | `toolbar` |
@@ -618,6 +794,8 @@ Q1 to Q4 and S) both ways.
 | side column (72px title row over a one-tab strip) | `side_panel` |
 | column of a 40px title row (one sub-header label) over a body row | `card` with `align` |
 | row of three-label columns (caption, bound value, unit) | `kpi_row` with `tiles` |
+| native controls/media | `link`, `image`, `icon`, `divider`, `checkbox`, `radio`, `toggle`, `textarea`, `date_picker`, `value_display`, `embed` |
+| functions/pagination | typed expression `data` entries, `events_router`, `navigate` actions, server-mode `pagination` |
 | anything else | `widget: {id, type, props}` with only the properties that differ from the widget catalogue |
 
 Services become `data` entries (`service`, `on: load`, `on: every Ns`, fixed `params`). A binding
@@ -626,11 +804,10 @@ one into a widget property a `props` entry with `{bind: ...}`, a service feeding
 element's `data`, and every other trigger an `events` entry. Node ids are the widget ids with
 anything but letters, digits, `_` and `-` replaced.
 
-Not carried: widget styles, custom CSS, state formatting snapshots, properties the widget
-catalogue does not know, bindings and events a spec cannot express (for example into a function
-widget's inputs) and data that is not a Thing service. The report's `notes` list what applied.
-Pagination is a raw `widget`, because the `pagination` element would add the slicing expressions
-the page already has. Build the derived spec to review a plan: its widget tree matches the
+Not carried: widget styles, custom CSS, state formatting snapshots, bindings and events outside the supported function contracts and data that is not a Thing service. Properties the catalogue does not list are carried as props on a page that is derived to be adopted, and listed in `notes` otherwise. The report's `notes` list what applied.
+Pagination derives as `pagination` with `mode: server`, preserving its existing wiring without
+adding slicing expressions. Native expressions become typed `data` entries. Widgets without an element (decorative shapes, extension maps, dynamic navigation or embed targets, two-pane dynamic panels) stay as raw `widget:` nodes with a note.
+Build the derived spec to review a plan: its widget tree matches the
 original's widgets, nesting, services, bindings and events (the compiler adds layout wrappers
 and the look), not its properties.
 
@@ -638,7 +815,7 @@ Coverage counts spec nodes, not widgets: `elements` is the nodes written as elem
 components, `raw` the `widget:` nodes with their types in `raw_types`, and `widgets` the widgets
 of the mashup, so `widgets` against `elements + raw` shows how much the spec condenses.
 
-Offline coverage of the synthetic kit-structure fixtures
+Historical coverage before native controls and expression data items, for the synthetic kit-structure fixtures
 (`tests/fixtures/mashup/pages/kit_structures`, hand-written Acme pages with the container
 structure of the kit pages, no copied content):
 
@@ -650,7 +827,7 @@ structure of the kit pages, no copied content):
 | admin_shell | 24 | 16 | 0 | 1818 |
 | tabs_page | 10 | 7 | 1 (expression2) | 879 |
 
-The benchmark pages built by their specs, derived again from their built content (as a page
+Historical derivation coverage before this batch, for benchmark pages built by their specs and derived again from their built content (as a page
 without a baseline would be). All fourteen derive specs that parse; the six smallest (up to 40
 widgets: H, J, K, L, N, P) are built again and keep their widgets, nesting, services, bindings and
 events. The raw nodes are mostly the pagination widget with the expressions that slice its grid,
@@ -672,6 +849,100 @@ which the `pagination` element would duplicate.
 | Q3 | 57 | 49 | 7 (expression2 4, chart pie 1, grid 1, pagination 1) | 24571 |
 | Q4 | 50 | 45 | 4 (expression2 4) | 13595 |
 | S | 85 | 84 | 0 | 18513 |
+
+## Master mashups and page hosts
+
+`page.kind` is `page` by default. Set `kind: master` to build a target mashup:
+
+```yaml
+version: 1
+rules: v1
+page:
+  name: Acme.Master_MM
+  kind: master
+  template: blank
+  props: {WindowStyle: DefaultMasterWindowStyle, Favicon: Acme.Icon_MD, Font: Arial}
+  slots:
+    center:
+      - heading: {id: title, text: Acme}
+      - menu_bar: {id: menu, props: {MenuType: horizontal}}
+      - page_host: {id: host}
+```
+
+`twaco new mashup Acme.Master_MM --spec master.page.yaml --apply` creates the master.
+The compiler uses the same master root as `new mashup --master`: content `mashupType` and
+root `Type` are `targetmashup`, XML `aspect.mashupType` is `target`, and `Style` defaults to
+`DefaultMasterMashupStyle`. `WindowStyle`, `Favicon`, `Font` and other mashup-root properties
+can be stated in `page.props`; `page.root.props` still addresses the template's root container.
+`null` removes a property. Identity, type, allocation and parameter-definition properties cannot
+be set through `page.props`; use `kind` and `parameters` for those contracts.
+
+A master requires exactly one `page_host` (`pagemashupcontainer`), the slot where pages render.
+Place it in the desired container; no implicit second host is added. An ordinary page cannot
+contain a page host. `menu_bar` is a native `ptcsmenubar` with its existing properties and
+bindings in `props`; `nav_menu` continues to build button navigation. Commands use the existing
+`new mashup --master`, `mashup add ptcsmenubar`, `mashup set` and `mashup bind` paths.
+Attach an ordinary page with `page.master: Acme.Master_MM` and optionally
+`page.use_master_theme: true`.
+
+Deriving and adopting a master keeps widget and wiring IDs and changes no existing entity or
+sidecar bytes, just as for pages. A fresh build of the derived spec keeps the represented
+widgets and wiring and carries the master-root properties. This support is tested offline;
+no new Runtime validation is claimed.
+
+## Adopting an existing mashup
+
+`mashup spec` on a mashup that no spec built, then `mashup build` on the untouched `page.yaml`,
+adopts it without changing a byte of it: the plan has no conflicts, no widget is renamed and none
+moves. Four things make that so.
+
+- **The page root is the template's root.** The mashup's root container maps onto the template's
+  (`page.root.props`), and its children are the `center` slot, so the build adds no level. Other
+  widgets beside the root container (functions, status messages) follow in the slot.
+- **`layout: as-built`** on a page whose mashup carries no v1 marker (`twacoPageRules`) keeps the
+  v1 layout rules off it: widgets go into their containers as the spec lists them, with no wrapper
+  rows and no fix-up pass, and nothing is added that the mashup lacks. Derived nodes are rows,
+  columns, leaf elements and `widget:` nodes; composites such as `card` or `filter_panel` are not
+  guessed at. Properties the spec states always win over a rule; `props: {Name: null}` removes a
+  property the mashup does not have.
+- **Properties are carried.** A derived node lists what the mashup has that building it would not
+  produce by itself: `CustomClass`, `Margin` (the root's `""` stays `""`), `flex-wrap`,
+  `flex-size`, `flex-min-*`/`flex-max-*`, `align-items`, `ShowVerticalScrollbar`, `DisplayName`,
+  and properties the catalogue does not list (`RowHeight`, `MinValue`/`MaxValue`, `TabNSVGIcon`,
+  `ToolbarMaxRows`, `Scrolling`) as props. The tool builds the spec offline and adds a prop for
+  every difference it finds, then builds again. A number the platform accepts for a pixel option
+  (`DefaultFontSize: 14`) is read as the option `"14px"` and kept as the number. A contained
+  mashup is `embed`. `page.master` and `page.use_master_theme` keep the mashup's master. A master
+  (`mashupType: targetmashup`) derives as `kind: master`, with its `page_host`, native
+  `menu_bar` and header elements. Master-root properties are carried in `page.props`.
+- **Ids are kept.** At the first build the generated widgets are lined up with the mashup's by
+  type and position, and the baseline records which `(node, role)` keeps which id
+  (`pinned_widgets`), plus the ids of data sections, service calls, bindings and events
+  (`pinned_wiring`). Every later build reapplies them, so `custom.css` selectors and external
+  references stay valid. Nodes added later get stable hashed ids as usual. Bindings and events
+  differ in no way a build would notice, so their order is not compared, and neither are
+  `id_index`, twaco's own markers or the static value of a property a binding writes.
+
+When a first build still conflicts, each difference is listed (also in `--json`) with its JSON
+path, the mashup's value, the spec's value and the spec line responsible, the property's own line
+when the node states it:
+
+```text
+Acme.Hand_MU: /UI/Widgets/flexcontainer-3/Properties/CustomClass: the mashup has "acme-title",
+the spec generates "other-title"; change src/Acme.Hand_MU/page.yaml:14 (props.CustomClass) or
+resolve the hand edit
+```
+
+`mashup spec` lists in `notes` each binding or event it could not write (`source -> target`) and
+each property it left out (`widget property`). Compile errors from `mashup build` and
+`mashup new --spec` point at the offending key's line and name the spec file that was read;
+with `--json` they are `{"error": {"file", "line", "column", "message"}}`. A plan says
+`files_state: "would write"`; the same report after `--apply` says `written`.
+
+Service completion chains derive as `{on: write.done, invoke: refresh}`; failure handlers to
+status messages derive as `{on: write.error, show: failed}`. Several sources writing the same
+property are retained through node bindings plus `page.bindings`. Native `statusmessage` and
+`ptcsrte` derive as `status_message` and `rich_text`, including numeric editor font sizes.
 
 ## Tokens and themes
 
@@ -759,3 +1030,42 @@ Derived specs retain explicit `tokens:` and keep derived hex colours as hex.
 Command parity: set `[mashup] tokens = "brutalist"` in twaco.toml, then use
 `twaco mashup set Acme.Page_MU <widget> --style box-shadow=hard --apply`. MCP provides
 `mashup_tokens` and `entity_new` with `kind: "theme", tokens: "brutalist"`.
+
+## Side columns, navigation and generated cell roles
+
+V1 side panels and leading filter columns reach the page edges; their content sibling owns
+its 24px gutter. Filter panels always have a 48px title row (default `Filter`), with the
+inside collapse tab reserved at its right. Fields start below that row. A standalone filter
+keeps the same grey background and separate 1px vertical rule. A leading authored heading
+is placed in the header. Trend figures keep value, unit and arrow together, left aligned
+immediately below the caption. Filled grids omit the outer bottom frame, as the kit does,
+so row rules do not appear detached from the last row. Band labels centre text vertically.
+
+`nav_menu` accepts `selected: Details`, naming exactly one item label; absent selection
+highlights the first item. An item can be a string or `{label: Details, indent: 1}`;
+indent is 0?12 levels of 18px beyond the base 24px inset. Item event IDs retain their
+1-based group/item numbering. Selection is the initial highlight, not navigation wiring.
+
+Generated collections accept `cell: {image: Image, title: Name, kpi_dial: Count,
+status: {field: Status, state: Acme.Status_ST}}`. All roles are optional, at least one is
+required. Image fields must be STRING or IMAGELINK; dial fields must be numeric. Status
+uses the existing checked StateDefinition dot and label recipe. Image/status cells use a
+column with image, title, dial and status in that order; title/dial-only cells retain the
+KPI template. Bindings use typed cell parameters, with no generated service scripts.
+
+Command recipes share these expansions:
+
+```sh
+twaco mashup recipe component Acme.Page_MU center --component nav_menu --set id=menu --set selected=Details --set 'groups=[{"title":"Acme","items":["Overview",{"label":"Details","indent":1}]}]'
+twaco mashup recipe component Acme.Page_MU center --component collection --set id=cards --set data=assets --set 'cell={"image":"Image","title":"Name","status":{"field":"Status","state":"Acme.Status_ST"}}'
+```
+
+These commands plan by default. `assets` is an existing unique service alias in the mashup.
+The generated cell files join the recipe's atomic transaction. Custom components can compose
+these same elements. No CLI flags or MCP request fields change.
+
+`tokens: clean` gives cards white fill, a 1px grey-200 border, 8px radius and soft shadow,
+with a grey-50 page and the Inter font stack. Optional `radius.card` and `shadow.card`
+override card/section finishes; convergence retains its existing frames. The synthetic
+[clean A page](../tests/fixtures/mashup/pages/bench_clean/page.yaml) records the exact native
+styles offline. Widget internals still use the selected StyleTheme.

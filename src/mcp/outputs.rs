@@ -1756,7 +1756,11 @@ pub(crate) struct MashupBuildResult {
     dry_run: bool,
     nodes: Vec<Value>,
     hand_edits_kept: Vec<String>,
+    /// Each conflict has `path`, `file`, `line` and `message`, and the mashup's `current` and the
+    /// spec's `generated` value where there are both.
     conflicts: Vec<Value>,
+    /// `would write` while planning, `written` once applied.
+    files_state: String,
     files: Vec<String>,
     cells: Vec<String>,
     cell_notices: Vec<String>,
@@ -1776,7 +1780,6 @@ pub(crate) struct MashupSpecResult {
     /// True when the spec is the mashup's own page.yaml and the mashup still matches its last build.
     exact: bool,
     /// Raw nodes by widget type.
-    #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     raw_types: std::collections::BTreeMap<String, usize>,
     /// Widgets edited by hand since the last build, when the spec is the page's own page.yaml.
     #[serde(skip_serializing_if = "Vec::is_empty")]

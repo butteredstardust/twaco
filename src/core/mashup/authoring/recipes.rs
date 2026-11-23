@@ -1505,6 +1505,9 @@ fn call_event(call: &str, event: &str) -> Result<String, AuthoringError> {
 
 /// A widget event: a bare widget means its click.
 fn widget_event(trigger: &str) -> String {
+    if trigger.starts_with("mashup:") || trigger.starts_with("data:") {
+        return trigger.into();
+    }
     let rest = trigger.strip_prefix("ui:").unwrap_or(trigger);
     if rest.contains('.') {
         format!("ui:{rest}")
@@ -2251,6 +2254,9 @@ pub(super) fn plan_recipe_loaded(
             stacked,
         } => {
             let target = widget_id(&work.document, widget)?;
+            if target.type_id == "ptcschartschedule" {
+                return Err(AuthoringError::Invalid("schedule uses nested resource intervals; configure DataField and ResourceField with mashup set and bind the nested Data explicitly".into()));
+            }
             let pie = matches!(target.type_id.as_str(), "ptcschartpie");
             if !target.type_id.starts_with("ptcschart") {
                 return Err(AuthoringError::Invalid(format!(
@@ -2417,6 +2423,60 @@ pub(super) fn plan_recipe_loaded(
                         .map(|(k, v)| (k.as_str(), v.clone()))
                         .collect::<Vec<_>>(),
                 );
+            }
+            if work.document.rules().version() == "v1" {
+                let count = if !configured.is_empty() {
+                    configured.len()
+                } else {
+                    fields.as_ref().map_or(2, |fields| {
+                        fields
+                            .iter()
+                            .filter(|(name, base)| {
+                                name != x && matches!(base.as_str(), "NUMBER" | "INTEGER" | "LONG")
+                            })
+                            .count()
+                    })
+                };
+                let mut defaults = vec![
+                    ("LegendPosition", json!("top")),
+                    ("LegendAlignment", json!("end")),
+                    ("HideLegend", json!(!pie && count == 1)),
+                ];
+                if pie {
+                    defaults.extend([
+                        ("ShowValues", json!(true)),
+                        ("ValuesPosition", json!("marker")),
+                    ]);
+                }
+                if target.type_id == "ptcschartbar" {
+                    defaults.extend([
+                        ("HideValues", json!(false)),
+                        ("ValuesPosition", json!("inside")),
+                        ("ValuesAlignment", json!("end")),
+                    ]);
+                }
+                work.set(&target, &defaults);
+                if pie && !work.tokens.chart_palette().is_empty() {
+                    let styles: Vec<_> = work
+                        .tokens
+                        .chart_palette()
+                        .iter()
+                        .enumerate()
+                        .flat_map(|(i, color)| {
+                            [
+                                format!("slice@serie{}:fill={color}", i + 1),
+                                format!("legend-marker@serie{}:background={color}", i + 1),
+                            ]
+                        })
+                        .collect();
+                    super::set::merge_widget_styles(
+                        &mut work.document,
+                        &target.id,
+                        &target.type_id,
+                        &styles,
+                        "mashup",
+                    )?;
+                }
             }
             work.bind(data, &format!("ui:{}.Data", target.id))?;
         }
@@ -2691,6 +2751,20 @@ pub(super) fn plan_recipe_loaded(
                 )));
             }
             style["parts"]["$"]["$"]["--ptcs-header-vert-divider-width"] = json!("0px");
+            if work.document.rules().version() == "v1" {
+                if style["parts"]["core-grid"].is_null() {
+                    style["parts"]["core-grid"] = json!({"$":{}});
+                }
+                if !style["parts"]["core-grid"]["$"].is_object() {
+                    return Err(AuthoringError::Refused(format!(
+                        "{}: malformed core-grid style; repair StyleProperties first",
+                        target.id
+                    )));
+                }
+                style["parts"]["core-grid"]["$"]["border-bottom-style"] = json!("none");
+                style["parts"]["core-grid"]["$"]["border-bottom-width"] = json!("0px");
+            }
+
             super::set::copy_style_entry(
                 &mut work.document,
                 &target.id,

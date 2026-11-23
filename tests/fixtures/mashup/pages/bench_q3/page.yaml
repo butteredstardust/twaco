@@ -22,7 +22,7 @@ page:
           id: charts
           size: fill
           children:
-            - chart: {id: c_pie, kind: pie, legend: false, data: history, x: year, value: Value}
+            - chart: {id: c_pie, kind: pie, data: history, x: year, value: Value}
             - chart: {id: c_bar, kind: bar, legend: false, data: history, x: year, stacked: true}
             - chart: {id: c_line, kind: line, legend: false, data: history, x: year}
       - toolbar:

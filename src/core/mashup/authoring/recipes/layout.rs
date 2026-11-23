@@ -357,6 +357,12 @@ impl Work<'_> {
                 );
             }
         }
+        if panel == Some("card") {
+            for style in self.tokens.card_styles() {
+                let (key, value) = style.split_once('=').expect("card style");
+                insert_sorted(styles, key, json!(value));
+            }
+        }
         if panel == Some("grey") && self.tokens.border_size("band") != "0px" {
             insert_sorted(
                 styles,
@@ -544,6 +550,9 @@ impl Work<'_> {
             ],
         )?;
         self.background(&target, Some("grey"), false)?;
+        if self.document.rules().version() == "v1" {
+            self.document.at_mut(&target.path)["twacoSidePanel"] = json!(true);
+        }
         let catalog = widgets::catalog();
         let flex = catalog
             .by_type("flexcontainer")
@@ -680,7 +689,7 @@ impl Work<'_> {
         let mut properties = grid_cell_props();
         properties.retain(|(key, _)| *key != "flex-direction");
         self.layout_set(&target, &properties)?;
-        let frame = vec![
+        let mut frame = vec![
             "border-style=solid".to_string(),
             format!("border-width={}", self.tokens.border_size("card")),
             format!(
@@ -690,6 +699,7 @@ impl Work<'_> {
                     .map_err(AuthoringError::Invalid)?
             ),
         ];
+        frame.extend(self.tokens.card_styles());
         super::super::set::merge_widget_styles(
             &mut self.document,
             &target.id,

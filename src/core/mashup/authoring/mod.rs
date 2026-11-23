@@ -60,6 +60,7 @@ pub(crate) use new::{validate_template, DEFAULT_THEME};
 use on::on_in;
 pub use on::OnRequest;
 pub(crate) use on::{plan_on, OnPlan};
+pub(crate) use parameter::validate_expression_type;
 pub(crate) use parameter::{apply_parameter, plan_parameter, root_default, ParameterPlan};
 use parameter::{
     cache_entry, contained_parameters, default_value, ensure_cached, navigation_definition,
@@ -79,7 +80,7 @@ pub(crate) use remove::{plan_off, plan_remove, plan_unbind, OffPlan, RemovePlan,
 pub use remove::{OffRequest, RemoveRequest, UnbindRequest};
 #[cfg(test)]
 pub(crate) use set::colour;
-pub(crate) use set::{plan_set, SetPlan};
+pub(crate) use set::{merge_widget_styles, plan_set, SetPlan};
 pub use set::{set_plan_json, SetRequest};
 pub use source::SourceInfo;
 pub(crate) use source::{

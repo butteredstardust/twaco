@@ -1,6 +1,6 @@
 {
   "name": "section_card",
-  "source": "WDK_Inputs",
+  "source": "Inputs",
   "props": {
     "title": {
       "type": "string",

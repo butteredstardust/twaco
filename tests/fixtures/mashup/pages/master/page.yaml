@@ -1,0 +1,35 @@
+version: 1
+rules: v1
+page:
+  name: Acme.Master_MM
+  kind: master
+  template: blank
+  layout: as-built
+  props:
+    WindowStyle: Acme.WindowStyle
+    Favicon: Acme.Icon_MD
+    Font: Arial
+    AcmeRootOption: preserved
+  data:
+    rows: {service: Acme.Data.GetRows, on: load}
+  events:
+    - {on: refresh.Clicked, invoke: rows}
+  slots:
+    center:
+      - column:
+          id: shell
+          children:
+            - row:
+                id: header
+                children:
+                  - heading: {id: title, text: Acme}
+                  - button: {id: refresh, text: Refresh}
+                  - label: {id: subtitle, props: {LabelText: {bind: rows.Name}}}
+            - column:
+                id: navigation
+                children:
+                  - menu_bar: {id: menu, props: {MenuType: horizontal}}
+            - column:
+                id: body
+                children:
+                  - page_host: {id: host}

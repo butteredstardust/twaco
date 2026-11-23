@@ -1006,6 +1006,10 @@ pub(super) fn ensure_cached(
     }
 }
 
+pub(crate) fn validate_expression_type(base_type: &str) -> Result<(), AuthoringError> {
+    validate_parameter("output", base_type, "OUT", Some(""))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

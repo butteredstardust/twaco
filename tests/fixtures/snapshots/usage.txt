@@ -228,6 +228,7 @@ The full listing follows.
   mashup build <mashup> [--apply] [--json]
                               compile the YAML page spec src/<Mashup>/page.yaml and merge with the generated baseline;
                               keep independent hand edits; conflicts write nothing; plans by default
+                              native controls, media, embed, typed expressions and navigate events: guide page-specs
   mashup why <mashup> <widget> [--json]
                               what the layout rules decide for one widget (size, gutter, alignment, surface,
                               equal siblings), the rule that decided each, what the mashup holds now, and the
@@ -236,12 +237,15 @@ The full listing follows.
   mashup diff <a> <b> [--tier <tier>] [--json]
                               compare two repository mashups by executable wiring, responsive layout and visual
                               content; ignores Composer-generated identifiers; exits 1 when the selected tier differs
+                              pair bindings/events by endpoints without order; report an extra wrapper once
       --tier <tier>           executable, layout, visual or all (default all)
   mashup add <mashup> <widget> [--in <container> [--bottom] | --right-of <widget> [--end] | --left-of <widget> | --above <widget> | --below <widget>]
       [--in-column] [--label <text>] [--prop <name=value>]... [--input <name:TYPE[=default]>]... [--apply] [--json]
                               add a catalogue widget, or one an [[extension]] project defines, to a
                               mashup; plan unless --apply; a function widget (expression, validator,
                               navigation...) goes beside the layout
+                              ptcsrte takes literal Data and numeric or Npx DefaultFontSize;
+                              statusmessage takes Message/MessageType and exposes ShowMessage
       --in <container>        add inside a responsive container (center when omitted)
       --bottom                with --in <column>: in a footer row at the column's foot (a filter
                               panel's Apply; --right-of it adds Clear); later widgets go above it
@@ -346,7 +350,7 @@ The full listing follows.
   mashup on <mashup> --event <address> --invoke <address> [--apply] [--json]
                               run a service or widget service when a mashup event fires; plan unless --apply
                               hints when selected-row fields have no selecting widget
-      --event <address>       widget/mashup event or data call event (Data_Error on failure)
+      --event <address>       widget/mashup event or data call event (.done for completion, .error for Data_Error)
       --invoke <address>      data call or widget service to run
   mashup gap <mashup> <container> <px> [--apply] [--json]
                               replace direct twaco spacers with fixed gaps (0 removes; 0..200px);
@@ -500,7 +504,7 @@ The full listing follows.
       [--apply] [--json]
                               create a ThingWorx 10.2 responsive mashup as Composer would: its entity file
                               and its content sidecars; plan unless --apply
-      --spec <file>          compile a YAML page spec (wireframe), copy it to src/<Mashup>/page.yaml and record a generated baseline;
+      --spec <file>          compile a YAML page spec (page.kind: master creates a master with page_host), copy it to src/<Mashup>/page.yaml and record a generated baseline;
                               accepts only --project, --apply and --json
       --from <address>        copy a repository mashup exactly, except identity and permissions
       --rules <legacy|v1>     layout rules (default v1); legacy opts out of page scrolling and top-aligned filter fields
@@ -522,7 +526,7 @@ The full listing follows.
       [--apply] [--json]
                               create a ThingWorx 10.2 responsive mashup as Composer would: its entity file
                               and its content sidecars; plan unless --apply
-      --spec <file>          compile a YAML page spec (wireframe), copy it to src/<Mashup>/page.yaml and record a generated baseline;
+      --spec <file>          compile a YAML page spec (page.kind: master creates a master with page_host), copy it to src/<Mashup>/page.yaml and record a generated baseline;
                               accepts only --project, --apply and --json
       --from <address>        copy a repository mashup exactly, except identity and permissions
       --rules <legacy|v1>     layout rules (default v1); legacy opts out of page scrolling and top-aligned filter fields

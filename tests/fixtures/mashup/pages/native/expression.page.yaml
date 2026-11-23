@@ -1,0 +1,12 @@
+version: 1
+rules: v1
+page:
+  name: Acme.Native_MU
+  template: blank
+  parameters: {When: DATETIME}
+  data:
+    rows: {service: Acme.Data.GetRows, on: load}
+    late: {expression: "Count > 3", inputs: {Count: rows.Count}, output: BOOLEAN}
+  slots:
+    center:
+      - value_display: {id: target, label: Late, value: {bind: late}}

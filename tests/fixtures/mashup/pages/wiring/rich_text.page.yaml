@@ -1,0 +1,23 @@
+version: 1
+rules: v1
+page:
+  name: Acme.RichText_MU
+  template: blank
+  data:
+    status: {service: Acme.Actions.GetStatus, on: load}
+  slots:
+    center:
+      - rich_text:
+          id: header
+          content: '<h2>Acme status</h2>'
+          read_only: true
+          show_toolbar: false
+          font_size: 18
+          size: {fixed: 56}
+      - rich_text:
+          id: details
+          content: {bind: status.result}
+          read_only: false
+          show_toolbar: true
+          font_size: 14px
+          size: fill

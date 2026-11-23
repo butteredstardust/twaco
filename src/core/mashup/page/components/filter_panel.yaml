@@ -1,6 +1,6 @@
 {
   "name": "filter_panel",
-  "source": "PTCSC.IOTCommonMU.AdminPage01_MU",
+  "source": "AdminPage",
   "props": {
     "title": {
       "type": "string",

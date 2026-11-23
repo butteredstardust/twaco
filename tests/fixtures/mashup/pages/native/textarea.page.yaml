@@ -1,0 +1,11 @@
+version: 1
+rules: v1
+page:
+  name: Acme.Native_MU
+  template: blank
+  parameters: {When: DATETIME}
+  data:
+    rows: {service: Acme.Data.GetRows, on: load}
+  slots:
+    center:
+      - textarea: {id: target, label: Notes, hint: Enter notes, value: Acme note, max_length: 500}

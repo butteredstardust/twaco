@@ -1530,14 +1530,14 @@ fn error_page(body: &str, tail: &str) -> String {
 }
 
 #[test]
-fn trend_tiles_carry_value_unit_direction_and_delta_in_one_centred_row() {
+fn trend_tiles_keep_value_unit_direction_and_delta_together_at_the_left() {
     let (_dir, solution) = element_solution();
     let built = compile(&solution, "Acme", &element_fixture("trend_tile")).unwrap();
     let card = element_props(&built, "total");
     assert_eq!(card["align-items"], "stretch");
     assert_eq!(card["flex-direction"], "column");
     let figure = element_props(&built, "total--figure");
-    assert_eq!(figure["justify-content"], "center");
+    assert_eq!(figure["justify-content"], "flex-start");
     assert_eq!(figure["align-items"], "center");
     assert_eq!(
         element_props(&built, "total--value")["LabelType"],
@@ -1888,7 +1888,7 @@ fn combined_chart_row_is_equal_and_page_owns_overflow_through_pagination() {
         let props = &doc.at(&path)["Properties"];
         assert_eq!(props["flex-grow"], 1);
         assert_eq!(props["flex-basis"], "0px");
-        assert_eq!(element_props(&built, id)["LegendPosition"], "bottom");
+        assert_eq!(element_props(&built, id)["LegendPosition"], "top");
     }
     assert!(parents.windows(2).all(|p| p[0] == p[1]));
     let pager = doc.find_exact(&built.ids["pages"]).unwrap();
@@ -1933,7 +1933,7 @@ fn field_only_filter_reserves_280px_and_keeps_footer_and_dates_inside() {
     assert_eq!(
         doc.root_properties()["StyleProperties"]["data"][&column.id]["parts"]["$"]["$"]
             ["max-height"],
-        "calc(100vh - 48px)"
+        "100vh"
     );
 }
 
@@ -2042,8 +2042,11 @@ fn combo_secondary_axis_uses_native_axis_count_and_series_title() {
     assert_eq!(props["YAxis2Label"], "Throughput");
     assert_eq!(props["HideYAxis2"], false);
     assert_eq!(props["DisableLegendGrouping"], true);
-    assert_eq!(props["LegendPosition"], "bottom");
-    assert_eq!(props["HideLegend"], false);
+    assert_eq!(props["LegendPosition"], "top");
+    assert_eq!(
+        props["HideLegend"], true,
+        "one series: kit charts hide the legend"
+    );
     let built = compile(&solution, "Acme", &text.replace(", title: Throughput", "")).unwrap();
     assert_eq!(element_props(&built, "c")["YAxis2Label"], "Count");
     let built = compile(&solution, "Acme", &text.replace("secondary", "primary")).unwrap();
@@ -2104,7 +2107,7 @@ fn sparkline_binds_service_rows_and_overrides_the_theme_height_floor() {
     assert!(props.get("YAxisMaximumValues").is_none());
     assert_eq!(
         element_props(&built, "t--figure")["flex-min-height"],
-        "56px"
+        "40px"
     );
     assert_eq!(element_props(&built, "t--figure")["flex-shrink"], 0);
     assert!(!doc.widgets().iter().any(|w| w.type_id == "expression2"));
@@ -2911,9 +2914,14 @@ fn narrow_columns_bound_search_widths_and_titled_collapsible_filter_rows() {
         }
     }
     let controls = doc.at(&fields.path)["Widgets"].as_array().unwrap();
-    assert_eq!(controls.len(), 3);
-    assert_eq!(controls[0]["Properties"]["LabelText"], "Filter");
-    assert_eq!(controls[0]["Properties"]["Margin"], "16");
+    assert_eq!(controls.len(), 2);
+    let header = doc
+        .widgets()
+        .into_iter()
+        .find(|w| w.display_name == "filter-title")
+        .unwrap();
+    assert_eq!(doc.at(&header.path)["Properties"]["LabelText"], "Filter");
+    assert_eq!(doc.at(&header.path)["Properties"]["Margin"], "12 40 12 20");
     assert!(controls
         .iter()
         .all(|c| c["Properties"]["Type"] != "flexcontainer"));
@@ -3729,7 +3737,7 @@ fn kit_structure_fixtures_derive_readable_specs_that_rebuild_the_same_shape() {
             ],
             "section_gallery" => &["card:", "align: center", "text_field:"],
             "admin_shell" => &["toolbar:", "spacer:", "chart:", "kpi_row:", "weight: 2"],
-            "tabs_page" => &["tabs:", "type: expression2", "bind:"],
+            "tabs_page" => &["tabs:", "expression:", "bind:"],
             _ => panic!("uncovered fixture {stem}"),
         };
         for needle in expected {
@@ -3739,13 +3747,7 @@ fn kit_structure_fixtures_derive_readable_specs_that_rebuild_the_same_shape() {
                 derived.spec
             );
         }
-        let raw: &[(&str, usize)] = match stem {
-            "tabs_page" => &[("expression2", 1)],
-            "filter_column" => &[("ptcspagination", 1)],
-            "section_gallery" => &[("ptcsdatepicker", 1)],
-            _ => &[],
-        };
-        let raw: BTreeMap<String, usize> = raw.iter().map(|(k, n)| (k.to_string(), *n)).collect();
+        let raw: BTreeMap<String, usize> = BTreeMap::new();
         assert_eq!(derived.raw_types, raw, "{stem}");
     }
 }
@@ -3850,7 +3852,7 @@ fn all_acme_bench_sources_extract_and_rebuild_exactly() {
         std::fs::remove_file(&baseline_path).unwrap();
         count += 1;
     }
-    assert_eq!(count, 14);
+    assert_eq!(count, 15);
     assert_eq!(rebuilt_count, 6);
 }
 
@@ -4497,7 +4499,7 @@ fn tokens_s_fixture_compiles_with_native_theme_and_finished_blocks() {
     let band = doc.find_exact(&built.ids["ticker--band"]).unwrap();
     assert_eq!(&ticker.path[..ticker.path.len() - 1], band.path);
     assert_eq!(doc.at(&band.path)["Properties"]["flex-direction"], "row");
-    assert_eq!(doc.at(&band.path)["Properties"]["align-items"], "stretch");
+    assert_eq!(doc.at(&band.path)["Properties"]["align-items"], "center");
     assert_eq!(doc.at(&band.path)["Properties"]["flex-max-height"], "");
     assert_eq!(
         doc.at(&ticker.path)["Properties"]["LabelText"],
@@ -4671,3 +4673,18 @@ fn default_tokens_keep_css_keywords_and_block_layout_sizes() {
             .unwrap_or_else(|e| panic!("size {size}: {e}"));
     }
 }
+
+#[path = "native_tests.rs"]
+mod native;
+
+#[path = "kit_fidelity_tests.rs"]
+mod kit_fidelity;
+
+#[path = "adopt_tests.rs"]
+mod adopt;
+
+#[path = "wiring_tests.rs"]
+mod wiring;
+
+#[path = "master_tests.rs"]
+mod master_tests;

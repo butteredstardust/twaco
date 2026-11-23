@@ -37,8 +37,10 @@ radius:
   md: 8px
   lg: 12px
   default: md
+  card: md
 border:
   width: 1px
 shadow:
-  sm: 0 1px 3px #0000001A
-  md: 0 4px 8px #0000001A
+  card: sm
+  sm: '0 1px 3px #0000001A'
+  md: '0 4px 8px #0000001A'

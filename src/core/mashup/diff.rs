@@ -1,7 +1,8 @@
 //! Semantic, ID-insensitive mashup comparison.
 //!
 //! Composer and twaco allocate widget ids and UUIDs freely. The comparator pairs widgets by
-//! aligning sibling types, gives each pair one name, and drops the UUIDs nothing refers to.
+//! aligning sibling types through single wrapper levels, gives each pair one name, and drops
+//! the UUIDs nothing refers to.
 //! Sibling order is layout and is kept; bindings, events and calls are compared without order,
 //! since ThingWorx does not depend on it.
 
@@ -9,7 +10,7 @@ use crate::core::config::Solution;
 use crate::core::{mashup, workspace};
 use serde::Serialize;
 use serde_json::{Map, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// The semantic part of a mashup to report.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -262,7 +263,7 @@ pub(crate) fn compare(
         &mut differences,
     );
     for key in ["DataBindings", "Events"] {
-        compare_unordered(left.get(key), right.get(key), key, &mut differences);
+        compare_unordered(&left, &right, key, &mut differences);
     }
     compare_other_top_level(&left, &right, &mut differences);
     compare_css(left_css, right_css, &mut differences);
@@ -289,20 +290,21 @@ pub(crate) fn compare(
     }
 }
 
-/// Both documents with widget ids replaced by shared canonical names and the unreferenced
-/// identity `Id`s of data sections, calls, bindings and events removed.
-///
-/// Siblings are paired by aligning their type sequences (longest common subsequence), so one
-/// extra container does not shift every later widget; a paired widget gets the same `wN` on both
-/// sides, an unpaired one `a:<id>` or `b:<id>`.
+#[derive(Default)]
+struct WidgetIds {
+    names: BTreeMap<String, String>,
+    wrappers: BTreeSet<String>,
+}
+
+/// Shared widget names, with single wrapper levels bypassed and unreferenced identities removed.
 fn normalise_pair(left: &Value, right: &Value) -> (Value, Value) {
-    let mut left_ids = BTreeMap::new();
-    let mut right_ids = BTreeMap::new();
+    let mut left_ids = WidgetIds::default();
+    let mut right_ids = WidgetIds::default();
     let mut next = 1;
     match (left.get("UI"), right.get("UI")) {
         (Some(l), Some(r)) => pair_ids(l, r, true, &mut next, &mut left_ids, &mut right_ids),
-        (Some(l), None) => unpaired_ids(l, "a", &mut left_ids),
-        (None, Some(r)) => unpaired_ids(r, "b", &mut right_ids),
+        (Some(l), None) => unpaired_ids(l, "a", &mut left_ids.names),
+        (None, Some(r)) => unpaired_ids(r, "b", &mut right_ids.names),
         (None, None) => {}
     }
     let mut left = left.clone();
@@ -369,9 +371,26 @@ fn pair_ids(
     right: &Value,
     root: bool,
     next: &mut usize,
-    left_ids: &mut BTreeMap<String, String>,
-    right_ids: &mut BTreeMap<String, String>,
+    left_ids: &mut WidgetIds,
+    right_ids: &mut WidgetIds,
 ) {
+    if let Some(is_left) = node_wrapper_side(left, right) {
+        let (wrapper, ids, side) = if is_left {
+            (left, &mut *left_ids, "a")
+        } else {
+            (right, &mut *right_ids, "b")
+        };
+        if let Some(id) = widget_id(wrapper) {
+            ids.names.insert(id.to_string(), format!("{side}:{id}"));
+            ids.wrappers.insert(id.to_string());
+        }
+        if is_left {
+            pair_ids(&children(left)[0], right, root, next, left_ids, right_ids);
+        } else {
+            pair_ids(left, &children(right)[0], root, next, left_ids, right_ids);
+        }
+        return;
+    }
     let name = if root {
         mashup::edit::ROOT_ID.to_string()
     } else {
@@ -380,17 +399,36 @@ fn pair_ids(
         name
     };
     if let Some(id) = widget_id(left) {
-        left_ids.insert(id.to_string(), name.clone());
+        left_ids.names.insert(id.to_string(), name.clone());
     }
     if let Some(id) = widget_id(right) {
-        right_ids.insert(id.to_string(), name);
+        right_ids.names.insert(id.to_string(), name);
     }
+    let (left, right) = match wrapper_side(left, right) {
+        Some(true) => {
+            let wrapper = &children(left)[0];
+            if let Some(id) = widget_id(wrapper) {
+                left_ids.names.insert(id.to_string(), format!("a:{id}"));
+                left_ids.wrappers.insert(id.to_string());
+            }
+            (wrapper, right)
+        }
+        Some(false) => {
+            let wrapper = &children(right)[0];
+            if let Some(id) = widget_id(wrapper) {
+                right_ids.names.insert(id.to_string(), format!("b:{id}"));
+                right_ids.wrappers.insert(id.to_string());
+            }
+            (left, wrapper)
+        }
+        None => (left, right),
+    };
     let (lc, rc) = (children(left), children(right));
     for pair in align(lc, rc) {
         match pair {
             (Some(i), Some(j)) => pair_ids(&lc[i], &rc[j], false, next, left_ids, right_ids),
-            (Some(i), None) => unpaired_ids(&lc[i], "a", left_ids),
-            (None, Some(j)) => unpaired_ids(&rc[j], "b", right_ids),
+            (Some(i), None) => unpaired_ids(&lc[i], "a", &mut left_ids.names),
+            (None, Some(j)) => unpaired_ids(&rc[j], "b", &mut right_ids.names),
             (None, None) => {}
         }
     }
@@ -436,7 +474,93 @@ fn align(left: &[Value], right: &[Value]) -> Vec<(Option<usize>, Option<usize>)>
     pairs
 }
 
-fn rewrite_widget_ids(value: &mut Value, ids: &BTreeMap<String, String>) {
+fn tree_size(widget: &Value) -> usize {
+    1 + children(widget).iter().map(tree_size).sum::<usize>()
+}
+
+fn shape_distance(left: &Value, right: &Value) -> usize {
+    let (lc, rc) = (children(left), children(right));
+    align(lc, rc)
+        .into_iter()
+        .map(|pair| match pair {
+            (Some(i), Some(j)) => shape_distance(&lc[i], &rc[j]),
+            (Some(i), None) => tree_size(&lc[i]),
+            (None, Some(j)) => tree_size(&rc[j]),
+            (None, None) => 0,
+        })
+        .sum()
+}
+
+fn same_widget(left: &Value, right: &Value) -> bool {
+    let named = |widget: &Value| {
+        widget
+            .pointer("/Properties/DisplayName")
+            .filter(|name| name.as_str().is_some_and(|name| !name.is_empty()))
+            .cloned()
+    };
+    widget_type(left) == widget_type(right)
+        && ((widget_id(left).is_some() && widget_id(left) == widget_id(right))
+            || (named(left).is_some() && named(left) == named(right)))
+}
+
+fn better_wrapper_side(l: Option<usize>, r: Option<usize>, direct: usize) -> Option<bool> {
+    let l = l.filter(|score| *score < direct);
+    let r = r.filter(|score| *score < direct);
+    match (l, r) {
+        (Some(l), Some(r)) if l == r => None,
+        (Some(l), Some(r)) => Some(l < r),
+        (Some(_), None) => Some(true),
+        (None, Some(_)) => Some(false),
+        (None, None) => None,
+    }
+}
+
+fn node_wrapper_side(left: &Value, right: &Value) -> Option<bool> {
+    if widget_type(left) != Some("flexcontainer")
+        || widget_type(right) != Some("flexcontainer")
+        || same_widget(left, right)
+    {
+        return None;
+    }
+    let through = |wrapper: &Value, other: &Value| match children(wrapper) {
+        [child] if widget_type(child) == Some("flexcontainer") => {
+            Some(shape_distance(child, other))
+        }
+        _ => None,
+    };
+    better_wrapper_side(
+        through(left, right),
+        through(right, left),
+        shape_distance(left, right),
+    )
+}
+
+/// Look through a sole wrapper child only when its children fit the other parent better.
+fn wrapper_side(left: &Value, right: &Value) -> Option<bool> {
+    let container =
+        |widget: &Value| matches!(widget_type(widget), Some("flexcontainer" | "mashup"));
+    if !container(left) || !container(right) {
+        return None;
+    }
+    if let ([l], [r]) = (children(left), children(right)) {
+        if same_widget(l, r) {
+            return None;
+        }
+    }
+    let through = |wrapper: &Value, other: &Value| match children(wrapper) {
+        [child] if widget_type(child) == Some("flexcontainer") && !children(child).is_empty() => {
+            Some(shape_distance(child, other))
+        }
+        _ => None,
+    };
+    better_wrapper_side(
+        through(left, right),
+        through(right, left),
+        shape_distance(left, right),
+    )
+}
+
+fn rewrite_widget_ids(value: &mut Value, ids: &WidgetIds) {
     rewrite_widget_tree(value.get_mut("UI"), ids);
     for binding in value
         .get_mut("DataBindings")
@@ -445,10 +569,10 @@ fn rewrite_widget_ids(value: &mut Value, ids: &BTreeMap<String, String>) {
         .flatten()
     {
         if binding["SourceArea"].as_str() == Some("UI") {
-            rewrite_field(binding, "SourceId", ids);
+            rewrite_field(binding, "SourceId", &ids.names);
         }
         if binding["TargetArea"].as_str() == Some("UI") {
-            rewrite_field(binding, "TargetId", ids);
+            rewrite_field(binding, "TargetId", &ids.names);
         }
     }
     for event in value
@@ -458,28 +582,30 @@ fn rewrite_widget_ids(value: &mut Value, ids: &BTreeMap<String, String>) {
         .flatten()
     {
         if event["EventTriggerArea"].as_str() == Some("UI") {
-            rewrite_field(event, "EventTriggerId", ids);
+            rewrite_field(event, "EventTriggerId", &ids.names);
         }
         if event["EventHandlerArea"].as_str() == Some("UI") {
-            rewrite_field(event, "EventHandlerId", ids);
+            rewrite_field(event, "EventHandlerId", &ids.names);
         }
     }
 }
 
-fn rewrite_widget_tree(value: Option<&mut Value>, ids: &BTreeMap<String, String>) {
+fn rewrite_widget_tree(value: Option<&mut Value>, ids: &WidgetIds) {
     let Some(value) = value else { return };
     // The root's StyleProperties keep each styled widget's parts under its id. Composer leaves
     // the entries of removed widgets behind; they style nothing.
     if let Some(Value::Object(styled)) = value.pointer_mut("/Properties/StyleProperties/data") {
         let renamed: Map<String, Value> = std::mem::take(styled)
             .into_iter()
-            .filter_map(|(id, parts)| ids.get(&id).map(|name| (name.clone(), parts)))
+            // Wrapper presence already accounts for its own styling.
+            .filter(|(id, _)| !ids.wrappers.contains(id))
+            .filter_map(|(id, parts)| ids.names.get(&id).map(|name| (name.clone(), parts)))
             .collect();
         *styled = renamed;
     }
     if let Some(properties) = value.get_mut("Properties") {
-        rewrite_field(properties, "Id", ids);
-        rewrite_field(properties, "LastContainer", ids);
+        rewrite_field(properties, "Id", &ids.names);
+        rewrite_field(properties, "LastContainer", &ids.names);
     }
     for child in value
         .get_mut("Widgets")
@@ -582,50 +708,218 @@ fn canonical(value: &Value) -> String {
     sorted(value).to_string()
 }
 
-/// Bindings and events compared as multisets, since their order means nothing to ThingWorx.
-/// Each entry the other side lacks is one difference, at its index on the side that has it.
-fn compare_unordered(
-    left: Option<&Value>,
-    right: Option<&Value>,
-    key: &str,
-    differences: &mut Vec<Difference>,
-) {
-    let items =
-        |value: Option<&Value>| value.and_then(Value::as_array).cloned().unwrap_or_default();
-    let (left, right) = (items(left), items(right));
-    let mut unmatched: Vec<Option<String>> =
-        right.iter().map(|item| Some(canonical(item))).collect();
-    let mut left_only = Vec::new();
-    for (i, item) in left.iter().enumerate() {
-        let text = canonical(item);
-        match unmatched
-            .iter()
-            .position(|other| other.as_deref() == Some(text.as_str()))
+/// Pair wiring by endpoints, retaining duplicate multiplicity and changes to binding metadata.
+fn compare_unordered(left: &Value, right: &Value, key: &str, differences: &mut Vec<Difference>) {
+    let grouped = |document: &Value| {
+        let mut groups: BTreeMap<String, Vec<Value>> = BTreeMap::new();
+        for item in document
+            .get(key)
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
         {
-            Some(j) => unmatched[j] = None,
-            None => left_only.push(i),
+            groups
+                .entry(wiring_key(item, key))
+                .or_default()
+                .push(item.clone());
         }
-    }
-    for i in left_only {
-        push(
-            DifferenceTier::Executable,
-            format!("{key}[{i}]"),
-            Some(left[i].clone()),
-            None,
-            differences,
-        );
-    }
-    for (j, rest) in unmatched.iter().enumerate() {
-        if rest.is_some() {
+        for items in groups.values_mut() {
+            items.sort_by_key(canonical);
+        }
+        groups
+    };
+    let mut left_groups = grouped(left);
+    let mut right_groups = grouped(right);
+    let keys: std::collections::BTreeSet<_> = left_groups
+        .keys()
+        .chain(right_groups.keys())
+        .cloned()
+        .collect();
+    for identity in keys {
+        let mut l = left_groups.remove(&identity).unwrap_or_default();
+        let mut r = right_groups.remove(&identity).unwrap_or_default();
+        l.retain(|item| match r.iter().position(|other| item == other) {
+            Some(index) => {
+                r.remove(index);
+                false
+            }
+            None => true,
+        });
+        for index in 0..l.len().max(r.len()) {
+            let (li, ri) = (l.get(index), r.get(index));
+            let (item, document) = li
+                .map(|item| (item, left))
+                .or_else(|| ri.map(|item| (item, right)))
+                .expect("unmatched wiring");
             push(
                 DifferenceTier::Executable,
-                format!("{key}[{j}]"),
-                None,
-                Some(right[j].clone()),
+                format!("{key}: {}", wiring_description(item, document, key)),
+                li.map(|item| readable_wiring(item, left, key)),
+                ri.map(|item| readable_wiring(item, right, key)),
                 differences,
             );
         }
     }
+}
+
+fn wiring_key(item: &Value, key: &str) -> String {
+    let fields: &[&str] = if key == "DataBindings" {
+        &[
+            "SourceArea",
+            "SourceId",
+            "SourceSection",
+            "SourceProperty",
+            "TargetArea",
+            "TargetId",
+            "TargetSection",
+            "TargetProperty",
+        ]
+    } else {
+        &[
+            "EventTriggerArea",
+            "EventTriggerId",
+            "EventTriggerSection",
+            "EventTriggerEvent",
+            "EventHandlerArea",
+            "EventHandlerId",
+            "EventHandlerSection",
+            "EventHandlerService",
+        ]
+    };
+    let mut identity: Vec<Value> = fields.iter().map(|field| item[*field].clone()).collect();
+    if key == "DataBindings" {
+        identity.push(Value::Array(
+            item.get("PropertyMaps")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .map(|map| {
+                    Value::Array(vec![
+                        map["SourceProperty"].clone(),
+                        map["TargetProperty"].clone(),
+                    ])
+                })
+                .collect(),
+        ));
+    }
+    canonical(&Value::Array(identity))
+}
+
+fn widget_description(widget: &Value) -> String {
+    let type_id = widget_type(widget).unwrap_or("unknown widget");
+    match widget
+        .pointer("/Properties/DisplayName")
+        .and_then(Value::as_str)
+        .filter(|name| !name.is_empty())
+    {
+        Some(name) => format!("{name} ({type_id})"),
+        None => type_id.to_string(),
+    }
+}
+
+fn find_widget<'a>(widget: &'a Value, id: &str) -> Option<&'a Value> {
+    if widget_id(widget) == Some(id) {
+        Some(widget)
+    } else {
+        children(widget)
+            .iter()
+            .find_map(|child| find_widget(child, id))
+    }
+}
+
+fn endpoint(document: &Value, area: &Value, id: &Value, section: &Value, member: &Value) -> String {
+    let (area, id, section) = (
+        area.as_str().unwrap_or("unknown"),
+        id.as_str().unwrap_or(""),
+        section.as_str().unwrap_or(""),
+    );
+    let mut description = match area {
+        "UI" => document
+            .get("UI")
+            .and_then(|ui| find_widget(ui, id))
+            .map(widget_description)
+            .unwrap_or_else(|| format!("missing widget {id}")),
+        "Mashup" => "mashup".to_string(),
+        "Data" => format!(
+            "data:{section}{}{id}",
+            if section.is_empty() { "" } else { "." }
+        ),
+        _ => format!("{area}:{id}"),
+    };
+    if area != "Data" && !section.is_empty() {
+        description.push_str(&format!(".{section}"));
+    }
+    if let Some(member) = member.as_str() {
+        if member.is_empty() {
+            description.push_str(" (whole result)");
+        } else {
+            description.push_str(&format!(".{member}"));
+        }
+    }
+    description
+}
+
+fn wiring_description(item: &Value, document: &Value, key: &str) -> String {
+    if key == "DataBindings" {
+        let map = item
+            .get("PropertyMaps")
+            .and_then(Value::as_array)
+            .and_then(|maps| maps.first())
+            .unwrap_or(item);
+        let source = endpoint(
+            document,
+            &item["SourceArea"],
+            &item["SourceId"],
+            &item["SourceSection"],
+            &map["SourceProperty"],
+        );
+        let target = endpoint(
+            document,
+            &item["TargetArea"],
+            &item["TargetId"],
+            &item["TargetSection"],
+            &map["TargetProperty"],
+        );
+        format!("{source} -> {target}")
+    } else {
+        let trigger = endpoint(
+            document,
+            &item["EventTriggerArea"],
+            &item["EventTriggerId"],
+            &item["EventTriggerSection"],
+            &item["EventTriggerEvent"],
+        );
+        let handler = endpoint(
+            document,
+            &item["EventHandlerArea"],
+            &item["EventHandlerId"],
+            &item["EventHandlerSection"],
+            &item["EventHandlerService"],
+        );
+        format!("{trigger} -> {handler}")
+    }
+}
+
+fn readable_wiring(item: &Value, document: &Value, key: &str) -> Value {
+    let mut item = item.clone();
+    let ends = if key == "DataBindings" {
+        ["Source", "Target"]
+    } else {
+        ["EventTrigger", "EventHandler"]
+    };
+    for end in ends {
+        if item[format!("{end}Area")] == "UI" {
+            let field = format!("{end}Id");
+            item[&field] = Value::String(endpoint(
+                document,
+                &item[&format!("{end}Area")],
+                &item[&field],
+                &Value::Null,
+                &Value::Null,
+            ));
+        }
+    }
+    item
 }
 
 fn compare_ui(left: &Value, right: &Value, differences: &mut Vec<Difference>) {
@@ -650,6 +944,18 @@ fn compare_children(
     right_responsive: bool,
     differences: &mut Vec<Difference>,
 ) {
+    let (left, right, left_responsive, right_responsive) =
+        if let Some(is_left) = wrapper_side(left, right) {
+            let wrapper = &children(if is_left { left } else { right })[0];
+            missing_wrapper(wrapper, parent_path, is_left, differences);
+            if is_left {
+                (wrapper, right, responsive(wrapper), right_responsive)
+            } else {
+                (left, wrapper, left_responsive, responsive(wrapper))
+            }
+        } else {
+            (left, right, left_responsive, right_responsive)
+        };
     let (lc, rc) = (children(left), children(right));
     for pair in align(lc, rc) {
         match pair {
@@ -687,6 +993,23 @@ fn missing_widget(
     });
 }
 
+fn missing_wrapper(
+    widget: &Value,
+    parent_path: &str,
+    is_left: bool,
+    differences: &mut Vec<Difference>,
+) {
+    let action = if is_left { "removed" } else { "added" };
+    let description = widget_description(widget);
+    push(
+        DifferenceTier::Layout,
+        format!("{parent_path}/{action} wrapper {description}"),
+        is_left.then(|| Value::String(description.clone())),
+        (!is_left).then_some(Value::String(description)),
+        differences,
+    );
+}
+
 fn compare_widget(
     left: &Value,
     right: &Value,
@@ -695,6 +1018,30 @@ fn compare_widget(
     right_parent_responsive: bool,
     differences: &mut Vec<Difference>,
 ) {
+    if let Some(is_left) = node_wrapper_side(left, right) {
+        let wrapper = if is_left { left } else { right };
+        missing_wrapper(wrapper, parent_path, is_left, differences);
+        if is_left {
+            compare_widget(
+                &children(left)[0],
+                right,
+                parent_path,
+                responsive(left),
+                right_parent_responsive,
+                differences,
+            );
+        } else {
+            compare_widget(
+                left,
+                &children(right)[0],
+                parent_path,
+                left_parent_responsive,
+                responsive(right),
+                differences,
+            );
+        }
+        return;
+    }
     let path = widget_path(parent_path, left);
     // `align` pairs only widgets of one type; a changed type is a removal plus an addition.
     let function = widget_type(left)
@@ -1340,7 +1687,278 @@ mod tests {
         right["DataBindings"] = json!([one.clone(), one]);
         let result = compare("a", "b", &left, &right, None, None, Tier::All);
         let paths: Vec<_> = result.differences.iter().map(|d| d.path.as_str()).collect();
-        assert_eq!(paths, ["DataBindings[1]"]);
+        assert_eq!(paths, ["DataBindings: data:GetA -> mashup"]);
+    }
+
+    fn wired_labels(side: &str, count: usize) -> Value {
+        let mut content = mashup(Value::Array(
+            (0..count)
+                .map(|i| {
+                    widget(
+                        &format!("{side}-label-{i}"),
+                        "ptcslabel",
+                        json!({"DisplayName": format!("Acme value {i}")}),
+                        json!([]),
+                    )
+                })
+                .collect(),
+        ));
+        content["DataBindings"] = Value::Array(
+            (0..count)
+                .map(|i| {
+                    json!({"SourceArea": "Data", "SourceSection": "Things_Acme.Manager",
+                        "SourceId": format!("GetValue{i}"), "TargetArea": "UI",
+                        "TargetId": format!("{side}-label-{i}"),
+                        "PropertyMaps": [{"SourceProperty": "result", "TargetProperty": "LabelText"}]})
+                })
+                .collect(),
+        );
+        content
+    }
+
+    #[test]
+    fn ten_reordered_bindings_pair_by_both_endpoints() {
+        let left = wired_labels("a", 10);
+        let mut right = wired_labels("b", 10);
+        right["DataBindings"].as_array_mut().unwrap().reverse();
+        assert!(compare("a", "b", &left, &right, None, None, Tier::All).equal);
+        right["DataBindings"].as_array_mut().unwrap().remove(4);
+        let result = compare("a", "b", &left, &right, None, None, Tier::All);
+        assert_eq!(result.summary.executable, 1);
+        assert_eq!(result.differences.len(), 1);
+        let report = render(&result);
+        assert!(report.contains("Acme.Manager"), "{report}");
+        assert!(report.contains("GetValue5"), "{report}");
+        assert!(report.contains("Acme value 5 (ptcslabel)"), "{report}");
+        assert!(report.contains("LabelText"), "{report}");
+        assert!(!report.contains("a-label-5"), "{report}");
+        assert!(result.differences[0].left.is_some());
+        assert!(result.differences[0].right.is_none());
+        let mut reordered = left.clone();
+        reordered["DataBindings"].as_array_mut().unwrap().reverse();
+        let same_loss = compare("a", "b", &reordered, &right, None, None, Tier::All);
+        assert_eq!(
+            serde_json::to_value(&result).unwrap(),
+            serde_json::to_value(&same_loss).unwrap()
+        );
+    }
+
+    #[test]
+    fn two_services_into_one_label_keep_distinct_binding_keys() {
+        let mut left = wired_labels("a", 1);
+        let mut other = left["DataBindings"][0].clone();
+        other["SourceId"] = json!("GetOtherValue");
+        left["DataBindings"].as_array_mut().unwrap().push(other);
+        let right = wired_labels("b", 1);
+        let result = compare("a", "b", &left, &right, None, None, Tier::All);
+        assert_eq!(result.summary.executable, 1);
+        let report = render(&result);
+        assert!(report.contains("GetOtherValue"), "{report}");
+        assert!(report.contains("Acme value 0 (ptcslabel)"), "{report}");
+    }
+
+    #[test]
+    fn reordered_events_pair_widget_and_data_endpoints() {
+        let events = |side: &str| {
+            json!([
+                {"EventTriggerArea": "UI", "EventTriggerId": format!("{side}-label-0"),
+                 "EventTriggerEvent": "Clicked", "EventHandlerArea": "Data",
+                 "EventHandlerId": "Things_Acme.Manager", "EventHandlerService": "GetValue"},
+                {"EventTriggerArea": "Data", "EventTriggerSection": "Things_Acme.Manager",
+                 "EventTriggerId": "GetValue", "EventTriggerEvent": "ServiceInvokeCompleted",
+                 "EventHandlerArea": "UI", "EventHandlerId": format!("{side}-label-1"),
+                 "EventHandlerService": "Reset"}
+            ])
+        };
+        let mut left = wired_labels("a", 2);
+        left["Events"] = events("a");
+        let mut right = wired_labels("b", 2);
+        right["Events"] = events("b");
+        right["Events"].as_array_mut().unwrap().reverse();
+        assert!(compare("a", "b", &left, &right, None, None, Tier::All).equal);
+        right["Events"].as_array_mut().unwrap().remove(0);
+        let result = compare("a", "b", &left, &right, None, None, Tier::All);
+        assert_eq!(result.summary.executable, 1);
+        let report = render(&result);
+        for endpoint in [
+            "Acme.Manager",
+            "GetValue",
+            "ServiceInvokeCompleted",
+            "Acme value 1 (ptcslabel)",
+            "Reset",
+        ] {
+            assert!(report.contains(endpoint), "{report}");
+        }
+    }
+
+    #[test]
+    fn an_extra_root_wrapper_pairs_children_and_their_wiring_in_both_directions() {
+        let wrap = |id: &str, name: &str, widgets: Value| {
+            widget(
+                id,
+                "flexcontainer",
+                json!({"DisplayName": name, "ResponsiveLayout": true}),
+                widgets,
+            )
+        };
+        let mut left = wired_labels("a", 2);
+        left["Events"] = json!([{"EventTriggerArea": "UI", "EventTriggerId": "a-label-0",
+            "EventTriggerEvent": "Clicked", "EventHandlerArea": "UI", "EventHandlerId": "a-label-1", "EventHandlerService": "Reset"}]);
+        left["UI"]["Properties"]["StyleProperties"] =
+            json!({"data": {"a-label-0": {"widget": "ptcslabel"}}, "meta": {}});
+        left["UI"]["Widgets"] = json!([wrap(
+            "a-content",
+            "Acme content",
+            left["UI"]["Widgets"].clone()
+        )]);
+        let mut right = wired_labels("b", 2);
+        right["Events"] = json!([{"EventTriggerArea": "UI", "EventTriggerId": "b-label-0",
+            "EventTriggerEvent": "Clicked", "EventHandlerArea": "UI", "EventHandlerId": "b-label-1", "EventHandlerService": "Reset"}]);
+        right["UI"]["Properties"]["StyleProperties"] = json!({"data": {
+            "b-label-0": {"widget": "ptcslabel"}, "b-wrapper": {"widget": "flex-container"}}, "meta": {}});
+        right["UI"]["Widgets"] = json!([wrap(
+            "b-wrapper",
+            "Acme wrapper",
+            json!([wrap(
+                "b-content",
+                "Acme content",
+                right["UI"]["Widgets"].clone()
+            )])
+        )]);
+        for (left, right, action) in [(&left, &right, "added"), (&right, &left, "removed")] {
+            let result = compare("a", "b", left, right, None, None, Tier::All);
+            assert_eq!(result.summary.layout, 1, "{:?}", result.differences);
+            assert_eq!(result.summary.executable, 0, "{:?}", result.differences);
+            assert_eq!(result.summary.visual, 0, "{:?}", result.differences);
+            assert!(result.differences[0]
+                .path
+                .contains(&format!("{action} wrapper Acme wrapper")));
+            let selected = compare("a", "b", left, right, None, None, Tier::Executable);
+            assert!(selected.equal);
+            assert_eq!(selected.summary.layout, 1);
+        }
+        right["UI"]["Widgets"][0]["Widgets"][0]["Widgets"][0]["Properties"]["LabelText"] =
+            json!("Acme changed value");
+        let changed = compare("a", "b", &left, &right, None, None, Tier::All);
+        assert_eq!(changed.summary.layout, 1);
+        assert_eq!(changed.summary.visual, 1);
+        assert_eq!(changed.summary.executable, 0);
+    }
+
+    #[test]
+    fn a_wrapper_directly_under_the_mashup_root_keeps_leaf_bindings_paired() {
+        let left = wired_labels("a", 2);
+        let mut right = wired_labels("b", 2);
+        right["UI"]["Widgets"] = json!([widget(
+            "b-wrapper",
+            "flexcontainer",
+            json!({"DisplayName": "Acme root wrapper"}),
+            right["UI"]["Widgets"].clone()
+        )]);
+        let result = compare("a", "b", &left, &right, None, None, Tier::All);
+        assert_eq!(result.summary.layout, 1, "{:?}", result.differences);
+        assert_eq!(result.summary.executable, 0, "{:?}", result.differences);
+        assert_eq!(result.summary.visual, 0, "{:?}", result.differences);
+        assert_eq!(
+            result.differences[0].path,
+            "UI/added wrapper Acme root wrapper (flexcontainer)"
+        );
+    }
+
+    #[test]
+    fn an_inner_wrapper_keeps_the_existing_container_paired() {
+        let mut left = wired_labels("a", 2);
+        let mut right = wired_labels("b", 2);
+        let container = |id: &str, widgets: Value| {
+            widget(
+                id,
+                "flexcontainer",
+                json!({"DisplayName": "Acme content", "Width": 275}),
+                widgets,
+            )
+        };
+        left["UI"]["Widgets"] = json!([container("a-content", left["UI"]["Widgets"].clone())]);
+        right["UI"]["Widgets"] = json!([container(
+            "b-content",
+            json!([widget(
+                "b-wrapper",
+                "flexcontainer",
+                json!({"DisplayName": "Acme inner wrapper"}),
+                right["UI"]["Widgets"].clone()
+            )])
+        )]);
+        let result = compare("a", "b", &left, &right, None, None, Tier::All);
+        assert_eq!(result.summary.layout, 1, "{:?}", result.differences);
+        assert_eq!(result.summary.executable, 0, "{:?}", result.differences);
+        assert_eq!(result.summary.visual, 0, "{:?}", result.differences);
+        assert_eq!(
+            result.differences[0].path,
+            "UI/w1(flexcontainer)/added wrapper Acme inner wrapper (flexcontainer)"
+        );
+    }
+
+    #[test]
+    fn a_wrapper_beside_a_sibling_pairs_the_retained_container_and_its_references() {
+        let mut left = wired_labels("a", 2);
+        let mut right = wired_labels("b", 2);
+        for (content, side) in [(&mut left, "a"), (&mut right, "b")] {
+            let container = widget(
+                &format!("{side}-content"),
+                "flexcontainer",
+                json!({"DisplayName": "Acme content", "Width": 275}),
+                content["UI"]["Widgets"].clone(),
+            );
+            content["UI"]["Widgets"] = json!([
+                if side == "b" {
+                    widget(
+                        "b-wrapper",
+                        "flexcontainer",
+                        json!({"DisplayName": "Acme wrapper"}),
+                        json!([container]),
+                    )
+                } else {
+                    container
+                },
+                widget(
+                    &format!("{side}-button"),
+                    "ptcsbutton",
+                    json!({}),
+                    json!([])
+                )
+            ]);
+            content["DataBindings"].as_array_mut().unwrap().push(json!({
+                "SourceArea": "UI", "SourceId": format!("{side}-content"),
+                "TargetArea": "UI", "TargetId": format!("{side}-label-0"),
+                "PropertyMaps": [{"SourceProperty": "Width", "TargetProperty": "LabelText"}]
+            }));
+        }
+        for (left, right, action) in [(&left, &right, "added"), (&right, &left, "removed")] {
+            let result = compare("a", "b", left, right, None, None, Tier::All);
+            assert_eq!(result.differences.len(), 1, "{:?}", result.differences);
+            assert_eq!(result.summary.layout, 1);
+            assert_eq!(
+                result.differences[0].path,
+                format!("UI/{action} wrapper Acme wrapper (flexcontainer)")
+            );
+        }
+    }
+
+    #[test]
+    fn endpoint_metadata_changes_pair_once_and_duplicate_order_is_ignored() {
+        let mut left = wired_labels("a", 1);
+        left["DataBindings"][0]["PropertyMaps"][0]["TargetPropertyBaseType"] = json!("STRING");
+        let mut right = wired_labels("b", 1);
+        right["DataBindings"][0]["PropertyMaps"][0]["TargetPropertyBaseType"] = json!("NUMBER");
+        let result = compare("a", "b", &left, &right, None, None, Tier::All);
+        assert_eq!(result.summary.executable, 1);
+        assert!(result.differences[0].left.is_some());
+        assert!(result.differences[0].right.is_some());
+        let mut other = left["DataBindings"][0].clone();
+        other["PropertyMaps"][0]["TargetPropertyBaseType"] = json!("NUMBER");
+        left["DataBindings"].as_array_mut().unwrap().push(other);
+        right = left.clone();
+        right["DataBindings"].as_array_mut().unwrap().reverse();
+        assert!(compare("a", "b", &left, &right, None, None, Tier::All).equal);
     }
 
     #[test]

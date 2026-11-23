@@ -13,6 +13,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 #[derive(Debug)]
 pub(crate) struct Derived {
     pub(crate) spec: String,
+    /// The spec before it was written out, for what refines it.
+    pub(crate) value: Value,
     pub(crate) elements: usize,
     pub(crate) raw: usize,
     pub(crate) raw_types: BTreeMap<String, usize>,
@@ -20,6 +22,7 @@ pub(crate) struct Derived {
     pub(crate) notes: Vec<String>,
 }
 
+#[cfg(test)]
 pub(crate) fn derive(name: &str, content: &str) -> Result<Derived, Error> {
     derive_with_styles(name, content, false)
 }
@@ -29,21 +32,91 @@ pub(crate) fn derive_with_styles(
     content: &str,
     carry_styles: bool,
 ) -> Result<Derived, Error> {
+    derive_as(name, content, carry_styles, false)
+}
+
+/// A spec to adopt a mashup with: nothing is recognised as a composite element, and the
+/// geometry is stated as the mashup has it, so building the spec reproduces the mashup. A mashup
+/// that twaco built with the v1 rules (it carries their marker) is derived as before: its
+/// composites are what the recipes made.
+pub(crate) fn derive_exact(name: &str, content: &str) -> Result<Derived, Error> {
+    derive_as(name, content, false, true)
+}
+
+fn derive_as(name: &str, content: &str, carry_styles: bool, exact: bool) -> Result<Derived, Error> {
     let content: Value =
         serde_json::from_str(content).map_err(|e| Error::at(Location::UNKNOWN, e))?;
+    let exact = exact && content["twacoPageRules"] != "v1";
     let root = content
         .get("UI")
         .ok_or_else(|| Error::at(Location::UNKNOWN, "mashup needs UI"))?;
+    if content["mashupType"] == "targetmashup" {
+        fn hosts(w: &Value) -> usize {
+            usize::from(kind(w) == "pagemashupcontainer")
+                + widgets_of(w).iter().map(hosts).sum::<usize>()
+        }
+        if hosts(root) != 1 {
+            return Err(Error::at(Location::UNKNOWN, format!("{name}: master needs exactly one page_host (pagemashupcontainer) where pages render; repair its page container before deriving")));
+        }
+    }
     let mut run = Run::new(&content);
     run.carry_styles = carry_styles;
+    run.exact = exact;
     let parameters = run.parameters(&root["Properties"]);
-    let slot: Vec<Value> = widgets_of(root)
-        .iter()
-        .map(|w| run.node(w, "column"))
-        .collect();
+    let fresh = fresh_root();
+    // The template's own root container stands for the mashup's: its properties become the page's
+    // `root` and its children the slot, so an adopted page gains no extra level.
+    let template_root = widgets_of(root).first().filter(|w| {
+        is_container(w) && prop(w, "Id").as_str() == fresh.get("Id").and_then(Value::as_str)
+    });
+    let (slot, page_root): (Vec<Value>, Option<Map<String, Value>>) = match template_root {
+        Some(first) => {
+            let direction = if prop(first, "flex-direction") == "column" {
+                "column"
+            } else {
+                "row"
+            };
+            let page_root = run.root_props(first, &fresh);
+            let mut slot: Vec<Value> = widgets_of(first)
+                .iter()
+                .map(|w| run.node(w, direction))
+                .collect();
+            slot.extend(widgets_of(root)[1..].iter().map(|w| run.node(w, "column")));
+            (slot, Some(page_root))
+        }
+        None => (
+            widgets_of(root)
+                .iter()
+                .map(|w| run.node(w, "column"))
+                .collect(),
+            None,
+        ),
+    };
     let mut page = Map::new();
     page.insert("name".into(), json!(name));
+    if content["mashupType"] == "targetmashup" {
+        page.insert("kind".into(), json!("master"));
+        let fresh = crate::core::mashup::templates::master_root();
+        let props: Map<String, Value> = root["Properties"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .filter(|(k, v)| {
+                !matches!(
+                    k.as_str(),
+                    "Id" | "Type" | "id_index" | "_currentParameterDefs"
+                ) && fresh.get(*k) != Some(*v)
+            })
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        if !props.is_empty() {
+            page.insert("props".into(), json!(props));
+        }
+    }
     page.insert("template".into(), json!("blank"));
+    if exact && content["twacoPageRules"] != "v1" {
+        page.insert("layout".into(), json!("as-built"));
+    }
     let props = &root["Properties"];
     if let Some(theme) = props["StyleTheme"]
         .as_str()
@@ -51,16 +124,29 @@ pub(crate) fn derive_with_styles(
     {
         page.insert("theme".into(), json!(theme));
     }
+    if let Some(master) = props["Master"].as_str().filter(|m| !m.is_empty()) {
+        page.insert("master".into(), json!(master));
+    }
+    if props["UseMasterTheme"] == json!(true) {
+        page.insert("use_master_theme".into(), json!(true));
+    }
+    if let Some(page_root) = page_root.filter(|p| !p.is_empty()) {
+        page.insert("root".into(), json!({"props": page_root}));
+    }
     if !parameters.is_empty() {
         page.insert("parameters".into(), Value::Object(parameters));
     }
     let (data, events) = run.wiring();
+    let bindings = run.remaining_bindings();
     if !data.is_empty() {
         page.insert("data".into(), Value::Object(data));
     }
     page.insert("slots".into(), json!({"center": slot}));
     if !events.is_empty() {
         page.insert("events".into(), Value::Array(events));
+    }
+    if !bindings.is_empty() {
+        page.insert("bindings".into(), Value::Array(bindings));
     }
     let mut spec = json!({"version": 1, "rules": "v1", "page": page});
     run.resolve(&mut spec);
@@ -71,16 +157,44 @@ pub(crate) fn derive_with_styles(
         "styles, custom CSS and unsupported wiring are not carried; the build supplies the look"
             .into()
     });
-    let mut text = String::new();
-    block(&spec, 0, &mut text);
+    let text = render(&spec);
     Ok(Derived {
         spec: text,
+        value: spec,
         elements: run.elements,
         raw: run.raw,
         raw_types: run.raw_types,
         widgets: run.widgets,
         notes: run.notes,
     })
+}
+
+/// The properties of the container a fresh page starts with, which a page spec's `root` overrides.
+fn fresh_root() -> Map<String, Value> {
+    let session = crate::core::mashup::authoring::session::Session::new(
+        "Acme.Probe_MU",
+        "Acme",
+        "blank",
+        "PTC Convergence Theme",
+    )
+    .expect("blank template");
+    let path = session.document.find("center").expect("center slot").path;
+    session.document.at(&path)["Properties"]
+        .as_object()
+        .cloned()
+        .unwrap_or_default()
+}
+
+/// The id of the root container every page starts with.
+pub(super) fn root_id() -> String {
+    fresh_root()["Id"].as_str().unwrap_or_default().to_string()
+}
+
+/// A spec as the YAML a person reads.
+pub(super) fn render(spec: &Value) -> String {
+    let mut text = String::new();
+    block(spec, 0, &mut text);
+    text
 }
 
 fn widgets_of(widget: &Value) -> &[Value] {
@@ -134,6 +248,19 @@ fn same(a: &Value, b: &Value) -> bool {
             && a.to_string().trim_matches('"') == b.to_string().trim_matches('"')
 }
 
+/// Whether a display name is the one placement gives a widget: a word and the id's number.
+fn generated_name(widget: &Value, name: &Value) -> bool {
+    let number = prop(widget, "Id")
+        .as_str()
+        .and_then(|id| id.rsplit('-').next())
+        .unwrap_or("");
+    name.as_str().is_some_and(|name| {
+        name.rsplit_once('-').is_some_and(|(stem, n)| {
+            n == number && stem.chars().all(|c| c.is_ascii_alphabetic() || c == '-')
+        })
+    })
+}
+
 fn noise(key: &str) -> bool {
     matches!(
         key,
@@ -181,6 +308,9 @@ fn inputs(widget: &Value) -> Vec<String> {
 /// widget declares.
 fn known_property(widget: &Value, property: &str) -> bool {
     let type_id = kind(widget);
+    if crate::core::mashup::authoring::function_property(widget, type_id, property).is_some() {
+        return true;
+    }
     if inputs(widget)
         .iter()
         .any(|i| i.split(':').next() == Some(property))
@@ -243,12 +373,19 @@ struct Link {
     source: (String, String, String),
     target: (String, String, String, String),
     consumed: bool,
+    /// Reads the rows a widget selected rather than the whole result.
+    selected: bool,
 }
 
 struct Run<'a> {
     carry_styles: bool,
+    /// The mashup was not laid out by the v1 rules, so the spec states its geometry as it is.
+    exact: bool,
     content: &'a Value,
     calls: Vec<Call>,
+    expressions: Map<String, Value>,
+    navigations: HashMap<String, Value>,
+    expression_names: HashMap<String, String>,
     links: Vec<Link>,
     ids: HashMap<String, String>,
     used: BTreeSet<String>,
@@ -259,15 +396,19 @@ struct Run<'a> {
     widgets: usize,
     notes: Vec<String>,
     dropped: usize,
-    unknown: BTreeSet<String>,
+    unknown: BTreeSet<(String, String)>,
 }
 
 impl<'a> Run<'a> {
     fn new(content: &'a Value) -> Self {
         let mut run = Self {
             carry_styles: false,
+            exact: false,
             content,
             calls: vec![],
+            expressions: Map::new(),
+            navigations: HashMap::new(),
+            expression_names: HashMap::new(),
             links: vec![],
             ids: HashMap::new(),
             used: BTreeSet::new(),
@@ -343,6 +484,7 @@ impl<'a> Run<'a> {
                         prop("TargetProperty"),
                     ),
                     consumed: false,
+                    selected: binding["SourceDetails"] == "SelectedRows",
                 });
                 let last = run.links.last_mut().expect("link");
                 let field = prop("SourceProperty");
@@ -364,6 +506,17 @@ impl<'a> Run<'a> {
                     spec = format!("{base}_{n}");
                     n += 1;
                 }
+                if kind(child) == "expression2" {
+                    let mut alias = spec.replace('-', "_");
+                    let base = alias.clone();
+                    let mut n = 2;
+                    while !run.used.insert(alias.clone()) {
+                        alias = format!("{base}_{n}");
+                        n += 1;
+                    }
+                    run.expression_names.insert(id.into(), alias.clone());
+                    spec = alias;
+                }
                 run.ids.insert(id.into(), spec);
                 walk(child, run, count);
             }
@@ -384,7 +537,20 @@ impl<'a> Run<'a> {
                 definition["ParameterName"].as_str(),
                 definition["BaseType"].as_str(),
             ) {
-                out.insert(name.into(), json!(base));
+                let mut text = base.to_string();
+                if self.exact {
+                    // What the mashup declares beyond the type: its data shape and direction.
+                    if let Some(shape) = definition["Aspects"]["dataShape"].as_str() {
+                        text.push_str(&format!(":{shape}"));
+                    }
+                    match definition["Aspects"]["bindingDirection"].as_str() {
+                        Some(direction) if direction != "IN" => {
+                            text.push_str(&format!(":{direction}"));
+                        }
+                        _ => {}
+                    }
+                }
+                out.insert(name.into(), json!(text));
                 self.parameters.insert(name.into());
             }
         }
@@ -401,10 +567,18 @@ impl<'a> Run<'a> {
                     .calls
                     .iter()
                     .find(|c| c.section == section && c.name == *id)?;
-                Some(if field.is_empty() {
-                    call.alias.clone()
+                Some(match (field.is_empty(), link.selected) {
+                    (true, false) => call.alias.clone(),
+                    (false, false) => format!("{}.{field}", call.alias),
+                    (true, true) => format!("{}.SelectedRows", call.alias),
+                    (false, true) => format!("{}.SelectedRows.{field}", call.alias),
+                })
+            }
+            "UI" if self.expression_names.contains_key(id) && !field.is_empty() => {
+                Some(if field == "Output" {
+                    self.expression_names[id].clone()
                 } else {
-                    format!("{}.{field}", call.alias)
+                    format!("{}.{field}", self.expression_names[id])
                 })
             }
             "UI" if !field.is_empty() => Some(format!("@@{id}@@.{field}")),
@@ -422,7 +596,7 @@ impl<'a> Run<'a> {
                 && l.target.1 == id
                 && l.target.3 == "Data"
                 && l.source.0 == "Data"
-                && l.source.2.ends_with('\u{1}')
+                && !l.selected
         })?;
         let alias = self.source(&self.links[found])?;
         self.links[found].consumed = true;
@@ -461,7 +635,13 @@ impl<'a> Run<'a> {
         }
         let mut out = Map::new();
         for (key, value) in widget["Properties"].as_object().into_iter().flatten() {
-            if noise(key)
+            if self.exact && key == "DisplayName" && !generated_name(widget, value) {
+                out.insert(key.clone(), value.clone());
+                continue;
+            }
+            // On a v1 page the layout rules write `scrolling`; an as-built page keeps its own.
+            if (noise(key) && !(self.exact && key == "flex-size"))
+                || (!self.exact && key == "scrolling")
                 || skip.contains(&key.as_str())
                 || skip
                     .iter()
@@ -472,8 +652,15 @@ impl<'a> Run<'a> {
             if base.get(key).is_some_and(|d| same(d, value)) {
                 continue;
             }
-            if !known_property(widget, key) {
-                self.unknown.insert(key.clone());
+            if key == "MashupParameters" {
+                // Managed by the contained mashup; `embed` writes it.
+                continue;
+            }
+            if !known_property(widget, key) && !self.exact {
+                self.unknown.insert((
+                    prop(widget, "Id").as_str().unwrap_or("").into(),
+                    key.clone(),
+                ));
                 continue;
             }
             if value.get("StateFormats").is_some() {
@@ -498,6 +685,18 @@ impl<'a> Run<'a> {
             if !known_property(widget, &self.links[i].target.3) {
                 continue;
             }
+            if self
+                .links
+                .iter()
+                .any(|l| l.consumed && l.target == self.links[i].target)
+            {
+                continue;
+            }
+            // A bound property that also has its own starting value (Visible: false driven by a
+            // toggle) keeps the value here; the binding goes to page.bindings.
+            if out.contains_key(&self.links[i].target.3) {
+                continue;
+            }
             if let Some(source) = self.source(&self.links[i]) {
                 self.links[i].consumed = true;
                 let property = self.links[i].target.3.clone();
@@ -505,6 +704,39 @@ impl<'a> Run<'a> {
             }
         }
         out
+    }
+
+    /// What the page's root container has that a fresh page's does not, as the spec's `root.props`.
+    fn root_props(&mut self, widget: &Value, fresh: &Map<String, Value>) -> Map<String, Value> {
+        let mut out = Map::new();
+        let mut seen = vec![];
+        for (key, value) in widget["Properties"].as_object().into_iter().flatten() {
+            seen.push(key.as_str());
+            let fixed = noise(key) && !matches!(key.as_str(), "DisplayName" | "flex-size");
+            if fixed || fresh.get(key).is_some_and(|f| same(f, value)) {
+                continue;
+            }
+            if fresh.get(key).is_none()
+                && self
+                    .default_for(widget, key)
+                    .is_some_and(|d| same(&d, value))
+            {
+                continue;
+            }
+            out.insert(key.clone(), value.clone());
+        }
+        out.extend(self.props(widget, &seen));
+        out
+    }
+
+    /// The catalogue's value of a property for the widget's type, if it has one.
+    fn default_for(&self, widget: &Value, key: &str) -> Option<Value> {
+        let mut base = Map::new();
+        if let Some(known) = widgets::catalog().by_type(kind(widget)) {
+            base.extend(known.defaults.clone());
+        }
+        base.extend(widgets::catalog().dropped.flexcontainer.clone());
+        base.get(key).cloned()
     }
 
     fn count(&mut self, element: &str, type_id: Option<&str>) {
@@ -531,8 +763,25 @@ impl<'a> Run<'a> {
         let type_id = kind(widget).to_string();
         let mut node = match type_id.as_str() {
             "flexcontainer" => self.container(widget, parent),
+            "ptcsmenubar" => {
+                let props = self.props(widget, &[]);
+                self.finish("menu_bar", widget, Map::new(), props)
+            }
+            "pagemashupcontainer" => {
+                let props = self.props(widget, &[]);
+                self.finish("page_host", widget, Map::new(), props)
+            }
             "ptcslabel" => self.label(widget),
+            "expression2" => self.expression(widget),
+            "navigationfunction" => self.navigation(widget),
+            "eventsrouter" => self.router(widget),
             "ptcsbutton" => self.button(widget),
+            "ptcslink" | "ptcsimage" | "ptcsicon" | "ptcsdivider" | "ptcscheckbox"
+            | "ptcsradio" | "ptcstogglebutton" | "ptcstextarea" | "ptcsvaluedisplay"
+            | "ptcspagination" | "ptcskpidial" | "ptcsrte" | "statusmessage" => self.native(widget),
+            "mashupcontainer" if text(widget, "Name").is_some_and(|s| !s.is_empty()) => {
+                self.embed(widget)
+            }
             "ptcstextfield" => {
                 let mut body = Map::new();
                 if let Some(hint) = text(widget, "HintText") {
@@ -552,11 +801,13 @@ impl<'a> Run<'a> {
                 let props = self.props(widget, &["DateRange", "HintText"]);
                 self.finish("date_range", widget, body, props)
             }
+            "ptcsdatepicker" => self.native(widget),
             "ptcsdropdown" | "ptcslist" => self.picker(widget),
+            // A grid's column formats are kept exactly as they are when adopting.
+            "ptcsgrid" if self.exact => self.other(widget),
             "ptcsgrid" => self.grid(widget),
-            "ptcschartline" | "ptcschartbar" | "ptcschartpie" | "ptcschartcombo" => {
-                self.chart(widget)
-            }
+            "ptcschartline" | "ptcschartbar" | "ptcschartpie" | "ptcschartcombo"
+            | "ptcschartpareto" | "ptcschartwaterfall" => self.chart(widget),
             "ptcscollection" => self.collection(widget),
             "ptcstabset" => self.tabs(widget),
             _ => self.other(widget),
@@ -610,6 +861,19 @@ impl<'a> Run<'a> {
     /// A widget without an element: its type and the properties that differ from the catalogue.
     fn other(&mut self, widget: &Value) -> Value {
         let type_id = kind(widget).to_string();
+        let reason = match type_id.as_str() {
+            "shape" => "decorative shapes remain raw",
+            "googlemap" | "OpenStreetMap" | "openstreetmap" => "map extension contracts remain raw",
+            "ptcscollection" => "collection needs a static cell, nonempty row map and a supported data feed; dynamic entity and mashup selection remain raw",
+            "mashupcontainer" => "embed needs a static mashup; dynamic Name bindings remain raw",
+            "ptcsdynamicpanel" => "dynamic panels have two native panes and varied push/trigger controls; side_panel has a different structure",
+            "eventsrouter" => "router needs 1 to 20 typed native inputs; unsupported counts remain raw",
+            "navigationfunction" => "navigation needs a static target and a single representable Navigate trigger; dynamic targets remain raw",
+            "ptcschartschedule" => "schedule charts need nested resource intervals rather than flat numeric series",
+            "ptcschartbar" | "ptcschartline" | "ptcschartpie" | "ptcschartpareto" | "ptcschartwaterfall" | "ptcschartcombo" => "chart needs a supported flat table feed and axis fields (pie: DataField and ValueField); unconfigured or dynamic feeds remain raw",
+            _ => "no matching element contract; explicit widget properties are retained",
+        };
+        self.notes_once(&format!("{type_id}: {reason}"));
         let mut body = Map::new();
         body.insert("type".into(), json!(type_id));
         let declared = inputs(widget);
@@ -677,12 +941,345 @@ impl<'a> Run<'a> {
         self.finish("button", widget, body, props)
     }
 
+    fn native(&mut self, widget: &Value) -> Value {
+        let (element, fields): (&str, &[(&str, &str)]) = match kind(widget) {
+            "statusmessage" => (
+                "status_message",
+                &[("Message", "message"), ("MessageType", "message_type")],
+            ),
+            "ptcsrte" => (
+                "rich_text",
+                &[
+                    ("Data", "content"),
+                    ("ReadOnly", "read_only"),
+                    ("DefaultFontSize", "font_size"),
+                ],
+            ),
+            "ptcslink" => (
+                "link",
+                &[
+                    ("Text", "text"),
+                    ("LinkURL", "url"),
+                    ("TargetWindow", "target"),
+                ],
+            ),
+            "ptcsimage" => (
+                "image",
+                &[
+                    ("SourceURL", "source"),
+                    ("AlternateText", "alt"),
+                    ("Scaling", "scaling"),
+                    ("Position", "position"),
+                ],
+            ),
+            "ptcsicon" => (
+                "icon",
+                &[
+                    ("SVGIcon", "icon"),
+                    ("SourceURL", "source"),
+                    ("AlternateText", "alt"),
+                    ("Size", "icon_size"),
+                ],
+            ),
+            "ptcsdivider" => ("divider", &[]),
+            "ptcscheckbox" => ("checkbox", &[("Label", "text"), ("State", "value")]),
+            "ptcsradio" => (
+                "radio",
+                &[
+                    ("Label", "text"),
+                    ("State", "value"),
+                    ("Radiogroup", "group"),
+                ],
+            ),
+            "ptcstogglebutton" => ("toggle", &[("Label", "text"), ("State", "value")]),
+            "ptcstextarea" => (
+                "textarea",
+                &[
+                    ("Label", "text"),
+                    ("Text", "value"),
+                    ("HintText", "hint"),
+                    ("MaxNumberOfCharacters", "max_length"),
+                ],
+            ),
+            "ptcsdatepicker" => (
+                "date_picker",
+                &[
+                    ("Label", "text"),
+                    ("DateTime", "value"),
+                    ("HintText", "hint"),
+                    ("DateOnly", "date_only"),
+                    ("FormatToken", "format"),
+                ],
+            ),
+            "ptcsvaluedisplay" => ("value_display", &[("Label", "text"), ("Data", "value")]),
+            "ptcspagination" => (
+                "pagination",
+                &[
+                    ("ResultsNumber", "total"),
+                    ("PageNumber", "page_number"),
+                    ("PageSize", "page_size"),
+                ],
+            ),
+            "ptcskpidial" => (
+                "kpi_dial",
+                &[
+                    ("Label", "title"),
+                    ("Value", "value"),
+                    ("MinimumValue", "min"),
+                    ("MaximumValue", "max"),
+                    ("UnitOfMeasure", "unit"),
+                ],
+            ),
+            _ => unreachable!(),
+        };
+        let mut body = Map::new();
+        let mut extra = Map::new();
+        let mut skip: Vec<&str> = fields.iter().map(|(property, _)| *property).collect();
+        for (property, field) in fields {
+            let value = self
+                .take(widget, property)
+                .or_else(|| widget["Properties"].get(*property).cloned());
+            if let Some(value) = value.filter(|v| !v.is_null() && *v != "") {
+                // These scalar fields describe catalogue choices; retain an unusual binding as a prop.
+                if value.is_object()
+                    && ![
+                        "text", "source", "alt", "value", "group", "total", "message", "content",
+                    ]
+                    .contains(field)
+                {
+                    extra.insert((*property).into(), value);
+                    continue;
+                }
+                body.insert((*field).into(), value);
+            }
+        }
+        if element == "rich_text" {
+            if let Some(hidden) = prop(widget, "HideToolbar").as_bool() {
+                body.insert("show_toolbar".into(), json!(!hidden));
+            }
+            skip.push("HideToolbar");
+        }
+        if element == "divider" {
+            body.insert(
+                "orientation".into(),
+                json!(if prop(widget, "VerticalDivider") == true {
+                    "vertical"
+                } else {
+                    "horizontal"
+                }),
+            );
+            skip.push("VerticalDivider");
+        }
+        if element == "date_picker" {
+            skip.push("DateRange");
+        }
+        if element == "pagination" {
+            body.insert("mode".into(), json!("server"));
+        }
+        if element == "kpi_dial" {
+            let layout = text(widget, "Layout").unwrap_or_else(|| "dial".into());
+            if !["dial", "horizontal", "vertical"].contains(&layout.as_str()) {
+                return self.other(widget);
+            }
+            body.insert("kind".into(), json!(layout));
+            skip.push("Layout");
+        }
+        let mut props = self.props(widget, &skip);
+        props.extend(extra);
+        self.finish(element, widget, body, props)
+    }
+
+    fn embed(&mut self, widget: &Value) -> Value {
+        let mut body = Map::new();
+        body.insert("mashup".into(), prop(widget, "Name").clone());
+        let mut params = Map::new();
+        let mut skip = vec!["Name", "MashupParameters"];
+        for entry in prop(widget, "MashupParameters")
+            .as_array()
+            .into_iter()
+            .flatten()
+        {
+            let Some(name) = entry["ParameterName"].as_str() else {
+                continue;
+            };
+            if let Some(value) = self
+                .take(widget, name)
+                .or_else(|| widget["Properties"].get(name).cloned())
+            {
+                params.insert(name.into(), value);
+            }
+            skip.push(name);
+        }
+        if !params.is_empty() {
+            body.insert("params".into(), Value::Object(params));
+        }
+        let props = self.props(widget, &skip);
+        self.finish("embed", widget, body, props)
+    }
+
+    fn router(&mut self, widget: &Value) -> Value {
+        let count = whole(prop(widget, "NumberOfInputs")).unwrap_or(0);
+        if !(1..=20).contains(&count) {
+            return self.other(widget);
+        }
+        let mut body = Map::new();
+        body.insert("input_count".into(), json!(count));
+        body.insert("data_type".into(), prop(widget, "DataType").clone());
+        let mut routes = vec![];
+        let names: Vec<_> = (1..=count).map(|n| format!("Input{n}")).collect();
+        for name in &names {
+            routes.push(
+                self.take(widget, name)
+                    .or_else(|| {
+                        widget["Properties"]
+                            .get(name)
+                            .filter(|v| !v.is_null() && *v != "")
+                            .cloned()
+                    })
+                    .unwrap_or(Value::Null),
+            );
+        }
+        if routes.iter().any(|v| !v.is_null()) {
+            body.insert("routes".into(), Value::Array(routes));
+        }
+        let mut skip = vec!["NumberOfInputs", "DataType"];
+        skip.extend(names.iter().map(String::as_str));
+        let props = self.props(widget, &skip);
+        self.finish("events_router", widget, body, props)
+    }
+
+    fn navigation(&mut self, widget: &Value) -> Value {
+        let id = prop(widget, "Id").as_str().unwrap_or("");
+        let events: Vec<_> = self.content["Events"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|e| {
+                e["EventHandlerArea"] == "UI"
+                    && e["EventHandlerId"] == id
+                    && e["EventHandlerService"] == "Navigate"
+            })
+            .collect();
+        let target = text(widget, "TargetMashup").filter(|s| !s.is_empty());
+        if target.is_none()
+            || events.len() != 1
+            || self
+                .links
+                .iter()
+                .any(|l| l.target.1 == id && l.target.3 == "TargetMashup")
+        {
+            return self.other(widget);
+        }
+        let mut action = Map::new();
+        action.insert("id".into(), json!(self.id(widget)));
+        action.insert("mashup".into(), json!(target.expect("target")));
+        action.insert("mode".into(), prop(widget, "TargetWindowType").clone());
+        let mut params = Map::new();
+        let mut skip = vec![
+            "TargetMashup",
+            "TargetWindowType",
+            "MashupParameters",
+            "_currentParameterDefs",
+            "PopupTitle",
+            "PopupWidth",
+            "PopupHeight",
+        ];
+        for definition in prop(widget, "MashupParameters")
+            .as_array()
+            .into_iter()
+            .flatten()
+        {
+            let Some(name) = definition["ParameterName"].as_str() else {
+                continue;
+            };
+            if let Some(value) = self
+                .take(widget, name)
+                .or_else(|| widget["Properties"].get(name).cloned())
+            {
+                params.insert(name.into(), value);
+            }
+            skip.push(name);
+        }
+        if !params.is_empty() {
+            action.insert("params".into(), Value::Object(params));
+        }
+        for (prop_name, field) in [
+            ("PopupTitle", "title"),
+            ("PopupWidth", "width"),
+            ("PopupHeight", "height"),
+        ] {
+            if let Some(value) = widget["Properties"].get(prop_name).filter(|v| !v.is_null()) {
+                action.insert(field.into(), value.clone());
+            }
+        }
+        let props = self.props(widget, &skip);
+        if !props.is_empty() {
+            action.insert("props".into(), Value::Object(props));
+        }
+        self.navigations.insert(id.into(), Value::Object(action));
+        self.count("navigate", None);
+        Value::Null
+    }
+
+    fn expression(&mut self, widget: &Value) -> Value {
+        let alias = self.expression_names[prop(widget, "Id").as_str().unwrap_or("")].clone();
+        let mut entry = Map::new();
+        entry.insert("expression".into(), prop(widget, "Expression").clone());
+        entry.insert("output".into(), prop(widget, "OutputBaseType").clone());
+        let mut declared = Map::new();
+        for definition in prop(widget, "_currentParameterDefs")
+            .as_array()
+            .into_iter()
+            .flatten()
+        {
+            let Some(name) = definition["ParameterName"].as_str() else {
+                continue;
+            };
+            let mut input = Map::new();
+            input.insert("type".into(), definition["BaseType"].clone());
+            if let Some(value) = self
+                .take(widget, name)
+                .or_else(|| widget["Properties"].get(name).cloned())
+            {
+                input.insert("value".into(), value);
+            }
+            declared.insert(name.into(), Value::Object(input));
+        }
+        if !declared.is_empty() {
+            entry.insert("inputs".into(), Value::Object(declared));
+        }
+        for (prop_name, field) in [
+            ("AutoEvaluate", "auto_evaluate"),
+            ("FireOnFirstValue", "fire_on_first_value"),
+            ("DataChangeType", "data_change"),
+        ] {
+            if let Some(value) = widget["Properties"].get(prop_name) {
+                entry.insert(field.into(), value.clone());
+            }
+        }
+        self.expressions.insert(alias, Value::Object(entry));
+        self.count("expression", None);
+        Value::Null
+    }
+
     fn picker(&mut self, widget: &Value) -> Value {
         let is_list = kind(widget) == "ptcslist";
         let display = text(widget, "DisplayField");
         let fed = display.as_ref().and_then(|_| self.feed(widget));
         let (Some(display), Some(data)) = (display, fed) else {
-            return self.other(widget);
+            if is_list {
+                return self.other(widget);
+            }
+            let mut body = Map::new();
+            body.insert("unbound".into(), json!(true));
+            if let Some(display) = text(widget, "DisplayField") {
+                body.insert("display".into(), json!(display));
+            }
+            if let Some(hint) = text(widget, "HintText") {
+                body.insert("hint".into(), json!(hint));
+            }
+            let props = self.props(widget, &["DisplayField", "HintText"]);
+            return self.finish("dropdown", widget, body, props);
         };
         let mut body = Map::new();
         let mut skip = vec!["DisplayField", "DisplayFieldBaseType", "HintText"];
@@ -710,11 +1307,11 @@ impl<'a> Run<'a> {
     }
 
     fn grid(&mut self, widget: &Value) -> Value {
-        let Some(data) = self.feed(widget) else {
-            return self.other(widget);
-        };
+        let data = self.feed(widget);
         let mut body = Map::new();
-        body.insert("data".into(), json!(data));
+        if let Some(data) = data {
+            body.insert("data".into(), json!(data));
+        }
         let columns: Vec<Value> = prop(widget, "ColumnFormat")["formatInfo"]
             .as_array()
             .into_iter()
@@ -741,12 +1338,35 @@ impl<'a> Run<'a> {
         if !columns.is_empty() {
             body.insert("columns".into(), Value::Array(columns));
         }
-        let props = self.props(widget, &["ColumnFormat", "Label"]);
+        let props = self.props(
+            widget,
+            if body.contains_key("data") {
+                &["ColumnFormat", "Label"]
+            } else {
+                body.remove("columns");
+                &["Label"]
+            },
+        );
         self.finish("grid", widget, body, props)
     }
 
     fn chart(&mut self, widget: &Value) -> Value {
-        let x = text(widget, "XAxisField");
+        let pie = kind(widget) == "ptcschartpie";
+        if pie && text(widget, "ValueField").is_none() {
+            return self.other(widget);
+        }
+        if kind(widget) == "ptcschartcombo" {
+            let count = whole(prop(widget, "NumberOfSeries")).unwrap_or(0);
+            if count > 8
+                || !(1..=count).any(|n| {
+                    text(widget, &format!("DataField{n}")).is_some()
+                        && text(widget, &format!("Series{n}Type")).is_some()
+                })
+            {
+                return self.other(widget);
+            }
+        }
+        let x = text(widget, if pie { "DataField" } else { "XAxisField" });
         let data = x.as_ref().and_then(|_| self.feed(widget));
         let (Some(x), Some(data)) = (x, data) else {
             return self.other(widget);
@@ -757,7 +1377,7 @@ impl<'a> Run<'a> {
         body.insert("data".into(), json!(data));
         body.insert("x".into(), json!(x));
         if chart == "pie" {
-            let Some(value) = text(widget, "DataField") else {
+            let Some(value) = text(widget, "ValueField") else {
                 return self.other(widget);
             };
             body.insert("value".into(), json!(value));
@@ -792,6 +1412,7 @@ impl<'a> Run<'a> {
             widget,
             &[
                 "XAxisField",
+                "ValueField",
                 "DataField*",
                 "Series*",
                 "DisplaySeries*",
@@ -807,30 +1428,28 @@ impl<'a> Run<'a> {
     }
 
     fn collection(&mut self, widget: &Value) -> Value {
-        let cell = text(widget, "Mashup");
-        let map = prop(widget, "MashupPropertyBinding")
-            .as_object()
-            .filter(|m| !m.is_empty())
-            .cloned();
-        let fed = cell
-            .as_ref()
-            .and(map.as_ref())
-            .and_then(|_| self.feed(widget));
-        let (Some(cell), Some(map), Some(data)) = (cell, map, fed) else {
+        let Some(cell) = text(widget, "Mashup").filter(|s| !s.is_empty()) else {
             return self.other(widget);
         };
-        let mut body = Map::new();
-        body.insert("data".into(), json!(data));
-        body.insert("mashup".into(), json!(cell));
-        body.insert("map".into(), Value::Object(map));
-        if let Some(empty) =
-            text(widget, "NoDataText").filter(|t| t != "[[noCollectionDataToDisplay]]")
-        {
-            body.insert("empty".into(), json!(empty));
+        let map = prop(widget, "MashupPropertyBinding")
+            .as_object()
+            .cloned()
+            .unwrap_or_default();
+        if map.values().any(|v| !v.is_string()) {
+            return self.other(widget);
         }
-        self.notes_once("collection layout properties are regenerated by the collection preset");
-        let id = self.id(widget);
-        self.make("collection", id, body)
+        let mut body = Map::new();
+        body.insert("mashup".into(), json!(cell));
+        if !map.is_empty() {
+            body.insert("map".into(), Value::Object(map));
+        }
+        if let Some(source) = self.take(widget, "Data") {
+            body.insert("source".into(), source);
+        } else {
+            body.insert("unbound".into(), json!(true));
+        }
+        let props = self.props(widget, &["Mashup", "MashupPropertyBinding", "Data"]);
+        self.finish("collection", widget, body, props)
     }
 
     fn notes_once(&mut self, note: &str) {
@@ -843,7 +1462,14 @@ impl<'a> Run<'a> {
         let kids = widgets_of(widget);
         let count = whole(prop(widget, "NumberOfTabs")).unwrap_or(kids.len());
         let labels: Vec<String> = (1..=count)
-            .map(|n| text(widget, &format!("Tab{n}Name")).unwrap_or_default())
+            .map(|n| {
+                prop(widget, "Items")
+                    .get(n - 1)
+                    .and_then(|v| v["name"].as_str())
+                    .map(str::to_owned)
+                    .or_else(|| text(widget, &format!("Tab{n}Name")))
+                    .unwrap_or_default()
+            })
             .collect();
         let unique: BTreeSet<_> = labels.iter().collect();
         if count == 0
@@ -864,11 +1490,21 @@ impl<'a> Run<'a> {
             .iter()
             .zip(kids)
             .map(|(label, tab)| {
+                let own = if self.exact {
+                    self.props(tab, &["DisplayName"])
+                } else {
+                    Map::new()
+                };
                 let content: Vec<Value> = widgets_of(tab)
                     .iter()
                     .map(|w| self.node(w, "column"))
                     .collect();
-                json!({"label": label, "content": content})
+                let mut entry = json!({"label": label});
+                if !own.is_empty() {
+                    entry["props"] = Value::Object(own);
+                }
+                entry["content"] = json!(content);
+                entry
             })
             .collect();
         let mut body = Map::new();
@@ -882,34 +1518,45 @@ impl<'a> Run<'a> {
         } else {
             "row"
         };
-        let found = self
-            .side_panel(widget)
-            .or_else(|| self.filter_panel(widget))
-            .or_else(|| self.card(widget))
-            .or_else(|| self.kpi_row(widget))
-            .or_else(|| self.page_header(widget, direction))
-            .or_else(|| self.toolbar(widget, direction));
+        let found = (!self.exact)
+            .then(|| {
+                self.side_panel(widget)
+                    .or_else(|| self.filter_panel(widget))
+                    .or_else(|| self.card(widget))
+                    .or_else(|| self.kpi_row(widget))
+                    .or_else(|| self.page_header(widget, direction))
+                    .or_else(|| self.toolbar(widget, direction))
+            })
+            .flatten();
         if let Some(found) = found {
             return found;
         }
-        if is_spacer(widget) && parent == "row" {
+        if !self.exact && is_spacer(widget) && parent == "row" {
             let id = self.id(widget);
             return self.make("spacer", id, Map::new());
         }
         let mut body = Map::new();
         let mut skip = vec!["flex-direction"];
         let grow = number(prop(widget, "flex-grow")).unwrap_or(1.0);
-        if grow == 0.0 {
+        if self.exact {
+            // Shorthands would let the rules decide; the spec states what the mashup has.
+        } else if grow == 0.0 {
             let dimension = if parent == "row" { "width" } else { "height" };
             let min = pixels(prop(widget, &format!("flex-min-{dimension}")));
             let max = pixels(prop(widget, &format!("flex-max-{dimension}")));
             if min.is_some() && min == max {
                 body.insert("size".into(), json!({"fixed": min}));
                 skip.extend([
-                    "flex-min-width",
-                    "flex-min-height",
-                    "flex-max-width",
-                    "flex-max-height",
+                    if parent == "row" {
+                        "flex-min-width"
+                    } else {
+                        "flex-min-height"
+                    },
+                    if parent == "row" {
+                        "flex-max-width"
+                    } else {
+                        "flex-max-height"
+                    },
                 ]);
             } else {
                 body.insert("size".into(), json!("fit"));
@@ -1197,7 +1844,7 @@ impl<'a> Run<'a> {
     }
 
     fn wiring(&mut self) -> (Map<String, Value>, Vec<Value>) {
-        let mut data = Map::new();
+        let mut data = self.expressions.clone();
         let mut events = vec![];
         let mut loaded: BTreeSet<String> = BTreeSet::new();
         for event in self.content["Events"].as_array().into_iter().flatten() {
@@ -1211,10 +1858,35 @@ impl<'a> Run<'a> {
                         get("EventTriggerId"),
                         get("EventTriggerEvent")
                     ))
+                } else if get("EventTriggerArea") == "Data" {
+                    let Some(call) = self.calls.iter().find(|c| {
+                        c.section == get("EventTriggerSection") && c.name == get("EventTriggerId")
+                    }) else {
+                        self.dropped += 1;
+                        continue;
+                    };
+                    let event = match get("EventTriggerEvent") {
+                        "ServiceInvokeCompleted" => "done",
+                        "Data_Error" | "ServiceInvokeError" => "error",
+                        event => event,
+                    };
+                    Some(format!("{}.{event}", call.alias))
                 } else {
                     self.dropped += 1;
                     continue;
                 };
+            if get("EventHandlerArea") == "UI" && get("EventHandlerService") == "Navigate" {
+                if let Some(navigate) = self.navigations.get(get("EventHandlerId")) {
+                    events.push(
+                        json!({"on": trigger.as_deref().unwrap_or("load"), "navigate": navigate}),
+                    );
+                    continue;
+                }
+            }
+            if get("EventHandlerArea") == "UI" && get("EventHandlerService") == "ShowMessage" {
+                events.push(json!({"on": trigger.as_deref().unwrap_or("load"), "show": format!("@@{}@@", get("EventHandlerId"))}));
+                continue;
+            }
             let target = match get("EventHandlerArea") {
                 "Data" => self
                     .calls
@@ -1247,17 +1919,27 @@ impl<'a> Run<'a> {
             entry.insert("service".into(), json!(call.service));
             if loaded.contains(&call.alias) {
                 entry.insert("on".into(), json!("load"));
+                if call.refresh > 0 {
+                    entry.insert("refresh".into(), json!(call.refresh));
+                }
             } else if call.refresh > 0 {
                 entry.insert("on".into(), json!(format!("every {}s", call.refresh)));
             }
             let mut params = call.params.clone();
-            for link in &self.links {
+            for i in 0..self.links.len() {
+                let link = &self.links[i];
                 if link.target.0 == "Data"
                     && link.target.1 == call.name
                     && link.target.2 == call.section
+                    && !link.consumed
+                    && !self
+                        .links
+                        .iter()
+                        .any(|l| l.consumed && l.target == link.target)
                 {
                     if let Some(source) = self.source(link) {
                         params.insert(link.target.3.clone(), json!({"bind": source}));
+                        self.links[i].consumed = true;
                     }
                 }
             }
@@ -1267,6 +1949,38 @@ impl<'a> Run<'a> {
             data.insert(call.alias.clone(), Value::Object(entry));
         }
         (data, events)
+    }
+
+    fn remaining_bindings(&mut self) -> Vec<Value> {
+        let mut bindings = vec![];
+        for i in 0..self.links.len() {
+            let link = &self.links[i];
+            if link.consumed {
+                continue;
+            }
+            let Some(from) = self.source(link) else {
+                continue;
+            };
+            let (area, id, section, property) = &link.target;
+            let to = match area.as_str() {
+                "UI" if self.ids.contains_key(id) => format!("@@{id}@@.{property}"),
+                "Data" => {
+                    let Some(call) = self
+                        .calls
+                        .iter()
+                        .find(|c| c.name == *id && c.section == *section)
+                    else {
+                        continue;
+                    };
+                    format!("{}.{property}", call.alias)
+                }
+                "Mashup" if self.parameters.contains(property) => format!("param.{property}"),
+                _ => continue,
+            };
+            bindings.push(json!({"from": from, "to": to}));
+            self.links[i].consumed = true;
+        }
+        bindings
     }
 
     /// Replace `@@id@@` with the spec id of the widget; drop what refers to a widget that is not
@@ -1332,9 +2046,15 @@ impl<'a> Run<'a> {
                         walk(item, ids, dropped);
                     }
                     items.retain(|item| {
-                        let unresolved = item
-                            .as_object()
-                            .is_some_and(|m| m.contains_key("on") != m.contains_key("invoke"));
+                        if item.is_null() {
+                            return false;
+                        }
+                        let unresolved = item.as_object().is_some_and(|m| {
+                            m.contains_key("on")
+                                != (m.contains_key("invoke")
+                                    || m.contains_key("navigate")
+                                    || m.contains_key("show"))
+                        });
                         if unresolved {
                             *dropped += 1;
                         }
@@ -1345,11 +2065,9 @@ impl<'a> Run<'a> {
             }
         }
         walk(spec, &ids, &mut dropped);
-        if !self.unknown.is_empty() {
-            let names: Vec<_> = self.unknown.iter().cloned().collect();
+        for (widget, property) in std::mem::take(&mut self.unknown) {
             self.notes.push(format!(
-                "properties the widget catalogue does not know were left out: {}",
-                names.join(", ")
+                "property left out: {widget} {property} (not in the widget catalogue)"
             ));
         }
         let unused = self.links.iter().filter(|l| !l.consumed).count();

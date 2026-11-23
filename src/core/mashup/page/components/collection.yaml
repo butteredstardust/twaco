@@ -1,0 +1,8 @@
+name: collection
+source: CompareCell
+props:
+  data: {type: string, required: true}
+  cell: {type: object, required: true}
+  per_row: {type: number, default: 4}
+tree:
+  collection: {id: '$id', data: '$data', cell: '$cell', per_row: '$per_row'}

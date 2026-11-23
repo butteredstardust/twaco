@@ -325,6 +325,22 @@ pub(super) fn plan_set_loaded(
         if ["_currentParameterDefs", "MashupParameters"].contains(&name.as_str()) {
             return Err(AuthoringError::Refused(format!("{name} is managed by mashup param / add-contained / the function-widget inputs; use those")));
         }
+        if let Some((_, target, base)) =
+            super::add::function_property(document.at(&found.path), &found.type_id, name)
+        {
+            if !target {
+                return Err(AuthoringError::Refused(format!(
+                    "{name} is an output; bind from it instead"
+                )));
+            }
+            let text = match supplied {
+                Value::String(s) => s.clone(),
+                value => value.to_string(),
+            };
+            let value = super::default_value(&base, &text)?;
+            change_property(&mut document, &found.path, name, value, &mut changed);
+            continue;
+        }
         let known = name == "ResponsiveLayout"
             || widget.defaults.contains_key(name)
             || widget.property(name).is_some()
@@ -335,10 +351,7 @@ pub(super) fn plan_set_loaded(
                 widget.no_property(&widget.type_id, name),
             ));
         }
-        if widget
-            .property(name)
-            .is_some_and(|contract| !contract.editable)
-        {
+        if !super::add::property_editable(widget, name) {
             return Err(AuthoringError::Refused(format!("{name} is not editable")));
         }
         let value = if name == "ResponsiveLayout" {
@@ -602,6 +615,8 @@ fn styler_name(type_id: &str) -> Option<&'static str> {
         "ptcsdynamicpanel" => "ptcs-dynamic-panel",
         "ptcsgrid" => "ptcs-grid",
         "ptcsimage" => "ptcs-image",
+        "ptcsicon" => "ptcs-icon",
+        "ptcschartwaterfall" => "ptcs-chart-waterfall",
         "ptcskpidial" => "ptcs-kpi-dial",
         "ptcslabel" => "ptcs-label",
         "ptcslink" => "ptcs-link",
@@ -667,7 +682,7 @@ fn merge_styles(
 
 /// Merge `--style` settings into one widget's style entry of a document being edited; what a
 /// recipe needs to style a widget exactly as `mashup set --style` would.
-pub(super) fn merge_widget_styles(
+pub(crate) fn merge_widget_styles(
     document: &mut crate::core::mashup::edit::MashupDocument,
     id: &str,
     type_id: &str,

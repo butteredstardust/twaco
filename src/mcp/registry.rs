@@ -557,7 +557,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         .with_output::<outputs::EntityEditResult>(),
         solution_tool::<refactor_requests::MashupNewRequest>(
             "mashup_new",
-            "Create a ThingWorx 10.2 responsive mashup from a YAML page spec (spec) or an embedded layout template, with its entity file and managed content.json and custom.css sidecars. from copies a repository mashup; replacements are repeatable old=new whole-token substitutions in copied content strings. Ordinary new mashups default to v1 layout rules; rules: legacy opts out. Existing mashup edits and from copies retain their stored rule set (no twacoPageRules means legacy). template is a name or alias (blank by default); mashup_templates lists the slots where mashup_add can place widgets. Menu templates require primary_menu (a service result) or menu_entity (a Menu in the solution); secondary_menu goes with primary_menu. master puts its page container in the template's master slot. A dry run unless dry_run is false; an apply takes the workspace lock and writes every file or none.",
+            "Create a ThingWorx 10.2 responsive mashup from a YAML page spec (spec) or an embedded layout template, with its entity file and managed content.json and custom.css sidecars. from copies a repository mashup; replacements are repeatable old=new whole-token substitutions in copied content strings. Ordinary new mashups default to v1 layout rules; rules: legacy opts out. Existing mashup edits and from copies retain their stored rule set (no twacoPageRules means legacy). template is a name or alias (blank by default); mashup_templates lists the slots where mashup_add can place widgets. Menu templates require primary_menu (a service result) or menu_entity (a Menu in the solution); secondary_menu goes with primary_menu. master puts its page container in the template's master slot; spec uses page.kind: master with an explicit page_host. A dry run unless dry_run is false; an apply takes the workspace lock and writes every file or none.",
             false,
             refactor::mashup_new_tool,
         )
@@ -577,7 +577,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         .with_output::<outputs::MashupTemplatesResult>(),
         solution_tool::<refactor_requests::MashupAddRequest>(
             "mashup_add",
-            "Add a catalogue widget, or one an [[extension]] project of the solution defines, to an existing responsive mashup. With no placement it goes in center. A widget beside another goes in the same row or column when that container runs that way; otherwise both get containers of their own in a new row or column. With below and in_column: true, stack within the anchor's column of a split row; default below places a new row beneath the whole control row. A widget that can fill fills only a container it is alone in. A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
+            "Add a catalogue widget, or one an [[extension]] project of the solution defines, to an existing responsive mashup. ptcsrte accepts literal Data and numeric or Npx DefaultFontSize; statusmessage accepts Message/MessageType and exposes ShowMessage. With no placement it goes in center. A widget beside another goes in the same row or column when that container runs that way; otherwise both get containers of their own in a new row or column. With below and in_column: true, stack within the anchor's column of a split row; default below places a new row beneath the whole control row. A widget that can fill fills only a container it is alone in. A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
             false,
             refactor::mashup_add_tool,
         )
@@ -635,7 +635,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         ).with_output::<outputs::MashupSourceRemoveResult>(),
         solution_tool::<refactor_requests::MashupOnRequest>(
             "mashup_on",
-            "Run a data call or widget service when one mashup event fires. Triggers are ui:<widget>.<Event>, mashup:Loaded, or an existing data:<Entity>.<Service>[as alias].ServiceInvokeCompleted, Data_Error (failure), AllDataChanged or SelectedRowsChanged; handlers are data calls or widget services. A missing Thing handler call is created; templates and shapes need an existing call. A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
+            "Run a data call or widget service when one mashup event fires. Triggers are ui:<widget>.<Event>, mashup:Loaded, or an existing data:<Entity>.<Service>[as alias].ServiceInvokeCompleted (.done), Data_Error (.error, failure), AllDataChanged or SelectedRowsChanged; handlers are data calls or widget services. A missing Thing handler call is created; templates and shapes need an existing call. A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
             false,
             refactor::mashup_on_tool,
         )
@@ -719,13 +719,13 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         .with_output::<outputs::MashupDescribeResult>(),
         solution_tool::<refactor_requests::MashupBuildRequest>(
             "mashup_build",
-            "Compile the YAML page spec in page.yaml and three-way merge with the last generated baseline. Independent hand edits survive; conflicts write nothing. Plans by default; dry_run:false applies all files atomically.",
+            "Compile the YAML page spec (page.kind: master with page_host, native menu_bar, controls/media, embed, typed expressions and navigate events) in page.yaml and three-way merge with the last generated baseline. Independent hand edits survive; conflicts write nothing. Plans by default; dry_run:false applies all files atomically.",
             false,
             refactor::mashup_build_tool,
         )
         .with_output::<outputs::MashupBuildResult>(),
         solution_tool::<refactor_requests::MashupSpecRequest>(
-            "mashup_spec", "Derive a page spec before restructuring a mashup. A spec-built mashup returns its page.yaml (hand-edited widgets named); any other mashup gets a YAML spec of elements. Offline; reports element and raw-widget coverage.", true, refactor::mashup_spec_tool,
+            "mashup_spec", "Derive a page spec before restructuring a mashup. A spec-built mashup returns its page.yaml (hand-edited widgets named); any other mashup, including a master (kind: master with page_host), gets a YAML spec of elements. Offline; reports element and raw-widget coverage.", true, refactor::mashup_spec_tool,
         ).with_output::<outputs::MashupSpecResult>(),
         solution_tool::<refactor_requests::ComponentsRequest>(
             "components", "List built-in and solution component definitions with source and typed props; name shows one.", true, refactor::components_tool,

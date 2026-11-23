@@ -50,8 +50,10 @@ impl Session {
     ) -> Result<String, AuthoringError> {
         let address = mashup::address::parse_address(address)
             .map_err(|e| AuthoringError::Invalid(e.to_string()))?;
+        let parameters = mashup::describe::mashup_parameters(&self.entity)
+            .map_err(AuthoringError::Unreadable)?;
         let context = AuthoringContext {
-            parameters: &[],
+            parameters: &parameters,
             model,
             platform,
         };
@@ -71,6 +73,16 @@ impl Session {
         template: &str,
         theme: &str,
     ) -> Result<Self, AuthoringError> {
+        Self::new_kind(name, project, template, theme, false)
+    }
+
+    pub(crate) fn new_kind(
+        name: &str,
+        project: &str,
+        template: &str,
+        theme: &str,
+        master: bool,
+    ) -> Result<Self, AuthoringError> {
         crate::core::entity::key::EntityKey::new("Mashups", name)
             .map_err(|e| AuthoringError::Invalid(e.to_string()))?;
         let rules = mashup::layout::RuleSet::embedded(mashup::layout::Version::V1);
@@ -88,7 +100,7 @@ impl Session {
                 "menu templates need explicit menu configuration".into(),
             ));
         }
-        let mut document = super::new::new_document(&template, false, theme)?;
+        let mut document = super::new::new_document_shell(&template, master, theme, false)?;
         if template.name == "blank" {
             let context = mashup::layout::Context {
                 template: "blank",
@@ -111,7 +123,11 @@ impl Session {
         let entity = mashup::templates::entity_xml(
             name,
             project,
-            mashup::templates::MashupKind::Mashup,
+            if master {
+                mashup::templates::MashupKind::Master
+            } else {
+                mashup::templates::MashupKind::Mashup
+            },
             &[],
         )
         .map_err(|e| AuthoringError::Invalid(e.to_string()))?
@@ -255,12 +271,22 @@ impl Session {
         parent: &str,
         mashup: &str,
     ) -> Result<String, AuthoringError> {
+        self.contained_with(solution, parent, mashup, vec![])
+    }
+
+    pub(crate) fn contained_with(
+        &mut self,
+        solution: &Solution,
+        parent: &str,
+        mashup: &str,
+        settings: Vec<(String, String)>,
+    ) -> Result<String, AuthoringError> {
         self.sync()?;
         let request = super::AddContainedRequest {
             mashup: self.name.clone(),
             child: mashup.into(),
             placement: Some(mashup::edit::Placement::In(parent.into())),
-            settings: vec![],
+            settings,
         };
         let plan = super::add::plan_add_contained_loaded(solution, &request, self.loaded())?;
         let id = plan.placed.id;

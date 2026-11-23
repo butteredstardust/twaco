@@ -6,6 +6,45 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+- Page specs support master mashups through `page.kind: master`, native `page_host` and
+  `menu_bar` elements, and mashup-root `page.props`. Derive/adopt keeps IDs and existing bytes;
+  fresh builds preserve target mashup type and master-root properties using the command master
+  defaults. Ordinary pages still attach through `page.master`. Masters require one page host.
+
+- Page specs preserve service completion refresh chains, failure handlers and every source when
+  several calls bind to one property. Events accept `<data>.done` / `.error` and `show` for a new
+  `status_message` element; `page.bindings` adds explicit source/target pairs. Native `rich_text`
+  exposes content, read-only mode, toolbar, font size and existing sizing controls. Derive recognises
+  both elements. Commands use the same `mashup on`, `bind`, `add statusmessage` and `add ptcsrte`
+  paths; numeric rich-text font sizes also work through `add` and `set`.
+
+- `mashup spec` then `mashup build` adopts a mashup nobody built from a spec without changing it:
+  the page root maps onto the template's root (no extra container level), widget, wiring and data
+  ids are kept (recorded in the baseline), and the spec carries what the mashup has (custom classes,
+  margins, wrap, sizes, scrolling, display names, properties the catalogue does not list, master).
+  A derived spec on a page without v1 markers is `layout: as-built`. Adoption conflicts list each
+  JSON path with both values and the spec line; `mashup spec` notes itemise the bindings, events and
+  properties it left out; derived specs always compile (numeric font sizes, contained mashups);
+  `mashup build --json` reports spec errors as a JSON error object that names the spec file and the
+  key's line; a plan says it would write the baseline.
+- `mashup diff` (also MCP `mashup_diff`) pairs bindings and events by both endpoints, reports
+  missing wiring with widget display names/types and service names, and looks through one extra
+  container wrapper without cascading differences into its children. Wiring order is ignored;
+  each added or removed wrapper counts once as layout.
+
+- V1 page specs and command recipes share full-bleed side columns, reserved filter headers,
+  visible filter dividers, left-aligned trend figures, compact chart legends, pie value labels,
+  inside bar values and grid row framing. Band text centres vertically; legacy output stays unchanged.
+- Navigation menus accept initial selection and indented items. Generated collection cells add
+  image and StateDefinition status roles, also available through built-in command components.
+- The clean preset styles card corners/shadows and page background/fonts, with a synthetic Acme A golden.
+
+- Page specs add native links, images, icons, dividers, boolean controls, text areas, single dates,
+  value displays and contained mashups, plus typed expressions, events routers and navigation
+  events. Pareto and waterfall charts share the chart recipe; schedule charts explain their nested data requirement.
+  Derivation recognises more kit variants and reports deliberate raw-widget limitations. Coverage
+  JSON always includes `raw_types`, including an empty map for pages without raw widgets.
+
 ## [0.1.75] - 2026-11-23
 
 - Page-spec blocks with large values grow without a height cap; ticker bands use a full-width row.

@@ -1,6 +1,6 @@
 {
   "name": "toolbar_band",
-  "source": "PTCSC.IOTCommonMU.AdminMetrics_MU",
+  "source": "AdminMetrics",
   "props": {
     "children": {
       "type": "array",

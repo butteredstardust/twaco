@@ -299,6 +299,9 @@ pub(crate) fn plan_new(
     if rules == mashup::layout::Version::V1 {
         document.set_top("twacoPageRules", json!("v1"));
         mashup::layout::finish_page(&mut document);
+        mashup::tokens::Tokens::active(solution)
+            .map_err(AuthoringError::Invalid)?
+            .apply_page(&mut document)?;
     }
     let parameters: Vec<ParameterDefinition> = request
         .params
@@ -821,6 +824,15 @@ pub(super) fn new_document(
     master: bool,
     theme: &str,
 ) -> Result<MashupDocument, AuthoringError> {
+    new_document_shell(template, master, theme, true)
+}
+
+pub(super) fn new_document_shell(
+    template: &mashup::templates::LayoutTemplate,
+    master: bool,
+    theme: &str,
+    page_host: bool,
+) -> Result<MashupDocument, AuthoringError> {
     let mut document =
         mashup::edit::parse(mashup::templates::BLANK).map_err(AuthoringError::Edit)?;
     let root = document.find("center").map_err(AuthoringError::Edit)?;
@@ -842,6 +854,8 @@ pub(super) fn new_document(
         root.insert("id_index".into(), index);
         *document.root_properties_mut() = root;
         document.set_top("mashupType", json!(MashupKind::Master.content_type()));
+    }
+    if master && page_host {
         // Pages open in the template's designated page container.
         let center = document
             .find(template.master_slot.as_deref().unwrap_or("center"))
@@ -934,6 +948,9 @@ pub(super) fn add_template_node(
         let mut value = mashup::edit::new_widget(widget, number, true);
         if let Some(gutter) = &node.widget_gutter {
             value["Properties"]["Margin"] = json!(gutter);
+        }
+        for (key, prop) in &node.widget_properties {
+            value["Properties"][key] = prop.clone();
         }
         document.push_child(&child.path, value);
     }

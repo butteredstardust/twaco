@@ -1,0 +1,11 @@
+version: 1
+rules: v1
+page:
+  name: Acme.Native_MU
+  template: blank
+  parameters: {When: DATETIME}
+  data:
+    rows: {service: Acme.Data.GetRows, on: load}
+  slots:
+    center:
+      - pagination: {id: target, mode: server, page_size: 25, page_number: 2, total: {bind: rows.Count}}

@@ -1,5 +1,5 @@
 use super::{
-    ids::Ids,
+    ids::{Ids, Pins},
     schema::{self, Node, Page, Size},
     Error,
 };
@@ -23,6 +23,10 @@ pub(crate) struct Artifacts {
     pub(crate) ids: BTreeMap<String, String>,
     /// Pages the spec generates for its collections, created beside it when absent.
     pub(crate) cells: Vec<GeneratedCell>,
+    /// `(node, role, id)` as hashed, before pins renamed anything.
+    pub(crate) allocations: Vec<(String, String, String)>,
+    /// The pins that applied.
+    pub(crate) pins: Pins,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -43,7 +47,18 @@ pub(crate) fn compile_at(
     text: &str,
     base: &std::path::Path,
 ) -> Result<Artifacts, Error> {
-    super::deep(|| compile_nested(solution, project, text, base))
+    compile_pinned(solution, project, text, base, &Pins::default())
+}
+
+/// As `compile_at`, with widget and wiring ids kept where the baseline recorded them.
+pub(crate) fn compile_pinned(
+    solution: &Solution,
+    project: &str,
+    text: &str,
+    base: &std::path::Path,
+    pins: &Pins,
+) -> Result<Artifacts, Error> {
+    super::deep(|| compile_nested(solution, project, text, base, pins))
 }
 
 fn compile_nested(
@@ -51,6 +66,7 @@ fn compile_nested(
     project: &str,
     text: &str,
     base: &std::path::Path,
+    pins: &Pins,
 ) -> Result<Artifacts, Error> {
     let spec = schema::parse_at(text, solution, base)?;
     let page = &spec.page.value;
@@ -72,17 +88,68 @@ fn compile_nested(
             e,
         )
     })?;
-    let mut session = Session::new(&page.name.value, project, &page.template.value, theme)
-        .map_err(|e| Error::at(page.template.referenced, e))?;
+    fn hosts(nodes: &[Node]) -> usize {
+        nodes
+            .iter()
+            .map(|n| {
+                usize::from(n.widget().ok() == Some("pagemashupcontainer"))
+                    + descendants(n)
+                        .map(|c| hosts(std::slice::from_ref(c)))
+                        .sum::<usize>()
+            })
+            .sum()
+    }
+    let count: usize = page.slots.values().map(|s| hosts(&s.value)).sum();
+    if count != usize::from(page.is_master()) {
+        return Err(Error::at(
+            spec.page.referenced,
+            if page.is_master() {
+                "master needs exactly one page_host where pages render; add it to page.slots"
+            } else {
+                "page_host needs page.kind: master; ordinary pages cannot host pages"
+            },
+        ));
+    }
+    let mut session = Session::new_kind(
+        &page.name.value,
+        project,
+        &page.template.value,
+        theme,
+        page.is_master(),
+    )
+    .map_err(|e| Error::at(page.template.referenced, e))?;
+    spec.resolved_tokens
+        .apply_page(&mut session.document)
+        .map_err(|e| Error::at(page.name.referenced, e))?;
     session.tokens = Some(spec.resolved_tokens.clone());
     session.token_source = spec
         .tokens
         .as_ref()
         .map(|t| (t.value.clone(), base.to_path_buf()));
     for (name, base_type) in &page.parameters {
+        // `TYPE`, `TYPE:DIRECTION`, `INFOTABLE:DataShape` or `INFOTABLE:DataShape:DIRECTION`;
+        // a parameter with no direction is an input.
+        let segments = base_type.value.split(':').count();
+        let text = if segments
+            > if base_type.value.starts_with("INFOTABLE:") {
+                2
+            } else {
+                1
+            } {
+            format!("{name}:{}", base_type.value)
+        } else {
+            format!("{name}:{}:IN", base_type.value)
+        };
         session
-            .add_parameter(&format!("{name}:{}:IN", base_type.value))
+            .add_parameter(&text)
             .map_err(|e| Error::at(base_type.referenced, e))?;
+    }
+    if let Some(layout) = &page.layout {
+        if layout.value != "as-built" {
+            return Err(Error::at(layout.referenced, "layout must be as-built"));
+        }
+        // No marker: the document is laid out by the classic table, as the commands do.
+        session.document.root_mut().remove("twacoPageRules");
     }
     let mut allocator = Ids::new(session.document.widgets().into_iter().map(|w| w.id));
     let mut ids = BTreeMap::new();
@@ -152,15 +219,18 @@ fn compile_nested(
     let platform = types::cached_platform(solution);
     for (alias, source) in &page.data {
         let source = &source.value;
+        let Some(service_spec) = &source.service else {
+            continue;
+        };
         if alias.is_empty() || !alias.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
             return Err(Error::at(
-                source.service.referenced,
+                service_spec.referenced,
                 "data name must contain letters, digits or _",
             ));
         }
         let (entity, service) =
-            authoring::session::source_target(&model, platform.as_ref(), &source.service.value)
-                .map_err(|e| Error::at(source.service.referenced, e))?;
+            authoring::session::source_target(&model, platform.as_ref(), &service_spec.value)
+                .map_err(|e| Error::at(service_spec.referenced, e))?;
         let refresh = source
             .on
             .as_ref()
@@ -175,7 +245,8 @@ fn compile_nested(
                         Error::at(on.referenced, "refresh must be every Ns with N above zero")
                     })
             })
-            .transpose()?;
+            .transpose()?
+            .or(source.refresh.as_ref().map(|r| r.value).filter(|n| *n > 0));
         let params = source
             .params
             .iter()
@@ -201,8 +272,17 @@ fn compile_nested(
                     param_values: params,
                 },
             )
-            .map_err(|e| Error::at(source.service.referenced, e))?;
+            .map_err(|e| Error::at(service_spec.referenced, e))?;
     }
+    add_expressions(
+        solution,
+        &mut session,
+        &model,
+        platform.as_ref(),
+        page,
+        &mut allocator,
+        &mut ids,
+    )?;
     wire_nodes(
         solution,
         project,
@@ -216,6 +296,9 @@ fn compile_nested(
     )?;
     for (alias, source) in &page.data {
         let source = &source.value;
+        if source.expression.is_some() {
+            continue;
+        }
         for (param, value) in &source.params {
             if let Some(from) = binding(&value.value) {
                 let from = address(page, &ids, from, value.referenced)?;
@@ -238,19 +321,86 @@ fn compile_nested(
     }
     for event in &page.events {
         let on = &event.value.on;
-        let invoke = &event.value.invoke;
+        if let Some(navigate) = &event.value.navigate {
+            let id = navigate_event(
+                solution,
+                &mut session,
+                page,
+                &ids,
+                &mut allocator,
+                &event.value.on,
+                navigate,
+            )?;
+            if let Some(name) = &navigate.value.id {
+                ids.insert(name.value.clone(), id);
+            }
+            continue;
+        }
         let from = address(page, &ids, &on.value, on.referenced)?;
-        let to = address(page, &ids, &invoke.value, invoke.referenced)?;
+        let to = if let Some(show) = &event.value.show {
+            let id = ids.get(&show.value).ok_or_else(|| {
+                Error::at(
+                    show.referenced,
+                    format!("unknown status_message {}", show.value),
+                )
+            })?;
+            let found = session
+                .document
+                .find_exact(id)
+                .map_err(|e| Error::at(show.referenced, e))?;
+            if found.type_id != "statusmessage" {
+                return Err(Error::at(
+                    show.referenced,
+                    "show needs a status_message node",
+                ));
+            }
+            format!("ui:{id}.ShowMessage")
+        } else {
+            let invoke = event.value.invoke.as_ref().expect("validated event");
+            if page
+                .data
+                .get(&invoke.value)
+                .is_some_and(|s| s.value.expression.is_some())
+            {
+                format!("ui:{}.Evaluate", expression_id(&invoke.value))
+            } else {
+                address(page, &ids, &invoke.value, invoke.referenced)?
+            }
+        };
         session
             .on(&model, platform.as_ref(), &from, &to)
             .map_err(|e| Error::at(on.referenced, e))?;
     }
+    for binding in &page.bindings {
+        let binding = &binding.value;
+        let from = address(page, &ids, &binding.from.value, binding.from.referenced)?;
+        let to = address(page, &ids, &binding.to.value, binding.to.referenced)?;
+        session
+            .bind(solution, &model, platform.as_ref(), &from, &to)
+            .map_err(|e| Error::at(binding.to.referenced, e))?;
+    }
+    wire_expressions(
+        solution,
+        &mut session,
+        &model,
+        platform.as_ref(),
+        page,
+        &ids,
+    )?;
     for nodes in page.slots.values() {
         for node in &nodes.value {
             apply_size(solution, &mut session, page, &ids, node)?;
         }
     }
     super::elements::finish_layout(&mut session, page, &ids)?;
+    apply_root(&mut session, page, &ids)?;
+    let applied = apply_pins(
+        &mut session,
+        &mut ids,
+        &allocator,
+        pins,
+        spec.page.referenced,
+    )?;
     session
         .sync()
         .map_err(|e| Error::at(spec.page.referenced, e))?;
@@ -260,7 +410,167 @@ fn compile_nested(
         css: session.css,
         ids,
         cells,
+        allocations: allocator.allocated().to_vec(),
+        pins: applied,
     })
+}
+
+/// The page's master and the template root container's own properties, stated as the spec has
+/// them. These come last so nothing the build placed overrides them.
+fn apply_root(
+    session: &mut Session,
+    page: &Page,
+    ids: &BTreeMap<String, String>,
+) -> Result<(), Error> {
+    for (alias, source) in &page.data {
+        let Some(id) = ids.get(&format!("$data:{alias}")) else {
+            continue;
+        };
+        let path = session
+            .document
+            .find_exact(id)
+            .map_err(|e| Error::at(source.referenced, e))?
+            .path;
+        for (key, value) in &source.value.props {
+            super::elements::set_or_remove(&mut session.document, &path, key, &value.value);
+        }
+    }
+    for (key, value) in &page.props {
+        if matches!(
+            key.as_str(),
+            "Id" | "Type" | "Widgets" | "id_index" | "_currentParameterDefs"
+        ) {
+            return Err(Error::at(
+                value.referenced,
+                format!("page props cannot set {key}"),
+            ));
+        }
+        super::elements::set_or_remove(&mut session.document, &[], key, &value.value);
+    }
+    if let Some(master) = &page.master {
+        session
+            .document
+            .root_properties_mut()
+            .insert("Master".into(), json!(master.value));
+    }
+    if let Some(flag) = &page.use_master_theme {
+        session
+            .document
+            .root_properties_mut()
+            .insert("UseMasterTheme".into(), json!(flag.value));
+    }
+    let Some(root) = &page.root else {
+        return Ok(());
+    };
+    let path = session
+        .document
+        .find("center")
+        .map_err(|e| Error::at(root.referenced, e))?
+        .path;
+    for (key, value) in &root.value.props {
+        if matches!(key.as_str(), "Id" | "Type" | "Widgets") {
+            return Err(Error::at(
+                value.referenced,
+                format!("root props cannot set {key}"),
+            ));
+        }
+        // An absent property is null here: remove it rather than store null.
+        super::elements::set_or_remove(&mut session.document, &path, key, &value.value);
+    }
+    Ok(())
+}
+
+/// Rename the widgets the baseline pinned back to the ids the mashup already had, then give the
+/// bindings and events their recorded ids. A pin whose node or role no longer exists is ignored.
+fn apply_pins(
+    session: &mut Session,
+    ids: &mut BTreeMap<String, String>,
+    allocator: &Ids,
+    pins: &Pins,
+    at: Location,
+) -> Result<Pins, Error> {
+    let mut applied = Pins::default();
+    let mut mapping = BTreeMap::new();
+    for (node, role, target) in &pins.widgets {
+        if let Some((_, _, hashed)) = allocator
+            .allocated()
+            .iter()
+            .find(|(n, r, _)| n == node && r == role)
+        {
+            mapping.insert(hashed.clone(), target.clone());
+            applied
+                .widgets
+                .push((node.clone(), role.clone(), target.clone()));
+        }
+    }
+    if !mapping.is_empty() {
+        let mut seen = BTreeSet::new();
+        for widget in session.document.widgets() {
+            let id = mapping.get(&widget.id).unwrap_or(&widget.id);
+            if !seen.insert(id.clone()) {
+                return Err(Error::at(
+                    at,
+                    format!("widget id {id} is pinned twice or collides with another widget; delete src/<mashup>/.page-baseline.json and adopt again"),
+                ));
+            }
+        }
+        rename_widgets(session, &mapping, true);
+        for id in ids.values_mut() {
+            if let Some(renamed) = mapping.get(id.as_str()) {
+                *id = renamed.clone();
+            }
+        }
+    }
+    let mut keep = |items: &mut [Value]| {
+        for item in items {
+            let Some(kept) = item["Id"].as_str().and_then(|id| pins.wiring.get(id)) else {
+                continue;
+            };
+            applied.wiring.insert(
+                item["Id"].as_str().unwrap_or_default().to_string(),
+                kept.clone(),
+            );
+            item["Id"] = json!(kept);
+        }
+    };
+    keep(session.document.bindings_mut());
+    keep(session.document.events_mut());
+    if let Some(sections) = session
+        .document
+        .root_mut()
+        .get_mut("Data")
+        .and_then(Value::as_object_mut)
+    {
+        for section in sections.values_mut() {
+            keep(std::slice::from_mut(section));
+            if let Some(calls) = section["Services"].as_array_mut() {
+                keep(calls);
+            }
+        }
+    }
+    Ok(applied)
+}
+
+/// A property's text for the add command. A number the platform writes for a pixel option (a font
+/// size of 14) is the option "14px", which the property then keeps as the spec spelled it.
+fn option_text(node: &Node, key: &str, value: &Value) -> String {
+    if let (Some(number), Ok(widget)) = (
+        value.as_f64().filter(|n| n.fract() == 0.0),
+        node.widget().and_then(|w| {
+            crate::core::widgets::catalog()
+                .resolve(w)
+                .map_err(|e| Error::at(serde_saphyr::Location::UNKNOWN, e))
+        }),
+    ) {
+        let pixels = format!("{number}px");
+        if widget
+            .property(key)
+            .is_some_and(|p| p.options.contains(&json!(pixels)))
+        {
+            return pixels;
+        }
+    }
+    scalar(value)
 }
 
 pub(super) fn scalar(value: &Value) -> String {
@@ -275,6 +585,19 @@ pub(super) fn binding(value: &Value) -> Option<&str> {
         .filter(|m| m.len() == 1)?
         .get("bind")?
         .as_str()
+}
+
+/// Where an error about one of the node's props points: that prop's own line, when the message
+/// names it, else the node's `id:` line.
+fn key_location(body: &schema::Body, message: &str, default: Location) -> Location {
+    body.props
+        .iter()
+        .find(|(key, _)| {
+            message
+                .split(|c: char| !(c.is_alphanumeric() || c == '-' || c == '_'))
+                .any(|word| word == key.as_str())
+        })
+        .map_or(default, |(_, value)| value.referenced)
 }
 
 fn is_function(node: &Node) -> Result<bool, Error> {
@@ -303,9 +626,29 @@ fn add(
     let mut props: Vec<_> = body
         .props
         .iter()
-        .filter(|(_, v)| binding(&v.value).is_none())
-        .map(|(k, v)| (k.clone(), scalar(&v.value)))
+        .filter(|(k, v)| {
+            binding(&v.value).is_none() && k.as_str() != "DisplayName" && !v.value.is_null()
+        })
+        .map(|(k, v)| (k.clone(), option_text(node, k, &v.value)))
         .collect();
+    if page.layout.is_some() && body.native.is_none() {
+        // An as-built page carries properties the catalogue does not list; they are set after
+        // placement, as the page has them.
+        if let Ok(widget) = crate::core::widgets::catalog().resolve(node.widget()?) {
+            props.retain(|(k, _)| {
+                body.props
+                    .get(k)
+                    .is_some_and(|v| !v.value.is_object() && !v.value.is_array())
+                    && !matches!(
+                        k.as_str(),
+                        "ResponsiveLayout" | "LastContainer" | "__TypeDisplayName"
+                    )
+                    && (widget.defaults.contains_key(k)
+                        || widget.property(k).is_some()
+                        || widget.numbered_default(k).is_some())
+            });
+        }
+    }
     let op = match node {
         Node::PageHeader(_) => Some("page-header"),
         Node::Toolbar(_) => Some("toolbar"),
@@ -335,7 +678,9 @@ fn add(
         props.push(("LabelType".into(), "body".into()));
     }
     let (parent, previous) = position;
-    let placement = if let Some(anchor) = previous {
+    let placement = if page.layout.is_some() {
+        Placement::Append(parent.into())
+    } else if let Some(anchor) = previous {
         let parent = session
             .document
             .find_exact(parent)
@@ -357,23 +702,57 @@ fn add(
         .into_iter()
         .map(|w| w.id)
         .collect();
-    let placed = session
-        .add(
-            solution,
-            &authoring::AddRequest {
-                mashup: page.name.value.clone(),
-                widget: node.widget()?.into(),
-                inputs: body.inputs.clone(),
-                placement: if is_function(node)? {
-                    None
-                } else {
-                    Some(placement)
+    let placed = if let Some(child) = &body.native {
+        let catalog = crate::core::widgets::catalog()
+            .by_type("mashupcontainer")
+            .expect("contained widget");
+        let (props, settings): (Vec<_>, Vec<_>) = props
+            .into_iter()
+            .partition(|(k, _)| catalog.defaults.contains_key(k) || catalog.property(k).is_some());
+        let id = session
+            .contained_with(solution, parent, child, settings)
+            .map_err(|e| Error::at(loc, e))?;
+        if !props.is_empty() {
+            session
+                .set(
+                    solution,
+                    &authoring::SetRequest {
+                        mashup: page.name.value.clone(),
+                        widget: id.clone(),
+                        properties: props
+                            .into_iter()
+                            .map(|(k, v)| (k, serde_json::from_str(&v).unwrap_or(Value::String(v))))
+                            .collect(),
+                        style_from: None,
+                        styles: vec![],
+                    },
+                )
+                .map_err(|e| Error::at(loc, e))?;
+        }
+        id
+    } else {
+        session
+            .add(
+                solution,
+                &authoring::AddRequest {
+                    mashup: page.name.value.clone(),
+                    widget: node.widget()?.into(),
+                    inputs: body.inputs.clone(),
+                    placement: if is_function(node)? {
+                        None
+                    } else {
+                        Some(placement)
+                    },
+                    label: body
+                        .text
+                        .as_ref()
+                        .and_then(Value::as_str)
+                        .map(str::to_owned),
+                    properties: props,
                 },
-                label: body.text.clone(),
-                properties: props,
-            },
-        )
-        .map_err(|e| Error::at(loc, e))?;
+            )
+            .map_err(|e| Error::at(key_location(body, &e.to_string(), loc), e))?
+    };
     if let Some(op) = op {
         let context = crate::core::mashup::layout::context::Node::op(
             op,
@@ -449,6 +828,24 @@ fn add(
         _ => Ok(()),
     }
     .map_err(|e| Error::at(loc, e))?;
+    if matches!(node, Node::FilterPanel(_)) {
+        let root = session
+            .document
+            .find_exact(&placed)
+            .map_err(|e| Error::at(loc, e))?
+            .path;
+        let title = session
+            .document
+            .widgets()
+            .into_iter()
+            .find(|w| w.path.starts_with(&root) && w.display_name == "filter-title")
+            .expect("filter title");
+        session.document.set_property(
+            &title.path,
+            "LabelText",
+            json!(body.title.as_deref().unwrap_or("Filter")),
+        );
+    }
     if (matches!(node, Node::Card(_)) && body.align.is_none()) || matches!(node, Node::TrendTile(_))
     {
         // Kit card titles use the regular label size, not the recipe's sub-header.
@@ -479,6 +876,32 @@ fn add(
         }
     }
     let id = stabilize(session, allocator, &old, &placed, &body.id.value, loc)?;
+    if matches!(node, Node::FilterPanel(_)) {
+        // The recipe's title label takes the id and address the generated `<id>--title` heading
+        // had, so a page rebuilt from an older spec keeps its title widget and references to it.
+        let root = session
+            .document
+            .find_exact(&id)
+            .map_err(|e| Error::at(loc, e))?
+            .path;
+        if let Some(title) = session
+            .document
+            .widgets()
+            .into_iter()
+            .find(|w| w.path.starts_with(&root) && w.display_name == "filter-title")
+        {
+            let node = format!("{}--title", body.id.value);
+            let stable = allocator
+                .widget("ptcslabel", &node, "widget")
+                .map_err(|e| Error::at(loc, e))?;
+            rename_widgets(
+                session,
+                &BTreeMap::from([(title.id.clone(), stable.clone())]),
+                false,
+            );
+            ids.insert(node, stable);
+        }
+    }
     ids.insert(body.id.value.clone(), id.clone());
     apply_styles(solution, session, page, &id, body)?;
     if let Some(size) = &body.value_size {
@@ -525,6 +948,26 @@ fn add(
                 .id
         };
         let filters = slot("filters", session);
+        let header = slot("filter-header", session);
+        let has_title =
+            body.title.is_none() && matches!(body.fields.first(), Some(Node::Heading(_)));
+        if has_title {
+            let header_path = session
+                .document
+                .find_exact(&header)
+                .map_err(|e| Error::at(loc, e))?
+                .path;
+            session.document.at_mut(&header_path)["Widgets"] = json!([]);
+            add_children(
+                solution,
+                session,
+                allocator,
+                ids,
+                page,
+                &body.fields[..1],
+                &header,
+            )?;
+        }
         let footer = slot("filter-footer", session);
         let content = slot("content", session);
         add_children(
@@ -533,7 +976,7 @@ fn add(
             allocator,
             ids,
             page,
-            &body.fields,
+            &body.fields[usize::from(has_title)..],
             &filters,
         )?;
         for child in &body.children {
@@ -623,11 +1066,28 @@ fn add(
                 .map(|w| w.id)
                 .collect();
             let role = format!("{}--tab-{}", body.id.value, tab.label.value);
+            for (key, value) in &tab.props {
+                super::elements::set_or_remove(&mut session.document, &tab_path, key, &value.value);
+            }
+            if page.layout.is_some() {
+                ids.insert(role.clone(), parent.clone());
+            }
             if let Some(mashup) = &tab.mashup {
                 let held = session
                     .contained(solution, &parent, &mashup.value)
                     .map_err(|e| Error::at(mashup.referenced, e))?;
                 stabilize(session, allocator, &old, &held, &role, tab.label.referenced)?;
+            } else if page.layout.is_some() {
+                // As built, a tab's content sits in the tab's own container.
+                add_children(
+                    solution,
+                    session,
+                    allocator,
+                    ids,
+                    page,
+                    tab.content.as_deref().unwrap_or_default(),
+                    &parent,
+                )?;
             } else {
                 session
                     .template_children(&parent, "tab-content")
@@ -1018,7 +1478,13 @@ fn stabilize(
             .map_err(|e| Error::at(loc, e))?;
         mapping.insert(widget.id.clone(), stable);
     }
-    for widget in &new {
+    rename_widgets(session, &mapping, false);
+    Ok(id)
+}
+
+/// Give widgets new ids and follow them through wiring, styles and pagination links.
+fn rename_widgets(session: &mut Session, mapping: &BTreeMap<String, String>, tab_names: bool) {
+    for widget in session.document.widgets() {
         let Some(stable) = mapping.get(&widget.id) else {
             continue;
         };
@@ -1031,6 +1497,32 @@ fn stabilize(
         if let Some(display) = properties.get("DisplayName").and_then(Value::as_str) {
             if let Some(prefix) = display.strip_suffix(&format!("-{old_number}")) {
                 properties.insert("DisplayName".into(), json!(format!("{prefix}-{number}")));
+            }
+        }
+    }
+    // A tab's container is named after its tab set's number.
+    let numbers: Vec<(String, String)> = mapping
+        .iter()
+        .filter(|_| tab_names)
+        .filter_map(|(old, new)| {
+            Some((
+                format!("-{} #", old.rsplit('-').next()?),
+                format!("-{} #", new.rsplit('-').next()?),
+            ))
+        })
+        .collect();
+    for widget in session.document.widgets() {
+        let properties = session.document.at_mut(&widget.path)["Properties"]
+            .as_object_mut()
+            .expect("widget properties");
+        let Some(display) = properties.get("DisplayName").and_then(Value::as_str) else {
+            continue;
+        };
+        for (old, new) in &numbers {
+            if display.contains(old.as_str()) {
+                let renamed = display.replacen(old.as_str(), new, 1);
+                properties.insert("DisplayName".into(), json!(renamed));
+                break;
             }
         }
     }
@@ -1063,7 +1555,7 @@ fn stabilize(
         }
     }
     for value in session.document.root_mut().values_mut() {
-        remap(value, &mapping);
+        remap(value, mapping);
     }
     fn binding_ids(items: &mut [Value], mapping: &BTreeMap<String, String>) {
         for item in items {
@@ -1084,8 +1576,8 @@ fn stabilize(
             }
         }
     }
-    binding_ids(session.document.bindings_mut(), &mapping);
-    binding_ids(session.document.events_mut(), &mapping);
+    binding_ids(session.document.bindings_mut(), mapping);
+    binding_ids(session.document.events_mut(), mapping);
     if let Some(styles) = session
         .document
         .root_properties_mut()
@@ -1103,11 +1595,293 @@ fn stabilize(
         .root_properties_mut()
         .insert("id_index".into(), json!(0));
     session.document.reserve_ids();
-    Ok(id)
 }
 
 pub(super) fn call(page: &Page, alias: &str) -> String {
-    format!("data:{}[as {alias}]", page.data[alias].value.service.value)
+    if let Some((source, field)) = alias.split_once('.') {
+        return format!("{}.{field}", call(page, source));
+    }
+    if page.data[alias].value.expression.is_some() {
+        format!("ui:{}.Output", expression_id(alias))
+    } else {
+        format!(
+            "data:{}[as {alias}]",
+            page.data[alias]
+                .value
+                .service
+                .as_ref()
+                .expect("service")
+                .value
+        )
+    }
+}
+
+fn expression_id(alias: &str) -> String {
+    Ids::new(std::iter::empty())
+        .widget("expression2", &format!("$data:{alias}"), "widget")
+        .expect("empty allocator")
+}
+
+#[allow(clippy::too_many_arguments)]
+fn add_expressions(
+    solution: &Solution,
+    session: &mut Session,
+    model: &types::Model,
+    platform: Option<&types::Platform>,
+    page: &Page,
+    allocator: &mut Ids,
+    ids: &mut BTreeMap<String, String>,
+) -> Result<(), Error> {
+    for (alias, source) in &page.data {
+        let source = &source.value;
+        let Some(expression) = &source.expression else {
+            continue;
+        };
+        let at = expression.referenced;
+        if alias.is_empty() || !alias.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+            return Err(Error::at(at, "data name must contain letters, digits or _"));
+        }
+        let output = source.output.as_ref().expect("validated output");
+        let mut inputs = vec![];
+        for (name, input) in &source.inputs {
+            let base = match &input.value {
+                schema::ExpressionInput::Typed(typed) => typed.base_type.clone(),
+                schema::ExpressionInput::Reference(reference) => {
+                    let alias = reference.split('.').next().unwrap_or(reference);
+                    if let Some(other) = page
+                        .data
+                        .get(alias)
+                        .filter(|s| s.value.expression.is_some())
+                    {
+                        other
+                            .value
+                            .output
+                            .as_ref()
+                            .expect("validated output")
+                            .value
+                            .clone()
+                    } else {
+                        let from = if let Some((grid, field)) = reference.split_once(".selected.") {
+                            let data = find_grid(page, grid).ok_or_else(|| {
+                                Error::at(
+                                    input.referenced,
+                                    "selection input needs a grid with data",
+                                )
+                            })?;
+                            format!("{}.{field}", call(page, data))
+                        } else {
+                            address(page, ids, reference, input.referenced)?
+                        };
+                        session
+                            .source_type(solution, model, platform, &from)
+                            .map_err(|e| Error::at(input.referenced, e))?
+                    }
+                }
+            };
+            inputs.push(format!("{name}:{base}"));
+        }
+        authoring::validate_expression_type(&output.value)
+            .map_err(|e| Error::at(output.referenced, e))?;
+        let script = &expression.value;
+        let script = if script.contains(';') || script.contains("\n") {
+            script.clone()
+        } else {
+            format!("result = ({script});")
+        };
+        let mut properties = vec![
+            ("Expression".into(), script),
+            ("OutputBaseType".into(), output.value.clone()),
+            (
+                "AutoEvaluate".into(),
+                source.auto_evaluate.unwrap_or(true).to_string(),
+            ),
+            (
+                "FireOnFirstValue".into(),
+                source.fire_on_first_value.unwrap_or(false).to_string(),
+            ),
+        ];
+        if let Some(change) = &source.data_change {
+            properties.push(("DataChangeType".into(), change.value.clone()));
+        }
+        let old = session
+            .document
+            .widgets()
+            .into_iter()
+            .map(|w| w.id)
+            .collect();
+        let placed = session
+            .add(
+                solution,
+                &authoring::AddRequest {
+                    mashup: page.name.value.clone(),
+                    widget: "expression2".into(),
+                    inputs,
+                    placement: None,
+                    label: None,
+                    properties,
+                },
+            )
+            .map_err(|e| Error::at(at, e))?;
+        let id = stabilize(
+            session,
+            allocator,
+            &old,
+            &placed,
+            &format!("$data:{alias}"),
+            at,
+        )?;
+        ids.insert(format!("$data:{alias}"), id);
+    }
+    Ok(())
+}
+
+fn wire_expressions(
+    solution: &Solution,
+    session: &mut Session,
+    model: &types::Model,
+    platform: Option<&types::Platform>,
+    page: &Page,
+    ids: &BTreeMap<String, String>,
+) -> Result<(), Error> {
+    for (alias, source) in &page.data {
+        let source = &source.value;
+        if source.expression.is_none() {
+            continue;
+        }
+        let id = expression_id(alias);
+        for (name, input) in &source.inputs {
+            let value = match &input.value {
+                schema::ExpressionInput::Reference(reference) => Some(json!({"bind": reference})),
+                schema::ExpressionInput::Typed(typed) => typed.value.clone(),
+            };
+            if let Some(value) = value {
+                if let Some(from) = binding(&value) {
+                    let from = address(page, ids, from, input.referenced)?;
+                    session
+                        .bind(solution, model, platform, &from, &format!("ui:{id}.{name}"))
+                        .map_err(|e| Error::at(input.referenced, e))?;
+                } else {
+                    session
+                        .set(
+                            solution,
+                            &authoring::SetRequest {
+                                mashup: page.name.value.clone(),
+                                widget: id.clone(),
+                                properties: vec![(name.clone(), value)],
+                                style_from: None,
+                                styles: vec![],
+                            },
+                        )
+                        .map_err(|e| Error::at(input.referenced, e))?;
+                }
+            }
+        }
+        if let Some(on) = &source.on {
+            let from = address(page, ids, &on.value, on.referenced)?;
+            session
+                .on(model, platform, &from, &format!("ui:{id}.Evaluate"))
+                .map_err(|e| Error::at(on.referenced, e))?;
+        }
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn navigate_event(
+    solution: &Solution,
+    session: &mut Session,
+    page: &Page,
+    ids: &BTreeMap<String, String>,
+    allocator: &mut Ids,
+    on: &serde_saphyr::Spanned<String>,
+    navigate: &serde_saphyr::Spanned<schema::Navigate>,
+) -> Result<String, Error> {
+    let nav = &navigate.value;
+    let mode = nav.mode.as_ref().map_or("page", |m| m.value.as_str());
+    let window = match mode {
+        "page" | "replace" => "replace",
+        "new_tab" | "new" => "new",
+        "popup" => "popup",
+        "modal-popup" => "modal-popup",
+        _ => {
+            return Err(Error::at(
+                nav.mode.as_ref().expect("mode").referenced,
+                "navigate mode is page, new_tab, popup or modal-popup",
+            ))
+        }
+    };
+    let from = address(page, ids, &on.value, on.referenced)?;
+    let pass = nav
+        .params
+        .iter()
+        .filter_map(|(name, value)| binding(&value.value).map(|from| (name, value, from)))
+        .map(|(name, value, from)| Ok((name.clone(), address(page, ids, from, value.referenced)?)))
+        .collect::<Result<Vec<_>, Error>>()?;
+    let old: BTreeSet<_> = session
+        .document
+        .widgets()
+        .into_iter()
+        .map(|w| w.id)
+        .collect();
+    session
+        .recipe(
+            solution,
+            authoring::Recipe::Popup {
+                trigger: from,
+                target: nav.mashup.value.clone(),
+                window: window.into(),
+                size: if nav.width.is_some() || nav.height.is_some() {
+                    Some((nav.width.unwrap_or(0), nav.height.unwrap_or(0)))
+                } else {
+                    None
+                },
+                title: nav.title.clone(),
+                pass,
+                refresh: None,
+            },
+        )
+        .map_err(|e| Error::at(navigate.referenced, e))?;
+    let placed = session
+        .document
+        .widgets()
+        .into_iter()
+        .find(|w| !old.contains(&w.id) && w.type_id == "navigationfunction")
+        .expect("navigation recipe")
+        .id;
+    let id = stabilize(
+        session,
+        allocator,
+        &old,
+        &placed,
+        nav.id
+            .as_ref()
+            .map(|s| s.value.clone())
+            .unwrap_or_else(|| format!("$navigate:{}:{}", on.value, nav.mashup.value))
+            .as_str(),
+        navigate.referenced,
+    )?;
+    let properties = nav
+        .params
+        .iter()
+        .chain(&nav.props)
+        .filter(|(_, v)| binding(&v.value).is_none())
+        .map(|(k, v)| (k.clone(), v.value.clone()))
+        .collect::<Vec<_>>();
+    if !properties.is_empty() {
+        session
+            .set(
+                solution,
+                &authoring::SetRequest {
+                    mashup: page.name.value.clone(),
+                    widget: id.clone(),
+                    properties,
+                    style_from: None,
+                    styles: vec![],
+                },
+            )
+            .map_err(|e| Error::at(navigate.referenced, e))?;
+    }
+    Ok(id)
 }
 
 fn wire_sparklines(
@@ -1193,6 +1967,12 @@ fn wire_selections(
         }
     }
     let mut refs = BTreeMap::new();
+    for binding in &page.bindings {
+        let from = &binding.value.from;
+        if from.value.contains(".selected.") {
+            refs.insert(from.value.clone(), from.referenced);
+        }
+    }
     for node in page.slots.values().flat_map(|s| &s.value) {
         collect(node, &mut refs);
     }
@@ -1200,6 +1980,27 @@ fn wire_selections(
         for value in source.value.params.values() {
             if let Some(text) = binding(&value.value).filter(|s| s.contains(".selected.")) {
                 refs.insert(text.to_string(), value.referenced);
+            }
+        }
+    }
+    for source in page.data.values() {
+        for input in source.value.inputs.values() {
+            let reference = match &input.value {
+                schema::ExpressionInput::Reference(s) => Some(s.as_str()),
+                schema::ExpressionInput::Typed(t) => t.value.as_ref().and_then(binding),
+            };
+            if let Some(reference) = reference.filter(|s| s.contains(".selected.")) {
+                refs.insert(reference.into(), input.referenced);
+            }
+        }
+    }
+    for event in &page.events {
+        if let Some(navigate) = &event.value.navigate {
+            for value in navigate.value.params.values() {
+                if let Some(reference) = binding(&value.value).filter(|s| s.contains(".selected."))
+                {
+                    refs.insert(reference.into(), value.referenced);
+                }
             }
         }
     }
@@ -1311,9 +2112,18 @@ pub(super) fn address(
         if let Some(id) = ids.get(node) {
             return Ok(format!("ui:{id}.{property}"));
         }
+        if page
+            .data
+            .get(node)
+            .is_some_and(|s| s.value.expression.is_some())
+        {
+            return Ok(format!("ui:{}.{}", expression_id(node), property));
+        }
         if page.data.contains_key(node) {
             return Ok(if property == "SelectedRows" {
                 format!("{}[SelectedRows]", call(page, node))
+            } else if let Some(field) = property.strip_prefix("SelectedRows.") {
+                format!("{}[SelectedRows].{field}", call(page, node))
             } else {
                 format!("{}.{property}", call(page, node))
             });
@@ -1559,6 +2369,8 @@ fn wire_collection(
         for (field, role) in [
             (spec.value.title.as_ref(), "title"),
             (spec.value.kpi_dial.as_ref(), "kpi_dial"),
+            (spec.value.image.as_ref(), "image"),
+            (spec.value.status.as_ref().map(|s| &s.field), "status"),
         ] {
             let Some(field) = field else { continue };
             let base_type = session
@@ -1570,10 +2382,19 @@ fn wire_collection(
                     format!("cell kpi_dial field {field} must be numeric"),
                 ));
             }
+            if role == "image" && !["STRING", "IMAGELINK"].contains(&base_type.as_str()) {
+                return Err(Error::at(
+                    spec.referenced,
+                    format!("cell image field {field} must be STRING or IMAGELINK"),
+                ));
+            }
             fields.push((role, field.clone(), base_type));
         }
         if fields.is_empty() {
-            return Err(Error::at(spec.referenced, "cell needs title or kpi_dial"));
+            return Err(Error::at(
+                spec.referenced,
+                "cell needs title, kpi_dial, image or status",
+            ));
         }
         let mappings = fields
             .iter()
@@ -1586,8 +2407,14 @@ fn wire_collection(
             .token_source
             .as_ref()
             .map(|(value, base)| rebase_tokens(value, base, &cell_dir));
-        let text = cell_spec(page, tokens.as_deref(), &name, &fields);
-        let built = compile_nested(solution, project, &text, &cell_dir)?;
+        let text = cell_spec(
+            page,
+            tokens.as_deref(),
+            &name,
+            &fields,
+            spec.value.status.as_ref(),
+        );
+        let built = compile_nested(solution, project, &text, &cell_dir, &Pins::default())?;
         let cell = CellSource::Generated {
             name: name.clone(),
             entity: built.entity.clone(),
@@ -1662,6 +2489,7 @@ fn cell_spec(
     tokens: Option<&str>,
     name: &str,
     fields: &[(&str, String, String)],
+    status: Option<&schema::CellStatus>,
 ) -> String {
     let parameters: serde_json::Map<_, _> = fields
         .iter()
@@ -1684,6 +2512,28 @@ fn cell_spec(
     }
     let mut spec = json!({"version": 1, "rules": "v1", "page": {
         "name": name, "template": "kpi-tile", "parameters": parameters, "slots": slots}});
+    if fields
+        .iter()
+        .any(|(role, _, _)| ["image", "status"].contains(role))
+    {
+        let mut children = Vec::new();
+        for role in ["image", "title", "kpi_dial", "status"] {
+            let Some((_, field, _)) = fields.iter().find(|(r, _, _)| *r == role) else {
+                continue;
+            };
+            let bind = json!({"bind":format!("param.{field}")});
+            children.push(match role {
+                "image" => json!({"image":{"id":"image", "source":bind, "scaling":"contain", "position":"center", "props":{"Height":96,"Margin":"0"}}}),
+                "title" => json!({"label":{"id":"title", "props":{"LabelText":bind}}}),
+                "kpi_dial" => json!({"kpi_dial":{"id":"dial", "value":bind}}),
+                _ => json!({"detail_pair":{"id":"status", "label":"Status", "value":bind, "state":status.expect("status role").state}}),
+            });
+        }
+        spec["page"]["template"] = json!("blank");
+        spec["page"]["slots"] =
+            json!({"center":[{"column":{"id":"cell", "size":"fill", "children":children}}]});
+    }
+
     if let Some(theme) = &page.theme {
         spec["page"]["theme"] = json!(theme.value);
     }
@@ -1828,6 +2678,16 @@ fn wire_values(
     let body = node.body();
     let id = &ids[&body.id.value];
     super::elements::wire_values(solution, session, model, platform, page, ids, node)?;
+    if body.initialize {
+        session
+            .on(
+                model,
+                platform,
+                "mashup:Loaded",
+                &format!("ui:{id}.Evaluate"),
+            )
+            .map_err(|e| Error::at(body.id.referenced, e))?;
+    }
     for (prop, value) in &body.props {
         if let Some(from) = binding(&value.value) {
             let from = address(page, ids, from, value.referenced)?;

@@ -201,7 +201,7 @@ impl Tokens {
                 (
                     "radius",
                     &tokens.radius,
-                    &["none", "sm", "md", "lg", "default"][..],
+                    &["none", "sm", "md", "lg", "default", "card"][..],
                 ),
                 (
                     "border",
@@ -338,6 +338,11 @@ impl Tokens {
                 }
             } else if key.starts_with("radius.") && entries.contains_key(&format!("radius.{raw}")) {
                 value(&format!("radius.{raw}"), entries, seen)?
+            } else if key.starts_with("shadow.")
+                && key != format!("shadow.{raw}")
+                && entries.contains_key(&format!("shadow.{raw}"))
+            {
+                value(&format!("shadow.{raw}"), entries, seen)?
             } else if key.starts_with("shadow.") {
                 let mut words = vec![];
                 for word in raw.split_whitespace() {
@@ -470,6 +475,60 @@ impl Tokens {
             }
             _ => text.to_string(),
         })
+    }
+
+    pub(crate) fn card_styles(&self) -> Vec<String> {
+        let Some(radius) = self.radius.get("card") else {
+            return Vec::new();
+        };
+        let mut styles = vec![
+            format!("border-radius={radius}"),
+            format!("background={}", self.roles["card"]),
+        ];
+        if let Some(shadow) = self.shadow.get("card") {
+            styles.push(format!("box-shadow={shadow}"));
+        }
+        if self.font("sans") != "inherit" {
+            styles.push(format!("font-family={}", self.font("sans")));
+        }
+        styles
+    }
+
+    pub(crate) fn chart_palette(&self) -> Vec<String> {
+        if self.chart.is_empty() {
+            ["primary", "success", "warning", "danger", "info"]
+                .into_iter()
+                .map(|role| self.roles[role].clone())
+                .collect()
+        } else {
+            self.chart.clone()
+        }
+    }
+
+    pub(crate) fn apply_page(
+        &self,
+        document: &mut crate::core::mashup::edit::MashupDocument,
+    ) -> Result<(), crate::core::mashup::authoring::AuthoringError> {
+        if self.card_styles().is_empty() {
+            return Ok(());
+        }
+        if let Some(page) = document
+            .widgets()
+            .into_iter()
+            .find(|w| w.type_id == "flexcontainer")
+        {
+            crate::core::mashup::authoring::merge_widget_styles(
+                document,
+                &page.id,
+                &page.type_id,
+                &[
+                    format!("background={}", self.roles["background"]),
+                    format!("font-family={}", self.font("sans")),
+                ],
+                "mashup",
+            )?;
+        }
+        Ok(())
     }
 
     pub(crate) fn props(&self) -> Vec<Value> {
@@ -682,6 +741,21 @@ mod tests {
             .style("color", "${colors.missing}")
             .unwrap_err()
             .contains("known names"));
+    }
+
+    #[test]
+    fn preset_values_never_lose_a_hash_to_a_yaml_comment() {
+        // ` #` starts a YAML comment, so `sm: 0 1px 3px #0000001A` would silently drop the colour.
+        for name in PRESETS {
+            for line in preset(name).unwrap().lines() {
+                if let Some((_, value)) = line.split_once(": ") {
+                    assert!(
+                        !value.contains(" #") || value.starts_with('\''),
+                        "{name}: quote {line:?}"
+                    );
+                }
+            }
+        }
     }
 
     #[test]

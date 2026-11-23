@@ -37,7 +37,7 @@ pub struct MovePlan {
 /// The placement as the flags that asked for it say it.
 pub fn describe_placement(placement: &Placement) -> String {
     match placement {
-        Placement::In(container) => format!("in {container}"),
+        Placement::In(container) | Placement::Append(container) => format!("in {container}"),
         Placement::Bottom(column) => format!("at the bottom of {column}"),
         Placement::BelowInColumn(anchor) => format!("below {anchor} in its column"),
         Placement::Beside { anchor, side } => match side {
@@ -52,7 +52,10 @@ pub fn describe_placement(placement: &Placement) -> String {
 
 fn anchor_word(placement: &Placement) -> &str {
     match placement {
-        Placement::In(word) | Placement::Bottom(word) | Placement::BelowInColumn(word) => word,
+        Placement::In(word)
+        | Placement::Append(word)
+        | Placement::Bottom(word)
+        | Placement::BelowInColumn(word) => word,
         Placement::Beside { anchor, .. } => anchor,
     }
 }

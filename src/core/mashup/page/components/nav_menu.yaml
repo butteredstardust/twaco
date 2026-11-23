@@ -1,0 +1,8 @@
+name: nav_menu
+source: Administrator
+props:
+  search: {type: string}
+  selected: {type: string}
+  groups: {type: array, required: true}
+tree:
+  nav_menu: {id: '$id', search: '$search', selected: '$selected', groups: '$groups'}

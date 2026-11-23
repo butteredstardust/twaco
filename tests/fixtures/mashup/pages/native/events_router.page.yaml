@@ -1,0 +1,12 @@
+version: 1
+rules: v1
+page:
+  name: Acme.Native_MU
+  template: blank
+  parameters: {When: DATETIME, First: BOOLEAN, Second: BOOLEAN}
+  data:
+    rows: {service: Acme.Data.GetRows, on: load}
+  slots:
+    center:
+      - events_router: {id: target, data_type: BOOLEAN, routes: [{bind: param.First}, {bind: param.Second}]}
+      - checkbox: {id: routed, label: Routed, value: {bind: target.Output}}

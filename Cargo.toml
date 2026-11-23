@@ -79,6 +79,11 @@ roxmltree = "0.21.1"
 [profile.release]
 strip = true
 
+# Dependencies (swc, serde, YAML) are optimised in debug builds: the test suite spends most of its
+# time inside them, while twaco's own crate stays unoptimised for fast incremental builds.
+[profile.dev.package."*"]
+opt-level = 2
+
 # A curated few of clippy's pedantic lints: a cast that can
 # truncate or lose a sign has to say why, a function takes no run of positional bools, and
 # modules name what they import.

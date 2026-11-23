@@ -93,6 +93,9 @@ impl Side {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Placement {
     In(String),
+    /// At the end of a container exactly as given: no wrapper, no neighbour adjusted. A page spec
+    /// of an existing mashup builds its widgets this way, so none is added or moved.
+    Append(String),
     /// In a footer row at the bottom of a column (`--in <column> --bottom`), as the kits place a
     /// filter panel's Apply and Clear.
     Bottom(String),
@@ -379,7 +382,7 @@ impl MashupDocument {
             })
         };
         match placement {
-            Placement::In(target) => self
+            Placement::In(target) | Placement::Append(target) => self
                 .find(target)
                 .is_ok_and(|target| parent == target.path.as_slice() || wrapped_in(&target.path)),
             Placement::Bottom(target) => self.find(target).is_ok_and(|target| {
@@ -640,7 +643,11 @@ impl MashupDocument {
         placement: &Placement,
         moved: Option<Value>,
     ) -> Result<Placed, EditError> {
+        if let Placement::Append(target) = placement {
+            return self.place_append(widget, target);
+        }
         let mut placed = match placement {
+            Placement::Append(_) => unreachable!("placed above"),
             Placement::In(target) => self.place_in(widget, target),
             Placement::Bottom(target) => self.place_at_bottom(widget, target),
             Placement::BelowInColumn(anchor) => {
@@ -1958,6 +1965,27 @@ impl MashupDocument {
         } else {
             self.push_child(&target.path, node);
         }
+        Ok(placed)
+    }
+
+    fn place_append(&mut self, widget: &Widget, target: &str) -> Result<Placed, EditError> {
+        let target = self.find(target)?;
+        if target.type_id != "flexcontainer" {
+            return Err(EditError::Refused(format!(
+                "{} is a {}, not a responsive container",
+                target.id, target.type_id
+            )));
+        }
+        let number = self.allocate();
+        let mut placed = Placed {
+            id: format!("{}-{number}", widget.type_id),
+            ..Placed::default()
+        };
+        if widget.type_id == "flexcontainer" {
+            placed.containers.push(placed.id.clone());
+        }
+        let alone = children(self.at(&target.path)).is_empty();
+        self.push_child(&target.path, new_widget(widget, number, alone));
         Ok(placed)
     }
 

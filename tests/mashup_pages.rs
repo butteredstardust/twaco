@@ -89,6 +89,64 @@ fn cli_new_spec_and_build_plan_apply_and_conflict() {
     assert_eq!(std::fs::read(&content).unwrap(), before);
 }
 
+#[test]
+fn build_and_new_report_spec_errors_as_json_objects_naming_the_file_and_key_line() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::fs::write(
+        root.join("twaco.toml"),
+        "[[project]]
+name = 'Acme'
+",
+    )
+    .unwrap();
+    let spec = "version: 1
+rules: v1
+page:
+  name: Acme.Page_MU
+  template: blank
+  slots:
+    center:
+      - label:
+          id: title
+          text: Acme
+          props: {NoSuchProperty: 1}
+";
+    std::fs::write(root.join("Other.page.yaml"), spec).unwrap();
+    let run = |args: &[&str]| {
+        let output = Command::new(env!("CARGO_BIN_EXE_twaco"))
+            .current_dir(root)
+            .env_clear()
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(!output.status.success(), "{args:?}");
+        serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap_or_else(|e| {
+            panic!("{args:?}: {e}: {}", String::from_utf8_lossy(&output.stdout))
+        })
+    };
+    let error = run(&[
+        "mashup",
+        "new",
+        "Acme.Page_MU",
+        "--spec",
+        "Other.page.yaml",
+        "--json",
+    ]);
+    let found = &error["error"];
+    assert!(
+        found["file"].as_str().unwrap().ends_with("Other.page.yaml"),
+        "{error}"
+    );
+    assert_eq!(found["line"], 11, "{error}");
+    assert!(found["column"].as_u64().unwrap() > 0);
+    assert!(found["message"]
+        .as_str()
+        .unwrap()
+        .contains("NoSuchProperty"));
+    assert!(!root.join("src").exists());
+}
+
 fn copy_fixture(source: &std::path::Path, target: &std::path::Path) {
     std::fs::create_dir_all(target).unwrap();
     for entry in std::fs::read_dir(source).unwrap() {
@@ -397,10 +455,10 @@ fn components_and_spec_are_available_through_both_front_ends() {
     let root = dir.path();
     std::fs::write(root.join("twaco.toml"), "[[project]]\nname = 'Acme'\n").unwrap();
     let listed = cli(root, &["components", "list", "--json"]);
-    assert_eq!(listed["components"].as_array().unwrap().len(), 8);
+    assert_eq!(listed["components"].as_array().unwrap().len(), 10);
     assert_eq!(listed, mcp(root, "components", serde_json::json!({})));
     let shown = cli(root, &["components", "show", "section_card", "--json"]);
-    assert_eq!(shown["source"], "WDK_Inputs");
+    assert_eq!(shown["source"], "Inputs");
     assert_eq!(
         shown,
         mcp(
@@ -581,4 +639,103 @@ fn component_collection_cells_plan_in_cli_and_apply_in_mcp() {
     assert_eq!(applied["applied"], true);
     assert_eq!(applied["files"], plan["files"]);
     assert!(files.iter().all(|p| root.join(p).exists()));
+}
+
+#[test]
+fn master_specs_create_and_rebuild_through_cli_and_mcp() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::fs::write(root.join("twaco.toml"), "[[project]]\nname = 'Acme'\n").unwrap();
+    let spec = "version: 1\nrules: v1\npage:\n  name: Acme.Master_MM\n  kind: master\n  template: blank\n  slots:\n    center:\n      - heading: {id: title, text: Acme}\n      - menu_bar: {id: menu}\n      - page_host: {id: host}\n";
+    std::fs::write(root.join("master.yaml"), spec).unwrap();
+    let planned = cli(
+        root,
+        &[
+            "new",
+            "mashup",
+            "Acme.Master_MM",
+            "--spec",
+            "master.yaml",
+            "--json",
+        ],
+    );
+    assert_eq!(planned["applied"], false);
+    assert!(!root.join("src").exists());
+    let created = mcp(
+        root,
+        "mashup_new",
+        serde_json::json!({"name":"Acme.Master_MM", "spec":"master.yaml", "dry_run":false}),
+    );
+    assert_eq!(created["applied"], true);
+    let path = root.join("src/Acme.Master_MM/mashup/content.json");
+    let bytes = std::fs::read(&path).unwrap();
+    let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(value["mashupType"], "targetmashup");
+    assert_eq!(
+        value["UI"]["Properties"]["Style"],
+        "DefaultMasterMashupStyle"
+    );
+    let derived = cli(root, &["mashup", "spec", "Acme.Master_MM", "--json"]);
+    assert_eq!(
+        derived,
+        mcp(
+            root,
+            "mashup_spec",
+            serde_json::json!({"mashup":"Acme.Master_MM"})
+        )
+    );
+    assert_eq!(derived["spec"], spec);
+    assert_eq!(derived["elements"], 3);
+    let plan = cli(root, &["mashup", "build", "Acme.Master_MM", "--json"]);
+    assert_eq!(plan["files"], serde_json::json!([]));
+    let built = mcp(
+        root,
+        "mashup_build",
+        serde_json::json!({"mashup":"Acme.Master_MM", "dry_run":false}),
+    );
+    assert_eq!(built["files"], serde_json::json!([]));
+    assert_eq!(std::fs::read(path).unwrap(), bytes);
+
+    let command = cli(
+        root,
+        &[
+            "new",
+            "mashup",
+            "Acme.Command_MM",
+            "--master",
+            "--apply",
+            "--json",
+        ],
+    );
+    let xml = root.join(
+        command["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|p| p.as_str())
+            .find(|p| p.ends_with(".xml"))
+            .unwrap(),
+    );
+    let before = std::fs::read(&xml).unwrap();
+    let derived = cli(
+        root,
+        &[
+            "mashup",
+            "spec",
+            "Acme.Command_MM",
+            "--out",
+            "src/Acme.Command_MM/page.yaml",
+            "--json",
+        ],
+    );
+    assert!(derived["spec"].as_str().unwrap().contains("kind: master"));
+    assert!(derived["spec"].as_str().unwrap().contains("page_host:"));
+    assert_eq!(derived["raw"], 0);
+    let adopted = mcp(
+        root,
+        "mashup_build",
+        serde_json::json!({"mashup":"Acme.Command_MM", "dry_run":false}),
+    );
+    assert_eq!(adopted["conflicts"], serde_json::json!([]));
+    assert_eq!(std::fs::read(xml).unwrap(), before);
 }

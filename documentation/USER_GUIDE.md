@@ -1705,6 +1705,24 @@ selects in a grid.
 
 ### Events
 
+Page specs express a refresh chain as `{on: save.done, invoke: rows}` and a failure notification
+as `{on: save.error, show: failed}`. Here `save` and `rows` are data declarations and `failed`
+is `status_message: {id: failed, message: Save failed, message_type: error}`. Message text accepts
+`{bind: ...}`; its type is `info`, `warning` or `error`. Commands use `mashup add statusmessage`
+with `--prop Message=... --prop MessageType=error`, then `mashup on` to its `ShowMessage` service.
+The `.done` and `.error` aliases work on command data addresses too.
+
+For several calls writing to one widget, use `page.bindings: [{from: start.result,
+to: output.LabelText}, {from: stop.result, to: output.LabelText}]`, or one `mashup bind` command
+per pair. Derived specs retain every source and Data-to-Data event.
+
+Use `rich_text: {id: header, content: '<h2>Acme</h2>', read_only: true, show_toolbar: false,
+font_size: 18, size: {fixed: 56}}` for a native rich text editor or header. Content is bindable;
+font size accepts a catalogue size as a number or `Npx`. `size: fill` grows its placement;
+the default native height is 280px. Command parity is `mashup add ptcsrte --prop Data=...
+--prop ReadOnly=true --prop HideToolbar=true --prop DefaultFontSize=18 --prop Height=56`.
+See [Page specs](PAGE_SPECS.md) for the complete data, event and element mappings.
+
 ```sh
 twaco mashup on Acme.App.Orders_MU --event ui:ptcsbutton-6.Clicked --invoke data:Acme.App.Orders.Manager.SaveOrder --apply
 twaco mashup on Acme.App.Orders_MU --event mashup:Loaded --invoke data:Acme.App.Orders.Manager.GetOrders --apply
@@ -1802,7 +1820,7 @@ For combo charts, repeat `--series Count:bar --series Total:line:secondary` on
 `recipe chart <mashup> <chart> --data data:Acme.Manager.GetRows --x Name`.
 The series order sets DataField/SeriesType slots, and secondary uses the right Y axis
 with the field name as its label. Legend groups are disabled and the legend sits
-at the bottom. An omitted axis means primary; only bar/line and primary/secondary
+at the top/right under v1 rules (legacy keeps the bottom). An omitted axis means primary; only bar/line and primary/secondary
 are accepted. Without `--series`, existing automatic numeric-column selection remains.
 
 `recipe sparkline <mashup> <container> --data data:Acme.Manager.GetRows --x Name --value Count`
@@ -2310,9 +2328,12 @@ twaco mashup diff Acme.App.Orders_MU Acme.App.OrdersNext_MU --tier layout
 ```
 
 `mashup diff` compares repository mashups without treating Composer's allocated widget and UUID
-identifiers as a change. Widgets pair by aligning sibling types, so one extra container is one
-difference; sibling order counts, while bindings, events, calls and parameters compare without
-order. What Composer saves but nothing shows is not a difference: editor state (`_baseVersion`,
+identifiers as a change. Widgets pair by aligning sibling types and looking through one added or
+removed wrapper level when its children fit better. The wrapper is one layout difference, with
+the widgets and wiring below it still paired. Sibling order counts; bindings and events pair by
+both endpoints after widget IDs are paired, while calls and parameters compare without order.
+A missing binding or event is one executable difference naming its widgets and services.
+What Composer saves but nothing shows is not a difference: editor state (`_baseVersion`,
 `isLocked`, `DisplayName`, `iconClass`, `LastContainer`), a property only one side writes at its
 empty or default value, numbered chart settings past the chart's series, axis or reference-line
 count, caching switched off, and the styles of widgets that no longer exist. It reports
@@ -2901,6 +2922,24 @@ widgets, with layout from the pinned v1 rules. Widget IDs keep stable hash suffi
 four to six digit range; old ID-policy baselines require their compatible twaco version.
 
 
+Native page elements include `link`, `image`, `icon`, `divider`, `checkbox`, `radio`, `toggle`,
+`textarea`, single `date_picker`, `value_display` and parameterised `embed`. Charts support
+pie/combo/pareto/waterfall alongside line/bar. Expression data items provide typed inputs and
+bindable outputs; `events_router` merges typed input bindings; event `navigate` shares popup/page navigation recipes. Use `pagination` with
+`mode: server` to keep service-driven pagination wiring. Derivation recognises native collection
+bindings, unbound controls, Items-based tab labels and KPI dial layouts. See the
+[native controls and wiring reference](PAGE_SPECS.md#native-controls-media-and-wiring) for fields,
+command equivalents and deliberate raw-widget limitations. All observations are offline.
+
+Native page elements include `link`, `image`, `icon`, `divider`, `checkbox`, `radio`, `toggle`,
+`textarea`, single `date_picker`, `value_display` and parameterised `embed`. Charts support
+pie/combo/pareto/waterfall alongside line/bar. Expression data items provide typed inputs and
+bindable outputs; `events_router` merges typed input bindings; event `navigate` shares popup/page navigation recipes. Use `pagination` with
+`mode: server` to keep service-driven pagination wiring. Derivation recognises native collection
+bindings, unbound controls, Items-based tab labels and KPI dial layouts. See the
+[native controls and wiring reference](PAGE_SPECS.md#native-controls-media-and-wiring) for fields,
+command equivalents and deliberate raw-widget limitations. All observations are offline.
+
 ## Build a page from a spec
 
 Write a YAML page spec with `version: 1`, `rules: v1`, a page name, template,
@@ -2936,3 +2975,46 @@ counts nodes written as elements against raw nodes by type and says what it left
 custom CSS, bindings a spec cannot express). Build the result to review a plan before adopting
 it. MCP `mashup_spec` returns the same report. See [Page specs](PAGE_SPECS.md#deriving-a-spec)
 for the mapping and its limits.
+
+Building the derived spec adopts the mashup: `twaco mashup spec Acme.Page_MU --out
+src/Acme.Page_MU/page.yaml`, then `twaco mashup build Acme.Page_MU` plans no change, and
+`--apply` records the baseline (which keeps every widget id). If something still differs the plan
+lists each JSON path with the mashup's and the spec's value and the spec line to change. See
+[Adopting an existing mashup](PAGE_SPECS.md#adopting-an-existing-mashup).
+
+Master specs set `page.kind: master` and place exactly one `page_host: {id: host}` in a slot.
+`twaco new mashup Acme.Master_MM --spec master.page.yaml --apply` creates a target mashup
+with the same master-root defaults as `--master`. Native `menu_bar` represents `ptcsmenubar`;
+its properties and bindings use `props`. `page.props` carries mashup-root properties such as
+`WindowStyle`, `Favicon` and `Font`; `page.root.props` addresses the root container.
+`mashup spec` derives masters and an untouched spec adopts them without changing existing bytes.
+Ordinary pages still use `page.master: Acme.Master_MM` and `page.use_master_theme: true`.
+See [Master mashups](PAGE_SPECS.md#master-mashups-and-page-hosts). Coverage is offline.
+
+Page-spec side columns use full-bleed kit structure with the gutter on the content area.
+Filters share a title row, reserved collapse-tab space, grey background and vertical divider.
+Trend values sit together below their caption. V1 charts use compact top legends, hide
+single-series legends by default, and retain pie labels; filled grids omit the outer bottom
+frame. Explicit chart props and `legend:` override these defaults.
+
+Navigation accepts `selected: Details` and grouped items such as `{label: Details, indent: 1}`.
+Generated collection cells add `image: Image` and
+`status: {field: Status, state: Acme.Status_ST}` alongside title/dial roles. The built-in
+`nav_menu` and `collection` components expose the same options through `recipe component`.
+See [the page-spec examples](PAGE_SPECS.md#side-columns-navigation-and-generated-cell-roles).
+The clean preset's Acme A golden covers white rounded cards, soft shadows, a grey page and
+Inter. These checks are offline; visual rendering remains for live review.
+
+Page-spec side columns use full-bleed kit structure with the gutter on the content area.
+Filters share a title row, reserved collapse-tab space, grey background and vertical divider.
+Trend values sit together below their caption. V1 charts use compact top legends, hide
+single-series legends by default, and retain pie labels; filled grids omit the outer bottom
+frame. Explicit chart props and `legend:` override these defaults.
+
+Navigation accepts `selected: Details` and grouped items such as `{label: Details, indent: 1}`.
+Generated collection cells add `image: Image` and
+`status: {field: Status, state: Acme.Status_ST}` alongside title/dial roles. The built-in
+`nav_menu` and `collection` components expose the same options through `recipe component`.
+See [the page-spec examples](PAGE_SPECS.md#side-columns-navigation-and-generated-cell-roles).
+The clean preset's Acme A golden covers white rounded cards, soft shadows, a grey page and
+Inter. These checks are offline; visual rendering remains for live review.

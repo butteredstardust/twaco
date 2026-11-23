@@ -404,6 +404,11 @@ pub(super) fn resolve_trigger(
             "{raw}: ThingWorx 10.2 emits Data_Error on service failure; use data:{call}.Data_Error, or mashup recipe message <mashup> --after data:{call} --on-failure <text>"
         )));
     }
+    let event = match event {
+        "done" => "ServiceInvokeCompleted",
+        "error" => "Data_Error",
+        event => event,
+    };
     // 10.2 Runtime's _processDataAddedFailureHandler emits Data_Error; Composer's list omits it.
     if !matches!(
         event,

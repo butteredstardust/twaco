@@ -100,6 +100,20 @@ fn nav_column(b: &mut Body) -> Result<Node, Error> {
             "id": format!("{id}--search"), "hint": search, "icon": "search",
             "props": {"Margin": "0 18 12"}}}));
     }
+    if let Some(selected) = &b.selected {
+        let count = b
+            .groups
+            .iter()
+            .flat_map(|g| &g.value.items)
+            .filter(|i| i.label() == selected.value)
+            .count();
+        if count != 1 {
+            return Err(Error::at(
+                selected.referenced,
+                "nav_menu selected must name exactly one item label",
+            ));
+        }
+    }
     let mut first = true;
     for (g, group) in b.groups.iter().enumerate() {
         children.push(json!({"label": {
@@ -107,13 +121,27 @@ fn nav_column(b: &mut Body) -> Result<Node, Error> {
             "props": {"Margin": "12 0 6 18", "LabelType": "label"},
             "style": ["label:color=nav-caption", "label:font-size=14px"]}}));
         for (i, item) in group.value.items.iter().enumerate() {
+            if item.indent() > 12 {
+                return Err(Error::at(
+                    b.id.referenced,
+                    "nav_menu item indent is 0 to 12",
+                ));
+            }
             let mut body = json!({
-                "id": format!("{id}--item-{}-{}", g + 1, i + 1), "text": item,
+                "id": format!("{id}--item-{}-{}", g + 1, i + 1), "text": item.label(),
                 "variant": "transparent",
                 "props": {"LabelAlignment": "left", "Size": "standard", "Margin": "0"},
                 "style": ["width=100%", "box-sizing=border-box", "border-radius=0px", "padding-left=24px",
                     "label:font-size=14px", "label:font-weight=600", "label:color=nav-text"]});
-            if std::mem::take(&mut first) {
+            body["style"]
+                .as_array_mut()
+                .expect("item styles")
+                .push(json!(format!("padding-left={}px", 24 + item.indent() * 18)));
+            let initial = std::mem::take(&mut first);
+            if b.selected
+                .as_ref()
+                .map_or(initial, |selected| selected.value == item.label())
+            {
                 body["style"]
                     .as_array_mut()
                     .expect("item styles")
@@ -186,6 +214,7 @@ fn text_size(b: &mut Body) -> Result<(), Error> {
 enum StyleOn {
     Text,
     Box,
+    Native,
 }
 
 /// Turn the `~key=value` entries of a style map into `--style` settings. Colours and fonts use
@@ -209,6 +238,8 @@ fn style_map(b: &mut Body, on: StyleOn, tokens: &Tokens) -> Result<(), Error> {
                 format!("border-width={}", tokens.border_width()),
                 format!("border-color={}", colour_at(tokens, value, at)?),
             ],
+            ("color", StyleOn::Native) => vec![format!("color={}", colour_at(tokens, value, at)?)],
+            ("font", StyleOn::Native) => vec![format!("font-family={}", tokens.font(value))],
             ("color", StyleOn::Text) => vec![format!("label:color={}", colour_at(tokens, value, at)?)],
             ("font", StyleOn::Text) => vec![format!(
                 "label:font-family={}",
@@ -236,6 +267,10 @@ fn style_map(b: &mut Body, on: StyleOn, tokens: &Tokens) -> Result<(), Error> {
 }
 
 /// An icon as the spec writes it: `search` or the full `cds:icon_search`.
+pub(super) fn native_styles(b: &mut Body, tokens: &Tokens) -> Result<(), Error> {
+    style_map(b, StyleOn::Native, tokens)
+}
+
 fn cds_name(icon: &str) -> String {
     if icon.starts_with("cds:") {
         icon.to_string()
@@ -301,6 +336,7 @@ const DIALS: [Dial; 4] = [
 pub(super) fn expand(page: &mut Page, tokens: &Tokens) -> Result<(), Error> {
     fn nodes(list: &mut [Node], tokens: &Tokens) -> Result<(), Error> {
         for node in list {
+            super::native::expand(node, tokens)?;
             match node {
                 Node::Heading(b) | Node::Label(b) | Node::Text(b) => {
                     text_size(b)?;
@@ -407,7 +443,10 @@ pub(super) fn expand(page: &mut Page, tokens: &Tokens) -> Result<(), Error> {
                 }
                 Node::TrendTile(b) => {
                     let loc = b.id.referenced;
-                    let caption = b.title.take().or_else(|| b.text.take());
+                    let caption = b
+                        .title
+                        .take()
+                        .or_else(|| b.text.take().and_then(|v| v.as_str().map(str::to_owned)));
                     let (Some(caption), Some(value)) = (caption, b.value.take()) else {
                         return Err(Error::at(
                             loc,
@@ -472,8 +511,8 @@ pub(super) fn expand(page: &mut Page, tokens: &Tokens) -> Result<(), Error> {
                         "widget",
                         json!({"type": "flexcontainer", "children": kids, "props": {
                             "flex-direction": "row", "align-items": "center",
-                            "justify-content": "center", "flex-grow": 1, "flex-shrink": 0,
-                            "flex-size": "range", "flex-min-height": "56px", "Margin": "8 0"}}),
+                            "justify-content": "flex-start", "flex-grow": 0, "flex-shrink": 0,
+                            "flex-size": "range", "flex-min-height": "40px", "Margin": "0"}}),
                     ));
                     if let Some(sparkline) = &b.sparkline {
                         b.children.push(child(b, "sparkline", "widget", json!({
@@ -581,6 +620,7 @@ pub(super) fn expand(page: &mut Page, tokens: &Tokens) -> Result<(), Error> {
                         .iter()
                         .map(|s| serde_saphyr::Spanned::new(s.to_string(), at, at))
                         .collect();
+                    styles.extend(tokens.card_styles().into_iter().map(|s| spanned(s, at)));
                     styles.append(&mut b.style);
                     b.style = styles;
                     for (key, value) in [
@@ -786,7 +826,7 @@ pub(super) fn expand(page: &mut Page, tokens: &Tokens) -> Result<(), Error> {
                                 "KPI tile needs value: {bind: source.field} and unit",
                             ));
                         }
-                        tile.title = tile.text.take();
+                        tile.title = tile.text.take().and_then(|v| v.as_str().map(str::to_owned));
                         if let Some(unit) = &tile.unit {
                             tile.children.push(generated(
                                 &tile,
@@ -831,18 +871,6 @@ pub(super) fn expand(page: &mut Page, tokens: &Tokens) -> Result<(), Error> {
                     default_prop(b, "Label", json!(""));
                 }
                 Node::FilterPanel(b) => {
-                    if let Some(title) = b.title.take() {
-                        b.fields.insert(
-                            0,
-                            generated(
-                                b,
-                                "title",
-                                "heading",
-                                json!({"text": title, "props": {
-                                    "LabelType": "title", "HorizontalAlignment": "left"}}),
-                            ),
-                        );
-                    }
                     for action in &b.footer {
                         if !["apply", "reset"].contains(&action.value.as_str()) {
                             return Err(Error::at(
@@ -865,6 +893,7 @@ pub(super) fn expand(page: &mut Page, tokens: &Tokens) -> Result<(), Error> {
             {
                 let b = node.body_mut();
                 b.band = None;
+                default_prop(b, "VerticalAlignment", json!("center"));
                 let mut row = child(
                     b,
                     "band",
@@ -872,7 +901,7 @@ pub(super) fn expand(page: &mut Page, tokens: &Tokens) -> Result<(), Error> {
                     json!({"props": {
                         "flex-size": "range", "flex-min-height": "48px", "flex-max-height": "",
                         "flex-grow": 0, "flex-shrink": 0, "flex-basis": "auto",
-                        "align-items": "stretch", "flex-wrap": "nowrap"
+                        "align-items": "center", "flex-wrap": "nowrap"
                     }}),
                 );
                 row.body_mut().band_row = true;
@@ -940,6 +969,20 @@ fn fields(node: &Node) -> Result<(), Error> {
         }
     }
     let checks = [
+        (b.message.is_some() || b.message_type.is_some(), false, "message/message_type belongs to status_message"),
+        (b.content.is_some() || b.read_only.is_some() || b.show_toolbar.is_some() || b.font_size.is_some(), false, "content/read_only/show_toolbar/font_size belongs to rich_text"),
+        (b.data_type.is_some() || b.input_count.is_some() || !b.routes.is_empty(), false, "data_type/input_count/routes belongs to events_router"),
+        (b.unbound.is_some(), matches!(node, Node::Dropdown(_)), "unbound"),
+        (b.mode.is_some() || b.total.is_some() || b.page_size.is_some() || b.page_number.is_some(), false, "mode/total/page_size/page_number belongs to server pagination"),
+        (b.url.is_some() || b.target.is_some(), false, "url/target belongs to link"),
+        (b.source.is_some() || b.alt.is_some(), false, "source belongs to image/icon/native collection; alt belongs to image/icon"),
+        (b.scaling.is_some() || b.position.is_some(), false, "scaling/position belongs to image"),
+        (b.orientation.is_some(), false, "orientation belongs to divider"),
+        (b.icon_size.is_some(), false, "icon_size belongs to icon"),
+        (b.group.is_some(), false, "group belongs to radio"),
+        (b.date_only.is_some() || b.format.is_some(), false, "date_only/format belongs to date_picker"),
+        (b.max_length.is_some(), false, "max_length belongs to textarea"),
+        (!b.params.is_empty(), false, "params belongs to embed"),
         (
             b.sparkline.is_some(),
             matches!(node, Node::TrendTile(_)),
@@ -961,6 +1004,7 @@ fn fields(node: &Node) -> Result<(), Error> {
             "gap",
         ),
         (b.legend.is_some(), matches!(node, Node::Chart(_)), "legend"),
+        (b.selected.is_some(), matches!(node, Node::NavMenu(_)), "selected"),
         (
             b.title.is_some(),
             matches!(
@@ -1200,7 +1244,9 @@ pub(super) fn validate(node: &Node, page: &Page) -> Result<(), Error> {
         Node::Chart(_) if !b.series.is_empty() => {
             return Err(fail("series belongs to a combo chart"))
         }
-        Node::Dropdown(_) if b.options.is_none() || b.display.is_none() => {
+        Node::Dropdown(_)
+            if b.unbound != Some(true) && (b.options.is_none() || b.display.is_none()) =>
+        {
             return Err(fail("dropdown needs options and display"))
         }
         Node::Pagination(_) if b.grid.is_none() => {
@@ -1270,10 +1316,19 @@ pub(super) fn validate(node: &Node, page: &Page) -> Result<(), Error> {
         _ => {}
     }
     if let Some(options) = &b.options {
-        if !page.data.contains_key(&options.value) {
+        let name = options.value.as_str().ok_or_else(|| {
+            Error::at(
+                options.referenced,
+                "dropdown options names a data declaration",
+            )
+        })?;
+        if !page
+            .data
+            .contains_key(name.split('.').next().unwrap_or(name))
+        {
             return Err(Error::at(
                 options.referenced,
-                format!("unknown data {}", options.value),
+                format!("unknown data {name}"),
             ));
         }
     }
@@ -1295,6 +1350,25 @@ pub(super) fn wire(
     let b = node.body();
     let id = &ids[&b.id.value];
     let loc = b.id.referenced;
+    if matches!(node, Node::Dropdown(_)) && b.unbound == Some(true) {
+        if b.options.is_some() {
+            return Err(Error::at(loc, "unbound dropdown cannot also take options"));
+        }
+        if let Some(display) = &b.display {
+            session
+                .set(
+                    solution,
+                    &crate::core::mashup::authoring::SetRequest {
+                        mashup: page.name.value.clone(),
+                        widget: id.clone(),
+                        properties: vec![("DisplayField".into(), json!(display))],
+                        style_from: None,
+                        styles: vec![],
+                    },
+                )
+                .map_err(|e| Error::at(loc, e))?;
+        }
+    }
     let recipe = match node {
         Node::Chart(_) => Some(Recipe::Chart {
             series: vec![],
@@ -1308,9 +1382,17 @@ pub(super) fn wire(
             y_title: None,
             stacked: b.stacked.unwrap_or(false),
         }),
-        Node::Dropdown(_) => Some(Recipe::Picker {
+        Node::Dropdown(_) if b.unbound != Some(true) => Some(Recipe::Picker {
             widget: id.clone(),
-            data: call(page, &b.options.as_ref().expect("options").value),
+            data: call(
+                page,
+                b.options
+                    .as_ref()
+                    .expect("options")
+                    .value
+                    .as_str()
+                    .expect("options source"),
+            ),
             display: b.display.clone().expect("display"),
             value: None,
             selected: None,
@@ -1492,6 +1574,22 @@ pub(super) fn wire_values(
     Ok(())
 }
 
+/// Set a property the spec states; `null` removes it, for a widget that has no such property.
+pub(super) fn set_or_remove(
+    document: &mut crate::core::mashup::edit::MashupDocument,
+    path: &[usize],
+    key: &str,
+    value: &serde_json::Value,
+) {
+    if value.is_null() {
+        if let Some(properties) = document.at_mut(path)["Properties"].as_object_mut() {
+            properties.remove(key);
+        }
+    } else {
+        document.set_property(path, key, value.clone());
+    }
+}
+
 pub(super) fn finish_layout(
     session: &mut crate::core::mashup::authoring::session::Session,
     page: &Page,
@@ -1594,11 +1692,7 @@ pub(super) fn finish_layout(
                 if slot.display_name == "filter-footer" {
                     patch(&mut session.document, &slot.path, "page-filter-footer");
                 }
-                if standalone
-                    && (slot.display_name == "content"
-                        || (slot.path.len() == path.len() + 1
-                            && slot.display_name.starts_with("divider-")))
-                {
+                if standalone && slot.display_name == "content" {
                     session
                         .document
                         .set_property(&slot.path, "Visible", json!(false));
@@ -1859,10 +1953,14 @@ pub(super) fn finish_layout(
                 "flex-min-height",
                 json!(format!("{minimum}px")),
             );
+        }
+        if matches!(node, Node::Chart(_)) {
             patch(&mut session.document, &path, "page-chart-legend");
-            session
-                .document
-                .set_property(&path, "HideLegend", json!(!body.legend.unwrap_or(true)));
+            if let Some(legend) = body.legend {
+                session
+                    .document
+                    .set_property(&path, "HideLegend", json!(!legend));
+            }
         }
         if let Some(gap) = &body.gap {
             let children: Vec<_> = body
@@ -1890,9 +1988,7 @@ pub(super) fn finish_layout(
         }
         for (key, value) in &body.props {
             if super::compile::binding(&value.value).is_none() {
-                session
-                    .document
-                    .set_property(&path, key, value.value.clone());
+                set_or_remove(&mut session.document, &path, key, &value.value);
             }
         }
         Ok(())
