@@ -4682,3 +4682,6 @@ mod kit_fidelity;
 
 #[path = "adopt_tests.rs"]
 mod adopt;
+
+#[path = "wiring_tests.rs"]
+mod wiring;

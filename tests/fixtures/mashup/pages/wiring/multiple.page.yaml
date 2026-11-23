@@ -1,0 +1,15 @@
+version: 1
+rules: v1
+page:
+  name: Acme.Multiple_MU
+  template: blank
+  data:
+    start: {service: Acme.Actions.Start}
+    stop: {service: Acme.Actions.Stop}
+    reset: {service: Acme.Actions.Reset}
+  slots:
+    center:
+      - label: {id: output, props: {LabelText: {bind: start.result}}}
+  bindings:
+    - {from: stop.result, to: output.LabelText}
+    - {from: reset.result, to: output.LabelText}

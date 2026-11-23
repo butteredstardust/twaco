@@ -55,6 +55,38 @@ addressed by its declaration name, a result field by `alerts.Name`, and selected
 References need no `ui:` or `data:` prefixes. Unknown fields, repeated YAML keys, duplicate node
 IDs, unresolved symbols and contract errors report `page.yaml:line:column`.
 
+Chain a write to one or more refresh calls with explicit events. `publish.done` means
+`ServiceInvokeCompleted`; `publish.error` means `Data_Error`. Full native event names also
+work (`Data_Error` for failure). A derived spec uses `.done` and `.error`, including for a stored
+`ServiceInvokeError`. Each event has exactly one action: `invoke`, `show` or `navigate`.
+
+```yaml
+data:
+  publish: {service: Acme.Messages.Publish}
+  status: {service: Acme.Messages.GetStatus, on: load}
+  messages: {service: Acme.Messages.GetMessages, on: load}
+events:
+  - {on: publish.done, invoke: status}
+  - {on: publish.done, invoke: messages}
+  - {on: publish.error, show: failed}
+```
+
+`failed` above names a `status_message` element. Command parity is `mashup on <mashup>
+--event data:Acme.Messages.Publish.done --invoke data:Acme.Messages.GetStatus`, or
+`--event data:Acme.Messages.Publish.error --invoke ui:<statusmessage-id>.ShowMessage`.
+`mashup event` instead creates a signal a parent mashup can observe.
+
+When several services update the same property, use a `page.bindings` entry per source.
+These add to bindings on node props and service params; derive keeps every represented source.
+The command equivalent is one `mashup bind --from ... --to ...` per entry.
+
+```yaml
+bindings:
+  - {from: start.result, to: output.LabelText}
+  - {from: stop.result, to: output.LabelText}
+  - {from: reset.result, to: output.LabelText}
+```
+
 Page keys beyond the above: `master: Acme.Master_MM` and `use_master_theme: true` set the mashup's
 master; `root: {props: {...}}` sets properties of the template's root container (a `null` removes
 one); `layout: as-built` keeps the v1 layout rules off a page that adopts an existing mashup (see
@@ -122,6 +154,21 @@ numeric `Count` fields. Bindings and events use authored IDs, including tile and
 | `collection` | `mashup collection add` code (cell mashup, mapping, preset, `--columns`), `recipe empty-state` | `- collection: {id: cards, data: rows, per_row: 4, cell: {title: Name, kpi_dial: Count}}` or `mashup: Acme.Cell_MU, map: {Name: Name}` |
 | `nav_menu` | label, button and text-field authoring (`recipe nested-menu` for Menu entities) | `- nav_menu: {id: menu, search: Search Menu..., groups: [{title: Group 01, items: [Page 01]}, {title: Group 02, items: [Page 02, Page 03]}]}` |
 | `widget` | catalogue authoring | `- widget: {id: input, type: ptcstextfield, props: {Text: Acme}}` |
+| `status_message` | `mashup add statusmessage`, `bind`, `on` | `- status_message: {id: failed, message: Operation failed, message_type: error}` |
+| `rich_text` | `mashup add ptcsrte`, `set`, `bind` | `- rich_text: {id: header, content: '<h2>Acme</h2>', read_only: true, show_toolbar: false, font_size: 18, size: {fixed: 56}}` |
+
+`status_message` is a function widget placed beside the layout. `message` is literal text or
+`{bind: ...}` and maps to `Message`; `message_type` maps to `MessageType` and accepts `error`,
+`info` (the default) or `warning`. `show: <id>` invokes its `ShowMessage` service.
+
+`rich_text` uses native `ptcsrte`: `content` maps to bindable `Data`, `read_only` to `ReadOnly`,
+`show_toolbar` to the inverse of `HideToolbar`, and `font_size` to `DefaultFontSize`. Font size
+accepts a catalogue size as a number or an `Npx` string (for example `14` or `14px`); the numeric
+form also works through command `--prop DefaultFontSize=14`. Native defaults apply when omitted.
+The default editor height is 280px; `size: {fixed: 56}` or `props: {Height: 56}` sets its height,
+`size: fit` keeps its placement at content height, and `size: fill` grows its placement. `Height`
+and `FillContainer` props retain the native editor's sizing controls. Derive recognises both
+elements, keeps their bindings and carries additional native props.
 
 Toolbar `band` defaults to true: the existing recipe supplies the grey 48px band. Set
 `band: false` for a plain row. A spacer grows inside its row and pushes following controls
@@ -850,6 +897,11 @@ each property it left out (`widget property`). Compile errors from `mashup build
 `mashup new --spec` point at the offending key's line and name the spec file that was read;
 with `--json` they are `{"error": {"file", "line", "column", "message"}}`. A plan says
 `files_state: "would write"`; the same report after `--apply` says `written`.
+
+Service completion chains derive as `{on: write.done, invoke: refresh}`; failure handlers to
+status messages derive as `{on: write.error, show: failed}`. Several sources writing the same
+property are retained through node bindings plus `page.bindings`. Native `statusmessage` and
+`ptcsrte` derive as `status_message` and `rich_text`, including numeric editor font sizes.
 
 ## Tokens and themes
 

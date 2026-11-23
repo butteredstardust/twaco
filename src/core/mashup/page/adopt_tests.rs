@@ -92,7 +92,7 @@ fn composer_ids(text: &str) -> String {
 
 /// A mashup nobody built from a spec: no twaco markers, Composer-style ids, and settings no rule
 /// would choose. Returns its name.
-fn handmade(solution: &Solution, spec: &str, name: &str) -> String {
+pub(super) fn handmade(solution: &Solution, spec: &str, name: &str) -> String {
     let built = compile(solution, "Acme", spec).unwrap();
     let mut value: Value = serde_json::from_str(&built.content).unwrap();
     strip_markers(&mut value);
@@ -139,18 +139,18 @@ fn widget_ids(content: &Value) -> Vec<String> {
     out
 }
 
-fn current(solution: &Solution, name: &str) -> Value {
+pub(super) fn current(solution: &Solution, name: &str) -> Value {
     let loaded = authoring::load_existing(solution, name).unwrap();
     serde_json::from_str(&loaded.assets.content).unwrap()
 }
 
-fn write_spec(solution: &Solution, name: &str, spec: &str) {
+pub(super) fn write_spec(solution: &Solution, name: &str, spec: &str) {
     let dir = solution.src_root().join(name);
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join("page.yaml"), spec).unwrap();
 }
 
-fn apply(solution: &Solution, name: &str) -> Value {
+pub(super) fn apply(solution: &Solution, name: &str) -> Value {
     let mut plan = super::super::build::plan(solution, name, None, None).unwrap();
     assert!(!plan.conflicts(), "{}", plan.report);
     let guard = lock::acquire(&solution.root, "page test", &[]).unwrap();

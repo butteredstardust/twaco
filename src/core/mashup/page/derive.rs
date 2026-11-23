@@ -109,12 +109,16 @@ fn derive_as(name: &str, content: &str, carry_styles: bool, exact: bool) -> Resu
         page.insert("parameters".into(), Value::Object(parameters));
     }
     let (data, events) = run.wiring();
+    let bindings = run.remaining_bindings();
     if !data.is_empty() {
         page.insert("data".into(), Value::Object(data));
     }
     page.insert("slots".into(), json!({"center": slot}));
     if !events.is_empty() {
         page.insert("events".into(), Value::Array(events));
+    }
+    if !bindings.is_empty() {
+        page.insert("bindings".into(), Value::Array(bindings));
     }
     let mut spec = json!({"version": 1, "rules": "v1", "page": page});
     run.resolve(&mut spec);
@@ -651,6 +655,13 @@ impl<'a> Run<'a> {
             if !known_property(widget, &self.links[i].target.3) {
                 continue;
             }
+            if self
+                .links
+                .iter()
+                .any(|l| l.consumed && l.target == self.links[i].target)
+            {
+                continue;
+            }
             if let Some(source) = self.source(&self.links[i]) {
                 self.links[i].consumed = true;
                 let property = self.links[i].target.3.clone();
@@ -724,7 +735,7 @@ impl<'a> Run<'a> {
             "ptcsbutton" => self.button(widget),
             "ptcslink" | "ptcsimage" | "ptcsicon" | "ptcsdivider" | "ptcscheckbox"
             | "ptcsradio" | "ptcstogglebutton" | "ptcstextarea" | "ptcsvaluedisplay"
-            | "ptcspagination" | "ptcskpidial" => self.native(widget),
+            | "ptcspagination" | "ptcskpidial" | "ptcsrte" | "statusmessage" => self.native(widget),
             "mashupcontainer" if text(widget, "Name").is_some_and(|s| !s.is_empty()) => {
                 self.embed(widget)
             }
@@ -890,6 +901,18 @@ impl<'a> Run<'a> {
 
     fn native(&mut self, widget: &Value) -> Value {
         let (element, fields): (&str, &[(&str, &str)]) = match kind(widget) {
+            "statusmessage" => (
+                "status_message",
+                &[("Message", "message"), ("MessageType", "message_type")],
+            ),
+            "ptcsrte" => (
+                "rich_text",
+                &[
+                    ("Data", "content"),
+                    ("ReadOnly", "read_only"),
+                    ("DefaultFontSize", "font_size"),
+                ],
+            ),
             "ptcslink" => (
                 "link",
                 &[
@@ -977,13 +1000,22 @@ impl<'a> Run<'a> {
             if let Some(value) = value.filter(|v| !v.is_null() && *v != "") {
                 // These scalar fields describe catalogue choices; retain an unusual binding as a prop.
                 if value.is_object()
-                    && !["text", "source", "alt", "value", "group", "total"].contains(field)
+                    && ![
+                        "text", "source", "alt", "value", "group", "total", "message", "content",
+                    ]
+                    .contains(field)
                 {
                     extra.insert((*property).into(), value);
                     continue;
                 }
                 body.insert((*field).into(), value);
             }
+        }
+        if element == "rich_text" {
+            if let Some(hidden) = prop(widget, "HideToolbar").as_bool() {
+                body.insert("show_toolbar".into(), json!(!hidden));
+            }
+            skip.push("HideToolbar");
         }
         if element == "divider" {
             body.insert(
@@ -1784,6 +1816,19 @@ impl<'a> Run<'a> {
                         get("EventTriggerId"),
                         get("EventTriggerEvent")
                     ))
+                } else if get("EventTriggerArea") == "Data" {
+                    let Some(call) = self.calls.iter().find(|c| {
+                        c.section == get("EventTriggerSection") && c.name == get("EventTriggerId")
+                    }) else {
+                        self.dropped += 1;
+                        continue;
+                    };
+                    let event = match get("EventTriggerEvent") {
+                        "ServiceInvokeCompleted" => "done",
+                        "Data_Error" | "ServiceInvokeError" => "error",
+                        event => event,
+                    };
+                    Some(format!("{}.{event}", call.alias))
                 } else {
                     self.dropped += 1;
                     continue;
@@ -1795,6 +1840,10 @@ impl<'a> Run<'a> {
                     );
                     continue;
                 }
+            }
+            if get("EventHandlerArea") == "UI" && get("EventHandlerService") == "ShowMessage" {
+                events.push(json!({"on": trigger.as_deref().unwrap_or("load"), "show": format!("@@{}@@", get("EventHandlerId"))}));
+                continue;
             }
             let target = match get("EventHandlerArea") {
                 "Data" => self
@@ -1835,13 +1884,20 @@ impl<'a> Run<'a> {
                 entry.insert("on".into(), json!(format!("every {}s", call.refresh)));
             }
             let mut params = call.params.clone();
-            for link in &self.links {
+            for i in 0..self.links.len() {
+                let link = &self.links[i];
                 if link.target.0 == "Data"
                     && link.target.1 == call.name
                     && link.target.2 == call.section
+                    && !link.consumed
+                    && !self
+                        .links
+                        .iter()
+                        .any(|l| l.consumed && l.target == link.target)
                 {
                     if let Some(source) = self.source(link) {
                         params.insert(link.target.3.clone(), json!({"bind": source}));
+                        self.links[i].consumed = true;
                     }
                 }
             }
@@ -1851,6 +1907,38 @@ impl<'a> Run<'a> {
             data.insert(call.alias.clone(), Value::Object(entry));
         }
         (data, events)
+    }
+
+    fn remaining_bindings(&mut self) -> Vec<Value> {
+        let mut bindings = vec![];
+        for i in 0..self.links.len() {
+            let link = &self.links[i];
+            if link.consumed {
+                continue;
+            }
+            let Some(from) = self.source(link) else {
+                continue;
+            };
+            let (area, id, section, property) = &link.target;
+            let to = match area.as_str() {
+                "UI" if self.ids.contains_key(id) => format!("@@{id}@@.{property}"),
+                "Data" => {
+                    let Some(call) = self
+                        .calls
+                        .iter()
+                        .find(|c| c.name == *id && c.section == *section)
+                    else {
+                        continue;
+                    };
+                    format!("{}.{property}", call.alias)
+                }
+                "Mashup" if self.parameters.contains(property) => format!("param.{property}"),
+                _ => continue,
+            };
+            bindings.push(json!({"from": from, "to": to}));
+            self.links[i].consumed = true;
+        }
+        bindings
     }
 
     /// Replace `@@id@@` with the spec id of the widget; drop what refers to a widget that is not
@@ -1921,7 +2009,9 @@ impl<'a> Run<'a> {
                         }
                         let unresolved = item.as_object().is_some_and(|m| {
                             m.contains_key("on")
-                                != (m.contains_key("invoke") || m.contains_key("navigate"))
+                                != (m.contains_key("invoke")
+                                    || m.contains_key("navigate")
+                                    || m.contains_key("show"))
                         });
                         if unresolved {
                             *dropped += 1;

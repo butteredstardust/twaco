@@ -1705,6 +1705,24 @@ selects in a grid.
 
 ### Events
 
+Page specs express a refresh chain as `{on: save.done, invoke: rows}` and a failure notification
+as `{on: save.error, show: failed}`. Here `save` and `rows` are data declarations and `failed`
+is `status_message: {id: failed, message: Save failed, message_type: error}`. Message text accepts
+`{bind: ...}`; its type is `info`, `warning` or `error`. Commands use `mashup add statusmessage`
+with `--prop Message=... --prop MessageType=error`, then `mashup on` to its `ShowMessage` service.
+The `.done` and `.error` aliases work on command data addresses too.
+
+For several calls writing to one widget, use `page.bindings: [{from: start.result,
+to: output.LabelText}, {from: stop.result, to: output.LabelText}]`, or one `mashup bind` command
+per pair. Derived specs retain every source and Data-to-Data event.
+
+Use `rich_text: {id: header, content: '<h2>Acme</h2>', read_only: true, show_toolbar: false,
+font_size: 18, size: {fixed: 56}}` for a native rich text editor or header. Content is bindable;
+font size accepts a catalogue size as a number or `Npx`. `size: fill` grows its placement;
+the default native height is 280px. Command parity is `mashup add ptcsrte --prop Data=...
+--prop ReadOnly=true --prop HideToolbar=true --prop DefaultFontSize=18 --prop Height=56`.
+See [Page specs](PAGE_SPECS.md) for the complete data, event and element mappings.
+
 ```sh
 twaco mashup on Acme.App.Orders_MU --event ui:ptcsbutton-6.Clicked --invoke data:Acme.App.Orders.Manager.SaveOrder --apply
 twaco mashup on Acme.App.Orders_MU --event mashup:Loaded --invoke data:Acme.App.Orders.Manager.GetOrders --apply

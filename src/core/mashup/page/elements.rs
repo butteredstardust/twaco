@@ -969,6 +969,8 @@ fn fields(node: &Node) -> Result<(), Error> {
         }
     }
     let checks = [
+        (b.message.is_some() || b.message_type.is_some(), false, "message/message_type belongs to status_message"),
+        (b.content.is_some() || b.read_only.is_some() || b.show_toolbar.is_some() || b.font_size.is_some(), false, "content/read_only/show_toolbar/font_size belongs to rich_text"),
         (b.data_type.is_some() || b.input_count.is_some() || !b.routes.is_empty(), false, "data_type/input_count/routes belongs to events_router"),
         (b.unbound.is_some(), matches!(node, Node::Dropdown(_)), "unbound"),
         (b.mode.is_some() || b.total.is_some() || b.page_size.is_some() || b.page_number.is_some(), false, "mode/total/page_size/page_number belongs to server pagination"),

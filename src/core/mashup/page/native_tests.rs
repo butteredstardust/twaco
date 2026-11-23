@@ -81,6 +81,16 @@ fn native_fields_match_command_properties() {
     let (_dir, solution) = native_solution();
     for (element, widget, properties) in [
         (
+            "status_message: {id: target, message: Failed, message_type: error}",
+            "statusmessage",
+            vec![("Message", "Failed"), ("MessageType", "error")],
+        ),
+        (
+            "rich_text: {id: target, content: '<h2>Acme</h2>', read_only: true, show_toolbar: false, font_size: 18}",
+            "ptcsrte",
+            vec![("Data", "<h2>Acme</h2>"), ("ReadOnly", "true"), ("HideToolbar", "true"), ("DefaultFontSize", "18")],
+        ),
+        (
             "events_router: {id: target, input_count: 3, data_type: BOOLEAN}",
             "eventsrouter",
             vec![("NumberOfInputs", "3"), ("DataType", "BOOLEAN")],
@@ -169,7 +179,7 @@ fn native_fields_match_command_properties() {
                     mashup: "Acme.Native_MU".into(),
                     widget: widget.into(),
                     inputs: vec![],
-                    placement: if widget == "eventsrouter" {
+                    placement: if matches!(widget, "eventsrouter" | "statusmessage") {
                         None
                     } else {
                         Some(mashup::edit::Placement::In("center".into()))

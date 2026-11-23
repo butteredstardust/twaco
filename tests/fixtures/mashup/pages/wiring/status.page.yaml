@@ -1,0 +1,19 @@
+version: 1
+rules: v1
+page:
+  name: Acme.Status_MU
+  template: blank
+  data:
+    start: {service: Acme.Actions.Start}
+    stop: {service: Acme.Actions.Stop}
+    reset: {service: Acme.Actions.Reset}
+  slots:
+    center:
+      - status_message:
+          id: failed
+          message: {bind: start.result}
+          message_type: error
+  events:
+    - {on: start.error, show: failed}
+    - {on: stop.Data_Error, show: failed}
+    - {on: reset.error, show: failed}

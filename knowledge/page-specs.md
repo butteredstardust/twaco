@@ -39,6 +39,27 @@ both values and the spec line. Masters are refused for now.
 Use `mashup set` or recipes for small edits. `twaco mashup why Acme.Orders_MU tools`
 explains the layout decisions. The full element reference is documentation/PAGE_SPECS.md.
 
+## Refresh, chain, status message, rich text and rte
+
+Refresh after a write with `events: [{on: publish.done, invoke: status}, {on: publish.done,
+invoke: messages}]`. `.done` emits `ServiceInvokeCompleted`; `.error` emits `Data_Error`.
+Use `{on: publish.error, show: failed}` with `status_message: {id: failed, message: Failed,
+message_type: error}`. Message text is bindable and its type is `info`, `warning` or `error`.
+The command equivalent is `mashup on --event data:Acme.Messages.Publish.done --invoke
+data:Acme.Messages.GetStatus`; failures invoke `ui:<statusmessage-id>.ShowMessage`.
+`mashup event` creates parent-observable signals; refresh chains use `mashup on`.
+
+Several calls can update one label: add `bindings: [{from: start.result, to: output.LabelText},
+{from: stop.result, to: output.LabelText}]` under `page`. Derive keeps every source. Commands
+use one `mashup bind` per pair.
+
+`rich_text: {id: header, content: '<h2>Acme</h2>', read_only: true, show_toolbar: false,
+font_size: 18, size: {fixed: 56}}` creates native `ptcsrte` (RTE). Content accepts a binding;
+font size accepts a catalogue number or `Npx`. Its native default height is 280px; use fixed
+size for a short header, or `size: fill` for a growing placement. Commands use `mashup add
+ptcsrte --prop Data=... --prop ReadOnly=true --prop HideToolbar=true --prop DefaultFontSize=18`.
+These are offline compiler features; no new live validation is claimed.
+
 ## Tokens and theme preset styling for a page spec
 
 Use design tokens instead of hex values. `twaco mashup tokens` lists presets;

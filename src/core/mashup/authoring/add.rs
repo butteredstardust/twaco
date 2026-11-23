@@ -501,7 +501,7 @@ pub(super) fn plan_add_loaded(
             }
         };
         if let Some(contract) = widget.property(name) {
-            if !contract.editable {
+            if !property_editable(widget, name) {
                 return Err(AuthoringError::Refused(format!("{name} is not editable")));
             }
             if !contract.options.is_empty() && !contract.options.contains(&value) {
@@ -802,6 +802,14 @@ pub(super) fn plan_add_contained_loaded(
     })
 }
 
+pub(crate) fn property_editable(widget: &widgets::Widget, name: &str) -> bool {
+    // The catalogue marks Data non-editable; exported rich-text headers still carry literal HTML.
+    (widget.type_id == "ptcsrte" && name == "Data")
+        || widget
+            .property(name)
+            .is_none_or(|contract| contract.editable)
+}
+
 /// Parse and check a value set by `--prop` or `mashup set`. Strings have CLI syntax; a non-string
 /// value arrived from MCP and is already JSON.
 pub(crate) fn property_value(
@@ -809,6 +817,17 @@ pub(crate) fn property_value(
     name: &str,
     supplied: Value,
 ) -> Result<Value, AuthoringError> {
+    let supplied = if widget.type_id == "ptcsrte" && name == "DefaultFontSize" {
+        let text = supplied
+            .as_str()
+            .map_or_else(|| supplied.to_string(), str::to_string);
+        match text.parse::<u32>() {
+            Ok(size) => json!(format!("{size}px")),
+            Err(_) => supplied,
+        }
+    } else {
+        supplied
+    };
     let value = checked_property_value(widget, name, supplied)?;
     let imagelink = widget
         .property(name)

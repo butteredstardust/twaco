@@ -577,7 +577,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         .with_output::<outputs::MashupTemplatesResult>(),
         solution_tool::<refactor_requests::MashupAddRequest>(
             "mashup_add",
-            "Add a catalogue widget, or one an [[extension]] project of the solution defines, to an existing responsive mashup. With no placement it goes in center. A widget beside another goes in the same row or column when that container runs that way; otherwise both get containers of their own in a new row or column. With below and in_column: true, stack within the anchor's column of a split row; default below places a new row beneath the whole control row. A widget that can fill fills only a container it is alone in. A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
+            "Add a catalogue widget, or one an [[extension]] project of the solution defines, to an existing responsive mashup. ptcsrte accepts literal Data and numeric or Npx DefaultFontSize; statusmessage accepts Message/MessageType and exposes ShowMessage. With no placement it goes in center. A widget beside another goes in the same row or column when that container runs that way; otherwise both get containers of their own in a new row or column. With below and in_column: true, stack within the anchor's column of a split row; default below places a new row beneath the whole control row. A widget that can fill fills only a container it is alone in. A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
             false,
             refactor::mashup_add_tool,
         )
@@ -635,7 +635,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         ).with_output::<outputs::MashupSourceRemoveResult>(),
         solution_tool::<refactor_requests::MashupOnRequest>(
             "mashup_on",
-            "Run a data call or widget service when one mashup event fires. Triggers are ui:<widget>.<Event>, mashup:Loaded, or an existing data:<Entity>.<Service>[as alias].ServiceInvokeCompleted, Data_Error (failure), AllDataChanged or SelectedRowsChanged; handlers are data calls or widget services. A missing Thing handler call is created; templates and shapes need an existing call. A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
+            "Run a data call or widget service when one mashup event fires. Triggers are ui:<widget>.<Event>, mashup:Loaded, or an existing data:<Entity>.<Service>[as alias].ServiceInvokeCompleted (.done), Data_Error (.error, failure), AllDataChanged or SelectedRowsChanged; handlers are data calls or widget services. A missing Thing handler call is created; templates and shapes need an existing call. A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
             false,
             refactor::mashup_on_tool,
         )

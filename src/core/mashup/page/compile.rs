@@ -308,20 +308,48 @@ fn compile_nested(
             }
             continue;
         }
-        let invoke = event.value.invoke.as_ref().expect("validated event");
         let from = address(page, &ids, &on.value, on.referenced)?;
-        let to = if page
-            .data
-            .get(&invoke.value)
-            .is_some_and(|s| s.value.expression.is_some())
-        {
-            format!("ui:{}.Evaluate", expression_id(&invoke.value))
+        let to = if let Some(show) = &event.value.show {
+            let id = ids.get(&show.value).ok_or_else(|| {
+                Error::at(
+                    show.referenced,
+                    format!("unknown status_message {}", show.value),
+                )
+            })?;
+            let found = session
+                .document
+                .find_exact(id)
+                .map_err(|e| Error::at(show.referenced, e))?;
+            if found.type_id != "statusmessage" {
+                return Err(Error::at(
+                    show.referenced,
+                    "show needs a status_message node",
+                ));
+            }
+            format!("ui:{id}.ShowMessage")
         } else {
-            address(page, &ids, &invoke.value, invoke.referenced)?
+            let invoke = event.value.invoke.as_ref().expect("validated event");
+            if page
+                .data
+                .get(&invoke.value)
+                .is_some_and(|s| s.value.expression.is_some())
+            {
+                format!("ui:{}.Evaluate", expression_id(&invoke.value))
+            } else {
+                address(page, &ids, &invoke.value, invoke.referenced)?
+            }
         };
         session
             .on(&model, platform.as_ref(), &from, &to)
             .map_err(|e| Error::at(on.referenced, e))?;
+    }
+    for binding in &page.bindings {
+        let binding = &binding.value;
+        let from = address(page, &ids, &binding.from.value, binding.from.referenced)?;
+        let to = address(page, &ids, &binding.to.value, binding.to.referenced)?;
+        session
+            .bind(solution, &model, platform.as_ref(), &from, &to)
+            .map_err(|e| Error::at(binding.to.referenced, e))?;
     }
     wire_expressions(
         solution,
@@ -1890,6 +1918,12 @@ fn wire_selections(
         }
     }
     let mut refs = BTreeMap::new();
+    for binding in &page.bindings {
+        let from = &binding.value.from;
+        if from.value.contains(".selected.") {
+            refs.insert(from.value.clone(), from.referenced);
+        }
+    }
     for node in page.slots.values().flat_map(|s| &s.value) {
         collect(node, &mut refs);
     }

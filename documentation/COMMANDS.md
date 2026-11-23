@@ -213,6 +213,8 @@ mashup add <mashup> <widget> [--in <container> [--bottom] | --right-of <widget> 
                             add a catalogue widget, or one an [[extension]] project defines, to a
                             mashup; plan unless --apply; a function widget (expression, validator,
                             navigation...) goes beside the layout
+                            ptcsrte takes literal Data and numeric or Npx DefaultFontSize;
+                            statusmessage takes Message/MessageType and exposes ShowMessage
     --in <container>        add inside a responsive container (center when omitted)
     --bottom                with --in <column>: in a footer row at the column's foot (a filter
                             panel's Apply; --right-of it adds Clear); later widgets go above it
@@ -317,7 +319,7 @@ mashup bind <mashup> --from <address> --to <address> [--apply] [--json]
 mashup on <mashup> --event <address> --invoke <address> [--apply] [--json]
                             run a service or widget service when a mashup event fires; plan unless --apply
                             hints when selected-row fields have no selecting widget
-    --event <address>       widget/mashup event or data call event (Data_Error on failure)
+    --event <address>       widget/mashup event or data call event (.done for completion, .error for Data_Error)
     --invoke <address>      data call or widget service to run
 mashup gap <mashup> <container> <px> [--apply] [--json]
                             replace direct twaco spacers with fixed gaps (0 removes; 0..200px);

@@ -1,0 +1,12 @@
+version: 1
+rules: v1
+page:
+  name: Acme.Chain_MU
+  template: blank
+  data:
+    publish: {service: Acme.Actions.Start}
+    status: {service: Acme.Actions.GetStatus, on: load}
+    messages: {service: Acme.Data.GetRows}
+  events:
+    - {on: publish.done, invoke: status}
+    - {on: publish.done, invoke: messages}

@@ -50,6 +50,8 @@ pub(super) fn expand(node: &mut Node, tokens: &Tokens) -> Result<(), Error> {
         Node::ValueDisplay(_) => ("value_display", "ptcsvaluedisplay"),
         Node::Embed(_) => ("embed", "mashupcontainer"),
         Node::EventsRouter(_) => ("events_router", "eventsrouter"),
+        Node::StatusMessage(_) => ("status_message", "statusmessage"),
+        Node::RichText(_) => ("rich_text", "ptcsrte"),
         _ => return Ok(()),
     };
     if element == "value_display"
@@ -151,6 +153,36 @@ pub(super) fn expand(node: &mut Node, tokens: &Tokens) -> Result<(), Error> {
         put(b, property, text);
     }
     match element {
+        "status_message" => {
+            let message = b.message.take();
+            field(b, "Message", message);
+            if let Some(kind) = b.message_type.take() {
+                choice(&kind, &["error", "info", "warning"], "message_type")?;
+                put(b, "MessageType", json!(kind.value));
+            }
+        }
+        "rich_text" => {
+            let content = b.content.take();
+            field(b, "Data", content);
+            if let Some(read_only) = b.read_only.take() {
+                put(b, "ReadOnly", json!(read_only.value));
+            }
+            if let Some(toolbar) = b.show_toolbar.take() {
+                put(b, "HideToolbar", json!(!toolbar.value));
+            }
+            if let Some(mut font_size) = b.font_size.take() {
+                let widget = crate::core::widgets::catalog()
+                    .by_type("ptcsrte")
+                    .expect("rich text");
+                font_size.value = crate::core::mashup::authoring::property_value(
+                    widget,
+                    "DefaultFontSize",
+                    font_size.value,
+                )
+                .map_err(|e| Error::at(font_size.referenced, e))?;
+                field(b, "DefaultFontSize", Some(font_size));
+            }
+        }
         "events_router" => {
             let default_count = u32::try_from(b.routes.len().max(2))
                 .map_err(|_| Error::at(at, "events_router supports at most 20 routes"))?;

@@ -351,10 +351,7 @@ pub(super) fn plan_set_loaded(
                 widget.no_property(&widget.type_id, name),
             ));
         }
-        if widget
-            .property(name)
-            .is_some_and(|contract| !contract.editable)
-        {
+        if !super::add::property_editable(widget, name) {
             return Err(AuthoringError::Refused(format!("{name} is not editable")));
         }
         let value = if name == "ResponsiveLayout" {

@@ -6,6 +6,13 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+- Page specs preserve service completion refresh chains, failure handlers and every source when
+  several calls bind to one property. Events accept `<data>.done` / `.error` and `show` for a new
+  `status_message` element; `page.bindings` adds explicit source/target pairs. Native `rich_text`
+  exposes content, read-only mode, toolbar, font size and existing sizing controls. Derive recognises
+  both elements. Commands use the same `mashup on`, `bind`, `add statusmessage` and `add ptcsrte`
+  paths; numeric rich-text font sizes also work through `add` and `set`.
+
 - `mashup spec` then `mashup build` adopts a mashup nobody built from a spec without changing it:
   the page root maps onto the template's root (no extra container level), widget, wiring and data
   ids are kept (recorded in the baseline), and the spec carries what the mashup has (custom classes,

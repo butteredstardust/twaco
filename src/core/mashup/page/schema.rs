@@ -41,6 +41,8 @@ pub(crate) struct Page {
     pub(crate) slots: BTreeMap<String, Spanned<Vec<Node>>>,
     #[serde(default)]
     pub(crate) events: Vec<Spanned<Event>>,
+    #[serde(default)]
+    pub(crate) bindings: Vec<Spanned<Binding>>,
     #[serde(skip)]
     pub(crate) contracts: Vec<super::components::Requirement>,
 }
@@ -135,13 +137,17 @@ pub(crate) enum Node {
     ValueDisplay(Body),
     Embed(Body),
     EventsRouter(Body),
+    StatusMessage(Body),
+    RichText(Body),
 }
 
 impl Node {
     pub(crate) fn body(&self) -> &Body {
         match self {
             Self::Component(_) => unreachable!("components expand before elements"),
-            Self::EventsRouter(b)
+            Self::StatusMessage(b)
+            | Self::RichText(b)
+            | Self::EventsRouter(b)
             | Self::Link(b)
             | Self::Image(b)
             | Self::Icon(b)
@@ -189,7 +195,9 @@ impl Node {
     pub(crate) fn body_mut(&mut self) -> &mut Body {
         match self {
             Self::Component(_) => unreachable!("components expand before elements"),
-            Self::EventsRouter(b)
+            Self::StatusMessage(b)
+            | Self::RichText(b)
+            | Self::EventsRouter(b)
             | Self::Link(b)
             | Self::Image(b)
             | Self::Icon(b)
@@ -237,7 +245,9 @@ impl Node {
     pub(crate) fn into_body(self) -> Body {
         match self {
             Self::Component(_) => unreachable!("components expand before elements"),
-            Self::EventsRouter(b)
+            Self::StatusMessage(b)
+            | Self::RichText(b)
+            | Self::EventsRouter(b)
             | Self::Link(b)
             | Self::Image(b)
             | Self::Icon(b)
@@ -301,6 +311,8 @@ impl Node {
             | Self::Block(_)
             | Self::Spacer(_) => "flexcontainer",
             Self::EventsRouter(_) => "eventsrouter",
+            Self::StatusMessage(_) => "statusmessage",
+            Self::RichText(_) => "ptcsrte",
             Self::Link(_) => "ptcslink",
             Self::Image(_) => "ptcsimage",
             Self::Icon(_) => "ptcsicon",
@@ -366,6 +378,12 @@ pub(crate) struct Body {
     pub(crate) title: Option<String>,
     pub(crate) help: Option<String>,
     pub(crate) hint: Option<String>,
+    pub(crate) message: Option<Spanned<Value>>,
+    pub(crate) message_type: Option<Spanned<String>>,
+    pub(crate) content: Option<Spanned<Value>>,
+    pub(crate) read_only: Option<Spanned<bool>>,
+    pub(crate) show_toolbar: Option<Spanned<bool>>,
+    pub(crate) font_size: Option<Spanned<Value>>,
     pub(crate) url: Option<Spanned<Value>>,
     pub(crate) target: Option<Spanned<String>>,
     pub(crate) source: Option<Spanned<Value>>,
@@ -672,6 +690,14 @@ pub(crate) struct Event {
     pub(crate) on: Spanned<String>,
     pub(crate) invoke: Option<Spanned<String>>,
     pub(crate) navigate: Option<Spanned<Navigate>>,
+    pub(crate) show: Option<Spanned<String>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Binding {
+    pub(crate) from: Spanned<String>,
+    pub(crate) to: Spanned<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -795,10 +821,14 @@ fn parse_nested(
         }
     }
     for event in &spec.page.value.events {
-        if event.value.invoke.is_some() == event.value.navigate.is_some() {
+        if usize::from(event.value.invoke.is_some())
+            + usize::from(event.value.navigate.is_some())
+            + usize::from(event.value.show.is_some())
+            != 1
+        {
             return Err(Error::at(
                 event.referenced,
-                "event needs exactly one of invoke or navigate",
+                "event needs exactly one of invoke, navigate or show",
             ));
         }
     }
