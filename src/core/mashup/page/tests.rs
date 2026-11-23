@@ -4368,7 +4368,7 @@ fn tokens_spec_paths_are_relative_and_theme_reminder_is_in_plan() {
     .unwrap();
     assert!(plan.report["cell_notices"]
         .to_string()
-        .contains("new theme Acme.Page_TH --tokens ./tokens.yaml"));
+        .contains("new theme Acme.Errors_TH --tokens specs/tokens.yaml --apply"));
     plan.apply(&solution, &lock::acquire_for(&solution, "test").unwrap())
         .unwrap();
     let name = &spec.page.value.name.value;
@@ -4618,5 +4618,56 @@ fn documented_page_spec_examples_compile() {
             .and_then(|rest| rest.split("```").next())
             .unwrap_or_else(|| panic!("{doc} has no yaml example"));
         compile(&solution, "Acme", spec).unwrap_or_else(|e| panic!("{doc}: {e}"));
+    }
+}
+
+/// A generated collection cell keeps the page's token selection, with a file path rebased onto
+/// the folder the cell spec is stored in, so a broken twaco.toml default never takes over.
+#[test]
+fn generated_cells_inherit_the_page_tokens() {
+    let (dir, _) = element_solution();
+    std::fs::write(
+        dir.path().join("twaco.toml"),
+        "[mashup]\ntokens = 'missing.yaml'\n\n[[project]]\nname = 'Acme'\nroot = 'acme'\n",
+    )
+    .unwrap();
+    let solution = Solution::load(&dir.path().join("twaco.toml")).unwrap();
+    let folder = dir.path().join("specs");
+    std::fs::create_dir(&folder).unwrap();
+    std::fs::write(
+        folder.join("tokens.yaml"),
+        "version: 1\nname: Acme\nextends: brutalist\n",
+    )
+    .unwrap();
+    let cell = "collection: {id: c, size: fill, data: rows, cell: {title: Name}}";
+    for (tokens, expected) in [
+        ("brutalist", "brutalist".to_string()),
+        ("./tokens.yaml", "../../specs/tokens.yaml".to_string()),
+    ] {
+        let yaml =
+            error_page(cell, "").replace("rules: v1", &format!("rules: v1\ntokens: {tokens}"));
+        let built = super::compile::compile_at(&solution, "Acme", &yaml, &folder).unwrap();
+        let spec: Value = serde_saphyr::from_str(&built.cells[0].spec).unwrap();
+        assert_eq!(spec["tokens"], expected.as_str());
+        let stored = solution.src_root().join(&built.cells[0].name);
+        schema::parse_at(&built.cells[0].spec, &solution, &stored)
+            .expect("the stored cell spec resolves its tokens from its own folder");
+    }
+    drop(solution);
+}
+
+/// Without tokens, CSS colour keywords and block layout sizes behave as before batch 4.
+#[test]
+fn default_tokens_keep_css_keywords_and_block_layout_sizes() {
+    let tokens = crate::core::mashup::tokens::Tokens::convergence();
+    for keyword in ["grey", "white", "red", "black"] {
+        assert_eq!(tokens.style("color", keyword).unwrap(), keyword);
+        assert_eq!(tokens.style("background", keyword).unwrap(), keyword);
+    }
+    let (_dir, solution) = element_solution();
+    for size in ["fit", "fill", "{fixed: 120}", "xl"] {
+        let block = format!("block: {{id: b, color: pink, caption: OEE, value: 84, size: {size}}}");
+        compile(&solution, "Acme", &error_page(&block, ""))
+            .unwrap_or_else(|e| panic!("size {size}: {e}"));
     }
 }

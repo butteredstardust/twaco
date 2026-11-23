@@ -75,6 +75,10 @@ fn compile_nested(
     let mut session = Session::new(&page.name.value, project, &page.template.value, theme)
         .map_err(|e| Error::at(page.template.referenced, e))?;
     session.tokens = Some(spec.resolved_tokens.clone());
+    session.token_source = spec
+        .tokens
+        .as_ref()
+        .map(|t| (t.value.clone(), base.to_path_buf()));
     for (name, base_type) in &page.parameters {
         session
             .add_parameter(&format!("{name}:{}:IN", base_type.value))
@@ -1575,8 +1579,15 @@ fn wire_collection(
             .iter()
             .map(|(_, f, _)| (f.clone(), f.clone()))
             .collect();
-        let text = cell_spec(page, &name, &fields);
-        let built = compile_nested(solution, project, &text, &solution.root)?;
+        // A generated cell is stored at src/<cell>/page.yaml and rebuilt from there, so it
+        // compiles from that folder with the page's token selection rebased onto it.
+        let cell_dir = solution.src_root().join(&name);
+        let tokens = session
+            .token_source
+            .as_ref()
+            .map(|(value, base)| rebase_tokens(value, base, &cell_dir));
+        let text = cell_spec(page, tokens.as_deref(), &name, &fields);
+        let built = compile_nested(solution, project, &text, &cell_dir)?;
         let cell = CellSource::Generated {
             name: name.clone(),
             entity: built.entity.clone(),
@@ -1626,7 +1637,32 @@ fn wire_collection(
 /// The page spec of a generated KPI cell: a title over a dial, each bound to a parameter.
 // CompareCell has image, text-pair and status bands, but no kit has a title/dial-only cell.
 // Keep the KPI template for those two roles; its growing value uses the kit's LastContainer.
-fn cell_spec(page: &Page, name: &str, fields: &[(&str, String, String)]) -> String {
+/// A `tokens:` value as seen from `to`: preset names stay, a file path is re-expressed
+/// relative to `to`.
+pub(super) fn rebase_tokens(value: &str, base: &std::path::Path, to: &std::path::Path) -> String {
+    if crate::core::mashup::tokens::is_preset(value) {
+        return value.to_string();
+    }
+    let file = crate::core::mashup::tokens::lexical(&base.join(value));
+    let file: Vec<_> = file.components().collect();
+    let to = crate::core::mashup::tokens::lexical(to);
+    let to: Vec<_> = to.components().collect();
+    let common = file.iter().zip(&to).take_while(|(a, b)| a == b).count();
+    let mut out: Vec<String> = vec!["..".into(); to.len() - common];
+    out.extend(
+        file[common..]
+            .iter()
+            .map(|c| c.as_os_str().to_string_lossy().into_owned()),
+    );
+    out.join("/")
+}
+
+fn cell_spec(
+    page: &Page,
+    tokens: Option<&str>,
+    name: &str,
+    fields: &[(&str, String, String)],
+) -> String {
     let parameters: serde_json::Map<_, _> = fields
         .iter()
         .map(|(_, field, base)| (field.clone(), json!(base)))
@@ -1650,6 +1686,9 @@ fn cell_spec(page: &Page, name: &str, fields: &[(&str, String, String)]) -> Stri
         "name": name, "template": "kpi-tile", "parameters": parameters, "slots": slots}});
     if let Some(theme) = &page.theme {
         spec["page"]["theme"] = json!(theme.value);
+    }
+    if let Some(tokens) = tokens {
+        spec["tokens"] = json!(tokens);
     }
     serde_json::to_string_pretty(&spec).expect("spec json")
         + "

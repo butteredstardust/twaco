@@ -495,7 +495,15 @@ fn plan_from(
             .as_ref()
             .is_none_or(|t| t.value == "PTC Convergence Theme")
         {
-            cell_notices.push(format!("the default theme was not generated from these tokens; run twaco new theme Acme.Page_TH --tokens {} --apply, then set page.theme: Acme.Page_TH", tokens.value));
+            let mashup = &spec.page.value.name.value;
+            let theme = format!("{}_TH", mashup.strip_suffix("_MU").unwrap_or(mashup));
+            // `new theme --tokens` resolves a file from the solution root, not from the spec.
+            let source = super::compile::rebase_tokens(
+                &tokens.value,
+                spec_path.parent().unwrap_or(&solution.root),
+                &solution.root,
+            );
+            cell_notices.push(format!("the default theme was not generated from these tokens; run twaco new theme {theme} --tokens {source} --apply, then set page.theme: {theme}"));
         }
     }
     for cell in &generated.cells {

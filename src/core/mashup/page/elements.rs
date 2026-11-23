@@ -323,23 +323,18 @@ pub(super) fn expand(page: &mut Page, tokens: &Tokens) -> Result<(), Error> {
                         }
                     }
                     style_map(b, StyleOn::Box, tokens)?;
-                    if let Some(size) = &b.size {
-                        b.value_size = Some(
-                            match size.value {
-                                Size::Sm => "18px",
-                                Size::Md => "24px",
-                                Size::Lg => "36px",
-                                Size::Xl => "48px",
-                                Size::Display => "72px",
-                                _ => {
-                                    return Err(Error::at(
-                                        size.referenced,
-                                        "block size must be sm, md, lg, xl or display",
-                                    ))
-                                }
-                            }
-                            .to_string(),
-                        );
+                    // Text sizes set the value's size; layout sizes (fit, fill, fixed) stay
+                    // for the normal sizing pass.
+                    let value_size = b.size.as_ref().and_then(|size| match size.value {
+                        Size::Sm => Some("18px"),
+                        Size::Md => Some("24px"),
+                        Size::Lg => Some("36px"),
+                        Size::Xl => Some("48px"),
+                        Size::Display => Some("72px"),
+                        _ => None,
+                    });
+                    if let Some(value_size) = value_size {
+                        b.value_size = Some(value_size.to_string());
                         b.size = None;
                     }
                 }

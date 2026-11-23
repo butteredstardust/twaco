@@ -15,8 +15,8 @@ colors:
   grey-900: '#111827'
 roles:
   background: grey-50
-  card: white
-  page-card: white
+  card: '#FFFFFF'
+  page-card: '#FFFFFF'
   band: grey-100
   card-line: grey-200
   panel-line: grey-200

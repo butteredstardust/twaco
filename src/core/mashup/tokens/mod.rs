@@ -41,6 +41,26 @@ pub(crate) struct Tokens {
     pub(crate) inputs: BTreeMap<PathBuf, Vec<u8>>,
 }
 
+pub(crate) fn is_preset(name: &str) -> bool {
+    PRESETS.contains(&name)
+}
+
+/// `path` with `.` and `..` resolved lexically, so a folder that does not exist yet (a generated
+/// cell's) can still lead to a token file on every platform.
+pub(crate) fn lexical(path: &Path) -> std::path::PathBuf {
+    let mut out = std::path::PathBuf::new();
+    for part in path.components() {
+        match part {
+            std::path::Component::ParentDir => {
+                out.pop();
+            }
+            std::path::Component::CurDir => {}
+            other => out.push(other),
+        }
+    }
+    out
+}
+
 fn preset(name: &str) -> Option<&'static str> {
     Some(match name {
         "convergence" => include_str!("convergence.yaml"),
@@ -53,7 +73,7 @@ fn preset(name: &str) -> Option<&'static str> {
 impl Tokens {
     pub(crate) fn load(source: &str, base: &Path) -> Result<Self, String> {
         fn read(source: &str, base: &Path, seen: &mut BTreeSet<String>) -> Result<Tokens, String> {
-            let path = base.join(source);
+            let path = lexical(&base.join(source));
             let (text, identity, parent) = if let Some(text) = preset(source) {
                 (text.to_string(), source.to_string(), base.to_path_buf())
             } else {

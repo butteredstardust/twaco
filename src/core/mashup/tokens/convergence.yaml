@@ -8,23 +8,21 @@ colors:
   purple: '#8B5CFF'
   orange: '#FF8C3C'
   mint: '#4EE0AE'
-  white: '#FFFFFF'
-  grey: '#6B7478'
 roles:
   primary: primary
   success: '#178642'
   warning: orange
   danger: '#AF3231'
   info: '#236192'
-  background: white
+  background: '#FFFFFF'
   surface: '#F7F7F7'
   surface-alt: '#F7F7F7'
   text: '#232B2D'
   text-muted: '#232B2D'
   heading: '#232B2D'
   line: '#C2C7CE'
-  on-primary: white
-  on-dark: white
+  on-primary: '#FFFFFF'
+  on-dark: '#FFFFFF'
   card: '#ffffff'
   page-card: '#FFFFFF'
   band: '#F7F7F7'

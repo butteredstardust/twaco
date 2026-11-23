@@ -17,6 +17,8 @@ pub(crate) enum CellSource {
 
 pub(crate) struct Session {
     pub(crate) tokens: Option<mashup::tokens::Tokens>,
+    /// A page spec's `tokens:` value and the folder it resolves from, for generated cell specs.
+    pub(crate) token_source: Option<(String, std::path::PathBuf)>,
     pub(crate) document: MashupDocument,
     pub(crate) entity: Vec<u8>,
     pub(crate) css: String,
@@ -32,6 +34,7 @@ impl Session {
     ) -> Self {
         Self {
             tokens: None,
+            token_source: None,
             name: name.into(),
             entity,
             document,
@@ -115,6 +118,7 @@ impl Session {
         .into_bytes();
         let mut session = Self {
             tokens: None,
+            token_source: None,
             document,
             entity,
             css: String::new(),
