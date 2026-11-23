@@ -169,7 +169,8 @@ fn plan_from(
             .ok_or_else(|| invalid(format!("{}: missing page spec", spec_path.display())))?,
     };
     let yaml = text(&spec_bytes)?;
-    let spec = schema::parse_solution(yaml, solution).map_err(invalid)?;
+    let spec = schema::parse_at(yaml, solution, spec_path.parent().unwrap_or(&solution.root))
+        .map_err(invalid)?;
     if spec.page.value.name.value != name {
         return Err(invalid(format!(
             "{}:{}: page.name must equal {name}",
@@ -177,7 +178,13 @@ fn plan_from(
             spec.page.value.name.referenced.line()
         )));
     }
-    let generated = compile::compile(solution, project, yaml).map_err(invalid)?;
+    let generated = compile::compile_at(
+        solution,
+        project,
+        yaml,
+        spec_path.parent().unwrap_or(&solution.root),
+    )
+    .map_err(invalid)?;
     let mut baseline = Baseline::generated(&generated, name, project);
     let baseline_path = dir.join(".page-baseline.json");
     let before_baseline = read(&baseline_path)?;
@@ -452,7 +459,7 @@ fn plan_from(
         files.push(File {
             path: page_path.clone(),
             before: page_before.clone(),
-            after: spec_bytes.clone(),
+            after: stored_spec(yaml, &spec, spec_path, &page_path, solution)?,
         });
     }
     for f in &files {
@@ -472,8 +479,25 @@ fn plan_from(
             read(&solution.root.join("twaco.toml"))?,
         ),
     ];
+    inputs.extend(
+        spec.resolved_tokens
+            .inputs
+            .iter()
+            .map(|(path, bytes)| (path.clone(), Some(bytes.clone()))),
+    );
     let mut created_cells = Vec::new();
     let mut cell_notices = Vec::new();
+    if let Some(tokens) = &spec.tokens {
+        if spec
+            .page
+            .value
+            .theme
+            .as_ref()
+            .is_none_or(|t| t.value == "PTC Convergence Theme")
+        {
+            cell_notices.push(format!("the default theme was not generated from these tokens; run twaco new theme Acme.Page_TH --tokens {} --apply, then set page.theme: Acme.Page_TH", tokens.value));
+        }
+    }
     for cell in &generated.cells {
         let page = solution.src_root().join(&cell.name).join("page.yaml");
         let present = found
@@ -651,4 +675,71 @@ impl Plan {
         self.report["dry_run"] = json!(false);
         Ok(())
     }
+}
+
+fn stored_spec(
+    yaml: &str,
+    spec: &schema::Spec,
+    source: &Path,
+    destination: &Path,
+    solution: &Solution,
+) -> Result<Vec<u8>, AuthoringError> {
+    let Some(tokens) = &spec.tokens else {
+        return Ok(yaml.as_bytes().to_vec());
+    };
+    if mashup::tokens::PRESETS.contains(&tokens.value.as_str()) || source == destination {
+        return Ok(yaml.as_bytes().to_vec());
+    }
+    let target = std::fs::canonicalize(
+        source
+            .parent()
+            .unwrap_or(&solution.root)
+            .join(&tokens.value),
+    )
+    .map_err(invalid)?;
+    let root = std::fs::canonicalize(&solution.root).map_err(invalid)?;
+    let base = root.join(
+        destination
+            .parent()
+            .unwrap()
+            .strip_prefix(&solution.root)
+            .map_err(invalid)?,
+    );
+    let base: Vec<_> = base.components().collect();
+    let target_parts: Vec<_> = target.components().collect();
+    let common = base
+        .iter()
+        .zip(&target_parts)
+        .take_while(|(a, b)| a == b)
+        .count();
+    let relative = if common == 0 {
+        target
+    } else {
+        let mut path = PathBuf::new();
+        for _ in common..base.len() {
+            path.push("..");
+        }
+        for part in &target_parts[common..] {
+            path.push(part.as_os_str());
+        }
+        path
+    };
+    let value = relative.to_string_lossy().replace('\\', "/");
+    let span = tokens.referenced.span();
+    let offset = usize::try_from(
+        span.byte_offset()
+            .ok_or_else(|| invalid("tokens: cannot locate scalar"))?,
+    )
+    .map_err(invalid)?;
+    let len = usize::try_from(
+        span.byte_len()
+            .ok_or_else(|| invalid("tokens: cannot locate scalar"))?,
+    )
+    .map_err(invalid)?;
+    let mut stored = yaml.to_string();
+    stored.replace_range(
+        offset..offset + len,
+        &serde_json::to_string(&value).map_err(invalid)?,
+    );
+    Ok(stored.into_bytes())
 }

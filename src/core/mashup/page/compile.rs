@@ -34,11 +34,25 @@ pub(crate) struct GeneratedCell {
 }
 
 pub(crate) fn compile(solution: &Solution, project: &str, text: &str) -> Result<Artifacts, Error> {
-    super::deep(|| compile_nested(solution, project, text))
+    compile_at(solution, project, text, &solution.root)
 }
 
-fn compile_nested(solution: &Solution, project: &str, text: &str) -> Result<Artifacts, Error> {
-    let spec = schema::parse_solution(text, solution)?;
+pub(crate) fn compile_at(
+    solution: &Solution,
+    project: &str,
+    text: &str,
+    base: &std::path::Path,
+) -> Result<Artifacts, Error> {
+    super::deep(|| compile_nested(solution, project, text, base))
+}
+
+fn compile_nested(
+    solution: &Solution,
+    project: &str,
+    text: &str,
+    base: &std::path::Path,
+) -> Result<Artifacts, Error> {
+    let spec = schema::parse_at(text, solution, base)?;
     let page = &spec.page.value;
     if solution.project(project).is_none() {
         return Err(Error::at(
@@ -60,6 +74,7 @@ fn compile_nested(solution: &Solution, project: &str, text: &str) -> Result<Arti
     })?;
     let mut session = Session::new(&page.name.value, project, &page.template.value, theme)
         .map_err(|e| Error::at(page.template.referenced, e))?;
+    session.tokens = Some(spec.resolved_tokens.clone());
     for (name, base_type) in &page.parameters {
         session
             .add_parameter(&format!("{name}:{}:IN", base_type.value))
@@ -462,6 +477,34 @@ fn add(
     let id = stabilize(session, allocator, &old, &placed, &body.id.value, loc)?;
     ids.insert(body.id.value.clone(), id.clone());
     apply_styles(solution, session, page, &id, body)?;
+    if let Some(size) = &body.value_size {
+        let path = session
+            .document
+            .find_exact(&id)
+            .map_err(|e| Error::at(loc, e))?
+            .path;
+        let value = session
+            .document
+            .widgets()
+            .into_iter()
+            .filter(|w| w.path.starts_with(&path) && w.type_id == "ptcslabel")
+            .nth(1)
+            .map(|w| w.id);
+        if let Some(value) = value {
+            session
+                .set(
+                    solution,
+                    &authoring::SetRequest {
+                        mashup: page.name.value.clone(),
+                        widget: value,
+                        properties: vec![],
+                        style_from: None,
+                        styles: vec![format!("label:font-size={size}")],
+                    },
+                )
+                .map_err(|e| Error::at(loc, e))?;
+        }
+    }
     if matches!(node, Node::FilterPanel(_)) {
         let root = session
             .document
@@ -833,7 +876,7 @@ fn apply_size(
             Size::Fixed(_) => {
                 return Err(Error::at(size.referenced, "fixed size must be above zero"))
             }
-            Size::Sm | Size::Md | Size::Lg | Size::Display => {}
+            Size::Sm | Size::Md | Size::Lg | Size::Xl | Size::Display => {}
             Size::Fit => sizing.push(("flex-grow".into(), json!(0))),
             Size::Fill => sizing.extend([
                 ("flex-size".into(), json!("range")),
@@ -1533,7 +1576,7 @@ fn wire_collection(
             .map(|(_, f, _)| (f.clone(), f.clone()))
             .collect();
         let text = cell_spec(page, &name, &fields);
-        let built = compile_nested(solution, project, &text)?;
+        let built = compile_nested(solution, project, &text, &solution.root)?;
         let cell = CellSource::Generated {
             name: name.clone(),
             entity: built.entity.clone(),

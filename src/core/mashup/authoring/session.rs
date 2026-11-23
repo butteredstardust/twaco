@@ -16,6 +16,7 @@ pub(crate) enum CellSource {
 }
 
 pub(crate) struct Session {
+    pub(crate) tokens: Option<mashup::tokens::Tokens>,
     pub(crate) document: MashupDocument,
     pub(crate) entity: Vec<u8>,
     pub(crate) css: String,
@@ -30,6 +31,7 @@ impl Session {
         css: String,
     ) -> Self {
         Self {
+            tokens: None,
             name: name.into(),
             entity,
             document,
@@ -112,6 +114,7 @@ impl Session {
         .map_err(|e| AuthoringError::Invalid(e.to_string()))?
         .into_bytes();
         let mut session = Self {
+            tokens: None,
             document,
             entity,
             css: String::new(),
@@ -266,7 +269,8 @@ impl Session {
         request: &super::SetRequest,
     ) -> Result<(), AuthoringError> {
         self.sync()?;
-        let plan = super::set::plan_set_loaded(solution, request, self.loaded())?;
+        let plan =
+            super::set::plan_set_loaded(solution, request, self.loaded(), self.tokens.as_ref())?;
         if let Some(edit) = plan.edit {
             self.accept(edit)?;
         }

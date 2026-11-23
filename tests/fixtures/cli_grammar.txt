@@ -527,6 +527,8 @@ help:
 |                               ui:<container>.<name>: a NUMBER parameter set to the time when the
 |                               event at --when fires; plan unless --apply
 |       --when <address>        the event in this mashup that fires it, as mashup on --event takes it
+|   mashup tokens [<source>] [--json]
+|                               list presets or resolve a preset or token YAML file; read-only
 |   mashup templates [<name>] [--json]
 |                               list the embedded responsive mashup templates and their slots
 |   mashup new <name> [--project <name>] [--spec <file> | --from <address> | --template <name> | --gadget [--layout <layout>]]
@@ -755,8 +757,10 @@ help:
 |       [--label <text>] [--apply] [--json]
 |                               create a Menu; plan unless --apply
 |   new theme <name> [--project <name>] [--description <text>] [--from <StyleTheme>]
-|       [--prop name=value]... [--apply] [--json]
-|                               create a StyleTheme; plan unless --apply
+|       [--tokens <source>] [--prop name=value]... [--apply] [--json]
+|                               create a StyleTheme; from, tokens, then prop override; plan unless --apply
+|       --tokens                convergence, clean, brutalist or a token YAML file
+|       --prop                  lowercase-hyphen native theme variable, such as global-color-bg-primary
 |   new network <name> [--project <name>] [--description <text>] [--apply] [--json]
 |                               create an empty Network entity; plan unless --apply
 |   new mcp-namespace <name> [--tool name=Provider.Service]... [--service-resource name=Provider.Service]...
@@ -8024,7 +8028,7 @@ help:
 == twaco mashup
 usage: twaco mashup <command>
 settings: disable-version-flag disable-help-subcommand subcommand-required arg-required-else-help
-subcommands: add add-contained bind build collection describe diff event gap move new off on param recipe remove set source spec state-format templates unbind validate why
+subcommands: add add-contained bind build collection describe diff event gap move new off on param recipe remove set source spec state-format templates tokens unbind validate why
 arg --help
     action: Help
     value_name: -
@@ -8341,6 +8345,8 @@ help:
 |                               ui:<container>.<name>: a NUMBER parameter set to the time when the
 |                               event at --when fires; plan unless --apply
 |       --when <address>        the event in this mashup that fires it, as mashup on --event takes it
+|   mashup tokens [<source>] [--json]
+|                               list presets or resolve a preset or token YAML file; read-only
 |   mashup templates [<name>] [--json]
 |                               list the embedded responsive mashup templates and their slots
 |   mashup new <name> [--project <name>] [--spec <file> | --from <address> | --template <name> | --gadget [--layout <layout>]]
@@ -12523,6 +12529,72 @@ help:
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
 
+== twaco mashup tokens
+usage: twaco mashup tokens [<source>] [--json]
+settings: disable-version-flag disable-help-subcommand
+subcommands: 
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+arg --json
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg <operands>
+    action: Append
+    value_name: operand
+    num_args: 0..
+    allow_hyphen_values: no
+    allow_negative_numbers: yes
+    required: no
+    default: -
+    index: 1
+    other: -
+help:
+|   mashup tokens [<source>] [--json]
+|                               list presets or resolve a preset or token YAML file; read-only
+| 
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
 == twaco mashup unbind
 usage: twaco mashup unbind <mashup> --from <address> --to <address> [--apply] [--json]
 settings: disable-version-flag disable-help-subcommand
@@ -15009,8 +15081,10 @@ help:
 |       [--label <text>] [--apply] [--json]
 |                               create a Menu; plan unless --apply
 |   new theme <name> [--project <name>] [--description <text>] [--from <StyleTheme>]
-|       [--prop name=value]... [--apply] [--json]
-|                               create a StyleTheme; plan unless --apply
+|       [--tokens <source>] [--prop name=value]... [--apply] [--json]
+|                               create a StyleTheme; from, tokens, then prop override; plan unless --apply
+|       --tokens                convergence, clean, brutalist or a token YAML file
+|       --prop                  lowercase-hyphen native theme variable, such as global-color-bg-primary
 |   new network <name> [--project <name>] [--description <text>] [--apply] [--json]
 |                               create an empty Network entity; plan unless --apply
 |   new mcp-namespace <name> [--tool name=Provider.Service]... [--service-resource name=Provider.Service]...
@@ -18146,6 +18220,18 @@ arg --prop
     other: -
     given twice: accepted
     given bare: InvalidValue
+arg --tokens
+    action: Set
+    value_name: source
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+    given twice: ArgumentConflict
+    given bare: InvalidValue
 arg <operands>
     action: Append
     value_name: operand
@@ -18158,8 +18244,10 @@ arg <operands>
     other: -
 help:
 |   new theme <name> [--project <name>] [--description <text>] [--from <StyleTheme>]
-|       [--prop name=value]... [--apply] [--json]
-|                               create a StyleTheme; plan unless --apply
+|       [--tokens <source>] [--prop name=value]... [--apply] [--json]
+|                               create a StyleTheme; from, tokens, then prop override; plan unless --apply
+|       --tokens                convergence, clean, brutalist or a token YAML file
+|       --prop                  lowercase-hyphen native theme variable, such as global-color-bg-primary
 | 
 |   --project <name>            narrow to one project of the solution
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)

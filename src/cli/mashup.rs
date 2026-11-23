@@ -32,6 +32,7 @@ pub(crate) enum Mashup {
     Recipe(Box<MashupRecipe>),
     Event(MashupEvent),
     Templates(MashupTemplates),
+    Tokens(MashupTokens),
     New(MashupNew),
 }
 
@@ -62,6 +63,7 @@ impl Mashup {
             Mashup::Recipe(_) => "mashup recipe",
             Mashup::Event(_) => "mashup event",
             Mashup::Templates(_) => "mashup templates",
+            Mashup::Tokens(_) => "mashup tokens",
             Mashup::New(_) => "mashup new",
         }
     }
@@ -3347,5 +3349,46 @@ mod operand_tests {
             message.contains("--style \"font-family='Arial Black'\""),
             "{message}"
         );
+    }
+}
+
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct MashupTokens {
+    #[command(flatten)]
+    pub(crate) json: Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
+pub(crate) fn mashup_tokens_cmd(args: &MashupTokens) -> u8 {
+    let source = match args.operands.as_slice() {
+        [] => None,
+        [source] => Some(source.as_str()),
+        _ => {
+            eprintln!(
+                "{} mashup tokens takes at most one <source>",
+                style::prefix()
+            );
+            return FAILED;
+        }
+    };
+    let base = std::env::current_dir().unwrap_or_default();
+    match mashup::tokens::inspect(source, &base) {
+        Ok(value) => {
+            if args.json.json || source.is_some() {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&value).expect("tokens serialise")
+                );
+            } else {
+                println!("presets: {}", mashup::tokens::PRESETS.join(", "));
+            }
+            OK
+        }
+        Err(error) => {
+            eprintln!("{} {error}", style::prefix());
+            FAILED
+        }
     }
 }

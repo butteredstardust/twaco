@@ -1,0 +1,49 @@
+version: 1
+name: convergence
+colors:
+  primary: '#0088CE'
+  ink: '#0B0B0B'
+  lime: '#CCFF00'
+  pink: '#FF2E93'
+  purple: '#8B5CFF'
+  orange: '#FF8C3C'
+  mint: '#4EE0AE'
+  white: '#FFFFFF'
+  grey: '#6B7478'
+roles:
+  primary: primary
+  success: '#178642'
+  warning: orange
+  danger: '#AF3231'
+  info: '#236192'
+  background: white
+  surface: '#F7F7F7'
+  surface-alt: '#F7F7F7'
+  text: '#232B2D'
+  text-muted: '#232B2D'
+  heading: '#232B2D'
+  line: '#C2C7CE'
+  on-primary: white
+  on-dark: white
+fonts:
+  sans: inherit
+  mono: ui-monospace, Menlo, Consolas, monospace
+  display: inherit
+radius:
+  none: 0px
+  sm: 2px
+  md: 4px
+  lg: 8px
+  default: md
+border:
+  width: 2px
+  color: line
+shadow:
+  none: none
+space:
+  xs: 4px
+  sm: 8px
+  md: 16px
+  lg: 24px
+  xl: 32px
+chart: []

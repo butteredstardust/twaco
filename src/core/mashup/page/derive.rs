@@ -1,8 +1,8 @@
 //! Derive a readable page spec from mashup content, offline.
 //!
 //! Widgets become elements where the structure is recognised and `widget:` nodes otherwise,
-//! carrying only the properties that differ from the widget catalogue. Styles and custom CSS are
-//! not carried: a spec describes structure and wiring, and the build supplies the look.
+//! carrying properties that differ from the widget catalogue. Token specs also carry literal
+//! styles for represented widgets; custom CSS and styles folded into elements remain outside it.
 
 use super::Error;
 use crate::core::widgets;
@@ -21,12 +21,21 @@ pub(crate) struct Derived {
 }
 
 pub(crate) fn derive(name: &str, content: &str) -> Result<Derived, Error> {
+    derive_with_styles(name, content, false)
+}
+
+pub(crate) fn derive_with_styles(
+    name: &str,
+    content: &str,
+    carry_styles: bool,
+) -> Result<Derived, Error> {
     let content: Value =
         serde_json::from_str(content).map_err(|e| Error::at(Location::UNKNOWN, e))?;
     let root = content
         .get("UI")
         .ok_or_else(|| Error::at(Location::UNKNOWN, "mashup needs UI"))?;
     let mut run = Run::new(&content);
+    run.carry_styles = carry_styles;
     let parameters = run.parameters(&root["Properties"]);
     let slot: Vec<Value> = widgets_of(root)
         .iter()
@@ -55,10 +64,13 @@ pub(crate) fn derive(name: &str, content: &str) -> Result<Derived, Error> {
     }
     let mut spec = json!({"version": 1, "rules": "v1", "page": page});
     run.resolve(&mut spec);
-    run.notes.push(
+    run.notes.push(if carry_styles {
+        "custom CSS, styles of widgets folded into elements and unsupported wiring are not carried"
+            .into()
+    } else {
         "styles, custom CSS and unsupported wiring are not carried; the build supplies the look"
-            .into(),
-    );
+            .into()
+    });
     let mut text = String::new();
     block(&spec, 0, &mut text);
     Ok(Derived {
@@ -234,6 +246,7 @@ struct Link {
 }
 
 struct Run<'a> {
+    carry_styles: bool,
     content: &'a Value,
     calls: Vec<Call>,
     links: Vec<Link>,
@@ -252,6 +265,7 @@ struct Run<'a> {
 impl<'a> Run<'a> {
     fn new(content: &'a Value) -> Self {
         let mut run = Self {
+            carry_styles: false,
             content,
             calls: vec![],
             links: vec![],
@@ -515,7 +529,7 @@ impl<'a> Run<'a> {
 
     fn node(&mut self, widget: &Value, parent: &str) -> Value {
         let type_id = kind(widget).to_string();
-        match type_id.as_str() {
+        let mut node = match type_id.as_str() {
             "flexcontainer" => self.container(widget, parent),
             "ptcslabel" => self.label(widget),
             "ptcsbutton" => self.button(widget),
@@ -546,7 +560,37 @@ impl<'a> Run<'a> {
             "ptcscollection" => self.collection(widget),
             "ptcstabset" => self.tabs(widget),
             _ => self.other(widget),
+        };
+        if self.carry_styles {
+            let id = prop(widget, "Id").as_str().unwrap_or("");
+            let parts = &self.content["UI"]["Properties"]["StyleProperties"]["data"][id]["parts"];
+            let mut styles = vec![];
+            for (part, states) in parts.as_object().into_iter().flatten() {
+                for (state, properties) in states.as_object().into_iter().flatten() {
+                    for (property, value) in properties.as_object().into_iter().flatten() {
+                        let Some(value) = value.as_str() else {
+                            continue;
+                        };
+                        let scope = match (part.as_str(), state.as_str()) {
+                            ("$", "$") => String::new(),
+                            (_, "$") => format!("{part}:"),
+                            _ => format!("{part}@{state}:"),
+                        };
+                        styles.push(format!("{scope}{property}={value}"));
+                    }
+                }
+            }
+            if !styles.is_empty() {
+                if let Some(body) = node
+                    .as_object_mut()
+                    .and_then(|m| m.values_mut().next())
+                    .and_then(Value::as_object_mut)
+                {
+                    body.insert("style".into(), json!(styles));
+                }
+            }
         }
+        node
     }
 
     fn finish(

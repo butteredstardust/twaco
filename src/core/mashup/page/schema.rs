@@ -7,6 +7,9 @@ use std::collections::BTreeMap;
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Spec {
+    pub(crate) tokens: Option<Spanned<String>>,
+    #[serde(skip)]
+    pub(crate) resolved_tokens: crate::core::mashup::tokens::Tokens,
     pub(crate) version: Spanned<u32>,
     pub(crate) rules: Spanned<String>,
     pub(crate) page: Spanned<Page>,
@@ -243,6 +246,8 @@ impl Node {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Body {
+    #[serde(skip)]
+    pub(crate) value_size: Option<String>,
     pub(crate) id: Spanned<String>,
     #[serde(rename = "type")]
     pub(crate) kind: Option<Spanned<String>>,
@@ -341,15 +346,15 @@ pub(crate) struct Body {
     pub(crate) grid_cell: bool,
 }
 
-/// `style:` is a list of `--style` settings or a map of `background`, `color`, `border` and
-/// `font`; a map entry becomes `~key=value` here, and `elements::expand` turns it into settings
+/// `style:` is a list of `--style` settings or a map of `background`, `color`, `border`, `font`, `shadow` and
+/// `radius`; a map entry becomes `~key=value` here, and `elements::expand` turns it into settings
 /// once it knows the element.
 fn style_list<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<Spanned<String>>, D::Error> {
     struct Visitor;
     impl<'de> serde::de::Visitor<'de> for Visitor {
         type Value = Vec<Spanned<String>>;
         fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-            f.write_str("a list of style settings or a map of background, color, border and font")
+            f.write_str("a list of style settings or a map of background, color, border, font, shadow and radius")
         }
         fn visit_seq<A: serde::de::SeqAccess<'de>>(
             self,
@@ -480,6 +485,7 @@ pub(crate) enum Size {
     Md,
     Lg,
     Display,
+    Xl,
 }
 
 #[derive(Debug, Deserialize)]
@@ -491,17 +497,44 @@ pub(crate) struct Event {
 
 #[cfg(test)]
 pub(crate) fn parse(text: &str) -> Result<Spec, Error> {
-    super::deep(|| parse_nested(text, &super::components::Registry::builtin()?))
+    super::deep(|| {
+        parse_nested(
+            text,
+            &super::components::Registry::builtin()?,
+            None,
+            std::path::Path::new("."),
+        )
+    })
 }
 
 pub(crate) fn parse_solution(
     text: &str,
     solution: &crate::core::config::Solution,
 ) -> Result<Spec, Error> {
-    super::deep(|| parse_nested(text, &super::components::Registry::load(solution)?))
+    parse_at(text, solution, &solution.root)
 }
 
-fn parse_nested(text: &str, registry: &super::components::Registry) -> Result<Spec, Error> {
+pub(crate) fn parse_at(
+    text: &str,
+    solution: &crate::core::config::Solution,
+    base: &std::path::Path,
+) -> Result<Spec, Error> {
+    super::deep(|| {
+        parse_nested(
+            text,
+            &super::components::Registry::load(solution)?,
+            Some(solution),
+            base,
+        )
+    })
+}
+
+fn parse_nested(
+    text: &str,
+    registry: &super::components::Registry,
+    solution: Option<&crate::core::config::Solution>,
+    base: &std::path::Path,
+) -> Result<Spec, Error> {
     let mut spec: Spec = serde_saphyr::from_str(text).map_err(|error| {
         Error::at(
             error.location().unwrap_or(serde_saphyr::Location::UNKNOWN),
@@ -515,7 +548,17 @@ fn parse_nested(text: &str, registry: &super::components::Registry) -> Result<Sp
         return Err(Error::at(spec.rules.referenced, "rules must be v1"));
     }
     registry.expand_page(&mut spec.page.value)?;
-    super::elements::expand(&mut spec.page.value)?;
+    let tokens = if let Some(source) = &spec.tokens {
+        crate::core::mashup::tokens::Tokens::load(&source.value, base)
+            .map_err(|e| Error::at(source.referenced, e))?
+    } else if let Some(solution) = solution {
+        crate::core::mashup::tokens::Tokens::active(solution)
+            .map_err(|e| Error::at(spec.version.referenced, e))?
+    } else {
+        crate::core::mashup::tokens::Tokens::convergence().clone()
+    };
+    super::elements::expand(&mut spec.page.value, &tokens)?;
+    spec.resolved_tokens = tokens;
     let mut ids = BTreeMap::new();
     fn check(
         nodes: &[Node],

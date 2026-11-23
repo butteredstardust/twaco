@@ -17,6 +17,8 @@ pub const CONFIG_FILE: &str = "twaco.toml";
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Solution {
+    #[serde(default)]
+    pub(crate) mashup: Mashup,
     /// Parts compared and transferred according to the server's ownership.
     #[serde(default)]
     pub(crate) server_owned: Vec<super::server_owned::Rule>,
@@ -80,6 +82,12 @@ pub struct Solution {
     pub(crate) test: Test,
     #[serde(skip)]
     pub root: PathBuf,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Mashup {
+    pub(crate) tokens: Option<String>,
 }
 
 /// A source checkout of a Java ThingWorx extension.  It is read-only input, never workspace

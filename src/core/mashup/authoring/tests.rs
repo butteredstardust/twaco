@@ -14725,3 +14725,41 @@ fn style_values_accept_the_colour_and_font_names_the_page_specs_use() {
     assert_eq!(variants, ["text-box:border-radius=20px"]);
     assert!(input_variant_styles("flat").is_none());
 }
+
+#[test]
+fn tokens_command_styles_use_twaco_toml_and_match_spec_resolution() {
+    let (_dir, solution) =
+        with_config("[mashup]\ntokens = 'brutalist'\n[[project]]\nname = 'Acme'\nroot = 'acme'\n");
+    let name = "Acme.Tokens_MU";
+    let new = plan_new(&solution, &request(name)).unwrap();
+    apply_new(&solution, &new, &lock(&solution)).unwrap();
+    let add = plan_add(&solution, &add_request(name, "ptcslabel")).unwrap();
+    let id = add.placed.id.clone();
+    apply_edit(&solution, &add.edit, &lock(&solution)).unwrap();
+    let plan = plan_set(
+        &solution,
+        &SetRequest {
+            mashup: name.into(),
+            widget: id.clone(),
+            properties: vec![],
+            style_from: None,
+            styles: vec![
+                "box-shadow=hard".into(),
+                "border-radius=none".into(),
+                "label:font-family=mono".into(),
+                "background=surface".into(),
+            ],
+        },
+    )
+    .unwrap();
+    apply_edit(&solution, plan.edit.as_ref().unwrap(), &lock(&solution)).unwrap();
+    let content = content_of(&solution, name);
+    let parts = &content["UI"]["Properties"]["StyleProperties"]["data"][&id]["parts"];
+    assert_eq!(parts["$"]["$"]["box-shadow"], "4px 4px 0 #0B0B0B");
+    assert_eq!(parts["$"]["$"]["border-radius"], "0px");
+    assert_eq!(parts["$"]["$"]["background"], "#F3F0E6");
+    assert_eq!(
+        parts["label"]["$"]["font-family"],
+        "IBM Plex Mono, ui-monospace, Consolas, monospace"
+    );
+}

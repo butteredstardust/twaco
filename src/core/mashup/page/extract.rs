@@ -200,7 +200,7 @@ pub fn extract(solution: &Solution, name: &str) -> Result<Extraction, AuthoringE
             }
             Some(Err(_)) => {}
             None => {
-                if let Ok(built) = compile::compile(solution, &project, &spec) {
+                if let Ok(built) = compile::compile_at(solution, &project, &spec, &directory) {
                     if built.content == content && built.css == css {
                         return Ok(counted(name, spec, widgets, true));
                     }
@@ -208,7 +208,31 @@ pub fn extract(solution: &Solution, name: &str) -> Result<Extraction, AuthoringE
             }
         }
     }
-    let derived = derive::derive(name, &content).map_err(invalid)?;
+    let tokens = std::fs::read_to_string(directory.join("page.yaml"))
+        .ok()
+        .and_then(|text| serde_saphyr::from_str::<Value>(&text).ok())
+        .and_then(|value| {
+            value
+                .get("tokens")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        });
+    let mut derived = if tokens.is_some() {
+        derive::derive_with_styles(name, &content, true)
+    } else {
+        derive::derive(name, &content)
+    }
+    .map_err(invalid)?;
+    if let Some(tokens) = tokens {
+        derived.spec = derived.spec.replacen(
+            "rules: v1\n",
+            &format!(
+                "rules: v1\ntokens: {}\n",
+                serde_json::to_string(&tokens).unwrap()
+            ),
+            1,
+        );
+    }
     let mut notes = derived.notes;
     if !css.trim().is_empty() {
         notes.push("custom CSS of the mashup is not part of a spec".into());

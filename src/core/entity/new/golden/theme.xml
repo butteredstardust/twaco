@@ -26,6 +26,7 @@
             <ConfigurationTableDefinitions></ConfigurationTableDefinitions>
             <ConfigurationTables></ConfigurationTables>
             <content><![CDATA[{
+  "CustomCss" : "",
   "props" : [ {
     "name" : "e-button-primary-fontcolor",
     "value" : "#ffffff"

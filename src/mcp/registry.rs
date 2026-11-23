@@ -562,6 +562,12 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             refactor::mashup_new_tool,
         )
         .with_output::<outputs::MashupNewResult>(),
+        root_tool::<refactor_requests::MashupTokensRequest>(
+            "mashup_tokens",
+            "List embedded design token presets or resolve one preset or YAML file, including native StyleTheme props. Read-only; no server.",
+            true,
+            refactor::mashup_tokens_tool,
+        ).with_output::<outputs::MashupTokensResult>(),
         bare_tool::<refactor_requests::MashupTemplatesRequest>(
             "mashup_templates",
             "List embedded responsive mashup templates, or with name one template's slot tree. Read-only; no server.",
@@ -1130,6 +1136,7 @@ pub(crate) const GROUPS: &[(&str, &[&str])] = &[
         "mashup",
         &[
             "mashup_new",
+            "mashup_tokens",
             "mashup_templates",
             "mashup_add",
             "mashup_collection_add",

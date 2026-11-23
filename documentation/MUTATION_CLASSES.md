@@ -206,6 +206,7 @@ when the command is asked to write. A local output named by an option is include
 | `mashup diff` | read-only | read-only | none | Retry freely. | `core/mashup/diff.rs: diff` |
 | `mashup validate` | read-only | read-only | none | Retry freely. | `core/mashup_validate.rs: validate` |
 | `widgets` | read-only | read-only | none | Retry freely. | `core/widgets_view.rs: list` |
+| `mashup tokens` | read-only | read-only | none | Retry freely. | `core/mashup/tokens/mod.rs: inspect` |
 | `mashup templates` | read-only | read-only | none | Retry freely. | `core/mashup_templates_view.rs: list` |
 | `mashup new` | read-only | multi-file atomic | new entity file, mashup sidecars | The entity file and its content.json and custom.css are created in one journaled transaction, or none is; a file that appeared since the plan is refused. Retry. | `core/commands/mashup.rs: new` |
 | `new mashup` | read-only | multi-file atomic | new entity file, mashup sidecars | The entity file and its content.json and custom.css are created in one journaled transaction, or none is; a file that appeared since the plan is refused. Retry. | `core/commands/mashup.rs: new` |
@@ -292,6 +293,7 @@ when the command is asked to write. A local output named by an option is include
 | `mashup_diff` | read-only | read-only | none | Retry freely. | `core/mashup/diff.rs: diff` |
 | `mashup_validate` | read-only | read-only | none | Retry freely. | `core/mashup_validate.rs: validate` |
 | `widgets` | read-only | read-only | none | Retry freely. | `core/widgets_view.rs: list` |
+| `mashup_tokens` | read-only | read-only | none | Retry freely. | `core/mashup/tokens/mod.rs: inspect` |
 | `mashup_templates` | read-only | read-only | none | Retry freely. | `core/mashup_templates_view.rs: list` |
 | `mashup_new` | read-only | multi-file atomic | new entity file, mashup sidecars | The entity file and its content.json and custom.css are created in one journaled transaction, or none is; a file that appeared since the plan is refused. Retry. | `core/commands/mashup.rs: new` |
 | `mashup_source_retarget` | read-only | multi-file atomic | mashup entity file, content sidecar | The entity file and managed content sidecar are replaced in one journaled transaction, or neither is; a file edited since the plan read it is refused. Retry. | `core/commands/mashup.rs: source_retarget` |

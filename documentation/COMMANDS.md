@@ -459,6 +459,8 @@ mashup event add <mashup> <name> --when <address> [--apply] [--json]
                             ui:<container>.<name>: a NUMBER parameter set to the time when the
                             event at --when fires; plan unless --apply
     --when <address>        the event in this mashup that fires it, as mashup on --event takes it
+mashup tokens [<source>] [--json]
+                            list presets or resolve a preset or token YAML file; read-only
 mashup templates [<name>] [--json]
                             list the embedded responsive mashup templates and their slots
 mashup new <name> [--project <name>] [--spec <file> | --from <address> | --template <name> | --gadget [--layout <layout>]]
@@ -687,8 +689,10 @@ new menu <name> --item <Title=Mashup>... [--project <name>] [--description <text
     [--label <text>] [--apply] [--json]
                             create a Menu; plan unless --apply
 new theme <name> [--project <name>] [--description <text>] [--from <StyleTheme>]
-    [--prop name=value]... [--apply] [--json]
-                            create a StyleTheme; plan unless --apply
+    [--tokens <source>] [--prop name=value]... [--apply] [--json]
+                            create a StyleTheme; from, tokens, then prop override; plan unless --apply
+    --tokens                convergence, clean, brutalist or a token YAML file
+    --prop                  lowercase-hyphen native theme variable, such as global-color-bg-primary
 new network <name> [--project <name>] [--description <text>] [--apply] [--json]
                             create an empty Network entity; plan unless --apply
 new mcp-namespace <name> [--tool name=Provider.Service]... [--service-resource name=Provider.Service]...

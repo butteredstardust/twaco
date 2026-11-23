@@ -63,13 +63,14 @@ pub(crate) fn plan_set(
 ) -> Result<SetPlan, AuthoringError> {
     validate_properties(request)?;
     let loaded = load_existing(solution, &request.mashup)?;
-    plan_set_loaded(solution, request, loaded)
+    plan_set_loaded(solution, request, loaded, None)
 }
 
 pub(super) fn plan_set_loaded(
     solution: &Solution,
     request: &SetRequest,
     loaded: super::ExistingMashup,
+    tokens: Option<&crate::core::mashup::tokens::Tokens>,
 ) -> Result<SetPlan, AuthoringError> {
     validate_properties(request)?;
     let mut document = parse_loaded(&loaded)?;
@@ -170,10 +171,19 @@ pub(super) fn plan_set_loaded(
         }
     };
     if !request.styles.is_empty() {
+        let active;
+        let tokens = match tokens {
+            Some(tokens) => tokens,
+            None => {
+                active = crate::core::mashup::tokens::Tokens::active(solution)
+                    .map_err(AuthoringError::Invalid)?;
+                &active
+            }
+        };
         let settings = request
             .styles
             .iter()
-            .map(|text| parse_style(text))
+            .map(|text| parse_style_with(text, tokens))
             .collect::<Result<Vec<_>, _>>()?;
         if root {
             let page = document
@@ -526,6 +536,13 @@ pub(crate) struct StyleSetting {
 /// `[<part>[@<state>]:]<property>=<value>`; the part and the state default to `$`, the widget
 /// itself in its normal state, as Composer's style editor stores them.
 pub(crate) fn parse_style(text: &str) -> Result<StyleSetting, AuthoringError> {
+    parse_style_with(text, crate::core::mashup::tokens::Tokens::convergence())
+}
+
+fn parse_style_with(
+    text: &str,
+    tokens: &crate::core::mashup::tokens::Tokens,
+) -> Result<StyleSetting, AuthoringError> {
     let bad = || {
         AuthoringError::Invalid(format!(
             "--style {text:?} must be [<part>[@<state>]:]<property>=<value>, such as background=#ffffff or cell@hover:border-color=#BEC6CA"
@@ -553,59 +570,15 @@ pub(crate) fn parse_style(text: &str) -> Result<StyleSetting, AuthoringError> {
         part: part.to_string(),
         state: state.to_string(),
         property: property.to_string(),
-        value: named_value(property, value.trim()),
+        value: tokens
+            .style(property, value.trim())
+            .map_err(AuthoringError::Invalid)?,
     })
 }
 
-/// Plain colour names the page specs use, as fixed hex values. Batch 4 of the page specs replaces
-/// them with theme tokens. `primary` is the PTC Convergence blue of the kits' titles.
-const COLOURS: &[(&str, &str)] = &[
-    ("primary", "#0088CE"),
-    ("ink", "#0B0B0B"),
-    ("lime", "#CCFF00"),
-    ("pink", "#FF2E93"),
-    ("purple", "#8B5CFF"),
-    ("orange", "#FF8C3C"),
-    ("mint", "#4EE0AE"),
-];
-
-/// The font stack `mono` names.
-const MONO: &str = "ui-monospace, Menlo, Consolas, monospace";
-
-/// A colour as the specs write it: a name above or a `#` hex value; anything else is refused.
+#[cfg(test)]
 pub(crate) fn colour(text: &str) -> Result<String, String> {
-    if let Some((_, hex)) = COLOURS.iter().find(|(name, _)| *name == text) {
-        return Ok((*hex).to_string());
-    }
-    let digits = text.strip_prefix('#').unwrap_or_default();
-    if matches!(digits.len(), 3 | 4 | 6 | 8) && digits.chars().all(|c| c.is_ascii_hexdigit()) {
-        return Ok(text.to_string());
-    }
-    Err(format!(
-        "unknown colour {text:?}; use ink, lime, pink, purple, orange, mint, primary or a #hex value"
-    ))
-}
-
-/// A font as the specs write it: `mono`, `sans` (the theme font) or a family list as it is.
-pub(crate) fn font_family(text: &str) -> String {
-    match text {
-        "mono" => MONO.to_string(),
-        "sans" => "inherit".to_string(),
-        other => other.to_string(),
-    }
-}
-
-/// `--style` values that are one of the names above mean their value, so the command line and a
-/// page spec say a colour the same way; every other value is kept as written.
-fn named_value(property: &str, value: &str) -> String {
-    match property {
-        "color" | "background" | "background-color" | "border-color" | "fill" => COLOURS
-            .iter()
-            .find(|(name, _)| *name == value)
-            .map_or_else(|| value.to_string(), |(_, hex)| (*hex).to_string()),
-        "font-family" if matches!(value, "mono" | "sans") => font_family(value),
-        _ => value.to_string(),
-    }
+    crate::core::mashup::tokens::Tokens::convergence().colour(text)
 }
 
 /// The styler name Composer records beside a widget's style parts. Each pair was read from the

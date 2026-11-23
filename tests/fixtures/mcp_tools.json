@@ -4210,6 +4210,10 @@
             "type": "string"
           }
         },
+        "tokens": {
+          "description": "Theme preset or token YAML file; overlays from, before prop.",
+          "type": "string"
+        },
         "tool": {
           "description": "mcp-namespace: `name=Provider.Service` tools; prefix the provider `Thing:`,\n`ThingTemplate:` or `ThingShape:` to name one outside the solution.",
           "type": "array",
@@ -4312,6 +4316,13 @@
         "files"
       ],
       "properties": {
+        "theme_props": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
         "warnings": {
           "type": "array",
           "items": {
@@ -5487,6 +5498,46 @@
           "items": {
             "type": "string"
           }
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "mashup_tokens",
+    "description": "List embedded design token presets or resolve one preset or YAML file, including native StyleTheme props. Read-only; no server.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "description": "Preset or token YAML file relative to the MCP root; omit to list presets.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": false
+    },
+    "outputSchema": {
+      "properties": {
+        "presets": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "tokens": true,
+        "props": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
         }
       },
       "type": "object"

@@ -1,0 +1,191 @@
+{
+  "warnings": [],
+  "scope": "repository",
+  "deploy_command": "twaco deploy --project Acme.Orders --apply",
+  "note": "Repository only; deploy imports it on the server. The server adds template configuration tables absent from the repository; after the first deploy read-back use twaco entity pull to take them.",
+  "applied": false,
+  "kind": "theme",
+  "name": "Acme.Orders.Tokens_TH",
+  "project": "Acme.Orders",
+  "files": [
+    "app/StyleThemes/Acme.Orders.Tokens_TH.xml"
+  ],
+  "twaco_toml": null,
+  "every_ms": null,
+  "cron": null,
+  "runs": null,
+  "theme_props": [
+    {
+      "name": "e-button-primary-fontcolor",
+      "value": "#0B0B0B"
+    },
+    {
+      "name": "e-chart-ruler-color",
+      "value": "#F3F0E6"
+    },
+    {
+      "name": "e-chart-series-1-color",
+      "value": "#CCFF00"
+    },
+    {
+      "name": "e-chart-series-2-color",
+      "value": "#FF2E93"
+    },
+    {
+      "name": "e-chart-series-3-color",
+      "value": "#8B5CFF"
+    },
+    {
+      "name": "e-chart-series-4-color",
+      "value": "#FF8C3C"
+    },
+    {
+      "name": "e-chart-series-5-color",
+      "value": "#4EE0AE"
+    },
+    {
+      "name": "e-chart-tick-label-color",
+      "value": "#F3F0E6"
+    },
+    {
+      "name": "e-chart-value-color",
+      "value": "#F3F0E6"
+    },
+    {
+      "name": "global-border-radius-0",
+      "value": "0px"
+    },
+    {
+      "name": "global-border-radius-100",
+      "value": "0px"
+    },
+    {
+      "name": "global-border-radius-200",
+      "value": "0px"
+    },
+    {
+      "name": "global-border-radius-300",
+      "value": "0px"
+    },
+    {
+      "name": "global-color-bg-hover",
+      "value": "#F3F0E6"
+    },
+    {
+      "name": "global-color-bg-primary",
+      "value": "#F3F0E6"
+    },
+    {
+      "name": "global-color-bg-secondary",
+      "value": "#F3F0E6"
+    },
+    {
+      "name": "global-color-bg-selected",
+      "value": "#CCFF00"
+    },
+    {
+      "name": "global-color-core-danger",
+      "value": "#FF2E93"
+    },
+    {
+      "name": "global-color-core-info",
+      "value": "#8B5CFF"
+    },
+    {
+      "name": "global-color-core-primary",
+      "value": "#CCFF00"
+    },
+    {
+      "name": "global-color-core-success",
+      "value": "#4EE0AE"
+    },
+    {
+      "name": "global-color-line-border",
+      "value": "#0B0B0B"
+    },
+    {
+      "name": "global-color-line-divider",
+      "value": "#0B0B0B"
+    },
+    {
+      "name": "global-color-line-interior",
+      "value": "#0B0B0B"
+    },
+    {
+      "name": "global-color-text-body",
+      "value": "#0B0B0B"
+    },
+    {
+      "name": "global-color-text-caption",
+      "value": "#0B0B0B"
+    },
+    {
+      "name": "global-color-text-header",
+      "value": "#0B0B0B"
+    },
+    {
+      "name": "global-color-text-inverted",
+      "value": "#F3F0E6"
+    },
+    {
+      "name": "global-color-text-label",
+      "value": "#0B0B0B"
+    },
+    {
+      "name": "global-color-text-large-header",
+      "value": "#0B0B0B"
+    },
+    {
+      "name": "global-color-text-large-title",
+      "value": "#0B0B0B"
+    },
+    {
+      "name": "global-color-text-subheader",
+      "value": "#0B0B0B"
+    },
+    {
+      "name": "global-color-text-title",
+      "value": "#0B0B0B"
+    },
+    {
+      "name": "global-line-border-thickness",
+      "value": "2px"
+    },
+    {
+      "name": "global-text-body-fontfamily",
+      "value": "Archivo, Arial, sans-serif"
+    },
+    {
+      "name": "global-text-caption-fontfamily",
+      "value": "Archivo, Arial, sans-serif"
+    },
+    {
+      "name": "global-text-header-fontfamily",
+      "value": "Archivo Black, Archivo, Arial Black, sans-serif"
+    },
+    {
+      "name": "global-text-label-fontfamily",
+      "value": "Archivo, Arial, sans-serif"
+    },
+    {
+      "name": "global-text-large-header-fontfamily",
+      "value": "Archivo Black, Archivo, Arial Black, sans-serif"
+    },
+    {
+      "name": "global-text-large-title-fontfamily",
+      "value": "Archivo Black, Archivo, Arial Black, sans-serif"
+    },
+    {
+      "name": "global-text-link-fontfamily",
+      "value": "Archivo, Arial, sans-serif"
+    },
+    {
+      "name": "global-text-subheader-fontfamily",
+      "value": "Archivo Black, Archivo, Arial Black, sans-serif"
+    },
+    {
+      "name": "global-text-title-fontfamily",
+      "value": "Archivo Black, Archivo, Arial Black, sans-serif"
+    }
+  ]
+}

@@ -2,6 +2,7 @@ use super::{
     schema::{Body, Node, Page, Size},
     Error,
 };
+use crate::core::mashup::tokens::Tokens;
 use serde_json::json;
 
 fn generated(parent: &Body, role: &str, kind: &str, props: serde_json::Value) -> Node {
@@ -145,8 +146,8 @@ fn retag(node: &mut Node, make: fn(Body) -> Node) {
     *node = make(body);
 }
 
-fn colour_at(text: &str, at: serde_saphyr::Location) -> Result<String, Error> {
-    crate::core::mashup::authoring::colour(text).map_err(|e| Error::at(at, e))
+fn colour_at(tokens: &Tokens, text: &str, at: serde_saphyr::Location) -> Result<String, Error> {
+    tokens.colour(text).map_err(|e| Error::at(at, e))
 }
 
 /// The `--style` settings a heading, label or text size stands for: the label type (a prop), and
@@ -159,6 +160,7 @@ fn text_size(b: &mut Body) -> Result<(), Error> {
         Size::Sm => ("title", &[]),
         Size::Md => ("sub-header", &[]),
         Size::Lg => ("header", &[]),
+        Size::Xl => ("large-header", &["label:font-size=48px"]),
         Size::Display => (
             "large-header",
             // No kit has a display face; the label type's largest size, enlarged by style.
@@ -187,8 +189,8 @@ enum StyleOn {
 }
 
 /// Turn the `~key=value` entries of a style map into `--style` settings. Colours and fonts use
-/// the names the command line takes too; `border` is a 2px solid line in that colour.
-fn style_map(b: &mut Body, on: StyleOn) -> Result<(), Error> {
+/// the names the command line takes too; `border` uses the token border width and a solid line in that colour.
+fn style_map(b: &mut Body, on: StyleOn, tokens: &Tokens) -> Result<(), Error> {
     let at = b.id.referenced;
     let mut kept = vec![];
     for entry in std::mem::take(&mut b.style) {
@@ -201,17 +203,19 @@ fn style_map(b: &mut Body, on: StyleOn) -> Result<(), Error> {
             continue;
         };
         let settings: Vec<String> = match (key, on) {
-            ("background", _) => vec![format!("background={}", colour_at(value, at)?)],
+            ("background", _) => vec![format!("background={}", colour_at(tokens, value, at)?)],
             ("border", _) => vec![
                 "border-style=solid".into(),
-                "border-width=2px".into(),
-                format!("border-color={}", colour_at(value, at)?),
+                format!("border-width={}", tokens.border_width()),
+                format!("border-color={}", colour_at(tokens, value, at)?),
             ],
-            ("color", StyleOn::Text) => vec![format!("label:color={}", colour_at(value, at)?)],
+            ("color", StyleOn::Text) => vec![format!("label:color={}", colour_at(tokens, value, at)?)],
             ("font", StyleOn::Text) => vec![format!(
                 "label:font-family={}",
-                crate::core::mashup::authoring::font_family(value)
+                tokens.font(value)
             )],
+            ("shadow", _) => vec![format!("box-shadow={}", tokens.style("box-shadow", value).map_err(|e| Error::at(at, e))?)],
+            ("radius", _) => vec![format!("border-radius={}", tokens.style("border-radius", value).map_err(|e| Error::at(at, e))?)],
             ("color" | "font", StyleOn::Box) => {
                 return Err(Error::at(
                     at,
@@ -221,7 +225,7 @@ fn style_map(b: &mut Body, on: StyleOn) -> Result<(), Error> {
             _ => {
                 return Err(Error::at(
                     at,
-                    format!("style {key} is not supported; use background, color, border or font"),
+                    format!("style {key} is not supported; use background, color, border, font, shadow or radius"),
                 ))
             }
         };
@@ -294,20 +298,57 @@ const DIALS: [Dial; 4] = [
     ("vertical", "vertical", "bottom to top", None),
 ];
 
-pub(super) fn expand(page: &mut Page) -> Result<(), Error> {
-    fn nodes(list: &mut [Node]) -> Result<(), Error> {
+pub(super) fn expand(page: &mut Page, tokens: &Tokens) -> Result<(), Error> {
+    fn nodes(list: &mut [Node], tokens: &Tokens) -> Result<(), Error> {
         for node in list {
             match node {
                 Node::Heading(b) | Node::Label(b) | Node::Text(b) => {
+                    if b.band == Some(true) {
+                        b.style.push(spanned("width=100%".into(), b.id.referenced));
+                        b.style.push(spanned("flex-grow=1".into(), b.id.referenced));
+                    }
+                    b.band = None;
                     text_size(b)?;
                     if let Some(highlight) = b.highlight.take() {
-                        let hex = colour_at(&highlight.value, highlight.referenced)?;
+                        let hex = colour_at(tokens, &highlight.value, highlight.referenced)?;
                         let at = b.id.referenced;
                         b.style.push(spanned(format!("background={hex}"), at));
                     }
-                    style_map(b, StyleOn::Text)?;
+                    style_map(b, StyleOn::Text, tokens)?;
                 }
-                Node::Block(b) | Node::Chart(b) => style_map(b, StyleOn::Box)?,
+                Node::Block(b) => {
+                    for (key, value) in &tokens.block {
+                        if !b
+                            .style
+                            .iter()
+                            .any(|s| s.value.starts_with(&format!("~{key}=")))
+                        {
+                            b.style
+                                .insert(0, spanned(format!("~{key}={value}"), b.id.referenced));
+                        }
+                    }
+                    style_map(b, StyleOn::Box, tokens)?;
+                    if let Some(size) = &b.size {
+                        b.value_size = Some(
+                            match size.value {
+                                Size::Sm => "18px",
+                                Size::Md => "24px",
+                                Size::Lg => "36px",
+                                Size::Xl => "48px",
+                                Size::Display => "72px",
+                                _ => {
+                                    return Err(Error::at(
+                                        size.referenced,
+                                        "block size must be sm, md, lg, xl or display",
+                                    ))
+                                }
+                            }
+                            .to_string(),
+                        );
+                        b.size = None;
+                    }
+                }
+                Node::Chart(b) => style_map(b, StyleOn::Box, tokens)?,
                 _ => {}
             }
             let informed = match node {
@@ -355,7 +396,7 @@ pub(super) fn expand(page: &mut Page) -> Result<(), Error> {
                     if let Some(color) = b.color.take() {
                         heading["style"] = json!([format!(
                             "label:color={}",
-                            colour_at(&color, b.id.referenced)?
+                            colour_at(tokens, &color, b.id.referenced)?
                         )]);
                     }
                     b.children
@@ -644,7 +685,7 @@ pub(super) fn expand(page: &mut Page) -> Result<(), Error> {
                     if b.value.is_none() {
                         return Err(Error::at(at, "block needs color, caption and value"));
                     }
-                    let hex = colour_at(&color, at)?;
+                    let hex = colour_at(tokens, &color, at)?;
                     b.title = Some(caption);
                     b.style.push(spanned(format!("background={hex}"), at));
                     retag(node, Node::Card);
@@ -830,18 +871,29 @@ pub(super) fn expand(page: &mut Page) -> Result<(), Error> {
                 _ => {}
             }
             let b = node.body_mut();
-            nodes(&mut b.children)?;
-            nodes(&mut b.fields)?;
+            for style in &mut b.style {
+                if let Some((target, value)) = style.value.split_once('=') {
+                    let property = target.rsplit(':').next().unwrap();
+                    style.value = format!(
+                        "{target}={}",
+                        tokens
+                            .style(property, value)
+                            .map_err(|e| Error::at(style.referenced, e))?
+                    );
+                }
+            }
+            nodes(&mut b.children, tokens)?;
+            nodes(&mut b.fields, tokens)?;
             for tab in &mut b.tabs {
                 if let Some(content) = &mut tab.content {
-                    nodes(content)?;
+                    nodes(content, tokens)?;
                 }
             }
         }
         Ok(())
     }
     for slot in page.slots.values_mut() {
-        nodes(&mut slot.value)?;
+        nodes(&mut slot.value, tokens)?;
     }
     Ok(())
 }
@@ -993,7 +1045,7 @@ fn fields(node: &Node) -> Result<(), Error> {
         (
             b.size
                 .as_ref()
-                .is_some_and(|s| matches!(s.value, Size::Sm | Size::Md | Size::Lg | Size::Display)),
+                .is_some_and(|s| matches!(s.value, Size::Sm | Size::Md | Size::Lg | Size::Xl | Size::Display)),
             false,
             "size sm, md, lg or display (a heading, label and text take them)",
         ),

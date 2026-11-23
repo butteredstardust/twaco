@@ -6,6 +6,12 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+- Add design token YAML files and convergence, clean and brutalist presets; generate native
+  StyleTheme props with `new theme --tokens` and inspect them with `mashup tokens` (also MCP).
+  Specs and command styles share token resolution. Theme variable names reject camelCase.
+- Add token shadows, radii and borders, brutalist block defaults, block value sizes and full-row
+  band labels; retain explicit tokens when deriving specs.
+
 ## [0.1.74] - 2026-11-22
 
 - Add embedded and solution YAML page components with typed props, composition, kit provenance,

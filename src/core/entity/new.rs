@@ -162,7 +162,7 @@ impl Kind {
             ],
             Self::State => &["type", "state"],
             Self::Menu => &["icon", "item", "default", "label"],
-            Self::Theme => &["from", "prop"],
+            Self::Theme => &["from", "tokens", "prop"],
             Self::McpNamespace => &[
                 "tool",
                 "service_resource",
@@ -267,6 +267,7 @@ pub struct NewRequest {
     pub label: Option<String>,
     pub from: Option<String>,
     pub props: Vec<String>,
+    pub tokens: Option<String>,
     pub depends_on: Vec<String>,
     /// mcp-namespace: `name=Provider.Service` tools, service and file resources, `name=text` prompts.
     pub tools: Vec<String>,
@@ -341,6 +342,7 @@ impl NewRequest {
             label: None,
             from: None,
             props: Vec::new(),
+            tokens: None,
             depends_on: Vec::new(),
             tools: Vec::new(),
             service_resources: Vec::new(),
@@ -364,6 +366,7 @@ impl NewRequest {
 pub struct Plan {
     pub request: NewRequest,
     pub project: String,
+    pub(crate) theme_props: Option<Vec<Value>>,
     pub(crate) entity_path: PathBuf,
     pub(crate) entity: Vec<u8>,
     pub(crate) sidecars: Vec<(PathBuf, Vec<u8>)>,
@@ -1220,7 +1223,7 @@ fn theme_content(request: &NewRequest) -> String {
     let content = request
         .theme_content
         .clone()
-        .unwrap_or_else(|| "{\"props\": [], \"version\": \"0.1\"}".into());
+        .unwrap_or_else(|| "{\"CustomCss\": \"\", \"props\": [], \"version\": \"0.1\"}".into());
     let mut value: Value = serde_json::from_str(&content).expect("validated theme JSON");
     let props = value["props"].as_array_mut().expect("theme props");
     for prop in &request.props {
@@ -1641,6 +1644,8 @@ pub(crate) fn plan(solution: &Solution, request: &NewRequest) -> Result<Plan, Ne
                     "--prop {prop:?} must be name=value"
                 )));
             }
+            crate::core::mashup::tokens::validate_variable(prop.split_once('=').unwrap().0)
+                .map_err(NewError::Invalid)?;
         }
     }
     let fields = match request.kind {
@@ -1698,12 +1703,33 @@ pub(crate) fn plan(solution: &Solution, request: &NewRequest) -> Result<Plan, Ne
                 NewError::Unknown(format!("no StyleTheme {from} in the solution"))
             })?;
             rendered.theme_content = Some(entity_content(&source.path)?);
-            serde_json::from_str::<Value>(rendered.theme_content.as_deref().unwrap()).map_err(
-                |error| {
+            let content = serde_json::from_str::<Value>(rendered.theme_content.as_deref().unwrap())
+                .map_err(|error| {
                     NewError::Invalid(format!("StyleTheme {from} content is not JSON: {error}"))
-                },
-            )?;
+                })?;
+            if !content.get("props").is_some_and(Value::is_array) {
+                return Err(NewError::Invalid(format!("StyleTheme {from} content needs a props array; repair its content before using --from")));
+            }
         }
+    }
+    if let Some(source) = &request.tokens {
+        if request.kind != Kind::Theme {
+            return Err(NewError::Invalid("--tokens belongs to new theme".into()));
+        }
+        let tokens = crate::core::mashup::tokens::Tokens::load(source, &solution.root)
+            .map_err(NewError::Invalid)?;
+        rendered.props = tokens
+            .props()
+            .iter()
+            .map(|prop| {
+                format!(
+                    "{}={}",
+                    prop["name"].as_str().unwrap(),
+                    prop["value"].as_str().unwrap()
+                )
+            })
+            .collect();
+        rendered.props.extend(request.props.clone());
     }
     let entity = match request.kind {
         Kind::DirectoryService => directory::xml(&rendered, &project_name)?,
@@ -1833,7 +1859,14 @@ pub(crate) fn plan(solution: &Solution, request: &NewRequest) -> Result<Plan, Ne
         } else {
             (None, None)
         };
+    let theme_props = request.tokens.as_ref().map(|_| {
+        serde_json::from_str::<Value>(&theme_content(&rendered)).expect("rendered theme")["props"]
+            .as_array()
+            .unwrap()
+            .clone()
+    });
     Ok(Plan {
+        theme_props,
         request: request.clone(),
         project: project_name,
         entity_path: path,
@@ -1879,7 +1912,31 @@ pub(crate) fn apply(
 
 pub fn plan_json(solution: &Solution, plan: &Plan, applied: bool) -> Value {
     let relative = |path: &Path| solution.relative(path);
-    json!({ "warnings": notification::warnings(solution, &plan.request), "scope": "repository", "deploy_command": format!("twaco deploy --project {} --apply", plan.project), "note": "Repository only; deploy imports it on the server. The server adds template configuration tables absent from the repository; after the first deploy read-back use twaco entity pull to take them.", "applied": applied, "kind": plan.request.kind.word(), "name": plan.request.name, "project": plan.project, "files": std::iter::once(relative(&plan.entity_path)).chain(plan.sidecars.iter().map(|(path, _)| relative(path))).collect::<Vec<_>>(), "twaco_toml": plan.config_after.as_ref().map(|_| if plan.config_before.as_deref() == Some("") { "created" } else { "project appended" }), "every_ms": plan.duration_ms, "cron": plan.cron, "runs": plan.script.as_ref().map(|code| code.lines().next().unwrap_or_default()) })
+    let mut warnings = notification::warnings(solution, &plan.request);
+    if plan.request.kind == Kind::Theme {
+        for prop in &plan.request.props {
+            if let Some((name, _)) = prop.split_once('=') {
+                if !crate::core::mashup::tokens::mapped(name) {
+                    warnings.push(format!("{name}: not in twaco's mapping"));
+                }
+            }
+        }
+    }
+    if let Some(props) = &plan.theme_props {
+        for prop in props {
+            let name = prop["name"].as_str().unwrap();
+            if !crate::core::mashup::tokens::mapped(name)
+                && !warnings.iter().any(|w| w.starts_with(&format!("{name}:")))
+            {
+                warnings.push(format!("{name}: not in twaco's mapping"));
+            }
+        }
+    }
+    let mut report = json!({ "warnings": warnings, "scope": "repository", "deploy_command": format!("twaco deploy --project {} --apply", plan.project), "note": "Repository only; deploy imports it on the server. The server adds template configuration tables absent from the repository; after the first deploy read-back use twaco entity pull to take them.", "applied": applied, "kind": plan.request.kind.word(), "name": plan.request.name, "project": plan.project, "files": std::iter::once(relative(&plan.entity_path)).chain(plan.sidecars.iter().map(|(path, _)| relative(path))).collect::<Vec<_>>(), "twaco_toml": plan.config_after.as_ref().map(|_| if plan.config_before.as_deref() == Some("") { "created" } else { "project appended" }), "every_ms": plan.duration_ms, "cron": plan.cron, "runs": plan.script.as_ref().map(|code| code.lines().next().unwrap_or_default()) });
+    if let Some(props) = &plan.theme_props {
+        report["theme_props"] = json!(props);
+    }
+    report
 }
 
 #[cfg(test)]
@@ -2303,6 +2360,7 @@ mod tests {
             label: None,
             from: None,
             props: Vec::new(),
+            tokens: None,
             depends_on: Vec::new(),
             tools: Vec::new(),
             service_resources: Vec::new(),
@@ -3395,5 +3453,59 @@ mod tests {
                 );
             }
         }
+    }
+    #[test]
+    fn tokens_theme_plan_and_overlay_order() {
+        let (_dir, solution) = fixture();
+        let mut request = request(Kind::Theme, "Acme.Orders.Tokens_TH");
+        request.tokens = Some("brutalist".into());
+        let planned = plan(&solution, &request).unwrap();
+        let props = crate::core::mashup::tokens::Tokens::load("brutalist", &solution.root)
+            .unwrap()
+            .props();
+        assert_eq!(
+            entity_content_bytes(&planned.entity),
+            json!({"CustomCss":"", "version":"0.1", "props":props})
+        );
+        let golden = format!(
+            "{}\n",
+            serde_json::to_string_pretty(&plan_json(&solution, &planned, false)).unwrap()
+        );
+        let file =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/theme_tokens_plan.json");
+        if std::env::var("TWACO_BLESS").as_deref() == Ok("1") {
+            std::fs::write(&file, &golden).unwrap();
+        }
+        assert_eq!(std::fs::read_to_string(file).unwrap(), golden);
+        apply(&solution, request.clone());
+        request.name = "Acme.Orders.Overlay_TH".into();
+        request.from = Some("Acme.Orders.Tokens_TH".into());
+        request.tokens = Some("clean".into());
+        request.props = vec![
+            "global-color-core-primary=#ABCDEF".into(),
+            "acme-future-variable=1px".into(),
+        ];
+        let overlay = plan(&solution, &request).unwrap();
+        let content = entity_content_bytes(&overlay.entity);
+        assert!(content["props"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|p| p == &json!({"name":"global-color-core-primary","value":"#ABCDEF"})));
+        assert!(plan_json(&solution, &overlay, false)["warnings"]
+            .to_string()
+            .contains("not in twaco's mapping"));
+        request.props = vec!["backgroundColor=#ABCDEF".into()];
+        assert!(plan(&solution, &request)
+            .unwrap_err()
+            .to_string()
+            .contains("global-color-bg-primary"));
+    }
+
+    fn entity_content_bytes(bytes: &[u8]) -> Value {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("theme.xml");
+        std::fs::write(&path, bytes).unwrap();
+        serde_json::from_str(&entity_content(&path).unwrap()).unwrap()
     }
 }

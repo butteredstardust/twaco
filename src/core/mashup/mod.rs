@@ -20,6 +20,7 @@ pub mod page;
 pub(crate) mod style_check;
 pub(crate) mod templates;
 pub mod templates_view;
+pub mod tokens;
 pub mod validate;
 pub mod why;
 

@@ -1093,6 +1093,12 @@ pub(crate) const USAGE: &[Usage] = &[
       --when <address>        the event in this mashup that fires it, as mashup on --event takes it"#,
     },
     Usage {
+        path: "mashup tokens",
+        group: 1,
+        text: r#"  mashup tokens [<source>] [--json]
+                              list presets or resolve a preset or token YAML file; read-only"#,
+    },
+    Usage {
         path: "mashup templates",
         group: 1,
         text: r#"  mashup templates [<name>] [--json]
@@ -1503,8 +1509,10 @@ pub(crate) const USAGE: &[Usage] = &[
         path: "new theme",
         group: 1,
         text: r#"  new theme <name> [--project <name>] [--description <text>] [--from <StyleTheme>]
-      [--prop name=value]... [--apply] [--json]
-                              create a StyleTheme; plan unless --apply"#,
+      [--tokens <source>] [--prop name=value]... [--apply] [--json]
+                              create a StyleTheme; from, tokens, then prop override; plan unless --apply
+      --tokens                convergence, clean, brutalist or a token YAML file
+      --prop                  lowercase-hyphen native theme variable, such as global-color-bg-primary"#,
     },
     Usage {
         path: "new network",
