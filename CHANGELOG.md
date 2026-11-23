@@ -45,6 +45,8 @@ All notable changes to twaco are recorded here. The format follows
   Derivation recognises more kit variants and reports deliberate raw-widget limitations. Coverage
   JSON always includes `raw_types`, including an empty map for pages without raw widgets.
 
+## [0.1.75] - 2026-11-23
+
 - Page-spec blocks with large values grow without a height cap; ticker bands use a full-width row.
 - Design tokens reach recipe cards, bands, sections, panels and page surfaces, preserving convergence values.
 - Creation plans suggest the accepted `deploy --only-projects` flag.
@@ -2314,6 +2316,7 @@ The first public release.
 - `mcp` serves 39 tools over stdio to MCP clients, with compact summaries, validated arguments
   and dry runs by default for tools that can write to a server.
 
+[0.1.75]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.75
 [0.1.74]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.74
 [0.1.73]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.73
 [0.1.72]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.72
