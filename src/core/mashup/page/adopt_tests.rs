@@ -350,37 +350,13 @@ fn derived_specs_always_compile_numbers_and_empty_contained_parameters_included(
 }
 
 #[test]
-fn master_mashups_are_refused_and_a_page_keeps_its_master() {
+fn a_page_keeps_its_master() {
     let (_dir, solution) = element_solution();
-    let name = handmade(&solution, HAND_SPEC, "Acme.Hand_MU");
     let built = compile(&solution, "Acme", HAND_SPEC).unwrap();
     let content: Value = serde_json::from_str(&built.content).unwrap();
     assert_eq!(content["UI"]["Properties"]["Master"], "Acme.Master_MM");
     assert_eq!(content["UI"]["Properties"]["UseMasterTheme"], true);
-    // A master (mashupType targetmashup) has no spec yet.
-    let path = solution.root.join(format!("acme/Mashups/{name}.xml"));
-    let xml = std::fs::read_to_string(&path).unwrap();
-    std::fs::write(
-        &path,
-        xml.replace(
-            "&quot;mashupType&quot;:&quot;mashup&quot;",
-            "&quot;mashupType&quot;:&quot;targetmashup&quot;",
-        )
-        .replace(
-            "\"mashupType\": \"mashup\"",
-            "\"mashupType\": \"targetmashup\"",
-        ),
-    )
-    .unwrap();
-    let error = extraction::extract(&solution, &name)
-        .unwrap_err()
-        .to_string();
-    assert!(error.contains("master"), "{error}");
-    write_spec(&solution, &name, HAND_SPEC);
-    let error = super::super::build::plan(&solution, &name, None, None)
-        .unwrap_err()
-        .to_string();
-    assert!(error.contains("master"), "{error}");
+    assert_eq!(content["mashupType"], "mashup");
 }
 
 #[test]

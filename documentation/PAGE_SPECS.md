@@ -87,7 +87,8 @@ bindings:
   - {from: reset.result, to: output.LabelText}
 ```
 
-Page keys beyond the above: `master: Acme.Master_MM` and `use_master_theme: true` set the mashup's
+Page keys beyond the above: `kind: master` creates a [master mashup](#master-mashups-and-page-hosts);
+`props: {...}` sets mashup-root properties. `master: Acme.Master_MM` and `use_master_theme: true` set the mashup's
 master; `root: {props: {...}}` sets properties of the template's root container (a `null` removes
 one); `layout: as-built` keeps the v1 layout rules off a page that adopts an existing mashup (see
 [Adopting an existing mashup](#adopting-an-existing-mashup)).
@@ -805,7 +806,7 @@ anything but letters, digits, `_` and `-` replaced.
 
 Not carried: widget styles, custom CSS, state formatting snapshots, bindings and events outside the supported function contracts and data that is not a Thing service. Properties the catalogue does not list are carried as props on a page that is derived to be adopted, and listed in `notes` otherwise. The report's `notes` list what applied.
 Pagination derives as `pagination` with `mode: server`, preserving its existing wiring without
-adding slicing expressions. Native expressions become typed `data` entries. Widgets without an element (decorative shapes, extension maps, dynamic navigation or embed targets, two-pane dynamic panels, native menu bars) stay as raw `widget:` nodes with a note.
+adding slicing expressions. Native expressions become typed `data` entries. Widgets without an element (decorative shapes, extension maps, dynamic navigation or embed targets, two-pane dynamic panels) stay as raw `widget:` nodes with a note.
 Build the derived spec to review a plan: its widget tree matches the
 original's widgets, nesting, services, bindings and events (the compiler adds layout wrappers
 and the look), not its properties.
@@ -849,6 +850,46 @@ which the `pagination` element would duplicate.
 | Q4 | 50 | 45 | 4 (expression2 4) | 13595 |
 | S | 85 | 84 | 0 | 18513 |
 
+## Master mashups and page hosts
+
+`page.kind` is `page` by default. Set `kind: master` to build a target mashup:
+
+```yaml
+version: 1
+rules: v1
+page:
+  name: Acme.Master_MM
+  kind: master
+  template: blank
+  props: {WindowStyle: DefaultMasterWindowStyle, Favicon: Acme.Icon_MD, Font: Arial}
+  slots:
+    center:
+      - heading: {id: title, text: Acme}
+      - menu_bar: {id: menu, props: {MenuType: horizontal}}
+      - page_host: {id: host}
+```
+
+`twaco new mashup Acme.Master_MM --spec master.page.yaml --apply` creates the master.
+The compiler uses the same master root as `new mashup --master`: content `mashupType` and
+root `Type` are `targetmashup`, XML `aspect.mashupType` is `target`, and `Style` defaults to
+`DefaultMasterMashupStyle`. `WindowStyle`, `Favicon`, `Font` and other mashup-root properties
+can be stated in `page.props`; `page.root.props` still addresses the template's root container.
+`null` removes a property. Identity, type, allocation and parameter-definition properties cannot
+be set through `page.props`; use `kind` and `parameters` for those contracts.
+
+A master requires exactly one `page_host` (`pagemashupcontainer`), the slot where pages render.
+Place it in the desired container; no implicit second host is added. An ordinary page cannot
+contain a page host. `menu_bar` is a native `ptcsmenubar` with its existing properties and
+bindings in `props`; `nav_menu` continues to build button navigation. Commands use the existing
+`new mashup --master`, `mashup add ptcsmenubar`, `mashup set` and `mashup bind` paths.
+Attach an ordinary page with `page.master: Acme.Master_MM` and optionally
+`page.use_master_theme: true`.
+
+Deriving and adopting a master keeps widget and wiring IDs and changes no existing entity or
+sidecar bytes, just as for pages. A fresh build of the derived spec keeps the represented
+widgets and wiring and carries the master-root properties. This support is tested offline;
+no new Runtime validation is claimed.
+
 ## Adopting an existing mashup
 
 `mashup spec` on a mashup that no spec built, then `mashup build` on the untouched `page.yaml`,
@@ -872,8 +913,8 @@ moves. Four things make that so.
   every difference it finds, then builds again. A number the platform accepts for a pixel option
   (`DefaultFontSize: 14`) is read as the option `"14px"` and kept as the number. A contained
   mashup is `embed`. `page.master` and `page.use_master_theme` keep the mashup's master. A master
-  (`mashupType: targetmashup`) is refused by `mashup spec` and `mashup build`: that is a later
-  batch.
+  (`mashupType: targetmashup`) derives as `kind: master`, with its `page_host`, native
+  `menu_bar` and header elements. Master-root properties are carried in `page.props`.
 - **Ids are kept.** At the first build the generated widgets are lined up with the mashup's by
   type and position, and the baseline records which `(node, role)` keeps which id
   (`pinned_widgets`), plus the ids of data sections, service calls, bindings and events

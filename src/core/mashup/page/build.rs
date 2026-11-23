@@ -320,11 +320,6 @@ fn plan_from(
         }
         mashup::edit::parse(&current_assets.content).map_err(AuthoringError::Edit)?;
         let current: Value = serde_json::from_str(&current_assets.content).map_err(invalid)?;
-        if current["mashupType"] == "targetmashup" {
-            return Err(AuthoringError::Refused(format!(
-                "{name} is a master mashup; page specs do not cover masters yet, so mashup build cannot manage it"
-            )));
-        }
         if let Some(old) = &old {
             let info = entity::parse(bytes).map_err(|e| invalid(format!("{name}: {e:?}")))?;
             let current_xml = json!({"name": info.name, "projectName": info.project});

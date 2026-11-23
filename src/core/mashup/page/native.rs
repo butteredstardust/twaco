@@ -48,6 +48,8 @@ pub(super) fn expand(node: &mut Node, tokens: &Tokens) -> Result<(), Error> {
         Node::Textarea(_) => ("textarea", "ptcstextarea"),
         Node::DatePicker(_) => ("date_picker", "ptcsdatepicker"),
         Node::ValueDisplay(_) => ("value_display", "ptcsvaluedisplay"),
+        Node::MenuBar(_) => ("menu_bar", "ptcsmenubar"),
+        Node::PageHost(_) => ("page_host", "pagemashupcontainer"),
         Node::Embed(_) => ("embed", "mashupcontainer"),
         Node::EventsRouter(_) => ("events_router", "eventsrouter"),
         Node::StatusMessage(_) => ("status_message", "statusmessage"),
@@ -153,6 +155,7 @@ pub(super) fn expand(node: &mut Node, tokens: &Tokens) -> Result<(), Error> {
         put(b, property, text);
     }
     match element {
+        "page_host" | "menu_bar" => {}
         "status_message" => {
             let message = b.message.take();
             field(b, "Message", message);

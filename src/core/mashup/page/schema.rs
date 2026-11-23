@@ -18,6 +18,9 @@ pub(crate) struct Spec {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Page {
+    pub(crate) kind: Option<Spanned<PageKind>>,
+    #[serde(default)]
+    pub(crate) props: BTreeMap<String, Spanned<Value>>,
     pub(crate) name: Spanned<String>,
     pub(crate) template: Spanned<String>,
     pub(crate) title: Option<Spanned<String>>,
@@ -45,6 +48,21 @@ pub(crate) struct Page {
     pub(crate) bindings: Vec<Spanned<Binding>>,
     #[serde(skip)]
     pub(crate) contracts: Vec<super::components::Requirement>,
+}
+
+#[derive(Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum PageKind {
+    Page,
+    Master,
+}
+
+impl Page {
+    pub(crate) fn is_master(&self) -> bool {
+        self.kind
+            .as_ref()
+            .is_some_and(|k| k.value == PageKind::Master)
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -136,6 +154,8 @@ pub(crate) enum Node {
     DatePicker(Body),
     ValueDisplay(Body),
     Embed(Body),
+    PageHost(Body),
+    MenuBar(Body),
     EventsRouter(Body),
     StatusMessage(Body),
     RichText(Body),
@@ -158,6 +178,8 @@ impl Node {
             | Self::Textarea(b)
             | Self::DatePicker(b)
             | Self::ValueDisplay(b)
+            | Self::MenuBar(b)
+            | Self::PageHost(b)
             | Self::Embed(b)
             | Self::Grid(b)
             | Self::Label(b)
@@ -208,6 +230,8 @@ impl Node {
             | Self::Textarea(b)
             | Self::DatePicker(b)
             | Self::ValueDisplay(b)
+            | Self::MenuBar(b)
+            | Self::PageHost(b)
             | Self::Embed(b)
             | Self::Grid(b)
             | Self::Label(b)
@@ -258,6 +282,8 @@ impl Node {
             | Self::Textarea(b)
             | Self::DatePicker(b)
             | Self::ValueDisplay(b)
+            | Self::MenuBar(b)
+            | Self::PageHost(b)
             | Self::Embed(b)
             | Self::Grid(b)
             | Self::Label(b)
@@ -323,6 +349,8 @@ impl Node {
             Self::Textarea(_) => "ptcstextarea",
             Self::DatePicker(_) => "ptcsdatepicker",
             Self::ValueDisplay(_) => "ptcsvaluedisplay",
+            Self::MenuBar(_) => "ptcsmenubar",
+            Self::PageHost(_) => "pagemashupcontainer",
             Self::Embed(_) => "mashupcontainer",
             Self::List(_) => "ptcslist",
             Self::Collection(_) => "ptcscollection",

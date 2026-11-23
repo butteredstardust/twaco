@@ -88,8 +88,36 @@ fn compile_nested(
             e,
         )
     })?;
-    let mut session = Session::new(&page.name.value, project, &page.template.value, theme)
-        .map_err(|e| Error::at(page.template.referenced, e))?;
+    fn hosts(nodes: &[Node]) -> usize {
+        nodes
+            .iter()
+            .map(|n| {
+                usize::from(n.widget().ok() == Some("pagemashupcontainer"))
+                    + descendants(n)
+                        .map(|c| hosts(std::slice::from_ref(c)))
+                        .sum::<usize>()
+            })
+            .sum()
+    }
+    let count: usize = page.slots.values().map(|s| hosts(&s.value)).sum();
+    if count != usize::from(page.is_master()) {
+        return Err(Error::at(
+            spec.page.referenced,
+            if page.is_master() {
+                "master needs exactly one page_host where pages render; add it to page.slots"
+            } else {
+                "page_host needs page.kind: master; ordinary pages cannot host pages"
+            },
+        ));
+    }
+    let mut session = Session::new_kind(
+        &page.name.value,
+        project,
+        &page.template.value,
+        theme,
+        page.is_master(),
+    )
+    .map_err(|e| Error::at(page.template.referenced, e))?;
     spec.resolved_tokens
         .apply_page(&mut session.document)
         .map_err(|e| Error::at(page.name.referenced, e))?;
@@ -406,6 +434,18 @@ fn apply_root(
         for (key, value) in &source.value.props {
             super::elements::set_or_remove(&mut session.document, &path, key, &value.value);
         }
+    }
+    for (key, value) in &page.props {
+        if matches!(
+            key.as_str(),
+            "Id" | "Type" | "Widgets" | "id_index" | "_currentParameterDefs"
+        ) {
+            return Err(Error::at(
+                value.referenced,
+                format!("page props cannot set {key}"),
+            ));
+        }
+        super::elements::set_or_remove(&mut session.document, &[], key, &value.value);
     }
     if let Some(master) = &page.master {
         session

@@ -50,6 +50,15 @@ fn derive_as(name: &str, content: &str, carry_styles: bool, exact: bool) -> Resu
     let root = content
         .get("UI")
         .ok_or_else(|| Error::at(Location::UNKNOWN, "mashup needs UI"))?;
+    if content["mashupType"] == "targetmashup" {
+        fn hosts(w: &Value) -> usize {
+            usize::from(kind(w) == "pagemashupcontainer")
+                + widgets_of(w).iter().map(hosts).sum::<usize>()
+        }
+        if hosts(root) != 1 {
+            return Err(Error::at(Location::UNKNOWN, format!("{name}: master needs exactly one page_host (pagemashupcontainer) where pages render; repair its page container before deriving")));
+        }
+    }
     let mut run = Run::new(&content);
     run.carry_styles = carry_styles;
     run.exact = exact;
@@ -85,6 +94,25 @@ fn derive_as(name: &str, content: &str, carry_styles: bool, exact: bool) -> Resu
     };
     let mut page = Map::new();
     page.insert("name".into(), json!(name));
+    if content["mashupType"] == "targetmashup" {
+        page.insert("kind".into(), json!("master"));
+        let fresh = crate::core::mashup::templates::master_root();
+        let props: Map<String, Value> = root["Properties"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .filter(|(k, v)| {
+                !matches!(
+                    k.as_str(),
+                    "Id" | "Type" | "id_index" | "_currentParameterDefs"
+                ) && fresh.get(*k) != Some(*v)
+            })
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        if !props.is_empty() {
+            page.insert("props".into(), json!(props));
+        }
+    }
     page.insert("template".into(), json!("blank"));
     if exact && content["twacoPageRules"] != "v1" {
         page.insert("layout".into(), json!("as-built"));
@@ -730,6 +758,14 @@ impl<'a> Run<'a> {
         let type_id = kind(widget).to_string();
         let mut node = match type_id.as_str() {
             "flexcontainer" => self.container(widget, parent),
+            "ptcsmenubar" => {
+                let props = self.props(widget, &[]);
+                self.finish("menu_bar", widget, Map::new(), props)
+            }
+            "pagemashupcontainer" => {
+                let props = self.props(widget, &[]);
+                self.finish("page_host", widget, Map::new(), props)
+            }
             "ptcslabel" => self.label(widget),
             "expression2" => self.expression(widget),
             "navigationfunction" => self.navigation(widget),
@@ -826,7 +862,6 @@ impl<'a> Run<'a> {
             "ptcscollection" => "collection needs a static cell, nonempty row map and a supported data feed; dynamic entity and mashup selection remain raw",
             "mashupcontainer" => "embed needs a static mashup; dynamic Name bindings remain raw",
             "ptcsdynamicpanel" => "dynamic panels have two native panes and varied push/trigger controls; side_panel has a different structure",
-            "ptcsmenubar" => "native menu bars have primary/secondary Menu entities or infotable navigation and page-host selection; nav_menu builds button groups",
             "eventsrouter" => "router needs 1 to 20 typed native inputs; unsupported counts remain raw",
             "navigationfunction" => "navigation needs a static target and a single representable Navigate trigger; dynamic targets remain raw",
             "ptcschartschedule" => "schedule charts need nested resource intervals rather than flat numeric series",

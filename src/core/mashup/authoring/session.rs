@@ -73,6 +73,16 @@ impl Session {
         template: &str,
         theme: &str,
     ) -> Result<Self, AuthoringError> {
+        Self::new_kind(name, project, template, theme, false)
+    }
+
+    pub(crate) fn new_kind(
+        name: &str,
+        project: &str,
+        template: &str,
+        theme: &str,
+        master: bool,
+    ) -> Result<Self, AuthoringError> {
         crate::core::entity::key::EntityKey::new("Mashups", name)
             .map_err(|e| AuthoringError::Invalid(e.to_string()))?;
         let rules = mashup::layout::RuleSet::embedded(mashup::layout::Version::V1);
@@ -90,7 +100,7 @@ impl Session {
                 "menu templates need explicit menu configuration".into(),
             ));
         }
-        let mut document = super::new::new_document(&template, false, theme)?;
+        let mut document = super::new::new_document_shell(&template, master, theme, false)?;
         if template.name == "blank" {
             let context = mashup::layout::Context {
                 template: "blank",
@@ -113,7 +123,11 @@ impl Session {
         let entity = mashup::templates::entity_xml(
             name,
             project,
-            mashup::templates::MashupKind::Mashup,
+            if master {
+                mashup::templates::MashupKind::Master
+            } else {
+                mashup::templates::MashupKind::Mashup
+            },
             &[],
         )
         .map_err(|e| AuthoringError::Invalid(e.to_string()))?

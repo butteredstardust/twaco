@@ -502,7 +502,7 @@ The full listing follows.
       [--apply] [--json]
                               create a ThingWorx 10.2 responsive mashup as Composer would: its entity file
                               and its content sidecars; plan unless --apply
-      --spec <file>          compile a YAML page spec (wireframe), copy it to src/<Mashup>/page.yaml and record a generated baseline;
+      --spec <file>          compile a YAML page spec (page.kind: master creates a master with page_host), copy it to src/<Mashup>/page.yaml and record a generated baseline;
                               accepts only --project, --apply and --json
       --from <address>        copy a repository mashup exactly, except identity and permissions
       --rules <legacy|v1>     layout rules (default v1); legacy opts out of page scrolling and top-aligned filter fields
@@ -524,7 +524,7 @@ The full listing follows.
       [--apply] [--json]
                               create a ThingWorx 10.2 responsive mashup as Composer would: its entity file
                               and its content sidecars; plan unless --apply
-      --spec <file>          compile a YAML page spec (wireframe), copy it to src/<Mashup>/page.yaml and record a generated baseline;
+      --spec <file>          compile a YAML page spec (page.kind: master creates a master with page_host), copy it to src/<Mashup>/page.yaml and record a generated baseline;
                               accepts only --project, --apply and --json
       --from <address>        copy a repository mashup exactly, except identity and permissions
       --rules <legacy|v1>     layout rules (default v1); legacy opts out of page scrolling and top-aligned filter fields

@@ -824,6 +824,15 @@ pub(super) fn new_document(
     master: bool,
     theme: &str,
 ) -> Result<MashupDocument, AuthoringError> {
+    new_document_shell(template, master, theme, true)
+}
+
+pub(super) fn new_document_shell(
+    template: &mashup::templates::LayoutTemplate,
+    master: bool,
+    theme: &str,
+    page_host: bool,
+) -> Result<MashupDocument, AuthoringError> {
     let mut document =
         mashup::edit::parse(mashup::templates::BLANK).map_err(AuthoringError::Edit)?;
     let root = document.find("center").map_err(AuthoringError::Edit)?;
@@ -845,6 +854,8 @@ pub(super) fn new_document(
         root.insert("id_index".into(), index);
         *document.root_properties_mut() = root;
         document.set_top("mashupType", json!(MashupKind::Master.content_type()));
+    }
+    if master && page_host {
         // Pages open in the template's designated page container.
         let center = document
             .find(template.master_slot.as_deref().unwrap_or("center"))

@@ -640,3 +640,102 @@ fn component_collection_cells_plan_in_cli_and_apply_in_mcp() {
     assert_eq!(applied["files"], plan["files"]);
     assert!(files.iter().all(|p| root.join(p).exists()));
 }
+
+#[test]
+fn master_specs_create_and_rebuild_through_cli_and_mcp() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::fs::write(root.join("twaco.toml"), "[[project]]\nname = 'Acme'\n").unwrap();
+    let spec = "version: 1\nrules: v1\npage:\n  name: Acme.Master_MM\n  kind: master\n  template: blank\n  slots:\n    center:\n      - heading: {id: title, text: Acme}\n      - menu_bar: {id: menu}\n      - page_host: {id: host}\n";
+    std::fs::write(root.join("master.yaml"), spec).unwrap();
+    let planned = cli(
+        root,
+        &[
+            "new",
+            "mashup",
+            "Acme.Master_MM",
+            "--spec",
+            "master.yaml",
+            "--json",
+        ],
+    );
+    assert_eq!(planned["applied"], false);
+    assert!(!root.join("src").exists());
+    let created = mcp(
+        root,
+        "mashup_new",
+        serde_json::json!({"name":"Acme.Master_MM", "spec":"master.yaml", "dry_run":false}),
+    );
+    assert_eq!(created["applied"], true);
+    let path = root.join("src/Acme.Master_MM/mashup/content.json");
+    let bytes = std::fs::read(&path).unwrap();
+    let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(value["mashupType"], "targetmashup");
+    assert_eq!(
+        value["UI"]["Properties"]["Style"],
+        "DefaultMasterMashupStyle"
+    );
+    let derived = cli(root, &["mashup", "spec", "Acme.Master_MM", "--json"]);
+    assert_eq!(
+        derived,
+        mcp(
+            root,
+            "mashup_spec",
+            serde_json::json!({"mashup":"Acme.Master_MM"})
+        )
+    );
+    assert_eq!(derived["spec"], spec);
+    assert_eq!(derived["elements"], 3);
+    let plan = cli(root, &["mashup", "build", "Acme.Master_MM", "--json"]);
+    assert_eq!(plan["files"], serde_json::json!([]));
+    let built = mcp(
+        root,
+        "mashup_build",
+        serde_json::json!({"mashup":"Acme.Master_MM", "dry_run":false}),
+    );
+    assert_eq!(built["files"], serde_json::json!([]));
+    assert_eq!(std::fs::read(path).unwrap(), bytes);
+
+    let command = cli(
+        root,
+        &[
+            "new",
+            "mashup",
+            "Acme.Command_MM",
+            "--master",
+            "--apply",
+            "--json",
+        ],
+    );
+    let xml = root.join(
+        command["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|p| p.as_str())
+            .find(|p| p.ends_with(".xml"))
+            .unwrap(),
+    );
+    let before = std::fs::read(&xml).unwrap();
+    let derived = cli(
+        root,
+        &[
+            "mashup",
+            "spec",
+            "Acme.Command_MM",
+            "--out",
+            "src/Acme.Command_MM/page.yaml",
+            "--json",
+        ],
+    );
+    assert!(derived["spec"].as_str().unwrap().contains("kind: master"));
+    assert!(derived["spec"].as_str().unwrap().contains("page_host:"));
+    assert_eq!(derived["raw"], 0);
+    let adopted = mcp(
+        root,
+        "mashup_build",
+        serde_json::json!({"mashup":"Acme.Command_MM", "dry_run":false}),
+    );
+    assert_eq!(adopted["conflicts"], serde_json::json!([]));
+    assert_eq!(std::fs::read(xml).unwrap(), before);
+}

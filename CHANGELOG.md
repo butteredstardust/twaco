@@ -6,6 +6,11 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+- Page specs support master mashups through `page.kind: master`, native `page_host` and
+  `menu_bar` elements, and mashup-root `page.props`. Derive/adopt keeps IDs and existing bytes;
+  fresh builds preserve target mashup type and master-root properties using the command master
+  defaults. Ordinary pages still attach through `page.master`. Masters require one page host.
+
 - Page specs preserve service completion refresh chains, failure handlers and every source when
   several calls bind to one property. Events accept `<data>.done` / `.error` and `show` for a new
   `status_message` element; `page.bindings` adds explicit source/target pairs. Native `rich_text`
@@ -21,8 +26,7 @@ All notable changes to twaco are recorded here. The format follows
   JSON path with both values and the spec line; `mashup spec` notes itemise the bindings, events and
   properties it left out; derived specs always compile (numeric font sizes, contained mashups);
   `mashup build --json` reports spec errors as a JSON error object that names the spec file and the
-  key's line; a plan says it would write the baseline. Masters are refused by `mashup spec` and
-  `mashup build` for now.
+  key's line; a plan says it would write the baseline.
 - `mashup diff` (also MCP `mashup_diff`) pairs bindings and events by both endpoints, reports
   missing wiring with widget display names/types and service names, and looks through one extra
   container wrapper without cascading differences into its children. Wiring order is ignored;

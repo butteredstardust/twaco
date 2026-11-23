@@ -4685,3 +4685,6 @@ mod adopt;
 
 #[path = "wiring_tests.rs"]
 mod wiring;
+
+#[path = "master_tests.rs"]
+mod master_tests;

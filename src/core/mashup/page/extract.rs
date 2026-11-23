@@ -31,7 +31,7 @@ fn invalid(message: impl ToString) -> AuthoringError {
     AuthoringError::Invalid(message.to_string())
 }
 
-const ELEMENTS: [&str; 44] = [
+const ELEMENTS: [&str; 46] = [
     "component",
     "grid",
     "label",
@@ -76,6 +76,8 @@ const ELEMENTS: [&str; 44] = [
     "value_display",
     "embed",
     "events_router",
+    "page_host",
+    "menu_bar",
 ];
 
 /// Count the nodes of a spec file: element nodes and `widget` nodes, wherever they nest.
@@ -249,7 +251,11 @@ fn refine(
             };
             let (widget, key) = (parts[at - 1], parts[at + 1].to_string());
             let node = widgets.get(widget).copied();
-            let props = if widget == root {
+            let props = if widget == "UI" {
+                derived.value["page"]
+                    .as_object_mut()
+                    .map(|page| page.entry("props").or_insert_with(|| serde_json::json!({})))
+            } else if widget == root {
                 derived.value["page"].as_object_mut().and_then(|page| {
                     page.entry("root")
                         .or_insert_with(|| serde_json::json!({}))
@@ -306,11 +312,6 @@ pub fn extract(solution: &Solution, name: &str) -> Result<Extraction, AuthoringE
         .ok_or_else(|| invalid(format!("unknown mashup {name}")))?;
     let directory = solution.src_root().join(name);
     let value: Value = serde_json::from_str(&content).map_err(invalid)?;
-    if value["mashupType"] == "targetmashup" {
-        return Err(AuthoringError::Refused(format!(
-            "{name} is a master mashup; page specs do not cover masters yet, so there is no spec to derive"
-        )));
-    }
     let widgets = count_widgets(&value);
     if let Ok(spec) = std::fs::read_to_string(directory.join("page.yaml")) {
         let baseline = std::fs::read(directory.join(".page-baseline.json"))

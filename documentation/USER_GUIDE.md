@@ -2982,6 +2982,15 @@ src/Acme.Page_MU/page.yaml`, then `twaco mashup build Acme.Page_MU` plans no cha
 lists each JSON path with the mashup's and the spec's value and the spec line to change. See
 [Adopting an existing mashup](PAGE_SPECS.md#adopting-an-existing-mashup).
 
+Master specs set `page.kind: master` and place exactly one `page_host: {id: host}` in a slot.
+`twaco new mashup Acme.Master_MM --spec master.page.yaml --apply` creates a target mashup
+with the same master-root defaults as `--master`. Native `menu_bar` represents `ptcsmenubar`;
+its properties and bindings use `props`. `page.props` carries mashup-root properties such as
+`WindowStyle`, `Favicon` and `Font`; `page.root.props` addresses the root container.
+`mashup spec` derives masters and an untouched spec adopts them without changing existing bytes.
+Ordinary pages still use `page.master: Acme.Master_MM` and `page.use_master_theme: true`.
+See [Master mashups](PAGE_SPECS.md#master-mashups-and-page-hosts). Coverage is offline.
+
 Page-spec side columns use full-bleed kit structure with the gutter on the content area.
 Filters share a title row, reserved collapse-tab space, grey background and vertical divider.
 Trend values sit together below their caption. V1 charts use compact top legends, hide

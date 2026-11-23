@@ -35,9 +35,22 @@ Before restructuring an existing mashup, derive its page spec with
 Written to `src/Acme.Orders_MU/page.yaml`, that spec adopts the mashup: `mashup build` then plans
 no change (no extra container level, widget and wiring ids kept in the baseline, layout kept
 as built with `layout: as-built`, master kept with `master:`). A conflict lists each JSON path with
-both values and the spec line. Masters are refused for now.
+both values and the spec line. Masters use `kind: master` and a `page_host`.
 Use `mashup set` or recipes for small edits. `twaco mashup why Acme.Orders_MU tools`
 explains the layout decisions. The full element reference is documentation/PAGE_SPECS.md.
+
+## Master, target mashup, page host, page_host and menu_bar
+
+Set `page.kind: master` for a target mashup (`mashupType: targetmashup`), with exactly one
+`page_host: {id: host}` where ordinary pages render. `new mashup --spec` uses the same root
+as `new mashup --master`, including `DefaultMasterMashupStyle`, `WindowStyle`, `Favicon` and
+`Font`. `page.props` carries mashup-root properties; `page.root.props` sets the template's root
+container. Native `menu_bar` uses `ptcsmenubar` properties and bindings through `props`.
+Derive recognises the host, menu and header elements. Untouched derived masters adopt with
+no existing XML or sidecar changes and keep widget and wiring IDs in the baseline.
+An ordinary page still attaches through `page.master: Acme.Master_MM` and
+`page.use_master_theme: true`. A missing or duplicate host is refused with a repair instruction.
+These contracts are tested offline, with no new live-server claim.
 
 ## Refresh, chain, status message, rich text and rte
 
@@ -92,7 +105,7 @@ layout through `source: {bind: rows}`, mashup and map. Tabs recognise Items labe
 recognise native layouts. Charts add pareto/waterfall; pie recognises DataField/ValueField;
 combo uses explicit series. Schedule needs nested resource intervals and stays raw. The kits'
 typed fan-in routers use `events_router`, `data_type`, `routes` bindings and Output. Dynamic
-panels, menu bars, decorative shapes and map extensions retain explicit raw contracts;
+panels, decorative shapes and map extensions retain explicit raw contracts;
 derivation notes explain unsupported dynamic sources or targets. Evidence is offline.
 
 ## Full-bleed side columns, nav_menu selection, cell image/status and clean cards
