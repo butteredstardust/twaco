@@ -19,8 +19,19 @@ pub(crate) fn uuid(role: &str) -> String {
     uuid::Uuid::from_bytes(bytes).to_string()
 }
 
+/// Widget and wiring ids that override the hashed ones, kept in the baseline: an adopted mashup
+/// keeps the ids of the widgets it already has.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub(crate) struct Pins {
+    /// `(node, role, id)` as the allocator named them.
+    pub(crate) widgets: Vec<(String, String, String)>,
+    /// A generated binding or event id to the id the mashup already has.
+    pub(crate) wiring: std::collections::BTreeMap<String, String>,
+}
+
 pub(crate) struct Ids {
     used: BTreeSet<u64>,
+    allocated: Vec<(String, String, String)>,
 }
 
 impl Ids {
@@ -29,7 +40,12 @@ impl Ids {
             used: reserved
                 .filter_map(|id| id.rsplit('-').next()?.parse().ok())
                 .collect(),
+            allocated: Vec::new(),
         }
+    }
+    /// What `widget` handed out, as `(node, role, id)`.
+    pub(crate) fn allocated(&self) -> &[(String, String, String)] {
+        &self.allocated
     }
     pub(crate) fn widget(&mut self, kind: &str, node: &str, role: &str) -> Result<String, String> {
         let digest = hash(node, role);
@@ -37,7 +53,9 @@ impl Ids {
         let number = 1000
             + u64::from(u32::from_be_bytes(digest[..4].try_into().expect("4 bytes"))) % 999_000;
         self.reserve(number)?;
-        Ok(format!("{kind}-{number}"))
+        let id = format!("{kind}-{number}");
+        self.allocated.push((node.into(), role.into(), id.clone()));
+        Ok(id)
     }
     fn reserve(&mut self, number: u64) -> Result<(), String> {
         if number == 0 || !self.used.insert(number) {

@@ -2955,6 +2955,12 @@ custom CSS, bindings a spec cannot express). Build the result to review a plan b
 it. MCP `mashup_spec` returns the same report. See [Page specs](PAGE_SPECS.md#deriving-a-spec)
 for the mapping and its limits.
 
+Building the derived spec adopts the mashup: `twaco mashup spec Acme.Page_MU --out
+src/Acme.Page_MU/page.yaml`, then `twaco mashup build Acme.Page_MU` plans no change, and
+`--apply` records the baseline (which keeps every widget id). If something still differs the plan
+lists each JSON path with the mashup's and the spec's value and the spec line to change. See
+[Adopting an existing mashup](PAGE_SPECS.md#adopting-an-existing-mashup).
+
 Page-spec side columns use full-bleed kit structure with the gutter on the content area.
 Filters share a title row, reserved collapse-tab space, grey background and vertical divider.
 Trend values sit together below their caption. V1 charts use compact top legends, hide

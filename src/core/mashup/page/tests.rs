@@ -4679,3 +4679,6 @@ mod native;
 
 #[path = "kit_fidelity_tests.rs"]
 mod kit_fidelity;
+
+#[path = "adopt_tests.rs"]
+mod adopt;

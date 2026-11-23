@@ -55,6 +55,17 @@ addressed by its declaration name, a result field by `alerts.Name`, and selected
 References need no `ui:` or `data:` prefixes. Unknown fields, repeated YAML keys, duplicate node
 IDs, unresolved symbols and contract errors report `page.yaml:line:column`.
 
+Page keys beyond the above: `master: Acme.Master_MM` and `use_master_theme: true` set the mashup's
+master; `root: {props: {...}}` sets properties of the template's root container (a `null` removes
+one); `layout: as-built` keeps the v1 layout rules off a page that adopts an existing mashup (see
+[Adopting an existing mashup](#adopting-an-existing-mashup)).
+
+Parameters are `name: TYPE`, `name: TYPE:DIRECTION` (`BOTH`, `IN`, `OUT`), or
+`name: INFOTABLE:Acme.Shape_DS[:DIRECTION]`; with no direction a parameter is an input. A data entry
+that loads with the page and also refreshes says `on: load, refresh: 5` (seconds); an expression's
+widget takes `props` for what its own fields do not cover. A tab may carry `props` for its own
+container. A bound property can read a widget's selected rows: `{bind: orders.SelectedRows.Name}`.
+
 The spec rule version is required and pinned to `v1`. Ordinary `mashup new` commands
 also default to v1; pass `--rules legacy` (MCP `rules: "legacy"`) to opt out. Existing
 mashups retain their `twacoPageRules` during add, set and recipe edits; no marker means legacy.
@@ -347,7 +358,8 @@ there is no force option. Conflicts write no artifacts or baseline.
 
 An existing mashup without a baseline can adopt a spec only when all generated values already
 match current values (extra unmanaged widgets/properties are allowed). Otherwise reconcile the
-spec and mashup first. If XML and sidecars disagree, explicitly run `twaco sync` to keep the
+spec and mashup first; see [Adopting an existing mashup](#adopting-an-existing-mashup) for how
+a derived spec does this. If XML and sidecars disagree, explicitly run `twaco sync` to keep the
 sidecars or `twaco extract` to keep XML before building.
 
 Apply takes the workspace lock, reloads and validates, and uses one journaled transaction for
@@ -744,8 +756,7 @@ one into a widget property a `props` entry with `{bind: ...}`, a service feeding
 element's `data`, and every other trigger an `events` entry. Node ids are the widget ids with
 anything but letters, digits, `_` and `-` replaced.
 
-Not carried: widget styles, custom CSS, state formatting snapshots, properties the widget
-catalogue does not know, bindings and events outside the supported function contracts and data that is not a Thing service. The report's `notes` list what applied.
+Not carried: widget styles, custom CSS, state formatting snapshots, bindings and events outside the supported function contracts and data that is not a Thing service. Properties the catalogue does not list are carried as props on a page that is derived to be adopted, and listed in `notes` otherwise. The report's `notes` list what applied.
 Pagination derives as `pagination` with `mode: server`, preserving its existing wiring without
 adding slicing expressions. Native expressions become typed `data` entries. Widgets without an element (decorative shapes, extension maps, dynamic navigation or embed targets, two-pane dynamic panels, native menu bars) stay as raw `widget:` nodes with a note.
 Build the derived spec to review a plan: its widget tree matches the
@@ -790,6 +801,55 @@ which the `pagination` element would duplicate.
 | Q3 | 57 | 49 | 7 (expression2 4, chart pie 1, grid 1, pagination 1) | 24571 |
 | Q4 | 50 | 45 | 4 (expression2 4) | 13595 |
 | S | 85 | 84 | 0 | 18513 |
+
+## Adopting an existing mashup
+
+`mashup spec` on a mashup that no spec built, then `mashup build` on the untouched `page.yaml`,
+adopts it without changing a byte of it: the plan has no conflicts, no widget is renamed and none
+moves. Four things make that so.
+
+- **The page root is the template's root.** The mashup's root container maps onto the template's
+  (`page.root.props`), and its children are the `center` slot, so the build adds no level. Other
+  widgets beside the root container (functions, status messages) follow in the slot.
+- **`layout: as-built`** on a page whose mashup carries no v1 marker (`twacoPageRules`) keeps the
+  v1 layout rules off it: widgets go into their containers as the spec lists them, with no wrapper
+  rows and no fix-up pass, and nothing is added that the mashup lacks. Derived nodes are rows,
+  columns, leaf elements and `widget:` nodes; composites such as `card` or `filter_panel` are not
+  guessed at. Properties the spec states always win over a rule; `props: {Name: null}` removes a
+  property the mashup does not have.
+- **Properties are carried.** A derived node lists what the mashup has that building it would not
+  produce by itself: `CustomClass`, `Margin` (the root's `""` stays `""`), `flex-wrap`,
+  `flex-size`, `flex-min-*`/`flex-max-*`, `align-items`, `ShowVerticalScrollbar`, `DisplayName`,
+  and properties the catalogue does not list (`RowHeight`, `MinValue`/`MaxValue`, `TabNSVGIcon`,
+  `ToolbarMaxRows`, `Scrolling`) as props. The tool builds the spec offline and adds a prop for
+  every difference it finds, then builds again. A number the platform accepts for a pixel option
+  (`DefaultFontSize: 14`) is read as the option `"14px"` and kept as the number. A contained
+  mashup is `embed`. `page.master` and `page.use_master_theme` keep the mashup's master. A master
+  (`mashupType: targetmashup`) is refused by `mashup spec` and `mashup build`: that is a later
+  batch.
+- **Ids are kept.** At the first build the generated widgets are lined up with the mashup's by
+  type and position, and the baseline records which `(node, role)` keeps which id
+  (`pinned_widgets`), plus the ids of data sections, service calls, bindings and events
+  (`pinned_wiring`). Every later build reapplies them, so `custom.css` selectors and external
+  references stay valid. Nodes added later get stable hashed ids as usual. Bindings and events
+  differ in no way a build would notice, so their order is not compared, and neither are
+  `id_index`, twaco's own markers or the static value of a property a binding writes.
+
+When a first build still conflicts, each difference is listed (also in `--json`) with its JSON
+path, the mashup's value, the spec's value and the spec line responsible, the property's own line
+when the node states it:
+
+```text
+Acme.Hand_MU: /UI/Widgets/flexcontainer-3/Properties/CustomClass: the mashup has "acme-title",
+the spec generates "other-title"; change src/Acme.Hand_MU/page.yaml:14 (props.CustomClass) or
+resolve the hand edit
+```
+
+`mashup spec` lists in `notes` each binding or event it could not write (`source -> target`) and
+each property it left out (`widget property`). Compile errors from `mashup build` and
+`mashup new --spec` point at the offending key's line and name the spec file that was read;
+with `--json` they are `{"error": {"file", "line", "column", "message"}}`. A plan says
+`files_state: "would write"`; the same report after `--apply` says `written`.
 
 ## Tokens and themes
 

@@ -89,6 +89,64 @@ fn cli_new_spec_and_build_plan_apply_and_conflict() {
     assert_eq!(std::fs::read(&content).unwrap(), before);
 }
 
+#[test]
+fn build_and_new_report_spec_errors_as_json_objects_naming_the_file_and_key_line() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::fs::write(
+        root.join("twaco.toml"),
+        "[[project]]
+name = 'Acme'
+",
+    )
+    .unwrap();
+    let spec = "version: 1
+rules: v1
+page:
+  name: Acme.Page_MU
+  template: blank
+  slots:
+    center:
+      - label:
+          id: title
+          text: Acme
+          props: {NoSuchProperty: 1}
+";
+    std::fs::write(root.join("Other.page.yaml"), spec).unwrap();
+    let run = |args: &[&str]| {
+        let output = Command::new(env!("CARGO_BIN_EXE_twaco"))
+            .current_dir(root)
+            .env_clear()
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(!output.status.success(), "{args:?}");
+        serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap_or_else(|e| {
+            panic!("{args:?}: {e}: {}", String::from_utf8_lossy(&output.stdout))
+        })
+    };
+    let error = run(&[
+        "mashup",
+        "new",
+        "Acme.Page_MU",
+        "--spec",
+        "Other.page.yaml",
+        "--json",
+    ]);
+    let found = &error["error"];
+    assert!(
+        found["file"].as_str().unwrap().ends_with("Other.page.yaml"),
+        "{error}"
+    );
+    assert_eq!(found["line"], 11, "{error}");
+    assert!(found["column"].as_u64().unwrap() > 0);
+    assert!(found["message"]
+        .as_str()
+        .unwrap()
+        .contains("NoSuchProperty"));
+    assert!(!root.join("src").exists());
+}
+
 fn copy_fixture(source: &std::path::Path, target: &std::path::Path) {
     std::fs::create_dir_all(target).unwrap();
     for entry in std::fs::read_dir(source).unwrap() {

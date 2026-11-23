@@ -22,6 +22,15 @@ pub(crate) struct Page {
     pub(crate) template: Spanned<String>,
     pub(crate) title: Option<Spanned<String>>,
     pub(crate) theme: Option<Spanned<String>>,
+    /// The master mashup this page is shown in, and whether it takes the master's theme.
+    pub(crate) master: Option<Spanned<String>>,
+    pub(crate) use_master_theme: Option<Spanned<bool>>,
+    /// Properties of the template's root container, for a page that is not the template's default
+    /// look, such as one adopted from a mashup built by hand.
+    pub(crate) root: Option<Spanned<Root>>,
+    /// `as-built` keeps the page out of the v1 layout rules: a mashup made by hand or by the
+    /// commands keeps the geometry its spec states, and nothing is added to it.
+    pub(crate) layout: Option<Spanned<String>>,
     /// Input parameters (name to base type) of a page that is shown inside another, such as a
     /// collection cell; bind to one with `{bind: param.<name>}`.
     #[serde(default)]
@@ -38,6 +47,13 @@ pub(crate) struct Page {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct Root {
+    #[serde(default)]
+    pub(crate) props: BTreeMap<String, Spanned<Value>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct Source {
     pub(crate) service: Option<Spanned<String>>,
     pub(crate) expression: Option<Spanned<String>>,
@@ -48,8 +64,13 @@ pub(crate) struct Source {
     pub(crate) fire_on_first_value: Option<bool>,
     pub(crate) data_change: Option<Spanned<String>>,
     pub(crate) on: Option<Spanned<String>>,
+    /// Seconds between refreshes of a call that also loads with the page (`on: load`).
+    pub(crate) refresh: Option<Spanned<u32>>,
     #[serde(default)]
     pub(crate) params: BTreeMap<String, Spanned<Value>>,
+    /// Properties of an expression's widget that the spec's own fields do not cover.
+    #[serde(default)]
+    pub(crate) props: BTreeMap<String, Spanned<Value>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -579,6 +600,9 @@ pub(crate) struct Tab {
     pub(crate) label: Spanned<String>,
     pub(crate) mashup: Option<Spanned<String>>,
     pub(crate) content: Option<Vec<Node>>,
+    /// Properties of the tab's own container.
+    #[serde(default)]
+    pub(crate) props: BTreeMap<String, Spanned<Value>>,
 }
 
 #[derive(Debug, Deserialize)]

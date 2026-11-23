@@ -8471,6 +8471,7 @@
         "nodes",
         "hand_edits_kept",
         "conflicts",
+        "files_state",
         "files",
         "cells",
         "cell_notices"
@@ -8496,8 +8497,13 @@
           }
         },
         "conflicts": {
+          "description": "Each conflict has `path`, `file`, `line` and `message`, and the mashup's `current` and the\nspec's `generated` value where there are both.",
           "type": "array",
           "items": true
+        },
+        "files_state": {
+          "description": "`would write` while planning, `written` once applied.",
+          "type": "string"
         },
         "files": {
           "type": "array",

@@ -1,4 +1,4 @@
-use super::{baseline::Baseline, compile, derive};
+use super::{align, baseline::Baseline, compile, derive};
 use crate::core::{
     config::Solution,
     mashup::authoring::{self, AuthoringError},
@@ -182,6 +182,116 @@ fn hand_edits(current: &Value, baseline: &Baseline) -> Vec<String> {
     out
 }
 
+/// The spec node with this id.
+fn node_mut<'a>(value: &'a mut Value, id: &str) -> Option<&'a mut serde_json::Map<String, Value>> {
+    match value {
+        Value::Object(map) => {
+            if map.len() == 1
+                && map
+                    .values()
+                    .next()
+                    .is_some_and(|body| body.get("id").and_then(Value::as_str) == Some(id))
+            {
+                return map.values_mut().next().and_then(Value::as_object_mut);
+            }
+            map.values_mut().find_map(|v| node_mut(v, id))
+        }
+        Value::Array(items) => items.iter_mut().find_map(|v| node_mut(v, id)),
+        _ => None,
+    }
+}
+
+/// Build the derived spec offline and state, as props, what the mashup has that the build does not
+/// reproduce, so adopting the spec changes nothing. Returns the content the spec last built.
+fn refine(
+    solution: &Solution,
+    project: &str,
+    directory: &std::path::Path,
+    current: &Value,
+    derived: &mut derive::Derived,
+) -> Option<Value> {
+    let root = derive::root_id();
+    let mut last = None;
+    // Which widgets and wiring keep their ids is settled by the first build; properties added
+    // after that change neither.
+    let mut pins = None;
+    for _ in 0..4 {
+        let text = derive::render(&derived.value);
+        let made = match &pins {
+            Some(pins) => {
+                compile::compile_pinned(solution, project, &text, directory, pins).ok()?
+            }
+            None => {
+                let first = compile::compile_at(solution, project, &text, directory).ok()?;
+                let made = align::adopt(solution, project, &text, directory, current, &first)
+                    .unwrap_or(first);
+                pins = Some(made.pins.clone());
+                made
+            }
+        };
+        let content: Value = serde_json::from_str(&made.content).ok()?;
+        let widgets: BTreeMap<&str, &str> = made
+            .ids
+            .iter()
+            .map(|(node, widget)| (widget.as_str(), node.as_str()))
+            .collect();
+        let mut changed = false;
+        for difference in align::remaining(current, &content) {
+            // A property the mashup lacks is stated as null, which removes it.
+            let value = difference.current.unwrap_or(Value::Null);
+            let parts: Vec<&str> = difference.path.split('/').collect();
+            let Some(at) = parts
+                .iter()
+                .rposition(|part| *part == "Properties")
+                .filter(|at| *at >= 1 && parts.len() == at + 2)
+            else {
+                continue;
+            };
+            let (widget, key) = (parts[at - 1], parts[at + 1].to_string());
+            let node = widgets.get(widget).copied();
+            let props = if widget == root {
+                derived.value["page"].as_object_mut().and_then(|page| {
+                    page.entry("root")
+                        .or_insert_with(|| serde_json::json!({}))
+                        .as_object_mut()
+                        .map(|root| root.entry("props").or_insert_with(|| serde_json::json!({})))
+                })
+            } else if let Some(alias) = node.and_then(|n| n.strip_prefix("$data:")) {
+                // An expression's widget: its props are the data entry's.
+                derived.value["page"]["data"][alias]
+                    .as_object_mut()
+                    .map(|entry| {
+                        entry
+                            .entry("props")
+                            .or_insert_with(|| serde_json::json!({}))
+                    })
+            } else if let Some((tabs, label)) = node.and_then(|n| n.split_once("--tab-")) {
+                node_mut(&mut derived.value, tabs)
+                    .and_then(|body| body["tabs"].as_array_mut())
+                    .and_then(|tabs| tabs.iter_mut().find(|t| t["label"] == label))
+                    .map(|tab| tab.as_object_mut())
+                    .and_then(|tab| tab)
+                    .map(|tab| tab.entry("props").or_insert_with(|| serde_json::json!({})))
+            } else {
+                node.and_then(|node| node_mut(&mut derived.value, node))
+                    .map(|body| body.entry("props").or_insert_with(|| serde_json::json!({})))
+            };
+            if let Some(map) = props.and_then(Value::as_object_mut) {
+                if map.get(&key) != Some(&value) {
+                    map.insert(key, value);
+                    changed = true;
+                }
+            }
+        }
+        last = Some(content);
+        if !changed {
+            break;
+        }
+    }
+    derived.spec = derive::render(&derived.value);
+    last
+}
+
 /// Derive a spec offline. A mashup built from a page.yaml returns that file when it still matches
 /// its baseline, and also when it does not, with the hand-edited widgets named; other mashups get
 /// a spec derived from their widgets and wiring.
@@ -196,6 +306,11 @@ pub fn extract(solution: &Solution, name: &str) -> Result<Extraction, AuthoringE
         .ok_or_else(|| invalid(format!("unknown mashup {name}")))?;
     let directory = solution.src_root().join(name);
     let value: Value = serde_json::from_str(&content).map_err(invalid)?;
+    if value["mashupType"] == "targetmashup" {
+        return Err(AuthoringError::Refused(format!(
+            "{name} is a master mashup; page specs do not cover masters yet, so there is no spec to derive"
+        )));
+    }
     let widgets = count_widgets(&value);
     if let Ok(spec) = std::fs::read_to_string(directory.join("page.yaml")) {
         let baseline = std::fs::read(directory.join(".page-baseline.json"))
@@ -233,10 +348,11 @@ pub fn extract(solution: &Solution, name: &str) -> Result<Extraction, AuthoringE
                 .and_then(Value::as_str)
                 .map(str::to_string)
         });
+    let adopting = tokens.is_none() && value["twacoPageRules"] != "v1";
     let mut derived = if tokens.is_some() {
         derive::derive_with_styles(name, &content, true)
     } else {
-        derive::derive(name, &content)
+        derive::derive_exact(name, &content)
     }
     .map_err(invalid)?;
     if let Some(tokens) = tokens {
@@ -249,7 +365,23 @@ pub fn extract(solution: &Solution, name: &str) -> Result<Extraction, AuthoringE
             1,
         );
     }
+    let refined = if adopting {
+        refine(solution, &project, &directory, &value, &mut derived)
+    } else {
+        None
+    };
     let mut notes = derived.notes;
+    if let Some(content) = refined {
+        // The compiled page is the truth about what the spec writes: say what it does not.
+        notes.retain(|n| !n.contains("bindings or events could not be written"));
+        notes.extend(align::lost_wiring(&value, &content));
+        let left = align::remaining(&value, &content).len();
+        if left > 0 {
+            notes.push(format!(
+                "{left} differences remain between the mashup and the page this spec builds; mashup build lists each"
+            ));
+        }
+    }
     if !css.trim().is_empty() {
         notes.push("custom CSS of the mashup is not part of a spec".into());
     }

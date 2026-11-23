@@ -3155,7 +3155,15 @@ fn page_build(
     let report = match result {
         Ok(report) => report,
         Err(error) => {
-            eprintln!("{} {error}", style::prefix());
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&mashup::page::error_object(&error.to_string()))
+                        .expect("error object")
+                );
+            } else {
+                eprintln!("{} {error}", style::prefix());
+            }
             return FAILED;
         }
     };
@@ -3192,6 +3200,12 @@ fn page_build(
         }
         for conflict in conflicts {
             println!("  {}", conflict["message"].as_str().unwrap_or_default());
+        }
+        if !apply {
+            let files = report["files"].as_array().map_or(0, Vec::len);
+            if files > 0 {
+                println!("would write {files} files (nothing is written until --apply)");
+            }
         }
         if !apply && conflicts.is_empty() {
             println!("run again with --apply to write it");

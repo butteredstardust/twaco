@@ -32,6 +32,10 @@ with the XML and sidecars. Independent hand edits survive; conflicts write nothi
 
 Before restructuring an existing mashup, derive its page spec with
 `twaco mashup spec Acme.Orders_MU --out derived.page.yaml`; review reported coverage.
+Written to `src/Acme.Orders_MU/page.yaml`, that spec adopts the mashup: `mashup build` then plans
+no change (no extra container level, widget and wiring ids kept in the baseline, layout kept
+as built with `layout: as-built`, master kept with `master:`). A conflict lists each JSON path with
+both values and the spec line. Masters are refused for now.
 Use `mashup set` or recipes for small edits. `twaco mashup why Acme.Orders_MU tools`
 explains the layout decisions. The full element reference is documentation/PAGE_SPECS.md.
 

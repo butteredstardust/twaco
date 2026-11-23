@@ -13,6 +13,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 #[derive(Debug)]
 pub(crate) struct Derived {
     pub(crate) spec: String,
+    /// The spec before it was written out, for what refines it.
+    pub(crate) value: Value,
     pub(crate) elements: usize,
     pub(crate) raw: usize,
     pub(crate) raw_types: BTreeMap<String, usize>,
@@ -20,6 +22,7 @@ pub(crate) struct Derived {
     pub(crate) notes: Vec<String>,
 }
 
+#[cfg(test)]
 pub(crate) fn derive(name: &str, content: &str) -> Result<Derived, Error> {
     derive_with_styles(name, content, false)
 }
@@ -29,27 +32,78 @@ pub(crate) fn derive_with_styles(
     content: &str,
     carry_styles: bool,
 ) -> Result<Derived, Error> {
+    derive_as(name, content, carry_styles, false)
+}
+
+/// A spec to adopt a mashup with: nothing is recognised as a composite element, and the
+/// geometry is stated as the mashup has it, so building the spec reproduces the mashup. A mashup
+/// that twaco built with the v1 rules (it carries their marker) is derived as before: its
+/// composites are what the recipes made.
+pub(crate) fn derive_exact(name: &str, content: &str) -> Result<Derived, Error> {
+    derive_as(name, content, false, true)
+}
+
+fn derive_as(name: &str, content: &str, carry_styles: bool, exact: bool) -> Result<Derived, Error> {
     let content: Value =
         serde_json::from_str(content).map_err(|e| Error::at(Location::UNKNOWN, e))?;
+    let exact = exact && content["twacoPageRules"] != "v1";
     let root = content
         .get("UI")
         .ok_or_else(|| Error::at(Location::UNKNOWN, "mashup needs UI"))?;
     let mut run = Run::new(&content);
     run.carry_styles = carry_styles;
+    run.exact = exact;
     let parameters = run.parameters(&root["Properties"]);
-    let slot: Vec<Value> = widgets_of(root)
-        .iter()
-        .map(|w| run.node(w, "column"))
-        .collect();
+    let fresh = fresh_root();
+    // The template's own root container stands for the mashup's: its properties become the page's
+    // `root` and its children the slot, so an adopted page gains no extra level.
+    let template_root = widgets_of(root).first().filter(|w| {
+        is_container(w) && prop(w, "Id").as_str() == fresh.get("Id").and_then(Value::as_str)
+    });
+    let (slot, page_root): (Vec<Value>, Option<Map<String, Value>>) = match template_root {
+        Some(first) => {
+            let direction = if prop(first, "flex-direction") == "column" {
+                "column"
+            } else {
+                "row"
+            };
+            let page_root = run.root_props(first, &fresh);
+            let mut slot: Vec<Value> = widgets_of(first)
+                .iter()
+                .map(|w| run.node(w, direction))
+                .collect();
+            slot.extend(widgets_of(root)[1..].iter().map(|w| run.node(w, "column")));
+            (slot, Some(page_root))
+        }
+        None => (
+            widgets_of(root)
+                .iter()
+                .map(|w| run.node(w, "column"))
+                .collect(),
+            None,
+        ),
+    };
     let mut page = Map::new();
     page.insert("name".into(), json!(name));
     page.insert("template".into(), json!("blank"));
+    if exact && content["twacoPageRules"] != "v1" {
+        page.insert("layout".into(), json!("as-built"));
+    }
     let props = &root["Properties"];
     if let Some(theme) = props["StyleTheme"]
         .as_str()
         .filter(|t| !t.is_empty() && *t != "PTC Convergence Theme")
     {
         page.insert("theme".into(), json!(theme));
+    }
+    if let Some(master) = props["Master"].as_str().filter(|m| !m.is_empty()) {
+        page.insert("master".into(), json!(master));
+    }
+    if props["UseMasterTheme"] == json!(true) {
+        page.insert("use_master_theme".into(), json!(true));
+    }
+    if let Some(page_root) = page_root.filter(|p| !p.is_empty()) {
+        page.insert("root".into(), json!({"props": page_root}));
     }
     if !parameters.is_empty() {
         page.insert("parameters".into(), Value::Object(parameters));
@@ -71,16 +125,44 @@ pub(crate) fn derive_with_styles(
         "styles, custom CSS and unsupported wiring are not carried; the build supplies the look"
             .into()
     });
-    let mut text = String::new();
-    block(&spec, 0, &mut text);
+    let text = render(&spec);
     Ok(Derived {
         spec: text,
+        value: spec,
         elements: run.elements,
         raw: run.raw,
         raw_types: run.raw_types,
         widgets: run.widgets,
         notes: run.notes,
     })
+}
+
+/// The properties of the container a fresh page starts with, which a page spec's `root` overrides.
+fn fresh_root() -> Map<String, Value> {
+    let session = crate::core::mashup::authoring::session::Session::new(
+        "Acme.Probe_MU",
+        "Acme",
+        "blank",
+        "PTC Convergence Theme",
+    )
+    .expect("blank template");
+    let path = session.document.find("center").expect("center slot").path;
+    session.document.at(&path)["Properties"]
+        .as_object()
+        .cloned()
+        .unwrap_or_default()
+}
+
+/// The id of the root container every page starts with.
+pub(super) fn root_id() -> String {
+    fresh_root()["Id"].as_str().unwrap_or_default().to_string()
+}
+
+/// A spec as the YAML a person reads.
+pub(super) fn render(spec: &Value) -> String {
+    let mut text = String::new();
+    block(spec, 0, &mut text);
+    text
 }
 
 fn widgets_of(widget: &Value) -> &[Value] {
@@ -132,6 +214,19 @@ fn same(a: &Value, b: &Value) -> bool {
         || (a.is_string() || a.is_number() || a.is_boolean())
             && (b.is_string() || b.is_number() || b.is_boolean())
             && a.to_string().trim_matches('"') == b.to_string().trim_matches('"')
+}
+
+/// Whether a display name is the one placement gives a widget: a word and the id's number.
+fn generated_name(widget: &Value, name: &Value) -> bool {
+    let number = prop(widget, "Id")
+        .as_str()
+        .and_then(|id| id.rsplit('-').next())
+        .unwrap_or("");
+    name.as_str().is_some_and(|name| {
+        name.rsplit_once('-').is_some_and(|(stem, n)| {
+            n == number && stem.chars().all(|c| c.is_ascii_alphabetic() || c == '-')
+        })
+    })
 }
 
 fn noise(key: &str) -> bool {
@@ -246,10 +341,14 @@ struct Link {
     source: (String, String, String),
     target: (String, String, String, String),
     consumed: bool,
+    /// Reads the rows a widget selected rather than the whole result.
+    selected: bool,
 }
 
 struct Run<'a> {
     carry_styles: bool,
+    /// The mashup was not laid out by the v1 rules, so the spec states its geometry as it is.
+    exact: bool,
     content: &'a Value,
     calls: Vec<Call>,
     expressions: Map<String, Value>,
@@ -265,13 +364,14 @@ struct Run<'a> {
     widgets: usize,
     notes: Vec<String>,
     dropped: usize,
-    unknown: BTreeSet<String>,
+    unknown: BTreeSet<(String, String)>,
 }
 
 impl<'a> Run<'a> {
     fn new(content: &'a Value) -> Self {
         let mut run = Self {
             carry_styles: false,
+            exact: false,
             content,
             calls: vec![],
             expressions: Map::new(),
@@ -352,6 +452,7 @@ impl<'a> Run<'a> {
                         prop("TargetProperty"),
                     ),
                     consumed: false,
+                    selected: binding["SourceDetails"] == "SelectedRows",
                 });
                 let last = run.links.last_mut().expect("link");
                 let field = prop("SourceProperty");
@@ -404,7 +505,20 @@ impl<'a> Run<'a> {
                 definition["ParameterName"].as_str(),
                 definition["BaseType"].as_str(),
             ) {
-                out.insert(name.into(), json!(base));
+                let mut text = base.to_string();
+                if self.exact {
+                    // What the mashup declares beyond the type: its data shape and direction.
+                    if let Some(shape) = definition["Aspects"]["dataShape"].as_str() {
+                        text.push_str(&format!(":{shape}"));
+                    }
+                    match definition["Aspects"]["bindingDirection"].as_str() {
+                        Some(direction) if direction != "IN" => {
+                            text.push_str(&format!(":{direction}"));
+                        }
+                        _ => {}
+                    }
+                }
+                out.insert(name.into(), json!(text));
                 self.parameters.insert(name.into());
             }
         }
@@ -421,10 +535,11 @@ impl<'a> Run<'a> {
                     .calls
                     .iter()
                     .find(|c| c.section == section && c.name == *id)?;
-                Some(if field.is_empty() {
-                    call.alias.clone()
-                } else {
-                    format!("{}.{field}", call.alias)
+                Some(match (field.is_empty(), link.selected) {
+                    (true, false) => call.alias.clone(),
+                    (false, false) => format!("{}.{field}", call.alias),
+                    (true, true) => format!("{}.SelectedRows", call.alias),
+                    (false, true) => format!("{}.SelectedRows.{field}", call.alias),
                 })
             }
             "UI" if self.expression_names.contains_key(id) && !field.is_empty() => {
@@ -449,6 +564,7 @@ impl<'a> Run<'a> {
                 && l.target.1 == id
                 && l.target.3 == "Data"
                 && l.source.0 == "Data"
+                && !l.selected
         })?;
         let alias = self.source(&self.links[found])?;
         self.links[found].consumed = true;
@@ -487,7 +603,11 @@ impl<'a> Run<'a> {
         }
         let mut out = Map::new();
         for (key, value) in widget["Properties"].as_object().into_iter().flatten() {
-            if noise(key)
+            if self.exact && key == "DisplayName" && !generated_name(widget, value) {
+                out.insert(key.clone(), value.clone());
+                continue;
+            }
+            if (noise(key) && !(self.exact && key == "flex-size"))
                 || skip.contains(&key.as_str())
                 || skip
                     .iter()
@@ -498,8 +618,15 @@ impl<'a> Run<'a> {
             if base.get(key).is_some_and(|d| same(d, value)) {
                 continue;
             }
-            if !known_property(widget, key) {
-                self.unknown.insert(key.clone());
+            if key == "MashupParameters" {
+                // Managed by the contained mashup; `embed` writes it.
+                continue;
+            }
+            if !known_property(widget, key) && !self.exact {
+                self.unknown.insert((
+                    prop(widget, "Id").as_str().unwrap_or("").into(),
+                    key.clone(),
+                ));
                 continue;
             }
             if value.get("StateFormats").is_some() {
@@ -531,6 +658,39 @@ impl<'a> Run<'a> {
             }
         }
         out
+    }
+
+    /// What the page's root container has that a fresh page's does not, as the spec's `root.props`.
+    fn root_props(&mut self, widget: &Value, fresh: &Map<String, Value>) -> Map<String, Value> {
+        let mut out = Map::new();
+        let mut seen = vec![];
+        for (key, value) in widget["Properties"].as_object().into_iter().flatten() {
+            seen.push(key.as_str());
+            let fixed = noise(key) && !matches!(key.as_str(), "DisplayName" | "flex-size");
+            if fixed || fresh.get(key).is_some_and(|f| same(f, value)) {
+                continue;
+            }
+            if fresh.get(key).is_none()
+                && self
+                    .default_for(widget, key)
+                    .is_some_and(|d| same(&d, value))
+            {
+                continue;
+            }
+            out.insert(key.clone(), value.clone());
+        }
+        out.extend(self.props(widget, &seen));
+        out
+    }
+
+    /// The catalogue's value of a property for the widget's type, if it has one.
+    fn default_for(&self, widget: &Value, key: &str) -> Option<Value> {
+        let mut base = Map::new();
+        if let Some(known) = widgets::catalog().by_type(kind(widget)) {
+            base.extend(known.defaults.clone());
+        }
+        base.extend(widgets::catalog().dropped.flexcontainer.clone());
+        base.get(key).cloned()
     }
 
     fn count(&mut self, element: &str, type_id: Option<&str>) {
@@ -589,6 +749,8 @@ impl<'a> Run<'a> {
             }
             "ptcsdatepicker" => self.native(widget),
             "ptcsdropdown" | "ptcslist" => self.picker(widget),
+            // A grid's column formats are kept exactly as they are when adopting.
+            "ptcsgrid" if self.exact => self.other(widget),
             "ptcsgrid" => self.grid(widget),
             "ptcschartline" | "ptcschartbar" | "ptcschartpie" | "ptcschartcombo"
             | "ptcschartpareto" | "ptcschartwaterfall" => self.chart(widget),
@@ -1254,11 +1416,21 @@ impl<'a> Run<'a> {
             .iter()
             .zip(kids)
             .map(|(label, tab)| {
+                let own = if self.exact {
+                    self.props(tab, &["DisplayName"])
+                } else {
+                    Map::new()
+                };
                 let content: Vec<Value> = widgets_of(tab)
                     .iter()
                     .map(|w| self.node(w, "column"))
                     .collect();
-                json!({"label": label, "content": content})
+                let mut entry = json!({"label": label});
+                if !own.is_empty() {
+                    entry["props"] = Value::Object(own);
+                }
+                entry["content"] = json!(content);
+                entry
             })
             .collect();
         let mut body = Map::new();
@@ -1272,34 +1444,45 @@ impl<'a> Run<'a> {
         } else {
             "row"
         };
-        let found = self
-            .side_panel(widget)
-            .or_else(|| self.filter_panel(widget))
-            .or_else(|| self.card(widget))
-            .or_else(|| self.kpi_row(widget))
-            .or_else(|| self.page_header(widget, direction))
-            .or_else(|| self.toolbar(widget, direction));
+        let found = (!self.exact)
+            .then(|| {
+                self.side_panel(widget)
+                    .or_else(|| self.filter_panel(widget))
+                    .or_else(|| self.card(widget))
+                    .or_else(|| self.kpi_row(widget))
+                    .or_else(|| self.page_header(widget, direction))
+                    .or_else(|| self.toolbar(widget, direction))
+            })
+            .flatten();
         if let Some(found) = found {
             return found;
         }
-        if is_spacer(widget) && parent == "row" {
+        if !self.exact && is_spacer(widget) && parent == "row" {
             let id = self.id(widget);
             return self.make("spacer", id, Map::new());
         }
         let mut body = Map::new();
         let mut skip = vec!["flex-direction"];
         let grow = number(prop(widget, "flex-grow")).unwrap_or(1.0);
-        if grow == 0.0 {
+        if self.exact {
+            // Shorthands would let the rules decide; the spec states what the mashup has.
+        } else if grow == 0.0 {
             let dimension = if parent == "row" { "width" } else { "height" };
             let min = pixels(prop(widget, &format!("flex-min-{dimension}")));
             let max = pixels(prop(widget, &format!("flex-max-{dimension}")));
             if min.is_some() && min == max {
                 body.insert("size".into(), json!({"fixed": min}));
                 skip.extend([
-                    "flex-min-width",
-                    "flex-min-height",
-                    "flex-max-width",
-                    "flex-max-height",
+                    if parent == "row" {
+                        "flex-min-width"
+                    } else {
+                        "flex-min-height"
+                    },
+                    if parent == "row" {
+                        "flex-max-width"
+                    } else {
+                        "flex-max-height"
+                    },
                 ]);
             } else {
                 body.insert("size".into(), json!("fit"));
@@ -1645,6 +1828,9 @@ impl<'a> Run<'a> {
             entry.insert("service".into(), json!(call.service));
             if loaded.contains(&call.alias) {
                 entry.insert("on".into(), json!("load"));
+                if call.refresh > 0 {
+                    entry.insert("refresh".into(), json!(call.refresh));
+                }
             } else if call.refresh > 0 {
                 entry.insert("on".into(), json!(format!("every {}s", call.refresh)));
             }
@@ -1747,11 +1933,9 @@ impl<'a> Run<'a> {
             }
         }
         walk(spec, &ids, &mut dropped);
-        if !self.unknown.is_empty() {
-            let names: Vec<_> = self.unknown.iter().cloned().collect();
+        for (widget, property) in std::mem::take(&mut self.unknown) {
             self.notes.push(format!(
-                "properties the widget catalogue does not know were left out: {}",
-                names.join(", ")
+                "property left out: {widget} {property} (not in the widget catalogue)"
             ));
         }
         let unused = self.links.iter().filter(|l| !l.consumed).count();

@@ -5,6 +5,8 @@ use std::collections::BTreeSet;
 pub(crate) struct Report {
     pub kept: Vec<String>,
     pub conflicts: Vec<String>,
+    /// The current and generated value at a conflict path, where there is one to show.
+    pub sides: std::collections::BTreeMap<String, (Option<Value>, Option<Value>)>,
 }
 
 pub(crate) fn merge(
@@ -50,6 +52,7 @@ pub(crate) fn merge(
         }
     }
     report.conflicts.push(path.into());
+    report.sides.insert(path.into(), (c.cloned(), g.cloned()));
     c.cloned()
 }
 
@@ -125,27 +128,61 @@ fn arrays(b: &[Value], c: &[Value], g: &[Value], path: &str, report: &mut Report
     ))
 }
 
-/// Adoption may retain extra current keys and widgets, but every generated value must exist.
-pub(crate) fn adopts(c: &Value, g: &Value) -> bool {
+/// A generated value the current mashup does not have.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Difference {
+    /// A pointer in which widgets and other keyed items are named by id.
+    pub path: String,
+    pub current: Option<Value>,
+    pub generated: Value,
+}
+
+/// Every place `g` asks for something `c` lacks or has differently. Adoption may retain extra
+/// current keys and widgets, but every generated value must exist.
+pub(crate) fn differences(c: &Value, g: &Value) -> Vec<Difference> {
+    let mut out = Vec::new();
+    collect(Some(c), g, "", &mut out);
+    out
+}
+
+fn collect(c: Option<&Value>, g: &Value, path: &str, out: &mut Vec<Difference>) {
     match (c, g) {
-        (Value::Object(c), Value::Object(g)) => g
-            .iter()
-            .all(|(k, v)| c.get(k).is_some_and(|c| adopts(c, v))),
-        (Value::Array(c), Value::Array(g)) if g.iter().all(|v| key(v).is_some()) => {
+        (Some(Value::Object(c)), Value::Object(g)) => {
+            for (k, v) in g {
+                // twaco's own markers describe how a page was built, not what it is.
+                if k.starts_with("twaco") {
+                    continue;
+                }
+                let at = format!("{path}/{}", k.replace('~', "~0").replace('/', "~1"));
+                collect(c.get(k), v, &at, out);
+            }
+        }
+        (Some(Value::Array(c)), Value::Array(g)) if g.iter().all(|v| key(v).is_some()) => {
             let wanted: Vec<_> = g.iter().filter_map(key).collect();
+            for v in g {
+                let id = key(v).expect("keyed");
+                let found = c.iter().find(|cv| key(cv).as_deref() == Some(id.as_str()));
+                collect(found, v, &format!("{path}/{id}"), out);
+            }
             let actual: Vec<_> = c
                 .iter()
                 .filter_map(key)
                 .filter(|id| wanted.contains(id))
                 .collect();
-            actual == wanted
-                && g.iter().all(|v| {
-                    c.iter()
-                        .find(|cv| key(cv) == key(v))
-                        .is_some_and(|cv| adopts(cv, v))
-                })
+            if actual.len() == wanted.len() && actual != wanted {
+                out.push(Difference {
+                    path: format!("{path}/order"),
+                    current: Some(Value::from(actual)),
+                    generated: Value::from(wanted),
+                });
+            }
         }
-        _ => c == g,
+        (Some(c), g) if c == g => {}
+        (c, g) => out.push(Difference {
+            path: path.into(),
+            current: c.cloned(),
+            generated: g.clone(),
+        }),
     }
 }
 
@@ -169,6 +206,13 @@ pub(super) fn content(b: &Value, c: &Value, g: &Value, report: &mut Report) -> V
         }
         let mut value = value.clone();
         let mut all = Map::new();
+        // `id_index` only counts the ids in use; `content` takes the larger one.
+        if let Some(properties) = value
+            .pointer_mut("/UI/Properties")
+            .and_then(Value::as_object_mut)
+        {
+            properties.remove("id_index");
+        }
         if let Some(ui) = value.get_mut("UI") {
             *ui = widget(ui.take(), &mut all);
         }
@@ -203,6 +247,12 @@ pub(super) fn content(b: &Value, c: &Value, g: &Value, report: &mut Report) -> V
         widget
     }
     let current_css = c.get("CustomMashupCss").cloned();
+    let index = |v: &Value| v.pointer("/UI/Properties/id_index").and_then(Value::as_u64);
+    let id_index = match (index(b), index(c), index(g)) {
+        (base, current, generated) if generated == base => current,
+        (base, current, generated) if current == base => generated,
+        (_, current, generated) => current.max(generated),
+    };
     let (b, c, g) = (flatten(b), flatten(c), flatten(g));
     let mut merged =
         merge(Some(&b), Some(&c), Some(&g), "content", report).expect("content object");
@@ -236,6 +286,9 @@ pub(super) fn content(b: &Value, c: &Value, g: &Value, report: &mut Report) -> V
     }
     if let Some(css) = current_css {
         merged["CustomMashupCss"] = css;
+    }
+    if let Some(index) = id_index {
+        merged["UI"]["Properties"]["id_index"] = Value::from(index);
     }
     merged
 }

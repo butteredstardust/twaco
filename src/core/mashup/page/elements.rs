@@ -1572,6 +1572,22 @@ pub(super) fn wire_values(
     Ok(())
 }
 
+/// Set a property the spec states; `null` removes it, for a widget that has no such property.
+pub(super) fn set_or_remove(
+    document: &mut crate::core::mashup::edit::MashupDocument,
+    path: &[usize],
+    key: &str,
+    value: &serde_json::Value,
+) {
+    if value.is_null() {
+        if let Some(properties) = document.at_mut(path)["Properties"].as_object_mut() {
+            properties.remove(key);
+        }
+    } else {
+        document.set_property(path, key, value.clone());
+    }
+}
+
 pub(super) fn finish_layout(
     session: &mut crate::core::mashup::authoring::session::Session,
     page: &Page,
@@ -1970,9 +1986,7 @@ pub(super) fn finish_layout(
         }
         for (key, value) in &body.props {
             if super::compile::binding(&value.value).is_none() {
-                session
-                    .document
-                    .set_property(&path, key, value.value.clone());
+                set_or_remove(&mut session.document, &path, key, &value.value);
             }
         }
         Ok(())

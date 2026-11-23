@@ -103,6 +103,69 @@ fn legacy_cell_matches(
     Ok(matches)
 }
 
+fn shown(value: &Option<Value>) -> String {
+    let text = value
+        .as_ref()
+        .map_or("(none)".to_string(), Value::to_string);
+    if text.chars().count() > 80 {
+        format!("{}...", text.chars().take(77).collect::<String>())
+    } else {
+        text
+    }
+}
+
+/// A conflict as JSON: the path, both values where known, and the spec line responsible: the
+/// property's own line when the node states it, else the node's `id:` line.
+fn conflict(
+    name: &str,
+    spec_name: &str,
+    path: &str,
+    report: &merge::Report,
+    lines: &BTreeMap<String, (u64, BTreeMap<String, u64>)>,
+    spec: &schema::Spec,
+) -> Value {
+    let segments: Vec<&str> = path.split('/').collect();
+    let found = segments
+        .iter()
+        .rposition(|segment| lines.contains_key(*segment));
+    let (line, key) = match found {
+        Some(at) => {
+            let (id_line, props) = &lines[segments[at]];
+            let key = segments
+                .iter()
+                .skip(at + 1)
+                .skip_while(|segment| **segment != "Properties")
+                .nth(1)
+                .copied();
+            (
+                key.and_then(|key| props.get(key))
+                    .copied()
+                    .unwrap_or(*id_line),
+                key,
+            )
+        }
+        None => (spec.page.referenced.line().max(1), None),
+    };
+    let sides = report.sides.get(path);
+    let mut out = json!({"path": path, "file": spec_name, "line": line});
+    let mut message = format!("{name}: {path}");
+    if let Some((current, generated)) = sides {
+        out["current"] = current.clone().unwrap_or(Value::Null);
+        out["generated"] = generated.clone().unwrap_or(Value::Null);
+        message.push_str(&format!(
+            ": the mashup has {}, the spec generates {}",
+            shown(current),
+            shown(generated)
+        ));
+    }
+    message.push_str(&format!(
+        "; change {spec_name}:{line}{} or resolve the hand edit",
+        key.map_or(String::new(), |key| format!(" (props.{key})"))
+    ));
+    out["message"] = json!(message);
+    out
+}
+
 pub(crate) fn plan(
     solution: &Solution,
     name: &str,
@@ -169,8 +232,9 @@ fn plan_from(
             .ok_or_else(|| invalid(format!("{}: missing page spec", spec_path.display())))?,
     };
     let yaml = text(&spec_bytes)?;
+    let spec_name = solution.relative(spec_path);
     let spec = schema::parse_at(yaml, solution, spec_path.parent().unwrap_or(&solution.root))
-        .map_err(invalid)?;
+        .map_err(|e| invalid(e.in_file(&spec_name)))?;
     if spec.page.value.name.value != name {
         return Err(invalid(format!(
             "{}:{}: page.name must equal {name}",
@@ -178,14 +242,6 @@ fn plan_from(
             spec.page.value.name.referenced.line()
         )));
     }
-    let generated = compile::compile_at(
-        solution,
-        project,
-        yaml,
-        spec_path.parent().unwrap_or(&solution.root),
-    )
-    .map_err(invalid)?;
-    let mut baseline = Baseline::generated(&generated, name, project);
     let baseline_path = dir.join(".page-baseline.json");
     let before_baseline = read(&baseline_path)?;
     let old = before_baseline
@@ -193,6 +249,16 @@ fn plan_from(
         .map(Baseline::read)
         .transpose()
         .map_err(invalid)?;
+    let spec_base = spec_path.parent().unwrap_or(&solution.root);
+    let mut generated = compile::compile_pinned(
+        solution,
+        project,
+        yaml,
+        spec_base,
+        &old.as_ref().map(Baseline::pins).unwrap_or_default(),
+    )
+    .map_err(|e| invalid(e.in_file(&spec_name)))?;
+    let mut baseline = Baseline::generated(&generated, name, project);
     let entity_path = existing.map_or_else(
         || {
             solution
@@ -254,6 +320,11 @@ fn plan_from(
         }
         mashup::edit::parse(&current_assets.content).map_err(AuthoringError::Edit)?;
         let current: Value = serde_json::from_str(&current_assets.content).map_err(invalid)?;
+        if current["mashupType"] == "targetmashup" {
+            return Err(AuthoringError::Refused(format!(
+                "{name} is a master mashup; page specs do not cover masters yet, so mashup build cannot manage it"
+            )));
+        }
         if let Some(old) = &old {
             let info = entity::parse(bytes).map_err(|e| invalid(format!("{name}: {e:?}")))?;
             let current_xml = json!({"name": info.name, "projectName": info.project});
@@ -275,11 +346,32 @@ fn plan_from(
             .unwrap_or(json!(""));
             (merged, format!("{}\n", css.as_str().unwrap_or_default()))
         } else {
-            if !merge::adopts(&current, &baseline.content)
-                || mashup::without_terminator(&current_assets.css)
-                    != mashup::without_terminator(&baseline.css)
+            // The spec was derived from this mashup: claim its widgets and wiring by id.
+            if let Some(aligned) =
+                super::align::adopt(solution, project, yaml, spec_base, &current, &generated)
             {
-                report.conflicts.push("first adoption: generated values differ from current; reconcile the spec and mashup before building".into());
+                generated = aligned;
+                baseline = Baseline::generated(&generated, name, project);
+            }
+            for difference in super::align::remaining(&current, &baseline.content) {
+                report.sides.insert(
+                    difference.path.clone(),
+                    (difference.current, Some(difference.generated)),
+                );
+                report.conflicts.push(difference.path);
+            }
+            let wanted_css = mashup::without_terminator(&baseline.css);
+            if !wanted_css.is_empty()
+                && mashup::without_terminator(&current_assets.css) != wanted_css
+            {
+                report.sides.insert(
+                    "custom.css".into(),
+                    (
+                        Some(json!(mashup::without_terminator(&current_assets.css))),
+                        Some(json!(wanted_css)),
+                    ),
+                );
+                report.conflicts.push("custom.css".into());
             }
             (current, current_assets.css)
         }
@@ -289,20 +381,28 @@ fn plan_from(
     let effective_css = mashup::without_terminator(&css);
     match content.get("CustomMashupCss") {
         None | Some(Value::Null) if effective_css.is_empty() => {}
+        // The stylesheet is the sidecar's own file; an existing mashup whose content has no such
+        // key is not rewritten to add one.
+        None if entity_before.is_some() => {}
         _ => {
             content["CustomMashupCss"] = json!(effective_css);
         }
     }
-    let mut lines = BTreeMap::new();
+    let mut lines: BTreeMap<String, (u64, BTreeMap<String, u64>)> = BTreeMap::new();
     fn node_lines(
         nodes: &[schema::Node],
         ids: &BTreeMap<String, String>,
-        lines: &mut BTreeMap<String, u64>,
+        lines: &mut BTreeMap<String, (u64, BTreeMap<String, u64>)>,
     ) {
         for n in nodes {
             let b = n.body();
             if let Some(id) = ids.get(&b.id.value) {
-                lines.insert(id.clone(), b.id.referenced.line().max(1));
+                let props = b
+                    .props
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.referenced.line().max(1)))
+                    .collect();
+                lines.insert(id.clone(), (b.id.referenced.line().max(1), props));
             }
             for child in super::compile::descendants(n) {
                 node_lines(std::slice::from_ref(child), ids, lines);
@@ -312,10 +412,11 @@ fn plan_from(
     for slot in spec.page.value.slots.values() {
         node_lines(&slot.value, &baseline.ids, &mut lines);
     }
-    let conflicts: Vec<_> = report.conflicts.iter().map(|path| {
-        let line = lines.iter().find(|(id,_)| path.contains(id.as_str())).map_or(spec.page.referenced.line().max(1),|(_,line)| *line);
-        json!({"path":path,"file":solution.relative(spec_path),"line":line,"message":format!("{name}: {path}; resolve the hand edit or change page.yaml:{line}")})
-    }).collect();
+    let conflicts: Vec<_> = report
+        .conflicts
+        .iter()
+        .map(|path| conflict(name, &spec_name, path, &report, &lines, &spec))
+        .collect();
     let mut problems = Vec::new();
     mashup::validate::check_content(&mashup::to_sidecar(&content), &mut problems);
     if conflicts.is_empty()
@@ -576,7 +677,7 @@ fn plan_from(
     }
     files[3].after = baseline.bytes();
     Ok(Plan {
-        report: json!({"mashup":name,"project":project,"template":spec.page.value.template.value,"slots":spec.page.value.slots.keys().collect::<Vec<_>>(),"applied":false,"dry_run":true,"nodes":nodes,"hand_edits_kept":report.kept,"conflicts":conflicts,"cells":created_cells,"cell_notices":cell_notices,"files":files.iter().filter(|f| f.before.as_deref() != Some(&f.after)).map(|f| solution.relative(&f.path)).collect::<Vec<_>>()}),
+        report: json!({"mashup":name,"project":project,"template":spec.page.value.template.value,"slots":spec.page.value.slots.keys().collect::<Vec<_>>(),"applied":false,"dry_run":true,"nodes":nodes,"hand_edits_kept":report.kept,"conflicts":conflicts,"cells":created_cells,"cell_notices":cell_notices,"files_state":"would write","files":files.iter().filter(|f| f.before.as_deref() != Some(&f.after)).map(|f| solution.relative(&f.path)).collect::<Vec<_>>()}),
         files,
         inputs,
         components,
@@ -680,6 +781,7 @@ impl Plan {
             .apply(lock)
             .map_err(AuthoringError::Write)?;
         self.report["applied"] = json!(true);
+        self.report["files_state"] = json!("written");
         self.report["dry_run"] = json!(false);
         Ok(())
     }

@@ -6,6 +6,16 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+- `mashup spec` then `mashup build` adopts a mashup nobody built from a spec without changing it:
+  the page root maps onto the template's root (no extra container level), widget, wiring and data
+  ids are kept (recorded in the baseline), and the spec carries what the mashup has (custom classes,
+  margins, wrap, sizes, scrolling, display names, properties the catalogue does not list, master).
+  A derived spec on a page without v1 markers is `layout: as-built`. Adoption conflicts list each
+  JSON path with both values and the spec line; `mashup spec` notes itemise the bindings, events and
+  properties it left out; derived specs always compile (numeric font sizes, contained mashups);
+  `mashup build --json` reports spec errors as a JSON error object that names the spec file and the
+  key's line; a plan says it would write the baseline. Masters are refused by `mashup spec` and
+  `mashup build` for now.
 - V1 page specs and command recipes share full-bleed side columns, reserved filter headers,
   visible filter dividers, left-aligned trend figures, compact chart legends, pie value labels,
   inside bar values and grid row framing. Band text centres vertically; legacy output stays unchanged.
