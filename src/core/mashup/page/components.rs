@@ -408,6 +408,12 @@ fn relocate(node: &mut Node, loc: Location) {
         .iter_mut()
         .chain(b.status.iter_mut())
         .chain(b.delta.iter_mut())
+        .chain(b.options.iter_mut())
+        .chain(b.url.iter_mut())
+        .chain(b.source.iter_mut())
+        .chain(b.alt.iter_mut())
+        .chain(b.group.iter_mut())
+        .chain(b.total.iter_mut())
     {
         span(value, loc);
     }
@@ -415,13 +421,29 @@ fn relocate(node: &mut Node, loc: Location) {
         .kind
         .iter_mut()
         .chain(b.data.iter_mut())
-        .chain(b.options.iter_mut())
         .chain(b.variant.iter_mut())
         .chain(b.icon.iter_mut())
         .chain(b.enabled_when.iter_mut())
         .chain(b.trend.iter_mut())
         .chain(b.state.iter_mut())
+        .chain(b.target.iter_mut())
+        .chain(b.scaling.iter_mut())
+        .chain(b.position.iter_mut())
+        .chain(b.orientation.iter_mut())
+        .chain(b.icon_size.iter_mut())
+        .chain(b.mode.iter_mut())
+        .chain(b.mashup.iter_mut())
+        .chain(b.data_type.iter_mut())
     {
+        span(value, loc);
+    }
+    for value in b.input_count.iter_mut() {
+        span(value, loc);
+    }
+    for value in &mut b.routes {
+        span(value, loc);
+    }
+    for value in b.params.values_mut() {
         span(value, loc);
     }
     for value in b.sparkline.iter_mut() {

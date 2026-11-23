@@ -1,0 +1,13 @@
+version: 1
+rules: v1
+page:
+  name: Acme.Native_MU
+  template: blank
+  parameters: {When: DATETIME}
+  data:
+    rows: {service: Acme.Data.GetRows, on: load}
+  slots:
+    center:
+      - button: {id: target, text: Open details}
+  events:
+    - {on: target.Clicked, navigate: {mashup: Acme.Child_MU, mode: popup, width: 600, height: 400, params: {id: {bind: rows.Name}}}}

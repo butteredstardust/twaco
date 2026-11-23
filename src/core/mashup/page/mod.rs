@@ -9,6 +9,7 @@ mod elements;
 pub mod extract;
 pub(crate) mod ids;
 pub(crate) mod merge;
+mod native;
 mod preserve;
 mod schema;
 

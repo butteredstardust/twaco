@@ -1,0 +1,11 @@
+version: 1
+rules: v1
+page:
+  name: Acme.Native_MU
+  template: blank
+  parameters: {When: DATETIME}
+  data:
+    rows: {service: Acme.Data.GetRows, on: load}
+  slots:
+    center:
+      - radio: {id: target, options: [Open, Closed], group: AcmeStatus}

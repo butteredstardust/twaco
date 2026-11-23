@@ -60,6 +60,7 @@ pub(crate) use new::{validate_template, DEFAULT_THEME};
 use on::on_in;
 pub use on::OnRequest;
 pub(crate) use on::{plan_on, OnPlan};
+pub(crate) use parameter::validate_expression_type;
 pub(crate) use parameter::{apply_parameter, plan_parameter, root_default, ParameterPlan};
 use parameter::{
     cache_entry, contained_parameters, default_value, ensure_cached, navigation_definition,

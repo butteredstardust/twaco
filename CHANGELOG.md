@@ -6,6 +6,12 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+- Page specs add native links, images, icons, dividers, boolean controls, text areas, single dates,
+  value displays and contained mashups, plus typed expressions, events routers and navigation
+  events. Pareto and waterfall charts share the chart recipe; schedule charts explain their nested data requirement.
+  Derivation recognises more kit variants and reports deliberate raw-widget limitations. Coverage
+  JSON always includes `raw_types`, including an empty map for pages without raw widgets.
+
 - Page-spec blocks with large values grow without a height cap; ticker bands use a full-width row.
 - Design tokens reach recipe cards, bands, sections, panels and page surfaces, preserving convergence values.
 - Creation plans suggest the accepted `deploy --only-projects` flag.

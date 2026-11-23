@@ -39,10 +39,32 @@ pub(crate) struct Page {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Source {
-    pub(crate) service: Spanned<String>,
+    pub(crate) service: Option<Spanned<String>>,
+    pub(crate) expression: Option<Spanned<String>>,
+    #[serde(default)]
+    pub(crate) inputs: BTreeMap<String, Spanned<ExpressionInput>>,
+    pub(crate) output: Option<Spanned<String>>,
+    pub(crate) auto_evaluate: Option<bool>,
+    pub(crate) fire_on_first_value: Option<bool>,
+    pub(crate) data_change: Option<Spanned<String>>,
     pub(crate) on: Option<Spanned<String>>,
     #[serde(default)]
     pub(crate) params: BTreeMap<String, Spanned<Value>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+pub(crate) enum ExpressionInput {
+    Reference(String),
+    Typed(TypedInput),
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct TypedInput {
+    #[serde(rename = "type")]
+    pub(crate) base_type: String,
+    pub(crate) value: Option<Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -80,13 +102,37 @@ pub(crate) enum Node {
     CardGrid(Body),
     Text(Body),
     Block(Body),
+    Link(Body),
+    Image(Body),
+    Icon(Body),
+    Divider(Body),
+    Checkbox(Body),
+    Radio(Body),
+    Toggle(Body),
+    Textarea(Body),
+    DatePicker(Body),
+    ValueDisplay(Body),
+    Embed(Body),
+    EventsRouter(Body),
 }
 
 impl Node {
     pub(crate) fn body(&self) -> &Body {
         match self {
             Self::Component(_) => unreachable!("components expand before elements"),
-            Self::Grid(b)
+            Self::EventsRouter(b)
+            | Self::Link(b)
+            | Self::Image(b)
+            | Self::Icon(b)
+            | Self::Divider(b)
+            | Self::Checkbox(b)
+            | Self::Radio(b)
+            | Self::Toggle(b)
+            | Self::Textarea(b)
+            | Self::DatePicker(b)
+            | Self::ValueDisplay(b)
+            | Self::Embed(b)
+            | Self::Grid(b)
             | Self::Label(b)
             | Self::Heading(b)
             | Self::Button(b)
@@ -122,7 +168,19 @@ impl Node {
     pub(crate) fn body_mut(&mut self) -> &mut Body {
         match self {
             Self::Component(_) => unreachable!("components expand before elements"),
-            Self::Grid(b)
+            Self::EventsRouter(b)
+            | Self::Link(b)
+            | Self::Image(b)
+            | Self::Icon(b)
+            | Self::Divider(b)
+            | Self::Checkbox(b)
+            | Self::Radio(b)
+            | Self::Toggle(b)
+            | Self::Textarea(b)
+            | Self::DatePicker(b)
+            | Self::ValueDisplay(b)
+            | Self::Embed(b)
+            | Self::Grid(b)
             | Self::Label(b)
             | Self::Heading(b)
             | Self::Button(b)
@@ -158,7 +216,19 @@ impl Node {
     pub(crate) fn into_body(self) -> Body {
         match self {
             Self::Component(_) => unreachable!("components expand before elements"),
-            Self::Grid(b)
+            Self::EventsRouter(b)
+            | Self::Link(b)
+            | Self::Image(b)
+            | Self::Icon(b)
+            | Self::Divider(b)
+            | Self::Checkbox(b)
+            | Self::Radio(b)
+            | Self::Toggle(b)
+            | Self::Textarea(b)
+            | Self::DatePicker(b)
+            | Self::ValueDisplay(b)
+            | Self::Embed(b)
+            | Self::Grid(b)
             | Self::Label(b)
             | Self::Heading(b)
             | Self::Button(b)
@@ -209,6 +279,18 @@ impl Node {
             | Self::CardGrid(_)
             | Self::Block(_)
             | Self::Spacer(_) => "flexcontainer",
+            Self::EventsRouter(_) => "eventsrouter",
+            Self::Link(_) => "ptcslink",
+            Self::Image(_) => "ptcsimage",
+            Self::Icon(_) => "ptcsicon",
+            Self::Divider(_) => "ptcsdivider",
+            Self::Checkbox(_) => "ptcscheckbox",
+            Self::Radio(_) => "ptcsradio",
+            Self::Toggle(_) => "ptcstogglebutton",
+            Self::Textarea(_) => "ptcstextarea",
+            Self::DatePicker(_) => "ptcsdatepicker",
+            Self::ValueDisplay(_) => "ptcsvaluedisplay",
+            Self::Embed(_) => "mashupcontainer",
             Self::List(_) => "ptcslist",
             Self::Collection(_) => "ptcscollection",
             Self::Slider(_) => "ptcsslider",
@@ -219,10 +301,13 @@ impl Node {
                 Some("bar") => "ptcschartbar",
                 Some("pie") => "ptcschartpie",
                 Some("combo") => "ptcschartcombo",
+                Some("pareto") => "ptcschartpareto",
+                Some("waterfall") => "ptcschartwaterfall",
+                Some("schedule") => return Err(Error::at(b.id.referenced, "schedule uses nested resource intervals; use widget: {type: ptcschartschedule} with its DataField and ResourceField contract")),
                 _ => {
                     return Err(Error::at(
                         b.id.referenced,
-                        "chart kind must be line, bar, pie or combo",
+                        "chart kind must be line, bar, pie, pareto, waterfall, combo or schedule (raw nested intervals)",
                     ))
                 }
             },
@@ -248,6 +333,10 @@ impl Node {
 pub(crate) struct Body {
     #[serde(skip)]
     pub(crate) value_size: Option<String>,
+    #[serde(skip)]
+    pub(crate) native: Option<String>,
+    #[serde(skip)]
+    pub(crate) initialize: bool,
     pub(crate) id: Spanned<String>,
     #[serde(rename = "type")]
     pub(crate) kind: Option<Spanned<String>>,
@@ -256,6 +345,28 @@ pub(crate) struct Body {
     pub(crate) title: Option<String>,
     pub(crate) help: Option<String>,
     pub(crate) hint: Option<String>,
+    pub(crate) url: Option<Spanned<Value>>,
+    pub(crate) target: Option<Spanned<String>>,
+    pub(crate) source: Option<Spanned<Value>>,
+    pub(crate) scaling: Option<Spanned<String>>,
+    pub(crate) position: Option<Spanned<String>>,
+    pub(crate) alt: Option<Spanned<Value>>,
+    pub(crate) orientation: Option<Spanned<String>>,
+    pub(crate) icon_size: Option<Spanned<String>>,
+    pub(crate) group: Option<Spanned<Value>>,
+    pub(crate) date_only: Option<bool>,
+    pub(crate) format: Option<String>,
+    pub(crate) max_length: Option<u32>,
+    pub(crate) mode: Option<Spanned<String>>,
+    pub(crate) total: Option<Spanned<Value>>,
+    pub(crate) page_size: Option<u32>,
+    pub(crate) page_number: Option<u32>,
+    pub(crate) input_count: Option<Spanned<u32>>,
+    pub(crate) data_type: Option<Spanned<String>>,
+    #[serde(default)]
+    pub(crate) routes: Vec<Spanned<Value>>,
+    #[serde(default)]
+    pub(crate) params: BTreeMap<String, Spanned<Value>>,
     pub(crate) band: Option<bool>,
     pub(crate) value: Option<Spanned<Value>>,
     pub(crate) status: Option<Spanned<Value>>,
@@ -271,8 +382,9 @@ pub(crate) struct Body {
     #[serde(skip)]
     pub(crate) state_field: Option<String>,
     pub(crate) auto_select: Option<bool>,
+    pub(crate) unbound: Option<bool>,
     pub(crate) color: Option<String>,
-    pub(crate) options: Option<Spanned<String>>,
+    pub(crate) options: Option<Spanned<Value>>,
     pub(crate) display: Option<String>,
     pub(crate) x: Option<String>,
     pub(crate) stacked: Option<bool>,
@@ -300,7 +412,7 @@ pub(crate) struct Body {
     pub(crate) inputs: Vec<String>,
 
     #[serde(alias = "label")]
-    pub(crate) text: Option<String>,
+    pub(crate) text: Option<Value>,
     pub(crate) data: Option<Spanned<String>>,
     #[serde(default)]
     pub(crate) columns: Vec<Spanned<Column>>,
@@ -494,7 +606,23 @@ pub(crate) enum Size {
 #[serde(deny_unknown_fields)]
 pub(crate) struct Event {
     pub(crate) on: Spanned<String>,
-    pub(crate) invoke: Spanned<String>,
+    pub(crate) invoke: Option<Spanned<String>>,
+    pub(crate) navigate: Option<Spanned<Navigate>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Navigate {
+    pub(crate) id: Option<Spanned<String>>,
+    #[serde(default)]
+    pub(crate) props: BTreeMap<String, Spanned<Value>>,
+    pub(crate) mashup: Spanned<String>,
+    pub(crate) mode: Option<Spanned<String>>,
+    pub(crate) title: Option<String>,
+    pub(crate) width: Option<u32>,
+    pub(crate) height: Option<u32>,
+    #[serde(default)]
+    pub(crate) params: BTreeMap<String, Spanned<Value>>,
 }
 
 #[cfg(test)]
@@ -561,6 +689,55 @@ fn parse_nested(
     };
     super::elements::expand(&mut spec.page.value, &tokens)?;
     spec.resolved_tokens = tokens;
+    for source in spec.page.value.data.values() {
+        let s = &source.value;
+        if s.service.is_some() == s.expression.is_some() {
+            return Err(Error::at(
+                source.referenced,
+                "data needs exactly one of service or expression",
+            ));
+        }
+        if s.expression.is_some() {
+            if s.output.is_none() {
+                return Err(Error::at(
+                    source.referenced,
+                    "expression needs output base type",
+                ));
+            }
+            if !s.params.is_empty() {
+                return Err(Error::at(
+                    source.referenced,
+                    "expression uses inputs, not params",
+                ));
+            }
+            if let Some(change) = &s.data_change {
+                if !["ALWAYS", "VALUE"].contains(&change.value.as_str()) {
+                    return Err(Error::at(
+                        change.referenced,
+                        "data_change is ALWAYS or VALUE",
+                    ));
+                }
+            }
+        } else if !s.inputs.is_empty()
+            || s.output.is_some()
+            || s.auto_evaluate.is_some()
+            || s.fire_on_first_value.is_some()
+            || s.data_change.is_some()
+        {
+            return Err(Error::at(
+                source.referenced,
+                "inputs/output/auto_evaluate/fire_on_first_value/data_change belong to expression",
+            ));
+        }
+    }
+    for event in &spec.page.value.events {
+        if event.value.invoke.is_some() == event.value.navigate.is_some() {
+            return Err(Error::at(
+                event.referenced,
+                "event needs exactly one of invoke or navigate",
+            ));
+        }
+    }
     let mut ids = BTreeMap::new();
     fn check(
         nodes: &[Node],
@@ -598,6 +775,12 @@ fn parse_nested(
                 ));
             }
             node.widget()?;
+            if b.text.as_ref().is_some_and(|v| !v.is_string()) {
+                return Err(Error::at(
+                    b.id.referenced,
+                    "text must be a string for this element; use props for bindings",
+                ));
+            }
             if let Some(data) = &b.data {
                 if let Some((list, _)) = data.value.split_once(".selected") {
                     let picked = super::compile::find_list(page, list);
@@ -610,7 +793,10 @@ fn parse_nested(
                             "<list>.selected feeds a list and names a list with data",
                         ));
                     }
-                } else if !page.data.contains_key(&data.value) {
+                } else if !page
+                    .data
+                    .contains_key(data.value.split('.').next().unwrap_or(&data.value))
+                {
                     return Err(Error::at(
                         data.referenced,
                         format!("unknown data {}", data.value),
@@ -644,6 +830,42 @@ fn parse_nested(
     }
     for nodes in spec.page.value.slots.values() {
         check(&nodes.value, &mut ids, &spec.page.value)?;
+    }
+    let data_names: std::collections::BTreeSet<_> = spec.page.value.data.keys().cloned().collect();
+    for event in &mut spec.page.value.events {
+        if let Some(navigate) = &mut event.value.navigate {
+            if let Some(id) = &navigate.value.id {
+                if id.value.is_empty()
+                    || !id
+                        .value
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+                {
+                    return Err(Error::at(
+                        id.referenced,
+                        "navigate id must contain letters, digits, _ or -",
+                    ));
+                }
+                if ids.insert(id.value.clone(), id.referenced).is_some()
+                    || data_names.contains(&id.value)
+                {
+                    return Err(Error::at(
+                        id.referenced,
+                        format!("duplicate id {}", id.value),
+                    ));
+                }
+            }
+            for value in navigate.value.params.values_mut() {
+                if let Some(reference) = value.value.as_str() {
+                    let root = reference.split('.').next().unwrap_or(reference);
+                    if reference.contains('.')
+                        && (ids.contains_key(root) || data_names.contains(root) || root == "param")
+                    {
+                        value.value = serde_json::json!({"bind": reference.replace(".SelectedRow.", ".selected.")});
+                    }
+                }
+            }
+        }
     }
     Ok(spec)
 }

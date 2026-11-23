@@ -2901,6 +2901,24 @@ widgets, with layout from the pinned v1 rules. Widget IDs keep stable hash suffi
 four to six digit range; old ID-policy baselines require their compatible twaco version.
 
 
+Native page elements include `link`, `image`, `icon`, `divider`, `checkbox`, `radio`, `toggle`,
+`textarea`, single `date_picker`, `value_display` and parameterised `embed`. Charts support
+pie/combo/pareto/waterfall alongside line/bar. Expression data items provide typed inputs and
+bindable outputs; `events_router` merges typed input bindings; event `navigate` shares popup/page navigation recipes. Use `pagination` with
+`mode: server` to keep service-driven pagination wiring. Derivation recognises native collection
+bindings, unbound controls, Items-based tab labels and KPI dial layouts. See the
+[native controls and wiring reference](PAGE_SPECS.md#native-controls-media-and-wiring) for fields,
+command equivalents and deliberate raw-widget limitations. All observations are offline.
+
+Native page elements include `link`, `image`, `icon`, `divider`, `checkbox`, `radio`, `toggle`,
+`textarea`, single `date_picker`, `value_display` and parameterised `embed`. Charts support
+pie/combo/pareto/waterfall alongside line/bar. Expression data items provide typed inputs and
+bindable outputs; `events_router` merges typed input bindings; event `navigate` shares popup/page navigation recipes. Use `pagination` with
+`mode: server` to keep service-driven pagination wiring. Derivation recognises native collection
+bindings, unbound controls, Items-based tab labels and KPI dial layouts. See the
+[native controls and wiring reference](PAGE_SPECS.md#native-controls-media-and-wiring) for fields,
+command equivalents and deliberate raw-widget limitations. All observations are offline.
+
 ## Build a page from a spec
 
 Write a YAML page spec with `version: 1`, `rules: v1`, a page name, template,

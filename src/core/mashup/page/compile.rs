@@ -152,15 +152,18 @@ fn compile_nested(
     let platform = types::cached_platform(solution);
     for (alias, source) in &page.data {
         let source = &source.value;
+        let Some(service_spec) = &source.service else {
+            continue;
+        };
         if alias.is_empty() || !alias.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
             return Err(Error::at(
-                source.service.referenced,
+                service_spec.referenced,
                 "data name must contain letters, digits or _",
             ));
         }
         let (entity, service) =
-            authoring::session::source_target(&model, platform.as_ref(), &source.service.value)
-                .map_err(|e| Error::at(source.service.referenced, e))?;
+            authoring::session::source_target(&model, platform.as_ref(), &service_spec.value)
+                .map_err(|e| Error::at(service_spec.referenced, e))?;
         let refresh = source
             .on
             .as_ref()
@@ -201,8 +204,17 @@ fn compile_nested(
                     param_values: params,
                 },
             )
-            .map_err(|e| Error::at(source.service.referenced, e))?;
+            .map_err(|e| Error::at(service_spec.referenced, e))?;
     }
+    add_expressions(
+        solution,
+        &mut session,
+        &model,
+        platform.as_ref(),
+        page,
+        &mut allocator,
+        &mut ids,
+    )?;
     wire_nodes(
         solution,
         project,
@@ -216,6 +228,9 @@ fn compile_nested(
     )?;
     for (alias, source) in &page.data {
         let source = &source.value;
+        if source.expression.is_some() {
+            continue;
+        }
         for (param, value) in &source.params {
             if let Some(from) = binding(&value.value) {
                 let from = address(page, &ids, from, value.referenced)?;
@@ -238,13 +253,44 @@ fn compile_nested(
     }
     for event in &page.events {
         let on = &event.value.on;
-        let invoke = &event.value.invoke;
+        if let Some(navigate) = &event.value.navigate {
+            let id = navigate_event(
+                solution,
+                &mut session,
+                page,
+                &ids,
+                &mut allocator,
+                &event.value.on,
+                navigate,
+            )?;
+            if let Some(name) = &navigate.value.id {
+                ids.insert(name.value.clone(), id);
+            }
+            continue;
+        }
+        let invoke = event.value.invoke.as_ref().expect("validated event");
         let from = address(page, &ids, &on.value, on.referenced)?;
-        let to = address(page, &ids, &invoke.value, invoke.referenced)?;
+        let to = if page
+            .data
+            .get(&invoke.value)
+            .is_some_and(|s| s.value.expression.is_some())
+        {
+            format!("ui:{}.Evaluate", expression_id(&invoke.value))
+        } else {
+            address(page, &ids, &invoke.value, invoke.referenced)?
+        };
         session
             .on(&model, platform.as_ref(), &from, &to)
             .map_err(|e| Error::at(on.referenced, e))?;
     }
+    wire_expressions(
+        solution,
+        &mut session,
+        &model,
+        platform.as_ref(),
+        page,
+        &ids,
+    )?;
     for nodes in page.slots.values() {
         for node in &nodes.value {
             apply_size(solution, &mut session, page, &ids, node)?;
@@ -357,23 +403,57 @@ fn add(
         .into_iter()
         .map(|w| w.id)
         .collect();
-    let placed = session
-        .add(
-            solution,
-            &authoring::AddRequest {
-                mashup: page.name.value.clone(),
-                widget: node.widget()?.into(),
-                inputs: body.inputs.clone(),
-                placement: if is_function(node)? {
-                    None
-                } else {
-                    Some(placement)
+    let placed = if let Some(child) = &body.native {
+        let catalog = crate::core::widgets::catalog()
+            .by_type("mashupcontainer")
+            .expect("contained widget");
+        let (props, settings): (Vec<_>, Vec<_>) = props
+            .into_iter()
+            .partition(|(k, _)| catalog.defaults.contains_key(k) || catalog.property(k).is_some());
+        let id = session
+            .contained_with(solution, parent, child, settings)
+            .map_err(|e| Error::at(loc, e))?;
+        if !props.is_empty() {
+            session
+                .set(
+                    solution,
+                    &authoring::SetRequest {
+                        mashup: page.name.value.clone(),
+                        widget: id.clone(),
+                        properties: props
+                            .into_iter()
+                            .map(|(k, v)| (k, serde_json::from_str(&v).unwrap_or(Value::String(v))))
+                            .collect(),
+                        style_from: None,
+                        styles: vec![],
+                    },
+                )
+                .map_err(|e| Error::at(loc, e))?;
+        }
+        id
+    } else {
+        session
+            .add(
+                solution,
+                &authoring::AddRequest {
+                    mashup: page.name.value.clone(),
+                    widget: node.widget()?.into(),
+                    inputs: body.inputs.clone(),
+                    placement: if is_function(node)? {
+                        None
+                    } else {
+                        Some(placement)
+                    },
+                    label: body
+                        .text
+                        .as_ref()
+                        .and_then(Value::as_str)
+                        .map(str::to_owned),
+                    properties: props,
                 },
-                label: body.text.clone(),
-                properties: props,
-            },
-        )
-        .map_err(|e| Error::at(loc, e))?;
+            )
+            .map_err(|e| Error::at(loc, e))?
+    };
     if let Some(op) = op {
         let context = crate::core::mashup::layout::context::Node::op(
             op,
@@ -1107,7 +1187,290 @@ fn stabilize(
 }
 
 pub(super) fn call(page: &Page, alias: &str) -> String {
-    format!("data:{}[as {alias}]", page.data[alias].value.service.value)
+    if let Some((source, field)) = alias.split_once('.') {
+        return format!("{}.{field}", call(page, source));
+    }
+    if page.data[alias].value.expression.is_some() {
+        format!("ui:{}.Output", expression_id(alias))
+    } else {
+        format!(
+            "data:{}[as {alias}]",
+            page.data[alias]
+                .value
+                .service
+                .as_ref()
+                .expect("service")
+                .value
+        )
+    }
+}
+
+fn expression_id(alias: &str) -> String {
+    Ids::new(std::iter::empty())
+        .widget("expression2", &format!("$data:{alias}"), "widget")
+        .expect("empty allocator")
+}
+
+#[allow(clippy::too_many_arguments)]
+fn add_expressions(
+    solution: &Solution,
+    session: &mut Session,
+    model: &types::Model,
+    platform: Option<&types::Platform>,
+    page: &Page,
+    allocator: &mut Ids,
+    ids: &mut BTreeMap<String, String>,
+) -> Result<(), Error> {
+    for (alias, source) in &page.data {
+        let source = &source.value;
+        let Some(expression) = &source.expression else {
+            continue;
+        };
+        let at = expression.referenced;
+        if alias.is_empty() || !alias.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+            return Err(Error::at(at, "data name must contain letters, digits or _"));
+        }
+        let output = source.output.as_ref().expect("validated output");
+        let mut inputs = vec![];
+        for (name, input) in &source.inputs {
+            let base = match &input.value {
+                schema::ExpressionInput::Typed(typed) => typed.base_type.clone(),
+                schema::ExpressionInput::Reference(reference) => {
+                    let alias = reference.split('.').next().unwrap_or(reference);
+                    if let Some(other) = page
+                        .data
+                        .get(alias)
+                        .filter(|s| s.value.expression.is_some())
+                    {
+                        other
+                            .value
+                            .output
+                            .as_ref()
+                            .expect("validated output")
+                            .value
+                            .clone()
+                    } else {
+                        let from = if let Some((grid, field)) = reference.split_once(".selected.") {
+                            let data = find_grid(page, grid).ok_or_else(|| {
+                                Error::at(
+                                    input.referenced,
+                                    "selection input needs a grid with data",
+                                )
+                            })?;
+                            format!("{}.{field}", call(page, data))
+                        } else {
+                            address(page, ids, reference, input.referenced)?
+                        };
+                        session
+                            .source_type(solution, model, platform, &from)
+                            .map_err(|e| Error::at(input.referenced, e))?
+                    }
+                }
+            };
+            inputs.push(format!("{name}:{base}"));
+        }
+        authoring::validate_expression_type(&output.value)
+            .map_err(|e| Error::at(output.referenced, e))?;
+        let script = &expression.value;
+        let script = if script.contains(';') || script.contains("\n") {
+            script.clone()
+        } else {
+            format!("result = ({script});")
+        };
+        let mut properties = vec![
+            ("Expression".into(), script),
+            ("OutputBaseType".into(), output.value.clone()),
+            (
+                "AutoEvaluate".into(),
+                source.auto_evaluate.unwrap_or(true).to_string(),
+            ),
+            (
+                "FireOnFirstValue".into(),
+                source.fire_on_first_value.unwrap_or(false).to_string(),
+            ),
+        ];
+        if let Some(change) = &source.data_change {
+            properties.push(("DataChangeType".into(), change.value.clone()));
+        }
+        let old = session
+            .document
+            .widgets()
+            .into_iter()
+            .map(|w| w.id)
+            .collect();
+        let placed = session
+            .add(
+                solution,
+                &authoring::AddRequest {
+                    mashup: page.name.value.clone(),
+                    widget: "expression2".into(),
+                    inputs,
+                    placement: None,
+                    label: None,
+                    properties,
+                },
+            )
+            .map_err(|e| Error::at(at, e))?;
+        let id = stabilize(
+            session,
+            allocator,
+            &old,
+            &placed,
+            &format!("$data:{alias}"),
+            at,
+        )?;
+        ids.insert(format!("$data:{alias}"), id);
+    }
+    Ok(())
+}
+
+fn wire_expressions(
+    solution: &Solution,
+    session: &mut Session,
+    model: &types::Model,
+    platform: Option<&types::Platform>,
+    page: &Page,
+    ids: &BTreeMap<String, String>,
+) -> Result<(), Error> {
+    for (alias, source) in &page.data {
+        let source = &source.value;
+        if source.expression.is_none() {
+            continue;
+        }
+        let id = expression_id(alias);
+        for (name, input) in &source.inputs {
+            let value = match &input.value {
+                schema::ExpressionInput::Reference(reference) => Some(json!({"bind": reference})),
+                schema::ExpressionInput::Typed(typed) => typed.value.clone(),
+            };
+            if let Some(value) = value {
+                if let Some(from) = binding(&value) {
+                    let from = address(page, ids, from, input.referenced)?;
+                    session
+                        .bind(solution, model, platform, &from, &format!("ui:{id}.{name}"))
+                        .map_err(|e| Error::at(input.referenced, e))?;
+                } else {
+                    session
+                        .set(
+                            solution,
+                            &authoring::SetRequest {
+                                mashup: page.name.value.clone(),
+                                widget: id.clone(),
+                                properties: vec![(name.clone(), value)],
+                                style_from: None,
+                                styles: vec![],
+                            },
+                        )
+                        .map_err(|e| Error::at(input.referenced, e))?;
+                }
+            }
+        }
+        if let Some(on) = &source.on {
+            let from = address(page, ids, &on.value, on.referenced)?;
+            session
+                .on(model, platform, &from, &format!("ui:{id}.Evaluate"))
+                .map_err(|e| Error::at(on.referenced, e))?;
+        }
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn navigate_event(
+    solution: &Solution,
+    session: &mut Session,
+    page: &Page,
+    ids: &BTreeMap<String, String>,
+    allocator: &mut Ids,
+    on: &serde_saphyr::Spanned<String>,
+    navigate: &serde_saphyr::Spanned<schema::Navigate>,
+) -> Result<String, Error> {
+    let nav = &navigate.value;
+    let mode = nav.mode.as_ref().map_or("page", |m| m.value.as_str());
+    let window = match mode {
+        "page" | "replace" => "replace",
+        "new_tab" | "new" => "new",
+        "popup" => "popup",
+        "modal-popup" => "modal-popup",
+        _ => {
+            return Err(Error::at(
+                nav.mode.as_ref().expect("mode").referenced,
+                "navigate mode is page, new_tab, popup or modal-popup",
+            ))
+        }
+    };
+    let from = address(page, ids, &on.value, on.referenced)?;
+    let pass = nav
+        .params
+        .iter()
+        .filter_map(|(name, value)| binding(&value.value).map(|from| (name, value, from)))
+        .map(|(name, value, from)| Ok((name.clone(), address(page, ids, from, value.referenced)?)))
+        .collect::<Result<Vec<_>, Error>>()?;
+    let old: BTreeSet<_> = session
+        .document
+        .widgets()
+        .into_iter()
+        .map(|w| w.id)
+        .collect();
+    session
+        .recipe(
+            solution,
+            authoring::Recipe::Popup {
+                trigger: from,
+                target: nav.mashup.value.clone(),
+                window: window.into(),
+                size: if nav.width.is_some() || nav.height.is_some() {
+                    Some((nav.width.unwrap_or(0), nav.height.unwrap_or(0)))
+                } else {
+                    None
+                },
+                title: nav.title.clone(),
+                pass,
+                refresh: None,
+            },
+        )
+        .map_err(|e| Error::at(navigate.referenced, e))?;
+    let placed = session
+        .document
+        .widgets()
+        .into_iter()
+        .find(|w| !old.contains(&w.id) && w.type_id == "navigationfunction")
+        .expect("navigation recipe")
+        .id;
+    let id = stabilize(
+        session,
+        allocator,
+        &old,
+        &placed,
+        nav.id
+            .as_ref()
+            .map(|s| s.value.clone())
+            .unwrap_or_else(|| format!("$navigate:{}:{}", on.value, nav.mashup.value))
+            .as_str(),
+        navigate.referenced,
+    )?;
+    let properties = nav
+        .params
+        .iter()
+        .chain(&nav.props)
+        .filter(|(_, v)| binding(&v.value).is_none())
+        .map(|(k, v)| (k.clone(), v.value.clone()))
+        .collect::<Vec<_>>();
+    if !properties.is_empty() {
+        session
+            .set(
+                solution,
+                &authoring::SetRequest {
+                    mashup: page.name.value.clone(),
+                    widget: id.clone(),
+                    properties,
+                    style_from: None,
+                    styles: vec![],
+                },
+            )
+            .map_err(|e| Error::at(navigate.referenced, e))?;
+    }
+    Ok(id)
 }
 
 fn wire_sparklines(
@@ -1200,6 +1563,27 @@ fn wire_selections(
         for value in source.value.params.values() {
             if let Some(text) = binding(&value.value).filter(|s| s.contains(".selected.")) {
                 refs.insert(text.to_string(), value.referenced);
+            }
+        }
+    }
+    for source in page.data.values() {
+        for input in source.value.inputs.values() {
+            let reference = match &input.value {
+                schema::ExpressionInput::Reference(s) => Some(s.as_str()),
+                schema::ExpressionInput::Typed(t) => t.value.as_ref().and_then(binding),
+            };
+            if let Some(reference) = reference.filter(|s| s.contains(".selected.")) {
+                refs.insert(reference.into(), input.referenced);
+            }
+        }
+    }
+    for event in &page.events {
+        if let Some(navigate) = &event.value.navigate {
+            for value in navigate.value.params.values() {
+                if let Some(reference) = binding(&value.value).filter(|s| s.contains(".selected."))
+                {
+                    refs.insert(reference.into(), value.referenced);
+                }
             }
         }
     }
@@ -1310,6 +1694,13 @@ pub(super) fn address(
     if let Some((node, property)) = text.split_once('.') {
         if let Some(id) = ids.get(node) {
             return Ok(format!("ui:{id}.{property}"));
+        }
+        if page
+            .data
+            .get(node)
+            .is_some_and(|s| s.value.expression.is_some())
+        {
+            return Ok(format!("ui:{}.{}", expression_id(node), property));
         }
         if page.data.contains_key(node) {
             return Ok(if property == "SelectedRows" {
@@ -1828,6 +2219,16 @@ fn wire_values(
     let body = node.body();
     let id = &ids[&body.id.value];
     super::elements::wire_values(solution, session, model, platform, page, ids, node)?;
+    if body.initialize {
+        session
+            .on(
+                model,
+                platform,
+                "mashup:Loaded",
+                &format!("ui:{id}.Evaluate"),
+            )
+            .map_err(|e| Error::at(body.id.referenced, e))?;
+    }
     for (prop, value) in &body.props {
         if let Some(from) = binding(&value.value) {
             let from = address(page, ids, from, value.referenced)?;

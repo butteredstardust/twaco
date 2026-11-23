@@ -1776,7 +1776,6 @@ pub(crate) struct MashupSpecResult {
     /// True when the spec is the mashup's own page.yaml and the mashup still matches its last build.
     exact: bool,
     /// Raw nodes by widget type.
-    #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     raw_types: std::collections::BTreeMap<String, usize>,
     /// Widgets edited by hand since the last build, when the spec is the page's own page.yaml.
     #[serde(skip_serializing_if = "Vec::is_empty")]

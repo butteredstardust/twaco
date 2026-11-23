@@ -19,7 +19,6 @@ pub struct Extraction {
     pub exact: bool,
     pub spec: String,
     pub widgets: usize,
-    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub raw_types: BTreeMap<String, usize>,
     /// Widgets that differ from the last build, when the spec is the page's own page.yaml.
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -32,7 +31,7 @@ fn invalid(message: impl ToString) -> AuthoringError {
     AuthoringError::Invalid(message.to_string())
 }
 
-const ELEMENTS: [&str; 32] = [
+const ELEMENTS: [&str; 44] = [
     "component",
     "grid",
     "label",
@@ -65,12 +64,29 @@ const ELEMENTS: [&str; 32] = [
     "card_grid",
     "text",
     "block",
+    "link",
+    "image",
+    "icon",
+    "divider",
+    "checkbox",
+    "radio",
+    "toggle",
+    "textarea",
+    "date_picker",
+    "value_display",
+    "embed",
+    "events_router",
 ];
 
 /// Count the nodes of a spec file: element nodes and `widget` nodes, wherever they nest.
 fn nodes(spec: &Value, elements: &mut usize, raw: &mut usize, types: &mut BTreeMap<String, usize>) {
     match spec {
         Value::Object(map) => {
+            if (map.get("expression").is_some_and(Value::is_string) && map.contains_key("output"))
+                || map.get("navigate").is_some_and(Value::is_object)
+            {
+                *elements += 1;
+            }
             if map.len() == 1 {
                 let (key, body) = map.iter().next().expect("one entry");
                 if ELEMENTS.contains(&key.as_str()) && body.is_object() {

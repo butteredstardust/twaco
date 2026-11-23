@@ -141,7 +141,7 @@ Trend tiles go in a `kpi_row` through `children` (a `kpi_row` takes `tiles` or `
 `trend_tile` has a caption (`label`), a bound `value` and optional `unit`, `trend` (`up`, `down`
 or `flat`) and `delta` (text or `{bind: ...}`). Value, unit, direction glyph and delta sit in one
 centred row under the caption, as in the kit's AssetKPI tiles. The direction glyph and delta are
-coloured labels (green, red, grey); `ptcsicon` has no known styler, so it cannot carry the colour.
+coloured labels (green, red, grey); these tiles retain their existing coloured-label implementation.
 Direction is static: it does not follow a data field. Optional
 `sparkline: {field: Value, x: year, data: history}` adds a native `ptcschartline` under the value.
 `data` defaults to the value binding's source; supply it when history comes from another service.
@@ -494,6 +494,120 @@ direct service-row binding. Existing command equivalents for status dots are
 first-row selection is `recipe picker --auto-select-first`.
 
 
+## Native controls, media and wiring
+
+All examples below are synthetic. Native controls and media use the same catalogue authoring
+planners as `mashup add`, `mashup bind` and `mashup set`; they accept `props`, `style` maps/settings
+and layout sizes. Authored properties override element defaults. New defaults are recorded in the
+v1 rule table; legacy rules are unchanged.
+
+| Element | Fields | Command path |
+| --- | --- | --- |
+| `link` | `text`/`label` (string or binding), `url` (string or binding) or `mashup`, `target` (`_self`, `_blank`, `_popup`), `icon` | `mashup add ... ptcslink --prop Text=... --prop LinkURL=... --prop TargetWindow=...`; an icon adds a separate `ptcsicon` beside the link |
+| `image` | `source` (Media entity name, URL, or binding), `scaling` (`fit-x`, `fit-y`, `fit`, `contain`, `cover`, `auto`, `25%`, `50%`, `75%`), `position` (`top`, `center`, `bottom`), `alt` | `mashup add ... ptcsimage --prop SourceURL=/Thingworx/MediaEntities/Acme.Logo_MD --prop Scaling=contain --prop AlternateText=Logo` |
+| `icon` | `icon` (CDS name or shorthand), `source`, `alt`, `icon_size` (`small`, `medium`, `large`, `xlarge`, `custom`), `size: sm/md/lg/xl`, token `color` | `mashup add ... ptcsicon --prop SVGIcon=cds:icon_info --prop Size=large`; `mashup set ... --style color=ink` |
+| `divider` | `orientation` (`horizontal` or `vertical`), token `color` | `mashup add ... ptcsdivider --prop VerticalDivider=true`; `mashup set ... --style line:background=line` |
+| `checkbox`, `toggle` | `label`/`text`, bindable boolean `value` | `mashup add ... ptcscheckbox` / `ptcstogglebutton --prop Label=Enabled --prop State=true` |
+| `radio` | `label`/`text`, bindable boolean `value`, bindable `group`; or static `options: [Open, Closed]` | `mashup add ... ptcsradio --prop Label=Open --prop Radiogroup=AcmeStatus`; bind `State` |
+| `textarea` | `label`/`text`, `hint`, bindable `value`, `max_length` | `mashup add ... ptcstextarea --prop Label=Notes --prop HintText=Enter --prop MaxNumberOfCharacters=500`; bind `Text` |
+| `date_picker` | single date: `label`/`text`, `hint`, bindable `value`, `date_only`, `format` | `mashup add ... ptcsdatepicker --prop DateRange=false --prop DateOnly=true --prop FormatToken=YYYY-MM-DD`; bind `DateTime` |
+| `value_display` | `label`/`text`, scalar or bindable `value` | `mashup add ... ptcsvaluedisplay --prop Label=Count`; bind `Data`. A literal uses an `expression2` constant, a Loaded-to-Evaluate event and a binding because native `Data` is not editable |
+| `events_router` | `data_type` (default STRING), `input_count` (1 to 20), `routes` (bindings or null for an unbound input) | `mashup add ... eventsrouter --prop DataType=BOOLEAN --prop NumberOfInputs=2`; bind `Input1`, `Input2`, read `Output` |
+| `embed` | static `mashup`, `params: {name: literal or {bind: ...}}` | `mashup add-contained ... Acme.Child_MU --set id=...`; bind the container's child parameters |
+
+A radio is a native boolean control, as in the kits. Static options expand to radios with
+IDs `<id>--1`, `<id>--2`, etc., sharing `Radiogroup`; read each radio's `State`. A data-bound
+radio binds `value` and optionally `group`. A dynamic list of options needs a collection cell;
+`ptcsradio` has no native options-table contract. A link icon is an adjacent native icon;
+`ptcslink` has no native icon property. Media entity names become `/Thingworx/MediaEntities/<name>`;
+URLs remain unchanged. Divider colour styles its native `line` part's background.
+An embed uses `add-contained`'s child-parameter contract. Its current offline catalogue has no
+independent editable styling contract: style/size the surrounding row or column, or the child
+mashup's own controls, rather than setting styles on `mashupcontainer` itself. Function elements
+have no visual styling or layout.
+
+```yaml
+# Inside page.slots.center:
+- link: {id: details, text: Details, mashup: Acme.Detail_MU, target: _blank}
+- image: {id: logo, source: Acme.Logo_MD, scaling: contain, alt: Acme logo}
+- icon: {id: help, icon: info, size: lg, color: ink}
+- divider: {id: separator, orientation: horizontal, color: line}
+- checkbox: {id: archived, label: Include archived, value: false}
+- radio: {id: state, options: [Open, Closed], group: AcmeStatus}
+- toggle: {id: enabled, label: Enabled, value: true}
+- textarea: {id: notes, label: Notes, hint: Enter notes, max_length: 500}
+- date_picker: {id: when, label: As of, date_only: true}
+- value_display: {id: count, label: Count, value: {bind: rows.Count}}
+- embed: {id: detail, mashup: Acme.Detail_MU, params: {id: {bind: rows.Name}}}
+```
+
+`chart` also accepts `kind: pareto` and `kind: waterfall` with the same flat `data` and `x`
+contract as line/bar. Pie uses its native `DataField` for labels and `ValueField` for numbers;
+derivation recognises that pair. Combo still requires explicit numeric `series`. The command
+path is `mashup add` with the chart's native type followed by `recipe chart --data ... --x ...`
+(and `--value` for pie, `--series` for combo). `kind: schedule` is refused with a nested-interval
+contract explanation: use `widget: {type: ptcschartschedule}` and explicit native bindings.
+
+Native service pagination uses `pagination: {id: pages, mode: server, total: {bind: rows.Count},
+page_size: 25, page_number: 1}`. Bind `pages.PageNumber` and `pages.PageSize` into service params,
+and use `PageNumberChanged` / `PageSizeChanged` events to invoke that service. This adds no local
+slicing functions. The command path is `mashup add ... ptcspagination`, properties and bindings.
+`pagination: {for: grid}` keeps its existing local slicing behaviour. `dropdown: {id: empty,
+unbound: true}` represents an unconfigured kit control without inventing a service. Grid
+controls without a supported table feed retain their native properties and explicit bindings.
+
+A collection with `data` retains the existing configured-cell workflow. To preserve native kit
+layout and a table-property binding, use `collection: {id: cards, source: {bind: rows}, mashup:
+Acme.Cell_MU, map: {Name: title}}`; the same properties and binding are available through
+`mashup add ... ptcscollection`. Derivation uses this native form and retains layout properties. An unconfigured native
+collection explicitly uses `unbound: true` instead of a source; omitting both data and source
+without that marker remains an error.
+Use the `data` workflow when row/child mapping validation is required. The native source form
+preserves direct mapping properties and native binding checks; it cannot validate an unavailable
+row shape. Tabs read labels from native `Items` when present, falling back to `Tab<n>Name`. KPI dials
+recognise dial/horizontal/vertical layouts and retain custom angles and formatting in `props`.
+Unsupported entity-service feeds are reported in notes; recognising a control does not claim
+that an unsupported feed was preserved.
+
+An expression is a data item. Short strings are expressions; scripts containing a semicolon or
+newline are carried verbatim. Inputs can infer their types from a binding reference or declare
+`{type: NUMBER, value: {bind: rows.Count}}`; a typed input can also have a literal value.
+`output` is a ThingWorx base type. Optional `auto_evaluate` (true), `fire_on_first_value` (false)
+and `data_change: ALWAYS|VALUE` preserve native evaluation choices. `on: load` or a node event
+invokes `Evaluate`. Bind to `late` or `late.Output`; events may invoke `late.Evaluate`.
+
+```yaml
+# Inside page:
+data:
+  late: {expression: "Count > 3", inputs: {Count: rows.Count}, output: BOOLEAN}
+events:
+  - {on: open_btn.Clicked, navigate: {mashup: Acme.Detail_MU, mode: popup, params: {id: {bind: rows.Name}}}}
+```
+
+Navigation `mode` is `page` (default), `new_tab`, `popup` or `modal-popup`; native aliases
+`replace` and `new` are also accepted. Optional `width`, `height`, `title` and `params` share
+`recipe popup`'s child-parameter checks. Parameter values are literals or `{bind: ...}`. A plain dotted reference to a known node/data alias is also accepted; `grid.SelectedRow.Name` reads `grid.selected.Name` through the selected-row helper.
+An optional `id` names the generated function for subsequent event references; `props` retains
+native popup options during derivation. Command equivalents are `mashup add ... expression2
+--input Count:NUMBER --prop Expression="result = Count > 3;" --prop OutputBaseType=BOOLEAN`,
+`mashup bind`, and `mashup recipe popup ... --pass id=<source>` (or `mashup set` for fixed function
+inputs). Both CLI and MCP use these core planners; MCP page builds still plan by default.
+
+`events_router` represents the kits' simple typed fan-in: each `routes` entry binds one native
+`InputN` and consumers bind `<id>.Output`. An omitted count defaults to the number of routes
+(at least two). For example, `events_router: {id: route, data_type: BOOLEAN, routes:
+[{bind: first.State}, {bind: second.State}]}`. It is a function beside the layout, with no
+visual container. The local exports use two/three STRING or BOOLEAN inputs and no special events.
+Other native properties and events remain available through `props` and explicit event wiring.
+
+Static navigation with one Navigate trigger derives as an event action. Dynamic targets and
+shared navigation functions remain raw. `dynamic_panel`
+stays raw because its two native panes and push/trigger behaviours differ from `side_panel`.
+`menubar` stays raw because primary/secondary Menu entities, infotable navigation and page-host
+selection do not map to `nav_menu`'s button groups. Decorative `shape` and map extensions
+(`googlemap`, `OpenStreetMap`) intentionally remain raw. Raw-type notes name these limitations.
+All kit observations in this batch are from local exports; no live behaviour is claimed.
+
 ## Components
 
 Components are embedded YAML definitions plus `twaco/components/*.yaml` in the solution.
@@ -586,7 +700,7 @@ twaco mashup spec Acme.Page_MU --json
 ```
 
 Without `--out`, the spec goes to stdout and coverage to stderr. `--json` returns `spec`,
-`elements`, `raw`, `raw_types`, `widgets`, `exact`, `hand_edited` and `notes` (the last three only
+`elements`, `raw`, `raw_types` (always present, including `{}`), `widgets`, `exact`, `hand_edited` and `notes` (the last three only
 when they have something to say); it also writes the requested output file when present. MCP
 `mashup_spec` takes `mashup` and returns the same report without writing a file.
 
@@ -606,11 +720,11 @@ Q1 to Q4 and S) both ways.
 | flex container | `row` or `column`; `size: fit` for no growth, `size: {fixed: N}` for a fixed pixel size along the parent, `weight: N` for a growth other than 1; other properties that differ from the catalogue go in `props` |
 | empty container in a row | `spacer` |
 | label | `heading` (header), `text` (body), `label`; other label types are a `label` with `props: {LabelType: ...}` |
-| button, text field, date range | `button` (`variant`, `icon`), `text_field` (`hint`), `date_range` (a datepicker without `DateRange` is a `widget`) |
+| button, text field, date range | `button` (`variant`, `icon`), `text_field` (`hint`), `date_range` or single `date_picker` |
 | dropdown, list | `dropdown` (`options`, `display`), `list` (`data`, `display`, `selection`), when a service feeds them |
 | grid | `grid` with `data` and `columns` (field, title, width) when a service feeds it |
-| charts | `chart` with `kind`, `data`, `x`; a combo chart lists its `series` |
-| collection | `collection` with `data`, `mashup` and `map` |
+| charts | `chart` with `kind`, `data`, `x`; pie uses `value`, combo lists `series`; schedule stays raw |
+| collection | `collection` with native `source` binding, `mashup`, `map` and retained layout props |
 | tab set | `tabs` with each tab's content |
 | row with a header label and buttons | `page_header` with `actions` |
 | 48px row of controls | `toolbar` |
@@ -618,6 +732,8 @@ Q1 to Q4 and S) both ways.
 | side column (72px title row over a one-tab strip) | `side_panel` |
 | column of a 40px title row (one sub-header label) over a body row | `card` with `align` |
 | row of three-label columns (caption, bound value, unit) | `kpi_row` with `tiles` |
+| native controls/media | `link`, `image`, `icon`, `divider`, `checkbox`, `radio`, `toggle`, `textarea`, `date_picker`, `value_display`, `embed` |
+| functions/pagination | typed expression `data` entries, `events_router`, `navigate` actions, server-mode `pagination` |
 | anything else | `widget: {id, type, props}` with only the properties that differ from the widget catalogue |
 
 Services become `data` entries (`service`, `on: load`, `on: every Ns`, fixed `params`). A binding
@@ -627,10 +743,10 @@ element's `data`, and every other trigger an `events` entry. Node ids are the wi
 anything but letters, digits, `_` and `-` replaced.
 
 Not carried: widget styles, custom CSS, state formatting snapshots, properties the widget
-catalogue does not know, bindings and events a spec cannot express (for example into a function
-widget's inputs) and data that is not a Thing service. The report's `notes` list what applied.
-Pagination is a raw `widget`, because the `pagination` element would add the slicing expressions
-the page already has. Build the derived spec to review a plan: its widget tree matches the
+catalogue does not know, bindings and events outside the supported function contracts and data that is not a Thing service. The report's `notes` list what applied.
+Pagination derives as `pagination` with `mode: server`, preserving its existing wiring without
+adding slicing expressions. Native expressions become typed `data` entries. Widgets without an element (decorative shapes, extension maps, dynamic navigation or embed targets, two-pane dynamic panels, native menu bars) stay as raw `widget:` nodes with a note.
+Build the derived spec to review a plan: its widget tree matches the
 original's widgets, nesting, services, bindings and events (the compiler adds layout wrappers
 and the look), not its properties.
 
@@ -638,7 +754,7 @@ Coverage counts spec nodes, not widgets: `elements` is the nodes written as elem
 components, `raw` the `widget:` nodes with their types in `raw_types`, and `widgets` the widgets
 of the mashup, so `widgets` against `elements + raw` shows how much the spec condenses.
 
-Offline coverage of the synthetic kit-structure fixtures
+Historical coverage before native controls and expression data items, for the synthetic kit-structure fixtures
 (`tests/fixtures/mashup/pages/kit_structures`, hand-written Acme pages with the container
 structure of the kit pages, no copied content):
 
@@ -650,7 +766,7 @@ structure of the kit pages, no copied content):
 | admin_shell | 24 | 16 | 0 | 1818 |
 | tabs_page | 10 | 7 | 1 (expression2) | 879 |
 
-The benchmark pages built by their specs, derived again from their built content (as a page
+Historical derivation coverage before this batch, for benchmark pages built by their specs and derived again from their built content (as a page
 without a baseline would be). All fourteen derive specs that parse; the six smallest (up to 40
 widgets: H, J, K, L, N, P) are built again and keep their widgets, nesting, services, bindings and
 events. The raw nodes are mostly the pagination widget with the expressions that slice its grid,

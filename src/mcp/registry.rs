@@ -719,7 +719,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         .with_output::<outputs::MashupDescribeResult>(),
         solution_tool::<refactor_requests::MashupBuildRequest>(
             "mashup_build",
-            "Compile the YAML page spec in page.yaml and three-way merge with the last generated baseline. Independent hand edits survive; conflicts write nothing. Plans by default; dry_run:false applies all files atomically.",
+            "Compile the YAML page spec (native controls/media, embed, typed expressions and navigate events) in page.yaml and three-way merge with the last generated baseline. Independent hand edits survive; conflicts write nothing. Plans by default; dry_run:false applies all files atomically.",
             false,
             refactor::mashup_build_tool,
         )

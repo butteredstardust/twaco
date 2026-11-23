@@ -767,6 +767,33 @@ mod tests {
             .iter()
             .filter(|rule| !legacy.rules.iter().any(|old| old.id == rule.id))
             .collect();
+        let native: Vec<_> = additions
+            .iter()
+            .filter(|r| r.id.starts_with("props.native-"))
+            .collect();
+        assert_eq!(native.len(), 9);
+        for rule in native {
+            assert!(matches!(&rule.when.op, Some(Names::One(op)) if op == "add"));
+            let Some(Names::One(widget)) = &rule.when.widget else {
+                panic!("native widget rule");
+            };
+            let defaults = &crate::core::widgets::catalog()
+                .by_type(widget)
+                .unwrap()
+                .defaults;
+            for (property, value) in rule.decisions.props.as_ref().unwrap() {
+                assert_eq!(
+                    defaults.get(property),
+                    Some(value),
+                    "{} {property}",
+                    rule.id
+                );
+            }
+        }
+        let additions: Vec<_> = additions
+            .into_iter()
+            .filter(|r| !r.id.starts_with("props.native-"))
+            .collect();
         assert_eq!(additions.len(), 22);
         assert_eq!(additions[0].id, "gutter.filter-actions");
         for (rule, op) in additions[1..].iter().zip([

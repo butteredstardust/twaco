@@ -186,6 +186,7 @@ fn text_size(b: &mut Body) -> Result<(), Error> {
 enum StyleOn {
     Text,
     Box,
+    Native,
 }
 
 /// Turn the `~key=value` entries of a style map into `--style` settings. Colours and fonts use
@@ -209,6 +210,8 @@ fn style_map(b: &mut Body, on: StyleOn, tokens: &Tokens) -> Result<(), Error> {
                 format!("border-width={}", tokens.border_width()),
                 format!("border-color={}", colour_at(tokens, value, at)?),
             ],
+            ("color", StyleOn::Native) => vec![format!("color={}", colour_at(tokens, value, at)?)],
+            ("font", StyleOn::Native) => vec![format!("font-family={}", tokens.font(value))],
             ("color", StyleOn::Text) => vec![format!("label:color={}", colour_at(tokens, value, at)?)],
             ("font", StyleOn::Text) => vec![format!(
                 "label:font-family={}",
@@ -236,6 +239,10 @@ fn style_map(b: &mut Body, on: StyleOn, tokens: &Tokens) -> Result<(), Error> {
 }
 
 /// An icon as the spec writes it: `search` or the full `cds:icon_search`.
+pub(super) fn native_styles(b: &mut Body, tokens: &Tokens) -> Result<(), Error> {
+    style_map(b, StyleOn::Native, tokens)
+}
+
 fn cds_name(icon: &str) -> String {
     if icon.starts_with("cds:") {
         icon.to_string()
@@ -301,6 +308,7 @@ const DIALS: [Dial; 4] = [
 pub(super) fn expand(page: &mut Page, tokens: &Tokens) -> Result<(), Error> {
     fn nodes(list: &mut [Node], tokens: &Tokens) -> Result<(), Error> {
         for node in list {
+            super::native::expand(node, tokens)?;
             match node {
                 Node::Heading(b) | Node::Label(b) | Node::Text(b) => {
                     text_size(b)?;
@@ -407,7 +415,10 @@ pub(super) fn expand(page: &mut Page, tokens: &Tokens) -> Result<(), Error> {
                 }
                 Node::TrendTile(b) => {
                     let loc = b.id.referenced;
-                    let caption = b.title.take().or_else(|| b.text.take());
+                    let caption = b
+                        .title
+                        .take()
+                        .or_else(|| b.text.take().and_then(|v| v.as_str().map(str::to_owned)));
                     let (Some(caption), Some(value)) = (caption, b.value.take()) else {
                         return Err(Error::at(
                             loc,
@@ -786,7 +797,7 @@ pub(super) fn expand(page: &mut Page, tokens: &Tokens) -> Result<(), Error> {
                                 "KPI tile needs value: {bind: source.field} and unit",
                             ));
                         }
-                        tile.title = tile.text.take();
+                        tile.title = tile.text.take().and_then(|v| v.as_str().map(str::to_owned));
                         if let Some(unit) = &tile.unit {
                             tile.children.push(generated(
                                 &tile,
@@ -940,6 +951,18 @@ fn fields(node: &Node) -> Result<(), Error> {
         }
     }
     let checks = [
+        (b.data_type.is_some() || b.input_count.is_some() || !b.routes.is_empty(), false, "data_type/input_count/routes belongs to events_router"),
+        (b.unbound.is_some(), matches!(node, Node::Dropdown(_)), "unbound"),
+        (b.mode.is_some() || b.total.is_some() || b.page_size.is_some() || b.page_number.is_some(), false, "mode/total/page_size/page_number belongs to server pagination"),
+        (b.url.is_some() || b.target.is_some(), false, "url/target belongs to link"),
+        (b.source.is_some() || b.alt.is_some(), false, "source belongs to image/icon/native collection; alt belongs to image/icon"),
+        (b.scaling.is_some() || b.position.is_some(), false, "scaling/position belongs to image"),
+        (b.orientation.is_some(), false, "orientation belongs to divider"),
+        (b.icon_size.is_some(), false, "icon_size belongs to icon"),
+        (b.group.is_some(), false, "group belongs to radio"),
+        (b.date_only.is_some() || b.format.is_some(), false, "date_only/format belongs to date_picker"),
+        (b.max_length.is_some(), false, "max_length belongs to textarea"),
+        (!b.params.is_empty(), false, "params belongs to embed"),
         (
             b.sparkline.is_some(),
             matches!(node, Node::TrendTile(_)),
@@ -1200,7 +1223,9 @@ pub(super) fn validate(node: &Node, page: &Page) -> Result<(), Error> {
         Node::Chart(_) if !b.series.is_empty() => {
             return Err(fail("series belongs to a combo chart"))
         }
-        Node::Dropdown(_) if b.options.is_none() || b.display.is_none() => {
+        Node::Dropdown(_)
+            if b.unbound != Some(true) && (b.options.is_none() || b.display.is_none()) =>
+        {
             return Err(fail("dropdown needs options and display"))
         }
         Node::Pagination(_) if b.grid.is_none() => {
@@ -1270,10 +1295,19 @@ pub(super) fn validate(node: &Node, page: &Page) -> Result<(), Error> {
         _ => {}
     }
     if let Some(options) = &b.options {
-        if !page.data.contains_key(&options.value) {
+        let name = options.value.as_str().ok_or_else(|| {
+            Error::at(
+                options.referenced,
+                "dropdown options names a data declaration",
+            )
+        })?;
+        if !page
+            .data
+            .contains_key(name.split('.').next().unwrap_or(name))
+        {
             return Err(Error::at(
                 options.referenced,
-                format!("unknown data {}", options.value),
+                format!("unknown data {name}"),
             ));
         }
     }
@@ -1295,6 +1329,25 @@ pub(super) fn wire(
     let b = node.body();
     let id = &ids[&b.id.value];
     let loc = b.id.referenced;
+    if matches!(node, Node::Dropdown(_)) && b.unbound == Some(true) {
+        if b.options.is_some() {
+            return Err(Error::at(loc, "unbound dropdown cannot also take options"));
+        }
+        if let Some(display) = &b.display {
+            session
+                .set(
+                    solution,
+                    &crate::core::mashup::authoring::SetRequest {
+                        mashup: page.name.value.clone(),
+                        widget: id.clone(),
+                        properties: vec![("DisplayField".into(), json!(display))],
+                        style_from: None,
+                        styles: vec![],
+                    },
+                )
+                .map_err(|e| Error::at(loc, e))?;
+        }
+    }
     let recipe = match node {
         Node::Chart(_) => Some(Recipe::Chart {
             series: vec![],
@@ -1308,9 +1361,17 @@ pub(super) fn wire(
             y_title: None,
             stacked: b.stacked.unwrap_or(false),
         }),
-        Node::Dropdown(_) => Some(Recipe::Picker {
+        Node::Dropdown(_) if b.unbound != Some(true) => Some(Recipe::Picker {
             widget: id.clone(),
-            data: call(page, &b.options.as_ref().expect("options").value),
+            data: call(
+                page,
+                b.options
+                    .as_ref()
+                    .expect("options")
+                    .value
+                    .as_str()
+                    .expect("options source"),
+            ),
             display: b.display.clone().expect("display"),
             value: None,
             selected: None,

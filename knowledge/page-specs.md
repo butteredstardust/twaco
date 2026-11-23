@@ -44,3 +44,28 @@ Set top-level `tokens: brutalist` in page.yaml, generate its native StyleTheme w
 `page.theme: Acme.Orders_TH`. Tokens resolve colours, fonts, borders, radii and shadows;
 they do not create or select the theme automatically. Presets are convergence (default),
 clean and brutalist. A token YAML file can extend a preset with solution values.
+
+## Link, image, icon, divider, checkbox, radio, toggle, textarea, date_picker, value_display and embed
+
+Native controls accept readable fields and bindings. Use `link` for text/url/target, `image` for
+Media entity or URL/scaling/alt, `icon` for CDS icon/size/token colour, and `divider` for orientation
+and token colour. `checkbox`, `radio` and `toggle` bind boolean `value`; radio has `group` or static
+`options`. `textarea` adds hint/max_length; `date_picker` binds one DateTime (`date_range` still
+selects a range); `value_display` pairs a label with a scalar or binding. `embed` takes a static
+mashup and checked `params`. The command paths are native `mashup add`, `set`, `bind` and
+`add-contained`. See documentation/PAGE_SPECS.md for the field/property mappings and examples.
+
+## Expression, expression2, events_router, eventsrouter, navigate, navigationfunction, pagination and kit variants
+
+A data entry may use `expression`, typed or inferred `inputs`, and `output: BOOLEAN` (or another
+base type). Bind to its alias or alias.Output; invoke alias.Evaluate. Native evaluation flags
+survive derivation. Event `navigate: {mashup: Acme.Detail_MU, mode: popup, params: {id: {bind:
+rows.Name}}}` shares `recipe popup`; modes include page/new_tab/popup/modal-popup. Native service
+pagination uses `mode: server`, total/page_size/page_number and explicit events, keeping existing
+slicing expressions. Unbound dropdowns use `unbound: true`; collections may preserve native
+layout through `source: {bind: rows}`, mashup and map. Tabs recognise Items labels; KPI dials
+recognise native layouts. Charts add pareto/waterfall; pie recognises DataField/ValueField;
+combo uses explicit series. Schedule needs nested resource intervals and stays raw. The kits'
+typed fan-in routers use `events_router`, `data_type`, `routes` bindings and Output. Dynamic
+panels, menu bars, decorative shapes and map extensions retain explicit raw contracts;
+derivation notes explain unsupported dynamic sources or targets. Evidence is offline.

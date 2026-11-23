@@ -1505,6 +1505,9 @@ fn call_event(call: &str, event: &str) -> Result<String, AuthoringError> {
 
 /// A widget event: a bare widget means its click.
 fn widget_event(trigger: &str) -> String {
+    if trigger.starts_with("mashup:") || trigger.starts_with("data:") {
+        return trigger.into();
+    }
     let rest = trigger.strip_prefix("ui:").unwrap_or(trigger);
     if rest.contains('.') {
         format!("ui:{rest}")
@@ -2251,6 +2254,9 @@ pub(super) fn plan_recipe_loaded(
             stacked,
         } => {
             let target = widget_id(&work.document, widget)?;
+            if target.type_id == "ptcschartschedule" {
+                return Err(AuthoringError::Invalid("schedule uses nested resource intervals; configure DataField and ResourceField with mashup set and bind the nested Data explicitly".into()));
+            }
             let pie = matches!(target.type_id.as_str(), "ptcschartpie");
             if !target.type_id.starts_with("ptcschart") {
                 return Err(AuthoringError::Invalid(format!(

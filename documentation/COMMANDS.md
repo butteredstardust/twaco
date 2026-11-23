@@ -197,6 +197,7 @@ mashup spec <mashup> [--out <path>] [--json]
 mashup build <mashup> [--apply] [--json]
                             compile the YAML page spec src/<Mashup>/page.yaml and merge with the generated baseline;
                             keep independent hand edits; conflicts write nothing; plans by default
+                            native controls, media, embed, typed expressions and navigate events: guide page-specs
 mashup why <mashup> <widget> [--json]
                             what the layout rules decide for one widget (size, gutter, alignment, surface,
                             equal siblings), the rule that decided each, what the mashup holds now, and the

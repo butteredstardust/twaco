@@ -3729,7 +3729,7 @@ fn kit_structure_fixtures_derive_readable_specs_that_rebuild_the_same_shape() {
             ],
             "section_gallery" => &["card:", "align: center", "text_field:"],
             "admin_shell" => &["toolbar:", "spacer:", "chart:", "kpi_row:", "weight: 2"],
-            "tabs_page" => &["tabs:", "type: expression2", "bind:"],
+            "tabs_page" => &["tabs:", "expression:", "bind:"],
             _ => panic!("uncovered fixture {stem}"),
         };
         for needle in expected {
@@ -3739,13 +3739,7 @@ fn kit_structure_fixtures_derive_readable_specs_that_rebuild_the_same_shape() {
                 derived.spec
             );
         }
-        let raw: &[(&str, usize)] = match stem {
-            "tabs_page" => &[("expression2", 1)],
-            "filter_column" => &[("ptcspagination", 1)],
-            "section_gallery" => &[("ptcsdatepicker", 1)],
-            _ => &[],
-        };
-        let raw: BTreeMap<String, usize> = raw.iter().map(|(k, n)| (k.to_string(), *n)).collect();
+        let raw: BTreeMap<String, usize> = BTreeMap::new();
         assert_eq!(derived.raw_types, raw, "{stem}");
     }
 }
@@ -4671,3 +4665,6 @@ fn default_tokens_keep_css_keywords_and_block_layout_sizes() {
             .unwrap_or_else(|e| panic!("size {size}: {e}"));
     }
 }
+
+#[path = "native_tests.rs"]
+mod native;
