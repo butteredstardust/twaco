@@ -110,7 +110,7 @@ everything. Tools that write to the ThingWorx server default to dry_run: true an
 they would do; pass dry_run: false to act. Use `catalog` for the repository's callable services, `types` for editor declarations and TypeScript checks, `logs` to read the server's logs, and \
 `help_search`/`help_page` for the ThingWorx Platform help, `javadoc` for the Java API of objects scripts call and Resource service parameters, `guide` for twaco's workflow, the platform's verified-live quirks and the solution's own documents (search it before a live import, a hand-written binding or a configuration-table change), `repo` for file repositories, and \
 `extensions` for extension packages. \
-For creation and authoring use `entity_new`, `entity_edit`, `mashup_new`, `mashup_add`, `mashup_recipe` and `mashup_bind`; read `guide` topic `tasks` for the task index. \
+Start new mashups from YAML page specs with `mashup_new` (spec), then `mashup_build`; derive one with `mashup_spec` before restructuring. Read `guide` topic `page-specs` for the wireframe workflow and token presets. For creation and authoring use `entity_new`, `entity_edit`, `mashup_new`, `mashup_add`, `mashup_recipe` and `mashup_bind`; read `guide` topic `tasks` for the task index. \
 Start with `projects`, then `check`, then `status` with `all: true` (or one `entity`).";
 
 /// Serve every tool until stdin closes. See [`serve_tools`].

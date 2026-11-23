@@ -15,6 +15,15 @@ colors:
   grey-900: '#111827'
 roles:
   background: grey-50
+  card: white
+  page-card: white
+  band: grey-100
+  card-line: grey-200
+  panel-line: grey-200
+  nav-selected: grey-200
+  nav-text: grey-900
+  nav-caption: grey-500
+  input-focus: grey-100
   surface-alt: grey-100
   text: grey-900
   text-muted: grey-500

@@ -223,10 +223,6 @@ pub(crate) fn function_property(
     }
 }
 
-/// Plan adding one catalogue widget to an existing mashup. Nothing is written.
-/// The design kits' row separator colour.
-const SEPARATOR_COLOUR: &str = "#C2C7CE";
-
 fn validate_properties(request: &AddRequest) -> Result<(), AuthoringError> {
     for (_, value) in &request.properties {
         crate::core::repo::refuse_git_bash_value(&Value::String(value.clone()))
@@ -235,19 +231,21 @@ fn validate_properties(request: &AddRequest) -> Result<(), AuthoringError> {
     Ok(())
 }
 
+/// Plan adding one catalogue widget to an existing mashup. Nothing is written.
 pub(crate) fn plan_add(
     solution: &Solution,
     request: &AddRequest,
 ) -> Result<AddPlan, AuthoringError> {
     validate_properties(request)?;
     let loaded = load_existing(solution, &request.mashup)?;
-    plan_add_loaded(solution, request, loaded)
+    plan_add_loaded(solution, request, loaded, None)
 }
 
 pub(super) fn plan_add_loaded(
     solution: &Solution,
     request: &AddRequest,
     loaded: super::ExistingMashup,
+    tokens: Option<&crate::core::mashup::tokens::Tokens>,
 ) -> Result<AddPlan, AuthoringError> {
     validate_properties(request)?;
     let mut document = parse_loaded(&loaded)?;
@@ -354,6 +352,15 @@ pub(super) fn plan_add_loaded(
             .place(placing, &placement)
             .map_err(AuthoringError::Edit)?;
         if separator {
+            let active;
+            let tokens = match tokens {
+                Some(tokens) => tokens,
+                None => {
+                    active = crate::core::mashup::tokens::Tokens::active(solution)
+                        .map_err(AuthoringError::Invalid)?;
+                    &active
+                }
+            };
             document
                 .make_separator(&placed.id)
                 .map_err(AuthoringError::Edit)?;
@@ -361,7 +368,7 @@ pub(super) fn plan_add_loaded(
                 &mut document,
                 &placed.id,
                 serde_json::json!({
-                    "parts": {"$": {"$": {"background": SEPARATOR_COLOUR}}},
+                    "parts": {"$": {"$": {"background": tokens.colour("line").map_err(AuthoringError::Invalid)?}}},
                     "widget": "flex-container"
                 }),
                 None,

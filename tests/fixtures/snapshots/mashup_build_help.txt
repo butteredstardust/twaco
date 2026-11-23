@@ -3,7 +3,7 @@ exit: 0
 
 --- stdout
   mashup build <mashup> [--apply] [--json]
-                              compile src/<Mashup>/page.yaml and merge with the generated baseline;
+                              compile the YAML page spec src/<Mashup>/page.yaml and merge with the generated baseline;
                               keep independent hand edits; conflicts write nothing; plans by default
 
   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)

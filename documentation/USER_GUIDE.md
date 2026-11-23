@@ -1193,6 +1193,10 @@ service. MCP actions are `service_override` and `service_revert`.
 
 ## Creating mashups
 
+Start new mashups with the [page-spec wireframe tool](PAGE_SPECS.md): YAML layout,
+service bindings and token presets compiled by `mashup build`. Derive a spec with
+`mashup spec` before restructuring an existing mashup.
+
 ```sh
 twaco mashup new Acme.App.Orders_MU --project Acme.App                     # plan
 twaco mashup new Acme.App.Orders_MU --project Acme.App --apply

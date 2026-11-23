@@ -706,9 +706,16 @@ Token files are strict version 1 YAML. Sections are `colors`, `roles`, `fonts`, 
 `border`, `shadow`, `space`, `chart` (a colour list), `vars`, and optional `block` defaults
 (`border`, `shadow`, `radius`). Colour scales such as `primary-50` and `grey-900` are optional.
 Roles (`primary`, `success`, `warning`, `danger`, `info`, `background`, `surface`,
-`surface-alt`, `text`, `text-muted`, `heading`, `line`, `on-primary`, `on-dark`, `selected`) name
+`surface-alt`, `text`, `text-muted`, `heading`, `line`, `on-primary`, `on-dark`, `selected`,
+`card`, `page-card`, `band`, `card-line`, `panel-line`, `nav-selected`, `nav-text`,
+`nav-caption`, `input-focus`) name
 colours or hex values; `border` takes `width` and `color` for the `border:` style shorthand and
-`line` for the native line thickness of inputs and grids. Qualified references use `${colors.ink}`, `${roles.text}`,
+`line` for the native line thickness of inputs and grids. `border.card` controls recipe
+card/section/panel frames (default 1px); `border.band` controls the toolbar bottom border
+(default 0px). Brutalist references `border.width` for both and `border.color` for frame colours.
+`card` preserves the recipe white fill, `page-card` the `surface: true` fill, and `band` the
+kit grey fill under convergence; brutalist uses paper for all three. Status/trend colours
+remain fixed kit semantics. Qualified references use `${colors.ink}`, `${roles.text}`,
 `${fonts.mono}`, etc. Unknown references and circular inheritance are refused with known names.
 Inheritance accepts presets or another file relative to the extending file.
 
@@ -719,9 +726,11 @@ twaco new theme Acme.Page_TH --from Acme.Base_TH --tokens ./tokens.yaml --prop g
 
 Themes overlay base props, token props, then `--prop`. The mapping sets native ptcs globals
 (colours, text colours, fonts, radii), the primary button text and chart text and series; other
-widget variables follow those globals through the platform's theme engine. Layout containers
-stay borderless and lines keep their native thickness unless `vars` sets them, and a token set
-to `inherit` writes no variable, so the platform value stays. `vars` overrides the mapping. Variable names must use lowercase hyphens:
+widget variables follow those globals through the platform's theme engine. The mapping leaves
+native flexcontainer variables untouched; lines keep their native thickness unless
+`border.line` or `vars` sets it.
+A token set to `inherit` writes no variable, so the platform value stays. `vars` overrides
+the mapping. Variable names must use lowercase hyphens:
 `backgroundColor` is refused with a `global-color-bg-primary` hint. Well-formed names outside
 twaco's mapping are allowed and reported in the plan.
 
@@ -742,7 +751,9 @@ tokens: brutalist
 
 Style maps accept `background`, `color`, `border`, `font`, `shadow`, `radius`. A border colour
 uses the token border width and a solid line. Brutalist blocks default to ink borders and hard
-shadows; `size: xl` sets the value to 48px. A label with `band: true` grows to the full row width.
+shadows; `size: xl` sets the value to 48px and gives the block an uncapped height range
+with a minimum derived from its value size. A label with `band: true` sits in a full-width
+row; its background and border style the row while the text label grows inside it.
 Derived specs retain explicit `tokens:` and keep derived hex colours as hex.
 
 Command parity: set `[mashup] tokens = "brutalist"` in twaco.toml, then use

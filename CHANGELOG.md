@@ -6,6 +6,10 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+- Page-spec blocks with large values grow without a height cap; ticker bands use a full-width row.
+- Design tokens reach recipe cards, bands, sections, panels and page surfaces, preserving convergence values.
+- Creation plans suggest the accepted `deploy --only-projects` flag.
+- Document the page-spec wireframe workflow and add the searchable `page-specs` guide topic.
 - Add design token YAML files and convergence, clean and brutalist presets; generate native
   StyleTheme props with `new theme --tokens` and inspect them with `mashup tokens` (also MCP).
   Specs and command styles share token resolution. Theme variable names reject camelCase.

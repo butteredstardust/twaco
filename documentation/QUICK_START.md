@@ -78,6 +78,38 @@ twaco check
 and script-trap findings; fix them,
 or see [User guide: gates](USER_GUIDE.md#the-gates) for what each gate means.
 
+## Build a page from a spec
+
+For a new page, start with the YAML wireframe tool. Save `orders.page.yaml`:
+
+```yaml
+version: 1
+rules: v1
+page:
+  name: Acme.Orders_MU
+  template: blank
+  data:
+    orders: {service: Acme.Manager.GetOrders, on: load}
+  slots:
+    center:
+      - toolbar: {id: tools, children: [{heading: {id: title, text: Orders}}]}
+      - row:
+          id: kpis
+          children: [{block: {id: count, caption: Orders, value: 84, color: lime}}]
+      - grid: {id: orders_grid, data: orders, columns: [{field: Name, title: Name}]}
+```
+
+The service must exist in the repository and return a `Name` field. Plan, then write:
+
+```sh
+twaco new mashup Acme.Orders_MU --spec orders.page.yaml
+twaco new mashup Acme.Orders_MU --spec orders.page.yaml --apply
+twaco mashup build Acme.Orders_MU --apply
+```
+
+Edit `src/Acme.Orders_MU/page.yaml` for later builds. See [Page specs](PAGE_SPECS.md)
+for elements, deriving a spec from an existing mashup, and tokens/theme presets.
+
 ## 5. Connect a server
 
 First keep twaco's local files out of git. `twaco init --write` (or `twaco init --agents`, for a solution

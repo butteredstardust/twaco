@@ -105,19 +105,19 @@ fn nav_column(b: &mut Body) -> Result<Node, Error> {
         children.push(json!({"label": {
             "id": format!("{id}--group-{}", g + 1), "text": group.value.title,
             "props": {"Margin": "12 0 6 18", "LabelType": "label"},
-            "style": ["label:color=#6B7478", "label:font-size=14px"]}}));
+            "style": ["label:color=nav-caption", "label:font-size=14px"]}}));
         for (i, item) in group.value.items.iter().enumerate() {
             let mut body = json!({
                 "id": format!("{id}--item-{}-{}", g + 1, i + 1), "text": item,
                 "variant": "transparent",
                 "props": {"LabelAlignment": "left", "Size": "standard", "Margin": "0"},
                 "style": ["width=100%", "box-sizing=border-box", "border-radius=0px", "padding-left=24px",
-                    "label:font-size=14px", "label:font-weight=600", "label:color=#080909"]});
+                    "label:font-size=14px", "label:font-weight=600", "label:color=nav-text"]});
             if std::mem::take(&mut first) {
                 body["style"]
                     .as_array_mut()
                     .expect("item styles")
-                    .push(json!("background=#e4e7e9"));
+                    .push(json!("background=nav-selected"));
             }
             children.push(json!({"button": body}));
         }
@@ -284,10 +284,10 @@ const DOTS: [(&str, &str); 4] = [
 
 /// A framed grey panel as in the kit: grey fill, hairline border.
 const PANEL_STYLE: [&str; 4] = [
-    "background=#F7F7F7",
+    "background=band",
     "border-style=solid",
-    "border-width=1px",
-    "border-color=#E4E7E9",
+    "border-width=${border.card}",
+    "border-color=panel-line",
 ];
 /// Kit KPI dial layouts: (kind, Layout, Direction, start and end angle).
 type Dial = (&'static str, &'static str, &'static str, Option<(u32, u32)>);
@@ -303,11 +303,6 @@ pub(super) fn expand(page: &mut Page, tokens: &Tokens) -> Result<(), Error> {
         for node in list {
             match node {
                 Node::Heading(b) | Node::Label(b) | Node::Text(b) => {
-                    if b.band == Some(true) {
-                        b.style.push(spanned("width=100%".into(), b.id.referenced));
-                        b.style.push(spanned("flex-grow=1".into(), b.id.referenced));
-                    }
-                    b.band = None;
                     text_size(b)?;
                     if let Some(highlight) = b.highlight.take() {
                         let hex = colour_at(tokens, &highlight.value, highlight.referenced)?;
@@ -870,6 +865,50 @@ pub(super) fn expand(page: &mut Page, tokens: &Tokens) -> Result<(), Error> {
                 }
                 _ => {}
             }
+            if matches!(node, Node::Heading(_) | Node::Label(_) | Node::Text(_))
+                && node.body().band == Some(true)
+            {
+                let b = node.body_mut();
+                b.band = None;
+                let mut row = child(
+                    b,
+                    "band",
+                    "row",
+                    json!({"props": {
+                        "flex-size": "range", "flex-min-height": "48px", "flex-max-height": "",
+                        "flex-grow": 0, "flex-shrink": 0, "flex-basis": "auto",
+                        "align-items": "stretch", "flex-wrap": "nowrap"
+                    }}),
+                );
+                row.body_mut().band_row = true;
+                row.body_mut().surface = b.surface.take();
+                let mut text_styles = vec![];
+                for style in std::mem::take(&mut b.style) {
+                    let target = style.value.split_once('=').map_or("", |(target, _)| target);
+                    if target.starts_with("label:")
+                        || target.starts_with("label@")
+                        || [
+                            "color",
+                            "font-family",
+                            "font-size",
+                            "font-weight",
+                            "line-height",
+                            "letter-spacing",
+                            "text-align",
+                        ]
+                        .contains(&target)
+                    {
+                        text_styles.push(style);
+                    } else {
+                        row.body_mut().style.push(style);
+                    }
+                }
+                b.style = text_styles;
+                b.style.push(spanned("width=100%".into(), b.id.referenced));
+                b.style.push(spanned("flex-grow=1".into(), b.id.referenced));
+                let text = std::mem::replace(node, row);
+                node.body_mut().children.push(text);
+            }
             let b = node.body_mut();
             for style in &mut b.style {
                 if let Some((target, value)) = style.value.split_once('=') {
@@ -992,7 +1031,7 @@ fn fields(node: &Node) -> Result<(), Error> {
             matches!(node, Node::NavMenu(_)),
             "search/groups",
         ),
-        (b.band.is_some(), matches!(node, Node::Toolbar(_)), "band"),
+        (b.band.is_some(), matches!(node, Node::Toolbar(_) | Node::Heading(_) | Node::Label(_) | Node::Text(_)), "band"),
         (
             !b.tiles.is_empty(),
             matches!(node, Node::KpiRow(_)),
@@ -1630,6 +1669,33 @@ pub(super) fn finish_layout(
                 "page-content-height"
             };
             patch(&mut session.document, &path, op);
+        }
+        if let Some(value_size) = &body.value_size {
+            // Reserve a caption, padding and a two-line value; wrapping stays uncapped.
+            let pixels = value_size
+                .trim_end_matches("px")
+                .parse::<u32>()
+                .expect("expanded block value size");
+            for (key, value) in [
+                ("flex-size", json!("range")),
+                ("flex-min-height", json!(format!("{}px", pixels * 2 + 64))),
+                ("flex-max-height", json!("")),
+            ] {
+                session.document.set_property(&path, key, value);
+            }
+        }
+        if body.band_row {
+            let label = session
+                .document
+                .find_exact(&ids[&body.children[0].body().id.value])
+                .map_err(|e| Error::at(body.id.referenced, e))?;
+            let label = session.document.at(&label.path).clone();
+            // The primitive label wrapper otherwise keeps the text's measured width.
+            session.document.at_mut(&path)["Widgets"] = json!([label]);
+            patch(&mut session.document, &path, "page-content-height");
+            session
+                .document
+                .set_property(&path, "flex-min-height", json!("48px"));
         }
         if matches!(
             node,

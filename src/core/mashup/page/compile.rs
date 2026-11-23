@@ -757,7 +757,7 @@ fn styles(body: &schema::Body) -> Vec<String> {
     if let Some(surface) = body.surface {
         styles.push(format!(
             "background={}",
-            if surface { "#FFFFFF" } else { "transparent" }
+            if surface { "page-card" } else { "transparent" }
         ));
     }
     styles

@@ -3,6 +3,8 @@
 I want to ... -> command (use --help for flags; most writers plan until --apply)
 
 - Create an entity of any kind -> `twaco new --help`
+- Build a page from a YAML wireframe / page spec -> `twaco new mashup <name> --spec <file>`; rebuild with `twaco mashup build <name>` (guide: page-specs)
+- Derive a page spec before restructuring a mashup -> `twaco mashup spec <mashup> --out <file>` (guide: page-specs)
 - Create a mashup -> `twaco mashup new <name>`
 - Choose a mashup layout -> `twaco mashup templates`
 - Find a widget -> `twaco widgets --search <words>`

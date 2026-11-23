@@ -1,7 +1,7 @@
 {
   "warnings": [],
   "scope": "repository",
-  "deploy_command": "twaco deploy --project Acme.Orders --apply",
+  "deploy_command": "twaco deploy --only-projects Acme.Orders --apply",
   "note": "Repository only; deploy imports it on the server. The server adds template configuration tables absent from the repository; after the first deploy read-back use twaco entity pull to take them.",
   "applied": false,
   "kind": "theme",

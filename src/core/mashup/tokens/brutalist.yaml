@@ -19,6 +19,15 @@ roles:
   danger: pink
   info: purple
   selected: lime
+  card: paper
+  page-card: paper
+  band: paper
+  card-line: '${border.color}'
+  panel-line: '${border.color}'
+  nav-selected: lime
+  nav-text: ink
+  nav-caption: ink
+  input-focus: paper
 fonts:
   sans: Archivo, Arial, sans-serif
   display: Archivo Black, Archivo, Arial Black, sans-serif
@@ -31,6 +40,8 @@ radius:
   default: none
 border:
   width: 2px
+  card: '${border.width}'
+  band: '${border.width}'
   color: ink
   line: 2px
 shadow:

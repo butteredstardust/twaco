@@ -344,6 +344,8 @@ pub(crate) struct Body {
     /// Set while expanding card_grid: this node is one of its equal cells.
     #[serde(skip)]
     pub(crate) grid_cell: bool,
+    #[serde(skip)]
+    pub(crate) band_row: bool,
 }
 
 /// `style:` is a list of `--style` settings or a map of `background`, `color`, `border`, `font`, `shadow` and

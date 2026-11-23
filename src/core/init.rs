@@ -384,6 +384,11 @@ Projects, in deploy order (`twaco projects`):
     without its XML.
   - `twaco entity status <entity>` and `twaco permissions diff <entity>`: how the repository
     and the server differ.
+- New mashups start from a page spec, a YAML wireframe (`twaco guide page-specs`):
+  `twaco new mashup <name> --spec <file>`, then edit `src/<Mashup>/page.yaml` and run
+  `twaco mashup build <name>`; style with token presets
+  (`twaco mashup tokens`), not hex values. Use `twaco mashup spec` before restructuring an
+  existing mashup, and `mashup set` or recipes for small edits.
 - `twaco check` before reporting a change complete. Then deploy only what changed and call
   the service; the gates check structure, never behaviour.
 - Server writes plan unless given `--apply`; `twaco call` runs immediately.

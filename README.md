@@ -107,6 +107,43 @@ twaco call <Thing> <Service> '{"x": 1}' --with-logs
 
 The [quick start guide](documentation/QUICK_START.md) walks through it in full.
 
+## Build a page from a spec
+
+A page spec is the wireframe tool: YAML becomes a responsive ThingWorx 10.2 mashup
+with kit layout rules, widgets and service bindings. For a repository service
+`Acme.Manager.GetOrders` returning a `Name` field, save this as `orders.page.yaml`:
+
+```yaml
+version: 1
+rules: v1
+page:
+  name: Acme.Orders_MU
+  template: blank
+  data:
+    orders: {service: Acme.Manager.GetOrders, on: load}
+  slots:
+    center:
+      - toolbar: {id: tools, children: [{heading: {id: title, text: Orders}}]}
+      - row:
+          id: kpis
+          children: [{block: {id: count, caption: Orders, value: 84, color: lime}}]
+      - grid: {id: orders_grid, data: orders, columns: [{field: Name, title: Name}]}
+```
+
+```sh
+twaco new mashup Acme.Orders_MU --spec orders.page.yaml --apply
+twaco mashup build Acme.Orders_MU --apply
+twaco mashup spec Acme.Orders_MU --out derived.page.yaml
+twaco mashup why Acme.Orders_MU tools
+twaco mashup tokens brutalist --json
+twaco new theme Acme.Orders_TH --tokens brutalist --apply
+```
+
+Edit `src/Acme.Orders_MU/page.yaml` and rebuild; independent hand edits survive and
+conflicts write nothing. Derive a spec before restructuring an existing mashup.
+Use `tokens: brutalist` and `page.theme: Acme.Orders_TH` to select the preset and its
+generated theme. See [Page specs](documentation/PAGE_SPECS.md) for elements and examples.
+
 ## Use it with an AI agent
 
 twaco is also an MCP server, so Claude Code, Codex, Cursor or any MCP client can use its

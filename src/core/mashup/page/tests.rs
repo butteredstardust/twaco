@@ -4453,8 +4453,170 @@ fn tokens_s_fixture_compiles_with_native_theme_and_finished_blocks() {
         widget_style(&built, "ticker")["parts"]["$"]["$"]["width"],
         "100%"
     );
+    let doc = doc_of(&built);
+    for id in ["k1", "k2", "k3", "k4"] {
+        let widget = doc.find_exact(&built.ids[id]).unwrap();
+        let props = &doc.at(&widget.path)["Properties"];
+        assert_eq!(props["flex-size"], "range");
+        assert_eq!(props["flex-min-height"], "160px");
+        assert_eq!(props["flex-max-height"], "");
+        assert_eq!(props["flex-basis"], "0px");
+        assert_eq!(props["flex-grow"], 1);
+    }
+    for id in ["m1", "m2", "m3", "m4"] {
+        assert_eq!(
+            widget_style(&built, id),
+            serde_json::json!({
+                "widget": "flex-container", "parts": {"$": {"$": {
+                    "background": "#F3F0E6", "border-color": "#0B0B0B", "border-radius": "initial",
+                    "border-style": "solid", "border-width": "2px", "padding-bottom": "12px",
+                    "padding-left": "24px", "padding-right": "24px", "padding-top": "12px"
+                }}}
+            })
+        );
+    }
+    assert_eq!(
+        widget_style(&built, "topbar"),
+        serde_json::json!({
+            "widget": "flex-container", "parts": {"$": {"$": {
+                "background": "#F3F0E6", "border-color": "#0B0B0B", "border-radius": "initial",
+                "border-style": "solid", "border-width": "0 0 2px 0", "padding-bottom": "",
+                "padding-left": "", "padding-right": "", "padding-top": ""
+            }}}
+        })
+    );
+    assert_eq!(
+        widget_style(&built, "ticker--band"),
+        serde_json::json!({
+            "widget": "flex-container", "parts": {"$": {"$": {
+                "background": "#CCFF00", "border-style": "solid", "border-width": "2px", "border-color": "#0B0B0B"
+            }}}
+        })
+    );
+    let ticker = doc.find_exact(&built.ids["ticker"]).unwrap();
+    let band = doc.find_exact(&built.ids["ticker--band"]).unwrap();
+    assert_eq!(&ticker.path[..ticker.path.len() - 1], band.path);
+    assert_eq!(doc.at(&band.path)["Properties"]["flex-direction"], "row");
+    assert_eq!(doc.at(&band.path)["Properties"]["align-items"], "stretch");
+    assert_eq!(doc.at(&band.path)["Properties"]["flex-max-height"], "");
+    assert_eq!(
+        doc.at(&ticker.path)["Properties"]["LabelText"],
+        "NO UNPLANNED STOPS  *  SCRAP UNDER 2%  *  SHIFT B ON TARGET"
+    );
     assert_eq!(
         widget_style(&built, "h1")["parts"]["label"]["$"]["font-family"],
         "Archivo Black, Archivo, Arial Black, sans-serif"
     );
+}
+
+#[test]
+fn tokens_reach_sections_panels_surfaces_navigation_and_focus() {
+    let (_dir, mut solution) = element_solution();
+    solution.mashup.tokens = Some("brutalist".into());
+    let yaml = error_page("column: {id: c, children: [
+            {card: {id: section, title: Details, align: start, children: [{label: {id: caption, text: Acme}}]}},
+            {panel: {id: panel, title: Metrics, children: [{label: {id: metric, text: Acme}}]}},
+            {widget: {id: surface, type: flexcontainer, surface: true}},
+            {nav_menu: {id: nav, groups: [{title: Acme, items: [Overview]}]}},
+            {text_field: {id: input, variant: focus-background}},
+            {text_field: {id: glow, variant: focus-glow}},
+            {label: {id: ticker, band: true, props: {LabelText: {bind: input.Text}}, style: {background: lime, border: ink}}}
+          ]}", "");
+    let built = compile(&solution, "Acme", &yaml).unwrap();
+    let section = widget_style(&built, "section");
+    assert_eq!(section["parts"]["$"]["$"]["border-color"], "#0B0B0B");
+    assert_eq!(section["parts"]["$"]["$"]["border-width"], "2px");
+    let panel = widget_style(&built, "panel");
+    assert_eq!(panel["parts"]["$"]["$"]["background"], "#F3F0E6");
+    assert_eq!(panel["parts"]["$"]["$"]["border-color"], "#0B0B0B");
+    assert_eq!(panel["parts"]["$"]["$"]["border-width"], "2px");
+    assert_eq!(
+        widget_style(&built, "surface")["parts"]["$"]["$"]["background"],
+        "#F3F0E6"
+    );
+    assert_eq!(
+        widget_style(&built, "nav--group-1")["parts"]["label"]["$"]["color"],
+        "#0B0B0B"
+    );
+    assert_eq!(
+        widget_style(&built, "nav--item-1-1")["parts"]["$"]["$"]["background"],
+        "#CCFF00"
+    );
+    assert_eq!(
+        widget_style(&built, "input")["parts"]["text-box"]["focus"]["background"],
+        "#F3F0E6"
+    );
+    assert_eq!(
+        widget_style(&built, "glow")["parts"]["text-box"]["focus"]["border-color"],
+        "#CCFF00"
+    );
+    assert_eq!(
+        widget_style(&built, "glow")["parts"]["text-box"]["focus"]["box-shadow"],
+        "0 0 6px 1px #CCFF00"
+    );
+    let content: Value = serde_json::from_str(&built.content).unwrap();
+    assert!(content["DataBindings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|binding| {
+            binding["SourceId"] == built.ids["input"] && binding["TargetId"] == built.ids["ticker"]
+        }));
+}
+
+#[test]
+fn sized_blocks_keep_an_uncapped_height_after_final_layout() {
+    let (_dir, solution) = element_solution();
+    let children = ["sm", "md", "lg", "xl", "display"].into_iter().map(|size| {
+        format!("{{block: {{id: b_{size}, color: lime, caption: Acme, value: '84%', size: {size}}}}}")
+    }).collect::<Vec<_>>().join(", ");
+    let built = compile(
+        &solution,
+        "Acme",
+        &error_page(&format!("column: {{id: c, children: [{children}]}}"), ""),
+    )
+    .unwrap();
+    let mut problems = vec![];
+    mashup::validate::check_content(&built.content, &mut problems);
+    for size in ["sm", "md", "lg", "xl", "display"] {
+        let id = &built.ids[&format!("b_{size}")];
+        let props = element_props(&built, &format!("b_{size}"));
+        assert_eq!(props["flex-size"], "range");
+        assert_eq!(props["flex-max-height"], "");
+        assert!(
+            props["flex-min-height"]
+                .as_str()
+                .unwrap()
+                .trim_end_matches("px")
+                .parse::<u32>()
+                .unwrap()
+                >= 100
+        );
+        assert!(
+            !problems.iter().any(|p| p.rule == "wrapped-content-clipping"
+                && p.message.starts_with(&format!("{id}:"))),
+            "{problems:?}"
+        );
+    }
+}
+
+/// The page spec examples in README.md and the page-specs guide topic compile as written.
+#[test]
+fn documented_page_spec_examples_compile() {
+    let (dir, _) = solution();
+    let folder = dir.path().join("acme");
+    std::fs::write(folder.join("Things/Acme.Manager.xml"), r#"<Entities><Things><Thing name="Acme.Manager" projectName="Acme"><ThingShape><ServiceDefinitions><ServiceDefinition name="GetOrders"><ResultType baseType="INFOTABLE" aspect.dataShape="Acme.Orders_DS"/></ServiceDefinition></ServiceDefinitions></ThingShape></Thing></Things></Entities>"#).unwrap();
+    std::fs::create_dir_all(folder.join("DataShapes")).unwrap();
+    std::fs::write(folder.join("DataShapes/Acme.Orders_DS.xml"), r#"<Entities><DataShapes><DataShape name="Acme.Orders_DS" projectName="Acme"><FieldDefinitions><FieldDefinition name="Name" baseType="STRING" ordinal="0"/></FieldDefinitions></DataShape></DataShapes></Entities>"#).unwrap();
+    let solution = Solution::load(&dir.path().join("twaco.toml")).unwrap();
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    for doc in ["README.md", "knowledge/page-specs.md"] {
+        let text = std::fs::read_to_string(root.join(doc)).unwrap();
+        let spec = text
+            .split("```yaml\n")
+            .nth(1)
+            .and_then(|rest| rest.split("```").next())
+            .unwrap_or_else(|| panic!("{doc} has no yaml example"));
+        compile(&solution, "Acme", spec).unwrap_or_else(|e| panic!("{doc}: {e}"));
+    }
 }

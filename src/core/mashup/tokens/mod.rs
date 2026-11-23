@@ -166,6 +166,15 @@ impl Tokens {
                         "on-primary",
                         "on-dark",
                         "selected",
+                        "card",
+                        "page-card",
+                        "band",
+                        "card-line",
+                        "panel-line",
+                        "nav-selected",
+                        "nav-text",
+                        "nav-caption",
+                        "input-focus",
                     ][..],
                 ),
                 ("fonts", &tokens.fonts, &["sans", "mono", "display"][..]),
@@ -174,7 +183,11 @@ impl Tokens {
                     &tokens.radius,
                     &["none", "sm", "md", "lg", "default"][..],
                 ),
-                ("border", &tokens.border, &["width", "color", "line"][..]),
+                (
+                    "border",
+                    &tokens.border,
+                    &["width", "color", "line", "card", "band"][..],
+                ),
                 ("space", &tokens.space, &["xs", "sm", "md", "lg", "xl"][..]),
                 ("block", &tokens.block, &["border", "shadow", "radius"][..]),
             ] {
@@ -395,6 +408,10 @@ impl Tokens {
             .get(text)
             .cloned()
             .unwrap_or_else(|| text.to_string())
+    }
+
+    pub(crate) fn border_size(&self, name: &str) -> &str {
+        self.border.get(name).map_or("1px", String::as_str)
     }
 
     pub(crate) fn border_width(&self) -> &str {

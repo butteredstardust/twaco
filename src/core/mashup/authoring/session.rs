@@ -213,7 +213,8 @@ impl Session {
         request: &super::AddRequest,
     ) -> Result<String, AuthoringError> {
         self.sync()?;
-        let plan = super::add::plan_add_loaded(solution, request, self.loaded())?;
+        let plan =
+            super::add::plan_add_loaded(solution, request, self.loaded(), self.tokens.as_ref())?;
         let id = plan.placed.id;
         self.accept(plan.edit)?;
         Ok(id)
@@ -297,7 +298,12 @@ impl Session {
             mashup: self.name.clone(),
             recipe,
         };
-        let plan = super::recipes::plan_recipe_loaded(solution, &request, self.loaded())?;
+        let plan = super::recipes::plan_recipe_loaded(
+            solution,
+            &request,
+            self.loaded(),
+            self.tokens.as_ref(),
+        )?;
         self.accept(plan.edit)
     }
 

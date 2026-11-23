@@ -63,6 +63,8 @@ help:
 | I want to ... -> command (use --help for flags; most writers plan until --apply)
 | 
 | - Create an entity of any kind -> `twaco new --help`
+| - Build a page from a YAML wireframe / page spec -> `twaco new mashup <name> --spec <file>`; rebuild with `twaco mashup build <name>` (guide: page-specs)
+| - Derive a page spec before restructuring a mashup -> `twaco mashup spec <mashup> --out <file>` (guide: page-specs)
 | - Create a mashup -> `twaco mashup new <name>`
 | - Choose a mashup layout -> `twaco mashup templates`
 | - Find a widget -> `twaco widgets --search <words>`
@@ -259,11 +261,11 @@ help:
 |   components list|show <name> [--json]
 |                               built-in and solution components, with kit source and typed props
 |   mashup spec <mashup> [--out <path>] [--json]
-|                               a spec built mashup returns its page.yaml (naming hand-edited widgets); any
+|                               derive a page spec before restructuring; a spec built mashup returns page.yaml; any
 |                               other mashup gets a YAML spec of elements, with raw widget nodes counted by type
 |       --out <path>            write the spec to this file
 |   mashup build <mashup> [--apply] [--json]
-|                               compile src/<Mashup>/page.yaml and merge with the generated baseline;
+|                               compile the YAML page spec src/<Mashup>/page.yaml and merge with the generated baseline;
 |                               keep independent hand edits; conflicts write nothing; plans by default
 |   mashup why <mashup> <widget> [--json]
 |                               what the layout rules decide for one widget (size, gutter, alignment, surface,
@@ -537,7 +539,7 @@ help:
 |       [--apply] [--json]
 |                               create a ThingWorx 10.2 responsive mashup as Composer would: its entity file
 |                               and its content sidecars; plan unless --apply
-|       --spec <file>          compile a page spec, copy it to src/<Mashup>/page.yaml and record a generated baseline;
+|       --spec <file>          compile a YAML page spec (wireframe), copy it to src/<Mashup>/page.yaml and record a generated baseline;
 |                               accepts only --project, --apply and --json
 |       --from <address>        copy a repository mashup exactly, except identity and permissions
 |       --rules <legacy|v1>     layout rules (default v1); legacy opts out of page scrolling and top-aligned filter fields
@@ -559,7 +561,7 @@ help:
 |       [--apply] [--json]
 |                               create a ThingWorx 10.2 responsive mashup as Composer would: its entity file
 |                               and its content sidecars; plan unless --apply
-|       --spec <file>          compile a page spec, copy it to src/<Mashup>/page.yaml and record a generated baseline;
+|       --spec <file>          compile a YAML page spec (wireframe), copy it to src/<Mashup>/page.yaml and record a generated baseline;
 |                               accepts only --project, --apply and --json
 |       --from <address>        copy a repository mashup exactly, except identity and permissions
 |       --rules <legacy|v1>     layout rules (default v1); legacy opts out of page scrolling and top-aligned filter fields
@@ -8077,11 +8079,11 @@ help:
 |                               each binding and each event, in the addresses mashup bind and on take
 |       --detail                show non-default widget properties and widget bindings
 |   mashup spec <mashup> [--out <path>] [--json]
-|                               a spec built mashup returns its page.yaml (naming hand-edited widgets); any
+|                               derive a page spec before restructuring; a spec built mashup returns page.yaml; any
 |                               other mashup gets a YAML spec of elements, with raw widget nodes counted by type
 |       --out <path>            write the spec to this file
 |   mashup build <mashup> [--apply] [--json]
-|                               compile src/<Mashup>/page.yaml and merge with the generated baseline;
+|                               compile the YAML page spec src/<Mashup>/page.yaml and merge with the generated baseline;
 |                               keep independent hand edits; conflicts write nothing; plans by default
 |   mashup why <mashup> <widget> [--json]
 |                               what the layout rules decide for one widget (size, gutter, alignment, surface,
@@ -8355,7 +8357,7 @@ help:
 |       [--apply] [--json]
 |                               create a ThingWorx 10.2 responsive mashup as Composer would: its entity file
 |                               and its content sidecars; plan unless --apply
-|       --spec <file>          compile a page spec, copy it to src/<Mashup>/page.yaml and record a generated baseline;
+|       --spec <file>          compile a YAML page spec (wireframe), copy it to src/<Mashup>/page.yaml and record a generated baseline;
 |                               accepts only --project, --apply and --json
 |       --from <address>        copy a repository mashup exactly, except identity and permissions
 |       --rules <legacy|v1>     layout rules (default v1); legacy opts out of page scrolling and top-aligned filter fields
@@ -8934,7 +8936,7 @@ arg <operands>
     other: -
 help:
 |   mashup build <mashup> [--apply] [--json]
-|                               compile src/<Mashup>/page.yaml and merge with the generated baseline;
+|                               compile the YAML page spec src/<Mashup>/page.yaml and merge with the generated baseline;
 |                               keep independent hand edits; conflicts write nothing; plans by default
 | 
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
@@ -10024,7 +10026,7 @@ help:
 |       [--apply] [--json]
 |                               create a ThingWorx 10.2 responsive mashup as Composer would: its entity file
 |                               and its content sidecars; plan unless --apply
-|       --spec <file>          compile a page spec, copy it to src/<Mashup>/page.yaml and record a generated baseline;
+|       --spec <file>          compile a YAML page spec (wireframe), copy it to src/<Mashup>/page.yaml and record a generated baseline;
 |                               accepts only --project, --apply and --json
 |       --from <address>        copy a repository mashup exactly, except identity and permissions
 |       --rules <legacy|v1>     layout rules (default v1); legacy opts out of page scrolling and top-aligned filter fields
@@ -12267,7 +12269,7 @@ arg <operands>
     other: -
 help:
 |   mashup spec <mashup> [--out <path>] [--json]
-|                               a spec built mashup returns its page.yaml (naming hand-edited widgets); any
+|                               derive a page spec before restructuring; a spec built mashup returns page.yaml; any
 |                               other mashup gets a YAML spec of elements, with raw widget nodes counted by type
 |       --out <path>            write the spec to this file
 | 
@@ -14979,7 +14981,7 @@ help:
 |       [--apply] [--json]
 |                               create a ThingWorx 10.2 responsive mashup as Composer would: its entity file
 |                               and its content sidecars; plan unless --apply
-|       --spec <file>          compile a page spec, copy it to src/<Mashup>/page.yaml and record a generated baseline;
+|       --spec <file>          compile a YAML page spec (wireframe), copy it to src/<Mashup>/page.yaml and record a generated baseline;
 |                               accepts only --project, --apply and --json
 |       --from <address>        copy a repository mashup exactly, except identity and permissions
 |       --rules <legacy|v1>     layout rules (default v1); legacy opts out of page scrolling and top-aligned filter fields
@@ -16286,7 +16288,7 @@ help:
 |       [--apply] [--json]
 |                               create a ThingWorx 10.2 responsive mashup as Composer would: its entity file
 |                               and its content sidecars; plan unless --apply
-|       --spec <file>          compile a page spec, copy it to src/<Mashup>/page.yaml and record a generated baseline;
+|       --spec <file>          compile a YAML page spec (wireframe), copy it to src/<Mashup>/page.yaml and record a generated baseline;
 |                               accepts only --project, --apply and --json
 |       --from <address>        copy a repository mashup exactly, except identity and permissions
 |       --rules <legacy|v1>     layout rules (default v1); legacy opts out of page scrolling and top-aligned filter fields

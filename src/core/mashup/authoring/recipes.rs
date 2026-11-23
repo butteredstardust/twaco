@@ -351,6 +351,7 @@ impl Recipe {
 struct Work<'a> {
     document: MashupDocument,
     solution: &'a Solution,
+    tokens: &'a mashup::tokens::Tokens,
     context: AuthoringContext<'a>,
     added: Vec<String>,
     removed: Vec<String>,
@@ -853,6 +854,7 @@ impl Work<'_> {
                 let mut probe = Work {
                     document,
                     solution: self.solution,
+                    tokens: self.tokens,
                     context: AuthoringContext {
                         parameters: self.context.parameters,
                         model: self.context.model,
@@ -1048,7 +1050,7 @@ impl Work<'_> {
                     super::set::copy_style_entry(
                         &mut self.document,
                         &divider,
-                        json!({"widget":"flex-container","parts":{"$":{"$":{"background":"#C2C7CE","border-color":"inherit","border-radius":"initial","border-style":"none","border-width":"0px","padding-bottom":"","padding-left":"","padding-right":"","padding-top":""}}}}),
+                        json!({"widget":"flex-container","parts":{"$":{"$":{"background":self.tokens.colour("line").map_err(AuthoringError::Invalid)?,"border-color":"inherit","border-radius":"initial","border-style":"none","border-width":"0px","padding-bottom":"","padding-left":"","padding-right":"","padding-top":""}}}}),
                         None,
                         &mut Vec::new(),
                     );
@@ -1583,13 +1585,14 @@ pub(crate) fn plan_recipe(
     request: &RecipeRequest,
 ) -> Result<RecipePlan, AuthoringError> {
     let loaded = load_existing(solution, &request.mashup)?;
-    plan_recipe_loaded(solution, request, loaded)
+    plan_recipe_loaded(solution, request, loaded, None)
 }
 
 pub(super) fn plan_recipe_loaded(
     solution: &Solution,
     request: &RecipeRequest,
     loaded: super::ExistingMashup,
+    tokens: Option<&mashup::tokens::Tokens>,
 ) -> Result<RecipePlan, AuthoringError> {
     if let Recipe::Component {
         container,
@@ -1611,7 +1614,16 @@ pub(super) fn plan_recipe_loaded(
         mashup_parameters(&loaded.entity_before).map_err(AuthoringError::Unreadable)?;
     let (model, _) = types::load_model(solution);
     let platform = types::cached_platform(solution);
+    let active;
+    let tokens = match tokens {
+        Some(tokens) => tokens,
+        None => {
+            active = mashup::tokens::Tokens::active(solution).map_err(AuthoringError::Invalid)?;
+            &active
+        }
+    };
     let mut work = Work {
+        tokens,
         document,
         solution,
         context: AuthoringContext {

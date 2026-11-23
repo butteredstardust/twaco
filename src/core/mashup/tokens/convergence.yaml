@@ -25,6 +25,15 @@ roles:
   line: '#C2C7CE'
   on-primary: white
   on-dark: white
+  card: '#ffffff'
+  page-card: '#FFFFFF'
+  band: '#F7F7F7'
+  card-line: '#BEC6CA'
+  panel-line: '#E4E7E9'
+  nav-selected: '#e4e7e9'
+  nav-text: '#080909'
+  nav-caption: '#6B7478'
+  input-focus: '#EAF4FB'
 fonts:
   sans: inherit
   mono: ui-monospace, Menlo, Consolas, monospace
@@ -37,9 +46,12 @@ radius:
   default: md
 border:
   width: 2px
+  card: 1px
+  band: 0px
   color: line
 shadow:
   none: none
+  input-focus: 0 0 6px 1px ${roles.primary}
 space:
   xs: 4px
   sm: 8px
