@@ -2,6 +2,7 @@
 
 I want to ... -> command (use --help for flags; most writers plan until --apply)
 
+- Create a Thing from a template -> `twaco new thing <name> --template <ThingTemplate>`
 - Create an entity of any kind -> `twaco new --help`
 - Build a page from a YAML wireframe / page spec -> `twaco new mashup <name> --spec <file>`; rebuild with `twaco mashup build <name>` (guide: page-specs)
 - Derive a page spec before restructuring a mashup -> `twaco mashup spec <mashup> --out <file>` (guide: page-specs)

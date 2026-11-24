@@ -183,6 +183,15 @@ pub(super) fn scan_text_file(
         push_change(changes, path.to_path_buf(), kind, &bytes, pass);
         return Ok(());
     }
+    if kind == FileKind::Config {
+        let pass = scan::scan_entity_config(&bytes, &spec.old, &spec.new, mode, qualified)
+            .map_err(|why| RenameError::Xml {
+                path: path.to_path_buf(),
+                why,
+            })?;
+        push_change(changes, path.to_path_buf(), kind, &bytes, pass);
+        return Ok(());
+    }
     let scanned = if kind == FileKind::Sidecar && path.extension().is_some_and(|ext| ext == "js") {
         scan::scan_entity_script(
             &bytes,

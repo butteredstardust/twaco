@@ -1,0 +1,34 @@
+<Entities><Things><Thing name="Acme.TemplateThing" thingTemplate="IndustrialGateway" inheritedValueStream="Acme.Stream" valueStream=""><ConfigurationTables><ConfigurationTable name="ReportingConfiguration"><Rows><Row><enabled>true</enabled></Row></Rows></ConfigurationTable></ConfigurationTables><ThingShape><PropertyDefinitions/></ThingShape><ThingProperties>
+  <ActiveTagCount><Value>0</Value><Timestamp>2026-01-01</Timestamp><Quality>GOOD</Quality></ActiveTagCount>
+  <ClientCount><Value>0</Value><Timestamp>2026-01-01</Timestamp><Quality>GOOD</Quality></ClientCount>
+  <DatastoreEnabled><Value>0</Value><Timestamp>2026-01-01</Timestamp><Quality>GOOD</Quality></DatastoreEnabled>
+  <DatastoreMaxEntries><Value>0</Value><Timestamp>2026-01-01</Timestamp><Quality>GOOD</Quality></DatastoreMaxEntries>
+  <DatastoreMaxTime><Value>0</Value><Timestamp>2026-01-01</Timestamp><Quality>GOOD</Quality></DatastoreMaxTime>
+  <DatastoreStoreInterval><Value>0</Value><Timestamp>2026-01-01</Timestamp><Quality>GOOD</Quality></DatastoreStoreInterval>
+  <DatastoreStoreOnChange><Value>0</Value><Timestamp>2026-01-01</Timestamp><Quality>GOOD</Quality></DatastoreStoreOnChange>
+  <DatastoreStoreType><Value>0</Value><Timestamp>2026-01-01</Timestamp><Quality>GOOD</Quality></DatastoreStoreType>
+  <DatastoreWaitTime><Value>0</Value><Timestamp>2026-01-01</Timestamp><Quality>GOOD</Quality></DatastoreWaitTime>
+  <DateTime><Value>0</Value><Timestamp>2026-01-01</Timestamp><Quality>GOOD</Quality></DateTime>
+  <DroppedUpdates><Value>0</Value><Timestamp>2026-01-01</Timestamp><Quality>GOOD</Quality></DroppedUpdates>
+  <ExpiredFeatures><Value>0</Value><Timestamp>2026-01-01</Timestamp><Quality>GOOD</Quality></ExpiredFeatures>
+  <ForwardModeStatus><Value>0</Value><Timestamp>2026-01-01</Timestamp><Quality>GOOD</Quality></ForwardModeStatus>
+  <FullProjectName><Value>0</Value><Timestamp>2026-01-01</Timestamp><Quality>GOOD</Quality></FullProjectName>
+  <Hostname><Value>0</Value><Timestamp>2026-01-01</Timestamp><Quality>GOOD</Quality></Hostname>
+  <IndustrialFileRepository><Value>0</Value><Timestamp>2026-01-01</Timestamp><Quality>GOOD</Quality></IndustrialFileRepository>
+  <IndustrialThingCount><Value>0</Value><Timestamp>2026-01-01</Timestamp><Quality>GOOD</Quality></IndustrialThingCount>
+  <LicensedFeatures><Value>0</Value><Timestamp>2026-01-01</Timestamp><Quality>GOOD</Quality></LicensedFeatures>
+  <OpcClientNames><Value>0</Value><Timestamp>2026-01-01</Timestamp><Quality>GOOD</Quality></OpcClientNames>
+  <ProductName><Value>0</Value><Timestamp>2026-01-01</Timestamp><Quality>GOOD</Quality></ProductName>
+  <ProductVersion><Value>0</Value><Timestamp>2026-01-01</Timestamp><Quality>GOOD</Quality></ProductVersion>
+  <ProjectName><Value>0</Value><Timestamp>2026-01-01</Timestamp><Quality>GOOD</Quality></ProjectName>
+  <ProjectTitle><Value>0</Value><Timestamp>2026-01-01</Timestamp><Quality>GOOD</Quality></ProjectTitle>
+  <PropertyCount><Value>0</Value><Timestamp>2026-01-01</Timestamp><Quality>GOOD</Quality></PropertyCount>
+  <StoreAndForwardEnabledStatus><Value>0</Value><Timestamp>2026-01-01</Timestamp><Quality>GOOD</Quality></StoreAndForwardEnabledStatus>
+  <TimeLimitedFeatures><Value>0</Value><Timestamp>2026-01-01</Timestamp><Quality>GOOD</Quality></TimeLimitedFeatures>
+  <TotalTagCount><Value>0</Value><Timestamp>2026-01-01</Timestamp><Quality>GOOD</Quality></TotalTagCount>
+  <UpdatesPerSecond><Value>0</Value><Timestamp>2026-01-01</Timestamp><Quality>GOOD</Quality></UpdatesPerSecond>
+  <lastConnection><Value>0</Value><Timestamp>2026-01-01</Timestamp><Quality>GOOD</Quality></lastConnection>
+  <lastInitialStateSynchronized><Value>0</Value><Timestamp>2026-01-01</Timestamp><Quality>GOOD</Quality></lastInitialStateSynchronized>
+  <reportingLastChange><Value>0</Value><Timestamp>2026-01-01</Timestamp><Quality>GOOD</Quality></reportingLastChange>
+  <reportingLastEvaluation><Value>0</Value><Timestamp>2026-01-01</Timestamp><Quality>GOOD</Quality></reportingLastEvaluation>
+</ThingProperties></Thing></Things></Entities>

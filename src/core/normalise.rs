@@ -319,6 +319,100 @@ pub(crate) fn hash_with_grants(
     Ok(format!("{scope}:pg1:{content}"))
 }
 
+/// Accept only additions supplied by a Thing's template, never changes to authored values.
+pub(crate) fn read_back_matches(
+    sent: &[u8],
+    back: &[u8],
+    parts: &[super::server_owned::Part],
+    grants: &super::permissions::Sets,
+) -> bool {
+    let (Ok(sent), Ok(back)) = (
+        super::permissions::derived::comparison(sent, grants),
+        super::permissions::derived::comparison(back, grants),
+    ) else {
+        return false;
+    };
+    let (Ok(left), Ok(mut right)) = (
+        owned_comparison_tree(&sent, parts),
+        owned_comparison_tree(&back, parts),
+    ) else {
+        return false;
+    };
+    if left.name == b"Thing" && right.name == b"Thing" {
+        let declared: Vec<_> = descendants_named(&left, b"PropertyDefinition")
+            .into_iter()
+            .filter_map(|e| attribute_value(e, b"name").map(<[u8]>::to_vec))
+            .collect();
+        let local_tables = descendants_named(&left, b"ConfigurationTableDefinition");
+        for section in [b"ThingProperties".as_slice(), b"ConfigurationTables"] {
+            let original = elements(&left).into_iter().find(|e| e.name == section);
+            if let Some(Node::Element(target)) = right
+                .children
+                .iter_mut()
+                .find(|n| matches!(n, Node::Element(e) if e.name == section))
+            {
+                target.children.retain(|n| {
+                    let Node::Element(e) = n else {
+                        return true;
+                    };
+                    let present = original.is_some_and(|o| {
+                        elements(o).into_iter().any(|v| {
+                            if section == b"ThingProperties" {
+                                v.name == e.name
+                            } else {
+                                attribute_value(v, b"name") == attribute_value(e, b"name")
+                            }
+                        })
+                    });
+                    present
+                        || if section == b"ThingProperties" {
+                            declared.contains(&e.name)
+                        } else {
+                            // ReportingConfiguration is filled by RemoteThing and IndustrialGateway.
+                            attribute_value(e, b"name")
+                                != Some(b"ReportingConfiguration".as_slice())
+                                || local_tables.iter().any(|table| {
+                                    attribute_value(table, b"name") == attribute_value(e, b"name")
+                                })
+                        }
+                });
+            }
+        }
+        // Derived from the template; valueStream remains an authored attribute.
+        right
+            .attributes
+            .retain(|(k, _)| k != b"inheritedValueStream");
+        let mut left = left.clone();
+        left.attributes
+            .retain(|(k, _)| k != b"inheritedValueStream");
+        return canonical_element_bytes(&left)
+            == canonical_element_bytes(&comparison_element(right, true));
+    }
+    canonical_element_bytes(&left) == canonical_element_bytes(&right)
+}
+
+fn descendants_named<'a>(element: &'a Element, name: &[u8]) -> Vec<&'a Element> {
+    let mut out = Vec::new();
+    for child in elements(element) {
+        if child.name == name {
+            out.push(child);
+        }
+        out.extend(descendants_named(child, name));
+    }
+    out
+}
+
+fn elements(element: &Element) -> Vec<&Element> {
+    element
+        .children
+        .iter()
+        .filter_map(|n| match n {
+            Node::Element(e) => Some(e),
+            _ => None,
+        })
+        .collect()
+}
+
 pub(crate) fn read_back_with_grants(
     sent: &[u8],
     back: &[u8],
@@ -376,11 +470,13 @@ pub(crate) fn read_back_differences(
     read_back: &[u8],
     parts: &[super::server_owned::Part],
 ) -> Vec<String> {
+    let inherited = super::permissions::dropped_inherited_service_permissions(sent, read_back);
     let found = collect_differences(sent, read_back, parts, &READ_BACK, Some(MAX_DIFFERENCES));
     let mut out = found.kept;
     if found.total > out.len() {
         out.push(format!("and {} more", found.total - out.len()));
     }
+    out.extend(inherited);
     out
 }
 
@@ -2614,5 +2710,30 @@ mod rbac_tests {
             after,
             crate::core::layout::subscription_events(&after).unwrap()
         );
+    }
+    #[test]
+    fn dropped_inherited_service_permissions_have_specific_read_back_explanation() {
+        let sent = br#"<Thing name="Acme.T"><ThingShape><ServiceDefinitions><ServiceDefinition name="Own"/></ServiceDefinitions></ThingShape><RunTimePermissions><Permissions resourceName="GetProperties"><ServiceInvoke><Principal name="Acme.Users" type="Group"/></ServiceInvoke></Permissions><Permissions resourceName="Own"><ServiceInvoke><Principal name="Acme.Users" type="Group"/></ServiceInvoke></Permissions></RunTimePermissions></Thing>"#;
+        let back = br#"<Thing name="Acme.T"><ThingShape><ServiceDefinitions><ServiceDefinition name="Own"/></ServiceDefinitions></ThingShape><RunTimePermissions><Permissions resourceName="Own"><ServiceInvoke><Principal name="Acme.Users" type="Group"/></ServiceInvoke></Permissions></RunTimePermissions></Thing>"#;
+        let warnings = super::super::permissions::inherited_service_permissions(sent);
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].0, "GetProperties");
+        let differences = read_back_differences(sent, back, &[]);
+        assert!(differences
+            .iter()
+            .any(|d| d.contains("per-resource permission on inherited service GetProperties")));
+        assert!(!read_back_matches(sent, back, &[], &Default::default()));
+    }
+    #[test]
+    fn template_read_back_exceptions_preserve_authored_properties_and_tables() {
+        let sent = br#"<Thing name="Acme.T" thingTemplate="RemoteThing"><ConfigurationTables/><ThingShape><PropertyDefinitions><PropertyDefinition name="Local"/></PropertyDefinitions><ConfigurationTableDefinitions><ConfigurationTableDefinition name="ReportingConfiguration"/></ConfigurationTableDefinitions></ThingShape><ThingProperties/></Thing>"#;
+        for changed in [
+            String::from_utf8(sent.to_vec()).unwrap().replace("<ThingProperties/>", "<ThingProperties><Local><Value>1</Value></Local></ThingProperties>"),
+            String::from_utf8(sent.to_vec()).unwrap().replace("<ConfigurationTables/>", "<ConfigurationTables><ConfigurationTable name='ReportingConfiguration'/></ConfigurationTables>"),
+            String::from_utf8(sent.to_vec()).unwrap().replace("<ConfigurationTables/>", "<ConfigurationTables><ConfigurationTable name='Acme.Unknown'/></ConfigurationTables>"),
+            String::from_utf8(sent.to_vec()).unwrap().replace("RemoteThing", "IndustrialGateway"),
+        ] {
+            assert!(!read_back_matches(sent, changed.as_bytes(), &[], &Default::default()));
+        }
     }
 }

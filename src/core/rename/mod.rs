@@ -405,6 +405,10 @@ pub enum RenameError {
         shapes: Vec<String>,
         unsure: Vec<String>,
     },
+    Preflight {
+        gates: Vec<String>,
+        database: Box<RenameError>,
+    },
     GatesFail {
         gates: Vec<String>,
     },
@@ -499,6 +503,8 @@ impl fmt::Display for RenameError {
                 }
                 Ok(())
             }
+            RenameError::Preflight { gates, database } => write!(f,
+                "rename preflight gates fail: {}; fix them or pass --skip-checks; {database}", gates.join(", ")),
             RenameError::GatesFail { gates } => write!(
                 f,
                 "rename preflight gates fail: {}; fix them or pass --skip-checks",
@@ -603,7 +609,7 @@ impl Coded for RenameError {
             | Self::ServiceScope { .. }
             | Self::TableScope { .. }
             | Self::WouldDesync { .. } => ErrorCode::GuardRefused,
-            Self::GatesFail { .. } => ErrorCode::GateFailed,
+            Self::GatesFail { .. } | Self::Preflight { .. } => ErrorCode::GateFailed,
             Self::Stale { .. } | Self::PlanChanged { .. } => ErrorCode::StalePlan,
             Self::RollbackFailed { .. } => ErrorCode::RollbackFailed,
             Self::Io { .. } | Self::Apply { .. } => ErrorCode::IoError,
@@ -708,7 +714,7 @@ impl Plan {
     pub fn summary_rows(&self, include_outside: bool, detail: bool) -> Vec<(&'static str, String)> {
         let counts = self.counts();
         let spread = |count: KindCounts, note: Option<&str>| {
-            let references = count.exact + count.embedded;
+            let references = count.exact + count.embedded + count.review;
             format!(
                 "{} file{}, {references} reference{}{}",
                 count.files,

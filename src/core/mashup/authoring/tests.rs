@@ -9855,7 +9855,7 @@ fn columns_validate_typed_editors_and_whitespace_and_explain_editability() {
     write(
         dir.path(),
         "acme/DataShapes/Acme.Orders.Order_DS.xml",
-        r#"<Entities><DataShapes><DataShape name="Acme.Orders.Order_DS" projectName="Acme"><FieldDefinitions><FieldDefinition name="id" baseType="NUMBER"/><FieldDefinition name="note" baseType="STRING"/><FieldDefinition name="Notes" baseType="TEXT"/></FieldDefinitions></DataShape></DataShapes></Entities>"#,
+        r#"<Entities><DataShapes><DataShape name="Acme.Orders.Order_DS" projectName="Acme"><FieldDefinitions><FieldDefinition name="id" baseType="NUMBER"/><FieldDefinition name="note" baseType="STRING"/><FieldDefinition name="Notes" baseType="STRING"/></FieldDefinitions></DataShape></DataShapes></Entities>"#,
     );
     let args = RecipeArgs {
         widget: Some("ptcsgrid-5".into()),
@@ -9871,7 +9871,11 @@ fn columns_validate_typed_editors_and_whitespace_and_explain_editability() {
         ),
         (
             "id=checkbox",
-            vec!["id", "NUMBER", "allowed editors: textfield, textarea"],
+            vec!["id", "NUMBER", "allowed editors: textfield"],
+        ),
+        (
+            "id=textarea",
+            vec!["id", "NUMBER", "allowed editors: textfield"],
         ),
         (
             "note=dropdown",
@@ -9939,7 +9943,7 @@ fn columns_validate_typed_editors_and_whitespace_and_explain_editability() {
     let repeated = recipe(&solution, "columns", configured).unwrap();
     assert!(repeated.edit.unchanged());
     assert_eq!(sidecar_content(&solution), before);
-    let plan = recipe(
+    let error = recipe(
         &solution,
         "columns",
         RecipeArgs {
@@ -9948,14 +9952,15 @@ fn columns_validate_typed_editors_and_whitespace_and_explain_editability() {
             ..args.clone()
         },
     )
-    .unwrap();
-    assert!(plan
-        .notes
-        .iter()
-        .any(|n| n.contains("note")
-            && n.contains("newlines are kept when shown but not while editing")));
-    for (name, editor, warn) in [("note", "textarea", false), ("Notes", "textfield", true)] {
-        let plan = recipe(
+    .unwrap_err()
+    .to_string();
+    assert!(
+        error.contains("requires editor textarea and renderer STRING"),
+        "{error}"
+    );
+    for name in ["note", "Notes"] {
+        let editor = "textarea";
+        recipe(
             &solution,
             "columns",
             RecipeArgs {
@@ -9966,10 +9971,6 @@ fn columns_validate_typed_editors_and_whitespace_and_explain_editability() {
             },
         )
         .unwrap();
-        assert_eq!(
-            plan.notes.iter().any(|n| n.contains("not while editing")),
-            warn
-        );
         let grid = grid_properties();
         let column = grid["ColumnFormat"]["formatInfo"]
             .as_array()

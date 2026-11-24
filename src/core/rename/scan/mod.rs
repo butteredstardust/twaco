@@ -13,7 +13,7 @@ mod service;
 mod table;
 mod xml;
 
-pub(crate) use config::{scan_param_config, scan_service_config};
+pub(crate) use config::{scan_entity_config, scan_param_config, scan_service_config};
 pub(crate) use field::child_elements;
 pub(crate) use field::{
     property_shapes, scan_configuration_field, scan_data_shape_field, scan_infotable_field,

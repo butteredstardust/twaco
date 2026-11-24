@@ -2480,6 +2480,19 @@ fn wire(
             .bind(solution, model, platform, &from, &format!("ui:{id}.Data"))
             .map_err(|e| Error::at(data.referenced, e))?;
         if !body.columns.is_empty() {
+            for column in &body.columns {
+                if column
+                    .value
+                    .editor
+                    .as_deref()
+                    .is_some_and(|editor| !matches!(editor, "textfield" | "textarea"))
+                {
+                    return Err(Error::at(
+                        column.referenced,
+                        "grid column editor must be textfield or textarea",
+                    ));
+                }
+            }
             let statuses: Vec<_> = body
                 .columns
                 .iter()
@@ -2517,9 +2530,28 @@ fn wire(
                                 })
                                 .collect(),
                             date_format: None,
-                            editable: vec![],
-                            column_editors: vec![],
-                            preserve_whitespace: vec![],
+                            editable: body
+                                .columns
+                                .iter()
+                                .filter(|c| c.value.editable)
+                                .map(|c| c.value.field.clone())
+                                .collect(),
+                            column_editors: body
+                                .columns
+                                .iter()
+                                .filter_map(|c| {
+                                    c.value
+                                        .editor
+                                        .as_ref()
+                                        .map(|editor| (c.value.field.clone(), editor.clone()))
+                                })
+                                .collect(),
+                            preserve_whitespace: body
+                                .columns
+                                .iter()
+                                .filter(|c| c.value.preserve_whitespace)
+                                .map(|c| c.value.field.clone())
+                                .collect(),
                             status,
                         },
                     )

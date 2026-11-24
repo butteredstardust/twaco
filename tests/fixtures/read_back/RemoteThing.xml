@@ -1,0 +1,6 @@
+<Entities><Things><Thing name="Acme.TemplateThing" thingTemplate="RemoteThing" inheritedValueStream="" valueStream=""><ConfigurationTables><ConfigurationTable name="ReportingConfiguration"><Rows><Row><enabled>true</enabled></Row></Rows></ConfigurationTable></ConfigurationTables><ThingShape><PropertyDefinitions/></ThingShape><ThingProperties>
+  <lastConnection><Value>0</Value><Timestamp>2026-01-01</Timestamp><Quality>GOOD</Quality></lastConnection>
+  <lastInitialStateSynchronized><Value>0</Value><Timestamp>2026-01-01</Timestamp><Quality>GOOD</Quality></lastInitialStateSynchronized>
+  <reportingLastChange><Value>0</Value><Timestamp>2026-01-01</Timestamp><Quality>GOOD</Quality></reportingLastChange>
+  <reportingLastEvaluation><Value>0</Value><Timestamp>2026-01-01</Timestamp><Quality>GOOD</Quality></reportingLastEvaluation>
+</ThingProperties></Thing></Things></Entities>

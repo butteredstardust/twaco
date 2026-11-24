@@ -144,6 +144,66 @@ pub(crate) fn from_xml(src: &[u8]) -> Result<Sets, PermissionsError> {
     Ok(sets)
 }
 
+/// Runtime grants on an inherited service of a Thing are discarded by Importer.
+pub(crate) fn inherited_service_permissions(src: &[u8]) -> Vec<(String, String)> {
+    let Ok(entity) = normalise::entity_of(src) else {
+        return Vec::new();
+    };
+    if entity.name != b"Thing" {
+        return Vec::new();
+    }
+    fn local_services<'a>(e: &'a Element, out: &mut Vec<&'a str>) {
+        if e.name == b"ServiceDefinition" {
+            if let Some(name) = attribute(e, "name") {
+                out.push(name);
+            }
+        }
+        for child in elements(e) {
+            local_services(child, out);
+        }
+    }
+    let mut local = Vec::new();
+    local_services(&entity, &mut local);
+    let Ok(sets) = from_xml(src) else {
+        return Vec::new();
+    };
+    let Some(grants) = sets.get(&KindKey::of(Kind::RunTime)) else {
+        return Vec::new();
+    };
+    let mut resources: Vec<_> = grants
+        .keys()
+        .filter(|g| {
+            g.action == "ServiceInvoke"
+                && g.resource != "*"
+                && !local.contains(&g.resource.as_str())
+        })
+        .map(|g| g.resource.clone())
+        .collect();
+    resources.sort();
+    resources.dedup();
+    resources.into_iter().map(|name| {
+        let message = format!("per-resource permission on inherited service {name} is not stored by the server; grant it on the template or use `*`");
+        (name, message)
+    }).collect()
+}
+
+pub(crate) fn dropped_inherited_service_permissions(sent: &[u8], back: &[u8]) -> Vec<String> {
+    let Ok(sets) = from_xml(back) else {
+        return Vec::new();
+    };
+    let grants = sets.get(&KindKey::of(Kind::RunTime));
+    inherited_service_permissions(sent)
+        .into_iter()
+        .filter(|(name, _)| {
+            grants.is_none_or(|g| {
+                !g.keys()
+                    .any(|grant| grant.resource == *name && grant.action == "ServiceInvoke")
+            })
+        })
+        .map(|(_, message)| message)
+        .collect()
+}
+
 fn elements(element: &Element) -> impl Iterator<Item = &Element> {
     element.children.iter().filter_map(|child| match child {
         Node::Element(element) => Some(element),

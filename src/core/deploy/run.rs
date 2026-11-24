@@ -377,6 +377,7 @@ pub(crate) fn run_with_progress(
                 })?;
         let fetched =
             EntityKey::address(&entity.collection, &entity.name).and_then(|key| remote.fetch(&key));
+        let mut matches = false;
         let mut only_permissions = false;
         let mut added_dependencies = Vec::new();
         let mut differences = Vec::new();
@@ -384,7 +385,13 @@ pub(crate) fn run_with_progress(
             Ok(Some(bytes)) => {
                 match normalise::hash_with_grants(&bytes, &entity.server_owned, &entity.derived) {
                     Ok(hash) => {
-                        if hash != sent {
+                        matches = normalise::read_back_matches(
+                            &entity.bytes,
+                            &bytes,
+                            &entity.server_owned,
+                            &entity.derived,
+                        );
+                        if !matches {
                             only_permissions =
                                 normalise::differ_only_in_permissions(&entity.bytes, &bytes);
                             added_dependencies =
@@ -410,6 +417,7 @@ pub(crate) fn run_with_progress(
             read_back,
             error,
             only_permissions,
+            matches,
             added_dependencies,
             differences,
         ))
@@ -417,9 +425,17 @@ pub(crate) fn run_with_progress(
     drop(read_back_phase);
     let mut first_read_back = BTreeMap::<(String, String), String>::new();
     for result in read_backs {
-        let (entity, sent, read_back, error, only_permissions, added_dependencies, differences) =
-            result?;
-        if read_back.as_deref() == Some(sent.as_str()) {
+        let (
+            entity,
+            sent,
+            read_back,
+            error,
+            only_permissions,
+            matches,
+            added_dependencies,
+            differences,
+        ) = result?;
+        if matches {
             let read_back = read_back.expect("matching read-back is present");
             baseline.set(
                 &entity.collection,

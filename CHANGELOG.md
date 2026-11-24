@@ -26,6 +26,14 @@ All notable changes to twaco are recorded here. The format follows
   unknown-type `widget:` nodes verbatim, claims bindings and events by their endpoints, and keeps
   non-responsive containers, positions, root style and expression flags; `mashup new --spec` picks the
   project from the mashup name's prefix in a multi-project solution.
+- Template-filled Thing values and reporting configuration pass import read-back verification;
+  push and deploy record the actual server baseline. Push failures name diff, adopt and force recovery.
+- Push plans warn about discarded permissions on inherited services and read-back explains the cause.
+- Entity renames update schema-owned configuration selectors, count review references, and report
+  failing gates and missing database choices together.
+- Grid page-spec columns support editable textfield/textarea editors and whitespace preservation;
+  recipes enforce Composer's field types and whitespace rules. Root help highlights `new thing`.
+
 - Entity drift ignores server-rewritten ordinals only in stored property infotable DataShapes;
   comparison hashes are now v14, so older baselines need recording again when both sides agree.
 - Prose lint recognises common conjunctions, adverbs and verbs in suspected noun runs.

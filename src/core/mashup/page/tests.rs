@@ -4844,3 +4844,55 @@ fn the_q3_page_container_floor_covers_the_sum_of_its_sections() {
 
 #[path = "dynamic_tests.rs"]
 mod dynamic;
+#[test]
+fn grid_columns_author_textarea_and_boolean_whitespace_with_type_validation() {
+    let (dir, solution) = solution();
+    let folder = dir.path().join("acme/DataShapes");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join("Acme.Rows.xml"), r#"<Entities><DataShapes><DataShape name="Acme.Rows" projectName="Acme"><FieldDefinitions><FieldDefinition name="Name" baseType="STRING"/><FieldDefinition name="Count" baseType="INTEGER"/><FieldDefinition name="Html" baseType="HTML"/><FieldDefinition name="Link" baseType="HYPERLINK"/></FieldDefinitions></DataShape></DataShapes></Entities>"#).unwrap();
+    let thing = dir.path().join("acme/Things/Acme.Data.xml");
+    let text = std::fs::read_to_string(&thing).unwrap().replace(
+        "<ResultType baseType=\"INFOTABLE\"/>",
+        "<ResultType baseType=\"INFOTABLE\" aspect.dataShape=\"Acme.Rows\"/>",
+    );
+    std::fs::write(thing, text).unwrap();
+    let spec = SPEC.replace("{field: Name, title: Device, width: 180}", "{field: Name, editable: true, editor: textarea, preserve_whitespace: true}\n            - {field: Count}\n            - {field: Html, editor: textarea}\n            - {field: Link, editor: textfield}");
+    let built = compile(&solution, "Acme", &spec).unwrap();
+    assert_eq!(built, compile(&solution, "Acme", &spec).unwrap());
+    let doc = mashup::edit::parse(&built.content).unwrap();
+    let grid = doc.at(&doc.find_exact(&built.ids["alerts_grid"]).unwrap().path);
+    assert_eq!(grid["Properties"]["IsEditable"], true);
+    let columns = grid["Properties"]["ColumnFormat"]["formatInfo"]
+        .as_array()
+        .unwrap();
+    assert_eq!(columns[0]["cellEditor"], "textarea");
+    assert_eq!(columns[0]["preserveWhiteSpaces"], true);
+    for column in &columns[1..] {
+        assert_eq!(column["preserveWhiteSpaces"], false);
+    }
+    for (spec, expected) in [
+        (
+            spec.replace("field: Name, editable:", "field: Count, editable:")
+                .replace("\n            - {field: Count}", ""),
+            "base type INTEGER",
+        ),
+        (
+            spec.replace("editor: textarea", "editor: textfield"),
+            "requires editor textarea and renderer STRING",
+        ),
+        (
+            spec.replace(
+                "field: Html, editor: textarea",
+                "field: Html, editor: textarea, preserve_whitespace: true",
+            ),
+            "renderer STRING",
+        ),
+        (
+            spec.replace("editor: textfield", "editor: checkbox"),
+            "editor must be textfield or textarea",
+        ),
+    ] {
+        let error = compile(&solution, "Acme", &spec).unwrap_err().to_string();
+        assert!(error.contains(expected), "{error}");
+    }
+}

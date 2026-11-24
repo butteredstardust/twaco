@@ -158,6 +158,14 @@ numeric `Count` fields. Bindings and events use authored IDs, including tile and
 | `status_message` | `mashup add statusmessage`, `bind`, `on` | `- status_message: {id: failed, message: Operation failed, message_type: error}` |
 | `rich_text` | `mashup add ptcsrte`, `set`, `bind` | `- rich_text: {id: header, content: '<h2>Acme</h2>', read_only: true, show_toolbar: false, font_size: 18, size: {fixed: 56}}` |
 
+Grid column objects also accept `editable: true`, `editor: textfield|textarea`, and
+`preserve_whitespace: true`. For example, `{field: Notes, editable: true, editor: textarea,
+preserve_whitespace: true}`. Textarea editors require STRING, HTML or HYPERLINK fields;
+whitespace preservation requires textarea with the STRING renderer. The compiler uses the
+same column recipe as `mashup recipe columns --editable-column Notes` with
+`--column-editor Notes=textarea --preserve-whitespace Notes`. Columns always write the boolean
+`preserveWhiteSpaces` key used by Composer.
+
 `status_message` is a function widget placed beside the layout. `message` is literal text or
 `{bind: ...}` and maps to `Message`; `message_type` maps to `MessageType` and accepts `error`,
 `info` (the default) or `warning`. `show: <id>` invokes its `ShowMessage` service.

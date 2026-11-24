@@ -676,6 +676,9 @@ impl<'de> Deserialize<'de> for Column {
                 width: None,
                 format: None,
                 status: None,
+                editable: false,
+                editor: None,
+                preserve_whitespace: false,
             },
             ColumnInput::Full(c) => Self {
                 field: c.field,
@@ -683,6 +686,9 @@ impl<'de> Deserialize<'de> for Column {
                 width: c.width,
                 format: c.format,
                 status: c.status,
+                editable: c.editable,
+                editor: c.editor,
+                preserve_whitespace: c.preserve_whitespace,
             },
         })
     }
@@ -695,6 +701,9 @@ pub(crate) struct Column {
     pub(crate) width: Option<u32>,
     pub(crate) format: Option<String>,
     pub(crate) status: Option<String>,
+    pub(crate) editable: bool,
+    pub(crate) editor: Option<String>,
+    pub(crate) preserve_whitespace: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -705,6 +714,11 @@ struct FullColumn {
     pub(crate) width: Option<u32>,
     pub(crate) format: Option<String>,
     pub(crate) status: Option<String>,
+    #[serde(default)]
+    pub(crate) editable: bool,
+    pub(crate) editor: Option<String>,
+    #[serde(default)]
+    pub(crate) preserve_whitespace: bool,
 }
 
 #[derive(Debug, Deserialize)]

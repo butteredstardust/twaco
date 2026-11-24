@@ -276,10 +276,7 @@ pub enum PushError {
     /// The import said success, but the entity read back is not what was sent. The baseline
     /// was left alone, so `entity status` still shows the difference.
     #[error("the import reported success, but the server did not keep what was sent \
-                 (sent {sent}, read back {}); the baseline was not updated. Known causes: a \
-                 configuration table the template does not define is dropped, and a file \
-                 missing sections the server always writes (a hand-written one, typically) \
-                 comes back with them filled in. `twaco entity get` shows what the server kept{}", .read_back
+                 (sent {sent}, read back {}); the baseline was not updated. `twaco entity diff` shows what the server kept{}", .read_back
                     .as_deref()
                     .unwrap_or("nothing: the entity is missing"), where_it_differs(.differences))]
     NotKept {
@@ -407,7 +404,9 @@ pub(crate) fn push_with_parts(
         .map(|bytes| normalise::hash_with_grants(bytes, parts, grants))
         .transpose()
         .map_err(PushError::Server)?;
-    if read_back.as_deref() != Some(working.as_str()) {
+    if !fetched.as_deref().is_some_and(|back| {
+        normalise::read_back_matches(target.document.bytes, back, parts, grants)
+    }) {
         return Err(PushError::NotKept {
             sent: working,
             read_back,
@@ -418,7 +417,13 @@ pub(crate) fn push_with_parts(
                 .unwrap_or_default(),
         });
     }
-    record(root, profile, target, working.clone(), working)?;
+    record(
+        root,
+        profile,
+        target,
+        working,
+        read_back.expect("verified read-back"),
+    )?;
     Ok(Outcome::Pushed { created })
 }
 
@@ -962,5 +967,62 @@ mod tests {
                 ..
             })
         ));
+    }
+    #[test]
+    fn template_filled_values_are_kept_and_record_the_actual_server_baseline() {
+        struct TemplateRemote {
+            back: Vec<u8>,
+            imported: RefCell<bool>,
+        }
+        impl Remote for TemplateRemote {
+            fn fetch(&self, _: &EntityKey) -> Result<Option<Vec<u8>>, ServerError> {
+                Ok(self.imported.borrow().then(|| self.back.clone()))
+            }
+            fn export_owned(&self, key: &EntityKey) -> Result<Option<Vec<u8>>, ServerError> {
+                self.fetch(key)
+            }
+            fn import(&self, _: &str, _: &[u8]) -> Result<(), ServerError> {
+                *self.imported.borrow_mut() = true;
+                Ok(())
+            }
+        }
+        for (template, back) in [
+            (
+                "RemoteThing",
+                include_bytes!("../../tests/fixtures/read_back/RemoteThing.xml").as_slice(),
+            ),
+            (
+                "IndustrialGateway",
+                include_bytes!("../../tests/fixtures/read_back/IndustrialGateway.xml").as_slice(),
+            ),
+        ] {
+            let (_guard, root) = temp();
+            let sent = format!(r#"<Entities><Things><Thing name="Acme.TemplateThing" thingTemplate="{template}" inheritedValueStream="" valueStream=""><ConfigurationTables/><ThingShape><PropertyDefinitions/></ThingShape><ThingProperties/></Thing></Things></Entities>"#).into_bytes();
+            let remote = TemplateRemote {
+                back: back.to_vec(),
+                imported: RefCell::new(false),
+            };
+            let mut target = target(&sent);
+            target.key = EntityKey::new("Things", "Acme.TemplateThing").unwrap();
+            assert_eq!(
+                push(&remote, &root, &target, true, false).unwrap(),
+                Outcome::Pushed { created: true }
+            );
+            let baseline = Baseline::load(&root, "default").unwrap();
+            let ancestor = baseline.get("Things", "Acme.TemplateThing").unwrap();
+            assert_eq!(ancestor.local, normalise::hash(&sent).unwrap());
+            assert_eq!(ancestor.server, normalise::hash(back).unwrap());
+            assert_eq!(
+                push(&remote, &root, &target, true, false).unwrap(),
+                Outcome::AlreadyThere
+            );
+            let changed = String::from_utf8(back.to_vec())
+                .unwrap()
+                .replace("<Value>0</Value>", "<Value>1</Value>");
+            assert!(
+                !normalise::read_back_matches(back, changed.as_bytes(), &[], &Default::default()),
+                "authored values stay significant"
+            );
+        }
     }
 }

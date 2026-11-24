@@ -2305,3 +2305,38 @@ fn mashup_only_plan_keeps_project_deploy_hook_and_explains_it() {
     let (_, notes) = plan_bundles(&solution, "default", PlanOptions::default()).unwrap();
     assert!(!notes.iter().any(|note| note.contains("no backend entity")));
 }
+
+#[test]
+fn template_filled_read_backs_record_distinct_server_baselines_on_deploy() {
+    for (template, back) in [
+        (
+            "RemoteThing",
+            include_bytes!("../../../tests/fixtures/read_back/RemoteThing.xml").as_slice(),
+        ),
+        (
+            "IndustrialGateway",
+            include_bytes!("../../../tests/fixtures/read_back/IndustrialGateway.xml").as_slice(),
+        ),
+    ] {
+        let mut sent = target("Acme.TemplateThing", "");
+        sent.bytes = format!(r#"<Entities><Things><Thing name="Acme.TemplateThing" thingTemplate="{template}" inheritedValueStream="" valueStream=""><ConfigurationTables/><ThingShape><PropertyDefinitions/></ThingShape><ThingProperties/></Thing></Things></Entities>"#).into_bytes();
+        let mut filled = sent.clone();
+        filled.bytes = back.to_vec();
+        let remote = Fake {
+            import_values: BTreeMap::from([("Acme.xml".into(), vec![filled])]),
+            ..Default::default()
+        };
+        let baselines = MemoryBaseline::default();
+        let projects = [project("Acme", vec![sent.clone()], vec![])];
+        let report = run_test(&remote, &baselines, &projects, true, false).unwrap();
+        assert!(report.not_kept.is_empty());
+        let baseline = baselines.value.borrow();
+        let entry = baseline.get("Things", "Acme.TemplateThing").unwrap();
+        assert_eq!(entry.local, normalise::hash(&sent.bytes).unwrap());
+        assert_eq!(entry.server, normalise::hash(back).unwrap());
+        drop(baseline);
+        let again = run_test(&remote, &baselines, &projects, true, false).unwrap();
+        assert!(again.not_kept.is_empty());
+        assert_eq!(remote.imports.lock().unwrap().len(), 1);
+    }
+}

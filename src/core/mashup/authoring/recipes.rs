@@ -2698,12 +2698,14 @@ pub(super) fn plan_recipe_loaded(
                             "--preserve-whitespace {name} is not one of the --column fields"
                         ))
                     })?;
-                column["preserveWhiteSpaces"] = json!(true);
-                if editable.contains(name) && column["cellEditor"] != "textarea" {
-                    work.notes.push(format!(
-                        "{name}: newlines are kept when shown but not while editing; use --column-editor {name}=textarea"
-                    ));
+                if column["cellEditor"] != "textarea"
+                    || column["FormatOptions"]["renderer"] != "STRING"
+                {
+                    return Err(AuthoringError::Invalid(format!(
+                        "--preserve-whitespace {name}: requires editor textarea and renderer STRING; use --column-editor {name}=textarea on a STRING column"
+                    )));
                 }
+                column["preserveWhiteSpaces"] = json!(true);
             }
             // Composer keeps all fields in the configuration, even those outside the layout.
             for (name, base) in fields.iter().flatten() {
@@ -2730,6 +2732,15 @@ pub(super) fn plan_recipe_loaded(
             } else {
                 json!({})
             };
+            for column in &mut format {
+                if column
+                    .get("preserveWhiteSpaces")
+                    .and_then(Value::as_bool)
+                    .is_none()
+                {
+                    column["preserveWhiteSpaces"] = json!(false);
+                }
+            }
             configuration["formatInfo"] = json!(format);
             work.set(&target, &[("ColumnFormat", configuration)]);
             super::set::style_properties(work.document.root_properties(), &request.mashup)?;
@@ -3835,12 +3846,11 @@ pub fn recipe_plan_json(solution: &Solution, plan: &RecipePlan, applied: bool) -
 
 fn column_editors_for(base: &str) -> &'static [&'static str] {
     match base {
-        "BOOLEAN" => &["checkbox", "textfield", "textarea"],
+        "BOOLEAN" => &["checkbox", "textfield"],
         "DATETIME" => &["datepicker", "textfield"],
-        "HTML" | "HYPERLINK" | "IMAGE" | "JSON" | "TEXT" => &["textarea", "textfield"],
+        "HTML" | "HYPERLINK" => &["textfield", "textarea"],
         "STRING" => &["textfield", "textarea", "dropdown"],
-        "XML" => &["textarea"],
-        _ => &["textfield", "textarea"],
+        _ => &["textfield"],
     }
 }
 
@@ -3871,7 +3881,9 @@ fn refresh_column_type(
 fn column_format(name: &str, title: &str, width: Value, base: &str) -> Value {
     let (renderer, format, editor) = match base {
         "STRING" | "THINGNAME" | "USERNAME" | "GUID" => ("STRING", "full", "textfield"),
-        "TEXT" => ("STRING", "full", "textarea"),
+        "TEXT" => ("STRING", "full", "textfield"),
+        "HTML" => ("HTML", "full", "textfield"),
+        "HYPERLINK" => ("HYPERLINK", "full", "textfield"),
         "NUMBER" => ("NUMBER", "0.00", "textfield"),
         "INTEGER" | "LONG" => ("NUMBER", "0", "textfield"),
         "BOOLEAN" => ("BOOLEAN", "checkbox", "checkbox"),
@@ -3895,6 +3907,7 @@ fn column_format(name: &str, title: &str, width: Value, base: &str) -> Value {
         "Title": title,
         "Width": width,
         "cellEditor": editor,
+        "bulkCheckboxSelection": false,
         "cellHorizontalAlignment": "left",
         "columnMinimumWidth": 75,
         "editable": false,
@@ -4430,15 +4443,15 @@ mod tests {
     #[test]
     fn column_editor_choices_follow_composer_base_types() {
         for (base, expected) in [
-            ("BOOLEAN", vec!["checkbox", "textfield", "textarea"]),
+            ("BOOLEAN", vec!["checkbox", "textfield"]),
             ("DATETIME", vec!["datepicker", "textfield"]),
-            ("HTML", vec!["textarea", "textfield"]),
-            ("HYPERLINK", vec!["textarea", "textfield"]),
-            ("IMAGE", vec!["textarea", "textfield"]),
-            ("JSON", vec!["textarea", "textfield"]),
-            ("TEXT", vec!["textarea", "textfield"]),
+            ("HTML", vec!["textfield", "textarea"]),
+            ("HYPERLINK", vec!["textfield", "textarea"]),
+            ("IMAGE", vec!["textfield"]),
+            ("JSON", vec!["textfield"]),
+            ("TEXT", vec!["textfield"]),
             ("STRING", vec!["textfield", "textarea", "dropdown"]),
-            ("XML", vec!["textarea"]),
+            ("XML", vec!["textfield"]),
         ] {
             assert_eq!(column_editors_for(base), expected, "{base}");
         }
@@ -4457,13 +4470,9 @@ mod tests {
             "UNKNOWN",
             "",
         ] {
-            assert_eq!(
-                column_editors_for(base),
-                ["textfield", "textarea"],
-                "{base}"
-            );
+            assert_eq!(column_editors_for(base), ["textfield"], "{base}");
         }
-        for (base, editor) in [("TEXT", "textarea"), ("STRING", "textfield")] {
+        for (base, editor) in [("TEXT", "textfield"), ("STRING", "textfield")] {
             let column = column_format("Notes", "Notes", json!("auto"), base);
             assert_eq!(column["cellEditor"], editor);
             assert_eq!(column["preserveWhiteSpaces"], false);

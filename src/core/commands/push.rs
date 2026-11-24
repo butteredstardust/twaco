@@ -125,8 +125,12 @@ impl fmt::Display for PushCommandError {
             Self::Backup { label, why } => write!(f, "{label}: {why}"),
             Self::Push { label, why, .. } => {
                 write!(f, "{label}: {why}")?;
-                if let Some(hint) = missing_dependency_hint(&why.to_string()) {
-                    write!(f, "; {hint}")?;
+                if matches!(why, push::PushError::NotKept { .. }) {
+                    write!(f, "; inspect `twaco entity diff {label}`, then export the server copy and adopt it with `twaco adopt <export.xml> --apply`, or retry the reviewed repository copy with `twaco entity push {label} --force --apply`")?;
+                } else if matches!(why, push::PushError::Remote(_)) {
+                    if let Some(hint) = missing_dependency_hint(&why.to_string()) {
+                        write!(f, "; {hint}")?;
+                    }
                 }
                 Ok(())
             }
@@ -238,6 +242,11 @@ where
         path: entity.path.clone(),
         why: std::io::Error::other(why),
     })?;
+    notices.extend(
+        crate::core::permissions::inherited_service_permissions(&bytes)
+            .into_iter()
+            .map(|(_, message)| message),
+    );
     let remote = open(profile);
     let label = format!("{}/{}", entity.info.collection, entity.info.name);
     let key = EntityKey::new(&entity.info.collection, &entity.info.name).map_err(|why| {
@@ -1120,5 +1129,47 @@ mod tests {
             backup: None,
         };
         assert_eq!(error.code(), ErrorCode::NotVerified);
+    }
+    #[test]
+    fn not_kept_names_diff_and_force_without_circular_dependency_advice() {
+        let error = PushCommandError::Push {
+            label: "Things/Acme.T".into(),
+            backup: None,
+            why: push::PushError::NotKept {
+                sent: "sent".into(),
+                read_back: Some("back".into()),
+                differences: vec!["Thing/ThingProperties/Acme.T: missing".into()],
+            },
+        }
+        .to_string();
+        assert!(error.contains("twaco entity diff Things/Acme.T"), "{error}");
+        assert!(
+            error.contains("twaco entity push Things/Acme.T --force --apply"),
+            "{error}"
+        );
+        assert!(!error.contains("--apply` first"), "{error}");
+    }
+
+    #[test]
+    fn inherited_service_permission_is_named_before_a_push() {
+        let (_guard, root, solution, fake) = setup(None, None);
+        fake.state.lock().unwrap().entities = Some(std::collections::BTreeMap::from([(
+            "ThingTemplates/GenericThing".into(),
+            b"<ThingTemplate name='GenericThing'/>".to_vec(),
+        )]));
+        std::fs::write(root.join("Things/Acme.T.xml"), r#"<Entities><Things><Thing name="Acme.T" projectName="Acme" thingTemplate="GenericThing"><RunTimePermissions><Permissions resourceName="GetProperties"><ServiceInvoke><Principal name="Acme.Users" type="Group" isPermitted="true"/></ServiceInvoke></Permissions></RunTimePermissions></Thing></Things></Entities>"#).unwrap();
+        let mut notices = Notices::default();
+        super::execute(
+            &solution,
+            &request(Mode::Plan, false, true),
+            |_| fake.clone(),
+            &mut notices,
+        )
+        .unwrap();
+        assert!(notices
+            .lines()
+            .iter()
+            .any(|n| n.contains("inherited service GetProperties")
+                && n.contains("grant it on the template or use `*`")));
     }
 }
