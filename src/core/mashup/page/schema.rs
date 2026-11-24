@@ -34,6 +34,8 @@ pub(crate) struct Page {
     /// `as-built` keeps the page out of the v1 layout rules: a mashup made by hand or by the
     /// commands keeps the geometry its spec states, and nothing is added to it.
     pub(crate) layout: Option<Spanned<String>>,
+    /// A stylesheet file, relative to the spec, that becomes the mashup's `custom.css` sidecar.
+    pub(crate) css: Option<Spanned<String>>,
     /// Input parameters (name to base type) of a page that is shown inside another, such as a
     /// collection cell; bind to one with `{bind: param.<name>}`.
     #[serde(default)]
@@ -488,6 +490,9 @@ pub(crate) struct Body {
     #[serde(default, deserialize_with = "style_list")]
     pub(crate) style: Vec<Spanned<String>>,
     pub(crate) surface: Option<bool>,
+    /// The widget's stored style parts (`part: {state: {property: value}}`), written back as they
+    /// are; what `style:` cannot say, such as a stored style carried from another mashup.
+    pub(crate) styles: Option<Spanned<Value>>,
     pub(crate) size: Option<Spanned<Size>>,
     pub(crate) weight: Option<Spanned<f64>>,
     pub(crate) gap: Option<Spanned<u32>>,

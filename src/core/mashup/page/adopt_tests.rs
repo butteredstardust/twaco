@@ -4,7 +4,7 @@ use super::super::extract as extraction;
 use super::*;
 use crate::core::mashup::Assets;
 
-const HAND_SPEC: &str = "version: 1
+pub(super) const HAND_SPEC: &str = "version: 1
 rules: v1
 page:
   name: Acme.Hand_MU

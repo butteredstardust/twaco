@@ -6,6 +6,10 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+- Page specs carry a mashup's look: `mashup spec --out` writes its custom.css sidecar to `page.css` and each
+  widget's stored styles as `styles:`, and a build (new or existing) writes both back verbatim. A v1 page
+  container's minimum height now counts its rows' margins, padding and measured widgets, so the page scrolls
+  only in the mashup root.
 - Test runs use cargo nextest in CI and document quick and changed-file selections for local work.
 - Page specs accept every platform built-in theme (Base, Composer, Legacy Styles, PTC Convergence and its
   Green Accent). Token presets paint the whole page through an inline mashup style instead of framing it in

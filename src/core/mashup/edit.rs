@@ -2844,6 +2844,39 @@ pub(crate) fn mixed_label_controls(row: &Value) -> Option<(Vec<&str>, Vec<&str>)
     (!labelled.is_empty() && !controls.is_empty()).then_some((labelled, controls))
 }
 
+/// How tall the content of a page container renders when nothing fills: its rows stacked or
+/// side by side, each at its own minimum or at what its widgets measure, plus every nested
+/// container's margin, padding and border. A widget whose height is unknown (a grid, a chart)
+/// counts for nothing, since the wrapper that holds it carries its floor.
+pub(crate) fn content_floor(container: &Value, styles: &Value) -> f64 {
+    fn inner(widget: &Value, styles: &Value) -> f64 {
+        let stacked = widget["Properties"]["flex-direction"] == "column";
+        children(widget)
+            .iter()
+            .filter(|child| {
+                child["twacoLayoutFiller"] != true && child["Properties"]["Visible"] != false
+            })
+            .map(|child| outer(child, styles))
+            .fold(0.0, |all, height| {
+                if stacked {
+                    all + height
+                } else {
+                    all.max(height)
+                }
+            })
+    }
+    fn outer(widget: &Value, styles: &Value) -> f64 {
+        if type_of(widget) != Some("flexcontainer") {
+            return content_height(widget, styles).unwrap_or(0.0);
+        }
+        let margin = vertical_margin(widget["Properties"]["Margin"].as_str().unwrap_or(""));
+        let boxed = vertical_insets(widget, styles) - margin;
+        let minimum = css_px(&widget["Properties"]["flex-min-height"]).unwrap_or(0.0);
+        (inner(widget, styles) + boxed).max(minimum) + margin
+    }
+    inner(container, styles).ceil()
+}
+
 /// Rendered height with margins, or `None` when the widget's height is unknown.
 fn content_height(widget: &Value, styles: &Value) -> Option<f64> {
     if type_of(widget) == Some("ptcslabel") {

@@ -766,6 +766,29 @@ Without `--out`, the spec goes to stdout and coverage to stderr. `--json` return
 when they have something to say); it also writes the requested output file when present. MCP
 `mashup_spec` takes `mashup` and returns the same report without writing a file.
 
+**The look is carried.** A mashup's `custom.css` sidecar is written byte for byte to `page.css` beside
+`--out`, and the spec says `page.css: page.css`. Each widget's stored styles (`StyleProperties`) are carried
+as `styles:` on its node, keyed by part and state as stored, and a build writes them back verbatim. With
+`tokens:` the same styles become `style:` settings instead. Any style that no node can carry is listed in
+`notes`, one per widget.
+
+```yaml
+page:
+  name: Acme.Copy_MU
+  template: blank
+  css: page.css          # becomes the mashup's custom.css sidecar, never content CustomMashupCss
+  slots:
+    center:
+      - column:
+          id: side
+          styles: {"$": {"$": {background: "#F7F7F7", border-style: solid}}}
+```
+
+`mashup new COPY --spec f.yaml` copies `page.css` beside the stored `page.yaml`, so a rebuild finds it; a
+missing file is a spec error with its file, line and column. Change the page name in a derived spec before
+building a copy, and keep node ids: custom CSS that targets widget ids keeps working because a fresh build
+keeps a derived spec's ids.
+
 **A mashup built from a spec** (`src/<Mashup>/page.yaml` with its `.page-baseline.json`) returns
 that `page.yaml` byte for byte (`exact: true`) while the mashup still matches its baseline. If the
 mashup was edited by hand after the last build, the report still carries `page.yaml`, with
@@ -804,7 +827,7 @@ one into a widget property a `props` entry with `{bind: ...}`, a service feeding
 element's `data`, and every other trigger an `events` entry. Node ids are the widget ids with
 anything but letters, digits, `_` and `-` replaced.
 
-Not carried: widget styles, custom CSS, state formatting snapshots, bindings and events outside the supported function contracts and data that is not a Thing service. Properties the catalogue does not list are carried as props on a page that is derived to be adopted, and listed in `notes` otherwise. The report's `notes` list what applied.
+Not carried: state formatting snapshots, bindings and events outside the supported function contracts and data that is not a Thing service. Properties the catalogue does not list are carried as props on a page that is derived to be adopted, and listed in `notes` otherwise. The report's `notes` list what applied.
 Pagination derives as `pagination` with `mode: server`, preserving its existing wiring without
 adding slicing expressions. Native expressions become typed `data` entries. Widgets without an element (decorative shapes, extension maps, dynamic navigation or embed targets, two-pane dynamic panels) stay as raw `widget:` nodes with a note.
 Build the derived spec to review a plan: its widget tree matches the

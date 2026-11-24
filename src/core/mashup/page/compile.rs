@@ -401,6 +401,14 @@ fn compile_nested(
         pins,
         spec.page.referenced,
     )?;
+    for nodes in page.slots.values() {
+        for node in &nodes.value {
+            apply_stored_styles(&mut session, &ids, node)?;
+        }
+    }
+    if let Some(css) = &page.css {
+        session.css = read_css(base, css)?;
+    }
     session
         .sync()
         .map_err(|e| Error::at(spec.page.referenced, e))?;
@@ -1246,6 +1254,76 @@ pub(super) fn descendants(node: &Node) -> impl Iterator<Item = &Node> {
         .iter()
         .chain(&b.fields)
         .chain(b.tabs.iter().flat_map(|t| t.content.iter().flatten()))
+}
+
+/// `page.css`: the file's text is the `custom.css` sidecar, which ends in one newline.
+fn read_css(base: &std::path::Path, css: &serde_saphyr::Spanned<String>) -> Result<String, Error> {
+    let relative = std::path::Path::new(&css.value);
+    if css.value.is_empty() || relative.is_absolute() {
+        return Err(Error::at(
+            css.referenced,
+            "page.css must be a file path relative to the spec",
+        ));
+    }
+    let path = base.join(relative);
+    let bytes = std::fs::read(&path).map_err(|e| {
+        Error::at(
+            css.referenced,
+            format!("page.css: cannot read {}: {e}", css.value),
+        )
+    })?;
+    let mut text = String::from_utf8(bytes).map_err(|_| {
+        Error::at(
+            css.referenced,
+            format!("page.css: {} is not UTF-8 text", css.value),
+        )
+    })?;
+    if !text.ends_with('\n') {
+        text.push('\n');
+    }
+    Ok(text)
+}
+
+/// A node's `styles:` replace the stored style parts of its widget, as written.
+fn apply_stored_styles(
+    session: &mut Session,
+    ids: &BTreeMap<String, String>,
+    node: &Node,
+) -> Result<(), Error> {
+    let body = node.body();
+    if let Some(styles) = &body.styles {
+        if !styles.value.is_object() {
+            return Err(Error::at(
+                styles.referenced,
+                "styles must be a map of part to state to property",
+            ));
+        }
+        let Some(id) = ids.get(&body.id.value) else {
+            return Err(Error::at(
+                styles.referenced,
+                "styles: this node builds no widget of its own",
+            ));
+        };
+        let data = session
+            .document
+            .root_properties_mut()
+            .entry("StyleProperties")
+            .or_insert_with(|| json!({}));
+        if !data.is_object() {
+            *data = json!({});
+        }
+        data.as_object_mut()
+            .expect("object")
+            .entry("data")
+            .or_insert_with(|| json!({}))
+            .as_object_mut()
+            .ok_or_else(|| Error::at(styles.referenced, "StyleProperties.data is not a map"))?
+            .insert(id.clone(), json!({"parts": styles.value}));
+    }
+    for child in descendants(node) {
+        apply_stored_styles(session, ids, child)?;
+    }
+    Ok(())
 }
 
 fn styles(body: &schema::Body) -> Vec<String> {

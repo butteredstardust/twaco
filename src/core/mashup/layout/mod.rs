@@ -730,6 +730,31 @@ pub(crate) fn finish_page(document: &mut super::edit::MashupDocument) {
             _ => {}
         }
     }
+    // The page container's floor must cover what its rows really hold: a row's own minimum
+    // leaves out its margins, padding and the measured height of its widgets, and rows that
+    // end up short make the page container scroll inside the mashup root's own scroller.
+    let styles = document
+        .root_properties()
+        .get("StyleProperties")
+        .map_or(Value::Null, |styles| styles["data"].clone());
+    for container in &containers {
+        let node = document.at(&container.path);
+        if container.display_name != "center"
+            || node["Properties"]["flex-size"] == "fixed"
+            || node["twacoLayoutAuthored"] == true
+        {
+            continue;
+        }
+        let content = super::edit::content_floor(node, &styles);
+        let current = height_floor(node);
+        if content > f64::from(current) {
+            document.set_property(
+                &container.path,
+                "flex-min-height",
+                json!(format!("{}px", content.ceil())),
+            );
+        }
+    }
     // AdminPage01 grid/content and Compare tab content use LastContainer for the remainder.
     for container in containers {
         let node = document.at(&container.path);

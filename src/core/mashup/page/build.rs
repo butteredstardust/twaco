@@ -339,7 +339,15 @@ fn plan_from(
             // Page specs intentionally do not own custom.css. Keep it byte-for-byte (aside
             // from its existing terminator convention) instead of treating it as generated
             // content or a hand edit on every subsequent build.
-            (merged, current_assets.css)
+            // A spec that names `page.css` owns the sidecar until someone edits the sidecar.
+            let css = if spec.page.value.css.is_some()
+                && mashup::same_css(&current_assets.css, &old.css)
+            {
+                baseline.css.clone()
+            } else {
+                current_assets.css
+            };
+            (merged, css)
         } else {
             // The spec was derived from this mashup: claim its widgets and wiring by id.
             if let Some(aligned) =
@@ -580,6 +588,22 @@ fn plan_from(
             after: stored_spec(yaml, &spec, spec_path, &page_path, solution)?,
         });
     }
+    // A stylesheet the spec names sits beside its stored page.yaml, so a rebuild finds it.
+    let mut css_input = None;
+    if let Some(css) = &spec.page.value.css {
+        let source = spec_base.join(&css.value);
+        let bytes = read(&source)?
+            .ok_or_else(|| invalid(format!("{}: page.css {} is missing", spec_name, css.value)))?;
+        let target = dir.join(&css.value);
+        if spec_file.is_some() && target != source {
+            files.push(File {
+                before: read(&target)?,
+                path: target,
+                after: bytes.clone(),
+            });
+        }
+        css_input = Some((source, Some(bytes)));
+    }
     for f in &files {
         crate::core::transaction::check_inside(&solution.root, &f.path).map_err(invalid)?;
     }
@@ -597,6 +621,7 @@ fn plan_from(
             read(&solution.root.join("twaco.toml"))?,
         ),
     ];
+    inputs.extend(css_input);
     inputs.extend(
         spec.resolved_tokens
             .inputs

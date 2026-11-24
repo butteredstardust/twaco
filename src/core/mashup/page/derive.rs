@@ -150,7 +150,7 @@ fn derive_as(name: &str, content: &str, carry_styles: bool, exact: bool) -> Resu
     }
     let mut spec = json!({"version": 1, "rules": "v1", "page": page});
     run.resolve(&mut spec);
-    if !carry_styles {
+    {
         let mut kinds = BTreeMap::new();
         fn collect_kinds(widget: &Value, kinds: &mut BTreeMap<String, String>) {
             if let Some(id) = prop(widget, "Id").as_str() {
@@ -166,28 +166,32 @@ fn derive_as(name: &str, content: &str, carry_styles: bool, exact: bool) -> Resu
             .into_iter()
             .flatten()
         {
-            if kinds.get(id).is_some_and(|kind| kind == "flexcontainer") {
-                let parts: Vec<_> = style["parts"]
-                    .as_object()
-                    .into_iter()
-                    .flatten()
-                    .map(|(part, _)| part.as_str())
-                    .collect();
-                if !parts.is_empty() {
-                    run.notes.push(format!(
-                        "style properties not carried: container {id}, parts {}",
-                        parts.join(", ")
-                    ));
-                }
+            if run.styled.contains(id) {
+                continue;
             }
+            let parts: Vec<_> = style["parts"]
+                .as_object()
+                .into_iter()
+                .flatten()
+                .map(|(part, _)| part.as_str())
+                .collect();
+            let extra = style
+                .as_object()
+                .is_some_and(|e| e.keys().any(|k| k != "parts"));
+            if parts.is_empty() && !extra {
+                continue;
+            }
+            let what = kinds.get(id).map_or("no such widget", String::as_str);
+            run.notes.push(format!(
+                "style properties not carried: {what} {id}, parts {}",
+                parts.join(", ")
+            ));
         }
     }
     run.notes.push(if carry_styles {
-        "custom CSS, styles of widgets folded into elements and unsupported wiring are not carried"
-            .into()
+        "styles of widgets folded into elements and unsupported wiring are not carried".into()
     } else {
-        "styles, custom CSS and unsupported wiring are not carried; the build supplies the look"
-            .into()
+        "unsupported wiring is not carried; widget styles are carried under styles:".into()
     });
     let text = render(&spec);
     Ok(Derived {
@@ -412,6 +416,8 @@ struct Link {
 
 struct Run<'a> {
     carry_styles: bool,
+    /// Widgets whose stored styles the spec carries, by widget id.
+    styled: BTreeSet<String>,
     /// The mashup was not laid out by the v1 rules, so the spec states its geometry as it is.
     exact: bool,
     content: &'a Value,
@@ -436,6 +442,7 @@ impl<'a> Run<'a> {
     fn new(content: &'a Value) -> Self {
         let mut run = Self {
             carry_styles: false,
+            styled: BTreeSet::new(),
             exact: false,
             content,
             calls: vec![],
@@ -849,10 +856,12 @@ impl<'a> Run<'a> {
             let id = prop(widget, "Id").as_str().unwrap_or("");
             let parts = &self.content["UI"]["Properties"]["StyleProperties"]["data"][id]["parts"];
             let mut styles = vec![];
+            let mut skipped = false;
             for (part, states) in parts.as_object().into_iter().flatten() {
                 for (state, properties) in states.as_object().into_iter().flatten() {
                     for (property, value) in properties.as_object().into_iter().flatten() {
                         let Some(value) = value.as_str() else {
+                            skipped = true;
                             continue;
                         };
                         let scope = match (part.as_str(), state.as_str()) {
@@ -864,6 +873,11 @@ impl<'a> Run<'a> {
                     }
                 }
             }
+            if skipped {
+                self.notes.push(format!(
+                    "style properties partly not carried: widget {id}, non-text values"
+                ));
+            }
             if !styles.is_empty() {
                 if let Some(body) = node
                     .as_object_mut()
@@ -871,6 +885,25 @@ impl<'a> Run<'a> {
                     .and_then(Value::as_object_mut)
                 {
                     body.insert("style".into(), json!(styles));
+                    self.styled.insert(id.to_string());
+                }
+            }
+        } else {
+            // What `style:` cannot say stays verbatim, so the look survives a build.
+            let id = prop(widget, "Id").as_str().unwrap_or("");
+            let entry = &self.content["UI"]["Properties"]["StyleProperties"]["data"][id];
+            let parts = &entry["parts"];
+            let others = entry
+                .as_object()
+                .is_some_and(|e| e.keys().any(|k| k != "parts"));
+            if parts.as_object().is_some_and(|p| !p.is_empty()) && !others {
+                if let Some(body) = node
+                    .as_object_mut()
+                    .and_then(|m| m.values_mut().next())
+                    .and_then(Value::as_object_mut)
+                {
+                    body.insert("styles".into(), parts.clone());
+                    self.styled.insert(id.to_string());
                 }
             }
         }

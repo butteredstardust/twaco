@@ -4773,3 +4773,44 @@ mod wiring;
 
 #[path = "master_tests.rs"]
 mod master_tests;
+
+#[path = "carry_tests.rs"]
+mod carry;
+
+/// The page container must cover its sections, or the page scrolls twice (the container inside
+/// the mashup root). Sections as the Q3 page lays them out: a header label (33 + 10 margins), a
+/// KPI row of panels (25 + 40 + 16 margins), the chart row, the 48px toolbar band, the grid and
+/// the pagination row.
+#[test]
+fn the_q3_page_container_floor_covers_the_sum_of_its_sections() {
+    let folder =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/mashup/pages");
+    let solution = Solution::load(&folder.join("bench_solution/twaco.toml")).unwrap();
+    let spec = std::fs::read_to_string(folder.join("bench_q3/page.yaml")).unwrap();
+    let built = compile(&solution, "Acme.Bench", &spec).unwrap();
+    let content: Value = serde_json::from_str(&built.content).unwrap();
+    let page = content["UI"]["Widgets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|w| w["Properties"]["DisplayName"] == "center")
+        .unwrap();
+    let floor = |w: &Value| -> f64 {
+        w["Properties"]["flex-min-height"]
+            .as_str()
+            .and_then(|s| s.strip_suffix("px"))
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0.0)
+    };
+    let sections: f64 = [43.0, 25.0 + 40.0 + 16.0, 300.0, 48.0, 300.0 + 56.0]
+        .iter()
+        .sum();
+    assert!(
+        floor(page) >= sections,
+        "page floor {} < sections {sections}",
+        floor(page)
+    );
+    // Padding and margins of the rows count too, so the estimate is not just the old sum of minima.
+    let rows: f64 = page["Widgets"].as_array().unwrap().iter().map(floor).sum();
+    assert!(floor(page) > rows, "{} <= {rows}", floor(page));
+}
