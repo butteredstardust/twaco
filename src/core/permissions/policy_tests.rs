@@ -379,3 +379,12 @@ fn a_solution_without_any_policy_says_where_to_write_one() {
     assert!(error.contains("no permissions.toml"), "{error}");
     assert!(audit::audit(&solution, Some("Nope")).is_err());
 }
+
+#[test]
+fn missing_policy_points_to_embedded_help_and_initializer() {
+    let message = audit::AuditError::NoPolicy(vec!["Acme.App".into()]).to_string();
+    assert!(message.contains("Acme.App"));
+    assert!(message.contains("twaco permissions init"));
+    assert!(message.contains("twaco guide workflow --section Permissions"));
+    assert!(!message.contains("documentation/"));
+}

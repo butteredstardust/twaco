@@ -63,6 +63,9 @@ which of its parts are fragile.
    entities' declarations; `twaco check --live` also has the server parse each script.
 4. **Deploy only what changed:** `twaco deploy --only <entity> --apply`. A plain `twaco deploy`
    is the plan: what it imports, and whether anyone changed the server since the last deploy.
+   Entity selection does not suppress the project's `[project.deploy]` hook or post-import
+   calls: `deploy --only <mashups>` still runs them after import. A plan notes when a bundle
+   contains no backend entity but still has project hooks. Review the planned calls before apply.
 5. **Call it, including the paths that should fail:**
    `twaco call <Thing> <Service> '<json>' --with-logs`. That prints the result, then what the
    call wrote to ScriptLog and ApplicationLog.
@@ -90,7 +93,10 @@ allow or deny of a principal the server already lists. A deploy that reads an en
   differ). Then deploy, and `permissions push`: an import never removes a grant.
 - `twaco permissions diff <entity>|--all`: each run-time, design-time and visibility set in the
   entity XML (and a shape's or template's instance sets) against the server's; exit 1 when any
-  differs.
+  differs. Built-in group membership services can have live run-time grants absent from the
+  server's XML view. The diff checks that view and explains the discrepancy with `entity status`,
+  which compares XML; it retains the live grants for review. Disabled Things whose permission
+  services return HTTP 503 are listed as not checked, with a per-entity note; the rest continue.
 - `twaco permissions push <entity> --apply`: makes the server's sets exactly the repository's and
   reads them back. Without `--apply` it is the plan.
 

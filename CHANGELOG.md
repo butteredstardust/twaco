@@ -26,6 +26,15 @@ All notable changes to twaco are recorded here. The format follows
   unknown-type `widget:` nodes verbatim, claims bindings and events by their endpoints, and keeps
   non-responsive containers, positions, root style and expression flags; `mashup new --spec` picks the
   project from the mashup name's prefix in a multi-project solution.
+- Entity drift ignores server-rewritten ordinals only in stored property infotable DataShapes;
+  comparison hashes are now v14, so older baselines need recording again when both sides agree.
+- Prose lint recognises common conjunctions, adverbs and verbs in suspected noun runs.
+- Missing permission policies point to embedded help and `permissions init`; permission diffs explain
+  built-in group service grants absent from server XML and skip disabled Things with a clear note.
+- Configuration-table copy differences are informational offline evidence rather than a prediction
+  that the server will discard the copy. Mashup-only deploy plans call out project hooks that still run.
+- The guide covers Kafka startup order, leftover portable PostgreSQL and account lockout effects on app keys.
+
 - Page specs carry a mashup's look: `mashup spec --out` writes its custom.css sidecar to `page.css` and each
   widget's stored styles as `styles:`, and a build (new or existing) writes both back verbatim. A v1 page
   container's minimum height now counts its rows' margins, padding and measured widgets, so the page scrolls
@@ -42,6 +51,8 @@ All notable changes to twaco are recorded here. The format follows
   words; `mashup new --from` warns when the source's visibility permissions are not copied.
 
 ## [0.1.76] - 2026-11-23
+
+- `fmt` orders set members, including group and role members, deterministically.
 
 - Page specs support master mashups through `page.kind: master`, native `page_host` and
   `menu_bar` elements, and mashup-root `page.props`. Derive/adopt keeps IDs and existing bytes;

@@ -2270,3 +2270,38 @@ fn a_406_body_alone_names_the_refused_entity_without_server_logs() {
         "{text}"
     );
 }
+
+#[test]
+fn mashup_only_plan_keeps_project_deploy_hook_and_explains_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::fs::write(root.join("twaco.toml"), "[[project]]\nname = 'Acme.App'\n[project.deploy]\nentry_point_thing = 'Acme.Manager'\ndeploy_service = 'DeployComponent'\n").unwrap();
+    std::fs::create_dir(root.join("Mashups")).unwrap();
+    std::fs::create_dir(root.join("Things")).unwrap();
+    std::fs::write(root.join("Mashups/Acme.Main.xml"), r#"<Entities><Mashups><Mashup name="Acme.Main" projectName="Acme.App"/></Mashups></Entities>"#).unwrap();
+    std::fs::write(root.join("Things/Acme.Manager.xml"), r#"<Entities><Things><Thing name="Acme.Manager" projectName="Acme.App"/></Things></Entities>"#).unwrap();
+    let solution = super::super::config::Solution::load(&root.join("twaco.toml")).unwrap();
+    let only = ["Mashups/Acme.Main".to_string()];
+    let (projects, notes) = plan_bundles(
+        &solution,
+        "default",
+        PlanOptions {
+            only: &only,
+            ..PlanOptions::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(projects[0].entities.len(), 1);
+    assert_eq!(
+        projects[0].deploy.as_ref().unwrap().service,
+        "DeployComponent"
+    );
+    assert!(
+        notes
+            .iter()
+            .any(|note| note.contains("no backend entity") && note.contains("hooks still run")),
+        "{notes:?}"
+    );
+    let (_, notes) = plan_bundles(&solution, "default", PlanOptions::default()).unwrap();
+    assert!(!notes.iter().any(|note| note.contains("no backend entity")));
+}

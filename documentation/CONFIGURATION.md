@@ -210,7 +210,9 @@ One table per ThingWorx project. A single-project repository has one.
 | `depends_on` | none | Projects imported before this one. `deploy` orders projects by it, and an extension package's `dependsOn` lists them. |
 
 **`[project.deploy]`:** a project can ask for a service call once its entities are imported
-and read back. `entry_point_thing` and `deploy_service` name it, and `deploy_parameters` is
+and read back. Entity selection, including `deploy --only <mashups>`, does not suppress the
+project's deploy hook or post-import calls. A plan notes when a bundle has no backend entity
+but still has hooks. `entry_point_thing` and `deploy_service` name it, and `deploy_parameters` is
 its JSON input as a TOML table. Each `[[project.deploy.post_import]]` names one more call:
 `thing`, `service`, optional `parameters`, and `target` when the host is not a Thing
 (`ThingTemplates/<Name>`, for instance).

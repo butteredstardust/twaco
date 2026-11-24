@@ -352,6 +352,27 @@ pub(crate) fn plan_bundles(
             built.files,
             scripts.len()
         ));
+        let has_hook =
+            project.deploy.hook(&project.name).is_some() || !project.deploy.post_import.is_empty();
+        let no_backend = entities.iter().all(|entity| {
+            matches!(
+                entity.collection.as_str(),
+                "Mashups"
+                    | "Menus"
+                    | "Dashboards"
+                    | "MediaEntities"
+                    | "StyleDefinitions"
+                    | "StyleThemes"
+                    | "StateDefinitions"
+                    | "LocalizationTables"
+            ) || solution.bundle.ui_collections.contains(&entity.collection)
+        });
+        if has_hook && no_backend {
+            notes.push(format!(
+                "project {}: bundle contains no backend entity; [project.deploy] hooks still run after import, including with --only mashups",
+                project.name
+            ));
+        }
         projects.push(ProjectBundle {
             project: project.name.clone(),
             file_name: format!("{}.deploy.xml", project.name),

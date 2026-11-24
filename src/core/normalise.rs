@@ -4,7 +4,7 @@
 //! they are hash input, never an export. Length-prefixing makes element, attribute, text and
 //! CDATA boundaries unambiguous without choosing an escaping style.
 //!
-//! Normalisation version 11 has exactly these non-semantic rules:
+//! Normalisation version 14 has exactly these non-semantic rules:
 //!
 //! - apply XML 1.0 line-end and CDATA-attribute whitespace normalisation to literal XML input
 //!   before unescaping character references or applying payload-specific rules;
@@ -39,6 +39,8 @@
 //!   comes from and by hash, not as imported, and an import re-stamps a value whose definition
 //!   changed with the import time; the value itself is what the repository says (observed
 //!   2026-10-16; version 6);
+//! - ignore FieldDefinition ordinals in inline infoTable DataShapes under stored property Values;
+//!   the server stores these as zero (version 14). Entity DataShape ordinals stay semantic;
 //! - inside `DesignTimePermissions`, `RunTimePermissions` and `VisibilityPermissions`, and the
 //!   `Instance...` forms of the three on a ThingShape or ThingTemplate, treat every list as the
 //!   set it is: drop a permission kind or a `Permissions` resource that grants no principal, and
@@ -78,8 +80,8 @@
 //! No generated id, default attribute, or other exception is included without a live/committed
 //! observation. Apart from the rules above, CDATA bytes are never decoded, re-indented, or joined.
 //!
-//! Without server ownership, hashes remain `v13:<sha256>` byte for byte. With ownership they are
-//! `v13:so1:<policy-sha256>:<content-sha256>`: the policy digest covers the sorted, deduplicated
+//! Without server ownership, hashes use `v14:<sha256>`. With ownership they are
+//! `v14:so1:<policy-sha256>:<content-sha256>`: the policy digest covers the sorted, deduplicated
 //! union of applicable part labels (newline-delimited). `so1` versions selector semantics.
 //! Content uses the same comparison tree with owned nodes omitted. Baselines must compare the
 //! entire prefix before the final colon; adding, removing or changing ownership invalidates
@@ -89,7 +91,7 @@ use super::scan::{self, Kind, ScanError, Token};
 use sha2::{Digest, Sha256};
 
 /// The normalisation version every hash carries; a baseline from another one says nothing.
-pub(crate) const HASH_VERSION: &str = "v13";
+pub(crate) const HASH_VERSION: &str = "v14";
 pub(crate) const LIVE_ONLY_ELEMENTS: [&[u8]; 9] = [
     b"effectiveShape",
     b"Owner",
@@ -1421,6 +1423,7 @@ fn sort_thing_properties(entity: &mut Element) {
                         !matches!(part, Node::Element(part)
                             if part.name == b"Timestamp" || part.name == b"Quality")
                     });
+                    strip_property_infotable_ordinals(&mut value, false);
                     value
                 }
                 _ => unreachable!("slots contain only elements"),
@@ -1433,6 +1436,42 @@ fn sort_thing_properties(entity: &mut Element) {
         });
         for (index, value) in slots.into_iter().zip(values) {
             block.children[index] = Node::Element(value);
+        }
+    }
+}
+
+// Only stored property Values establish this context; configuration tables and entity
+// DataShapes retain their ordinals. Nested property infotables have the same rewrite.
+fn strip_property_infotable_ordinals(element: &mut Element, in_value: bool) {
+    let in_value = in_value || element.name == b"Value";
+    if in_value && element.name == b"infoTable" {
+        for shape in &mut element.children {
+            let Node::Element(shape) = shape else {
+                continue;
+            };
+            if shape.name != b"DataShape" {
+                continue;
+            }
+            for fields in &mut shape.children {
+                let Node::Element(fields) = fields else {
+                    continue;
+                };
+                if fields.name != b"FieldDefinitions" {
+                    continue;
+                }
+                for field in &mut fields.children {
+                    if let Node::Element(field) = field {
+                        if field.name == b"FieldDefinition" {
+                            field.attributes.retain(|(name, _)| name != b"ordinal");
+                        }
+                    }
+                }
+            }
+        }
+    }
+    for child in &mut element.children {
+        if let Node::Element(child) = child {
+            strip_property_infotable_ordinals(child, in_value);
         }
     }
 }
@@ -1719,6 +1758,32 @@ fn sha256(input: &[u8]) -> [u8; 32] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn property_infotable_ordinals_are_server_metadata_only_in_stored_values() {
+        let xml = r#"<Thing name="Acme.Component"><ThingProperties><dependentComponents><Value><infoTable><DataShape><FieldDefinitions><FieldDefinition name="ComponentName" baseType="STRING" ordinal="1"/><FieldDefinition name="ComponentProjectName" baseType="STRING" ordinal="2"/></FieldDefinitions></DataShape><Rows><Row><ComponentName>Acme.Other</ComponentName></Row></Rows></infoTable></Value></dependentComponents></ThingProperties></Thing>"#;
+        let stored = xml
+            .replace("ordinal=\"1\"", "ordinal=\"0\"")
+            .replace("ordinal=\"2\"", "ordinal=\"0\"");
+        assert_eq!(
+            hash(xml.as_bytes()).unwrap(),
+            hash(stored.as_bytes()).unwrap()
+        );
+        assert!(read_back_differences(xml.as_bytes(), stored.as_bytes(), &[]).is_empty());
+        assert_ne!(
+            hash(xml.as_bytes()).unwrap(),
+            hash(stored.replace("Acme.Other", "Acme.Changed").as_bytes()).unwrap()
+        );
+        for wrapper in ["DataShape", "ConfigurationTable", "ServiceDefinition"] {
+            let left = format!(
+                r#"<{wrapper} name="Acme.Shape"><FieldDefinitions><FieldDefinition name="ComponentName" ordinal="1"/></FieldDefinitions></{wrapper}>"#
+            );
+            assert_ne!(
+                hash(left.as_bytes()).unwrap(),
+                hash(left.replace("ordinal=\"1\"", "ordinal=\"0\"").as_bytes()).unwrap()
+            );
+        }
+    }
 
     #[test]
     fn subscription_event_order_is_a_set_only_under_subscription() {
@@ -2124,8 +2189,8 @@ mod tests {
     }
 
     #[test]
-    fn hash_version_eleven_keeps_version_nine_framing() {
-        assert!(hash(b"<Thing/>").unwrap().starts_with("v13:"));
+    fn current_hash_version_keeps_version_nine_framing() {
+        assert!(hash(b"<Thing/>").unwrap().starts_with("v14:"));
         assert!(normalise(b"<Thing/>")
             .unwrap()
             .starts_with(b"twaco-entity-normalise-v9\0"));

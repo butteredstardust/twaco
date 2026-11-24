@@ -2,8 +2,10 @@
 //!
 //! Verified on ThingWorx 10.2 with a definition that names a DataShape and lists no fields of its
 //! own (the Exporter's form). The server rebuilds the table copy's fields from the named DataShape:
-//! its ordinals, its descriptions, its key. A copy that says otherwise imports, then reads back
-//! not kept. Three cases lose data or fail: a DataShape without a primary key fails the import;
+//! its ordinals, its descriptions, its key. Later field reports also found differing copies
+//! retained by the server, so a metadata mismatch alone is only offline evidence, not a
+//! prediction of read-back drift. Three cases lose data or fail: a DataShape without a primary
+//! key fails the import;
 //! rows under a copy with no fields are all dropped; a row cell naming a field the DataShape lacks
 //! is dropped. A definition with inline fields is `validate`'s concern, and a table whose
 //! definition is inherited is not checked: the definition that applies is not in the file.
@@ -155,7 +157,7 @@ pub(crate) fn check(src: &[u8], shapes: &[DataShape]) -> Vec<TableProblem> {
             problems.push(TableProblem {
                 rule: "config-table-copy-differs",
                 message: format!(
-                    "configuration table {table}: its fields differ from {shape} ({}); the server replaces them with {shape}'s, so the entity reads back not kept. Write {shape}'s fields, ordinals and descriptions there",
+                    "configuration table {table}: its fields differ from {shape} ({}); evidence: local table copy compared with the named DataShape, without a server read. Some server exports retain differing copies; use `twaco entity status` to check whether this entity is kept before changing its fields",
                     differences.join("; ")
                 ),
                 blocks: false,
@@ -370,6 +372,9 @@ mod tests {
         assert_eq!(problems[0].rule, "config-table-copy-differs");
         assert!(!problems[0].blocks);
         let message = &problems[0].message;
+        assert!(message.contains("evidence: local table copy"));
+        assert!(message.contains("twaco entity status"));
+        assert!(!message.contains("reads back not kept"));
         assert!(
             message.contains("missing b")
                 && message.contains("not in the DataShape z")

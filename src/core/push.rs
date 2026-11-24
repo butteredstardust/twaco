@@ -866,7 +866,7 @@ mod tests {
         )]
     }
 
-    /// A baseline recorded before any ownership rule: plain `v13:<sha>` on both sides.
+    /// A baseline recorded before any ownership rule: plain `v14:<sha>` on both sides.
     fn plain_baseline(root: &Path, recorded: &[u8]) {
         let hash = normalise::hash(recorded).unwrap();
         let mut baseline = Baseline::default();
@@ -896,7 +896,7 @@ mod tests {
         // The baseline is now recorded under the current policy.
         let after = Baseline::load(&root, "default").unwrap();
         let entry = after.get("Things", "T").unwrap();
-        assert!(entry.local.starts_with("v13:so1:"), "{}", entry.local);
+        assert!(entry.local.starts_with("v14:so1:"), "{}", entry.local);
         assert_eq!(entry.local, entry.server);
     }
 

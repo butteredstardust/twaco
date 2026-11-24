@@ -1093,8 +1093,8 @@ mod tests {
         baseline.set(
             "QueueProviders",
             "Acme.Elsewhere",
-            "v13:a".into(),
-            "v13:a".into(),
+            "v14:a".into(),
+            "v14:a".into(),
         );
         baseline.write(&solution.root, "default").unwrap();
         let server = [("P.T", thing("local")), ("Acme.Elsewhere", "<x/>".into())];
