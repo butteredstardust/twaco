@@ -437,6 +437,29 @@ pub fn extract(solution: &Solution, name: &str) -> Result<Extraction, AuthoringE
     })
 }
 
+/// A spec handed back as text, with no file written beside it, cannot reference `page.css`:
+/// building it would fail on the missing file. Leave the reference out and say how to carry the
+/// stylesheet; the report keeps its text in `css` for a caller that writes it.
+pub fn without_written_css(mut result: Extraction) -> Extraction {
+    if result.css.is_some() {
+        result.spec = result.spec.replacen(
+            "  css: page.css
+",
+            "",
+            1,
+        );
+        for note in &mut result.notes {
+            if note.contains("is carried as page.css") {
+                *note = note.replace(
+                    "is carried as page.css, written beside the spec by --out",
+                    "is not referenced by this spec; `mashup spec --out <file>` writes it beside the spec as page.css (its text is in `css`)",
+                );
+            }
+        }
+    }
+    result
+}
+
 /// Derive a spec and atomically write an explicitly named output while holding the workspace lock.
 pub fn export(
     solution: &Solution,
@@ -450,7 +473,10 @@ pub fn export(
         })
         .transpose()?;
     let result = extract(solution, name)?;
-    if let Some(path) = out {
+    let Some(path) = out else {
+        return Ok(without_written_css(result));
+    };
+    {
         if let Some(css) = &result.css {
             let beside = path
                 .parent()

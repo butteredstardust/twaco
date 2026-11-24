@@ -1848,6 +1848,8 @@ pub(crate) fn mashup_spec_tool(
         nonempty(&arguments.mashup, "mashup")?,
     )
     .map_err(ToolError::coded)?;
+    // The tool writes no file, so the spec must not reference page.css.
+    let result = crate::core::mashup::page::extract::without_written_css(result);
     Ok(serde_json::to_value(result).expect("extraction report"))
 }
 

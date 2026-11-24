@@ -217,7 +217,11 @@ fn clean_page_has_exact_card_and_page_styles() {
         .unwrap();
     // A container-level background would stop at this page container's gutter; the root's
     // inline style replaces the white legacy DefaultMashupStyle behind the whole page.
-    assert!(styles.get(page).is_none());
+    // Only the page container's overflow (so the page scrolls once, in the mashup root).
+    assert_eq!(
+        styles[page]["parts"],
+        serde_json::json!({"$": {"$": {"overflow": "visible"}}})
+    );
     let root_style = &value["content"]["UI"]["Properties"]["Style"];
     assert_eq!(root_style["backgroundColor"], "#F9FAFB");
     assert_eq!(root_style["lineStyle"], "solid");

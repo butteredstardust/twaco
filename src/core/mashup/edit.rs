@@ -1042,6 +1042,38 @@ impl MashupDocument {
         }
     }
 
+    /// Set one base-part style property of a widget in the root's StyleProperties, creating the
+    /// map and the widget's entry where the server keeps them (sorted).
+    pub(crate) fn set_style(&mut self, id: &str, styler: &str, property: &str, value: Value) {
+        let properties = self.root_properties_mut();
+        if !properties.contains_key("StyleProperties") {
+            insert_sorted(
+                properties,
+                "StyleProperties",
+                serde_json::json!({"data": {}, "meta": {"type": "WidgetStyler", "version": "1.0"}}),
+            );
+        }
+        let Some(data) = properties["StyleProperties"]
+            .get_mut("data")
+            .and_then(Value::as_object_mut)
+        else {
+            return;
+        };
+        if !data.contains_key(id) {
+            insert_sorted(
+                data,
+                id,
+                serde_json::json!({"parts": {"$": {"$": {}}}, "widget": styler}),
+            );
+        }
+        let base = &mut data[id]["parts"]["$"]["$"];
+        if let Some(map) = base.as_object_mut() {
+            insert_sorted(map, property, value);
+        } else {
+            *base = serde_json::json!({ property: value });
+        }
+    }
+
     /// The background a widget's own style entry gives it, if any.
     fn style_background(&self, id: &str) -> Option<String> {
         self.root_properties()

@@ -169,3 +169,24 @@ fn a_missing_page_css_is_a_located_spec_error() {
     assert!(error.message.contains("missing.css"), "{error}");
     assert_eq!((error.line, error.column), (7, 8), "{error}");
 }
+
+#[test]
+fn a_spec_returned_without_a_file_does_not_reference_page_css() {
+    let (_dir, solution) = element_solution();
+    let name = styled(&solution);
+    // `mashup spec --json` without --out (and the MCP tool) write no file beside the spec.
+    let derived = extraction::export(&solution, &name, None).unwrap();
+    assert!(!derived.spec.contains("css:"), "{}", derived.spec);
+    assert!(derived.css.is_some());
+    assert!(
+        derived.notes.iter().any(|n| n.contains("--out <file>")),
+        "{:?}",
+        derived.notes
+    );
+    // So the spec builds against the mashup it came from.
+    let folder = solution.src_root().join(&name);
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join("page.yaml"), &derived.spec).unwrap();
+    let plan = super::super::build::plan(&solution, &name, None, None).unwrap();
+    assert!(!plan.conflicts(), "{}", plan.report);
+}

@@ -6,6 +6,9 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+- v1 pages scroll once, in the mashup root: the page container takes `overflow: visible` (masters keep their
+  page host's own scrolling). A spec returned without a file (`mashup spec` without `--out`, MCP
+  `mashup_spec`) no longer references `page.css`; the report carries the stylesheet text instead.
 - Derive and adoption from a second real solution: dynamic ThingShape data sources (`entity: {bind: ...}`)
   derive with their events and bindings and rebuild; scalar binding mismatches that ThingWorx coerces bind
   with a warning instead of a refusal (`mashup bind` and page specs; tables stay refused); derive no longer
