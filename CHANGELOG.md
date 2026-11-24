@@ -11,6 +11,11 @@ All notable changes to twaco are recorded here. The format follows
   Green Accent). Token presets paint the whole page through an inline mashup style instead of framing it in
   white; v1 side columns no longer trip twaco's own wrapped-content advisory; display-size labels get room
   for their glyphs and stop scrolling.
+- Page-spec round trips: a rebuild right after adopting a mashup reports no hand edits; a refused plan
+  reports `files_state: refused` and no files; fresh builds keep a derived spec's widget ids; bound labels
+  keep their design-time text; derive notes name each container whose styles are not carried and each
+  unsupported binding; duplicate YAML keys and non-numeric sizes on as-built pages are refused in twaco's
+  words; `mashup new --from` warns when the source's visibility permissions are not copied.
 
 ## [0.1.76] - 2026-11-23
 

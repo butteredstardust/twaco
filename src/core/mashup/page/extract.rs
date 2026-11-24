@@ -384,7 +384,11 @@ pub fn extract(solution: &Solution, name: &str) -> Result<Extraction, AuthoringE
         }
     }
     if !css.trim().is_empty() {
-        notes.push("custom CSS of the mashup is not part of a spec".into());
+        notes.push(format!(
+            "custom CSS sidecar {} ({} bytes) is not part of a spec",
+            solution.relative(&directory.join("mashup/custom.css")),
+            css.len()
+        ));
     }
     Ok(Extraction {
         mashup: name.into(),

@@ -59,6 +59,7 @@ fn schema_reports_unknown_fields_duplicate_keys_and_ids_at_the_spec() {
     ] {
         let error = schema::parse(&text).unwrap_err();
         assert!(error.message.contains(message), "{error}");
+        assert!(!error.message.contains("DuplicateKeyPolicy"), "{error}");
         assert_eq!(error.line, line, "{error}");
         assert!(error.column > 0, "{error}");
     }
@@ -85,6 +86,52 @@ fn compile_is_byte_identical_and_only_returns_artifacts() {
         content["Data"]["Things_Acme.Data"]["Services"][0]["Parameters"]["limit"],
         10
     );
+}
+
+#[test]
+fn fresh_page_preserves_explicit_composer_style_ids() {
+    let (_dir, solution) = solution();
+    let spec = "version: 1\nrules: v1\npage:\n  name: Acme.Pinned_MU\n  template: blank\n  slots:\n    center:\n      - widget: {id: wrapper-1, type: flexcontainer, children: [{button: {id: ptcsbutton-13, text: Save}}]}\n";
+    let built = compile(&solution, "Acme", spec).unwrap();
+    assert_eq!(built.ids["wrapper-1"], "wrapper-1");
+    assert_eq!(built.ids["ptcsbutton-13"], "ptcsbutton-13");
+    let document = mashup::edit::parse(&built.content).unwrap();
+    assert!(document.find_exact("wrapper-1").is_ok());
+    assert!(document.find_exact("ptcsbutton-13").is_ok());
+}
+
+#[test]
+fn numeric_catalogue_properties_are_checked_at_their_spec_value() {
+    let (_dir, solution) = solution();
+    for (widget, property, expected) in [
+        (
+            "ptcslabel",
+            "Width: notanumber",
+            "Width must be a JSON number",
+        ),
+        ("ptcsrte", "DefaultFontSize: huge", "DefaultFontSize"),
+    ] {
+        let spec = format!(
+            "version: 1\nrules: v1\npage:\n  name: Acme.Numeric_MU\n  template: blank\n  slots:\n    center:\n      - widget: {{id: target, type: {widget}, props: {{{property}}}}}\n"
+        );
+        let error = compile(&solution, "Acme", &spec).unwrap_err();
+        assert!(error.message.contains(expected), "{error}");
+        assert!(error.line > 0 && error.column > 0, "{error}");
+    }
+    // Container elements take catalogue props too; a non-number is refused at the spec value.
+    let spec = "version: 1\nrules: v1\npage:\n  name: Acme.Numeric_MU\n  template: blank\n  slots:\n    center:\n      - row:\n          id: r1\n          props: {flex-grow: notanumber}\n          children:\n            - label: {id: l1, text: Hi}\n";
+    let error = compile(&solution, "Acme", spec).unwrap_err();
+    assert!(error.message.contains("flex-grow"), "{error}");
+    assert!(error.line > 0 && error.column > 0, "{error}");
+    // The same on an as-built page (a derived spec), where a property the container does not
+    // have was passed through unchecked.
+    // (FontSize is in no widget contract, so an as-built page carries it as written.)
+    for (property, expected) in [("Height: notanumber", "Height"), ("Width: wide", "Width")] {
+        let spec = format!("version: 1\nrules: v1\npage:\n  name: Acme.Numeric_MU\n  template: blank\n  layout: as-built\n  slots:\n    center:\n      - row:\n          id: flexcontainer-3\n          props:\n            {property}\n            flex-grow: 0\n          children:\n            - label: {{id: l1, text: Hi}}\n");
+        let error = compile(&solution, "Acme", &spec).unwrap_err();
+        assert!(error.message.contains(expected), "{error}");
+        assert!(error.line > 0 && error.column > 0, "{error}");
+    }
 }
 
 #[test]
@@ -494,6 +541,8 @@ fn conflicts_are_located_and_write_nothing() {
         .unwrap();
     let mut plan = super::build::plan(&solution, "Acme.Alerts_MU", None, None).unwrap();
     assert!(plan.conflicts(), "{}", plan.report);
+    assert_eq!(plan.report["files_state"], "refused");
+    assert_eq!(plan.report["files"], serde_json::json!([]));
     assert!(plan.report["conflicts"][0]["path"]
         .as_str()
         .unwrap()
@@ -3753,7 +3802,7 @@ fn kit_structure_fixtures_derive_readable_specs_that_rebuild_the_same_shape() {
             ],
             "section_gallery" => &["card:", "align: center", "text_field:"],
             "admin_shell" => &["toolbar:", "spacer:", "chart:", "kpi_row:", "weight: 2"],
-            "tabs_page" => &["tabs:", "expression:", "bind:"],
+            "tabs_page" => &["tabs:", "expression:", "bindings:", "LabelText: Echo"],
             _ => panic!("uncovered fixture {stem}"),
         };
         for needle in expected {

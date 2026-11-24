@@ -232,6 +232,13 @@ fn a_derived_spec_adopts_its_mashup_with_no_extra_level_and_the_same_ids() {
         again.report
     );
     assert!(!again.conflicts());
+    // A pristine adoption has nothing to report as kept hand edits on the next build.
+    assert_eq!(
+        again.report["hand_edits_kept"],
+        serde_json::json!([]),
+        "{}",
+        again.report
+    );
 }
 
 #[test]

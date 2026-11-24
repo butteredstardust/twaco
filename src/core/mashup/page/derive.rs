@@ -150,6 +150,38 @@ fn derive_as(name: &str, content: &str, carry_styles: bool, exact: bool) -> Resu
     }
     let mut spec = json!({"version": 1, "rules": "v1", "page": page});
     run.resolve(&mut spec);
+    if !carry_styles {
+        let mut kinds = BTreeMap::new();
+        fn collect_kinds(widget: &Value, kinds: &mut BTreeMap<String, String>) {
+            if let Some(id) = prop(widget, "Id").as_str() {
+                kinds.insert(id.into(), kind(widget).into());
+            }
+            for child in widgets_of(widget) {
+                collect_kinds(child, kinds);
+            }
+        }
+        collect_kinds(root, &mut kinds);
+        for (id, style) in content["UI"]["Properties"]["StyleProperties"]["data"]
+            .as_object()
+            .into_iter()
+            .flatten()
+        {
+            if kinds.get(id).is_some_and(|kind| kind == "flexcontainer") {
+                let parts: Vec<_> = style["parts"]
+                    .as_object()
+                    .into_iter()
+                    .flatten()
+                    .map(|(part, _)| part.as_str())
+                    .collect();
+                if !parts.is_empty() {
+                    run.notes.push(format!(
+                        "style properties not carried: container {id}, parts {}",
+                        parts.join(", ")
+                    ));
+                }
+            }
+        }
+    }
     run.notes.push(if carry_styles {
         "custom CSS, styles of widgets folded into elements and unsupported wiring are not carried"
             .into()
@@ -369,6 +401,7 @@ struct Call {
     refresh: u64,
 }
 
+#[derive(Clone)]
 struct Link {
     source: (String, String, String),
     target: (String, String, String, String),
@@ -907,6 +940,16 @@ impl<'a> Run<'a> {
             "label" => ("label", true),
             _ => ("label", false),
         };
+        let bound_link = self
+            .links
+            .iter()
+            .find(|link| {
+                !link.consumed
+                    && link.target.0 == "UI"
+                    && link.target.1 == prop(widget, "Id").as_str().unwrap_or_default()
+                    && link.target.3 == "LabelText"
+            })
+            .cloned();
         let bound = self.take(widget, "LabelText");
         let mut body = Map::new();
         if bound.is_none() {
@@ -921,7 +964,22 @@ impl<'a> Run<'a> {
         };
         let mut props = self.props(widget, skip);
         if let Some(bound) = bound {
-            props.insert("LabelText".into(), bound);
+            // A binding tells the runtime where a value comes from; it must not erase the
+            // design-time text visible before that source fires. With such text the label keeps
+            // it and the binding is listed under `bindings`; without, the inline `bind:` stays.
+            let design = prop(widget, "LabelText")
+                .as_str()
+                .filter(|value| !value.is_empty() && !value.starts_with("[["))
+                .map(str::to_string);
+            match (design, bound_link) {
+                (Some(value), Some(link)) => {
+                    props.insert("LabelText".into(), json!(value));
+                    self.links.push(link);
+                }
+                _ => {
+                    props.insert("LabelText".into(), bound);
+                }
+            }
         }
         self.finish(element, widget, body, props)
     }
@@ -1035,10 +1093,27 @@ impl<'a> Run<'a> {
         let mut body = Map::new();
         let mut extra = Map::new();
         let mut skip: Vec<&str> = fields.iter().map(|(property, _)| *property).collect();
+        let mut carried_bindings = Vec::new();
         for (property, field) in fields {
-            let value = self
-                .take(widget, property)
-                .or_else(|| widget["Properties"].get(*property).cloned());
+            let binding = self
+                .links
+                .iter()
+                .find(|link| {
+                    !link.consumed
+                        && link.target.0 == "UI"
+                        && link.target.1 == prop(widget, "Id").as_str().unwrap_or_default()
+                        && link.target.3 == *property
+                })
+                .cloned();
+            if binding.is_some() {
+                // Consume the original before `props` sees it; it is restored after the
+                // authored field has become a real design-time value in the spec.
+                self.take(widget, property);
+            }
+            let value = widget["Properties"].get(*property).cloned();
+            if let Some(binding) = binding {
+                carried_bindings.push(binding);
+            }
             if let Some(value) = value.filter(|v| !v.is_null() && *v != "") {
                 // These scalar fields describe catalogue choices; retain an unusual binding as a prop.
                 if value.is_object()
@@ -1085,6 +1160,7 @@ impl<'a> Run<'a> {
             skip.push("Layout");
         }
         let mut props = self.props(widget, &skip);
+        self.links.extend(carried_bindings);
         props.extend(extra);
         self.finish(element, widget, body, props)
     }
@@ -2070,7 +2146,20 @@ impl<'a> Run<'a> {
                 "property left out: {widget} {property} (not in the widget catalogue)"
             ));
         }
-        let unused = self.links.iter().filter(|l| !l.consumed).count();
+        let unused_links: Vec<_> = self.links.iter().filter(|link| !link.consumed).collect();
+        for link in &unused_links {
+            self.notes.push(format!(
+                "unsupported wiring left out: {}:{}:{} -> {}:{}:{}:{}",
+                link.source.0,
+                link.source.1,
+                link.source.2.replace('\u{1}', "."),
+                link.target.0,
+                link.target.1,
+                link.target.2,
+                link.target.3
+            ));
+        }
+        let unused = unused_links.len();
         if dropped > 0 || unused > 0 {
             self.notes.push(format!(
                 "{} bindings or events could not be written as elements and were left out",

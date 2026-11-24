@@ -784,10 +784,27 @@ fn parse_nested(
     base: &std::path::Path,
 ) -> Result<Spec, Error> {
     let mut spec: Spec = serde_saphyr::from_str(text).map_err(|error| {
-        Error::at(
-            error.location().unwrap_or(serde_saphyr::Location::UNKNOWN),
-            error,
-        )
+        let location = error.location().unwrap_or(serde_saphyr::Location::UNKNOWN);
+        // The library's duplicate-key message ends with advice about its own options, and may
+        // arrive wrapped in a location variant; say it in twaco's words, keeping the key.
+        let text = error.to_string();
+        let message = match text.split_once("duplicate mapping key") {
+            Some((_, rest)) => {
+                let key = rest
+                    .trim_start_matches([':', ' '])
+                    .split(',')
+                    .next()
+                    .unwrap_or("")
+                    .trim();
+                if key.is_empty() {
+                    "duplicate key".to_string()
+                } else {
+                    format!("duplicate key {key}")
+                }
+            }
+            None => text,
+        };
+        Error::at(location, message)
     })?;
     if spec.version.value != 1 {
         return Err(Error::at(spec.version.referenced, "version must be 1"));

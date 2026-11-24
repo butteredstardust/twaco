@@ -609,6 +609,23 @@ fn is_function(node: &Node) -> Result<bool, Error> {
         .is_ok_and(|w| w.function))
 }
 
+/// Whether every catalogue widget that defines `name` types it as a number.
+fn always_numeric(name: &str) -> bool {
+    let catalog = crate::core::widgets::catalog();
+    let mut seen = false;
+    for widget in &catalog.widgets {
+        let Some(contract) = widget.property(name) else {
+            continue;
+        };
+        match contract.base_type.as_deref() {
+            Some("NUMBER" | "INTEGER" | "LONG") => seen = true,
+            None => {}
+            Some(_) => return false,
+        }
+    }
+    seen
+}
+
 fn add(
     solution: &Solution,
     session: &mut Session,
@@ -635,6 +652,21 @@ fn add(
         // An as-built page carries properties the catalogue does not list; they are set after
         // placement, as the page has them.
         if let Ok(widget) = crate::core::widgets::catalog().resolve(node.widget()?) {
+            // Carried verbatim, but a property that is numeric on every widget that defines it
+            // (Height, Width, Top...) still has to be a number.
+            for (key, value) in &body.props {
+                // Source mashups do store "" and numeric text; only words are refused.
+                let word = value
+                    .value
+                    .as_str()
+                    .is_some_and(|t| !t.trim().is_empty() && t.trim().parse::<f64>().is_err());
+                if word && always_numeric(key) {
+                    return Err(Error::at(
+                        value.referenced,
+                        format!("{key} must be a JSON number"),
+                    ));
+                }
+            }
             props.retain(|(k, _)| {
                 body.props
                     .get(k)
@@ -1401,9 +1433,21 @@ fn stabilize(
         .filter(|w| !old.contains(&w.id))
         .collect::<Vec<_>>();
     let main = new.iter().find(|w| w.id == placed).expect("placed widget");
-    let id = allocator
-        .widget(&main.type_id, node, "widget")
-        .map_err(|e| Error::at(loc, e))?;
+    // A derived spec names nodes by their source widget ids (`ptcsbutton-13`, or a hand-made
+    // `wrapper-1`); keep such ids so id-based custom CSS and test automation still match. Ids
+    // only need to be unique, and the allocator reserves the number either way.
+    // Generated sub-nodes (`menu--item-1-1`, `cards--row-2`) are named by twaco, not by a
+    // source mashup, and always contain `--`; they keep allocated ids.
+    let explicit = !node.contains("--")
+        && node.rsplit_once('-').is_some_and(|(_, suffix)| {
+            !suffix.is_empty() && suffix.bytes().all(|byte| byte.is_ascii_digit())
+        });
+    let id = if explicit {
+        allocator.explicit(node, "widget")
+    } else {
+        allocator.widget(&main.type_id, node, "widget")
+    }
+    .map_err(|e| Error::at(loc, e))?;
     mapping.insert(placed.to_string(), id.clone());
     // Wrapper roles name the enclosed widget, so unrelated siblings cannot move their ids.
     for widget in new.iter().rev().filter(|w| w.id != placed) {

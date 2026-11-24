@@ -297,7 +297,7 @@ fn plan_from(
         )));
     }
     let mut report = merge::Report::default();
-    let (mut content, css) = if let Some(bytes) = &entity_before {
+    let (content, css) = if let Some(bytes) = &entity_before {
         let extracted = mashup::extract(bytes).map_err(AuthoringError::Mashup)?;
         let current_assets = match (&content_before, &css_before) {
             (Some(c), Some(s)) => mashup::Assets {
@@ -331,15 +331,15 @@ fn plan_from(
                 &mut report,
             );
             let merged = merge::content(&old.content, &current, &baseline.content, &mut report);
-            let css = merge::merge(
-                Some(&json!(mashup::without_terminator(&old.css))),
-                Some(&json!(mashup::without_terminator(&current_assets.css))),
-                Some(&json!(mashup::without_terminator(&baseline.css))),
-                "custom.css",
-                &mut report,
-            )
-            .unwrap_or(json!(""));
-            (merged, format!("{}\n", css.as_str().unwrap_or_default()))
+            if !old.written.is_empty() && old.written == Baseline::digest(&current) {
+                // The mashup is as twaco last wrote it: whatever differs from the spec was
+                // already there (an adoption keeps what the spec cannot say), not a new edit.
+                report.kept.retain(|path| !path.starts_with("content"));
+            }
+            // Page specs intentionally do not own custom.css. Keep it byte-for-byte (aside
+            // from its existing terminator convention) instead of treating it as generated
+            // content or a hand edit on every subsequent build.
+            (merged, current_assets.css)
         } else {
             // The spec was derived from this mashup: claim its widgets and wiring by id.
             if let Some(aligned) =
@@ -373,16 +373,9 @@ fn plan_from(
     } else {
         (baseline.content.clone(), baseline.css.clone())
     };
-    let effective_css = mashup::without_terminator(&css);
-    match content.get("CustomMashupCss") {
-        None | Some(Value::Null) if effective_css.is_empty() => {}
-        // The stylesheet is the sidecar's own file; an existing mashup whose content has no such
-        // key is not rewritten to add one.
-        None if entity_before.is_some() => {}
-        _ => {
-            content["CustomMashupCss"] = json!(effective_css);
-        }
-    }
+    // `custom.css` is the source of truth for CustomMashupCss. In particular, adoption must
+    // not turn a stylesheet sidecar into a content.json edit: that makes the following build
+    // look like both a content and stylesheet hand edit.
     let mut lines: BTreeMap<String, (u64, BTreeMap<String, u64>)> = BTreeMap::new();
     fn node_lines(
         nodes: &[schema::Node],
@@ -547,6 +540,17 @@ fn plan_from(
             }
         }
     }
+    // Digest the content as it lands in content.json: the next build reads it back from there.
+    // A build that only keeps hand edits writes nothing, so it carries the old digest forward.
+    let written = match &old {
+        Some(old) if content_before.as_deref() == Some(content_after.as_slice()) => {
+            old.written.clone()
+        }
+        _ => text(&content_after)
+            .ok()
+            .and_then(|s| serde_json::from_str::<Value>(s).ok())
+            .map_or_else(|| Baseline::digest(&content), |v| Baseline::digest(&v)),
+    };
     let mut files = vec![
         File {
             path: entity_path,
@@ -688,13 +692,19 @@ fn plan_from(
         inputs.extend(sub.inputs);
         created_cells.push(cell.name.clone());
     }
+    baseline.written = written;
     files[3].after = baseline.bytes();
-    Ok(Plan {
+    let mut plan = Plan {
         report: json!({"mashup":name,"project":project,"template":spec.page.value.template.value,"slots":spec.page.value.slots.keys().collect::<Vec<_>>(),"applied":false,"dry_run":true,"nodes":nodes,"hand_edits_kept":report.kept,"conflicts":conflicts,"cells":created_cells,"cell_notices":cell_notices,"files_state":"would write","files":files.iter().filter(|f| f.before.as_deref() != Some(&f.after)).map(|f| solution.relative(&f.path)).collect::<Vec<_>>()}),
         files,
         inputs,
         components,
-    })
+    };
+    if plan.conflicts() {
+        plan.report["files_state"] = json!("refused");
+        plan.report["files"] = json!([]);
+    }
+    Ok(plan)
 }
 
 pub(crate) fn generated_cell(
